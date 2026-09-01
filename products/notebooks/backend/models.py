@@ -264,14 +264,14 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
 
 
 class GeneratedWidget(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     name = models.CharField(max_length=400)
     canvas_id = models.UUIDField(unique=True)
     current_version = models.ForeignKey(
         "notebooks.GeneratedWidgetVersion", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
     created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -293,7 +293,7 @@ class GeneratedWidgetVersion(TeamScopedRootMixin, UUIDModel):
         HIGH = "high", "high"
         CRITICAL = "critical", "critical"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     widget = models.ForeignKey("notebooks.GeneratedWidget", on_delete=models.CASCADE, related_name="versions")
     canvas_source_version_id = models.UUIDField()
     parent_version = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
@@ -320,7 +320,7 @@ class GeneratedWidgetVersion(TeamScopedRootMixin, UUIDModel):
     security_review_version = models.CharField(max_length=32, null=True, blank=True)
     security_reviewed_at = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -341,7 +341,7 @@ MAX_WIDGET_NODE_ID_LENGTH = 128
 
 
 class NotebookWidgetInstance(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.CASCADE, related_name="widget_instances")
     node_id = models.CharField(max_length=MAX_WIDGET_NODE_ID_LENGTH)
     widget = models.ForeignKey("notebooks.GeneratedWidget", on_delete=models.CASCADE, related_name="notebook_instances")
@@ -353,7 +353,7 @@ class NotebookWidgetInstance(TeamScopedRootMixin, UUIDModel):
         related_name="pinned_instances",
     )
     created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -377,14 +377,14 @@ class GeneratedWidgetGenerationJob(TeamScopedRootMixin, UUIDModel):
 
     ACTIVE_STATUSES = (Status.QUEUED, Status.GENERATING, Status.PUBLISHING)
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     idempotency_key = models.UUIDField(default=uuid7)
     widget = models.ForeignKey("notebooks.GeneratedWidget", on_delete=models.CASCADE, related_name="generation_jobs")
     instance = models.ForeignKey(
         "notebooks.NotebookWidgetInstance", on_delete=models.CASCADE, related_name="generation_jobs"
     )
     requested_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     operation = models.CharField(choices=GeneratedWidgetVersion.Operation, max_length=16)
     prompt = models.TextField()
