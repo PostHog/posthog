@@ -12,9 +12,11 @@ import structlog
 from prometheus_client import Counter
 from rest_framework import status
 
+from posthog.api.utils import get_token
 from posthog.cloud_utils import is_cloud, is_hobby_url
 from posthog.exceptions import generate_exception_response
 from posthog.models.utils import uuid7
+from posthog.ph_client import PH_US_API_KEY
 from posthog.sampling import sample_on_property
 from posthog.utils_cors import cors_response
 
@@ -46,15 +48,21 @@ CSP_REPORT_TYPES_MAPPING_TABLE = """
 """
 
 
-def _filter_reports_by_origin(reports: list[dict[str, object]]) -> list[dict[str, object]]:
-    if not is_cloud():
+def _drop_self_hosted_reports(reports: list[dict[str, object]], token: Optional[str]) -> list[dict[str, object]]:
+    """Ignore reports that a self-hosted PostHog install sent to Cloud.
+
+    Self-hosted installs run the same `CSPMiddleware` as Cloud, so they report with PostHog's
+    own project token until the operator upgrades. Customers configure this endpoint with their
+    own project token, so the token separates the two; the document URL alone cannot.
+    """
+    if not is_cloud() or token != PH_US_API_KEY:
         return reports
 
     accepted_reports = [report for report in reports if not is_hobby_url(report.get("document_url"))]
     dropped_reports = len(reports) - len(accepted_reports)
 
     if dropped_reports:
-        CSP_REPORT_REJECTED.labels(reason="hobby_origin").inc(dropped_reports)
+        CSP_REPORT_REJECTED.labels(reason="self_hosted_origin").inc(dropped_reports)
 
     return accepted_reports
 
@@ -285,6 +293,7 @@ def process_csp_report(request):
                 CSP_REPORT_REJECTED.labels(reason="too_many_reports").inc()
                 raise CSPReportTooLarge(f"CSP report bundle of {report_count} reports exceeds the limit")
 
+        token = get_token(csp_data, request)
         distinct_id = request.GET.get("distinct_id") or str(uuid7())
         session_id = request.GET.get("session_id") or str(uuid7())
         version = request.GET.get("v") or "unknown"
@@ -304,7 +313,7 @@ def process_csp_report(request):
             else:
                 raise ValueError("Invalid CSP report")
 
-            accepted_reports = _filter_reports_by_origin([properties])
+            accepted_reports = _drop_self_hosted_reports([properties], token)
             if not accepted_reports:
                 return None, cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
             properties = accepted_reports[0]
@@ -336,11 +345,11 @@ def process_csp_report(request):
             else:
                 raise ValueError("Invalid CSP report")
 
-            violations_props = _filter_reports_by_origin(
-                [parse_report_to(item) for item in items if is_csp_violation(item)]
+            violations_props = _drop_self_hosted_reports(
+                [parse_report_to(item) for item in items if is_csp_violation(item)], token
             )
-            crash_props = _filter_reports_by_origin(
-                [parse_crash_report(item) for item in items if is_crash_report(item)]
+            crash_props = _drop_self_hosted_reports(
+                [parse_crash_report(item) for item in items if is_crash_report(item)], token
             )
 
             if not violations_props and not crash_props:

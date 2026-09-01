@@ -11,6 +11,7 @@ from rest_framework import status
 from structlog.testing import capture_logs
 
 from posthog.api.csp import CSP_REPORT_REJECTED
+from posthog.ph_client import PH_US_API_KEY
 
 SINGLE_VIOLATION_REPORT_URI = {
     "csp-report": {
@@ -122,27 +123,36 @@ class TestCspReport(BaseTest):
 
     @parameterized.expand(
         [
-            ("report_uri", "application/csp-report", SINGLE_VIOLATION_REPORT_URI),
-            ("report_to", "application/reports+json", [SINGLE_VIOLATION_REPORT_TO]),
-            ("crash", "application/reports+json", [CRASH_REPORT]),
+            ("report_uri_self_hosted", "application/csp-report", SINGLE_VIOLATION_REPORT_URI, True),
+            ("report_to_self_hosted", "application/reports+json", [SINGLE_VIOLATION_REPORT_TO], True),
+            ("crash_self_hosted", "application/reports+json", [CRASH_REPORT], True),
+            ("report_uri_customer", "application/csp-report", SINGLE_VIOLATION_REPORT_URI, False),
+            ("report_to_customer", "application/reports+json", [SINGLE_VIOLATION_REPORT_TO], False),
+            ("crash_customer", "application/reports+json", [CRASH_REPORT], False),
         ]
     )
-    def test_cloud_drops_reports_from_non_posthog_documents(self, _name, content_type, payload):
+    def test_cloud_drops_non_posthog_documents_only_for_the_self_hosted_token(
+        self, _name, content_type, payload, self_hosted_token
+    ):
+        token = PH_US_API_KEY if self_hosted_token else self.team.api_token
+
         with (
             self.settings(CLOUD_DEPLOYMENT="US"),
             patch("posthog.api.report.capture_batch_internal") as mock_batch_capture,
             patch("posthog.api.report.capture_internal") as mock_capture,
             patch("posthog.api.report.csp_report_buffer") as mock_buffer,
         ):
+            mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())
+            mock_capture.return_value = MagicMock(raise_for_status=MagicMock())
+
             response = self.client.post(
-                f"/report/?token={self.team.api_token}",
+                f"/report/?token={token}",
                 data=json.dumps(payload),
                 content_type=content_type,
             )
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
-        mock_batch_capture.assert_not_called()
-        mock_capture.assert_not_called()
+        assert (mock_batch_capture.called or mock_capture.called) is not self_hosted_token
         mock_buffer.enqueue.assert_not_called()
 
     @patch("posthog.api.report.capture_batch_internal")
@@ -164,7 +174,7 @@ class TestCspReport(BaseTest):
 
         with self.settings(CLOUD_DEPLOYMENT="US"):
             response = self.client.post(
-                f"/report/?token={self.team.api_token}",
+                f"/report/?token={PH_US_API_KEY}",
                 data=json.dumps(
                     [
                         SINGLE_VIOLATION_REPORT_TO,
