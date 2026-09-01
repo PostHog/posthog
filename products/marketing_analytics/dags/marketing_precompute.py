@@ -17,13 +17,13 @@ This job moves that cost off the request path: per team it drives `ensure_precom
 window so a later read is a cheap warm hit. Re-runs are cheap — already-fresh windows are skipped via
 the framework's Postgres job tracking.
 
-Gating mirrors the read path exactly. Touchpoints + conversions are warmed only when the team's
-`marketing-analytics-precomputation` flag is on (the same flag `_should_use_precompute` checks) and the
-team has conversion goals; costs only when `marketing-analytics-costs-precomputation` is on. Warming a
-table the read won't consult would be wasted ClickHouse work, so both are evaluated from the same
-`MarketingAnalyticsConfig.from_team` the runners use. The materialization INSERT is printed userless in
-both paths, so a warmed job is byte-identical to the one a real read would create — same query hash,
-same job, no poisoning and no access-control bypass.
+Touchpoints + conversions are warmed for every team with a conversion goal, independent of the
+`marketing-analytics-precomputation` read flag: the precompute is populated ahead of the flag so it can
+be validated against live (see verify_marketing_precompute_parity) and the flag flip is then instant and
+safe. Costs stay gated on `marketing-analytics-costs-precomputation` — cost reads fall back to S3, so
+warming them before that flag is on is wasted work. The materialization INSERT is printed userless, so a
+warmed job is byte-identical to the one a real read would create — same query hash, same job, no
+poisoning and no access-control bypass.
 
 Reads are precompute-only, so the audience is every team that has a conversion goal AND has opened
 marketing analytics recently (query_log), keeping the rolling warm set to the active population. Cold
@@ -388,13 +388,19 @@ def _plan_team(team: Team) -> _TeamWarmPlan | None:
     Every DB read the warming does happens here — flag evaluation, the conversion goals, and the
     cost-source check — so a worker thread never queries Postgres (which would deadlock against the test
     transaction and, in production, serialise the parallel section behind DB round-trips).
+
+    Conversion warming is deliberately NOT gated on the `marketing-analytics-precomputation` read flag: we
+    populate the precompute for every team with a goal so it can be validated (see the parity command)
+    while reads still serve live, then flip the read flag per team knowing the data is already warm. Costs
+    stay gated on their own flag — cost reads fall back to S3, so warming them before that flag is on is
+    wasted work.
     """
     try:
         config = MarketingAnalyticsConfig.from_team(team)
         ma_config = team.marketing_analytics_config
         conversion_goals = (
             convert_team_conversion_goals_to_objects(ma_config.conversion_goals, team.pk)
-            if config.conversion_goal_precomputation_enabled and ma_config.conversion_goals
+            if ma_config.conversion_goals
             else []
         )
         return _TeamWarmPlan(

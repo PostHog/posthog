@@ -166,15 +166,21 @@ class TestConversionWarming(APIBaseTest):
 
     @patch(_ENSURE, new_callable=_ready_mock)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)
-    def test_conversion_flag_off_skips_everything(self, ensure_mock):
+    def test_conversion_warming_is_decoupled_from_the_read_flag(self, ensure_mock):
+        # Warming is deliberately NOT gated on the read flag: we populate the precompute ahead of the flag
+        # so it can be validated, then flip reads. A team with a goal warms conversions even with the read
+        # flag off. Costs stay gated on their own flag (off here), so nothing costs-related warms.
         team = self._make_team("A", goals=[_PRECOMPUTABLE_GOAL])
         with (
             patch(_FF, _flag_fn(conversion=False, costs=False)),
             patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: f"{team.pk}"}),
         ):
             result = ensure_marketing_precompute_op(dagster.build_op_context())
-        assert result == {"teams": 1, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
-        ensure_mock.assert_not_called()
+        assert result["conversion_teams"] == 1
+        assert result["costs_teams"] == 0
+        tables = _tables(ensure_mock)
+        assert LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED in tables
+        assert LazyComputationTable.MARKETING_COSTS_PREAGGREGATED not in tables
 
     @patch(_ENSURE, new_callable=_ready_mock)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)
