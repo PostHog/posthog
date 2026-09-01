@@ -92,13 +92,13 @@ returns is persisted server-side. Two practical consequences:
 
 ```json
 {
-    "path": "/users",
-    "method": "GET",
-    "params": { "status": "active" },
-    "json": { "query": "recent", "limit": 100 },
-    "data_selector": "data",
-    "paginator": { "type": "json_response", "next_url_path": "next" },
-    "incremental": { "cursor_path": "updated_at", "start_param": "since" }
+  "path": "/users",
+  "method": "GET",
+  "params": { "status": "active" },
+  "json": { "query": "recent", "limit": 100 },
+  "data_selector": "data",
+  "paginator": { "type": "json_response", "next_url_path": "next" },
+  "incremental": { "cursor_path": "updated_at", "start_param": "since" }
 }
 ```
 
