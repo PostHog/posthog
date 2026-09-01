@@ -108,8 +108,6 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
     reducers({
         themes: {
             setThemes: (_, { themes }) => themes,
-            // A failed request must not leave charts in the loading state indefinitely. The built-in
-            // fallback is used until a future successful request supplies the configured themes.
             loadThemesFailure: () => [],
         },
     }),
@@ -166,10 +164,6 @@ export const dataThemeLogic = kea<dataThemeLogicType>([
                         }, {} as DataColorTheme)
                     }
 
-                    // Themes have resolved but none matched (empty list or a failed request). Fall back to
-                    // the built-in colors so charts still draw.
-                    // While themes are still loading (themes == null), keep returning null so callers can
-                    // show a loading state and the chart renders once, after the real theme resolves.
                     return themes != null ? DEFAULT_DATA_COLOR_THEME : null
                 },
         ],

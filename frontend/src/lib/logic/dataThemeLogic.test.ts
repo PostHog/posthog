@@ -18,8 +18,6 @@ describe('dataThemeLogic', () => {
     })
 
     it('getTheme falls back to the built-in default when the list resolved but no theme matched', async () => {
-        // A blank chart shipped once because getTheme returned null when the themes list resolved
-        // empty. Lock in the fallback so charts keep drawing with the built-in colors.
         window.POSTHOG_RENDER_QUERY_PAYLOAD = { themes: [] } as any
         initKeaTests()
         logic = dataThemeLogic()
@@ -31,8 +29,6 @@ describe('dataThemeLogic', () => {
     })
 
     it('getTheme returns null while the themes list is still loading', async () => {
-        // Only the loaded-but-empty case gets the fallback. While the list is null (still loading),
-        // getTheme stays null so the chart shows loading and renders once, after the theme resolves.
         window.POSTHOG_RENDER_QUERY_PAYLOAD = { themes: [] } as any
         initKeaTests()
         logic = dataThemeLogic()

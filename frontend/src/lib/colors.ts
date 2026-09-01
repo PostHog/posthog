@@ -48,10 +48,6 @@ export type DataColorTheme = Partial<Record<DataColorToken, string>> & {
     [key: `preset-${number}`]: string
 }
 
-/**
- * The built-in PostHog data colors, mirroring the seed theme from migration `0537_data_color_themes`.
- * Used as a last-resort fallback so charts still render when no theme resolves from the server.
- */
 const DEFAULT_DATA_COLOR_THEME_COLORS = [
     '#1d4aff',
     '#621da6',

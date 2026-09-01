@@ -496,10 +496,7 @@ export function InsightVizDisplay({
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
 
-    // While the color theme is still loading, show loading rather than a blank tile. Once themes resolve,
-    // getTheme falls back to the built-in colors when none match or the request fails. `theme` is only
-    // null during an active load, so the chart renders once its color theme is ready. Web Analytics
-    // insights do not use themes.
+    // Web Analytics insights don't use themes, so allow them to render without waiting for theme to load
     if (!theme && activeView !== InsightType.WEB_ANALYTICS) {
         return (
             <InsightLoadingState
