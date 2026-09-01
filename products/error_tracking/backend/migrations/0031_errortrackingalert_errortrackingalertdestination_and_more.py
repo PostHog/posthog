@@ -39,6 +39,7 @@ class Migration(migrations.Migration):
                 (
                     "created_by",
                     models.ForeignKey(
+                        related_name="+",
                         blank=True,
                         db_constraint=False,
                         null=True,
@@ -49,6 +50,7 @@ class Migration(migrations.Migration):
                 (
                     "team",
                     models.ForeignKey(
+                        related_name="+",
                         db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
                         to="posthog.team",
@@ -91,6 +93,7 @@ class Migration(migrations.Migration):
                 (
                     "integration",
                     models.ForeignKey(
+                        related_name="+",
                         blank=True,
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
@@ -100,6 +103,7 @@ class Migration(migrations.Migration):
                 (
                     "team",
                     models.ForeignKey(
+                        related_name="+",
                         db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
                         to="posthog.team",
@@ -157,6 +161,7 @@ class Migration(migrations.Migration):
                 (
                     "team",
                     models.ForeignKey(
+                        related_name="+",
                         db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
                         to="posthog.team",

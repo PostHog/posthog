@@ -905,7 +905,7 @@ class ErrorTrackingAlert(TeamScopedRootMixin, UUIDTModel):
 
     # db_constraint=False keeps creates lock-free on hot tables (posthog_team / posthog_user);
     # team scoping is enforced at the ORM layer via TeamScopedRootMixin.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     name = models.TextField()
     enabled = models.BooleanField(default=True)
     triggers = models.JSONField(default=list)  # list of Trigger values
@@ -916,7 +916,12 @@ class ErrorTrackingAlert(TeamScopedRootMixin, UUIDTModel):
     # Replies into an existing thread are never throttled. 0 disables the throttle.
     throttle_seconds = models.PositiveIntegerField(default=0)
     created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        null=True,
+        blank=True,
+        db_constraint=False,
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -947,10 +952,10 @@ class ErrorTrackingAlertDestination(TeamScopedRootMixin, UUIDTModel):
         # currently supported channel types are ever created through the API.
         SLACK = "slack", "Slack"
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     alert = models.ForeignKey(ErrorTrackingAlert, on_delete=models.CASCADE, related_name="destinations")
     channel_type = models.TextField(choices=error_tracking_alert_channel_type_choices)
-    integration = models.ForeignKey(Integration, on_delete=models.SET_NULL, null=True, blank=True)
+    integration = models.ForeignKey(Integration, on_delete=models.SET_NULL, related_name="+", null=True, blank=True)
     # Channel-specific delivery settings, e.g. {"channel": "C0123", "channel_name": "#alerts"} for Slack
     config = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -970,7 +975,7 @@ class ErrorTrackingAlertThread(TeamScopedRootMixin, UUIDTModel):
     winner's thread.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     alert = models.ForeignKey(ErrorTrackingAlert, on_delete=models.CASCADE, related_name="threads")
     issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="alert_threads")
     destination = models.ForeignKey(ErrorTrackingAlertDestination, on_delete=models.CASCADE, related_name="threads")
