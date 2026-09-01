@@ -176,11 +176,21 @@ def fail_run(
 
 
 def cancel_run(team_id: int, run_id: UUID) -> WizardRunDTO:
-    run = store.get_run(team_id, run_id)
-    cancelled = transition_run(team_id, run_id, WizardRunStatus.CANCELLED)
-    if run.environment == WizardRunEnvironment.CLOUD:
-        request_cloud_run_cancellation(team_id, run_id)
-    return cancelled
+    with database_transaction.atomic():
+        run = store.get_run_for_update(team_id, run_id)
+        previous = run
+        next_status = transition(run.status, WizardRunStatus.CANCELLED)
+        run = store.set_run_status(team_id, run_id, next_status, None)
+
+        if previous.environment == WizardRunEnvironment.CLOUD:
+            # Persist the cancellation intent in the same transaction as the status, so a crash
+            # before dispatch still leaves the run in the recovery index. Send the Temporal cancel
+            # only after the commit, since it is an external side effect.
+            store.mark_cancellation_requested(team_id, run_id)
+            database_transaction.on_commit(partial(cancellation_service.dispatch_cancellation, team_id, run_id))
+
+    run_observability.run_transitioned(previous, run)
+    return run
 
 
 def request_cloud_run_cancellation(team_id: int, run_id: UUID) -> None:
