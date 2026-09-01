@@ -166,7 +166,13 @@ export const broadcastPreviewLogic = kea<broadcastPreviewLogicType>([
         previewPerson: [
             (s) => [s.persons, s.selectedPersonId],
             (persons: BroadcastPreviewPerson[], selectedPersonId: string | null): BroadcastPreviewPerson | null =>
-                persons.find((person) => person.id === selectedPersonId) ?? persons[0] ?? null,
+                persons.find((person) => person.id === selectedPersonId) ??
+                // Default to someone the broadcast can reach. An audience filter that does not mention
+                // email can put a person with no email address first, and that person renders every
+                // merge tag blank, so the preview reads as broken rather than as an empty value.
+                persons.find((person) => !!person.properties.email) ??
+                persons[0] ??
+                null,
         ],
         previewSubject: [
             (s) => [s.email, s.previewPerson],
