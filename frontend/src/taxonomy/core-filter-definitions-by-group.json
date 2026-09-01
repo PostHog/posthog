@@ -259,6 +259,13 @@
             ],
             "label": "AI cost model source (LLM)"
         },
+        "$ai_cost_passthrough": {
+            "description": "Set this to keep the reported total cost and skip PostHog's token-based estimate. Use it when the provider reports an authoritative cost, such as an LLM gateway. The input and output cost split is left unset.",
+            "examples": [
+                true
+            ],
+            "label": "AI cost passthrough (LLM)"
+        },
         "$ai_error": {
             "description": "The error message from a failed AI event.",
             "examples": [
@@ -4849,6 +4856,13 @@
                 "passthrough"
             ],
             "label": "AI cost model source (LLM)"
+        },
+        "$ai_cost_passthrough": {
+            "description": "Set this to keep the reported total cost and skip PostHog's token-based estimate. Use it when the provider reports an authoritative cost, such as an LLM gateway. The input and output cost split is left unset.",
+            "examples": [
+                true
+            ],
+            "label": "AI cost passthrough (LLM)"
         },
         "$ai_error": {
             "description": "The error message from a failed AI event.",
