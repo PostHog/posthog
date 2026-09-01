@@ -2354,17 +2354,35 @@ async def test_apply_scanner_workflow_splits_rasterizer_failures_by_cause(
 
 
 @pytest.mark.asyncio
-async def test_apply_scanner_workflow_classifies_transient_rasterizer_failure() -> None:
-    # A recording-api blip reaches the parent as a BLOCK_LISTING_FAILED whose message carries the errno and pod
-    # address. Marking it a non-retryable RASTERIZATION_FAILED told the user their recording is broken and never
-    # recovered, and persisting the volatile text verbatim minted a fresh error-tracking issue per variant. It must
-    # land as retryable infra_transient with the errno and address dropped for a stable message.
+@pytest.mark.parametrize(
+    "leaf_message,non_retryable,expected_kind,expected_reason",
+    [
+        # A genuine transport blip (5xx, timeout, dropped connection) reaches the parent as a retryable
+        # BLOCK_LISTING_FAILED whose message carries the errno and pod address. It must land as retryable
+        # infra_transient with the errno and address dropped, so one outage can't mint a fresh error-tracking
+        # issue per variant.
+        (
+            "Failed to fetch block listing: connect ECONNREFUSED 10.0.0.5:6738",
+            False,
+            FailureKind.INFRA_TRANSIENT,
+            "infra_transient:rasterizer could not reach a PostHog dependency (BLOCK_LISTING_FAILED)",
+        ),
+        # A permanent 4xx (auth, bad request) or malformed listing reaches the parent as a non-retryable
+        # BLOCK_LISTING_FAILED. Retrying can't heal it, so it must keep the recording-level rasterization_failed
+        # label with its own message, not a false retry prompt that merges into the transient-outage issue.
+        (
+            "Failed to fetch block listing: 401 - unauthorized",
+            True,
+            FailureKind.RASTERIZATION_FAILED,
+            "rasterization_failed:Failed to fetch block listing: 401 - unauthorized",
+        ),
+    ],
+)
+async def test_apply_scanner_workflow_classifies_rasterizer_dependency_failure_by_retryability(
+    leaf_message: str, non_retryable: bool, expected_kind: FailureKind, expected_reason: str
+) -> None:
     new_observation_id = uuid.uuid4()
-    leaf = ApplicationError(
-        "Failed to fetch block listing: connect ECONNREFUSED 10.0.0.5:6738",
-        type="BLOCK_LISTING_FAILED",
-        non_retryable=False,
-    )
+    leaf = ApplicationError(leaf_message, type="BLOCK_LISTING_FAILED", non_retryable=non_retryable)
     mocks = _WorkflowMocks(
         activity_results={
             create_observation_activity: CreateObservationOutput(
@@ -2378,14 +2396,11 @@ async def test_apply_scanner_workflow_classifies_transient_rasterizer_failure() 
     with pytest.raises(ScannerFailureError) as exc_info:
         await _run_workflow(_build_inputs(session_id="sess-blocklist"), mocks)
 
-    assert exc_info.value.kind is FailureKind.INFRA_TRANSIENT
+    assert exc_info.value.kind is expected_kind
     called = {fn for fn, _ in mocks.activity_calls}
     assert mark_observation_failed_activity in called
     assert mark_observation_ineligible_activity not in called
-    error_reason = mocks.activity_calls[-1][1].error_reason
-    assert error_reason == "infra_transient:rasterizer could not reach a PostHog dependency (BLOCK_LISTING_FAILED)"
-    assert "ECONNREFUSED" not in error_reason
-    assert "10.0.0.5" not in error_reason
+    assert mocks.activity_calls[-1][1].error_reason == expected_reason
 
 
 @pytest.mark.asyncio

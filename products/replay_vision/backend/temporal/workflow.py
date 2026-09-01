@@ -198,6 +198,12 @@ def _failure_type(e: BaseException) -> str | None:
     return getattr(cause, "type", None)
 
 
+def _failure_non_retryable(e: BaseException) -> bool:
+    """Whether the leaf ApplicationError was flagged non-retryable, surviving the same wrapping."""
+    cause = unwrap_temporal_cause(e) or e
+    return bool(getattr(cause, "non_retryable", False))
+
+
 def _extract_kind_for_type(e: BaseException, expected_type: str) -> str | None:
     """Pull a kind string off a kinded ApplicationError, surviving Temporal's ActivityError wrap."""
     if _failure_type(e) != expected_type:
@@ -456,7 +462,11 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 # Gate as ineligible, not failed, so the user reads "too large" instead of a "known issue" retry prompt.
                 raise IneligibleSessionError(_root_cause_message(e), kind=IneligibleSessionKind.TOO_LARGE) from e
             rasterizer_type = _failure_type(e)
-            if rasterizer_type in _RASTERIZER_INFRA_TRANSIENT_TYPES:
+            # The rasterizer flags a genuine transport blip (5xx, timeout, dropped connection) as retryable
+            # but a permanent 4xx or a malformed listing as non-retryable. Only the retryable ones are the
+            # "dependency was slow" story; a non-retryable leaf keeps the RASTERIZATION_FAILED path below, so
+            # it gets neither a false retry prompt nor a message that merges it into the transient-outage issue.
+            if rasterizer_type in _RASTERIZER_INFRA_TRANSIENT_TYPES and not _failure_non_retryable(e):
                 # A PostHog dependency blip, not a broken recording. Classify transient so the observation
                 # stays retryable, and drop the volatile message so one outage can't fragment into an
                 # error-tracking issue per errno and pod address.
