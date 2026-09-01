@@ -228,8 +228,27 @@ class AccountTableAssignedToFilter:
 
 
 @dataclass(frozen=True, kw_only=True)
+class AccountTableAssignedFilter:
+    pass
+
+
+@dataclass(frozen=True, kw_only=True)
 class AccountTableUnassignedFilter:
     pass
+
+
+class AccountTableRelationshipOperator(str, Enum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTableRelationshipFilter:
+    definition_id: UUID
+    operator: AccountTableRelationshipOperator
+    user_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -285,7 +304,9 @@ AccountTableFilter = (
     AccountTableSearchFilter
     | AccountTableTagsFilter
     | AccountTableAssignedToFilter
+    | AccountTableAssignedFilter
     | AccountTableUnassignedFilter
+    | AccountTableRelationshipFilter
     | AccountTableAccountIdFilter
     | AccountTableFieldFilter
     | AccountTableCustomPropertyFilter

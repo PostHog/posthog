@@ -10,6 +10,11 @@ import * as zod from 'zod'
 
 /**
  * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ *
+ * Once an organization is on the `replay-vision-alerts` flag, this surface is a compatibility
+ * shim over the new alerts and scouts systems (see `vision_actions_shim`): the request and
+ * response contract stays exactly as documented here, but nothing reads or writes VisionAction
+ * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
 export const VisionActionsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -27,6 +32,11 @@ export const VisionActionsListQueryParams = /* @__PURE__ */ zod.object({
 
 /**
  * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ *
+ * Once an organization is on the `replay-vision-alerts` flag, this surface is a compatibility
+ * shim over the new alerts and scouts systems (see `vision_actions_shim`): the request and
+ * response contract stays exactly as documented here, but nothing reads or writes VisionAction
+ * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
 export const VisionActionsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -221,6 +231,11 @@ export const VisionActionsCreateBody = /* @__PURE__ */ zod
 
 /**
  * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ *
+ * Once an organization is on the `replay-vision-alerts` flag, this surface is a compatibility
+ * shim over the new alerts and scouts systems (see `vision_actions_shim`): the request and
+ * response contract stays exactly as documented here, but nothing reads or writes VisionAction
+ * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
 export const VisionActionsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this vision action.'),
@@ -233,6 +248,11 @@ export const VisionActionsRetrieveParams = /* @__PURE__ */ zod.object({
 
 /**
  * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ *
+ * Once an organization is on the `replay-vision-alerts` flag, this surface is a compatibility
+ * shim over the new alerts and scouts systems (see `vision_actions_shim`): the request and
+ * response contract stays exactly as documented here, but nothing reads or writes VisionAction
+ * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
 export const VisionActionsPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this vision action.'),
@@ -430,6 +450,11 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod
 
 /**
  * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ *
+ * Once an organization is on the `replay-vision-alerts` flag, this surface is a compatibility
+ * shim over the new alerts and scouts systems (see `vision_actions_shim`): the request and
+ * response contract stays exactly as documented here, but nothing reads or writes VisionAction
+ * rows anymore. The runs endpoints keep serving the pre-migration run history.
  */
 export const VisionActionsDestroyParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this vision action.'),

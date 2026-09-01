@@ -1013,6 +1013,43 @@ export const SessionRecordingsSharingRefreshCreateBody = /* @__PURE__ */ zod
     .describe('Mixin for serializers to add user access control fields')
 
 /**
+ *
+ *     When object storage is available this API allows upload of media which can be used, for example, in text cards on dashboards.
+ *
+ *     Uploaded media must be less than 4MB and decode as a PNG, JPEG, GIF, WebP, AVIF or BMP image — the formats
+ *     the download route will serve inline. Pass `purpose` to also add the image to a library, making it visible
+ *     to `GET ?purpose=...`.
+ *
+ */
+export const UploadedMediaCreateBody = /* @__PURE__ */ zod.object({
+    image: zod.instanceof(File).describe('Image file. Must be under 4MB and a real, decodable image.'),
+    purpose: zod
+        .enum(['email'])
+        .optional()
+        .describe(
+            'Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do).'
+        ),
+})
+
+/**
+ * Step 1 of the presigned upload flow: reserves a pending image and returns a presigned URL to POST the file to directly, bytes never pass through this API. Call complete_upload with the returned id once the upload finishes.
+ */
+export const uploadedMediaStartUploadCreateBodyNameMax = 1000
+
+export const uploadedMediaStartUploadCreateBodyPurposeMax = 100
+
+export const UploadedMediaStartUploadCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(uploadedMediaStartUploadCreateBodyNameMax)
+        .describe("The file's display name, e.g. 'logo.png'."),
+    purpose: zod
+        .string()
+        .max(uploadedMediaStartUploadCreateBodyPurposeMax)
+        .describe("Library to add this image to once uploaded, e.g. 'email'."),
+})
+
+/**
  * Public, unauthenticated endpoint for self-service revocation of a leaked PostHog personal API key, project secret API key, or OAuth access/refresh token. If the token matches a real credential, it is revoked immediately and the owner is notified by email. This includes an expired OAuth access token: the paired refresh token it protects may still be live.
  *
  * This endpoint only checks the region it is running on. `"found": false` does not guarantee the token is safe. If you're not sure which region issued it, check both: https://app.posthog.com/api/revoke_leaked_key and https://eu.posthog.com/api/revoke_leaked_key.
@@ -2058,15 +2095,10 @@ export const UsersRequestEmailVerificationCreateBody = /* @__PURE__ */ zod.objec
 export const UsersVerifyEmailCreateBody = /* @__PURE__ */ zod
     .object({
         uuid: zod.string().describe('UUID of the user whose email is being verified.'),
-        token: zod
-            .string()
-            .optional()
-            .describe('Verification token from the emailed link. Required unless a code is provided.'),
         code: zod
             .string()
-            .optional()
             .describe(
-                'The 6-digit verification code emailed at signup. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking.'
+                'The 6-digit verification code from the email. Whitespace, invisible characters, and grouping hyphens are removed and compatibility digits are folded to ASCII before checking.'
             ),
     })
-    .describe('Request body for POST \/api\/users\/verify_email\/. Exactly one of token or code is required.')
+    .describe('Request body for POST \/api\/users\/verify_email\/.')

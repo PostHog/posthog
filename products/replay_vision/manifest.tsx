@@ -15,6 +15,7 @@ export const manifest: ProductManifest = {
                 'Set up AI scanners that automatically analyze new session recordings as they come in. Each result emits a queryable event.',
             iconType: 'replay_vision',
             layout: 'app-container',
+            docsHref: 'https://posthog.com/docs/replay-vision',
         },
         ReplayVisionScanner: {
             name: 'Replay vision scanner',

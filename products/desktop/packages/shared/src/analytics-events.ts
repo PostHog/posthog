@@ -1,6 +1,6 @@
 // Analytics event types and properties
 
-import type { Adapter } from "./adapter";
+import type { Adapter, ModelAccess } from "./adapter";
 import type { EffortLevel } from "./domain-types";
 import type { SourceProduct } from "./inbox-types";
 
@@ -45,6 +45,7 @@ export type SkillButtonId =
 export type CommandMenuAction =
   | "home"
   | "new-task"
+  | "create-channel"
   | "settings"
   | "logout"
   | "toggle-theme"
@@ -101,7 +102,8 @@ export interface TaskCreateProperties {
   /** Worktree mode: repo has a non-empty .worktreeinclude file */
   uses_worktree_include?: boolean;
   adapter?: Adapter;
-  codex_model_access?: "posthog-gateway" | "own-subscription";
+  codex_model_access?: ModelAccess;
+  claude_model_access?: ModelAccess;
 }
 
 export interface TaskViewProperties {
@@ -243,6 +245,11 @@ export interface DiffViewModeChangedProperties {
   to_mode: "split" | "unified";
 }
 
+export interface ReviewFileBrowserToggledProperties {
+  task_id: string;
+  collapsed: boolean;
+}
+
 // Workspace events
 export interface WorkspaceCreatedProperties {
   task_id: string;
@@ -297,18 +304,18 @@ export interface SidebarNavItemClickedProperties {
   layout?: SidebarLayout;
 }
 
+export type TaskListSurface = "sidebar" | "space" | "saved_search";
+
 export interface TaskListGroupingChangedProperties {
   group_by: "repository" | "date";
   sort_by: "updated" | "created" | "alpha";
-  /** Which list was regrouped: the app sidebar's, or a space's session list. */
-  surface: "sidebar" | "space";
+  surface: TaskListSurface;
 }
 
 export interface TaskListAppearanceChangedProperties {
   secondary_fields: ("repository" | "branch" | "creator" | "activity")[];
   secondary_field_count: number;
-  /** Which list it was changed from. The setting applies to both. */
-  surface: "sidebar" | "space";
+  surface: TaskListSurface;
 }
 
 export interface BrainrotActivatedProperties {
@@ -685,6 +692,7 @@ export type InboxReportActionType =
   | "reingest"
   | "create_pr"
   | "open_pr"
+  | "open_task"
   | "copy_link"
   | "discuss"
   | "expand_signal"
@@ -704,7 +712,23 @@ export type InboxReportActionSurface =
   | "detail_footer"
   | "toolbar"
   | "keyboard"
-  | "list_row";
+  | "list_row"
+  | "triage";
+
+export type InboxReviewerScope = "for-you" | "entire-project" | "teammate";
+
+export interface InboxTriageStartedProperties {
+  queue_size: number;
+  scope: InboxReviewerScope;
+  has_active_filters: boolean;
+}
+
+export interface InboxTriageEndedProperties
+  extends InboxTriageStartedProperties {
+  reports_reviewed: number;
+  duration_ms: number;
+  end_reason: "completed" | "exited";
+}
 
 /** Sentiment captured by the report usefulness thumbs. */
 export type InboxReportFeedbackSentiment = "positive" | "negative";
@@ -737,6 +761,8 @@ export interface InboxViewedProperties {
    */
   pulls_tab_count?: number;
   reports_tab_count?: number;
+  /** Reviewer scope on Desktop. Mobile omits this until it exposes the same control. */
+  scope?: InboxReviewerScope;
 }
 
 export interface InboxReportOpenedProperties {
@@ -908,12 +934,30 @@ type ScoutActionType =
   | "filter_findings"
   | "sort_findings";
 
+/**
+ * How the fleet materialization that preceded this view ended. Without it an
+ * `is_empty: true` view from a viewer whose sync was refused looks exactly like
+ * one from a project whose fleet genuinely failed to arrive.
+ */
+export type ScoutFleetSyncOutcome =
+  /** The sync ran and answered with the fleet. */
+  | "synced"
+  /** No sync was issued — no project was resolved when the section opened. */
+  | "not_attempted"
+  /** 403: a member without `signal_scout:write`. The list query still fills the section. */
+  | "skipped_permission"
+  /** 404: a stale project id. */
+  | "not_found"
+  /** Anything else, including a 5xx. */
+  | "failed";
+
 export interface ScoutFleetViewedProperties {
   scout_count: number;
   enabled_count: number;
   dry_run_count: number;
   custom_count: number;
   is_empty: boolean;
+  sync_outcome: ScoutFleetSyncOutcome;
 }
 
 export interface ScoutDetailViewedProperties {
@@ -1031,6 +1075,7 @@ type ChannelActionType =
   | "view_more_tasks"
   | "create"
   | "rename"
+  | "auto_archive_update"
   | "delete"
   | "star"
   | "unstar"
@@ -1080,6 +1125,8 @@ export interface ChannelActionProperties {
   tab?: string;
   /** Whether the underlying mutation resolved successfully. */
   success?: boolean;
+  /** For auto_archive_update: the selected inactivity window. Null disables it. */
+  inactivity_days?: number | null;
 }
 
 type DashboardActionType =
@@ -1466,6 +1513,7 @@ export const ANALYTICS_EVENTS = {
   FILE_DIFF_VIEWED: "File diff viewed",
   REVIEW_PANEL_VIEWED: "Review panel viewed",
   DIFF_VIEW_MODE_CHANGED: "Diff view mode changed",
+  REVIEW_FILE_BROWSER_TOGGLED: "Review file browser toggled",
 
   // Workspace events
   WORKSPACE_CREATED: "Workspace created",
@@ -1500,6 +1548,8 @@ export const ANALYTICS_EVENTS = {
   CUSTOM_SOUND_RECORDING_SILENT: "Custom sound recording silent",
   CODEX_SUBSCRIPTION_CONNECTED: "Codex subscription connected",
   CODEX_SUBSCRIPTION_SIGNED_OUT: "Codex subscription signed out",
+  CLAUDE_SUBSCRIPTION_CONNECTED: "Claude subscription connected",
+  CLAUDE_SUBSCRIPTION_SIGNED_OUT: "Claude subscription signed out",
 
   // Feedback events
   AI_METRIC: "$ai_metric",
@@ -1566,6 +1616,8 @@ export const ANALYTICS_EVENTS = {
   INBOX_REPORT_SCROLLED: "Inbox report scrolled",
   INBOX_REPORT_FEEDBACK: "Inbox report feedback",
   INBOX_REPORT_FEEDBACK_NOTE: "Inbox report feedback note",
+  INBOX_TRIAGE_STARTED: "Inbox triage started",
+  INBOX_TRIAGE_ENDED: "Inbox triage ended",
   SIGNAL_SOURCE_CONNECTED: "Signal source connected",
 
   // Agents page events
@@ -1668,6 +1720,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.FILE_DIFF_VIEWED]: FileDiffViewedProperties;
   [ANALYTICS_EVENTS.REVIEW_PANEL_VIEWED]: ReviewPanelViewedProperties;
   [ANALYTICS_EVENTS.DIFF_VIEW_MODE_CHANGED]: DiffViewModeChangedProperties;
+  [ANALYTICS_EVENTS.REVIEW_FILE_BROWSER_TOGGLED]: ReviewFileBrowserToggledProperties;
 
   // Workspace events
   [ANALYTICS_EVENTS.WORKSPACE_CREATED]: WorkspaceCreatedProperties;
@@ -1702,6 +1755,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.CUSTOM_SOUND_RECORDING_SILENT]: never;
   [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_CONNECTED]: never;
   [ANALYTICS_EVENTS.CODEX_SUBSCRIPTION_SIGNED_OUT]: never;
+  [ANALYTICS_EVENTS.CLAUDE_SUBSCRIPTION_CONNECTED]: never;
+  [ANALYTICS_EVENTS.CLAUDE_SUBSCRIPTION_SIGNED_OUT]: never;
 
   // Feedback events
   [ANALYTICS_EVENTS.AI_METRIC]: AiMetricProperties;
@@ -1767,6 +1822,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.INBOX_REPORT_SCROLLED]: InboxReportScrolledProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK]: InboxReportFeedbackProperties;
   [ANALYTICS_EVENTS.INBOX_REPORT_FEEDBACK_NOTE]: InboxReportFeedbackNoteProperties;
+  [ANALYTICS_EVENTS.INBOX_TRIAGE_STARTED]: InboxTriageStartedProperties;
+  [ANALYTICS_EVENTS.INBOX_TRIAGE_ENDED]: InboxTriageEndedProperties;
   [ANALYTICS_EVENTS.SIGNAL_SOURCE_CONNECTED]: SignalSourceConnectedProperties;
 
   // Agents page events
