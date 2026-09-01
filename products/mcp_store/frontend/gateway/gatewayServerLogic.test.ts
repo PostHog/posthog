@@ -137,6 +137,7 @@ function serviceAccount(id: string = 'scout-id', grants: Grant[] = []): MCPServi
             scope,
             name: 'Test server',
             description: '',
+            url: '',
             icon_key: '',
             icon_domain: '',
             connection_state: 'ready' as const,

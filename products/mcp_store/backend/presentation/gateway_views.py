@@ -607,6 +607,9 @@ class MCPServiceAccountServerSerializer(serializers.Serializer):
     )
     name = serializers.CharField(help_text="Server display name.")
     description = serializers.CharField(help_text="Server description.")
+    url = serializers.CharField(
+        help_text="MCP server URL. Clients derive a brand icon from it when icon_domain is empty."
+    )
     icon_key = serializers.CharField(help_text="Deprecated brand icon key. Empty for custom servers.")
     icon_domain = serializers.CharField(help_text="Brand domain. Empty for custom servers.")
     connection_state = serializers.ChoiceField(
@@ -693,6 +696,7 @@ class MCPServiceAccountSerializer(serializers.ModelSerializer):
                     "scope": access.scope,
                     "name": server.name,
                     "description": server.description,
+                    "url": server.url,
                     "icon_key": server.template.icon_key if server.template else "",
                     "icon_domain": server.template.icon_domain if server.template else "",
                     "connection_state": connection_state,

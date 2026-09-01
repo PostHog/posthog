@@ -83,7 +83,7 @@ function TaskConnectorsPicker({ value, onChange }: CustomInputRendererProps): JS
                         const issue = agentServerConnectionIssue(server)
                         return (
                             <div key={server.id} className="flex items-center gap-3 px-3 py-2">
-                                <ServerIcon iconDomain={server.icon_domain} size={24} />
+                                <ServerIcon iconDomain={server.icon_domain} serverUrl={server.url} size={24} />
                                 <div className="min-w-0 flex-1">
                                     <div className="font-medium text-sm text-default truncate">{server.name}</div>
                                     {server.description && (

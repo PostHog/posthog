@@ -28,6 +28,8 @@ function server(
         scope: 'team',
         name,
         description: `${name} workspace`,
+        // Empty keeps the icon fallback deterministic in stories: no logo request, no onError race.
+        url: '',
         icon_key: '',
         icon_domain: '',
         connection_state: connectionState,

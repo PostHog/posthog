@@ -49749,6 +49749,8 @@ export namespace Schemas {
       name: string;
       /** Server description. */
       description: string;
+      /** MCP server URL. Clients derive a brand icon from it when icon_domain is empty. */
+      url: string;
       /** Deprecated brand icon key. Empty for custom servers. */
       icon_key: string;
       /** Brand domain. Empty for custom servers. */
