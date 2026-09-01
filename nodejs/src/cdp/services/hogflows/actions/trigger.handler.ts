@@ -13,9 +13,13 @@ import { findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 
 // The slice of IntegrationManagerService the own-app check needs, so this handler and its tests
-// don't depend on the concrete Postgres-backed service.
+// don't depend on the concrete Postgres-backed service. getMany has no team scoping of its own
+// (it's a raw lookup by id, see IntegrationManagerService.fetchIntegrations), so team_id travels
+// with the result and every caller must check it - the same contract hog-inputs.service.ts uses.
 export interface SlackAppLookup {
-    getMany(integrationIds: number[]): Promise<Record<number, { config?: { app_id?: string | null } } | null>>
+    getMany(
+        integrationIds: number[]
+    ): Promise<Record<number, { team_id: number; config?: { app_id?: string | null } } | null>>
 }
 
 // NOTE: This is not an actively used action as the triggering is done by the scheduler
@@ -47,7 +51,7 @@ export class TriggerHandler implements ActionHandler {
             // Mirrors the consumer's own-app exclusion: a message PostHog's own connected Slack
             // app posted never reaches a real invocation, so a workflow can't retrigger itself
             // off its own reply. Without this, a hand-written payload naming that app passes.
-            if (await this.isOwnSlackMessage(event.properties)) {
+            if (await this.isOwnSlackMessage(event.properties, invocation.teamId)) {
                 result.logs.push({
                     level: 'info',
                     timestamp: DateTime.now(),
@@ -103,13 +107,17 @@ export class TriggerHandler implements ActionHandler {
         return { nextAction: findContinueAction(invocation) }
     }
 
-    private async isOwnSlackMessage(properties: Record<string, any> | undefined): Promise<boolean> {
+    private async isOwnSlackMessage(properties: Record<string, any> | undefined, teamId: number): Promise<boolean> {
         const integrationId = properties?.integration_id
         const appId = properties?.app_id
         if (typeof integrationId !== 'number' || typeof appId !== 'string') {
             return false
         }
         const integrations = await this.integrationManager.getMany([integrationId])
-        return integrations[integrationId]?.config?.app_id === appId
+        const integration = integrations[integrationId]
+        // integration_id and app_id come from an untrusted test-run payload, and getMany can
+        // resolve an id belonging to any team - never trust its config without checking team_id
+        // first, or a test run becomes a cross-team oracle for another team's Slack app_id.
+        return integration?.team_id === teamId && integration?.config?.app_id === appId
     }
 }

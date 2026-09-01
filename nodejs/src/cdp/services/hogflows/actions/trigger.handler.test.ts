@@ -12,13 +12,19 @@ describe('TriggerHandler', () => {
     // properties.status == 'churned'
     const ROW_BYTECODE = ['_H', 1, 32, 'churned', 32, 'status', 32, 'properties', 1, 2, 11]
 
-    // Maps integration id -> the app_id stored on that integration, mirroring what
-    // IntegrationManagerService.getMany returns. Empty by default, so no event looks self-sent
-    // unless a test names it.
-    const fakeIntegrationLookup = (apps: Record<number, string> = {}): SlackAppLookup => ({
+    // Maps integration id -> the team and app_id stored on that integration, mirroring what
+    // IntegrationManagerService.getMany returns (a lookup with no team scoping of its own).
+    // Empty by default, so no event looks self-sent unless a test names it. teamId defaults to
+    // 1, the fixture hogflow's own team - set it explicitly to simulate another team's row.
+    const fakeIntegrationLookup = (apps: Record<number, { appId: string; teamId?: number }> = {}): SlackAppLookup => ({
         getMany: (ids) =>
             Promise.resolve(
-                Object.fromEntries(ids.map((id) => [id, id in apps ? { config: { app_id: apps[id] } } : null]))
+                Object.fromEntries(
+                    ids.map((id) => [
+                        id,
+                        id in apps ? { team_id: apps[id].teamId ?? 1, config: { app_id: apps[id].appId } } : null,
+                    ])
+                )
             ),
     })
 
@@ -90,7 +96,7 @@ describe('TriggerHandler', () => {
         const { result, logs } = await run(
             slackTrigger({ properties: [], bytecode: ['_h', 29] }),
             { event: '$slack_message_received', properties: { integration_id: 1, app_id: 'A_OWN_APP' } },
-            fakeIntegrationLookup({ 1: 'A_OWN_APP' })
+            fakeIntegrationLookup({ 1: { appId: 'A_OWN_APP' } })
         )
 
         expect(result).toEqual({ finished: true, skipped: true })
@@ -101,7 +107,20 @@ describe('TriggerHandler', () => {
         const { result } = await run(
             slackTrigger({ properties: [], bytecode: ['_h', 29] }),
             { event: '$slack_message_received', properties: { integration_id: 1, app_id: 'A_OTHER_APP' } },
-            fakeIntegrationLookup({ 1: 'A_OWN_APP' })
+            fakeIntegrationLookup({ 1: { appId: 'A_OWN_APP' } })
+        )
+
+        expect(result.nextAction?.id).toEqual('exit')
+    })
+
+    it("does not treat another team's integration as this workflow's own app, even on an app_id match", async () => {
+        // integration_id and app_id come straight from the test-run payload, and getMany resolves
+        // an id across all teams. Without a team_id check, this is a cross-team oracle: a test
+        // run on any workflow can confirm another team's integration_id -> app_id pairing.
+        const { result } = await run(
+            slackTrigger({ properties: [], bytecode: ['_h', 29] }),
+            { event: '$slack_message_received', properties: { integration_id: 1, app_id: 'A_OWN_APP' } },
+            fakeIntegrationLookup({ 1: { appId: 'A_OWN_APP', teamId: 999 } })
         )
 
         expect(result.nextAction?.id).toEqual('exit')
