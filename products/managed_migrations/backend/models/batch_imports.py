@@ -64,6 +64,19 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
 
     class Meta:
         db_table = "posthog_batchimport"
+        indexes = [
+            # Partial index over running jobs only. The worker's claim loop and the
+            # autoscaling gauge both filter on status = 'running', and finished rows
+            # are never deleted, so a full-table scan grows without bound while the
+            # useful set stays tiny. created_at leads to serve the claim query's
+            # ORDER BY created_at; leased_until follows so its predicate is checked
+            # in the index.
+            models.Index(
+                fields=["created_at", "leased_until"],
+                name="batchimport_running_claim_idx",
+                condition=models.Q(status="running"),
+            ),
+        ]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
