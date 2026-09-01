@@ -24,7 +24,7 @@ def is_custom_images_enabled(*, distinct_id: str, organization_id: str) -> bool:
         return False
 
 
-IMAGE_BUILDER_MODEL = "@cf/zai-org/glm-5.2"
+IMAGE_BUILDER_MODEL = "zai-org/glm-5.3-flash"
 IMAGE_BUILDER_REASONING_EFFORT = "high"
 
 IMAGE_BUILDER_PROMPT = """You are an expert at building sandbox base images for PostHog cloud tasks.
