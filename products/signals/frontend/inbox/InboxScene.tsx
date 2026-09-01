@@ -343,7 +343,7 @@ export function InboxScene(): JSX.Element {
                                 type="secondary"
                                 to={backOverride ?? urls.inbox(isRedesign ? 'reports' : activeTab)}
                             >
-                                {backOverride ? 'Back' : 'Back to inbox'}
+                                {backOverride ? 'Back' : 'Back to self-driving inbox'}
                             </LemonButton>
                         </div>
                     )}
