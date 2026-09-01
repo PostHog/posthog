@@ -45,10 +45,15 @@ pub struct Config {
     pub worker_loop_count: usize,
 
     // Per-data-type cache capacities (event definitions, event properties, property definitions).
-    // Each internal cache avoids sending the same UPSERT multiple times.
+    // Each internal cache avoids sending the same UPSERT multiple times. Event properties have
+    // the highest key cardinality of the three (one row per team-event-property, not per
+    // team-event or team-property), so they overflow a 1M cache first. Once an entry is evicted
+    // the next event re-issues its write, which the target table absorbs as a no-op via
+    // ON CONFLICT DO NOTHING. A larger event-properties cache keeps more of those no-op writes
+    // off the shared Postgres primary.
     #[envconfig(default = "1000000")]
     pub eventdefs_cache_capacity: usize,
-    #[envconfig(default = "1000000")]
+    #[envconfig(default = "5000000")]
     pub eventprops_cache_capacity: usize,
     #[envconfig(default = "1000000")]
     pub propdefs_cache_capacity: usize,

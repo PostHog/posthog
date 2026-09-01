@@ -108,6 +108,31 @@ impl EventPropertiesBatch {
         self.len() == 0
     }
 
+    // Order the rows by the target table's unique key before the INSERT. Rows arrive in event
+    // order, so an unsorted batch scatters its inserts across random leaves of a very large
+    // unique index, reading many index pages from disk. Sorting first makes the batch touch
+    // index leaves in order. The key mirrors the index expression
+    // (COALESCE(project_id, team_id), event, property); project_id stands in for the COALESCE
+    // because it is never null here. remove_rows_for_fk preserves order, so one sort holds
+    // across FK strips and retries.
+    pub fn sort_for_insert(&mut self) {
+        let mut order: Vec<usize> = (0..self.len()).collect();
+        order.sort_by(|&a, &b| {
+            self.project_ids[a]
+                .cmp(&self.project_ids[b])
+                .then_with(|| self.event_names[a].cmp(&self.event_names[b]))
+                .then_with(|| self.property_names[a].cmp(&self.property_names[b]))
+        });
+        self.team_ids = order.iter().map(|&i| self.team_ids[i]).collect();
+        self.project_ids = order.iter().map(|&i| self.project_ids[i]).collect();
+        self.event_names = order.iter().map(|&i| self.event_names[i].clone()).collect();
+        self.property_names = order
+            .iter()
+            .map(|&i| self.property_names[i].clone())
+            .collect();
+        self.cached = order.iter().map(|&i| self.cached[i].clone()).collect();
+    }
+
     pub fn uncache_batch(&self, cache: &Arc<Cache>) {
         let timer = common_metrics::timing_guard(V2_EVENT_PROPS_BATCH_CACHE_TIME, &[]);
 
@@ -498,6 +523,8 @@ async fn write_event_properties_batch(
     let total_time = common_metrics::timing_guard(V2_EVENT_PROPS_BATCH_WRITE_TIME, &[]);
     let mut tries = 1;
     let mut fk_strips: u64 = 0;
+
+    batch.sort_for_insert();
 
     loop {
         let result = sqlx::query(
@@ -988,6 +1015,51 @@ mod tests {
             assert_eq!(batch.event_names.len(), 2);
             assert_eq!(batch.cached.len(), 2);
         }
+    }
+
+    // The INSERT reads the four parallel vecs positionally through UNNEST, so the sort must
+    // keep every vec (including `cached`) aligned while ordering rows by the unique key
+    // (project_id, event, property).
+    #[test]
+    fn sort_for_insert_orders_by_unique_key_and_keeps_vecs_aligned() {
+        let mut batch = EventPropertiesBatch::new(100);
+        // Deliberately out of key order across project, event, and property.
+        batch.append(EventProperty {
+            team_id: 2,
+            project_id: 20,
+            event: "click".to_string(),
+            property: "b".to_string(),
+        });
+        batch.append(EventProperty {
+            team_id: 1,
+            project_id: 10,
+            event: "$pageview".to_string(),
+            property: "z".to_string(),
+        });
+        batch.append(EventProperty {
+            team_id: 1,
+            project_id: 10,
+            event: "$pageview".to_string(),
+            property: "a".to_string(),
+        });
+
+        batch.sort_for_insert();
+
+        assert_eq!(batch.project_ids, vec![10, 10, 20]);
+        assert_eq!(batch.event_names, vec!["$pageview", "$pageview", "click"]);
+        assert_eq!(batch.property_names, vec!["a", "z", "b"]);
+        assert_eq!(batch.team_ids, vec![1, 1, 2]);
+
+        // `cached` must follow the same permutation, or a failed batch would evict the wrong keys.
+        let cached_props: Vec<String> = batch
+            .cached
+            .iter()
+            .map(|u| match u {
+                Update::EventProperty(ep) => ep.property.clone(),
+                _ => unreachable!(),
+            })
+            .collect();
+        assert_eq!(cached_props, vec!["a", "z", "b"]);
     }
 
     #[test]
