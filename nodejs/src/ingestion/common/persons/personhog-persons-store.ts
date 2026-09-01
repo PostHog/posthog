@@ -40,12 +40,6 @@ export const personhogStoreShadowShedCounter = new Counter({
     help: 'Unwritten segments discarded at batch release in shadow mode, where a failed flush cannot fail the batch',
 })
 
-export const personhogStoreFenceCounter = new Counter({
-    name: 'personhog_store_fence_waits_total',
-    help: 'Lifecycle-fence and in-flight-lane encounters on merge-side drain writes, by outcome',
-    labelNames: ['outcome'],
-})
-
 export const personhogStoreFlushErrorCounter = new Counter({
     name: 'personhog_store_flush_errors_total',
     help: 'Lane writes that failed without a classified outcome, by error class; the breakdown of flush_ops error',
@@ -99,12 +93,6 @@ function flushErrorClass(error: unknown): string {
     }
     const name = error instanceof Error ? error.constructor?.name : undefined
     return typeof name === 'string' && name.length > 0 && name.length <= 64 ? name : 'unknown'
-}
-
-function assertMoveLimit(source: string, limit: number): void {
-    if (!Number.isInteger(limit) || limit < 1) {
-        throw new Error(`${source} must be an integer >= 1, got ${limit}`)
-    }
 }
 
 /** SYNC uses the store's limit; other modes carry their own, validated at startup. */
@@ -192,10 +180,13 @@ export class PersonhogPersonsStore implements PersonsStore {
         options?: Partial<PersonhogPersonsStoreOptions>
     ) {
         this.options = { ...DEFAULT_OPTIONS, ...options }
-        // A bad limit fails every merge in the deployment, so fail startup.
-        assertMoveLimit('PERSONHOG_SYNC_MERGE_MOVE_LIMIT', this.options.syncMergeMoveLimit)
-        // pLimit throws on a bad value only after lanes are claimed, which
-        // would strand them in flight; startup is where this fails usefully.
+        // A bad limit would fail every merge, or strand claimed lanes when
+        // pLimit rejects it mid-flush; startup is where both fail usefully.
+        if (!Number.isInteger(this.options.syncMergeMoveLimit) || this.options.syncMergeMoveLimit < 1) {
+            throw new Error(
+                `PERSONHOG_SYNC_MERGE_MOVE_LIMIT must be an integer >= 1, got ${this.options.syncMergeMoveLimit}`
+            )
+        }
         if (!Number.isInteger(this.options.maxConcurrentUpdates) || this.options.maxConcurrentUpdates < 1) {
             throw new Error(
                 `PERSONHOG_STORE_MAX_CONCURRENT_UPDATES must be an integer >= 1, got ${this.options.maxConcurrentUpdates}`
@@ -283,7 +274,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         return { success: true, person: this.memo.snapshot(person), messages: [], created }
     }
 
-    applyEventOps(
+    async applyEventOps(
         person: InternalPerson,
         ops: EventOps,
         distinctId: string,
@@ -292,17 +283,8 @@ export class PersonhogPersonsStore implements PersonsStore {
         // The denylist gates property writes only: a denied op still
         // advances identity and last-seen, matching the Postgres store.
         if (ops.denied && ops.isIdentified === undefined && ops.lastSeenAtMs === undefined) {
-            return Promise.resolve([person, []])
+            return [person, []]
         }
-        return this.foldOntoCurrentPerson(person, ops, distinctId, batchId)
-    }
-
-    private async foldOntoCurrentPerson(
-        person: InternalPerson,
-        ops: EventOps,
-        distinctId: string,
-        batchId: number
-    ): Promise<[InternalPerson, PersonMessage[]]> {
         // A merge can destroy the person between this resolve and the
         // lane's flush; the tombstone redirect then carries the ops to the
         // survivor, which is where a racing write lands under Postgres too.
@@ -462,7 +444,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             // A redirect owns the lane; its ops land on the survivor after
             // the merge rather than inside the fold.
             if (entry.inFlight) {
-                personhogStoreFenceCounter.inc({ outcome: 'premerge_lane_in_flight' })
+                personhogStoreMergeCacheCounter.inc({ action: 'premerge_lane_in_flight' })
                 continue
             }
             this.claimForWrite(entry)
@@ -484,7 +466,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             // an interrupted delivery. Calling the saga settles either case;
             // the lane's ops stay and land through the redirect.
             if (error instanceof PersonhogFencedError) {
-                personhogStoreFenceCounter.inc({ outcome: 'premerge_lane_fenced' })
+                personhogStoreMergeCacheCounter.inc({ action: 'premerge_lane_fenced' })
                 continue
             }
             // The typed wrapper is what makes the merge service fail the
@@ -921,7 +903,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                             person_id: entry.personId,
                             distinct_id: entry.distinctId,
                         })
-                        this.dropLeadingSegments(entry, 1)
+                        entry.segments.shift()
                         progress.remaining -= 1
                         continue
                     }
@@ -983,29 +965,6 @@ export class PersonhogPersonsStore implements PersonsStore {
         return projected
     }
 
-    private async writeOne(entry: OpsLaneEntry, personId: string, ops: EventOps): Promise<InternalPerson | null> {
-        const { person } = await this.repository.updatePersonProperties(
-            {
-                teamId: entry.teamId,
-                personId,
-                eventName: ops.eventName,
-                setProperties: ops.set,
-                setOnceProperties: ops.setOnce,
-                unsetProperties: ops.unset,
-                isIdentified: ops.isIdentified,
-                lastSeenAtMs: ops.lastSeenAtMs,
-                forceUpdate: ops.shouldForceUpdate,
-            },
-            CALLER_TAG
-        )
-        return person
-    }
-
-    /** Removes the lane's leading segments once written or judged unwritable. */
-    private dropLeadingSegments(entry: OpsLaneEntry, count: number): void {
-        entry.segments.splice(0, count)
-    }
-
     /**
      * Writes a lane's leading segments, removing each as it lands so a
      * partial failure discards nothing unattempted.
@@ -1016,8 +975,22 @@ export class PersonhogPersonsStore implements PersonsStore {
             // The segment stays in the lane while on the wire and leaves it
             // in the same synchronous step that installs the answer, so no
             // reader sees the op counted twice or not at all.
-            const answer = await this.writeOne(entry, personId, entry.segments[0])
-            this.dropLeadingSegments(entry, 1)
+            const ops = entry.segments[0]
+            const { person: answer } = await this.repository.updatePersonProperties(
+                {
+                    teamId: entry.teamId,
+                    personId,
+                    eventName: ops.eventName,
+                    setProperties: ops.set,
+                    setOnceProperties: ops.setOnce,
+                    unsetProperties: ops.unset,
+                    isIdentified: ops.isIdentified,
+                    lastSeenAtMs: ops.lastSeenAtMs,
+                    forceUpdate: ops.shouldForceUpdate,
+                },
+                CALLER_TAG
+            )
+            entry.segments.shift()
             progress.remaining -= 1
             // Only where the lane owns the person: a redirect writes to a
             // survivor whose baseline answers for another lane, and the

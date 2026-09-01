@@ -7,13 +7,13 @@ import { NoRowsUpdatedError } from '~/common/utils/utils'
 import { InternalPerson } from '~/types'
 
 import { PersonMergeCallFailedError, createDefaultSyncMergeMode } from './person-merge-types'
-import { extractEventOps } from './person-update'
+import { EventOps, extractEventOps } from './person-update'
 import { mergeOpIdFromRequest } from './person-uuid'
 import {
     PersonhogPersonsStore,
     PersonhogUnsupportedFieldError,
-    personhogStoreFenceCounter,
     personhogStoreFlushCounter,
+    personhogStoreMergeCacheCounter,
     personhogStoreShadowShedCounter,
 } from './personhog-persons-store'
 
@@ -2794,7 +2794,7 @@ describe('PersonhogPersonsStore', () => {
             // A lifecycle op holds the person, often this request's own from
             // an interrupted delivery. Calling the saga is what settles
             // either case, and the lane's ops land later via the redirect.
-            personhogStoreFenceCounter.reset()
+            personhogStoreMergeCacheCounter.reset()
             repository.updatePersonProperties.mockRejectedValue(
                 new PersonhogFencedError('PERSON_MERGING', '7', sagaOpId()) as never
             )
@@ -2806,8 +2806,8 @@ describe('PersonhogPersonsStore', () => {
 
             expect(repository.mergePersons).toHaveBeenCalledTimes(1)
             expect((store as any).entries.get('1:7')?.segments ?? []).toHaveLength(1)
-            const outcomes = (await personhogStoreFenceCounter.get()).values.map((v) => v.labels.outcome)
-            expect(outcomes).toContain('premerge_lane_fenced')
+            const actions = (await personhogStoreMergeCacheCounter.get()).values.map((v) => v.labels.action)
+            expect(actions).toContain('premerge_lane_fenced')
         })
 
         it('a lane mid-redirect does not stop the merge', async () => {
