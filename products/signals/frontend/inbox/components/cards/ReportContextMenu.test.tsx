@@ -2,6 +2,8 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -9,6 +11,9 @@ import { SignalReport, SignalReportStatus } from '../../types'
 import { ReportContextMenu } from './ReportContextMenu'
 
 jest.mock('posthog-js')
+jest.mock('lib/utils/copyToClipboard')
+
+const BROWSER_LINK_ROWS = ['Open link', 'Open link in new tab', 'Copy link']
 
 function makeReport(overrides: Partial<SignalReport> = {}): SignalReport {
     return {
@@ -68,7 +73,8 @@ describe('ReportContextMenu', () => {
     afterEach(cleanup)
 
     // The menu must mirror the detail pane's eligibility rules; a drifted guard silently offers a
-    // dead-end action (a 409 transition, a duplicate PR) or hides a legitimate one.
+    // dead-end action (a 409 transition, a duplicate PR) or hides a legitimate one. Every menu
+    // also carries the browser link actions the trigger suppresses on the row's native menu.
     it.each([
         {
             name: 'a ready actionable report offers every action',
@@ -93,7 +99,16 @@ describe('ReportContextMenu', () => {
     ])('$name', ({ report, expected }) => {
         openMenu(report)
 
-        expect(menuRowText()).toEqual(expected)
+        expect(menuRowText()).toEqual([...expected, ...BROWSER_LINK_ROWS])
+    })
+
+    // A relative or wrong-tab URL would copy a link that 404s or opens the wrong list when pasted.
+    it('copies the absolute report detail link', () => {
+        openMenu(makeReport())
+
+        fireEvent.click(screen.getByText('Copy link'))
+
+        expect(jest.mocked(copyToClipboard)).toHaveBeenCalledWith('http://localhost/inbox/reports/report-1', 'link')
     })
 
     // Terminal rows must keep the browser's own context menu rather than an empty custom one.

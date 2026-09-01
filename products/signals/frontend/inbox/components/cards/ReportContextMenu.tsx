@@ -1,7 +1,18 @@
 import { useActions } from 'kea'
+import { router } from 'kea-router'
 import { Fragment, ReactNode, useRef } from 'react'
 
-import { IconCheckCircle, IconChevronRight, IconHide, IconPeople, IconPullRequest, IconUndo } from '@posthog/icons'
+import {
+    IconArrowUpRight,
+    IconCheckCircle,
+    IconChevronRight,
+    IconCopy,
+    IconExternal,
+    IconHide,
+    IconPeople,
+    IconPullRequest,
+    IconUndo,
+} from '@posthog/icons'
 
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -15,6 +26,7 @@ import {
     ContextMenuSubTrigger,
     ContextMenuTrigger,
 } from 'lib/ui/ContextMenu/ContextMenu'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
@@ -26,6 +38,7 @@ import {
     RESOLVE_REASON_OPTIONS,
     ResolveReasonValue,
 } from '../../utils/dismissalReasons'
+import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import { canCreateImplementationPr, canResolveReport, hasOpenImplementationPr } from '../../utils/reportActions'
 import { displayConventionalCommitTitle } from '../../utils/reportPresentation'
 import { ReviewerSearchList } from '../detail/ReviewerSearchList'
@@ -39,7 +52,9 @@ import { openResolveReportDialog } from '../shell/ResolveReportDialog'
  * and Dismiss nest their canonical reasons, and picking one applies immediately through the owning
  * section's list logic, except "Something else…", which opens the existing dialog to collect the
  * note that reason needs. Rows with no action (resolved, refunded) render without a menu, so the
- * browser's own menu still works there.
+ * browser's own menu still works there. On rows with a menu the trigger suppresses that native
+ * menu over the row's link, so the standard link actions return as an explicit section at the
+ * bottom (open, open in new tab, copy link).
  */
 export function ReportContextMenu({
     report,
@@ -168,6 +183,50 @@ function ReportContextMenuItems({
         dismissWithReason(reason, '')
     }
 
+    // The menu only mounts in the redesign flat list, whose rows link to the reports tab with no
+    // back param, so the default detail URL is exactly the row's own href.
+    const detailUrl = inboxReportDetailUrl(report.id)
+
+    // The trigger swallows the browser's native context menu over the row's link (a Radix
+    // behavior), so the link actions a person expects there come back as menu items.
+    const browserLinkItems = (
+        <>
+            <ContextMenuSeparator />
+            <ContextMenuGroup>
+                <ContextMenuItem asChild>
+                    <ButtonPrimitive
+                        menuItem
+                        onClick={() => router.actions.push(detailUrl)}
+                        data-attr="inbox-report-context-menu-open-link"
+                    >
+                        <IconArrowUpRight />
+                        Open link
+                    </ButtonPrimitive>
+                </ContextMenuItem>
+                <ContextMenuItem asChild>
+                    <ButtonPrimitive
+                        menuItem
+                        onClick={() => window.open(detailUrl, '_blank')}
+                        data-attr="inbox-report-context-menu-open-link-new-tab"
+                    >
+                        <IconExternal />
+                        Open link in new tab
+                    </ButtonPrimitive>
+                </ContextMenuItem>
+                <ContextMenuItem asChild>
+                    <ButtonPrimitive
+                        menuItem
+                        onClick={() => void copyToClipboard(window.location.origin + detailUrl, 'link')}
+                        data-attr="inbox-report-context-menu-copy-link"
+                    >
+                        <IconCopy />
+                        Copy link
+                    </ButtonPrimitive>
+                </ContextMenuItem>
+            </ContextMenuGroup>
+        </>
+    )
+
     const onCreatePr = (): void => {
         captureInboxReportAction({
             report,
@@ -181,58 +240,94 @@ function ReportContextMenuItems({
 
     if (isDismissed) {
         return (
-            <ContextMenuGroup>
-                <ContextMenuItem asChild>
-                    <ButtonPrimitive
-                        menuItem
-                        onClick={() => restoreReport(report.id, 'context_menu')}
-                        data-attr="inbox-report-context-menu-restore"
-                    >
-                        <IconUndo />
-                        Restore
-                    </ButtonPrimitive>
-                </ContextMenuItem>
-            </ContextMenuGroup>
+            <>
+                <ContextMenuGroup>
+                    <ContextMenuItem asChild>
+                        <ButtonPrimitive
+                            menuItem
+                            onClick={() => restoreReport(report.id, 'context_menu')}
+                            data-attr="inbox-report-context-menu-restore"
+                        >
+                            <IconUndo />
+                            Restore
+                        </ButtonPrimitive>
+                    </ContextMenuItem>
+                </ContextMenuGroup>
+                {browserLinkItems}
+            </>
         )
     }
 
     return (
-        <ContextMenuGroup>
-            {canCreateImplementationPr(report) && (
-                <>
-                    <ContextMenuItem asChild>
-                        <ButtonPrimitive menuItem onClick={onCreatePr} data-attr="inbox-report-context-menu-create-pr">
-                            <IconPullRequest />
-                            Create PR
-                        </ButtonPrimitive>
-                    </ContextMenuItem>
-                    {/* Create PR acts on its own; the divider separates it from the verdict submenus. */}
-                    <ContextMenuSeparator />
-                </>
-            )}
-            {canResolveReport(report) && (
+        <>
+            <ContextMenuGroup>
+                {canCreateImplementationPr(report) && (
+                    <>
+                        <ContextMenuItem asChild>
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={onCreatePr}
+                                data-attr="inbox-report-context-menu-create-pr"
+                            >
+                                <IconPullRequest />
+                                Create PR
+                            </ButtonPrimitive>
+                        </ContextMenuItem>
+                        {/* Create PR acts on its own; the divider separates it from the verdict submenus. */}
+                        <ContextMenuSeparator />
+                    </>
+                )}
+                {canResolveReport(report) && (
+                    <ContextMenuSub>
+                        <ContextMenuSubTrigger asChild data-attr="inbox-report-context-menu-resolve">
+                            <ButtonPrimitive menuItem>
+                                <IconCheckCircle />
+                                Resolve
+                                <IconChevronRight className="ml-auto size-3" />
+                            </ButtonPrimitive>
+                        </ContextMenuSubTrigger>
+                        {/* The base menu caps at 200px, which wraps the longer reason labels into the
+                        buttons' fixed height. */}
+                        <ContextMenuSubContent className="max-w-80">
+                            <ContextMenuGroup>
+                                {RESOLVE_REASON_OPTIONS.map((option) => (
+                                    <Fragment key={option.value}>
+                                        {/* The canned reasons apply instantly; "Something else…" opens
+                                        the note dialog, so it sits apart. */}
+                                        {option.value === 'other' && <ContextMenuSeparator />}
+                                        <ContextMenuItem asChild>
+                                            <ButtonPrimitive
+                                                menuItem
+                                                onClick={() => pickResolveReason(option.value)}
+                                                data-attr="inbox-report-context-menu-resolve-reason"
+                                            >
+                                                {option.label}
+                                            </ButtonPrimitive>
+                                        </ContextMenuItem>
+                                    </Fragment>
+                                ))}
+                            </ContextMenuGroup>
+                        </ContextMenuSubContent>
+                    </ContextMenuSub>
+                )}
                 <ContextMenuSub>
-                    <ContextMenuSubTrigger asChild data-attr="inbox-report-context-menu-resolve">
+                    <ContextMenuSubTrigger asChild data-attr="inbox-report-context-menu-dismiss">
                         <ButtonPrimitive menuItem>
-                            <IconCheckCircle />
-                            Resolve
+                            <IconHide />
+                            Dismiss
                             <IconChevronRight className="ml-auto size-3" />
                         </ButtonPrimitive>
                     </ContextMenuSubTrigger>
-                    {/* The base menu caps at 200px, which wraps the longer reason labels into the
-                        buttons' fixed height. */}
                     <ContextMenuSubContent className="max-w-80">
                         <ContextMenuGroup>
-                            {RESOLVE_REASON_OPTIONS.map((option) => (
+                            {DISMISSAL_REASON_OPTIONS.map((option) => (
                                 <Fragment key={option.value}>
-                                    {/* The canned reasons apply instantly; "Something else…" opens
-                                        the note dialog, so it sits apart. */}
                                     {option.value === 'other' && <ContextMenuSeparator />}
                                     <ContextMenuItem asChild>
                                         <ButtonPrimitive
                                             menuItem
-                                            onClick={() => pickResolveReason(option.value)}
-                                            data-attr="inbox-report-context-menu-resolve-reason"
+                                            onClick={() => pickDismissReason(option.value)}
+                                            data-attr="inbox-report-context-menu-dismiss-reason"
                                         >
                                             {option.label}
                                         </ButtonPrimitive>
@@ -242,49 +337,23 @@ function ReportContextMenuItems({
                         </ContextMenuGroup>
                     </ContextMenuSubContent>
                 </ContextMenuSub>
-            )}
-            <ContextMenuSub>
-                <ContextMenuSubTrigger asChild data-attr="inbox-report-context-menu-dismiss">
-                    <ButtonPrimitive menuItem>
-                        <IconHide />
-                        Dismiss
-                        <IconChevronRight className="ml-auto size-3" />
-                    </ButtonPrimitive>
-                </ContextMenuSubTrigger>
-                <ContextMenuSubContent className="max-w-80">
-                    <ContextMenuGroup>
-                        {DISMISSAL_REASON_OPTIONS.map((option) => (
-                            <Fragment key={option.value}>
-                                {option.value === 'other' && <ContextMenuSeparator />}
-                                <ContextMenuItem asChild>
-                                    <ButtonPrimitive
-                                        menuItem
-                                        onClick={() => pickDismissReason(option.value)}
-                                        data-attr="inbox-report-context-menu-dismiss-reason"
-                                    >
-                                        {option.label}
-                                    </ButtonPrimitive>
-                                </ContextMenuItem>
-                            </Fragment>
-                        ))}
-                    </ContextMenuGroup>
-                </ContextMenuSubContent>
-            </ContextMenuSub>
-            <ContextMenuSub>
-                <ContextMenuSubTrigger asChild data-attr="inbox-report-context-menu-reviewers">
-                    <ButtonPrimitive menuItem>
-                        <IconPeople />
-                        Reviewers
-                        <IconChevronRight className="ml-auto size-3" />
-                    </ButtonPrimitive>
-                </ContextMenuSubTrigger>
-                {/* The picker sizes itself; the base menu's 200px cap would clip it. */}
-                <ContextMenuSubContent className="max-w-none">
-                    {/* Mounts the report detail logic on open, which loads the same reviewer
+                <ContextMenuSub>
+                    <ContextMenuSubTrigger asChild data-attr="inbox-report-context-menu-reviewers">
+                        <ButtonPrimitive menuItem>
+                            <IconPeople />
+                            Reviewers
+                            <IconChevronRight className="ml-auto size-3" />
+                        </ButtonPrimitive>
+                    </ContextMenuSubTrigger>
+                    {/* The picker sizes itself; the base menu's 200px cap would clip it. */}
+                    <ContextMenuSubContent className="max-w-none">
+                        {/* Mounts the report detail logic on open, which loads the same reviewer
                         artefact and member search as the detail pane. */}
-                    <ReviewerSearchList report={report} surface="context_menu" />
-                </ContextMenuSubContent>
-            </ContextMenuSub>
-        </ContextMenuGroup>
+                        <ReviewerSearchList report={report} surface="context_menu" />
+                    </ContextMenuSubContent>
+                </ContextMenuSub>
+            </ContextMenuGroup>
+            {browserLinkItems}
+        </>
     )
 }
