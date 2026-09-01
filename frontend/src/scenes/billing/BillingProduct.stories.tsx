@@ -173,7 +173,7 @@ export const BillingProductPostHogCodeLimitEditing: Story = {
         }),
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Edit limit'))
+        await userEvent.click(await canvas.findByText(/default initial billing limit/i))
     },
 }
 

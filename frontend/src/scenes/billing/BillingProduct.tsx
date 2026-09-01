@@ -309,6 +309,14 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                         )
                                                     }
                                                     size="small"
+                                                    tooltip={
+                                                        variantExpandedStates?.[variant.key]
+                                                            ? 'Hide usage breakdown'
+                                                            : 'Show usage breakdown'
+                                                    }
+                                                    aria-label={`Toggle ${variant.displayName} usage breakdown`}
+                                                    aria-expanded={!!variantExpandedStates?.[variant.key]}
+                                                    data-attr={`billing-variant-expand-${variant.key}`}
                                                     onClick={() => toggleVariantExpanded(variant.key)}
                                                 />
                                                 <h4 className="mb-0 font-bold">{variant.displayName}</h4>

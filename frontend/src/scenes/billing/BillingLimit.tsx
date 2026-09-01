@@ -2,10 +2,10 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useRef } from 'react'
 
+import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { BillingProductV2Type } from '~/types'
 
@@ -43,56 +43,55 @@ export const BillingLimit = ({ product }: { product: BillingProductV2Type }): JS
             >
                 <h4>Billing limit</h4>
                 <div className="flex flex-col xl:flex-row w-full items-stretch xl:items-center justify-start xl:justify-between gap-2">
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 min-w-0">
                         {!isEditingBillingLimit ? (
-                            <>
-                                {hasCustomLimitSet ? (
-                                    <>
-                                        {usingInitialBillingLimit ? (
-                                            <Tooltip title="Initial limits protect you from accidentally incurring large unexpected charges. Some features may stop working and data may be dropped if your usage exceeds your limit.">
-                                                <span
-                                                    className="text-sm"
-                                                    data-attr={`default-billing-limit-${product.type}`}
-                                                >
-                                                    This product has a default initial billing limit of{' '}
-                                                    <b>${initialBillingLimit}</b>.
-                                                </span>
-                                            </Tooltip>
-                                        ) : (
-                                            <Tooltip title="Set a billing limit to control your recurring costs. Some features may stop working and data may be dropped if your usage exceeds your limit.">
-                                                <span
-                                                    className="text-sm"
-                                                    data-attr={`billing-limit-set-${product.type}`}
-                                                >
-                                                    You have a <b>${customLimitUsd?.toLocaleString()}</b> billing limit
-                                                    set for {product.name}.
-                                                </span>
-                                            </Tooltip>
-                                        )}
-
-                                        <LemonButton
-                                            onClick={() => setIsEditingBillingLimit(true)}
-                                            status="danger"
-                                            size="small"
-                                        >
-                                            Edit limit
-                                        </LemonButton>
-                                    </>
-                                ) : (
-                                    <>
-                                        <span className="text-sm" data-attr={`billing-limit-not-set-${product.type}`}>
-                                            You do not have a billing limit set for {product.name}.
+                            hasCustomLimitSet ? (
+                                usingInitialBillingLimit ? (
+                                    <LemonButton
+                                        onClick={() => setIsEditingBillingLimit(true)}
+                                        size="small"
+                                        className="max-w-full whitespace-normal"
+                                        sideIcon={<IconPencil />}
+                                        tooltip="Initial limits protect you from accidentally incurring large unexpected charges. Some features may stop working and data may be dropped if your usage exceeds your limit. Click to edit."
+                                        aria-label={`This product has a default initial billing limit of $${initialBillingLimit}. Edit billing limit.`}
+                                        data-attr={`default-billing-limit-${product.type}`}
+                                    >
+                                        <span className="text-sm font-normal">
+                                            This product has a default initial billing limit of{' '}
+                                            <b>${initialBillingLimit}</b>.
                                         </span>
-                                        <LemonButton
-                                            onClick={() => setIsEditingBillingLimit(true)}
-                                            status="danger"
-                                            size="small"
-                                        >
-                                            Set a billing limit
-                                        </LemonButton>
-                                    </>
-                                )}
-                            </>
+                                    </LemonButton>
+                                ) : (
+                                    <LemonButton
+                                        onClick={() => setIsEditingBillingLimit(true)}
+                                        size="small"
+                                        className="max-w-full whitespace-normal"
+                                        sideIcon={<IconPencil />}
+                                        tooltip="Set a billing limit to control your recurring costs. Some features may stop working and data may be dropped if your usage exceeds your limit. Click to edit."
+                                        aria-label={`You have a $${customLimitUsd?.toLocaleString()} billing limit set for ${product.name}. Edit billing limit.`}
+                                        data-attr={`billing-limit-set-${product.type}`}
+                                    >
+                                        <span className="text-sm font-normal">
+                                            You have a <b>${customLimitUsd?.toLocaleString()}</b> billing limit set for{' '}
+                                            {product.name}.
+                                        </span>
+                                    </LemonButton>
+                                )
+                            ) : (
+                                <LemonButton
+                                    onClick={() => setIsEditingBillingLimit(true)}
+                                    size="small"
+                                    className="max-w-full whitespace-normal"
+                                    sideIcon={<IconPencil />}
+                                    tooltip="Some features may stop working and data may be dropped if your usage exceeds your limit."
+                                    aria-label={`You do not have a billing limit set for ${product.name}. Set a billing limit.`}
+                                    data-attr={`billing-limit-not-set-${product.type}`}
+                                >
+                                    <span className="text-sm font-normal">
+                                        You do not have a billing limit set for {product.name}. Set a billing limit.
+                                    </span>
+                                </LemonButton>
+                            )
                         ) : (
                             <div className="flex items-start justify-start gap-2.5">
                                 <LemonField name="input" className="max-w-52" help={billingLimitConfig.help}>
