@@ -7,6 +7,7 @@ import {
     isCommentComponentNode,
     isDiscussionCommentNode,
     isDividerComponentNode,
+    isMermaidCodeBlock,
     isPromptComponentNode,
 } from './documentModel'
 import { EditableCodeBlock } from './EditableCodeBlock'
@@ -22,7 +23,7 @@ import {
     TextSelectionPointerStartEvent,
 } from './editorTypes'
 import { MemoizedNotebookComponentShell } from './NotebookComponentShell'
-import { isMermaidCodeBlock, NotebookMermaidBlock } from './NotebookMermaidBlock'
+import { NotebookMermaidBlock } from './NotebookMermaidBlock'
 import { NotebookBlockNode, NotebookComponentRegistry, NotebookMode } from './types'
 
 export function renderNode({
@@ -72,6 +73,7 @@ export function renderNode({
     submitAIPrompt,
     handleSelectionChange,
     startTextSelectionPointer,
+    onInteractionStateChange,
     restoreSelectionRef,
     rootEditableInputHtmlByNodeIdRef,
 }: {
@@ -121,6 +123,7 @@ export function renderNode({
     submitAIPrompt: (queryOverride?: string) => boolean
     handleSelectionChange: () => void
     startTextSelectionPointer: (event: TextSelectionPointerStartEvent) => void
+    onInteractionStateChange: ((isInteractionActive: boolean) => void) | undefined
     restoreSelectionRef: MutableRefObject<RestoreSelectionRequest | null>
     rootEditableInputHtmlByNodeIdRef: MutableRefObject<Record<string, string>>
 }): JSX.Element {
@@ -231,9 +234,20 @@ export function renderNode({
     }
 
     if (node.type === 'code') {
-        // Render mermaid fences as diagrams in view mode; edit mode keeps the source editable.
-        if (mode === 'view' && isMermaidCodeBlock(node)) {
-            return <NotebookMermaidBlock node={node} setBlockRef={setBlockRef} />
+        if (isMermaidCodeBlock(node)) {
+            return (
+                <NotebookMermaidBlock
+                    node={node}
+                    mode={mode}
+                    setBlockRef={setBlockRef}
+                    updateNode={updateNode}
+                    deleteNode={deleteNode}
+                    deleteSelectedNotebookBlocks={deleteSelectedNotebookBlocks}
+                    insertParagraphAfterNode={insertParagraphAfterNode}
+                    moveFocusToAdjacentNode={moveFocusToAdjacentNode}
+                    onInteractionStateChange={onInteractionStateChange}
+                />
+            )
         }
 
         return (
