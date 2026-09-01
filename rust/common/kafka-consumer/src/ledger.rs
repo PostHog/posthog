@@ -62,9 +62,9 @@ impl OffsetLedger {
     /// When an offset is not above every offset already recorded. Duplicate
     /// or out-of-order delivery is a caller bug, and recording it would
     /// corrupt the commit accounting.
-    pub fn charge(&mut self, offsets: impl IntoIterator<Item = (Offset, Charge)>) -> Charge {
+    pub fn charge(&mut self, offset_charges: impl IntoIterator<Item = (Offset, Charge)>) -> Charge {
         let mut total = Charge::ZERO;
-        for (offset, charge) in offsets {
+        for (offset, charge) in offset_charges {
             let base_offset = *self.base_offset.get_or_insert(offset);
             let next_offset = base_offset + self.slots.len();
             assert!(
