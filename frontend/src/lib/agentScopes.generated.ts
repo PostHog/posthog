@@ -133,6 +133,8 @@ export const AGENT_USE_CASE_SCOPES = [
     'tracing:read',
     'field_note:read',
     'field_note:write',
+    'uploaded_media:read',
+    'uploaded_media:write',
     'usage_metric:read',
     'usage_metric:write',
     'user:read',
