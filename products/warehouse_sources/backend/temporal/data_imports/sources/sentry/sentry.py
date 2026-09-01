@@ -1129,7 +1129,7 @@ def validate_credentials(
         # letting the UnicodeEncodeError surface as a 500.
         return (
             False,
-            "Invalid Sentry auth token. It contains invalid characters, usually from an incorrect copy. "
+            "Invalid Sentry auth token. It contains characters that can't be sent to Sentry. "
             "Copy the token again from Sentry, then reconnect.",
         )
 
