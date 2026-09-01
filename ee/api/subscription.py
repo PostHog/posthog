@@ -386,7 +386,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             },
             "count": {"help_text": "Total number of deliveries before the subscription stops. Null for unlimited."},
             "start_date": {
-                "help_text": "When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. The UI offers :00 and :30 times; API clients may use any minute for backward compatibility."
+                "help_text": (
+                    "When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in "
+                    "the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted "
+                    "for backward compatibility, but delivery happens during the next cycle instead of at that exact minute."
+                )
             },
             "until_date": {"help_text": "When to stop delivering (ISO 8601 datetime). Null for indefinite."},
             "title": {"help_text": "Human-readable name for this subscription."},

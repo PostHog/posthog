@@ -44,6 +44,7 @@ from products.exports.backend.temporal.subscriptions.activities import (
     advance_next_delivery_date,
     create_delivery_record,
     create_export_assets,
+    create_scheduled_delivery_record,
     deliver_subscription,
     deliver_subscription_v2,
     fetch_due_subscriptions_activity,
@@ -65,7 +66,6 @@ from products.exports.backend.temporal.subscriptions.types import (
     CreateExportAssetsInputs,
     DeliverSubscriptionInputs,
     DeliveryStatus,
-    DueSubscription,
     ExportAssetPreparationStatus,
     FetchDueSubscriptionsActivityInputs,
     GenerateAIReportInputs,
@@ -164,31 +164,6 @@ async def test_subscription_slo_failure_summary_counts_unclassified_assets() -> 
     assert summary["unclassified_failed_asset_count"] == 2
 
 
-async def test_scheduler_keeps_legacy_child_workflow_id_for_rollout_compatibility() -> None:
-    due_subscription = DueSubscription(
-        subscription_id=42,
-        team_id=7,
-        distinct_id="test-user",
-        next_delivery_date="2026-09-01T09:30:00+00:00",
-        resource_type=Subscription.ResourceType.INSIGHT,
-    )
-
-    with (
-        patch(
-            "products.exports.backend.temporal.subscriptions.workflows.temporalio.workflow.execute_activity",
-            new=AsyncMock(return_value=[due_subscription]),
-        ),
-        patch(
-            "products.exports.backend.temporal.subscriptions.workflows.temporalio.workflow.execute_child_workflow",
-            new=AsyncMock(return_value=None),
-        ) as execute_child_workflow,
-    ):
-        await ScheduleAllSubscriptionsWorkflow().run(ScheduleAllSubscriptionsWorkflowInputs())
-
-    assert execute_child_workflow.call_args.kwargs["id"] == "process-subscription-42"
-    assert "id_reuse_policy" not in execute_child_workflow.call_args.kwargs
-
-
 async def test_email_delivery_error_is_non_retryable(team, user) -> None:
     subscription = await sync_to_async(create_subscription)(team=team, created_by=user)
     inputs = DeliverSubscriptionInputs(
@@ -254,6 +229,7 @@ SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
     [
         fetch_due_subscriptions_activity,
         create_delivery_record,
+        create_scheduled_delivery_record,
         validate_subscription_for_delivery,
         create_export_assets,
         export_asset_activity,
@@ -270,6 +246,7 @@ SUBSCRIPTION_PROCESS_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
     Sequence[Callable[..., Any]],
     [
         create_delivery_record,
+        create_scheduled_delivery_record,
         validate_subscription_for_delivery,
         create_export_assets,
         export_asset_activity,
@@ -2913,3 +2890,30 @@ async def test_fetch_due_subscriptions_includes_ai_with_resource_type(team, user
     match = next((s for s in fetched if s.subscription_id == sub.id), None)
     assert match is not None, "due AI subscription must be picked up by the shared scheduler fetch"
     assert match.resource_type == Subscription.ResourceType.AI_PROMPT
+
+
+@freeze_time("2026-09-01T09:25:00Z")
+async def test_fetch_due_subscriptions_stops_at_the_next_half_hour_cycle(team, user):
+    next_cycle = await _create_ai_subscription(team, user, target_value="next@posthog.com")
+    later_cycle = await _create_ai_subscription(team, user, target_value="later@posthog.com")
+    await sync_to_async(Subscription.objects.filter(pk=next_cycle.id).update)(
+        next_delivery_date=datetime(2026, 9, 1, 9, 30, 59, tzinfo=ZoneInfo("UTC"))
+    )
+    await sync_to_async(Subscription.objects.filter(pk=later_cycle.id).update)(
+        next_delivery_date=datetime(2026, 9, 1, 9, 31, tzinfo=ZoneInfo("UTC"))
+    )
+
+    first_sweep = await ActivityEnvironment().run(
+        fetch_due_subscriptions_activity, FetchDueSubscriptionsActivityInputs()
+    )
+    first_sweep_ids = {subscription.subscription_id for subscription in first_sweep}
+
+    assert next_cycle.id in first_sweep_ids
+    assert later_cycle.id not in first_sweep_ids
+
+    with freeze_time("2026-09-01T09:55:00Z"):
+        second_sweep = await ActivityEnvironment().run(
+            fetch_due_subscriptions_activity, FetchDueSubscriptionsActivityInputs()
+        )
+
+    assert later_cycle.id in {subscription.subscription_id for subscription in second_sweep}

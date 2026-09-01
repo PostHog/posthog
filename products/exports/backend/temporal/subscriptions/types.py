@@ -6,6 +6,8 @@ from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog.slo.types import SloConfig
 
+from products.exports.backend.constants import SUBSCRIPTION_SCHEDULER_BUFFER_MINUTES
+
 # AI report query failures we never name in owner/recipient-facing copy. The recipient didn't
 # write the query, so the OOM advice is unactionable. Type still lands in diagnostics, logs, and
 # error tracking. Held as a name (not the class) so this module stays free of Django/DRF imports
@@ -133,7 +135,7 @@ class DueSubscription:
 
 @dataclasses.dataclass
 class FetchDueSubscriptionsActivityInputs:
-    buffer_minutes: int = 15
+    buffer_minutes: int = SUBSCRIPTION_SCHEDULER_BUFFER_MINUTES
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -325,6 +327,12 @@ class CreateDeliveryRecordInputs:
     scheduled_at: typing.Optional[str] = None
 
 
+@dataclasses.dataclass(frozen=True)
+class CreateScheduledDeliveryRecordResult:
+    delivery_id: uuid.UUID
+    created: bool
+
+
 @dataclasses.dataclass
 class UpdateDeliveryRecordInputs:
     """Patch a SubscriptionDelivery row. None on optional collections means leave the column unchanged.
@@ -361,7 +369,7 @@ class SnapshotInsightsResult:
 
 @dataclasses.dataclass
 class ScheduleAllSubscriptionsWorkflowInputs:
-    buffer_minutes: int = 15
+    buffer_minutes: int = SUBSCRIPTION_SCHEDULER_BUFFER_MINUTES
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:

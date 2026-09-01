@@ -1,10 +1,12 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import { SubscriptionTimePicker } from './SubscriptionTimePicker'
 
 describe('SubscriptionTimePicker', () => {
+    afterEach(cleanup)
+
     it('only offers half-hour delivery times and preserves the selected minute', () => {
         const onChange = jest.fn()
 

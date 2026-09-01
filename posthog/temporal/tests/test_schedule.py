@@ -10,26 +10,9 @@ from posthog.temporal.ai_observability.trace_clustering import constants as trac
 from posthog.temporal.ai_observability.trace_summarization import constants as trace_summarization_constants
 from posthog.temporal.schedule import (
     cleanup_non_cloud_ai_observability_schedules,
-    create_schedule_all_subscriptions_schedule,
     create_wa_digest_notification_schedule,
     create_wa_weekly_digest_schedule,
 )
-
-
-@pytest.mark.asyncio
-async def test_subscription_schedule_sweeps_for_hour_and_half_hour_deliveries() -> None:
-    captured: list[Schedule] = []
-
-    with (
-        mock.patch("posthog.temporal.schedule.a_schedule_exists", new=mock.AsyncMock(return_value=False)),
-        mock.patch(
-            "posthog.temporal.schedule.a_create_schedule",
-            new=mock.AsyncMock(side_effect=lambda client, schedule_id, schedule, **kwargs: captured.append(schedule)),
-        ),
-    ):
-        await create_schedule_all_subscriptions_schedule(mock.MagicMock())
-
-    assert captured[0].spec.cron_expressions == ["25,55 * * * *"]
 
 
 # Both WA digest schedules pin their task queue, and the worker registers those workflows on

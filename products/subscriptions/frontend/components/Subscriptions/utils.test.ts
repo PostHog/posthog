@@ -102,6 +102,18 @@ describe('getNextDeliveryDate', () => {
         ).toEqual(new Date('2024-01-16T09:30:00Z'))
     })
 
+    it('uses the server lead time when previewing a near-slot delivery', () => {
+        jest.setSystemTime(new Date('2024-01-15T09:24:00Z'))
+
+        expect(
+            getNextDeliveryDate({
+                frequency: 'daily',
+                interval: 1,
+                start_date: '2024-01-01T09:30:00Z',
+            })
+        ).toEqual(new Date('2024-01-16T09:30:00Z'))
+    })
+
     it('computes the next selected daily delivery day', () => {
         const result = getNextDeliveryDate({
             frequency: 'daily',

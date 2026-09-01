@@ -157,12 +157,14 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert activity_inputs.invite_message == "hey there!"
 
     def test_can_create_subscription_for_half_hour_delivery(self):
-        start_date = (timezone.now() + timedelta(days=1)).replace(minute=30, second=0, microsecond=0)
-        response = self._create_subscription(
-            frequency="daily",
-            start_date=start_date.isoformat(),
-            send_test_now=False,
-        )
+        now = datetime(2026, 9, 1, 9, 20, tzinfo=UTC)
+        start_date = datetime(2026, 9, 1, 9, 30, tzinfo=UTC)
+        with patch("products.exports.backend.models.subscription.timezone.now", return_value=now):
+            response = self._create_subscription(
+                frequency="daily",
+                start_date=start_date.isoformat(),
+                send_test_now=False,
+            )
 
         assert response.status_code == status.HTTP_201_CREATED, response.content
         assert datetime.fromisoformat(response.json()["start_date"]) == start_date

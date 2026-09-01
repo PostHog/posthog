@@ -161,7 +161,7 @@ title: 'Daily onboarding watch'
   help; re-create it instead).
 - **`next_delivery_date` is server-computed from the rrule.** Don't try to set it
   manually — it's read-only. The first delivery fires at the first `start_date`
-  occurrence that is at least a short buffer (currently ~15 minutes) in the future,
+  occurrence that is at least a short buffer (currently 7 minutes) in the future,
   so a `start_date` only seconds ahead rolls to the next occurrence.
 - **Transient send failures retry; only permanent failures auto-disable.** A
   transient failure (Slack rate limit, SMTP blip, network) fails that delivery and

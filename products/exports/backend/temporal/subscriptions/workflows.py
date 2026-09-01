@@ -39,6 +39,7 @@ from products.exports.backend.temporal.subscriptions.activities import (
     advance_next_delivery_date,
     create_delivery_record,
     create_export_assets,
+    create_scheduled_delivery_record,
     deliver_subscription,
     deliver_subscription_v2,
     fetch_due_subscriptions_activity,
@@ -57,6 +58,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     AI_PROMPT_RESOURCE_TYPE,
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
+    CreateScheduledDeliveryRecordResult,
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
     DeliveryStatus,
@@ -211,10 +213,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             ),
         )
 
-        # Fan-out child workflows — one per subscription, fully isolated.
-        # Deterministic ID (no run_id suffix) prevents duplicate deliveries when
-        # schedule runs overlap: Temporal guarantees no two open workflows can
-        # share the same ID, so a still-running child rejects the duplicate start.
+        # Fan-out child workflows — one per scheduled occurrence, fully isolated.
         tasks = []
         for sub in subscription_infos:
             tracked = TrackedSubscriptionInputs(
@@ -249,6 +248,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             else:
                 workflow = ProcessSubscriptionWorkflow.run
                 child_id = f"process-subscription-{sub.subscription_id}"
+
             task = temporalio.workflow.execute_child_workflow(
                 workflow,
                 tracked,
@@ -315,23 +315,52 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
         # activity runs.
         change_summary: str | None = None
         summary_skipped_over_budget = False
+        schedule_reconciled = False
 
         try:
+            if (
+                inputs.trigger_type == SubscriptionTriggerType.SCHEDULED
+                and inputs.scheduled_at is not None
+                and temporalio.workflow.patched("subscription-scheduled-delivery-dedupe-2026-09")
+            ):
+                scheduled_delivery: CreateScheduledDeliveryRecordResult = await temporalio.workflow.execute_activity(
+                    create_scheduled_delivery_record,
+                    CreateDeliveryRecordInputs(
+                        subscription_id=inputs.subscription_id,
+                        team_id=inputs.team_id,
+                        trigger_type=inputs.trigger_type,
+                        scheduled_at=inputs.scheduled_at,
+                        temporal_workflow_id=temporalio.workflow.info().workflow_id,
+                        idempotency_key=str(temporalio.workflow.uuid4()),
+                    ),
+                    start_to_close_timeout=dt.timedelta(minutes=2),
+                    retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+                )
+                if not scheduled_delivery.created:
+                    schedule_reconciled = True
+                    temporalio.workflow.logger.info(
+                        "process_subscription.scheduled_delivery_already_exists",
+                        extra={"subscription_id": inputs.subscription_id, "scheduled_at": inputs.scheduled_at},
+                    )
+                    return
+                delivery_id = scheduled_delivery.delivery_id
+
             # Create delivery history record — uuid4() is deterministic across
             # activity retries (replay) but unique across workflow retries.
-            delivery_id = await temporalio.workflow.execute_activity(
-                create_delivery_record,
-                CreateDeliveryRecordInputs(
-                    subscription_id=inputs.subscription_id,
-                    team_id=inputs.team_id,
-                    trigger_type=inputs.trigger_type,
-                    scheduled_at=inputs.scheduled_at,
-                    temporal_workflow_id=temporalio.workflow.info().workflow_id,
-                    idempotency_key=str(temporalio.workflow.uuid4()),
-                ),
-                start_to_close_timeout=dt.timedelta(minutes=2),
-                retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
-            )
+            if delivery_id is None:
+                delivery_id = await temporalio.workflow.execute_activity(
+                    create_delivery_record,
+                    CreateDeliveryRecordInputs(
+                        subscription_id=inputs.subscription_id,
+                        team_id=inputs.team_id,
+                        trigger_type=inputs.trigger_type,
+                        scheduled_at=inputs.scheduled_at,
+                        temporal_workflow_id=temporalio.workflow.info().workflow_id,
+                        idempotency_key=str(temporalio.workflow.uuid4()),
+                    ),
+                    start_to_close_timeout=dt.timedelta(minutes=2),
+                    retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+                )
 
             # Validate up-front: if the subscription is already disabled or its target
             # configuration is permanently broken, auto-disable and short-circuit before
@@ -589,7 +618,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
             # Advance schedule — always for scheduled deliveries, even on failure.
             # The activity itself no-ops when the subscription is disabled, so a
             # just-auto-disabled sub doesn't get a misleading future delivery date.
-            if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED:
+            if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED and not schedule_reconciled:
                 try:
                     await temporalio.workflow.execute_activity(
                         advance_next_delivery_date,
@@ -658,21 +687,50 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
         # Set when a delivered-but-degraded report should record a reason without an exception
         # (every generated query failed). Falls through to update_delivery_record's error column.
         generation_error: dict | None = None
+        schedule_reconciled = False
 
         try:
-            delivery_id = await temporalio.workflow.execute_activity(
-                create_delivery_record,
-                CreateDeliveryRecordInputs(
-                    subscription_id=inputs.subscription_id,
-                    team_id=inputs.team_id,
-                    trigger_type=inputs.trigger_type,
-                    scheduled_at=inputs.scheduled_at,
-                    temporal_workflow_id=temporalio.workflow.info().workflow_id,
-                    idempotency_key=str(temporalio.workflow.uuid4()),
-                ),
-                start_to_close_timeout=dt.timedelta(minutes=2),
-                retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
-            )
+            if (
+                inputs.trigger_type == SubscriptionTriggerType.SCHEDULED
+                and inputs.scheduled_at is not None
+                and temporalio.workflow.patched("subscription-scheduled-delivery-dedupe-2026-09")
+            ):
+                scheduled_delivery: CreateScheduledDeliveryRecordResult = await temporalio.workflow.execute_activity(
+                    create_scheduled_delivery_record,
+                    CreateDeliveryRecordInputs(
+                        subscription_id=inputs.subscription_id,
+                        team_id=inputs.team_id,
+                        trigger_type=inputs.trigger_type,
+                        scheduled_at=inputs.scheduled_at,
+                        temporal_workflow_id=temporalio.workflow.info().workflow_id,
+                        idempotency_key=str(temporalio.workflow.uuid4()),
+                    ),
+                    start_to_close_timeout=dt.timedelta(minutes=2),
+                    retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+                )
+                if not scheduled_delivery.created:
+                    schedule_reconciled = True
+                    temporalio.workflow.logger.info(
+                        "process_ai_subscription.scheduled_delivery_already_exists",
+                        extra={"subscription_id": inputs.subscription_id, "scheduled_at": inputs.scheduled_at},
+                    )
+                    return
+                delivery_id = scheduled_delivery.delivery_id
+
+            if delivery_id is None:
+                delivery_id = await temporalio.workflow.execute_activity(
+                    create_delivery_record,
+                    CreateDeliveryRecordInputs(
+                        subscription_id=inputs.subscription_id,
+                        team_id=inputs.team_id,
+                        trigger_type=inputs.trigger_type,
+                        scheduled_at=inputs.scheduled_at,
+                        temporal_workflow_id=temporalio.workflow.info().workflow_id,
+                        idempotency_key=str(temporalio.workflow.uuid4()),
+                    ),
+                    start_to_close_timeout=dt.timedelta(minutes=2),
+                    retry_policy=SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
+                )
 
             # Up-front validation: already-disabled (idempotency redispatch) or a
             # permanently broken target (e.g. unsupported target_type) auto-disables and
@@ -815,7 +873,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
             # Advance schedule for scheduled deliveries even on failure — the activity
             # no-ops when the subscription is disabled, so a just-auto-disabled sub
             # doesn't get a misleading future delivery date.
-            if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED:
+            if inputs.trigger_type == SubscriptionTriggerType.SCHEDULED and not schedule_reconciled:
                 try:
                     await temporalio.workflow.execute_activity(
                         advance_next_delivery_date,

@@ -5,6 +5,7 @@ import datetime as dt
 import dataclasses
 from datetime import datetime
 
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone as tz
 
@@ -31,6 +32,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     CreateExportAssetsResult,
+    CreateScheduledDeliveryRecordResult,
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
     DeliveryAbort,
@@ -185,7 +187,16 @@ async def _persist_content_snapshot(
 
 @temporalio.activity.defn
 async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivityInputs) -> list[DueSubscription]:
-    now_with_buffer = dt.datetime.now(dt.UTC) + dt.timedelta(minutes=inputs.buffer_minutes)
+    now = dt.datetime.now(dt.UTC)
+    cycle_start = now.replace(minute=(now.minute // 30) * 30, second=0, microsecond=0)
+    cycle_end = cycle_start + dt.timedelta(minutes=1) - dt.timedelta(microseconds=1)
+    next_cycle_start = cycle_start + dt.timedelta(minutes=30)
+    if now <= cycle_end:
+        now_with_buffer = cycle_end
+    elif next_cycle_start - now <= dt.timedelta(minutes=inputs.buffer_minutes):
+        now_with_buffer = next_cycle_start + dt.timedelta(minutes=1) - dt.timedelta(microseconds=1)
+    else:
+        now_with_buffer = now
     await LOGGER.ainfo("Fetching due subscriptions", deadline=now_with_buffer)
 
     @database_sync_to_async(thread_sensitive=False)
@@ -538,6 +549,65 @@ async def _deliver_insight_dashboard_subscription(
         "deliver_subscription.completed",
         subscription_id=inputs.subscription_id,
         target_type=subscription.target_type,
+    )
+    return result
+
+
+@temporalio.activity.defn
+async def create_scheduled_delivery_record(
+    inputs: CreateDeliveryRecordInputs,
+) -> CreateScheduledDeliveryRecordResult:
+    if inputs.scheduled_at is None:
+        raise ValueError("scheduled_at is required for scheduled delivery records")
+    scheduled_at = datetime.fromisoformat(inputs.scheduled_at)
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _create() -> CreateScheduledDeliveryRecordResult:
+        with transaction.atomic():
+            subscription = (
+                Subscription.objects.select_for_update(of=("self",))
+                .select_related("insight", "dashboard")
+                .get(pk=inputs.subscription_id)
+            )
+            if subscription.team_id != inputs.team_id:
+                raise ValueError(
+                    f"Subscription team_id ({subscription.team_id}) does not match inputs.team_id ({inputs.team_id})"
+                )
+
+            delivery = SubscriptionDelivery.objects.filter(idempotency_key=inputs.idempotency_key).first()
+            if delivery is not None:
+                return CreateScheduledDeliveryRecordResult(delivery_id=delivery.id, created=True)
+
+            delivery = SubscriptionDelivery.objects.filter(
+                subscription_id=inputs.subscription_id,
+                scheduled_at=scheduled_at,
+            ).first()
+            if delivery is not None:
+                if subscription.enabled and subscription.next_delivery_date == scheduled_at:
+                    subscription.set_next_delivery_date(subscription.next_delivery_date)
+                    subscription.save(update_fields=["next_delivery_date"])
+                return CreateScheduledDeliveryRecordResult(delivery_id=delivery.id, created=False)
+
+            delivery = SubscriptionDelivery.objects.create(
+                subscription=subscription,
+                team_id=inputs.team_id,
+                temporal_workflow_id=inputs.temporal_workflow_id,
+                idempotency_key=inputs.idempotency_key,
+                trigger_type=inputs.trigger_type,
+                scheduled_at=scheduled_at,
+                target_type=subscription.target_type,
+                target_value=subscription.target_value,
+                content_snapshot=build_initial_content_snapshot(subscription),
+                status=SubscriptionDelivery.Status.STARTING,
+            )
+            return CreateScheduledDeliveryRecordResult(delivery_id=delivery.id, created=True)
+
+    result = await _create()
+    await LOGGER.ainfo(
+        "create_scheduled_delivery_record.completed",
+        subscription_id=inputs.subscription_id,
+        delivery_id=result.delivery_id,
+        created=result.created,
     )
     return result
 

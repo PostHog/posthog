@@ -247,6 +247,9 @@ const RRULE_FREQ_MAP: Record<string, number> = {
     yearly: RRule.YEARLY,
 }
 
+// Keep in sync with products/exports/backend/constants.py.
+const SUBSCRIPTION_MINIMUM_LEAD_MINUTES = 7
+
 // Client-side preview only — the authoritative next delivery date is computed
 // server-side in posthog/models/subscription.py (Subscription.set_next_delivery_date)
 export function getNextDeliveryDate(subscription: Partial<SubscriptionType>): Date | null {
@@ -261,7 +264,7 @@ export function getNextDeliveryDate(subscription: Partial<SubscriptionType>): Da
             byweekday: subscription.byweekday?.map((d) => RRULE_WEEKDAY_MAP[d]) ?? null,
             bysetpos: subscription.frequency === 'monthly' ? (subscription.bysetpos ?? null) : null,
         })
-        return rule.after(new Date())
+        return rule.after(new Date(Date.now() + SUBSCRIPTION_MINIMUM_LEAD_MINUTES * 60 * 1000))
     } catch {
         return null
     }

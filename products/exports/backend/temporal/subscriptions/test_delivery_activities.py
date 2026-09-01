@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -17,6 +18,7 @@ from products.exports.backend.temporal.subscriptions.activities import (
     advance_next_delivery_date,
     create_delivery_record,
     create_export_assets,
+    create_scheduled_delivery_record,
     deliver_subscription,
     deliver_subscription_v2,
     update_delivery_record,
@@ -25,7 +27,9 @@ from products.exports.backend.temporal.subscriptions.activities import (
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import generate_ai_subscription_report
 from products.exports.backend.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from products.exports.backend.temporal.subscriptions.types import (
+    CreateDeliveryRecordInputs,
     CreateExportAssetsResult,
+    CreateScheduledDeliveryRecordResult,
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
     GenerateAIReportResult,
@@ -180,6 +184,150 @@ async def test_process_ai_subscription_picks_delivery_activity_from_patch(patch_
     assert picked is (deliver_subscription_v2 if patch_active else deliver_subscription)
     assert inputs.slo is not None
     assert inputs.slo.completion_properties["target_type"] == "slack"
+
+
+@pytest.mark.parametrize(
+    "workflow_type",
+    [ProcessSubscriptionWorkflow, ProcessAISubscriptionWorkflow],
+    ids=["standard", "ai"],
+)
+async def test_scheduled_delivery_skips_duplicate_occurrence_without_advancing_again(
+    workflow_type: type[ProcessSubscriptionWorkflow] | type[ProcessAISubscriptionWorkflow],
+) -> None:
+    activities: list[object] = []
+
+    async def fake_execute_activity(activity: object, _inputs: object = None, **_kwargs: object) -> object:
+        activities.append(activity)
+        if activity is create_scheduled_delivery_record:
+            return CreateScheduledDeliveryRecordResult(delivery_id=uuid.uuid4(), created=False)
+        raise AssertionError(f"unexpected activity {activity}")
+
+    with (
+        patch("temporalio.workflow.execute_activity", side_effect=fake_execute_activity),
+        patch("temporalio.workflow.info") as mock_info,
+        patch(
+            "temporalio.workflow.patched",
+            side_effect=lambda patch_id: patch_id == "subscription-scheduled-delivery-dedupe-2026-09",
+        ),
+        patch("temporalio.workflow.uuid4", return_value=uuid.uuid4()),
+        patch("temporalio.workflow.logger", MagicMock()),
+    ):
+        mock_info.return_value = MagicMock(workflow_id="wf-test")
+        await workflow_type().run(
+            TrackedSubscriptionInputs(
+                subscription_id=1,
+                team_id=1,
+                distinct_id="u1",
+                trigger_type=SubscriptionTriggerType.SCHEDULED,
+                scheduled_at="2026-09-01T09:30:00+00:00",
+            )
+        )
+
+    assert activities == [create_scheduled_delivery_record]
+
+
+@pytest.mark.parametrize(
+    "workflow_type",
+    [ProcessSubscriptionWorkflow, ProcessAISubscriptionWorkflow],
+    ids=["standard", "ai"],
+)
+async def test_scheduled_record_failure_advances_schedule_and_propagates(
+    workflow_type: type[ProcessSubscriptionWorkflow] | type[ProcessAISubscriptionWorkflow],
+) -> None:
+    record_error = RuntimeError("record creation failed")
+    activities: list[object] = []
+
+    async def fake_execute_activity(activity: object, _inputs: object = None, **_kwargs: object) -> object:
+        activities.append(activity)
+        if activity is create_scheduled_delivery_record:
+            raise record_error
+        if activity is advance_next_delivery_date:
+            return None
+        raise AssertionError(f"unexpected activity {activity}")
+
+    slo = SloConfig(
+        operation=SloOperation.SUBSCRIPTION_DELIVERY,
+        area=SloArea.ANALYTIC_PLATFORM,
+        team_id=1,
+        resource_id="1",
+        distinct_id="u1",
+    )
+    with (
+        patch("temporalio.workflow.execute_activity", side_effect=fake_execute_activity),
+        patch(
+            "temporalio.workflow.patched",
+            side_effect=lambda patch_id: patch_id == "subscription-scheduled-delivery-dedupe-2026-09",
+        ),
+        patch("temporalio.workflow.info") as mock_info,
+        patch("temporalio.workflow.uuid4", return_value=uuid.uuid4()),
+        patch("temporalio.workflow.logger", MagicMock()),
+    ):
+        mock_info.return_value = MagicMock(workflow_id="wf-test")
+        with pytest.raises(RuntimeError, match="record creation failed") as exc_info:
+            await workflow_type().run(
+                TrackedSubscriptionInputs(
+                    subscription_id=1,
+                    team_id=1,
+                    distinct_id="u1",
+                    trigger_type=SubscriptionTriggerType.SCHEDULED,
+                    scheduled_at="2026-09-01T09:30:00+00:00",
+                    slo=slo,
+                )
+            )
+
+    assert exc_info.value is record_error
+    assert activities == [create_scheduled_delivery_record, advance_next_delivery_date]
+    assert slo.completion_properties["failure_stage"] == "delivery_record"
+
+
+async def test_create_scheduled_delivery_record_reconciles_duplicate_once(team, user) -> None:
+    scheduled_at = datetime(2026, 9, 1, 9, 30, tzinfo=UTC)
+    subscription = await sync_to_async(create_subscription)(team=team, created_by=user)
+    subscription.next_delivery_date = scheduled_at
+    await sync_to_async(subscription.save)(update_fields=["next_delivery_date"])
+    first_inputs = CreateDeliveryRecordInputs(
+        subscription_id=subscription.id,
+        team_id=team.id,
+        temporal_workflow_id="first-sweep",
+        idempotency_key="first-sweep-run",
+        trigger_type=SubscriptionTriggerType.SCHEDULED,
+        scheduled_at=scheduled_at.isoformat(),
+    )
+
+    first_result = await create_scheduled_delivery_record(first_inputs)
+    assert first_result.created is True
+
+    retry_result = await create_scheduled_delivery_record(first_inputs)
+    assert retry_result == first_result
+
+    duplicate_result = await create_scheduled_delivery_record(
+        CreateDeliveryRecordInputs(
+            subscription_id=subscription.id,
+            team_id=team.id,
+            temporal_workflow_id="second-sweep",
+            idempotency_key="second-sweep-run",
+            trigger_type=SubscriptionTriggerType.SCHEDULED,
+            scheduled_at=scheduled_at.isoformat(),
+        )
+    )
+    assert duplicate_result.delivery_id == first_result.delivery_id
+    assert duplicate_result.created is False
+    await sync_to_async(subscription.refresh_from_db)()
+    next_delivery_date = subscription.next_delivery_date
+    assert next_delivery_date is not None and next_delivery_date > scheduled_at
+
+    await create_scheduled_delivery_record(
+        CreateDeliveryRecordInputs(
+            subscription_id=subscription.id,
+            team_id=team.id,
+            temporal_workflow_id="third-sweep",
+            idempotency_key="third-sweep-run",
+            trigger_type=SubscriptionTriggerType.SCHEDULED,
+            scheduled_at=scheduled_at.isoformat(),
+        )
+    )
+    await sync_to_async(subscription.refresh_from_db)()
+    assert subscription.next_delivery_date == next_delivery_date
 
 
 @pytest.mark.parametrize(
