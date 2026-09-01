@@ -42,6 +42,7 @@ from posthog.uuidt import uuid7
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS, PR_LOOP_ENABLED_STATE_KEY
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.feature_flags import is_task_run_stream_presence_gated, run_stream_presence_gated
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_task_run_created, observe_task_run_dispatch_callback
 from products.tasks.backend.pr_urls import read_pr_urls
@@ -675,6 +676,7 @@ class Task(DeletedMetaFields, models.Model):
 
             # Pin the stream-routing decision once so every reader/writer agrees for this run's life.
             state.setdefault("use_dedicated_stream", dedicated_stream)
+            state.setdefault("stream_presence_gated", is_task_run_stream_presence_gated(task.origin_product))
             is_resume = bool(resume_from_run_id)
             has_pending = _has_pending_user_input(extra_state or {})
             stamp_pending_user_message_id(state)
@@ -2772,7 +2774,12 @@ class TaskRun(models.Model):
         }
 
     def publish_stream_event(self, event: dict[str, Any]) -> None:
-        publish_task_run_stream_event(str(self.id), event, run_uses_dedicated_stream(self.state))
+        publish_task_run_stream_event(
+            str(self.id),
+            event,
+            run_uses_dedicated_stream(self.state),
+            presence_gated=run_stream_presence_gated(self.state),
+        )
 
     def publish_stream_state_event(self) -> None:
         self.publish_stream_event(self.build_stream_state_event())
