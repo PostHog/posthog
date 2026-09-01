@@ -70,7 +70,6 @@ class PostgresProducer:
         is_first_ever_sync: bool = False,
         cdc_write_mode: str | None = None,
         cdc_table_mode: str | None = None,
-        cdc_run_start_position: int | None = None,
         workflow_id: str | None = None,
         workflow_run_id: str | None = None,
     ) -> None:
@@ -92,7 +91,6 @@ class PostgresProducer:
         self._is_first_ever_sync = is_first_ever_sync
         self._cdc_write_mode = cdc_write_mode
         self._cdc_table_mode = cdc_table_mode
-        self._cdc_run_start_position = cdc_run_start_position
         self._workflow_id = workflow_id
         self._workflow_run_id = workflow_run_id
 
@@ -143,8 +141,6 @@ class PostgresProducer:
             metadata["cdc_write_mode"] = self._cdc_write_mode
         if self._cdc_table_mode is not None:
             metadata["cdc_table_mode"] = self._cdc_table_mode
-        if self._cdc_run_start_position is not None:
-            metadata["cdc_run_start_position"] = self._cdc_run_start_position
         # Producer runs inside a Temporal activity; pass ids through so the consumer
         # can bind log context without re-querying ExternalDataJob.
         if self._workflow_id is not None:

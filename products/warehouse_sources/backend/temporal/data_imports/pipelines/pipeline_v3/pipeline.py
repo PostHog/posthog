@@ -209,7 +209,6 @@ class PipelineV3(Generic[ResumableData]):
             logger=self._logger,
             primary_keys=self._resource.primary_keys,
             cdc_write_mode=self._resource.cdc_write_mode,
-            cdc_run_start_position=self._resource.cdc_run_start_position,
             is_resume=is_resume,
             partition_count=partition_count,
             partition_size=partition_size,

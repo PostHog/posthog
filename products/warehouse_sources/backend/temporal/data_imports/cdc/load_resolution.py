@@ -38,7 +38,6 @@ SCD2_APPEND_MODE: Final = "scd2_append"
 class ResolutionStats:
     superseded: int
     duplicate_key: int
-    replayed: int
 
 
 @frozen
@@ -129,58 +128,69 @@ def dedupe_keep_highest_seq(table: pa.Table, primary_keys: list[str]) -> tuple[p
     return table.take(pa.array(keep, type=pa.int64())), table.num_rows - len(keep)
 
 
-def drop_replayed_watermark_rows(
-    table: pa.Table, *, watermark: int | None, existing_at_watermark: int
-) -> tuple[pa.Table, int]:
-    """Skip the prefix of watermark rows the target table already holds — the append lane's
-    replay guard.
-
-    `drop_superseded_rows` keeps rows AT the watermark so a transaction split across buffer
-    files is never truncated, and an upsert makes re-applying them a no-op. An append lane has
-    no upsert: re-applying writes duplicate history rows, and the trailing buffer file is
-    re-read on every sync until its deletion proof matures.
-
-    Rows at the watermark all belong to one transaction (the position is the commit's end LSN),
-    and every run reads them in one canonical order — files sort by position and index, row
-    order within a file is fixed, and batches commit in index order under the run-scoped
-    head-of-line gate. So the target table always holds a prefix of what this run read, and its
-    row count at the watermark says exactly how many rows to skip.
-    """
-    if watermark is None or existing_at_watermark <= 0 or not has_engine_seq(table) or table.num_rows == 0:
-        return table, 0
-
-    seqs = table.column(CDC_SEQ_COLUMN).to_pylist()
-    at_watermark = [i for i, s in enumerate(seqs) if s == watermark]
-    replayed = set(at_watermark[:existing_at_watermark])
-    if not replayed:
-        return table, 0
-    keep = [i for i in range(table.num_rows) if i not in replayed]
-    return table.take(pa.array(keep, type=pa.int64())), len(replayed)
-
-
-def read_load_position(sync_type_config: dict | None, resource_name: str) -> int | None:
-    positions = (sync_type_config or {}).get(LOAD_POSITION_CONFIG_KEY) or {}
-    value = positions.get(resource_name)
+def _coerce_position(value: Any) -> int | None:
     return int(value) if isinstance(value, int) or (isinstance(value, str) and value.isdigit()) else None
 
 
-def persist_load_position(schema_id: Any, team_id: int, resource_name: str, position: int) -> None:
-    """Record the position — only ever after the commit lands.
+def read_load_position(sync_type_config: dict | None, resource_name: str) -> int | None:
+    position, _rows = read_load_state(sync_type_config, resource_name)
+    return position
 
-    That ordering is the safety argument: this value can then only lag the table, never lead it.
-    Lagging re-applies rows, which the upsert makes a no-op; leading would skip rows that were never
-    written. The locked merge keeps capture's concurrent write to the same JSON column intact.
+
+def read_load_state(sync_type_config: dict | None, resource_name: str) -> tuple[int | None, int]:
+    """This lane's applied position, and how many of its rows AT that position already landed.
+
+    A position alone cannot say how much of its transaction landed — every event of a transaction
+    carries the commit's end LSN, so the position repeats across all of them. The count is what
+    lets a re-read skip exactly the rows already applied and keep the rest.
+
+    Reads the bare-int shape this key held before the count existed as "position, nothing known to
+    have landed at it", which re-applies that transaction rather than skipping past it.
+    """
+    positions = (sync_type_config or {}).get(LOAD_POSITION_CONFIG_KEY) or {}
+    value = positions.get(resource_name)
+    if isinstance(value, dict):
+        return _coerce_position(value.get("position")), max(0, int(value.get("rows_at_position") or 0))
+    return _coerce_position(value), 0
+
+
+def persist_load_position(
+    schema_id: Any, team_id: int, resource_name: str, position: int, *, rows_at_position: int = 0
+) -> None:
+    """Record the position and how many rows landed at it — only ever after the commit lands.
+
+    That ordering is the safety argument: these values can then only lag the table, never lead it.
+    Lagging re-applies rows, which the upsert makes a no-op and the append lane's skip absorbs;
+    leading would skip rows that were never written. The locked merge keeps capture's concurrent
+    write to the same JSON column intact.
+
+    Batches of one run land the same position one after another, so a batch at the position already
+    recorded ADDS its rows rather than replacing the count — what landed at a transaction is the sum
+    across every batch that carried part of it.
     """
     from products.warehouse_sources.backend.models.external_data_schema import update_sync_type_config_keys
 
     def _merge(config: dict[str, Any]) -> None:
         positions = config.setdefault(LOAD_POSITION_CONFIG_KEY, {})
-        current = positions.get(resource_name)
+        current_position, current_rows = read_load_state({LOAD_POSITION_CONFIG_KEY: positions}, resource_name)
         # Monotonic, so a retried older batch can't rewind the guard for later ones.
-        if current is None or int(current) < position:
-            positions[resource_name] = position
+        if current_position is None or current_position < position:
+            positions[resource_name] = {"position": position, "rows_at_position": rows_at_position}
+        elif current_position == position:
+            positions[resource_name] = {"position": position, "rows_at_position": current_rows + rows_at_position}
 
     update_sync_type_config_keys(schema_id, team_id, mutate=_merge)
+
+
+def rows_at_max_seq(table: pa.Table) -> int:
+    """How many of this batch's rows sit at its highest position."""
+    if not has_engine_seq(table) or table.num_rows == 0:
+        return 0
+    seqs = [seq for seq in table.column(CDC_SEQ_COLUMN).to_pylist() if seq is not None]
+    if not seqs:
+        return 0
+    top = max(seqs)
+    return sum(1 for seq in seqs if seq == top)
 
 
 class UnresolvedAppendError(RuntimeError):
@@ -216,21 +226,19 @@ def resolve_batch(
     *,
     watermark: int | None,
     cdc_write_mode: str | None,
-    existing_at_watermark: int = 0,
 ) -> tuple[pa.Table, ResolutionStats]:
-    """Resolve one lane's batch. Only the consolidated lane dedupes — see SCD2_APPEND_MODE."""
+    """Resolve one lane's batch. Only the consolidated lane dedupes — see SCD2_APPEND_MODE.
+
+    The append lane's replay is settled upstream, as the buffer is read: only the reader knows how
+    far into a position's rows the last run got, and it reads them in one canonical order.
+    """
     table, superseded = drop_superseded_rows(table, watermark)
 
     duplicates = 0
-    replayed = 0
     if cdc_write_mode != SCD2_APPEND_MODE:
         table, duplicates = dedupe_keep_highest_seq(table, primary_keys)
-    else:
-        table, replayed = drop_replayed_watermark_rows(
-            table, watermark=watermark, existing_at_watermark=existing_at_watermark
-        )
 
-    return table, ResolutionStats(superseded=superseded, duplicate_key=duplicates, replayed=replayed)
+    return table, ResolutionStats(superseded=superseded, duplicate_key=duplicates)
 
 
 def verify_delete_enrichment(

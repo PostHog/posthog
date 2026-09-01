@@ -90,12 +90,19 @@ class _FakeS3:
 
 
 @contextlib.contextmanager
-def _patched(s3: _FakeS3, load_position: int | None, proof_time: dt.datetime | None):
+def _patched(
+    s3: _FakeS3,
+    load_position: int | None,
+    proof_time: dt.datetime | None,
+    applied_position: int | None = None,
+    applied_rows: int = 0,
+):
     with (
         patch(
             "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.aget_s3_client"
         ) as mock_client,
         patch.object(CDCSourceManager, "_read_consume_state", AsyncMock(return_value=(load_position, {}))),
+        patch.object(CDCSourceManager, "_read_applied_state", AsyncMock(return_value=(applied_position, applied_rows))),
         patch.object(CDCSourceManager, "_completed_listing_time", AsyncMock(return_value=proof_time)),
         patch.object(CDCSourceManager, "_stamp_listing", AsyncMock()) as mock_stamp,
         patch(
@@ -120,9 +127,11 @@ async def _collect(
     s3: _FakeS3,
     load_position: int | None = None,
     proof_time: dt.datetime | None = None,
+    applied_position: int | None = None,
+    applied_rows: int = 0,
     **kwargs,
 ) -> list[pa.Table]:
-    with _patched(s3, load_position, proof_time):
+    with _patched(s3, load_position, proof_time, applied_position, applied_rows):
         return [t async for t in _manager().get_items("users", **kwargs)]
 
 
@@ -432,33 +441,47 @@ class TestMultiLaneDeletionFloor:
 
 
 @pytest.mark.asyncio
-class TestLaneTableTransformer:
-    async def test_the_transformer_sees_one_batch_not_one_file(self):
-        # The companion lane derives SCD2's `valid_to` from the next event for the same key, so a
-        # per-file transform would close a row the following file reopens.
+class TestAppliedPrefixSkip:
+    """The append lane re-reads a position's rows until the file is deleted.
+
+    A position repeats across every event of its transaction, so only the count of rows already
+    applied says where the last run stopped. These prove the reader skips exactly that prefix.
+    """
+
+    async def test_rows_already_applied_at_the_position_are_skipped(self):
+        s3 = _FakeS3({_key(100, 200): _parquet_bytes(_table([1, 2, 3], [200, 200, 200]))})
+
+        tables = await _collect(s3, applied_position=200, applied_rows=2)
+
+        assert tables[0].column("id").to_pylist() == [3]
+
+    async def test_the_skip_spans_files_that_share_the_position(self):
+        # One transaction can fill several files; the applied prefix runs across them in order.
         s3 = _FakeS3(
             {
-                _key(100, 199): _parquet_bytes(_table([1], [100])),
-                _key(200, 299): _parquet_bytes(_table([1], [200])),
+                _key(200, 200, 0): _parquet_bytes(_table([1, 2], [200, 200])),
+                _key(200, 200, 1): _parquet_bytes(_table([3, 4], [200, 200])),
             }
         )
-        seen: list[int] = []
 
-        def _record(table: pa.Table) -> pa.Table:
-            seen.append(table.num_rows)
-            return table.append_column("lane", pa.array(["companion"] * table.num_rows))
+        tables = await _collect(s3, applied_position=200, applied_rows=3)
 
-        tables = await _collect(s3, table_transformer=_record)
+        assert tables[0].column("id").to_pylist() == [4]
 
-        assert seen == [2]
-        assert tables[0].column("lane").to_pylist() == ["companion", "companion"]
+    async def test_rows_past_the_position_are_never_skipped(self):
+        # The budget is spent on the position's own rows; a later transaction is new ground.
+        s3 = _FakeS3({_key(100, 300): _parquet_bytes(_table([1, 2], [200, 300]))})
 
-    async def test_a_lane_without_a_transformer_yields_the_rows_as_buffered(self):
-        s3 = _FakeS3({_key(100, 199): _parquet_bytes(_table([1], [100]))})
+        tables = await _collect(s3, applied_position=200, applied_rows=5)
 
-        tables = await _collect(s3)
+        assert tables[0].column("id").to_pylist() == [2]
 
-        assert tables[0].column_names == ["id", CDC_SEQ_COLUMN]
+    async def test_nothing_is_skipped_when_no_rows_are_known_applied(self):
+        s3 = _FakeS3({_key(100, 200): _parquet_bytes(_table([1, 2], [200, 200]))})
+
+        tables = await _collect(s3, applied_position=200, applied_rows=0)
+
+        assert tables[0].column("id").to_pylist() == [1, 2]
 
 
 class TestPendingLegacyBacklog:

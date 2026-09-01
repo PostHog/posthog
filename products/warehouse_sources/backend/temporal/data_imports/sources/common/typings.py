@@ -70,10 +70,6 @@ class SourceResponse:
     """Set by a source serving change events, naming the lane the loader writes
     (`incremental_merge`). Drives the loader's CDC enrichment and position resolution, and marks the
     run incremental — a change stream must never write as a full_refresh overwrite."""
-    cdc_run_start_position: Optional[int] = None
-    """Change lanes that append: this lane's recorded position when the run began. The loader
-    resolves every batch of the run against it, so a batch cannot mistake rows an earlier batch of
-    the same run just wrote for a replay to skip."""
     chunk_size: Optional[int] = None
     """Override the batcher's rows-per-chunk (defaults to DEFAULT_CHUNK_SIZE)."""
     chunk_size_bytes: Optional[int] = None

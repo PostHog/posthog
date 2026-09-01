@@ -98,7 +98,7 @@ class Command(BaseCommand):
             return
         if not rollback:
             # No pipeline-version gate: the scheduled sync forces the v3 pipeline for
-            # buffered-consolidated schemas (scheduled_sync_consumes_buffer), so the flip does
+            # schemas that consume the buffer (scheduled_sync_consumes_buffer), so the flip does
             # not depend on the team's general rollout flag.
             self._require_write_resolution(source, eligible)
             self._require_no_reserved_columns(eligible)
@@ -221,7 +221,7 @@ class Command(BaseCommand):
         self.stdout.write("5/7 purging pre-flip buffer files")
         for schema in cdc_schemas:
             purge_buffer_prefix(source.team_id, str(schema.id), logger)
-        self._verify_prefixes_empty(source.team_id, eligible)
+        self._verify_prefixes_empty(source.team_id, cdc_schemas)
 
         # The step-3 wait sees job rows only; a workflow fired just before the pause may not have
         # created its row yet. By now it has, so one more wait closes the straddle window.
@@ -319,10 +319,6 @@ class Command(BaseCommand):
             behind: list[str] = []
             for schema in schemas:
                 schema.refresh_from_db(fields=["sync_type_config"])
-                # The slowest lane decides: a file the companion has not taken is not drained,
-                # however far ahead the consolidated lane is. A lane that never recorded a position
-                # has never consumed, so no file can sit below its floor — report that rather than
-                # blocking forever on a floor of zero.
                 # The slowest lane decides: a file the companion has not taken is not drained,
                 # however far ahead the consolidated lane is. A lane that never recorded a position
                 # floors at zero, so every file blocks — correct, since nothing proves it applied.

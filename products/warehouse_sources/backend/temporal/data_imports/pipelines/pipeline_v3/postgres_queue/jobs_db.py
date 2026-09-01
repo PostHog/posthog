@@ -510,7 +510,6 @@ class PendingBatch:
             "partition_mode": self.metadata.get("partition_mode"),
             "cdc_write_mode": self.metadata.get("cdc_write_mode"),
             "cdc_table_mode": self.metadata.get("cdc_table_mode"),
-            "cdc_run_start_position": self.metadata.get("cdc_run_start_position"),
         }
 
 

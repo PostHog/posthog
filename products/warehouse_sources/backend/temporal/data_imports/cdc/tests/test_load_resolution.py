@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     is_cdc_write_resolution_enabled,
     persist_load_position,
     read_load_position,
+    read_load_state,
     require_resolution_for_append,
     resolve_batch,
     verify_delete_enrichment,
@@ -198,59 +199,6 @@ class TestResolveBatch:
         assert stats.superseded == 1
         assert result.column("name").to_pylist() == ["v2"]
 
-    def test_history_lane_skips_the_watermark_prefix_the_table_already_holds(self):
-        # The trailing file is re-read until its deletion proof matures; position alone cannot
-        # drop its rows because a transaction shares one position. The table's own count can.
-        table = _batch([1, 2, 3], ["d1", "d2", "new"], ["D", "D", "I"], seqs=[20, 20, 30])
-        result, stats = resolve_batch(
-            table, ["id"], watermark=20, cdc_write_mode=SCD2_APPEND_MODE, existing_at_watermark=2
-        )
-
-        assert stats.replayed == 2
-        assert result.column("name").to_pylist() == ["new"]
-
-    def test_history_lane_appends_the_unread_tail_of_a_split_transaction(self):
-        # The table holds a prefix of the transaction (one file consumed, its sibling raced the
-        # listing); the tail must still land, in order.
-        table = _batch([1, 2, 3], ["u1", "u2", "u3"], ["U", "U", "U"], seqs=[20, 20, 20])
-        result, stats = resolve_batch(
-            table, ["id"], watermark=20, cdc_write_mode=SCD2_APPEND_MODE, existing_at_watermark=1
-        )
-
-        assert stats.replayed == 1
-        assert result.column("name").to_pylist() == ["u2", "u3"]
-
-    def test_history_lane_keeps_a_fresh_watermark_group_whole(self):
-        table = _batch([1, 2], ["a", "b"], ["I", "I"], seqs=[20, 20])
-        result, stats = resolve_batch(
-            table, ["id"], watermark=20, cdc_write_mode=SCD2_APPEND_MODE, existing_at_watermark=0
-        )
-
-        assert stats.replayed == 0
-        assert result.column("name").to_pylist() == ["a", "b"]
-
-    def test_the_replay_guard_never_touches_rows_past_the_watermark(self):
-        # An over-count (more table rows at the position than this batch carries) must exhaust
-        # against watermark rows only — later transactions are new ground.
-        table = _batch([1, 2], ["old", "new"], ["U", "I"], seqs=[20, 30])
-        result, stats = resolve_batch(
-            table, ["id"], watermark=20, cdc_write_mode=SCD2_APPEND_MODE, existing_at_watermark=5
-        )
-
-        assert stats.replayed == 1
-        assert result.column("name").to_pylist() == ["new"]
-
-    def test_the_replay_guard_is_append_lane_only(self):
-        # The merge lane upserts, so re-applying is already a no-op — prefix-skipping there
-        # would race the dedupe and drop legitimate rows.
-        table = _batch([1, 2], ["a", "b"], ["U", "I"], seqs=[20, 30])
-        result, stats = resolve_batch(
-            table, ["id"], watermark=20, cdc_write_mode="incremental_merge", existing_at_watermark=5
-        )
-
-        assert stats.replayed == 0
-        assert result.column("name").to_pylist() == ["a", "b"]
-
     def test_source_owned_seq_column_disables_resolution_entirely(self):
         table = _batch([1, 1], ["old", "new"], ["I", "U"], seqs=[99, 1], engine_seq=False)
         result, stats = resolve_batch(table, ["id"], watermark=50, cdc_write_mode="incremental_merge")
@@ -374,15 +322,25 @@ class TestLoadPosition:
             "products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys",
             side_effect=fake_update,
         ):
-            persist_load_position("schema-1", 2, "users", 100)
+            persist_load_position("schema-1", 2, "users", 100, rows_at_position=3)
 
-        assert captured[LOAD_POSITION_CONFIG_KEY] == {"users": 100}
+        assert captured[LOAD_POSITION_CONFIG_KEY] == {"users": {"position": 100, "rows_at_position": 3}}
         # Capture's own position lives in the same JSON column and must survive.
         assert captured["cdc_last_log_position"] == "0/ABC"
 
-    @parameterized.expand([("advances", 50, 100, 100), ("never_rewinds", 100, 50, 100), ("equal", 100, 100, 100)])
-    def test_persist_is_monotonic(self, _name, existing, incoming, expected):
-        captured = {LOAD_POSITION_CONFIG_KEY: {"users": existing}}
+    @parameterized.expand(
+        [
+            ("advances", 50, 2, 100, 3, 100, 3),
+            ("never_rewinds", 100, 3, 50, 9, 100, 3),
+            # Batches of one run land the same position one after another, so the rows they applied
+            # at it accumulate: the total is what a later run must skip.
+            ("equal_accumulates_rows", 100, 2, 100, 3, 100, 5),
+        ]
+    )
+    def test_persist_is_monotonic(
+        self, _name, existing, existing_rows, incoming, incoming_rows, expected, expected_rows
+    ):
+        captured = {LOAD_POSITION_CONFIG_KEY: {"users": {"position": existing, "rows_at_position": existing_rows}}}
 
         def fake_update(schema_id, team_id, *, mutate=None, **kwargs):
             mutate(captured)
@@ -391,9 +349,16 @@ class TestLoadPosition:
             "products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys",
             side_effect=fake_update,
         ):
-            persist_load_position("schema-1", 2, "users", incoming)
+            persist_load_position("schema-1", 2, "users", incoming, rows_at_position=incoming_rows)
 
-        assert captured[LOAD_POSITION_CONFIG_KEY]["users"] == expected
+        assert captured[LOAD_POSITION_CONFIG_KEY]["users"] == {
+            "position": expected,
+            "rows_at_position": expected_rows,
+        }
+
+    def test_read_state_treats_the_bare_int_shape_as_nothing_landed(self):
+        # Written before the count existed: re-apply that transaction rather than skip past it.
+        assert read_load_state({LOAD_POSITION_CONFIG_KEY: {"users": 42}}, "users") == (42, 0)
 
 
 class TestIsCdcWriteResolutionEnabled:

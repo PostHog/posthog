@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import uuid
 import datetime as dt
-from collections.abc import AsyncGenerator, Callable
+from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Final, Literal
 
 import psycopg
@@ -27,6 +27,7 @@ from posthog.sync import database_sync_to_async_pool
 
 from products.data_warehouse.backend.facade.api import aget_s3_client
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    CDC_SEQ_COLUMN,
     companion_resource_name as build_companion_resource_name,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import (
@@ -37,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
     SCD2_APPEND_MODE,
     read_load_position,
+    read_load_state,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
@@ -259,6 +261,26 @@ class CDCSourceManager:
     def _lanes(self, resource_name: str) -> list[str]:
         return self._lane_resource_names or [resource_name]
 
+    @staticmethod
+    def _drop_applied_prefix(table: pa.Table, position: int, remaining: int) -> tuple[pa.Table, int]:
+        """Drop the first `remaining` rows of this table that sit at `position`.
+
+        Rows at the position are the tail of one transaction, which the previous run may have
+        applied only part of. They are read in the same order every run — files sort by position
+        and index, row order within a file is fixed — so the count of rows already applied names
+        a prefix, and what follows it is the unapplied remainder.
+        """
+        if remaining <= 0 or not table.num_rows:
+            return table, 0
+        seqs = table.column(CDC_SEQ_COLUMN).to_pylist()
+        at_position = [i for i, seq in enumerate(seqs) if seq == position]
+        dropped = at_position[:remaining]
+        if not dropped:
+            return table, 0
+        skip = set(dropped)
+        keep = [i for i in range(table.num_rows) if i not in skip]
+        return table.take(pa.array(keep, type=pa.int64())), len(dropped)
+
     async def _read_consume_state(self, resource_name: str) -> tuple[int | None, dict[str, dict]]:
         """The deletion floor across every lane, and their listing stamps, read once per run.
 
@@ -282,6 +304,17 @@ class CDCSourceManager:
         floor = None if any(p is None for p in positions) else min(p for p in positions if p is not None)
         stamps = _listing_stamps(sync_type_config, single_lane=lanes[0] if len(lanes) == 1 else None)
         return floor, stamps
+
+    async def _read_applied_state(self, resource_name: str) -> tuple[int | None, int]:
+        """This lane's position and the rows already applied at it, read once per run."""
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+
+        sync_type_config = await database_sync_to_async_pool(db_read_with_retry)(
+            lambda: ExternalDataSchema.objects.values_list("sync_type_config", flat=True).get(
+                id=self._inputs.schema_id, team_id=self._inputs.team_id
+            )
+        )
+        return read_load_state(sync_type_config, resource_name)
 
     async def _stamp_listing(self, resource_name: str, listed_at: dt.datetime) -> None:
         """Record that this run listed the buffer for its lane, before any file is read.
@@ -413,11 +446,11 @@ class CDCSourceManager:
         resource_name: str,
         batch_row_limit: int = DEFAULT_BATCH_ROW_LIMIT,
         batch_byte_limit: int = DEFAULT_BATCH_BYTE_LIMIT,
-        table_transformer: Callable[[pa.Table], pa.Table] | None = None,
     ) -> AsyncGenerator[pa.Table]:
         listed_at = dt.datetime.now(tz=dt.UTC)
         files = await self._list_buffer_files()
         floor, prior_stamps = await self._read_consume_state(resource_name)
+        applied_position, applied_rows = await self._read_applied_state(resource_name)
         # Proof comes from the PRIOR stamps, resolved before this run overwrites its lane's.
         proof_time = await self._earliest_completed_listing(resource_name, prior_stamps) if floor is not None else None
         await self._stamp_listing(resource_name, listed_at)
@@ -442,22 +475,21 @@ class CDCSourceManager:
                     await self._logger.adebug("cdc_buffer_file_already_consumed", key=key)
                     continue
 
+                if applied_rows and applied_position is not None:
+                    table, skipped = self._drop_applied_prefix(table, applied_position, applied_rows)
+                    applied_rows -= skipped
+
                 if table.num_rows == 0:
                     continue
 
                 if batch.add(table):
-                    yield self._finalize_batch(batch.tables, table_transformer)
+                    yield self._finalize_batch(batch.tables)
                     batch.reset()
 
             if batch:
-                yield self._finalize_batch(batch.tables, table_transformer)
+                yield self._finalize_batch(batch.tables)
 
-    def _finalize_batch(
-        self, tables: list[pa.Table], table_transformer: Callable[[pa.Table], pa.Table] | None
-    ) -> pa.Table:
+    def _finalize_batch(self, tables: list[pa.Table]) -> pa.Table:
         # `permissive` because a column added to the source table mid-stream makes later files
         # wider; the loader's schema evolution handles the union.
-        table = pa.concat_tables(tables, promote_options="permissive")
-        # Applied after the concat so a lane deriving columns from neighbouring rows (SCD2's
-        # `valid_to`) sees the widest span this run batches, not one file at a time.
-        return table_transformer(table) if table_transformer is not None else table
+        return pa.concat_tables(tables, promote_options="permissive")
