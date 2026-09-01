@@ -366,7 +366,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
 
         with patch(
-            "posthog.hogql.taxonomy_validation.EventDefinition.objects.filter",
+            "posthog.hogql.taxonomy_validation.EventDefinition.objects.alias",
             side_effect=DatabaseError("boom"),
         ):
             metadata = self._select("SELECT count() FROM events WHERE event = 'purchase'")
@@ -377,14 +377,14 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
     def test_metadata_does_not_query_taxonomy_without_taxonomy_references(self):
         with (
-            patch("posthog.hogql.taxonomy_validation.EventDefinition.objects.filter") as event_filter,
-            patch("posthog.hogql.taxonomy_validation.PropertyDefinition.objects.filter") as property_filter,
+            patch("posthog.hogql.taxonomy_validation.EventDefinition.objects.alias") as event_alias,
+            patch("posthog.hogql.taxonomy_validation.PropertyDefinition.objects.alias") as property_alias,
         ):
             metadata = self._select("SELECT count() FROM events")
 
         self.assertTrue(metadata.isValid)
-        event_filter.assert_not_called()
-        property_filter.assert_not_called()
+        event_alias.assert_not_called()
+        property_alias.assert_not_called()
 
     def test_metadata_does_not_warn_for_event_column_outside_events_table(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
