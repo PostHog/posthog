@@ -270,6 +270,20 @@ export interface insightSceneLogicMeta {
         insight: (
             arg: Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined
         ) => Partial<QueryBasedInsightModel<Node<Record<string, any>>>> | null | undefined
+        insightMissingSelector: (
+            insightLogicRef: {
+                logic: BuiltLogic<insightLogicType>
+                unmount: () => void
+            } | null
+        ) => ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => boolean) | undefined
+        insightMissing: (arg: boolean | undefined) => boolean
+        accessDeniedToInsightSelector: (
+            insightLogicRef: {
+                logic: BuiltLogic<insightLogicType>
+                unmount: () => void
+            } | null
+        ) => ((state: any, props?: InsightLogicProps<QuerySchema> | undefined) => boolean) | undefined
+        accessDeniedToInsight: (arg: boolean | undefined) => boolean
         breadcrumbs: (
             insightLogicRef: {
                 logic: BuiltLogic<insightLogicType>
