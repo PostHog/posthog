@@ -403,6 +403,15 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
                 ]?.labels ?? null
             }
             isBreakdown={isBreakdownValid && !isTrendsFunnel}
+            trendsBreakdownSeries={
+                isBreakdownValid && !isTrendsFunnel
+                    ? indexedResults?.map((series) => ({
+                          key: String(series.seriesIndex),
+                          label: String(series.breakdown_value ?? series.label),
+                          data: series.data,
+                      }))
+                    : undefined
+            }
             funnelPreview={funnelAlertPreview}
             hogqlPreview={hogqlAlertPreview}
             checkPreview={checkPreview}

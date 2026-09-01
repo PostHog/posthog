@@ -22,14 +22,20 @@ import { HogQLAlertPreviewBanner } from './HogQLAlertPreview'
 
 const handleChartError = makeChartErrorHandler('alerts-preview-chart')
 
+interface AlertPreviewChartSeries {
+    key: string
+    label: string
+    data: number[]
+}
+
 function AlertPreviewChart({
-    values,
+    series,
     labels,
     referenceLines,
     relative,
     useLogScale,
 }: {
-    values: number[]
+    series: AlertPreviewChartSeries[]
     labels?: string[]
     referenceLines: AlertThresholdLine[]
     relative: boolean
@@ -39,8 +45,8 @@ function AlertPreviewChart({
     return (
         <div className="w-full h-24 flex flex-col">
             <LineChart
-                series={[{ key: 'preview', label: 'Value', data: values }]}
-                labels={labels ?? values.map((_, index) => String(index))}
+                series={series}
+                labels={labels ?? series[0]?.data.map((_, index) => String(index)) ?? []}
                 theme={theme}
                 config={{
                     hideXAxis: true,
@@ -64,6 +70,7 @@ export interface AlertPreviewCardProps {
     trendsValues: number[] | null
     trendsLabels?: string[] | null
     isBreakdown?: boolean
+    trendsBreakdownSeries?: AlertPreviewChartSeries[] | null
     funnelPreview: FunnelAlertPreview | null
     hogqlPreview: HogQLAlertPreview | null
     checkPreview?: TrendsAlertPreviewSeries
@@ -76,6 +83,7 @@ export function AlertPreviewCard({
     trendsValues,
     trendsLabels,
     isBreakdown,
+    trendsBreakdownSeries,
     funnelPreview,
     hogqlPreview,
     checkPreview,
@@ -96,6 +104,18 @@ export function AlertPreviewCard({
         !isBreakdownPreview && trendsPreview && shouldUseLogScale(trendsPreview.values, referenceLines)
     )
     const checkPreviewValues = checkPreview?.values
+    const trendsBreakdownPreviews = trendsBreakdownSeries?.map(({ key, label, data }) => ({
+        key,
+        label,
+        data: deriveTrendsAlertPreviewSeries(
+            data,
+            trendsLabels ?? undefined,
+            alertForm.condition?.type ?? AlertConditionType.ABSOLUTE_VALUE,
+            alertForm.threshold?.configuration?.type ?? InsightThresholdType.ABSOLUTE
+        ).values,
+    }))
+    const breakdownPreviewValues = trendsBreakdownPreviews?.flatMap((series) => series.data) ?? []
+    const breakdownUseLogScale = shouldUseLogScale(breakdownPreviewValues, referenceLines)
     const isUnconfiguredAbsoluteThreshold =
         !alertForm.detector_config &&
         alertForm.condition?.type === AlertConditionType.ABSOLUTE_VALUE &&
@@ -108,22 +128,32 @@ export function AlertPreviewCard({
         !trendsValues?.some((value) => value !== 0)
 
     let body: JSX.Element | null = null
-    if (isBreakdownPreview) {
-        body = (
-            <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
-                This alert monitors every breakdown value.
-            </div>
-        )
-    } else if (isUnconfiguredAbsoluteThreshold) {
+    if (isUnconfiguredAbsoluteThreshold) {
         body = (
             <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
                 Set less than or more than to preview this alert.
             </div>
         )
+    } else if (isBreakdownPreview && trendsBreakdownPreviews && breakdownPreviewValues.length > 0) {
+        body = (
+            <AlertPreviewChart
+                series={trendsBreakdownPreviews}
+                labels={trendsLabels ?? undefined}
+                referenceLines={referenceLines}
+                relative={trendsPreview?.relative ?? false}
+                useLogScale={breakdownUseLogScale}
+            />
+        )
+    } else if (isBreakdownPreview && !loading) {
+        body = (
+            <div className="flex h-24 items-center justify-center rounded border border-dashed border-border text-sm text-muted">
+                No activity to preview across breakdown values.
+            </div>
+        )
     } else if (checkPreviewValues && checkPreviewValues.length > 0) {
         body = (
             <AlertPreviewChart
-                values={checkPreviewValues}
+                series={[{ key: 'preview', label: 'Value', data: checkPreviewValues }]}
                 labels={checkPreview.labels}
                 referenceLines={referenceLines}
                 relative={checkPreview.relative}
@@ -145,7 +175,7 @@ export function AlertPreviewCard({
     } else if (isTrendsAlertConfig(config) && trendsPreview && trendsPreview.values.length > 0) {
         body = (
             <AlertPreviewChart
-                values={trendsPreview.values}
+                series={[{ key: 'preview', label: 'Value', data: trendsPreview.values }]}
                 labels={trendsPreview.labels}
                 referenceLines={referenceLines}
                 relative={trendsPreview.relative}
@@ -186,12 +216,16 @@ export function AlertPreviewCard({
     let previewTooltip =
         'What this alert is watching right now. The dashed lines are your thresholds; points crossing them would fire.'
     if (isBreakdownPreview) {
-        previewTooltip =
-            'This alert evaluates every breakdown value. The preview cannot show one value as representative.'
+        previewTooltip = 'Every breakdown value is shown. The dashed lines are your thresholds.'
     } else if (checkPreview !== undefined) {
         previewTooltip = 'Values recorded by recent alert evaluations.'
     }
-    const previewTitle = checkPreview !== undefined && !isBreakdownPreview ? 'Recent evaluations' : 'Preview'
+    let previewTitle = 'Preview'
+    if (isBreakdownPreview) {
+        previewTitle = 'All breakdown values'
+    } else if (checkPreview !== undefined) {
+        previewTitle = 'Recent evaluations'
+    }
 
     return (
         <div className="space-y-2">
