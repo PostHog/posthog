@@ -102,6 +102,7 @@
         "@posthog/products-data-quality": "workspace:*",
         "@posthog/products-data-tools": "workspace:*",
         "@posthog/products-data-warehouse": "workspace:*",
+        "@posthog/products-docs": "workspace:*",
         "@posthog/products-early-access-features": "workspace:*",
         "@posthog/products-endpoints": "workspace:*",
         "@posthog/products-engineering-analytics": "workspace:*",

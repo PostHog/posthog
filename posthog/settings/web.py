@@ -532,6 +532,7 @@ SPECTACULAR_SETTINGS = {
     "POSTPROCESSING_HOOKS": [
         "drf_spectacular.hooks.postprocess_schema_enums",
         "products.dashboards.backend.widget_specs.pydantic_openapi.inject_widget_spec_pydantic_components",
+        "products.docs.backend.apps.DocsConfig",
         "posthog.api.documentation.custom_postprocessing_hook",
         # Runs last so it sees the final post-processed spec. Emits drf-spectacular warnings
         # for self-inconsistencies (default not in enum, required not in properties, $ref siblings)

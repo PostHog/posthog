@@ -302,8 +302,8 @@ _TEST_STREAM_LIFETIME = 0.3
 _TEST_STREAM_BLOCK_MS = 50
 
 
-@patch("products.notebooks.backend.collab_stream.STREAM_LIFETIME_SECONDS", _TEST_STREAM_LIFETIME)
-@patch("products.notebooks.backend.collab_stream.STREAM_BLOCK_MS", _TEST_STREAM_BLOCK_MS)
+@patch("posthog.collab.stream.STREAM_LIFETIME_SECONDS", _TEST_STREAM_LIFETIME)
+@patch("posthog.collab.stream.STREAM_BLOCK_MS", _TEST_STREAM_BLOCK_MS)
 class TestNotebookCollabStreamAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
