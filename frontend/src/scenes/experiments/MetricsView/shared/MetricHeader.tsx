@@ -18,7 +18,6 @@ import {
     getExposureEventAndProperty,
     resolvedExposureEvent,
 } from 'scenes/experiments/exposureContract'
-import { sharedMetricDetailsModalLogic } from 'scenes/experiments/Metrics/sharedMetricDetailsModalLogic'
 import { modalsLogic } from 'scenes/experiments/modalsLogic'
 import { urls } from 'scenes/urls'
 
@@ -30,6 +29,7 @@ import {
     METRIC_CONTEXTS,
     experimentMetricModalLogic,
 } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
+import { sharedMetricDetailsModalLogic } from 'products/experiments/frontend/modals/SharedMetricDetailsModal/sharedMetricDetailsModalLogic'
 
 import { MetricRetryDetails } from './MetricRetryState'
 import { MetricTitle } from './MetricTitle'
