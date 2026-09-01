@@ -1,5 +1,3 @@
-import { router } from 'kea-router'
-
 import { openSupportOptions, setGetHelpAction } from 'lib/lemon-ui/LemonToast/getHelp'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 
@@ -20,12 +18,10 @@ export function registerToastGetHelp(): void {
             return
         }
 
-        // `#panel=support` is the app's support entry point, which sidePanelStateLogic opens the panel
-        // from. The panel handles the plan itself, so free plans land on PostHog AI and the community
+        // openSidePanel is the same action every other in-app support entry point calls. It writes the
+        // `#panel=support` hash with `replace`, so Back leaves in one press instead of stranding an open
+        // panel. The panel handles the plan itself, so free plans land on PostHog AI and the community
         // forum rather than a ticket form.
-        router.actions.push(router.values.location.pathname, router.values.searchParams, {
-            ...router.values.hashParams,
-            panel: SidePanelTab.Support,
-        })
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Support)
     })
 }
