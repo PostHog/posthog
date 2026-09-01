@@ -83,7 +83,7 @@ def query_trunk_quarantine_debt(
     )
     tests: list[TrunkQuarantinedTest] = []
     for (runner, nodeid, _path, _crate, status, quarantine_setting, test_case_id, quarantined_at), owned in zip(
-        rows, owned_by_test.tests
+        rows, owned_by_test.tests, strict=True
     ):
         if quarantined_at.tzinfo is None:
             quarantined_at = quarantined_at.replace(tzinfo=UTC)

@@ -16,7 +16,7 @@ from django.core.cache import cache
 
 import requests
 import structlog
-from posthog_owners import OwnershipSource, OwnersResolver
+from posthog_owners import OwnersResolver
 from posthog_owners.matcher import normalize_path
 
 from posthog.dataclasses import frozen
@@ -29,20 +29,20 @@ logger = structlog.get_logger(__name__)
 
 _T = TypeVar("_T")
 
-# The raw host serves a public repo's files off a CDN, so these reads draw on no API rate limit, and
-# the HEAD ref follows the default branch. A private repo answers 404 to all of it: see the root-file
-# guard in RepoOwnership.
+# The raw host serves a public repo's files off a CDN, so these reads draw on no GitHub API rate
+# limit, and the HEAD ref follows the default branch. A private repo answers 404 to all of it, which
+# the root-file guard in RepoOwnership catches.
 _RAW_HOST = "https://raw.githubusercontent.com"
 _REF = "HEAD"
 _EGRESS_SOURCE = "engineering_analytics_ownership"
-# The egress metrics are labeled by endpoint, and a raw file path per label is unbounded.
+# Egress metrics are labeled by endpoint, so a raw file path per label would be unbounded.
 _EGRESS_ENDPOINT = "/{owner}/{repo}/{ref}/{path}"
 _TIMEOUT_SECONDS = 5.0
 _FETCH_WORKERS = 16
 
-# Ownership files change at review speed, so a stale answer stays right; the window is long because
-# only the request that finds the cache cold pays for the fetches. A batch writes every key at once,
-# so they expire spread out rather than all on one request.
+# Ownership files change at review speed, so a stale answer stays right, and only the request that
+# finds the cache cold pays for the fetches. A batch writes every key at once, so the jitter spreads
+# their expiry over later requests instead of stranding one with the whole refetch.
 _CACHE_TTL_SECONDS = 6 * 60 * 60
 _CACHE_TTL_JITTER_SECONDS = 60 * 60
 _CACHE_PREFIX = "eng_analytics:repo_file"
@@ -51,8 +51,7 @@ _ABSENT = "\x00absent"
 
 _ROOT_OWNERS_FILE = "owners.yaml"
 
-# Directories a suite can run from, so its tests arrive named relative to one of these. Tried after
-# the path as reported, and the repository decides which one holds the file.
+# Directories a suite can run from, so its tests arrive named relative to one of these.
 _SUITE_ROOTS = ("nodejs/", "frontend/", "services/mcp/")
 
 
@@ -60,8 +59,12 @@ class OwnershipUnavailable(Exception):
     """The repository's ownership files could not be read, so no attribution is trustworthy."""
 
 
-class RepoFiles(OwnershipSource, Protocol):
+class RepoFiles(Protocol):
+    def read(self, path: str) -> str | None: ...
+
     def exists(self, path: str) -> bool: ...
+
+    def warm(self, paths: list[str]) -> None: ...
 
 
 @frozen
@@ -75,35 +78,29 @@ class GitHubRepoFiles:
     _session: requests.Session = field(default_factory=requests.Session)
 
     def read(self, path: str) -> str | None:
-        if path in self._memo:
-            return self._memo[path]
-        key = self._cache_key("text", path)
-        cached = cache.get(key)
-        if cached is None:
-            response = self._request("GET", path)
-            cached = _ABSENT if response.status_code == HTTPStatus.NOT_FOUND else response.text
-            cache.set(key, cached, _ttl())
-        text = None if cached == _ABSENT else str(cached)
-        self._memo[path] = text
-        return text
+        if path not in self._memo:
+            body = self._cached("text", path, lambda: self._body("GET", path))
+            self._memo[path] = None if body == _ABSENT else body
+        return self._memo[path]
 
     def exists(self, path: str) -> bool:
-        key = self._cache_key("exists", path)
-        cached = cache.get(key)
-        if cached is None:
-            cached = self._request("HEAD", path).status_code != HTTPStatus.NOT_FOUND
-            cache.set(key, cached, _ttl())
-        return bool(cached)
+        return bool(self._cached("exists", path, lambda: self._body("HEAD", path) != _ABSENT))
 
     def warm(self, paths: list[str]) -> None:
         _fetch_all(self.read, paths)
 
-    def _cache_key(self, kind: str, path: str) -> str:
-        return f"{_CACHE_PREFIX}:{kind}:{self.repository}:{_REF}:{path}"
+    def _cached(self, kind: str, path: str, fetch: Callable[[], _T]) -> _T:
+        key = f"{_CACHE_PREFIX}:{kind}:{self.repository}:{_REF}:{path}"
+        cached = cache.get(key)
+        if cached is None:
+            cached = fetch()
+            cache.set(key, cached, _CACHE_TTL_SECONDS + random.randint(0, _CACHE_TTL_JITTER_SECONDS))
+        return cached
 
-    def _request(self, method: str, path: str) -> requests.Response:
-        """Anything but 200 or 404 raises rather than reading as absent: a missing ownership file
-        silently reattributes everything under it to an ancestor."""
+    def _body(self, method: str, path: str) -> str:
+        """The file's text, or ``_ABSENT`` when the repository has no such file. Any status but 200
+        or 404 raises rather than reading as absent, because a missing ownership file silently
+        reattributes everything under it to an ancestor."""
         if not _is_safe_github_repo_path(self.repository):
             # Source config is team-writable, so a crafted value must not steer the URL.
             raise OwnershipUnavailable(f"unsafe repository path: {self.repository!r}")
@@ -119,9 +116,11 @@ class GitHubRepoFiles:
             )
         except Exception as e:
             raise OwnershipUnavailable(f"could not read {path} from {self.repository}: {e}") from e
-        if response.status_code not in (HTTPStatus.OK, HTTPStatus.NOT_FOUND):
+        if response.status_code == HTTPStatus.NOT_FOUND:
+            return _ABSENT
+        if response.status_code != HTTPStatus.OK:
             raise OwnershipUnavailable(f"{self.repository} answered {response.status_code} for {path}")
-        return response
+        return response.text
 
 
 @frozen
@@ -135,8 +134,6 @@ class QuarantinedTestFile:
 
 @frozen
 class PlacedTest:
-    """The test's file in the repository, and the team that owns it."""
-
     path: str
     owner_team: str
 
@@ -146,8 +143,8 @@ UNPLACED = PlacedTest(path="", owner_team=UNOWNED_TEAM)
 
 @frozen
 class RepoOwnershipResult:
-    """One placement per test, and whether the repository could be read at all. Everything is
-    unowned either way, so only ``resolved`` separates a real finding from a blind board."""
+    """One placement per test. Everything is unowned whether the read failed or no team claims the
+    paths, so only ``resolved`` separates a real finding from a blind board."""
 
     tests: list[PlacedTest]
     resolved: bool
@@ -178,19 +175,17 @@ class RepoOwnership:
         candidates = [_candidate_paths(test) for test in tests]
         present = _fetch_all(self._files.exists, [path for group in candidates for path in group])
         placed = [next((path for path in group if present[path]), None) for group in candidates]
-        owners = self._resolver.map([path for path in placed if path])
+        found = [path for path in placed if path]
+        self._files.warm(self._resolver.ownership_file_paths(found))
+        owners = self._resolver.map(found)
         return [
             PlacedTest(
                 # A Rust crate is placed by its manifest, which is not the test's file.
                 path="" if path is None or test.crate else path,
                 owner_team=_team(owners[path].owners if path else None),
             )
-            for test, path in zip(tests, placed)
+            for test, path in zip(tests, placed, strict=True)
         ]
-
-
-def _ttl() -> int:
-    return _CACHE_TTL_SECONDS + random.randint(0, _CACHE_TTL_JITTER_SECONDS)
 
 
 def _team(owners: list[str] | None) -> str:
@@ -214,7 +209,8 @@ def _fetch_all(fetch: Callable[[str], _T], paths: Iterable[str]) -> dict[str, _T
 
 
 def _candidate_paths(test: QuarantinedTestFile) -> list[str]:
-    """Paths that could decide the test's ownership, most specific first.
+    """Paths that could decide the test's ownership, most specific first. The repository decides
+    which one holds the file.
 
     Cargo names a crate, nextest reports that name, and the directory holding it need not match:
     `common-kafka` lives at rust/common/kafka.

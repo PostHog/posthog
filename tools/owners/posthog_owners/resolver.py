@@ -149,9 +149,6 @@ class OwnershipSource(Protocol):
 
     def read(self, path: str) -> str | None: ...
 
-    def warm(self, paths: list[str]) -> None:
-        """Take every file ``map`` is about to ask for, so a source that fetches can batch."""
-
 
 @dataclass(frozen=True)
 class DiskSource:
@@ -162,9 +159,6 @@ class DiskSource:
     def read(self, path: str) -> str | None:
         file = self.repo_root / path
         return file.read_text() if file.is_file() else None
-
-    def warm(self, paths: list[str]) -> None:
-        pass
 
 
 # Names a sourceless resolver's files, so a Resolution still reports the path that decided ownership.
@@ -271,13 +265,17 @@ class OwnersResolver:
             contrib.inherit = matched.inherit
         return contrib
 
-    def _ownership_file_paths(self, path: str) -> list[str]:
-        """Every ownership file that could decide ``path``, outermost first."""
-        return [
-            f"{directory}/{name}" if directory else name
-            for directory in self._ancestor_dirs(normalize_path(path))
-            for name in (OWNERS_FILENAME, PRODUCT_FILENAME)
-        ]
+    def ownership_file_paths(self, paths: list[str]) -> list[str]:
+        """Every ownership file that could decide any of ``paths``. A source that fetches over the
+        network reads this first, so it can fetch the batch's files together."""
+        return sorted(
+            {
+                f"{directory}/{name}" if directory else name
+                for path in paths
+                for directory in self._ancestor_dirs(normalize_path(path))
+                for name in (OWNERS_FILENAME, PRODUCT_FILENAME)
+            }
+        )
 
     def resolve(self, path: str) -> Resolution:
         norm = normalize_path(path)
@@ -345,8 +343,6 @@ class OwnersResolver:
         return path.relative_to(self.repo_root).as_posix()
 
     def map(self, paths: list[str]) -> dict[str, Resolution]:
-        """Resolve a batch, handing the source every file the batch needs before reading any."""
-        self.source.warm(sorted({f for p in paths for f in self._ownership_file_paths(p)}))
         return {p: self.resolve(p) for p in paths}
 
     def unowned(self, paths: list[str]) -> list[str]:
