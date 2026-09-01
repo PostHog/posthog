@@ -359,9 +359,15 @@ function CustomSqlField(): JSX.Element {
                                         dataSource={previewRows}
                                         size="small"
                                     />
-                                    {customSqlPreview.rowCount > previewRows.length && (
-                                        <span className="mt-1 text-secondary text-xs">Showing the first 10 rows.</span>
-                                    )}
+                                    {/* The table caps at 10 rows: flag truncation only when 10 are shown and the
+                                        response held more, or the query system reported more beyond them. */}
+                                    {previewRows.length === 10 &&
+                                        (customSqlPreview.hasMore ||
+                                            customSqlPreview.rowCount > previewRows.length) && (
+                                            <span className="mt-1 text-secondary text-xs">
+                                                Showing the first 10 rows.
+                                            </span>
+                                        )}
                                 </>
                             )}
                         </div>
