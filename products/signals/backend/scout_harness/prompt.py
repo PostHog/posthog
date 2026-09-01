@@ -442,6 +442,22 @@ This run updates reports that already exist; it can't author new ones. Find the 
 - **Route an unrouted report.** If a report surfaced assigned to no one, set `suggested_reviewers` to route it to an owner: each reviewer an object, `{{github_login}}` (a bare lowercase login, no `@`) or `{{user_uuid}}` (the server resolves it for you), never a bare string. If the owner isn't named in the report, call `scout-members-list` for this project's members, each carrying a resolved `github_login` (the org-scoped `org-member-get-github-login` / `org-members-list` tools aren't available in a scout run). This replaces the report's reviewer list and re-runs autostart, so a report that already has a repo and priority but lacked a qualifying reviewer can now open a draft PR. Only set a reviewer you're confident owns the area; an empty list is a no-op.
 - **Don't retry blindly.** `edit_report` is NOT idempotent, so a retried `append_note` appends a second note. If unsure whether an edit landed, re-read the report rather than re-sending."""
 
+# Rendered for every persona that holds `edit_report`, since both of its rules live on that call.
+# The counters it names are enforced server-side (`scout_report/persistence.py`), so a scout that
+# ignores this section can't overrun them; the section is here so it knows what its call did.
+_REVISING_A_REPORT = """# Revising a report that already has a pull request
+
+A report that autostarted has an open draft pull request built from the summary as it read at the time. When your rewrite changes **what the fix should be** (a different root cause, a different file or layer, a materially wider or narrower scope), pass `supersedes_implementation: true` on the same `scout-edit-report` call. That closes the open pull request and opens a new one built from your new summary, with the closed one referenced from its description.
+
+- **More evidence for the same fix is not a reason to set it.** The open pull request already implements that fix, and replacing it throws away review someone may already have done. Use `append_note` there instead.
+- **It rides on a real rewrite.** It is ignored unless the same call actually changed the `title` or `summary`. Restating text the report already holds, appending a note, and setting reviewers all count for nothing; the response's `is_content_revision` tells you whether yours counted.
+- **A report earns at most four replacements.** Past that your rewrite still lands, it just stops opening pull requests. The response's `supersedes_implementation` is true only when the decision was recorded.
+
+# Re-confirming a report still holds
+
+Appending a note that says the finding is still there is worth doing, and it is not a rewrite: it leaves the revision count alone. A report keeps its first four notes as entries in its work log and counts the rest, so past four your `append_note` raises the report's corroboration count and writes no entry (the response's `corroboration_collapsed` says when that happened). The call still succeeds either way. If you have something genuinely new to say, put it in a note before the fourth one, or rewrite the summary."""
+
+
 # Heading matches the cross-reference in the authoring sections exactly; "not a copy" lives in the
 # body, which is where the rule it names is actually stated.
 _REPORT_SCRATCHPAD_POINTER = """# The `report:` scratchpad entry is a pointer
@@ -839,6 +855,7 @@ def _report_tail_sections(
         how_a_run_works = f"{head}\n{_REPORT_STEPS_BOTH}\n{_REPORT_CLOSE_OUT_STEP}"
         channel_sections = [
             _AUTHORING_VS_EDITING_REPORT_BOTH,
+            _REVISING_A_REPORT,
             _REPORT_SCRATCHPAD_POINTER,
             _SUGGESTED_REVIEWERS_REPORT,
             *([_github_evidence_section(can_emit=can_emit)] if github_read_access else []),
@@ -861,6 +878,7 @@ def _report_tail_sections(
         how_a_run_works = f"{head}\n{_REPORT_STEPS_EDIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
         channel_sections = [
             _EDITING_REPORT_EDIT_ONLY,
+            _REVISING_A_REPORT,
             _REPORT_SCRATCHPAD_POINTER,
             *([_github_evidence_section(can_emit=can_emit)] if github_read_access else []),
             _REPORT_CHARTS,

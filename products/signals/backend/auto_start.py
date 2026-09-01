@@ -28,6 +28,7 @@ from products.signals.backend.billing import (
 )
 from products.signals.backend.implementation_pr import fetch_implementation_task_pr_url
 from products.signals.backend.models import (
+    MAX_SCOUT_CONTENT_REVISIONS,
     SignalReport,
     SignalReportArtefact,
     SignalSourceConfig,
@@ -408,14 +409,29 @@ def _capture_steering_attached(*, team: Team, report_id: str, task_id: str, stee
         logger.exception("Failed to capture signals_autostart_steering_attached", report_id=report_id)
 
 
-def _resolve_supersede(report: SignalReport, decision: ImplementationDecision | None) -> SupersedeDecision:
-    """Decide whether this research pass may replace the report's existing implementation.
+def _has_unimplemented_work(report: SignalReport) -> bool:
+    """Whether the report has moved past the version its current implementation PR was built from.
 
-    Three things must hold. The latest decision says the fix changed, the report has settled, and it
-    has researched again since the pass its current PR was built from — which is what stops one
-    decision opening two PRs, and what bounds replacements to at most one per research pass.
-    Research itself is capped, so no separate cap is needed here; the last pass a report gets is
-    also the one with the most evidence, so it must stay able to correct the PR.
+    Two producers can move it, and either one is enough. The pipeline researches again, raising
+    `run_count`; a scout rewrites the report's title or summary, raising `content_revision_count`.
+    Each is compared against its own stamp, which is what bounds replacements to one per pass or
+    per rewrite and stops a single decision opening two pull requests.
+
+    Research is capped by its buckets, so the pipeline arm needs no separate cap. A scout has no
+    such ceiling, so the revision arm carries one: past `MAX_SCOUT_CONTENT_REVISIONS` the rewrite
+    still lands, it just stops buying a new pull request.
+    """
+    if report.run_count > (report.implemented_at_run_count or 0):
+        return True
+    revisions = report.content_revision_count
+    return 0 < revisions <= MAX_SCOUT_CONTENT_REVISIONS and revisions > (report.implemented_at_revision_count or 0)
+
+
+def _resolve_supersede(report: SignalReport, decision: ImplementationDecision | None) -> SupersedeDecision:
+    """Decide whether the latest look at a report may replace its existing implementation.
+
+    Two things must hold. The latest decision says the fix changed, and the report has moved on
+    from the version its current PR was built from (see `_has_unimplemented_work`).
 
     ``decision`` must be the one the report's current pass wrote. `run_count` cannot tell that on
     its own, because it rises when a pass starts rather than when a pass concludes, so the caller
@@ -430,7 +446,7 @@ def _resolve_supersede(report: SignalReport, decision: ImplementationDecision | 
         # the pull request that matched it, and spend the running pass's one allowance before its
         # own settle point gets to. A report that has left the inbox does not replace its PR either.
         return NO_SUPERSEDE
-    if report.run_count <= (report.implemented_at_run_count or 0):
+    if not _has_unimplemented_work(report):
         return NO_SUPERSEDE
     pr_url = fetch_implementation_task_pr_url(report.team_id, str(report.id))
     if pr_url is None:
@@ -497,12 +513,15 @@ def _create_implementation_task_if_absent(
         )
         if already_implemented and not supersede.allowed:
             return False
-        if already_implemented and report.run_count <= (report.implemented_at_run_count or 0):
+        if already_implemented and not _has_unimplemented_work(report):
             # Re-checked under the lock: the caller resolved the supersede decision outside it, so a
             # racing evaluation that already stamped this pass must not open a second replacement.
             return False
+        # Both stamps move together. The task about to start is built from the report as it stands
+        # now, so neither a research pass nor a rewrite already folded into it may buy another one.
         report.implemented_at_run_count = report.run_count
-        report.save(update_fields=["implemented_at_run_count"])
+        report.implemented_at_revision_count = report.content_revision_count
+        report.save(update_fields=["implemented_at_run_count", "implemented_at_revision_count"])
         exempt_reason = _stamp_billing_exemption(report, billing_exempt_reason)
         team = Team.objects.select_related("organization").get(id=team_id)
         created = tasks_facade.create_and_run_task(

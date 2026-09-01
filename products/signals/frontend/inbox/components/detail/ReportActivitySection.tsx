@@ -45,6 +45,7 @@ export function ReportActivitySection({ report }: { report: SignalReport }): JSX
                 artefacts={reportArtefacts}
                 knownTasks={knownTasks}
                 knownSignals={knownSignals}
+                collapsedNoteCount={report.collapsed_note_count ?? 0}
             />
         </DetailSection>
     )

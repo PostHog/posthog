@@ -23,6 +23,7 @@ from products.signals.backend.artefact_schemas import (
     TitleChange,
 )
 from products.signals.backend.models import (
+    MAX_SCOUT_REPORT_NOTES,
     ArtefactAttribution,
     SignalReport,
     SignalReportArtefact,
@@ -35,7 +36,9 @@ from products.signals.backend.scout_harness.tools.emit import SOURCE_PRODUCT, SO
 from products.signals.backend.scout_report import (
     InvalidScoutReportError,
     ScoutReportSignal,
+    append_report_note,
     create_scout_report,
+    record_content_revision,
     set_report_charts,
     set_report_suggested_prompts,
     set_scout_report_reviewers,
@@ -277,6 +280,59 @@ class TestScoutReportPersistence(BaseTest):
             ).count()
             == 1
         )
+
+    def test_note_appends_collapse_into_a_count_past_the_cap(self) -> None:
+        # A scout re-runs on its own schedule, so nothing about a report going quiet stops it
+        # appending "still there" notes. Without the cap the work log grows without bound and the
+        # entries that carry real work are buried under near-identical ones.
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="t",
+            summary="s",
+            signals=[ScoutReportSignal(description="d", source_id="s")],
+            attribution=ArtefactAttribution.system(),
+        )
+        before = SignalReport.objects.get(id=result.report_id).updated_at
+        appended = [
+            append_report_note(
+                team_id=self.team.id,
+                report_id=result.report_id,
+                note=f"still there {index}",
+                attribution=ArtefactAttribution.system(),
+            )
+            for index in range(MAX_SCOUT_REPORT_NOTES + 2)
+        ]
+
+        assert [a.collapsed for a in appended] == [False] * MAX_SCOUT_REPORT_NOTES + [True, True]
+        assert [a.corroboration_count for a in appended] == list(range(1, MAX_SCOUT_REPORT_NOTES + 3))
+        report = SignalReport.objects.get(id=result.report_id)
+        assert report.corroboration_count == MAX_SCOUT_REPORT_NOTES + 2
+        written = SignalReportArtefact.objects.filter(
+            report_id=result.report_id, type=SignalReportArtefact.ArtefactType.NOTE
+        ).count()
+        # The creation provenance note is in there too, so the cap is what bounds the scout's own.
+        assert written == MAX_SCOUT_REPORT_NOTES + 1
+        # A re-confirmation has not changed the report, so it must not reorder the inbox or read as
+        # the report still moving.
+        assert report.updated_at == before
+
+    def test_content_revisions_count_per_report(self) -> None:
+        # The counter is what caps superseding, so it must not be shared between reports.
+        reports = [
+            create_scout_report(
+                team_id=self.team.id,
+                title=f"t{index}",
+                summary="s",
+                signals=[ScoutReportSignal(description="d", source_id=f"s{index}")],
+                attribution=ArtefactAttribution.system(),
+            )
+            for index in range(2)
+        ]
+        assert record_content_revision(team_id=self.team.id, report_id=reports[0].report_id) == 1
+        assert record_content_revision(team_id=self.team.id, report_id=reports[0].report_id) == 2
+        assert record_content_revision(team_id=self.team.id, report_id=reports[1].report_id) == 1
+        assert SignalReport.objects.get(id=reports[0].report_id).content_revision_count == 2
+        assert SignalReport.objects.get(id=reports[1].report_id).content_revision_count == 1
 
     def test_update_fails_closed_on_cross_team_report(self) -> None:
         # edit_report can target any inbox report (decision #2) — so the team scope is the only thing

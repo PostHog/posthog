@@ -821,6 +821,8 @@ const scoutEditReport = (): ToolBase<ReturnType<typeof ScoutEditReportSchema>, S
         }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
+        if (params.supersedes_implementation !== undefined) {
+            body['supersedes_implementation'] = params.supersedes_implementation
         }
         const result = await context.api.request<Schemas.EditReportResponse>({
             method: 'POST',
@@ -1605,6 +1607,8 @@ const signalsScoutEditReport = (): ToolBase<
         }
         if (params.suggested_prompts !== undefined) {
             body['suggested_prompts'] = params.suggested_prompts
+        if (params.supersedes_implementation !== undefined) {
+            body['supersedes_implementation'] = params.supersedes_implementation
         }
         const result = await context.api.request<Schemas.EditReportResponse>({
             method: 'POST',

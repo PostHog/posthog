@@ -1342,6 +1342,18 @@ class EditReportRequestSerializer(serializers.Serializer):
             "left them pointing at the old report."
         ),
     )
+    supersedes_implementation = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Set this only when your rewrite changes what the fix should be: a different root cause, "
+            "a different file or layer, a materially wider or narrower scope. More evidence for the "
+            "same fix is not a reason, because the report's open pull request already implements it. "
+            "Setting it true closes that pull request and opens a new one, so a false positive throws "
+            "away review someone may already have done. Only honored alongside a `title` or `summary` "
+            "that actually changes, and only for the first few such rewrites."
+        ),
+    )
 
 
 class EditReportResponseSerializer(serializers.Serializer):
@@ -1366,6 +1378,28 @@ class EditReportResponseSerializer(serializers.Serializer):
             "How many prompts the report now suggests, or null if the edit left them as they were "
             "(the field omitted, or a re-send of what was already stored). 0 means the edit took the "
             "report's suggested prompts down."
+        ),
+    )
+    is_content_revision = serializers.BooleanField(
+        help_text=(
+            "Whether this edit actually rewrote the report's title or summary. False for a note, a "
+            "reviewer change, or a re-send of the text the report already had."
+        ),
+    )
+    content_revision_count = serializers.IntegerField(
+        help_text="How many times a scout has rewritten this report's title or summary, counting this edit.",
+    )
+    supersedes_implementation = serializers.BooleanField(
+        help_text=(
+            "Whether the edit recorded that the report's pull request should be replaced. False when "
+            "you did not ask for it, when the edit changed no content, or when the report has already "
+            "been rewritten too many times."
+        ),
+    )
+    corroboration_collapsed = serializers.BooleanField(
+        help_text=(
+            "Whether your note raised the report's corroboration count instead of landing as its own "
+            "entry. A report keeps its first few notes and counts the rest."
         ),
     )
 

@@ -27,6 +27,7 @@ from products.signals.backend.auto_start import (
     _build_autostart_task_description,
     _create_implementation_task_if_absent,
     _generate_self_driving_head_branch,
+    _has_unimplemented_work,
     _live_skill_owner_logins,
     _report_meets_team_autostart_threshold,
     _resolve_autostart_assignee,
@@ -38,6 +39,7 @@ from products.signals.backend.auto_start import (
     maybe_autostart_implementation_task,
 )
 from products.signals.backend.models import (
+    MAX_SCOUT_CONTENT_REVISIONS,
     SignalReport,
     SignalReportArtefact,
     SignalReportTask,
@@ -1118,6 +1120,37 @@ def test_resolve_supersede(team, status, supersede, run_count, implemented_at_ru
     if expected_allowed:
         assert resolved.superseded_pr_url == pr_url
         assert resolved.reason == "the root cause moved"
+
+
+@pytest.mark.parametrize(
+    ("run_count", "implemented_at_run_count", "revisions", "implemented_at_revision_count", "expected"),
+    [
+        # Pipeline arm, unchanged: research ran again since the PR was built.
+        (2, 1, 0, None, True),
+        (2, 2, 0, None, False),
+        # Scout arm: a rewrite the current PR predates, on a report the pipeline never re-researched.
+        (0, 0, 1, 0, True),
+        (0, 0, 1, 1, False),
+        # A report the scout keeps rewriting stops earning replacements at the cap. Without this a
+        # scout on a daily schedule opens a pull request per run, forever.
+        (0, 0, MAX_SCOUT_CONTENT_REVISIONS, MAX_SCOUT_CONTENT_REVISIONS - 1, True),
+        (0, 0, MAX_SCOUT_CONTENT_REVISIONS + 1, MAX_SCOUT_CONTENT_REVISIONS, False),
+        # Null stamps: a report implemented before either counter existed.
+        (1, None, 0, None, True),
+        (0, None, 1, None, True),
+        (0, None, 0, None, False),
+    ],
+)
+def test_has_unimplemented_work(
+    run_count, implemented_at_run_count, revisions, implemented_at_revision_count, expected
+):
+    report = SignalReport(
+        run_count=run_count,
+        implemented_at_run_count=implemented_at_run_count,
+        content_revision_count=revisions,
+        implemented_at_revision_count=implemented_at_revision_count,
+    )
+    assert _has_unimplemented_work(report) is expected
 
 
 @pytest.mark.django_db

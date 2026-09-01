@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSchemaSt
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
 from .daily_limit import reports_generated_today, team_day_start
 from .models import (
+    MAX_SCOUT_REPORT_NOTES,
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
@@ -551,6 +552,13 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "The general view lists every report regardless of this value."
         ),
     )
+    collapsed_note_count = serializers.SerializerMethodField(
+        help_text=(
+            "How many scout notes this report received beyond the few its work log keeps as entries. "
+            "0 when nothing was dropped. These say the finding still holds, so the count is shown in "
+            "place of the entries."
+        ),
+    )
 
     class Meta:
         model = SignalReport
@@ -562,6 +570,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "total_weight",  # Used for priority scoring
             "signal_count",  # Used for occurrence count
             "signals_at_run",  # Snooze threshold: re-promote when signal_count >= this value
+            "collapsed_note_count",  # Scout notes the work log dropped, rendered as one line instead
             "created_at",
             "updated_at",
             "artefact_count",
@@ -701,6 +710,9 @@ class SignalReportSerializer(serializers.ModelSerializer):
         # Annotated path: the JSON flag arrives as text, and NULL means no PR-bearing run at all.
         value = getattr(obj, "implementation_pr_merged", None)
         return value in (True, "true", "True")
+
+    def get_collapsed_note_count(self, obj: SignalReport) -> int:
+        return max(0, obj.corroboration_count - MAX_SCOUT_REPORT_NOTES)
 
     @extend_schema_field(SignalReportRefundSerializer(allow_null=True))
     def get_refund(self, obj: SignalReport) -> dict | None:

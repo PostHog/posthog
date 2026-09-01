@@ -29758,6 +29758,8 @@ export namespace Schemas {
          * @items.maxLength 200
          */
       suggested_prompts?: string[] | null;
+      /** Set this only when your rewrite changes what the fix should be: a different root cause, a different file or layer, a materially wider or narrower scope. More evidence for the same fix is not a reason, because the report's open pull request already implements it. Setting it true closes that pull request and opens a new one, so a false positive throws away review someone may already have done. Only honored alongside a `title` or `summary` that actually changes, and only for the first few such rewrites. */
+      supersedes_implementation?: boolean;
     }
 
     export interface EditReportResponse {
@@ -29779,6 +29781,14 @@ export namespace Schemas {
          * @nullable
          */
       suggested_prompts_set: number | null;
+      /** Whether this edit actually rewrote the report's title or summary. False for a note, a reviewer change, or a re-send of the text the report already had. */
+      is_content_revision: boolean;
+      /** How many times a scout has rewritten this report's title or summary, counting this edit. */
+      content_revision_count: number;
+      /** Whether the edit recorded that the report's pull request should be replaced. False when you did not ask for it, when the edit changed no content, or when the report has already been rewritten too many times. */
+      supersedes_implementation: boolean;
+      /** Whether your note raised the report's corroboration count instead of landing as its own entry. A report keeps its first few notes and counts the rest. */
+      corroboration_collapsed: boolean;
     }
 
     /**
@@ -57196,6 +57206,8 @@ export namespace Schemas {
       readonly total_weight: number;
       readonly signal_count: number;
       readonly signals_at_run: number;
+      /** How many scout notes this report received beyond the few its work log keeps as entries. 0 when nothing was dropped. These say the finding still holds, so the count is shown in place of the entries. */
+      readonly collapsed_note_count: number;
       readonly created_at: string;
       readonly updated_at: string;
       readonly artefact_count: number;

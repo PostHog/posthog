@@ -17,7 +17,13 @@ from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 
 from products.signals.backend.artefact_schemas import Priority, PriorityAssessment, SuggestedReviewers, TaskRunArtefact
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalSourceConfig
+from products.signals.backend.models import (
+    MAX_SCOUT_CONTENT_REVISIONS,
+    ArtefactAttribution,
+    SignalReport,
+    SignalReportArtefact,
+    SignalSourceConfig,
+)
 from products.signals.backend.scout_harness.tools.report import (
     MAX_SUGGESTED_REVIEWERS,
     REPORT_KIND_FINDING,
@@ -314,6 +320,110 @@ class TestScoutReportAPI(APIBaseTest):
         # The run records which report it edited so "which reports did this run touch?" is a column lookup.
         run.refresh_from_db()
         assert run.edited_report_ids == [created["report_id"]]
+
+    @parameterized.expand(
+        [
+            ("title_rewrite", {"title": "a different root cause"}, True),
+            ("summary_rewrite", {"summary": "the checkout handler is fine, the queue is not"}, True),
+            # The 13x difference between counting edits and counting rewrites. A scout re-sending the
+            # text the report already holds has not revised anything.
+            ("restated_title", {"title": "Checkout p99 regressed after 4.2"}, False),
+            ("note_only", {"append_note": "still there"}, False),
+            ("reviewers_only", {"suggested_reviewers": [{"github_login": "OctoCat"}]}, False),
+            ("charts_only", {"charts": []}, False),
+        ]
+    )
+    def test_only_a_real_rewrite_counts_as_a_content_revision(self, _name, edit, expected) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        with patch(AUTOSTART_PATH, new=AsyncMock()):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], **edit},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["is_content_revision"] is expected
+        assert response.json()["content_revision_count"] == (1 if expected else 0)
+        assert SignalReport.objects.get(id=created["report_id"]).content_revision_count == (1 if expected else 0)
+
+    @parameterized.expand(
+        [
+            # A note says the finding still holds. It is not an argument that the fix changed, so it
+            # must not be a way to close someone's open pull request.
+            ("note_only", {"append_note": "still there"}),
+            ("reviewers_only", {"suggested_reviewers": [{"github_login": "OctoCat"}]}),
+            ("restated_title", {"title": "Checkout p99 regressed after 4.2"}),
+        ]
+    )
+    def test_supersede_needs_a_rewrite_behind_it(self, _name, edit) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        with patch(AUTOSTART_PATH, new=AsyncMock()):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "supersedes_implementation": True, **edit},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["supersedes_implementation"] is False
+        assert (
+            self._latest_artefact(created["report_id"], SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION)
+            is None
+        )
+
+    def test_supersede_records_a_decision_until_the_report_runs_out_of_revisions(self) -> None:
+        # Past the cap the rewrite still has to land: a scout must always be able to correct a
+        # report. Only the pull-request side stops.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        recorded = []
+        for index in range(MAX_SCOUT_CONTENT_REVISIONS + 1):
+            with patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
+                response = self.client.post(
+                    self._edit_url(str(run.id)),
+                    data={
+                        "report_id": report_id,
+                        "summary": f"root cause number {index}",
+                        "supersedes_implementation": True,
+                    },
+                    format="json",
+                )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert response.json()["is_content_revision"] is True
+            recorded.append((response.json()["supersedes_implementation"], autostart.await_count))
+
+        assert recorded == [(True, 1)] * MAX_SCOUT_CONTENT_REVISIONS + [(False, 0)]
+        report = SignalReport.objects.get(id=report_id)
+        assert report.content_revision_count == MAX_SCOUT_CONTENT_REVISIONS + 1
+        assert report.summary == f"root cause number {MAX_SCOUT_CONTENT_REVISIONS}"
+        # The decision is latest-wins and auto-start re-reads it from paths a scout never sees, so
+        # the refused rewrite has to leave a `False` standing rather than the last honored `True`.
+        decision = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION)
+        assert decision is not None and json.loads(decision.content)["supersede"] is False
+
+    def test_a_rewrite_that_claims_nothing_retracts_the_last_supersede_decision(self) -> None:
+        # Same hazard from the other side: a scout supersedes once, then rewrites again saying
+        # nothing about the fix. A reviewer edit firing auto-start afterwards must not read the old
+        # claim and open a second replacement.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        for summary, supersede in (("the queue, not the handler", True), ("the queue, with numbers", False)):
+            with patch(AUTOSTART_PATH, new=AsyncMock()):
+                response = self.client.post(
+                    self._edit_url(str(run.id)),
+                    data={"report_id": report_id, "summary": summary, "supersedes_implementation": supersede},
+                    format="json",
+                )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+        decision = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.IMPLEMENTATION_DECISION)
+        assert decision is not None and json.loads(decision.content)["supersede"] is False
 
     def test_edit_report_records_edited_report_once_across_repeated_edits(self) -> None:
         # The edited tally is set-membership, not a per-edit log: a run editing the same report twice
