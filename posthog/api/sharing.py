@@ -414,7 +414,7 @@ class SharingConfigurationViewSet(
         "delete_password",
     ]
     pagination_class = None
-    queryset = SharingConfiguration.objects.select_related("dashboard", "insight", "recording", "notebook")
+    queryset = SharingConfiguration.objects.all()
     serializer_class = SharingConfigurationSerializer
 
     def get_serializer_context(
@@ -916,18 +916,13 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         access_token = self.kwargs.get("access_token", "").split(".")[0]
         if access_token:
             try:
-                sharing_configuration = (
-                    SharingConfiguration.objects.select_related(
-                        "dashboard",
-                        "insight",
-                        "recording",
-                        "notebook",
-                        "interviewee_context",
-                        "interviewee_context__topic",
-                    )
-                    .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now()))
-                    .get(access_token=access_token)
-                )
+                # A row points at one shareable resource, so joining all of them here reads tables that
+                # hold nothing and pulls the wide columns - the insight query, the dashboard filters, the
+                # notebook content - on every public share view. Django loads the one resource this share
+                # points at when the page below reads it.
+                sharing_configuration = SharingConfiguration.objects.filter(
+                    Q(expires_at__isnull=True) | Q(expires_at__gt=now())
+                ).get(access_token=access_token)
             except SharingConfiguration.DoesNotExist:
                 raise NotFound()
 
