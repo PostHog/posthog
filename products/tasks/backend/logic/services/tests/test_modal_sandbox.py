@@ -477,6 +477,18 @@ class TestModalSandboxAgentServer:
         assert "secret-token" not in exc.value.context["error"]
         capture_exception.assert_not_called()
 
+    def test_execution_redacts_mcp_credentials_from_error_context(self, mock_sandbox: Any):
+        command = 'agent-server --mcpServers \'[{"headers":{"Authorization":"Bearer secret-token"}}]\''
+        mock_sandbox._sandbox.exec.side_effect = RuntimeError(f"failed {command}")
+
+        with pytest.raises(SandboxExecutionError) as exc:
+            mock_sandbox.execute(command)
+
+        assert "secret-token" not in exc.value.context["command"]
+        assert "secret-token" not in exc.value.context["error"]
+        assert "--mcpServers <redacted>" in exc.value.context["command"]
+        assert "--mcpServers <redacted>" in exc.value.context["error"]
+
     def test_start_agent_server_success_without_domains_skips_agentsh(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
             return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
@@ -736,18 +748,23 @@ class TestModalSandboxAgentServer:
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # gh shim write (mv)
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # gh shim chmod
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # --posthogExecPermissionRegex probe
-                ExecutionResult(stdout="", stderr="", exit_code=1, error=None),
-                ExecutionResult(stdout="some log output", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="__posthog_agent_health_ms=120000", stderr="", exit_code=1, error=None),
             ]
         )
 
-        with patch.object(mock_sandbox, "_setup_agentsh"):
-            with pytest.raises(SandboxExecutionError, match="Agent-server failed to start"):
+        with (
+            patch.object(mock_sandbox, "_setup_agentsh"),
+            patch.object(mock_sandbox, "_diagnose_startup_failure", return_value={"failure_reason": "not ready"}),
+        ):
+            with pytest.raises(SandboxExecutionError, match="Agent-server failed to start") as error:
                 mock_sandbox.start_agent_server(
                     repository="posthog/posthog",
                     task_id="task-123",
                     run_id="run-456",
                 )
+
+        assert error.value.context["health_poll_ms"] == 120000
+        assert mock_sandbox.supports_combined_agent_server_start_and_health() is True
 
     def test_wait_for_health_check_passes(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
@@ -778,7 +795,7 @@ class TestModalSandboxAgentServer:
             patch.object(mock_sandbox, "wait_for_agent_server_ready") as wait_for_ready,
             patch.object(mock_sandbox, "_free_agent_server_port") as mock_free,
         ):
-            mock_sandbox.start_agent_server(
+            health_ms = mock_sandbox.start_agent_server(
                 repository="posthog/posthog",
                 task_id="task-123",
                 run_id="run-456",
@@ -786,7 +803,8 @@ class TestModalSandboxAgentServer:
                 allowed_domains=["example.com"],
             )
 
-        wait_for_ready.assert_called_once_with(["example.com"])
+        assert health_ms == 0
+        wait_for_ready.assert_not_called()
         mock_free.assert_not_called()
         mock_sandbox.execute.assert_not_called()
 
@@ -797,7 +815,7 @@ class TestModalSandboxAgentServer:
 
         with (
             patch.object(mock_sandbox, "_agent_server_is_healthy", return_value=True),
-            patch.object(mock_sandbox, "_agentsh_daemon_is_healthy", return_value=False),
+            patch.object(mock_sandbox, "_agentsh_daemon_is_healthy", side_effect=[False, True]),
             patch.object(mock_sandbox, "_setup_agentsh") as mock_setup_agentsh,
             patch.object(mock_sandbox, "wait_for_agent_server_ready") as wait_for_ready,
             patch.object(mock_sandbox, "_free_agent_server_port") as mock_free,
@@ -812,7 +830,7 @@ class TestModalSandboxAgentServer:
 
         mock_free.assert_called_once_with()
         mock_setup_agentsh.assert_called_once_with("/tmp/workspace", ["example.com"])
-        wait_for_ready.assert_called_once_with(["example.com"])
+        wait_for_ready.assert_not_called()
         assert "./node_modules/.bin/agent-server" in _agent_server_launch_command(mock_sandbox.execute)
 
     def test_wait_for_agent_server_ready_rejects_unhealthy_agentsh(self, mock_sandbox: Any):
@@ -830,12 +848,11 @@ class TestModalSandboxAgentServer:
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # gh shim write (mv)
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # gh shim chmod
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),  # --posthogExecPermissionRegex probe
-                ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
-                ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="ok:1\n__posthog_agent_health_ms=250", stderr="", exit_code=0, error=None),
             ]
         )
 
-        mock_sandbox.start_agent_server(
+        health_ms = mock_sandbox.start_agent_server(
             repository="posthog/posthog",
             task_id="task-123",
             run_id="run-456",
@@ -843,7 +860,10 @@ class TestModalSandboxAgentServer:
         )
 
         mock_sandbox._free_agent_server_port.assert_called_once_with()
-        assert "nohup" in _agent_server_launch_command(mock_sandbox.execute)
+        command = _agent_server_launch_command(mock_sandbox.execute)
+        assert health_ms == 250
+        assert "nohup" in command
+        assert "http://localhost:8080/health" in command
 
     def test_create_snapshot_waits_for_container_before_snapshot(self, mock_sandbox: Any) -> None:
         events: list[str] = []
