@@ -28,6 +28,7 @@ import {
 import type { CountBadgeTone } from "@posthog/ui/primitives/CountBadge";
 import { LoopIcon } from "@posthog/ui/primitives/LoopIcon";
 import {
+  getCurrentMatches,
   navigateToActivity,
   navigateToCanvases,
   navigateToChannel,
@@ -133,16 +134,19 @@ export function pickRailDestination(
   destination: RailDestination,
   current: NavRailPane,
 ): void {
-  if (destination.pane === current) {
+  const matches = getCurrentMatches();
+  const routePath = matches[matches.length - 1]?.fullPath ?? "";
+  const onDestination =
+    destination.pane === current &&
+    isRestorableVisitHref(destination.pane, routePath);
+  if (onDestination) {
     (destination.onReclick ?? destination.onPick)();
     return;
   }
   const visit = lastVisitForActiveTab(destination.pane);
   // A remembered visit that IS where we already are restores nothing, and the
   // click would look dead. Fall through to the destination's root instead, so
-  // a pick always goes somewhere. An href that is not this destination's page
-  // (an overlay, another pane's route) is bad persisted state — replaying it
-  // would send the click somewhere else entirely, so it falls through too.
+  // a pick always goes somewhere.
   const restorable =
     visit &&
     visit.href !== currentHref() &&

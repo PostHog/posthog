@@ -59,28 +59,20 @@ describe("isRestorableVisitHref", () => {
     expect(isRestorableVisitHref(pane, href)).toBe(true);
   });
 
-  // Settings and the other overlays classify to the spaces fallback, so pane
-  // equality alone would replay them from a Spaces click.
   it.each([
-    "/settings",
-    "/settings/general",
-    "/settings/general?from=rail",
-    "/folders/folder-1",
-    "/skills",
-    "/mcp-servers",
-  ])("never replays %s for Spaces", (href) => {
-    expect(isRestorableVisitHref("spaces", href)).toBe(false);
-  });
-
-  it.each([
+    ["spaces", "/settings"],
+    ["spaces", "/settings/general"],
+    ["spaces", "/settings/general?from=rail"],
+    ["spaces", "/folders/folder-1"],
+    ["spaces", "/skills"],
+    ["spaces", "/mcp-servers"],
+    ["spaces", "/usage"],
+    ["inbox", "/inbox/agents"],
     ["spaces", "/activity"],
     ["activity", "/spaces/chan-1"],
-  ] as const)(
-    "does not let %s replay another destination's %s",
-    (pane, href) => {
-      expect(isRestorableVisitHref(pane, href)).toBe(false);
-    },
-  );
+  ] as const)("does not let %s replay %s", (pane, href) => {
+    expect(isRestorableVisitHref(pane, href)).toBe(false);
+  });
 });
 
 describe("railPaneHasSidebar", () => {

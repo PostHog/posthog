@@ -401,10 +401,6 @@ function BrowserTabStripImpl() {
       title: routeTitle ?? mirrorActive?.viewState?.title,
       listOpen,
       spaceId: stampedSpaceId,
-      // Overlays (settings, folder settings) classify as the spaces pane, so
-      // recording their hrefs would overwrite the tab's real last spaces
-      // location and a later Spaces rail click would reopen the overlay. Keep
-      // the existing map on any href a rail click may not restore.
       lastByPane: isRestorableVisitHref(railPane, locationHref)
         ? { ...previousLastByPane, [railPane]: visit }
         : previousLastByPane,

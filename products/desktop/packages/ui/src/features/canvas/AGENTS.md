@@ -53,7 +53,7 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   Anything a destination does besides navigating must live in its route
   component, not its `onPick`: the restore path navigates by href and never
   reaches the navigation bridge.
-  Both ends share `isRestorableVisitHref` (`railPane.ts`): the writer skips hrefs a click may not restore — overlays such as settings and folder settings, which classify to the spaces fallback — and the restore path re-checks the stored href, so bad persisted state falls through to the destination's root instead of replaying.
+  Both ends share `isRestorableVisitHref` (`railPane.ts`): the writer never records an href a click may not restore (settings, folder settings, redirect aliases) and the restore path re-checks the stored one, so bad persisted state falls through to the destination's root.
 - **Testing flag-off locally:** dev builds default `project-bluebird` and
   `code-spaces-layout` on, and that default beats posthog's own override. Force
   them off with

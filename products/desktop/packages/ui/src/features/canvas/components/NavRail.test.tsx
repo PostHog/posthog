@@ -229,6 +229,17 @@ describe("NavRail", () => {
       expect(mocks.openBrowserTab).not.toHaveBeenCalled();
     });
 
+    it("navigates a Spaces click away from a page that is no destination", async () => {
+      const user = userEvent.setup();
+      mocks.fullPath = "/folders/$folderId";
+      mocks.href = "/folders/folder-1";
+      render(<NavRail />);
+
+      await user.click(screen.getByLabelText("Spaces"));
+
+      expect(mocks.navigateToSpaces).toHaveBeenCalledOnce();
+    });
+
     it("routes to Activity from a screen that has no column for it", async () => {
       const user = userEvent.setup();
       mocks.fullPath = "/inbox";
@@ -320,9 +331,6 @@ describe("NavRail", () => {
       expect(useChannelPaneStore.getState().pane).toBe("list");
     });
 
-    // A settings href could land in the spaces memory (overlays classify to
-    // the spaces fallback), and a Spaces click must not replay it: the pick
-    // lands on the destination's root instead.
     it("ignores a remembered visit that is not a Spaces page", async () => {
       const user = userEvent.setup();
       mocks.fullPath = "/activity";
