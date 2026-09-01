@@ -400,6 +400,9 @@ class ComposeFingerprint:
     # The resolved recipient person link the create writes onto the ticket. Two composes with the
     # same body but a different recipient point at different people, so they must not collapse.
     distinct_id: str
+    # The private note the compose opens the ticket with. Two composes that send the same email but
+    # record different context are different requests, so they must not collapse either.
+    internal_context: str
 
     @classmethod
     def build(
@@ -412,6 +415,7 @@ class ComposeFingerprint:
         message: Any,
         rich_content: Any,
         distinct_id: Any,
+        internal_context: Any = "",
     ) -> "ComposeFingerprint | None":
         if not email_config_id or not recipient_email or not isinstance(message, str) or not message:
             return None
@@ -423,6 +427,7 @@ class ComposeFingerprint:
             message=message,
             rich_content=rich_content,
             distinct_id=str(distinct_id or ""),
+            internal_context=str(internal_context or ""),
         )
 
     @property
@@ -436,6 +441,7 @@ class ComposeFingerprint:
                 "message": self.message,
                 "rich_content": self.rich_content,
                 "distinct_id": self.distinct_id,
+                "internal_context": self.internal_context,
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -455,14 +461,19 @@ class ComposeFingerprint:
             or (ticket.distinct_id or "") != self.distinct_id
         ):
             return False
-        # The first message lives on the ticket's opening comment, so confirm the body too: a
-        # second, different pitch to the same recipient in the window is a distinct ticket.
-        first = (
-            Comment.objects.filter(team_id=self.team_id, scope=SUPPORT_TICKET_SCOPE, item_id=str(ticket.id))
-            .order_by("created_at")
-            .first()
+        # A compose writes two comments: the private note it opens with, and the outbound message.
+        # Confirm both bodies. A second pitch to the same recipient in the window is a distinct
+        # ticket if either the message or the recorded context differs.
+        opening = list(
+            Comment.objects.filter(
+                team_id=self.team_id, scope=SUPPORT_TICKET_SCOPE, item_id=str(ticket.id), deleted=False
+            ).order_by("created_at")[:2]
         )
-        if first is None or first.deleted or first.content != self.message or first.rich_content != self.rich_content:
+        outbound = next((c for c in opening if not (c.item_context or {}).get("is_private")), None)
+        if outbound is None or outbound.content != self.message or outbound.rich_content != self.rich_content:
+            return False
+        note = next((c for c in opening if (c.item_context or {}).get("is_private")), None)
+        if (note.content if note else "") != self.internal_context:
             return False
         return True
 

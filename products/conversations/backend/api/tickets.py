@@ -224,6 +224,15 @@ class ComposeTicketSerializer(serializers.Serializer):
         allow_null=True,
         help_text="TipTap rich content JSON for formatted messages.",
     )
+    internal_context = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=5000,
+        help_text=(
+            "Optional context about why the ticket is being opened. Becomes the private note that "
+            "starts the thread, so it is visible to the team and never sent to the recipient."
+        ),
+    )
 
     def validate_message(self, value: str) -> str:
         if not value or not value.strip():
@@ -1705,6 +1714,20 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                     identity_verified=None,
                 )
 
+                # Created before the outbound message so the thread opens on it. Private, so it
+                # never reaches the recipient and never lands in the ticket's denormalized
+                # preview fields.
+                internal_context = data.get("internal_context", "").strip()
+                if internal_context:
+                    Comment.objects.create(
+                        team=team,
+                        created_by=request.user,
+                        scope="conversations_ticket",
+                        item_id=str(ticket.id),
+                        content=internal_context,
+                        item_context={"author_type": "support", "is_private": True},
+                    )
+
                 Comment.objects.create(
                     team=team,
                     created_by=request.user,
@@ -1726,6 +1749,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             message=data["message"],
             rich_content=data.get("rich_content"),
             distinct_id=distinct_id,
+            internal_context=data.get("internal_context", ""),
         )
         assert fingerprint is not None
         guarded = reply_dedupe.create_ticket_deduplicated(fingerprint, create_ticket)

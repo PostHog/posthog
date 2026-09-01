@@ -36,7 +36,14 @@ from products.access_control.backend.models.role import Role
 from products.conversations.backend import reply_dedupe
 from products.conversations.backend.api.ticket_filters import query_params_to_view_filters
 from products.conversations.backend.api.tickets import TicketReplyRequestSerializer
-from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, TicketAssignment, TicketView
+from products.conversations.backend.models import (
+    EmailChannel,
+    EmailChannelKind,
+    EmailOutboxMessage,
+    Ticket,
+    TicketAssignment,
+    TicketView,
+)
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import PERSON_EMAIL_LOOKUP_QUERY, _get_persons_by_email
 from products.conversations.backend.reply_dedupe import (
@@ -2053,6 +2060,23 @@ class TestComposeTicketAPI(APIBaseTest):
         assert first.json()["id"] != second.json()["id"]
         assert Ticket.objects.filter(team=self.team).count() == 2
 
+    def test_compose_same_message_with_different_context_is_not_deduplicated(self, mock_on_commit):
+        # The same email can go out twice for different reasons. If the fingerprint ignored the
+        # private note, the second compose would collapse onto the first and lose its context.
+        base = {
+            "recipient_email": "pitch@test.com",
+            "email_config_id": str(self.email_config.id),
+            "message": "Same body",
+        }
+
+        first = self._compose({**base, "internal_context": "Asked for in the weekly sync"})
+        second = self._compose({**base, "internal_context": "Follow-up after the trial expired"})
+
+        assert first.status_code == status.HTTP_201_CREATED
+        assert second.status_code == status.HTTP_201_CREATED
+        assert first.json()["id"] != second.json()["id"]
+        assert Ticket.objects.filter(team=self.team).count() == 2
+
     def test_compose_same_message_to_different_persons_is_not_deduplicated(self, mock_on_commit):
         # Two people can share one email address (person merging leaves this common). A compose to
         # each — same subject and body, different recipient_distinct_id — is two distinct tickets,
@@ -2110,6 +2134,58 @@ class TestComposeTicketAPI(APIBaseTest):
         assert response.status_code == status.HTTP_409_CONFLICT
         assert response.json()["error_type"] == reply_dedupe.COMPOSE_IN_PROGRESS_ERROR_TYPE
         assert not Ticket.objects.filter(team=self.team).exists()
+
+    @parameterized.expand([("omitted", None), ("blank", "   ")])
+    def test_compose_without_context_writes_only_the_outbound_message(self, mock_on_commit, _name, internal_context):
+        data = {
+            "recipient_email": "someone@test.com",
+            "email_config_id": str(self.email_config.id),
+            "message": "Hello!",
+        }
+        if internal_context is not None:
+            data["internal_context"] = internal_context
+
+        assert self._compose(data).status_code == status.HTTP_201_CREATED
+
+        ticket = Ticket.objects.get(team=self.team)
+        comments = Comment.objects.filter(team=self.team, scope="conversations_ticket", item_id=str(ticket.id))
+        assert comments.count() == 1
+        assert comments.get().item_context["is_private"] is False
+
+    def test_compose_with_context_opens_the_ticket_on_a_private_note(self, mock_on_commit):
+        context = "Raised at the user meetup, not through support."
+        assert (
+            self._compose(
+                {
+                    "recipient_email": "someone@test.com",
+                    "email_config_id": str(self.email_config.id),
+                    "message": "Hello!",
+                    "internal_context": context,
+                }
+            ).status_code
+            == status.HTTP_201_CREATED
+        )
+
+        ticket = Ticket.objects.get(team=self.team)
+        comments = Comment.objects.filter(team=self.team, scope="conversations_ticket", item_id=str(ticket.id))
+        note = comments.get(item_context__is_private=True)
+        outbound = comments.get(item_context__is_private=False)
+
+        assert note.item_context == {"author_type": "support", "is_private": True}
+        assert note.content == context
+        assert note.created_at < outbound.created_at
+
+        # Only the outbound message may be sent. If the note ever reaches the outbox, the
+        # composer's internal context is delivered to the recipient.
+        outbox = EmailOutboxMessage.objects.filter(team=self.team, ticket=ticket)
+        assert outbox.count() == 1
+        assert outbox.get().comment_id == outbound.id
+
+        # The note must stay out of the denormalized fields, or its text reaches the ticket list
+        # preview and the customer-facing widget's message count.
+        ticket.refresh_from_db()
+        assert ticket.message_count == 1
+        assert ticket.last_message_text == "Hello!"
 
 
 class TestTicketPersonalAPIKeyScopes(APIBaseTest):

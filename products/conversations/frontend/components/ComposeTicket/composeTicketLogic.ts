@@ -16,6 +16,7 @@ export interface composeTicketLogicValues {
     emailConfigs: EmailConfigStatus[]
     emailConfigsLoading: boolean
     emailSubject: string
+    internalContext: string
     isOpen: boolean
     recipientDistinctId: string
     recipientEmail: string
@@ -63,6 +64,9 @@ export interface composeTicketLogicActions {
     setEmailSubject: (subject: string) => {
         subject: string
     }
+    setInternalContext: (context: string) => {
+        context: string
+    }
     setRecipientDistinctId: (distinctId: string) => {
         distinctId: string
     }
@@ -91,6 +95,7 @@ export const composeTicketLogic = kea<composeTicketLogicType>([
         setRecipientEmail: (email: string) => ({ email }),
         setRecipientDistinctId: (distinctId: string) => ({ distinctId }),
         setEmailSubject: (subject: string) => ({ subject }),
+        setInternalContext: (context: string) => ({ context }),
         setEmailConfigId: (configId: string, isManual: boolean = true) => ({ configId, isManual }),
         resetForm: true,
         submitCompose: (message: string, richContent: Record<string, unknown> | null) => ({ message, richContent }),
@@ -125,6 +130,14 @@ export const composeTicketLogic = kea<composeTicketLogicType>([
             '',
             {
                 setEmailSubject: (_, { subject }) => subject,
+                openComposeModal: () => '',
+                resetForm: () => '',
+            },
+        ],
+        internalContext: [
+            '',
+            {
+                setInternalContext: (_, { context }) => context,
                 openComposeModal: () => '',
                 resetForm: () => '',
             },
@@ -195,7 +208,7 @@ export const composeTicketLogic = kea<composeTicketLogicType>([
             }
         },
         submitCompose: async ({ message, richContent }) => {
-            const { recipientEmail, recipientDistinctId, emailSubject, emailConfigId } = values
+            const { recipientEmail, recipientDistinctId, emailSubject, emailConfigId, internalContext } = values
 
             if (!message.trim()) {
                 lemonToast.error('Message is required.')
@@ -223,6 +236,7 @@ export const composeTicketLogic = kea<composeTicketLogicType>([
                     ...(recipientDistinctId ? { recipient_distinct_id: recipientDistinctId } : {}),
                     ...(emailSubject ? { email_subject: emailSubject } : {}),
                     ...(richContent ? { rich_content: richContent } : {}),
+                    ...(internalContext.trim() ? { internal_context: internalContext.trim() } : {}),
                 })
 
                 lemonToast.success('Ticket created successfully.')

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 
@@ -18,9 +18,16 @@ export function ComposeTicketModal(): JSX.Element | null {
         emailConfigs,
         emailConfigsLoading,
         composingLoading,
+        internalContext,
     } = useValues(composeTicketLogic)
-    const { closeComposeModal, setRecipientEmail, setEmailSubject, setEmailConfigId, submitCompose } =
-        useActions(composeTicketLogic)
+    const {
+        closeComposeModal,
+        setRecipientEmail,
+        setEmailSubject,
+        setEmailConfigId,
+        setInternalContext,
+        submitCompose,
+    } = useActions(composeTicketLogic)
 
     const editorRef = useRef<RichContentEditorType | null>(null)
     const verifiedEmailConfigs = emailConfigs.filter((c) => c.domain_verified)
@@ -104,6 +111,25 @@ export function ComposeTicketModal(): JSX.Element | null {
                         onPressCmdEnter={handleSubmit}
                         minRows={5}
                     />
+                </div>
+
+                <div className="flex flex-col gap-1">
+                    <label className="font-semibold text-xs" htmlFor="compose-internal-context">
+                        Private note (optional)
+                    </label>
+                    <LemonTextArea
+                        id="compose-internal-context"
+                        value={internalContext}
+                        onChange={setInternalContext}
+                        placeholder="Where this request came from, and anything you promised"
+                        minRows={2}
+                        maxLength={5000}
+                    />
+                    {/* The guarantee stays on screen while someone types. In a placeholder it would
+                        disappear on the first keystroke, when they most need to read it. */}
+                    <span className="text-xs text-muted">
+                        Starts the ticket with a note only your team can see. The recipient never gets it.
+                    </span>
                 </div>
             </div>
         </LemonModal>

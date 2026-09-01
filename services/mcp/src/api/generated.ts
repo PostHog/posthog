@@ -18410,6 +18410,11 @@ export namespace Schemas {
       message: string;
       /** TipTap rich content JSON for formatted messages. */
       rich_content?: unknown;
+      /**
+         * Optional context about why the ticket is being opened. Becomes the private note that starts the thread, so it is visible to the team and never sent to the recipient.
+         * @maxLength 5000
+         */
+      internal_context?: string;
     }
 
     export interface ComposeTicketResponse {
