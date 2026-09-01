@@ -87,6 +87,10 @@ def _get_versioned_access_cache_value(key: str, version: str | None = None) -> A
     return value
 
 
+def _cache_organization(organization: Organization, version: str | None) -> None:
+    _set_versioned_access_cache_value(_organization_cache_key(organization.id), organization, version)
+
+
 def get_cached_organization(organization_id: str | UUID) -> Organization | None:
     organization_model = _organization_model()
     if not settings.ORGANIZATION_ACCESS_CACHE_ENABLED:
@@ -146,6 +150,7 @@ def get_cached_organization_membership(organization_id: str | UUID, user: User) 
 
     key = _organization_membership_cache_key(organization_id, user.id)
     version = _get_cache_version(key)
+    organization_version = _get_cache_version(_organization_cache_key(organization_id))
     cached = _get_versioned_access_cache_value(key, version)
     if cached == _ORGANIZATION_ACCESS_CACHE_MISS:
         return None
@@ -160,6 +165,7 @@ def get_cached_organization_membership(organization_id: str | UUID, user: User) 
         _set_versioned_access_cache_value(key, _ORGANIZATION_ACCESS_CACHE_MISS, version)
         return None
 
+    _cache_organization(membership.organization, organization_version)
     _cache_membership(membership, version)
     return _prepare_cached_membership(membership, user)
 
