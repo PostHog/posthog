@@ -33,18 +33,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-from posthog.hogql_queries.insights.retention.retention_base_query_fixed import RetentionFixedIntervalBaseQueryBuilder
-from posthog.hogql_queries.insights.retention.retention_base_query_rolling import (
-    RetentionRollingIntervalBaseQueryBuilder,
-)
-from posthog.hogql_queries.insights.retention.retention_validation_rules import (
-    DisallowBreakdownsWithDataWarehouse24HourWindows,
-    DisallowCumulativeWith24HourWindows,
-    DisallowGroupAggregationWithDataWarehouse24HourWindows,
-    DisallowPropertyAggregationWith24HourWindows,
-    DisallowUnsupportedDataWarehouseTimestampField,
-    RequireRetentionDataWarehouseEntitiesForCustomAggregationTarget,
-)
 from posthog.hogql_queries.insights.utils.breakdowns import (
     ALL_USERS_COHORT_ID,
     BREAKDOWN_OTHER_STRING_LABEL,
@@ -62,6 +50,20 @@ from posthog.models.user import User
 from posthog.queries.util import correct_result_for_sampling
 
 from products.actions.backend.models.action import Action
+from products.product_analytics.backend.hogql_queries.retention.retention_base_query_fixed import (
+    RetentionFixedIntervalBaseQueryBuilder,
+)
+from products.product_analytics.backend.hogql_queries.retention.retention_base_query_rolling import (
+    RetentionRollingIntervalBaseQueryBuilder,
+)
+from products.product_analytics.backend.hogql_queries.retention.retention_validation_rules import (
+    DisallowBreakdownsWithDataWarehouse24HourWindows,
+    DisallowCumulativeWith24HourWindows,
+    DisallowGroupAggregationWithDataWarehouse24HourWindows,
+    DisallowPropertyAggregationWith24HourWindows,
+    DisallowUnsupportedDataWarehouseTimestampField,
+    RequireRetentionDataWarehouseEntitiesForCustomAggregationTarget,
+)
 
 DEFAULT_INTERVAL = IntervalType("day")
 DEFAULT_TOTAL_INTERVALS = 7

@@ -5,10 +5,11 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import EventsNode, LifecycleDataWarehouseNode, LifecycleQuery
 
-from posthog.hogql_queries.insights.lifecycle.lifecycle_validation_rules import (
+from posthog.hogql_queries.validation.validation import QueryValidationContext
+
+from products.product_analytics.backend.hogql_queries.lifecycle.lifecycle_validation_rules import (
     RequireLifecycleDataWarehouseSeriesForCustomAggregationTarget,
 )
-from posthog.hogql_queries.validation.validation import QueryValidationContext
 
 
 class TestLifecycleValidationRules(BaseTest):

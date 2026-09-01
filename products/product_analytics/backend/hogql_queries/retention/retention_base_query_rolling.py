@@ -3,7 +3,9 @@ from posthog.schema import EntityType
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
-from posthog.hogql_queries.insights.retention.retention_base_query_builder import RetentionBaseQueryBuilder
+from products.product_analytics.backend.hogql_queries.retention.retention_base_query_builder import (
+    RetentionBaseQueryBuilder,
+)
 
 
 class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):

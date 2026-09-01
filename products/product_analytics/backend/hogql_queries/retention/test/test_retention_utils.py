@@ -4,7 +4,7 @@ from django.test import SimpleTestCase
 
 from posthog.hogql import ast
 
-from posthog.hogql_queries.insights.retention.utils import breakdown_extract_expr
+from products.product_analytics.backend.hogql_queries.retention.utils import breakdown_extract_expr
 
 
 def _chain(expr: ast.Expr) -> list:
