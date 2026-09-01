@@ -3,7 +3,7 @@ from typing import cast
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 
-from posthog.hogql_queries.insights.utils.aggregations import FirstTimeForUserEventsQueryAlternator, QueryAlternator
+from posthog.hogql_queries.utils.aggregations import FirstTimeForUserEventsQueryAlternator, QueryAlternator
 
 
 class TestQueryAlternator:
