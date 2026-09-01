@@ -218,6 +218,17 @@ describe('settingsSceneLogic', () => {
 
         await expectLogic(logic)
         expect(router.values.location.pathname).toBe('/organization/billing')
+
+        // Exports is the only link-only section at environment level, so its id goes through the
+        // environment->project rewrite before the redirect lookup. Both URL forms must still reach
+        // the project-scoped exports scene rather than dead-ending on "Setting not found".
+        router.actions.push('/settings/environment-exports')
+        await expectLogic(logic)
+        expect(router.values.location.pathname).toMatch(/\/exports$/)
+
+        router.actions.push('/settings/project-exports')
+        await expectLogic(logic)
+        expect(router.values.location.pathname).toMatch(/\/exports$/)
     })
 
     it('does not bounce a level-only URL when already on a section at that level', async () => {

@@ -40,17 +40,6 @@ const SETTINGS_SECTION_ALIASES: Record<string, SettingSectionId> = {
     'project-members': 'organization-members',
 }
 
-// Link-only sections (Billing, Exports, Legal documents, Startups) have no settings of their
-// own; they point at a dedicated scene through `to`. Selecting such a section renders
-// "Setting not found", so a URL that lands on one (bookmark, pasted link, an assistant-suggested
-// link) must redirect to that scene instead. Read from the full map, not the visible sections:
-// a member without billing access has the section filtered out, and must still reach
-// `/organization/billing`, which shows its own no-access state instead of a misleading
-// "not found".
-const SETTINGS_SECTION_REDIRECTS: Record<string, string> = Object.fromEntries(
-    SETTINGS_MAP.filter((section) => section.to).map((section) => [section.id, section.to as string])
-)
-
 // Settings that moved to a different section, keyed by setting id. Deep links to the old
 // section (docs, CDP filter warnings, bookmarks) redirect to the setting's current home.
 const MOVED_SETTINGS: Record<string, SettingSectionId> = {
@@ -87,6 +76,22 @@ const canonicalSettingsSection = (section: string): string => {
 
     return section
 }
+
+// Link-only sections (Billing, Exports, Legal documents, Startups) have no settings of their
+// own; they point at a dedicated scene through `to`. Selecting such a section renders
+// "Setting not found", so a URL that lands on one (bookmark, pasted link, an assistant-suggested
+// link) must redirect to that scene instead. Read from the full map, not the visible sections:
+// a member without billing access has the section filtered out, and must still reach
+// `/organization/billing`, which shows its own no-access state instead of a misleading
+// "not found". Key by the canonical id: the redirect lookup runs on the section id after
+// `canonicalSettingsSection` rewrites `environment-*` to `project-*`, so `environment-exports`
+// is looked up as `project-exports`.
+const SETTINGS_SECTION_REDIRECTS: Record<string, string> = Object.fromEntries(
+    SETTINGS_MAP.filter((section) => section.to).map((section) => [
+        canonicalSettingsSection(section.id),
+        section.to as string,
+    ])
+)
 
 const canonicalSettingsHashParams = (hashParams: Params): [Params, boolean] => {
     const nextHashParams = { ...hashParams }
