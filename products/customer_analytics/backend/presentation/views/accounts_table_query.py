@@ -7,7 +7,14 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import AccountsTableQuery, AccountsTableQueryResponse, QueryStatusResponse, RefreshType
+from posthog.schema import (
+    AccountsTableQuery,
+    AccountsTableQueryResponse,
+    DashboardFilter,
+    LimitContext,
+    QueryStatusResponse,
+    RefreshType,
+)
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
@@ -17,15 +24,26 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 
 class AccountsTableQueryRequest(BaseModel):
+    async_: bool | None = Field(default=None, alias="async")
     query: AccountsTableQuery = Field(description="Accounts table query to run.")
     client_query_id: str | None = Field(
         default=None,
         description="Client-provided query ID for checking status or canceling an asynchronous query.",
     )
+    filters_override: DashboardFilter | None = None
+    limit_context: LimitContext | None = Field(
+        default=None,
+        description="Limit context for the query. Only 'posthog_ai' is allowed as a client-provided value.",
+    )
+    name: str | None = Field(
+        default=None,
+        description="Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name.",
+    )
     refresh: RefreshType = Field(
         default=RefreshType.BLOCKING,
         description="Cache and execution behavior for the query.",
     )
+    variables_override: dict[str, dict[str, Any]] | None = None
 
 
 class AccountsTableQueryViewSet(
