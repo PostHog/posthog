@@ -82,6 +82,14 @@ class TestWrapClickhouseQueryError:
         assert isinstance(wrapped, ExposedCHQueryError)
         assert str(wrapped) == message
 
+    @parameterized.expand([(6,), (26,), (72,), (130,)])
+    def test_type_coercion_parse_codes_classify_as_user_error(self, code: int) -> None:
+        # The family carries an explicit USER_ERROR category so it stays off the SLO failure count
+        # and out of error tracking. Dropping the category would silently revert 26 and 130 to ERROR.
+        err = ServerException("DB::Exception: parse failure", code=code)
+
+        assert look_up_clickhouse_error_code_meta(err).get_category() == QueryErrorCategory.USER_ERROR
+
     @parameterized.expand(
         [
             # NETWORK_ERROR (210) is a genuine server-side fault and must not be exposed.
