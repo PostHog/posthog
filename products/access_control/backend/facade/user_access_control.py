@@ -176,7 +176,7 @@ def get_field_access_control_map(model_class: type[Model]) -> dict[str, tuple[AP
                 cast(AccessControlLevel, field._access_control_level),
             )
 
-    return field_access_map  # ty: ignore[invalid-return-type]
+    return field_access_map
 
 
 def resource_to_display_name(resource: APIScopeObject) -> str:
