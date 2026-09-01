@@ -24,12 +24,17 @@ class ChannelDetail(models.TextChoices):
     GITHUB_ISSUE = "github_issue", "GitHub issue"
 
 
-class Status(models.TextChoices):
+class TicketStatus(models.TextChoices):
     NEW = "new", "New"
     OPEN = "open", "Open"
     PENDING = "pending", "Pending"
     ON_HOLD = "on_hold", "On hold"
     RESOLVED = "resolved", "Resolved"
+
+
+# The class was renamed so the derived schema name reads TicketStatusEnum; the
+# old name stays importable for the many existing callers.
+Status = TicketStatus
 
 
 class Priority(models.TextChoices):

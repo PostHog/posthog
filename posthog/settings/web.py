@@ -546,39 +546,20 @@ SPECTACULAR_SETTINGS = {
     ],
     "ENUM_NAME_OVERRIDES": ChoicesEnumNameOverrides(
         {
-            "ScoutConfigStatusEnum": "products.signals.backend.models.SignalScoutConfig.Status",
-            "ScoutConfigPauseReasonEnum": "products.signals.backend.models.SignalScoutConfig.PauseReason",
-            "ScoutConfigNetworkAccessEnum": "products.signals.backend.models.SignalScoutConfig.NetworkAccess",
             # `source_product` names the same choice set on several signals components, so pin one name.
             "SignalSourceProductEnum": "products.signals.backend.enums.signal_source_product_choices",
             "EngineeringAnalyticsPRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState",
             "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
             "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
-            "SavedQueryStatusEnum": "products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.Status",
-            "PushTokenPlatformEnum": "posthog.models.user_push_token.UserPushToken.Platform",
-            "ExperimentMetricKindEnum": "products.ai_observability.backend.models.score_definitions.ScoreDefinition.Kind",
-            # Shared by TaskCreate.origin_product and TaskWrite.origin_product. Needs naming because
-            # WarmTaskRequest.origin_product offers only the warmable subset, so "origin_product" alone
-            # no longer identifies one choice set. Keyed to the name the generator already produced
-            # (`OriginProductEnumApi`) so naming it doesn't rename the type its consumers import.
-            "OriginProductEnum": "products.tasks.backend.models.Task.OriginProduct",
-            "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
             # Shared by Ticket.priority and TicketViewFilters.priority (same choice set).
             "TicketPriorityEnum": "products.conversations.backend.models.constants.Priority",
             "TicketChannelFilterEnum": "products.conversations.backend.api.ticket_filters.TICKET_CHANNEL_FILTER_CHOICES",
             "TicketSlaFilterEnum": "products.conversations.backend.api.ticket_filters.TICKET_SLA_FILTER_CHOICES",
             "TicketSortOrderEnum": "products.conversations.backend.api.ticket_filters.TICKET_SORT_ORDER_CHOICES",
-            # Shared by HogFlowBatchJob.status and HogFlowBatchJobCancelResponse.status (same choice set).
-            "HogFlowBatchJobStatusEnum": "products.workflows.backend.models.hog_flow_batch_job.HogFlowBatchJob.State",
             # Shared by ExperimentMetricsRecalculation.status and ActiveRecalculationRun.status (same choice set).
             "MetricsRecalculationStatusEnum": (
                 "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status"
             ),
-            "BillingAlertMetricEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.Metric",
-            "BillingAlertStateEnum": "products.billing_alerts.backend.models.BillingAlertConfiguration.State",
-            # Disambiguates from the same-valued inline enum on the signals LogsAlertStateChangeSignalExtra contract.
-            "LogsAlertThresholdOperatorEnum": "products.logs.backend.models.LogsAlertConfiguration.ThresholdOperator",
-            "HogFlowStatusEnum": "products.workflows.backend.models.hog_flow.hog_flow.HogFlow.State",
             "UtmIssueKindEnum": "products.marketing_analytics.backend.services.types.UTM_ISSUE_KIND_CHOICES",
             # Shared by ConversionGoalSummary.kind and GoalExplanation.kind (same choice set).
             "ConversionGoalKindEnum": "products.marketing_analytics.backend.hogql_queries.constants.CONVERSION_GOAL_KIND_CHOICES",
@@ -602,15 +583,8 @@ SPECTACULAR_SETTINGS = {
             "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
             "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
             "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
-            "VisionAlertMetricEnum": "products.replay_vision.backend.models.vision_action.AlertMetric",
             "VisionAlertDirectionEnum": "products.replay_vision.backend.models.vision_action.AlertDirection",
-            "TriggerEnum": "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Trigger",
             "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
-            "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
-            # Pin the subscriptions target enum to its existing name so adding customer_analytics'
-            # `target_type` (below, inline-list category) doesn't auto-rename this shared-basename enum
-            # and churn subscriptions' generated types.
-            "TargetTypeEnum": "products.exports.backend.models.subscription.Subscription.SubscriptionTarget",
             # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
             "TileSpacingEnum": ["tight", "condensed", "standard", "relaxed", "wide"],
             "DesktopAccessReasonEnum": "products.tasks.backend.facade.contracts.DESKTOP_ACCESS_REASON_SCHEMA_VALUES",

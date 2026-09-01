@@ -34,9 +34,14 @@ class AlertFrequency(models.TextChoices):
     ON_BREACH = "on_breach", "When a threshold is crossed"
 
 
-class AlertMetric(models.TextChoices):
+class VisionActionAlertMetric(models.TextChoices):
     COUNT = "count", "Count of matching observations"
     AVG_SCORE = "avg_score", "Average score"  # scorer scanners only
+
+
+# Renamed so the derived schema name reads VisionActionAlertMetricEnum; the old
+# name stays importable for existing callers.
+AlertMetric = VisionActionAlertMetric
 
 
 class AlertDirection(models.TextChoices):
