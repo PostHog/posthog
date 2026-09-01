@@ -76088,7 +76088,7 @@ export namespace Schemas {
     } as const;
 
     export interface ScoutSuggestionSet {
-      /** `fresh`: current batch. `stale`: the fleet changed since it was generated. `failed`: the last refresh failed (items are the prior batch, if any). `empty`: nothing to suggest yet.
+      /** `fresh`: current batch. `stale`: the fleet changed since it was generated, or the batch aged past the refresh window. `failed`: the last refresh failed (items are the prior batch, if any). `empty`: nothing to suggest yet.
        *
        * * `fresh` - Fresh
        * * `stale` - Stale
