@@ -1,0 +1,133 @@
+name: pnpm store cache
+
+# Writes the shared pnpm store cache entry for the current lockfile. Every node job
+# restores the same `pnpm-<os>-<lockhash>` key (see .github/actions/pnpm-install)
+# and nothing else writes it. A cold install from the registry gives an entry that
+# holds exactly the packages the lockfile pins. A consumer that saved after a
+# prefix-fallback restore would re-save every package version an earlier lockfile
+# pinned, and the entry would grow with every lockfile change.
+#
+# actions/cache derives the entry version from the cached path, and pnpm keeps its
+# store on the project's filesystem. On the runner host that is the pnpm/action-setup
+# install dir. In a container job the workspace is a bind mount, so the store lands
+# in /__w/.pnpm-store instead. The two paths are two entries under one key, so each
+# runner shape gets its own writer: the host, and the playwright container the
+# storybook shards run in. GitHub-hosted and Depot runners use separate cache stores,
+# so each shape runs on both.
+
+on:
+    push:
+        branches:
+            - master
+        paths:
+            - pnpm-lock.yaml
+            - .github/workflows/pnpm-store-cache.yml
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+env:
+    # pnpm reads npm_config_*; a cold install fetches every package, so ride out blips.
+    npm_config_fetch_retries: 3
+    npm_config_fetch_retry_mintimeout: 10000
+    npm_config_fetch_retry_maxtimeout: 60000
+
+jobs:
+    host:
+        name: Write host store (${{ matrix.runner }})
+        runs-on: ${{ matrix.runner }}
+        timeout-minutes: 15
+        strategy:
+            fail-fast: false
+            matrix:
+                runner: [ubuntu-latest, depot-ubuntu-24.04]
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+            - name: Set up Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ github.token }}
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+            - name: Check for an existing entry
+              id: lookup
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  lookup-only: true
+
+            # --ignore-scripts: only the store is kept, and build scripts write to
+            # node_modules, not to the store.
+            - name: Install every workspace package into an empty store
+              if: steps.lookup.outputs.cache-hit != 'true'
+              run: pnpm install --frozen-lockfile --ignore-scripts
+
+            - name: Save pnpm store
+              if: github.ref == 'refs/heads/master' && steps.lookup.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+    storybook-container:
+        name: Write storybook container store (${{ matrix.runner }})
+        runs-on: ${{ matrix.runner }}
+        timeout-minutes: 15
+        strategy:
+            fail-fast: false
+            matrix:
+                runner: [ubuntu-latest, depot-ubuntu-24.04]
+        # The image the ci-storybook visual-regression shards run in. The store path
+        # comes from the workspace bind mount, not the image, so any Linux image would
+        # produce the same entry; the same image keeps pnpm's runtime identical.
+        container:
+            image: ghcr.io/posthog/playwright:v1.60.0@sha256:83192064c7510f7ee73dd63dc5f22a5e01a92c81a2e6a9c715d9e3fe55471fd9
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+            - name: Set up Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ github.token }}
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+            - name: Check for an existing entry
+              id: lookup
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  lookup-only: true
+
+            # The shards install this filter set, so the entry holds only what they link.
+            - name: Install the storybook packages into an empty store
+              if: steps.lookup.outputs.cache-hit != 'true'
+              run: pnpm --filter=@posthog/storybook... install --frozen-lockfile --ignore-scripts
+
+            - name: Save pnpm store
+              if: github.ref == 'refs/heads/master' && steps.lookup.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}

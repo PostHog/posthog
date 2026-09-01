@@ -1,11 +1,14 @@
 name: Install pnpm dependencies
 description: |
-    Sets up pnpm + Node, restores the shared pnpm store cache, installs, and
-    saves the cache only on the default branch.
+    Sets up pnpm + Node, restores the shared pnpm store cache, and installs.
 
     Single source of truth for the pnpm cache key. Every node workflow shares
     one namespace (`pnpm-<os>-<lockfile-hash>`), so the store is cached once
     instead of fragmenting across runner-arch casings or per-workflow keys.
+    The entry is written by .github/workflows/pnpm-store-cache.yml from a cold
+    install, so it holds exactly the packages the lockfile pins. A save from
+    here would re-save whatever a prefix-fallback restore brought in, plus the
+    delta of this job's filter set, and the entry would grow without bound.
 
     Also pre-seeds the Node tool cache (`node-toolcache-<os>-<arch>-<version>`,
     master-gated save) so setup-node makes no GitHub API calls on a hit.
@@ -79,7 +82,9 @@ runs:
               node-version-file: ${{ inputs.node-version-file }}
               token: ${{ inputs.token }}
 
-        # Save only on the default branch, for the same reasons as the pnpm store save below.
+        # Save only on the default branch. A cache written on a PR/branch ref is
+        # scoped to that ref alone: no other branch can read it, it evicts the
+        # shared master entries, and it only ever helps that one PR's re-runs.
         - name: Save Node tool cache
           if: github.ref == 'refs/heads/master' && steps.node-version.outputs.version != '' && steps.node-toolcache.outputs.cache-hit != 'true'
           uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
@@ -93,7 +98,6 @@ runs:
           run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
 
         - name: Restore pnpm store
-          id: restore
           uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
           with:
               path: ${{ steps.pnpm-store.outputs.path }}
@@ -113,13 +117,3 @@ runs:
               npm_config_fetch_retry_mintimeout: 10000
               npm_config_fetch_retry_maxtimeout: 60000
           run: eval "$INSTALL_COMMAND"
-
-        # Save only on the default branch. Caches written on a PR/branch ref are
-        # scoped to that ref alone — no other branch can read them, they evict
-        # the shared master cache, and they only ever help that one PR's re-runs.
-        - name: Save pnpm store
-          if: github.ref == 'refs/heads/master' && steps.restore.outputs.cache-hit != 'true'
-          uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-          with:
-              path: ${{ steps.pnpm-store.outputs.path }}
-              key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
