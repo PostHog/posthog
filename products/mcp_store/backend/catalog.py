@@ -214,6 +214,15 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         icon_domain="linear.app",
     ),
     CatalogEntry(
+        name="Magic Hour",
+        url="https://mcp.magichour.ai/",
+        description="Create and edit images, videos, GIFs, and audio with Magic Hour.",
+        auth_type="oauth",
+        category="design",
+        icon_domain="magichour.ai",
+        docs_url="https://magichour.ai/mcp",
+    ),
+    CatalogEntry(
         name="Mem0",
         url="https://mcp.mem0.ai/mcp/",
         description="Save, search, and update AI agent memories with Mem0.",
