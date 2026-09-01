@@ -57,11 +57,8 @@ import type {
     PaginatedOrganizationOAuthApplicationListApi,
     PaginatedProjectBackwardCompatBasicListApi,
     PaginatedProjectSecretAPIKeyListApi,
-<<<<<<< HEAD
     PaginatedSCIMRequestLogApi,
-=======
     PaginatedUploadedMediaListApi,
->>>>>>> 68be3425596fa32053420e5d4216482828d97c31
     PaginatedUserGitHubIntegrationListResponseListApi,
     PaginatedUserListApi,
     PatchedCIMDVerificationTokenUpdateApi,
