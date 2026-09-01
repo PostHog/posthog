@@ -99,7 +99,13 @@ function handleKickoffError(
         return
     }
     lemonToast.error(error?.detail || error?.message || fallbackMessage)
-    captureInboxReportActionCompleted({ report, actionType, outcome: 'failure' })
+    captureInboxReportActionCompleted({
+        report,
+        actionType,
+        outcome: 'failure',
+        failureStatus: typeof error?.status === 'number' ? error.status : null,
+        failureCode: typeof error?.code === 'string' ? error.code : null,
+    })
 }
 
 async function createReportTask(

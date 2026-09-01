@@ -12279,13 +12279,16 @@ class TestCloudUsageGate(BaseTaskAPITest):
         assert mock_feature_enabled.call_args.args[0] == "tasks-kimi-k3"
         assert not Task.objects.filter(title="Gated").exists()
 
-    def _inbox_task(self, origin: Task.OriginProduct) -> Task:
+    def _inbox_task(self, origin: Task.OriginProduct, repository: str | None = None) -> Task:
         from products.signals.backend.models import SignalReport
 
         task = self.create_task()
         task.origin_product = origin
         if origin == Task.OriginProduct.SIGNAL_REPORT:
             task.signal_report = SignalReport.objects.create(team=self.team)
+        if repository is not None:
+            task.repository = repository
+            task.repositories = [repository]
         task.save()
         return task
 
@@ -12508,14 +12511,16 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         self.assertFalse(tasks_facade.task_exempt_from_code_access(task.id, self.team.id))
 
-    def test_exemption_drops_for_signal_report_task_with_repository(self):
+    def test_exemption_holds_for_signal_report_task_with_repository(self):
+        # The repo on a report task is resolved server-side from the report's own selection, so
+        # the task stays entitled through self-driving rather than through Desktop access.
         task = self._inbox_task(Task.OriginProduct.SIGNAL_REPORT)
         self.assertTrue(tasks_facade.task_exempt_from_code_access(task.id, self.team.id))
 
         task.repository = "posthog/posthog"
         task.save()
 
-        self.assertFalse(tasks_facade.task_exempt_from_code_access(task.id, self.team.id))
+        self.assertTrue(tasks_facade.task_exempt_from_code_access(task.id, self.team.id))
 
     def test_create_signal_report_task_ignores_channel_repository(self):
         from products.signals.backend.models import SignalReport
@@ -12564,8 +12569,16 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertEqual(response.json()["attr"], "repository")
         self.assertFalse(Task.objects.filter(title="Forged").exists())
 
-    def test_update_cannot_attach_repository_to_signals_chat_task(self):
-        task = self._inbox_task(Task.OriginProduct.SIGNALS_CHAT)
+    @parameterized.expand(
+        [
+            ("signals_chat", Task.OriginProduct.SIGNALS_CHAT),
+            ("signal_report", Task.OriginProduct.SIGNAL_REPORT),
+        ]
+    )
+    def test_update_cannot_attach_repository_to_inbox_task(self, _name, origin):
+        # These skip the Desktop gate, so a mutable repo would let a caller aim ungated cloud
+        # work at a repo of their choosing instead of the one the server resolved.
+        task = self._inbox_task(origin)
 
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/",
@@ -12695,29 +12708,45 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("signal_report_under_limit", Task.OriginProduct.SIGNAL_REPORT, None, status.HTTP_200_OK),
+            ("signal_report_under_limit", Task.OriginProduct.SIGNAL_REPORT, None, None, status.HTTP_200_OK),
             (
                 "signal_report_over_limit",
                 Task.OriginProduct.SIGNAL_REPORT,
+                None,
                 OVER_LIMIT,
                 status.HTTP_429_TOO_MANY_REQUESTS,
             ),
-            ("signals_chat_under_limit", Task.OriginProduct.SIGNALS_CHAT, None, status.HTTP_200_OK),
-            ("signals_chat_over_limit", Task.OriginProduct.SIGNALS_CHAT, OVER_LIMIT, status.HTTP_429_TOO_MANY_REQUESTS),
+            # The Inbox "Create PR" shape: the server resolves a repo onto the report task, so
+            # the exemption has to survive a repository for the press to reach a run.
+            (
+                "signal_report_with_repository_under_limit",
+                Task.OriginProduct.SIGNAL_REPORT,
+                "posthog/posthog",
+                None,
+                status.HTTP_200_OK,
+            ),
+            ("signals_chat_under_limit", Task.OriginProduct.SIGNALS_CHAT, None, None, status.HTTP_200_OK),
+            (
+                "signals_chat_over_limit",
+                Task.OriginProduct.SIGNALS_CHAT,
+                None,
+                OVER_LIMIT,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            ),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage")
     def test_run_inbox_task_bypasses_code_access_but_keeps_usage_backstop(
-        self, _name, origin, gate_return, expected_status, mock_gate, _mock_workflow
+        self, _name, origin, repository, gate_return, expected_status, mock_gate, _mock_workflow
     ):
-        # Inbox tasks (report "Create PR" / "Discuss", scout chat) are entitled through
+        # Inbox tasks (report "Ask AI" / "Create PR", scout chat) are entitled through
         # self-driving, not PostHog Desktop, so they run while the human Desktop policy denies
         # access. A plain task returns 403 in the same state. The usage cost backstop must still
         # fire on the entitlement-bypassed path.
         self.set_tasks_feature_flag(False)
         mock_gate.return_value = gate_return
-        task = self._inbox_task(origin)
+        task = self._inbox_task(origin, repository=repository)
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/run/",

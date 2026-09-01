@@ -854,10 +854,13 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
     also serve the generally-available Inbox, whose tasks must run without the waitlist. Only
     server-verifiable Inbox shapes qualify:
 
-    - ``SIGNAL_REPORT`` linked to a report in this team and repo-less (Inbox "Discuss").
-      Reports are minted by scouts and the link is team-scoped by the write serializer, so a
-      caller can't forge one. Acting on a report is entitled through self-driving
-      (`product-autonomy`). Repository-backed report tasks require Desktop access.
+    - ``SIGNAL_REPORT`` linked to a report in this team (Inbox "Ask AI" / "Create PR"), with or
+      without a repository. Reports are minted by scouts and are not API-creatable, and the link
+      is team-scoped by the write serializer, so a caller can't forge one. Acting on a report is
+      entitled through self-driving (`product-autonomy`). A repository on one of these is not
+      caller-chosen work: the create serializer rejects a client-supplied ``repository`` and
+      ``github_user_integration``, ``create_task`` resolves the repo from the report's own
+      selection under the team GitHub integration, and ``update_task`` keeps both immutable.
     - ``SIGNALS_CHAT`` (Inbox scout chat), reserved for server-side creation by the signals
       scout-chat endpoint; the write serializer rejects it from API callers. Only while
       repo-less: chat tasks are minted without repositories, and attaching one via update
@@ -867,15 +870,16 @@ def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
     ``origin_product`` is client input, so an FK-less claim would be a one-field waitlist
     bypass. The report's own team is re-checked here even though the write serializer
     already enforces it, so a future write path can't silently widen the exemption.
+
+    Only the API surface is exempted, which is a human pressing a button in the Inbox, because
+    the auto-start pipeline runs report tasks from Temporal and never reaches these endpoints.
+    The spend backstops stay in front of every exempt run: ``usage_limit_response`` at each
+    call site, and the per-report task cap.
     """
     return Task.objects.filter(
         Q(
             origin_product=Task.OriginProduct.SIGNAL_REPORT,
             signal_report__team_id=team_id,
-            repository__isnull=True,
-            repositories=[],
-            github_integration__isnull=True,
-            github_user_integration__isnull=True,
         )
         | Q(
             origin_product=Task.OriginProduct.SIGNALS_CHAT,
@@ -5842,7 +5846,9 @@ def update_task(
         if task is None or not Task.objects.filter(id=task.id).filter(task_control_q(user_id)).exists():
             return None
 
-        # Repo is immutable for code-access-exempt tasks; a mutable repo reopens the gate (see task_exempt_from_code_access).
+        # Repo is immutable for code-access-exempt tasks: these skip the Desktop gate, so a mutable
+        # repo would let a caller point ungated cloud work at a repo of their choosing, and on a
+        # chat task it reopens the gate outright (see task_exempt_from_code_access).
         if task.origin_product in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
             validated_data.pop("repository", None)
             validated_data.pop("repositories", None)
