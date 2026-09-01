@@ -10,7 +10,7 @@ shape and Python shape stay in lockstep.
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -18,7 +18,6 @@ from django.utils import timezone
 
 import structlog
 import posthoganalytics
-from croniter import croniter
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
@@ -35,6 +34,7 @@ from products.signals.backend.artefact_schemas import ActionabilityChoice, Prior
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
+from products.signals.backend.scout_harness.config_registry import CRON_SCHEDULE_MAX_LENGTH, cron_schedule_error
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_FLAG_KEYS, DERIVED_METADATA_KEY
 from products.signals.backend.scout_harness.fleet_sync import SYNC_SURFACES
 from products.signals.backend.scout_harness.model_selection import scout_model_config_enabled, scout_model_pin_catalog
@@ -2592,28 +2592,10 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at"]
 
 
-# Matches the `run_interval_minutes` floor: one scout may not occupy the coordinator more
-# than once per 30 minutes, however the schedule is expressed.
-_CRON_MIN_GAP_SECONDS = 30 * 60
-# Occurrences sampled by the min-gap check. Enough to expose sub-30-minute patterns
-# (a `*/15` fires 96×/day) while staying trivially cheap for sparse schedules.
-_CRON_SAMPLE_OCCURRENCES = 100
-
-
 def _validate_run_cron_schedule(value: str) -> str:
     expr = value.strip()
-    fields = expr.split()
-    # croniter also accepts 6/7-field (seconds/years) forms and @-aliases; restrict the API to
-    # the plain five-field shape so the stored expressions stay predictable across consumers.
-    if len(fields) != 5 or not croniter.is_valid(expr):
-        raise serializers.ValidationError("Not a valid five-field cron expression, e.g. '30 9 * * *' or '0 9 * * 1-5'.")
-    iterator = croniter(expr, datetime(2026, 1, 1, tzinfo=UTC))
-    occurrences = [iterator.get_next(datetime) for _ in range(_CRON_SAMPLE_OCCURRENCES)]
-    min_gap = min((later - earlier).total_seconds() for earlier, later in zip(occurrences, occurrences[1:]))
-    if min_gap < _CRON_MIN_GAP_SECONDS:
-        raise serializers.ValidationError(
-            "Scheduled runs must be at least 30 minutes apart (the same floor as run_interval_minutes)."
-        )
+    if error := cron_schedule_error(expr):
+        raise serializers.ValidationError(error)
     return expr
 
 
@@ -2681,7 +2663,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
     run_cron_schedule = serializers.CharField(
         required=False,
         allow_null=True,
-        max_length=100,
+        max_length=CRON_SCHEDULE_MAX_LENGTH,
         help_text=(
             "Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' "
             "(twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. "
@@ -2868,7 +2850,7 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
     run_cron_schedule = serializers.CharField(
         required=False,
         allow_null=True,
-        max_length=100,
+        max_length=CRON_SCHEDULE_MAX_LENGTH,
         help_text=(
             "Optional five-field cron expression, e.g. '30 9 * * *' (daily at 09:30), '0 9,17 * * *' "
             "(twice daily), or '0 9 * * 1-5' (weekday mornings). Evaluated in the project timezone. "

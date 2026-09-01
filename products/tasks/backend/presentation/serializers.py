@@ -814,6 +814,7 @@ class TaskWriteSerializer(serializers.Serializer):
             tasks_facade.TaskOriginProduct.IMAGE_BUILDER,
             tasks_facade.TaskOriginProduct.EXPERIMENTS,
             tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
+            tasks_facade.TaskOriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
             tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
             # Routes the run's LLM traffic to the unbilled `onboarding` gateway product, so a
             # forged origin would be free model access. Only create_wizard_cloud_run sets it,
