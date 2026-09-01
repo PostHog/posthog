@@ -1762,6 +1762,40 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         # Neither a correction nor a clear signals PR intent, so autostart must stay off.
         assert latest["autostart_eligible"] is False
 
+    def test_wrong_repo_dismissal_survives_an_oversized_persisted_selection(self):
+        # A repo_selection artefact is writable through the generic artefacts API, whose only check
+        # is the (length-unconstrained) RepoSelectionResult schema, while Dismissal caps this field.
+        # An over-long persisted repository must degrade to unknown, not fail the whole dismissal —
+        # a 500 here rolls the transition back, so every retry would fail and block the dismissal.
+        report = self._create_report()
+        oversized = "acme/" + "z" * 600
+        SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=RepoSelectionResult(repository=oversized, reason="oversized junk"),
+            attribution=ArtefactAttribution.system(),
+        )
+
+        response = self.client.post(
+            self._state_url(str(report.id)),
+            data=json.dumps({"state": "suppressed", "dismissal_reason": "wrong_repo"}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+
+        dismissal = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        assert json.loads(dismissal.content)["selected_repository"] is None
+
+        # The rejected pick is still cleared, so a restore re-selects instead of reusing the junk.
+        selections = list(
+            SignalReportArtefact.objects.filter(
+                report=report, type=SignalReportArtefact.ArtefactType.REPO_SELECTION
+            ).order_by("created_at")
+        )
+        assert json.loads(selections[-1].content)["repository"] is None
+
     def test_rejects_unknown_state(self):
         report = self._create_report()
         response = self.client.post(

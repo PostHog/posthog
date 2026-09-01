@@ -114,6 +114,7 @@ from products.signals.backend.models import (
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.quota import self_driving_quota_enforcement_enabled, self_driving_quota_gate
+from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     get_org_member_github_login_to_user_map,
@@ -2259,16 +2260,21 @@ class SignalReportViewSet(
                 is_authenticated = getattr(user, "is_authenticated", False)
                 user_uuid = getattr(user, "uuid", None) if is_authenticated else None
                 is_wrong_repo = dismissal_reason == DISMISSAL_REASON_WRONG_REPO
+                # Denormalized so a wrong-repo dismissal is self-contained: the correction feed reads
+                # which repo was wrong straight off this artefact instead of joining the repo_selection
+                # history at selection time. Shape-checked because the persisted repo_selection value is
+                # unconstrained (writable through the generic artefacts API) while this field is capped,
+                # so an oversized or malformed value degrades to unknown rather than failing the dismissal.
+                selected_repository = (
+                    sanitized_repository(self._latest_selected_repository(str(report.id))) if is_wrong_repo else None
+                )
                 SignalReportArtefact.append_dismissal(
                     team_id=self.team.id,
                     report_id=str(report.id),
                     content=Dismissal(
                         reason=dismissal_reason,
                         note=dismissal_note,
-                        # Denormalized so a wrong-repo dismissal is self-contained: the correction
-                        # feed reads which repo was wrong straight off this artefact instead of
-                        # joining the repo_selection history at selection time.
-                        selected_repository=self._latest_selected_repository(str(report.id)) if is_wrong_repo else None,
+                        selected_repository=selected_repository,
                         corrected_repository=corrected_repository if is_wrong_repo else None,
                         user_id=getattr(user, "id", None) if is_authenticated else None,
                         user_uuid=str(user_uuid) if user_uuid else None,
