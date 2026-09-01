@@ -14,7 +14,8 @@ from botocore.config import Config
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import UploadedMedia
+from posthog.api.uploaded_media import FOUR_MEGABYTES
+from posthog.models import Team, UploadedMedia
 from posthog.models.utils import UUIDT
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -256,3 +257,247 @@ class TestMediaAPI(APIBaseTest):
                 response.json()["detail"],
                 "Object storage must be available to allow media uploads.",
             )
+
+
+class TestMediaLibraryAPI(APIBaseTest):
+    """The media library surface: purpose-scoped listing and the presigned upload flow."""
+
+    def _create_media(self, purpose: str | None = None, file_name: str = "logo.png", **kwargs) -> UploadedMedia:
+        return UploadedMedia.objects.create(
+            team=self.team,
+            created_by=self.user,
+            file_name=file_name,
+            content_type="image/png",
+            media_location=f"{TEST_BUCKET}/team-{self.team.pk}/media-{UUIDT()}",
+            purpose=purpose,
+            **kwargs,
+        )
+
+    def test_list_requires_purpose_filter(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/uploaded_media/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+    def test_list_returns_only_matching_purpose_for_own_team_newest_first(self) -> None:
+        first = self._create_media(purpose="email", file_name="first.png")
+        second = self._create_media(purpose="email", file_name="second.png")
+        self._create_media(purpose=None, file_name="legacy-dashboard-image.png")
+        self._create_media(purpose="something-else", file_name="other-purpose.png")
+
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        UploadedMedia.objects.create(
+            team=other_team, file_name="not-mine.png", content_type="image/png", purpose="email"
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/uploaded_media/?purpose=email")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        payload = response.json()
+        assert payload["count"] == 2
+        assert [item["id"] for item in payload["results"]] == [str(second.id), str(first.id)]
+
+        listed = payload["results"][0]
+        assert listed["name"] == "second.png"
+        assert listed["content_type"] == "image/png"
+        assert listed["purpose"] == "email"
+        assert listed["url"] == f"http://localhost:8010/uploaded_media/{second.id}"
+        assert listed["created_at"] is not None
+
+    def test_create_with_purpose_is_listed_with_size_bytes(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/uploaded_media",
+                    {"image": image, "purpose": "email"},
+                    format="multipart",
+                )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+            media_id = response.json()["id"]
+
+            list_response = self.client.get(f"/api/projects/{self.team.id}/uploaded_media/?purpose=email")
+            self.assertEqual(list_response.status_code, status.HTTP_200_OK, list_response.json())
+            [listed] = list_response.json()["results"]
+            assert listed["id"] == media_id
+            assert listed["size_bytes"] == os.path.getsize(get_path_to("a-small-but-valid.gif"))
+
+    def test_create_without_purpose_stays_out_of_the_library(self) -> None:
+        """Existing callers (dashboard text cards, notebooks, toolbar) upload with no purpose
+        and must keep working exactly as before — invisible to any purpose-scoped listing."""
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/uploaded_media",
+                    {"image": image},
+                    format="multipart",
+                )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+
+            list_response = self.client.get(f"/api/projects/{self.team.id}/uploaded_media/?purpose=email")
+            self.assertEqual(list_response.json()["count"], 0)
+
+    def test_create_stores_sniffed_content_type_not_the_claimed_one(self) -> None:
+        """A caller claiming the wrong content type must not corrupt what we store and serve —
+        we sniff the real type from the bytes, so a mislabeled upload is still served correctly."""
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
+                mislabeled_file = SimpleUploadedFile(name="photo.png", content=image.read(), content_type="image/png")
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/uploaded_media",
+                {"image": mislabeled_file, "purpose": "email"},
+                format="multipart",
+            )
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+            media_location = response.json()["image_location"]
+
+            self.client.logout()
+            download_response = self.client.get(media_location)
+            assert download_response.headers["Content-Type"] == "image/gif"
+
+    def test_start_upload_returns_a_presigned_post_and_reserves_a_pending_row(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/uploaded_media/start_upload/",
+                {"name": "logo.png", "purpose": "email"},
+            )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        payload = response.json()
+        assert payload["upload_url"]
+        assert isinstance(payload["form_fields"], dict)
+        assert payload["expires_in"] > 0
+
+        media = UploadedMedia.objects.get(id=payload["id"])
+        assert media.pending is True
+        assert media.purpose == "email"
+        assert media.team_id == self.team.pk
+
+    def test_start_upload_requires_name_and_purpose(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            response = self.client.post(f"/api/projects/{self.team.id}/uploaded_media/start_upload/", {})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+    def test_start_upload_rejects_when_object_storage_is_unavailable(self) -> None:
+        with override_settings(OBJECT_STORAGE_ENABLED=False):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/uploaded_media/start_upload/",
+                {"name": "logo.png", "purpose": "email"},
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        assert UploadedMedia.objects.count() == 0
+
+    def test_pending_upload_is_not_publicly_downloadable(self) -> None:
+        """The presigned window leaves bytes unvetted until complete_upload runs — a pending
+        row must not be servable, or an attacker could push arbitrary content through the
+        unauthenticated download route before validation ever ran."""
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            start_response = self.client.post(
+                f"/api/projects/{self.team.id}/uploaded_media/start_upload/",
+                {"name": "logo.png", "purpose": "email"},
+            )
+            media_id = start_response.json()["id"]
+
+            self.client.logout()
+            download_response = self.client.get(f"/uploaded_media/{media_id}")
+        assert download_response.status_code == status.HTTP_404_NOT_FOUND
+
+    def _start_upload(self, name: str = "logo.png", purpose: str = "email") -> tuple[str, str]:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/uploaded_media/start_upload/",
+            {"name": name, "purpose": purpose},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        media_id = response.json()["id"]
+        return media_id, UploadedMedia.objects.get(id=media_id).media_location
+
+    def test_complete_upload_verifies_and_activates_the_pending_upload(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            media_id, media_location = self._start_upload()
+            with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
+                gif_bytes = image.read()
+            from posthog.storage import object_storage
+
+            object_storage.write(media_location, gif_bytes)
+
+            response = self.client.post(f"/api/projects/{self.team.id}/uploaded_media/{media_id}/complete_upload/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            payload = response.json()
+            assert payload["content_type"] == "image/gif"
+            assert payload["size_bytes"] == len(gif_bytes)
+            assert payload["url"] == f"http://localhost:8010/uploaded_media/{media_id}"
+
+            media = UploadedMedia.objects.get(id=media_id)
+            assert media.pending is False
+
+            list_response = self.client.get(f"/api/projects/{self.team.id}/uploaded_media/?purpose=email")
+            assert [item["id"] for item in list_response.json()["results"]] == [media_id]
+
+            self.client.logout()
+            download_response = self.client.get(f"/uploaded_media/{media_id}")
+            assert download_response.status_code == status.HTTP_200_OK
+            assert download_response.headers["Content-Type"] == "image/gif"
+
+    def test_complete_upload_returns_400_when_object_was_never_uploaded(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            media_id, _ = self._start_upload()
+            response = self.client.post(f"/api/projects/{self.team.id}/uploaded_media/{media_id}/complete_upload/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        assert UploadedMedia.objects.get(id=media_id).pending is True
+
+    def test_complete_upload_rejects_non_image_bytes_and_cleans_up(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            media_id, media_location = self._start_upload()
+            from posthog.storage import object_storage
+
+            object_storage.write(media_location, b"<html>not an image</html>")
+
+            response = self.client.post(f"/api/projects/{self.team.id}/uploaded_media/{media_id}/complete_upload/")
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+            assert UploadedMedia.objects.filter(id=media_id).count() == 0
+
+    def test_complete_upload_rejects_an_oversized_object(self) -> None:
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            media_id, media_location = self._start_upload()
+            from posthog.storage import object_storage
+
+            object_storage.write(media_location, b"1" * (FOUR_MEGABYTES + 1))
+
+            response = self.client.post(f"/api/projects/{self.team.id}/uploaded_media/{media_id}/complete_upload/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+    def test_complete_upload_for_a_non_pending_row_returns_404(self) -> None:
+        """Guards against completing (and re-validating) an already-live row twice."""
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            media_id, media_location = self._start_upload()
+            from posthog.storage import object_storage
+
+            object_storage.write(media_location, b"")
+        UploadedMedia.objects.filter(id=media_id).update(pending=False)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/uploaded_media/{media_id}/complete_upload/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.json())
+
+    def test_complete_upload_for_another_teams_row_returns_404(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        media = self._create_media(purpose="email", pending=True)
+        media.team = other_team
+        media.save(update_fields=["team"])
+
+        response = self.client.post(f"/api/projects/{self.team.id}/uploaded_media/{media.id}/complete_upload/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.json())
+
+    def test_start_upload_requires_uploaded_media_write_scope(self) -> None:
+        """Guards against start_upload/complete_upload silently missing from
+        scope_object_write_actions, which would let a read-only key upload images."""
+        from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+        from posthog.models.utils import generate_random_token_personal
+
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="read-only", user=self.user, secure_value=hash_key_value(value), scopes=["uploaded_media:read"]
+        )
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/uploaded_media/start_upload/",
+            {"name": "logo.png", "purpose": "email"},
+            headers={"Authorization": f"Bearer {value}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())

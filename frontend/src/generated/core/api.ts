@@ -55,6 +55,7 @@ import type {
     PaginatedOrganizationOAuthApplicationListApi,
     PaginatedProjectBackwardCompatBasicListApi,
     PaginatedProjectSecretAPIKeyListApi,
+    PaginatedUploadedMediaListApi,
     PaginatedUserGitHubIntegrationListResponseListApi,
     PaginatedUserListApi,
     PatchedCIMDVerificationTokenUpdateApi,
@@ -75,6 +76,12 @@ import type {
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
     SharingConfigurationApi,
+    UploadedMediaApi,
+    UploadedMediaCreate201,
+    UploadedMediaCreateApi,
+    UploadedMediaListParams,
+    UploadedMediaStartUploadApi,
+    UploadedMediaUploadStartedApi,
     UserApi,
     UserAuthSessionApi,
     UserGitHubLinkStartRequestApi,
@@ -2353,6 +2360,104 @@ export const sessionRecordingsSharingRefreshCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(sharingConfigurationApi),
+    })
+}
+
+export const getUploadedMediaListUrl = (projectId: string, params: UploadedMediaListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/uploaded_media/?${stringifiedParams}`
+        : `/api/projects/${projectId}/uploaded_media/`
+}
+
+/**
+ * List images in the media library. Requires a `purpose` filter — the library is scoped per consumer (e.g. `email`), so browsing without one would mix in unrelated uploads (dashboard images, toolbar screenshots, ...).
+ */
+export const uploadedMediaList = async (
+    projectId: string,
+    params: UploadedMediaListParams,
+    options?: RequestInit
+): Promise<PaginatedUploadedMediaListApi> => {
+    return apiMutator<PaginatedUploadedMediaListApi>(getUploadedMediaListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUploadedMediaCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/uploaded_media/`
+}
+
+/**
+ *
+ *     When object storage is available this API allows upload of media which can be used, for example, in text cards on dashboards.
+ *
+ *     Uploaded media must have a content type beginning with 'image/' and be less than 4MB. Pass `purpose` to also
+ *     add the image to a library (e.g. `email`), making it visible to `GET ?purpose=...`.
+ *
+ */
+export const uploadedMediaCreate = async (
+    projectId: string,
+    uploadedMediaCreateApi: UploadedMediaCreateApi,
+    options?: RequestInit
+): Promise<UploadedMediaCreate201> => {
+    const formData = new FormData()
+    formData.append(`image`, uploadedMediaCreateApi.image)
+    if (uploadedMediaCreateApi.purpose !== undefined) {
+        formData.append(`purpose`, uploadedMediaCreateApi.purpose)
+    }
+
+    return apiMutator<UploadedMediaCreate201>(getUploadedMediaCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        body: formData,
+    })
+}
+
+export const getUploadedMediaCompleteUploadCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/uploaded_media/${id}/complete_upload/`
+}
+
+/**
+ * Step 2 of the presigned upload flow: verifies the object POSTed to the upload_url, sniffs its real content type, and activates it — after this it appears in the library and is publicly servable.
+ */
+export const uploadedMediaCompleteUploadCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<UploadedMediaApi> => {
+    return apiMutator<UploadedMediaApi>(getUploadedMediaCompleteUploadCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getUploadedMediaStartUploadCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/uploaded_media/start_upload/`
+}
+
+/**
+ * Step 1 of the presigned upload flow: reserves a pending image and returns a presigned URL to POST the file to directly, bytes never pass through this API. Call complete_upload with the returned id once the upload finishes.
+ */
+export const uploadedMediaStartUploadCreate = async (
+    projectId: string,
+    uploadedMediaStartUploadApi: UploadedMediaStartUploadApi,
+    options?: RequestInit
+): Promise<UploadedMediaUploadStartedApi> => {
+    return apiMutator<UploadedMediaUploadStartedApi>(getUploadedMediaStartUploadCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(uploadedMediaStartUploadApi),
     })
 }
 

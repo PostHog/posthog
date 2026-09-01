@@ -2,6 +2,7 @@ from typing import Optional
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 
 import structlog
 
@@ -32,8 +33,39 @@ class UploadedMedia(UUIDTModel, RootTeamMixin):
     content_type = models.TextField(null=True, blank=True, max_length=100)
     file_name = models.TextField(null=True, blank=True, max_length=1000)
 
+    # Library membership. NULL means this row predates the media library (or was
+    # uploaded for a use that isn't a library, e.g. a dashboard text card) and stays
+    # invisible to library listing. A consumer sets this to its own tag (e.g. "email").
+    purpose = models.CharField(null=True, blank=True, max_length=100)
+    size_bytes = models.IntegerField(null=True, blank=True)
+    # True from presigned upload start until the uploaded object is verified. A pending
+    # row's bytes are unvetted, so it is never listed and never served.
+    pending = models.BooleanField(default=False)
+
+    class Meta:
+        indexes = [
+            # Serves the library list query: WHERE team_id = ? AND purpose = ? AND NOT pending
+            # ORDER BY created_at DESC. Excludes the vast majority of rows (dashboard images,
+            # toolbar screenshots, ...) that carry no purpose and are never listed.
+            models.Index(
+                fields=["team", "purpose", "-created_at"],
+                name="uploadedmedia_lib_by_created",
+                condition=Q(purpose__isnull=False, pending=False),
+            ),
+        ]
+
     def get_absolute_url(self) -> str:
         return absolute_uri(f"/uploaded_media/{self.id}")
+
+    @staticmethod
+    def build_media_location(team_id: int, media_id) -> str:
+        return "/".join(
+            [
+                settings.OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER,
+                f"team-{team_id}",
+                f"media-{media_id}",
+            ]
+        )
 
     @classmethod
     def save_content(
@@ -74,12 +106,7 @@ class UploadedMedia(UUIDTModel, RootTeamMixin):
 
 
 def save_content_to_object_storage(uploaded_media: UploadedMedia, content: bytes) -> None:
-    path_parts: list[str] = [
-        settings.OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER,
-        f"team-{uploaded_media.team.pk}",
-        f"media-{uploaded_media.pk}",
-    ]
-    object_path = "/".join(path_parts)
+    object_path = UploadedMedia.build_media_location(uploaded_media.team.pk, uploaded_media.pk)
     object_storage.write(object_path, content)
     uploaded_media.media_location = object_path
     uploaded_media.save(update_fields=["media_location"])
