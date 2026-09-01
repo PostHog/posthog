@@ -114,9 +114,9 @@ tools:
             and survey history is preserved. There is no request body.
 
 
-            When the flag is enabled, archiving stops it evaluating everywhere. Tell the user what else this
-            affects: linked experiments, surveys, early access features and session replay settings all appear in the
-            flag's full definition.
+            When the flag is enabled, archiving stops it evaluating everywhere. Tell the user what else this affects:
+            linked experiments, surveys, early access features and session replay settings all appear in the flag's full
+            definition.
 
 
             Returns 400 when the flag is enabled and other active flags depend on it. Returns 409 when an approval
@@ -629,8 +629,8 @@ tools:
             Prefer a dedicated tool whenever the request matches one. `feature-flag-enable`, `feature-flag-disable`,
             `feature-flag-archive` and `feature-flag-unarchive` each change one state field and send no `filters`. A
             targeting change someone else made between your read and your write is therefore not overwritten. Send
-            `active` or `archived` here only when the same request also changes targeting or another field, so the
-            whole edit lands in one write.
+            `active` or `archived` here only when the same request also changes targeting or another field, so the whole
+            edit lands in one write.
 
 
             Rollout conditions, variants, and payloads live in the structured `filters` param, and sending `filters`
