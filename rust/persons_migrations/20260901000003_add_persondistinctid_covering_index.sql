@@ -1,4 +1,7 @@
--- Add covering indexes on the distinct id tables for the identity resolve.
+-- no-transaction
+--
+-- Add a covering index on posthog_persondistinctid for the identity resolve.
+-- The validation shadow table gets the same index in 20260901000004.
 --
 -- resolve_distinct_ids is the hottest identity lookup: get_or_create and all
 -- three merge paths run it on the primary pool. It joins a batch of
@@ -14,37 +17,32 @@
 -- pages all-visible; confirm on real batches with EXPLAIN (ANALYZE, BUFFERS)
 -- that Heap Fetches stays low.
 --
--- Both tables get the index. Identity currently points at the validation
--- shadow table (personhog_persondistinctid_tmp), and at
--- posthog_persondistinctid after cutover; the same statement runs against
--- whichever is configured.
+-- NOT UNIQUE, and the existing unique index stays. The alternative is to
+-- replace unique_distinct_id_for_team with a UNIQUE ... INCLUDE index, which
+-- serves the same read from one B-tree instead of two: ON CONFLICT infers the
+-- arbiter by column list, and included columns take no part in uniqueness. It
+-- is the cheaper steady state, and it is not in this migration, because it
+-- ends with dropping the index that enforces identity uniqueness on a large
+-- production table. That needs its own concurrent build, concurrent drop, and
+-- change management, so it belongs in its own change. The cost of staying
+-- here is a second B-tree over the same key set, maintained on every stub
+-- create, attach, merge, and tombstone.
 --
--- NOT UNIQUE on purpose. Uniqueness of (team_id, distinct_id) is already
--- enforced by the existing unique index on each table, so this index only has
--- to cover the read.
+-- CONCURRENTLY, alone in its own no-transaction file: a plain CREATE INDEX
+-- takes SHARE on the table, which conflicts with the ROW EXCLUSIVE every
+-- identity write needs, and the runner would hold it until the whole file
+-- commits. Identity sets statement_timeout to 5s, so blocked writes fail
+-- rather than only wait.
 --
--- LOCKING: a plain CREATE INDEX takes a SHARE lock that blocks writes for the
--- build, and the migration runner wraps each file in a transaction, so
--- CONCURRENTLY cannot be used here. On the large production
--- posthog_persondistinctid, build this index out-of-band and concurrently
--- FIRST; then IF NOT EXISTS makes this migration a no-op there. On fresh or
--- small databases (dev, CI, hobby) the inline build is cheap. Idempotent and
--- safe to re-run.
---
--- Recovery note: the out-of-band prebuild uses CREATE INDEX CONCURRENTLY. If that build
--- is interrupted, it leaves an INVALID index that holds the name. CREATE INDEX IF NOT
--- EXISTS matches on name only, so this migration then skips the build and records
--- success, but PostgreSQL cannot use an INVALID index and still maintains it on every
--- write. Nothing surfaces that state. Before you trust a prebuilt index, check indisvalid
--- for each name:
---   SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass('<index_name>');
--- On `f`, drop it and rebuild concurrently, then re-run migrations:
---   DROP INDEX CONCURRENTLY <index_name>;
--- The names are posthog_persondistinctid_team_distinct_covering_idx and
--- personhog_persondistinctid_tmp_team_distinct_covering_idx.
-
-CREATE INDEX IF NOT EXISTS posthog_persondistinctid_team_distinct_covering_idx
+-- Recovery note: if this CONCURRENTLY build is ever interrupted, it leaves the
+-- index INVALID and a rerun's IF NOT EXISTS will NOT rebuild it. PostgreSQL
+-- cannot use an INVALID index and still maintains it on every write. Nothing
+-- reports that state: the run that left it INVALID already failed, and every
+-- later run skips the file and reports success, so check before assuming the
+-- index is there.
+--   SELECT indisvalid FROM pg_index
+--    WHERE indexrelid = to_regclass('posthog_persondistinctid_team_distinct_covering_idx');
+-- On `f`, recover manually, then re-run migrations:
+--   DROP INDEX CONCURRENTLY posthog_persondistinctid_team_distinct_covering_idx;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS posthog_persondistinctid_team_distinct_covering_idx
     ON posthog_persondistinctid (team_id, distinct_id) INCLUDE (person_id, is_deleted);
-
-CREATE INDEX IF NOT EXISTS personhog_persondistinctid_tmp_team_distinct_covering_idx
-    ON personhog_persondistinctid_tmp (team_id, distinct_id) INCLUDE (person_id, is_deleted);

@@ -35,6 +35,9 @@ HOBBY_SKIP_MIGRATIONS = {
 
 TRACKING_TABLE = "_persons_migrations_applied"
 
+# sqlx skips its per-file transaction when a migration starts with this line.
+NO_TRANSACTION_HEADER = "-- no-transaction"
+
 
 def _ensure_tracking_table(cursor) -> None:
     cursor.execute(f"""
@@ -43,6 +46,15 @@ def _ensure_tracking_table(cursor) -> None:
             applied_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
         )
     """)
+
+
+def _is_no_transaction(sql_content: str) -> bool:
+    """Whether a migration file opts out of the per-file transaction.
+
+    sqlx reads the same header, so a file that must run outside a transaction
+    (CREATE INDEX CONCURRENTLY, for example) behaves the same under both runners.
+    """
+    return sql_content.startswith(NO_TRANSACTION_HEADER)
 
 
 def _get_applied_migrations(cursor) -> set[str]:
@@ -190,9 +202,16 @@ class Command(BaseCommand):
 
                 sql_content = sql_file.read_text()
                 self.stdout.write(f"  Applying {sql_file.name}...")
-                with conn.transaction():
+                if _is_no_transaction(sql_content):
+                    # The connection is already in autocommit, so the statement
+                    # runs on its own. A failure here leaves the file
+                    # unrecorded, and the next run retries it.
                     cursor.execute(sql_content)
                     _record_migration(cursor, sql_file.name)
+                else:
+                    with conn.transaction():
+                        cursor.execute(sql_content)
+                        _record_migration(cursor, sql_file.name)
                 applied_count += 1
 
         action = "Would apply" if dry_run else "Applied"

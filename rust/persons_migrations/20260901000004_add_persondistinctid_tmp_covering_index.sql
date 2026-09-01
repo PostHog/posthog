@@ -1,0 +1,19 @@
+-- no-transaction
+--
+-- The same covering index on the validation shadow table. 20260901000003
+-- carries the rationale; this file exists because CONCURRENTLY statements must
+-- be alone in a no-transaction file.
+--
+-- personhog_persondistinctid_tmp is the table identity writes today
+-- (PERSON_DISTINCT_ID_TABLE defaults to it), so the blocking-build hazard
+-- applies here first, not after cutover.
+--
+-- Recovery note: an interrupted CONCURRENTLY build leaves the index INVALID
+-- and a rerun's IF NOT EXISTS will NOT rebuild it. Check before assuming the
+-- index is there:
+--   SELECT indisvalid FROM pg_index
+--    WHERE indexrelid = to_regclass('personhog_persondistinctid_tmp_team_distinct_covering_idx');
+-- On `f`, recover manually, then re-run migrations:
+--   DROP INDEX CONCURRENTLY personhog_persondistinctid_tmp_team_distinct_covering_idx;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS personhog_persondistinctid_tmp_team_distinct_covering_idx
+    ON personhog_persondistinctid_tmp (team_id, distinct_id) INCLUDE (person_id, is_deleted);
