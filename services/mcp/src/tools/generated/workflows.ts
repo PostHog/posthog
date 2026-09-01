@@ -450,6 +450,7 @@ const workflowsStats = (): ToolBase<ReturnType<typeof WorkflowsStatsSchema>, Sch
                 interval: params.interval,
                 kind: params.kind,
                 name: params.name,
+                version: params.version,
             },
         })
         return result
