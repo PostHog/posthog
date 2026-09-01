@@ -1,6 +1,10 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { LemonBanner, LemonCheckbox } from '@posthog/lemon-ui'
+
+import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
+import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
 import { getReplayVisionEditDisabledReason } from 'products/replay_vision/frontend/utils/accessControl'
 
@@ -9,9 +13,8 @@ import { MetricsPanel } from '../../ExperimentForm/MetricsPanel'
 import { experimentWizardLogic } from '../experimentWizardLogic'
 
 export function AnalyticsStep(): JSX.Element {
-    const { createReplayVisionScanner, experiment, sharedMetrics } = useValues(experimentWizardLogic)
-    const { setCreateReplayVisionScanner, setExperiment, setExposureCriteria, setSharedMetrics } =
-        useActions(experimentWizardLogic)
+    const { experiment, sharedMetrics } = useValues(experimentWizardLogic)
+    const { setExperiment, setExposureCriteria, setSharedMetrics } = useActions(experimentWizardLogic)
 
     return (
         <div className="space-y-6">
@@ -75,29 +78,70 @@ export function AnalyticsStep(): JSX.Element {
                 </div>
             </div>
 
-            <LemonCheckbox
-                bordered
-                fullWidth
-                checked={createReplayVisionScanner}
-                onChange={setCreateReplayVisionScanner}
-                disabledReason={getReplayVisionEditDisabledReason() ?? undefined}
-                data-attr="experiment-create-replay-vision-scanner"
-                label={
-                    <div className="py-3">
-                        <div className="font-semibold">Watch participant behavior with Replay Vision</div>
-                        <div className="mt-1 font-normal text-sm text-muted">
-                            Set up a scanner that classifies what participants do after experiment exposure. It is
-                            created turned off, so nothing is scanned and no credits are used until you turn it on. You
-                            can adjust its prompt, filters, and sampling first. A scanner keeps running after the
-                            experiment ends, so turn it off when you are done.
-                        </div>
-                    </div>
-                }
-            />
+            <ReplayVisionScannerCheckbox />
 
             <LemonBanner type="info">
                 You can always refine your analytics configuration and metrics after saving.
             </LemonBanner>
         </div>
+    )
+}
+
+/** Ticking this opts the experiment into a Replay Vision scanner, created at save. The scanner
+ * endpoint refuses without org AI approval, so an unconsented tick opens the consent popover
+ * instead of letting the experiment save and the scanner fail after the fact. */
+function ReplayVisionScannerCheckbox(): JSX.Element {
+    const { createReplayVisionScanner } = useValues(experimentWizardLogic)
+    const { setCreateReplayVisionScanner } = useActions(experimentWizardLogic)
+    const { dataProcessingAccepted } = useValues(aiConsentLogic)
+    const [consentRequested, setConsentRequested] = useState(false)
+
+    const checkbox = (
+        <LemonCheckbox
+            bordered
+            fullWidth
+            checked={createReplayVisionScanner}
+            onChange={(checked) => {
+                if (checked && !dataProcessingAccepted) {
+                    setConsentRequested(true)
+                } else {
+                    setCreateReplayVisionScanner(checked)
+                }
+            }}
+            disabledReason={getReplayVisionEditDisabledReason() ?? undefined}
+            data-attr="experiment-create-replay-vision-scanner"
+            label={
+                <div className="py-3">
+                    <div className="font-semibold">Watch participant behavior with Replay Vision</div>
+                    <div className="mt-1 font-normal text-sm text-muted">
+                        Set up a scanner that classifies what participants do after experiment exposure. It is created
+                        turned off, so nothing is scanned and no credits are used until you turn it on. You can adjust
+                        its prompt, filters, and sampling first. A scanner keeps running after the experiment ends, so
+                        turn it off when you are done.
+                    </div>
+                </div>
+            }
+        />
+    )
+
+    if (dataProcessingAccepted) {
+        return checkbox
+    }
+
+    return (
+        <AIConsentPopoverWrapper
+            placement="top"
+            showArrow
+            ignoreDismissal
+            hideTrainingDisclaimer
+            hidden={!consentRequested}
+            onApprove={() => {
+                setConsentRequested(false)
+                setCreateReplayVisionScanner(true)
+            }}
+            onDismiss={() => setConsentRequested(false)}
+        >
+            {checkbox}
+        </AIConsentPopoverWrapper>
     )
 }
