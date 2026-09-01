@@ -14,6 +14,9 @@ export interface TerminalProps {
   initialState?: string;
   taskId?: string;
   command?: string;
+  additionalEnv?: Record<string, string>;
+  unsetEnv?: string[];
+  sensitive?: boolean;
   onReady?: () => void;
   onExit?: (exitCode?: number) => void;
 }
@@ -25,6 +28,9 @@ export function Terminal({
   initialState,
   taskId,
   command,
+  additionalEnv,
+  unsetEnv,
+  sensitive,
   onReady,
   onExit,
 }: TerminalProps) {
@@ -36,19 +42,31 @@ export function Terminal({
   );
   const terminalGpuRendering = useSettingsStore((s) => s.terminalGpuRendering);
 
-  // Create instance (idempotent)
+  const createOptions = useRef({
+    persistenceKey,
+    cwd,
+    initialState,
+    taskId,
+    command,
+    additionalEnv,
+    unsetEnv,
+    sensitive,
+  });
+  createOptions.current = {
+    persistenceKey,
+    cwd,
+    initialState,
+    taskId,
+    command,
+    additionalEnv,
+    unsetEnv,
+    sensitive,
+  };
+
   useEffect(() => {
-    if (!terminalManager.has(sessionId)) {
-      terminalManager.create({
-        sessionId,
-        persistenceKey,
-        cwd,
-        initialState,
-        taskId,
-        command,
-      });
-    }
-  }, [sessionId, persistenceKey, cwd, initialState, taskId, command]);
+    if (terminalManager.has(sessionId)) return;
+    terminalManager.create({ sessionId, ...createOptions.current });
+  }, [sessionId]);
 
   // Attach/detach from DOM
   useEffect(() => {
@@ -108,7 +126,10 @@ export function Terminal({
   }, [sessionId]);
 
   return (
-    <Box onMouseDown={handleMouseDown} className="relative h-full p-3">
+    <Box
+      onMouseDown={handleMouseDown}
+      className={`relative h-full p-3 ${sensitive ? "ph-no-capture" : ""}`}
+    >
       <div ref={terminalRef} className="h-full w-full" />
       <style>
         {`

@@ -7,10 +7,14 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonDrawer } from 'lib/lemon-ui/LemonDrawer/LemonDrawer'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
+
+import { canViewMetrics } from 'products/metrics/frontend/metricsAccess'
 
 import { useKeepMountedWhileOpen } from '../../hooks/useKeepMountedWhileOpen'
 import { getQueryText } from '../../spanSummary'
@@ -19,9 +23,10 @@ import { buildServiceColorMap, formatDuration, TraceWaterfallView } from '../../
 import type { Span } from '../../types'
 import { ExpandedSpanContent } from '../VirtualizedSpanList/ExpandedSpanContent'
 import { SpanLogsTab } from './SpanLogsTab'
+import { SpanMetricsTab } from './SpanMetricsTab'
 import { SpanSummaryHeader } from './SpanSummaryHeader'
 
-type InspectorTab = 'attributes' | 'query' | 'logs' | 'raw'
+type InspectorTab = 'attributes' | 'query' | 'logs' | 'metrics' | 'raw'
 
 // Below this the inspector's content (the attribute KVP tables) stops being readable; clamp so a
 // drag can't crush it. The max is a flex `max-w` so a too-wide drag can't starve the waterfall.
@@ -72,7 +77,13 @@ export function TraceDrawer({
         persistent: true,
     }
     const { desiredSize: inspectorWidth } = useValues(resizerLogic(inspectorResizerProps))
+    const { featureFlags } = useValues(featureFlagLogic)
     const [inspectorTab, setInspectorTab] = useState<InspectorTab>('attributes')
+
+    // Metrics correlate to a trace via exemplars, so the tab only exists where the metrics
+    // product does: its own flag, plus the metrics feature and view access.
+    const showMetricsTab =
+        !!featureFlags[FEATURE_FLAGS.TRACING_METRICS_TAB] && !!featureFlags[FEATURE_FLAGS.METRICS] && canViewMetrics()
 
     // Resolve the inspected span outside render churn: a resize drag re-renders this component on
     // every mousemove, and these scans are O(spans) — memoize so they only run when data/selection change.
@@ -95,10 +106,14 @@ export function TraceDrawer({
 
     // Only DB spans carry a query; the Query tab appears only when one is present.
     const queryText = inspectedSpan ? getQueryText(inspectedSpan) : null
-    // The Query tab is conditional, so if it's the active tab and the user selects a span without a
-    // query, fall back to Attributes — otherwise activeKey would point at a tab LemonTabs has dropped
-    // and the inspector body would render blank. (Preference is preserved: a DB span re-shows Query.)
-    const activeInspectorTab: InspectorTab = inspectorTab === 'query' && !queryText ? 'attributes' : inspectorTab
+    // The Query and Metrics tabs are conditional, so if the active tab disappears (a span without
+    // a query, or the metrics gates turning off), fall back to Attributes — otherwise activeKey
+    // would point at a tab LemonTabs has dropped and the inspector body would render blank.
+    // (Preference is preserved: a DB span re-shows Query.)
+    const activeInspectorTab: InspectorTab =
+        (inspectorTab === 'query' && !queryText) || (inspectorTab === 'metrics' && !showMetricsTab)
+            ? 'attributes'
+            : inspectorTab
 
     return (
         <LemonDrawer
@@ -195,6 +210,18 @@ export function TraceDrawer({
                                         // it) so we don't churn its logics or lose scroll.
                                         content: <SpanLogsTab key={inspectedSpan.trace_id} span={inspectedSpan} />,
                                     },
+                                    // Conditional: needs the metrics product (flag + access) and its own flag.
+                                    showMetricsTab
+                                        ? {
+                                              key: 'metrics',
+                                              label: 'Metrics',
+                                              // Keyed by trace like the Logs tab: a new trace remounts to reset
+                                              // the scope toggle; selecting another span re-renders in place.
+                                              content: (
+                                                  <SpanMetricsTab key={inspectedSpan.trace_id} span={inspectedSpan} />
+                                              ),
+                                          }
+                                        : null,
                                     {
                                         key: 'raw',
                                         label: 'Raw',

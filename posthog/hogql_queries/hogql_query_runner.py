@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from datetime import datetime
+from functools import cached_property
 from typing import Any, Optional, cast
 
 from posthog.schema import (
@@ -15,6 +16,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.database.schema.activity_log_visibility import activity_log_visibility_policy_version
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
@@ -29,14 +31,16 @@ from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.event_usage import AnalyticsProps
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 from posthog.models import User
+from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
 
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
 from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
 _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
+_ACTIVITY_LOGS_TABLE = "system.activity_logs"
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
@@ -89,6 +93,24 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             # Old workers preferred query modifiers while new workers prefer the constructor override.
             # Keep their cached results apart during a rolling deploy.
             payload["hogql_modifier_precedence"] = "runner"
+
+        # Both activity-log guards print into the query, so a cache lookup returns before either runs.
+        # `requires_fresh_calculation` below keeps a stored result from being served in every mode that may
+        # calculate. CACHE_ONLY_NEVER_CALCULATE is the mode it cannot reach: that one returns a stored
+        # result however stale it is, so the key carries what the guards depend on.
+        if _ACTIVITY_LOGS_TABLE in self._queried_table_names:
+            # Nothing else in the key tracks the visibility rules. Varying on their fingerprint means a
+            # result stored under the previous rules stops being served once they change.
+            payload["activity_log_visibility_policy"] = activity_log_visibility_policy_version()
+
+            # The retention floor moves with the clock, so a result stored inside the window would outlive
+            # it. Bucketing by the hour bounds a cache-only read to rows at most an hour past the floor,
+            # rather than for as long as the entry lives, and a downgrade moves the floor by days, so this
+            # covers a plan change too.
+            floor = get_activity_log_lookback_restriction(self.team.organization)
+            if floor is not None:
+                payload["activity_log_retention_floor_hour"] = floor.strftime("%Y-%m-%dT%H")
+
         return payload
 
     def query_status_labels(self) -> list[str] | None:
@@ -125,13 +147,34 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         # acceptance, source certification). A cached row keeps reporting the pre-change status after a
         # catalog write, so recompute these queries rather than trust the query cache. Cheap to detect:
         # the schema metadata itself is fast to compute. External-connection queries never touch it.
+        #
+        # system.activity_logs is floored to the organization's retention window, which moves with the
+        # clock, so a stored row outlives the entitlement that let it be read. Recompute rather than
+        # serve one back.
+        table_names = self._queried_table_names
+        return any(name.lower().startswith(_INFORMATION_SCHEMA_PREFIX) for name in table_names) or (
+            _ACTIVITY_LOGS_TABLE in table_names
+        )
+
+    @cached_property
+    def _queried_table_names(self) -> set[str]:
+        """Tables this query names, or empty when it is unparseable or reads an external connection.
+
+        Names only, so a table reached through a saved view is absent: the resolver inlines the view's
+        definition after the cache lookup. The printed guards still apply on that path, so what a read
+        through a view misses is the cache partitioning, not the enforcement. Following view definitions
+        here would put a saved-query lookup in front of every HogQL query's cache key, and the rest of
+        the fingerprinting in `queried_access_controlled_resources` stops at the same boundary.
+
+        Cached because the freshness check and the cache key both need it, and neither rewrites the query
+        text (dashboard filters and variables are applied at `to_query` time).
+        """
         if self.query.connectionId:
-            return False
+            return set()
         try:
-            table_names = get_table_names(parse_select(self.query.query))
+            return set(get_table_names(parse_select(self.query.query)))
         except Exception:
-            return False
-        return any(name.lower().startswith(_INFORMATION_SCHEMA_PREFIX) for name in table_names)
+            return set()
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         values: Optional[dict[str, ast.Expr]] = (

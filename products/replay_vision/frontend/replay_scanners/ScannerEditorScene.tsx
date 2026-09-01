@@ -479,11 +479,12 @@ function EditorFooter({
     const { scanner, durationValidationError, hasUnsavedChanges } = useValues(replayScannerLogic({ id: scannerId }))
     const { searchParams } = useValues(router)
     const { discardScannerDraft } = useActions(replayScannerLogic({ id: scannerId }))
-    const { dataProcessingAccepted } = useValues(aiConsentLogic)
+    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(aiConsentLogic)
     const [consentRequested, setConsentRequested] = useState(false)
     // The backend rejects scanner creation without org AI consent, so the popover interposes at
     // Save instead of letting the request 400.
     const needsConsent = isNew && !dataProcessingAccepted
+    const canApproveConsent = !dataProcessingApprovalDisabledReason
     const stepIndex = SCANNER_EDITOR_STEPS.indexOf(step)
     const previous = stepIndex > 0 ? SCANNER_EDITOR_STEPS[stepIndex - 1] : null
     const prevStep = previous === 'template' && !isNew ? null : previous
@@ -594,7 +595,9 @@ function EditorFooter({
                                     data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
                                 >
                                     {needsConsent
-                                        ? 'Allow AI analysis and create scanner'
+                                        ? canApproveConsent
+                                            ? 'Allow AI analysis and create scanner'
+                                            : 'Ask an admin to enable AI analysis'
                                         : isNew
                                           ? 'Create scanner'
                                           : 'Save changes'}

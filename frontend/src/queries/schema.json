@@ -2170,6 +2170,83 @@
                 }
             ]
         },
+        "AssistantBehavioralPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "event_filters": {
+                    "description": "Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/EventPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/PersonPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/ElementPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/FeaturePropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/HogQLPropertyFilter"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                },
+                "event_type": {
+                    "$ref": "#/definitions/BehavioralEventSource"
+                },
+                "explicit_datetime": {
+                    "description": "Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval",
+                    "type": "string"
+                },
+                "explicit_datetime_to": {
+                    "type": "string"
+                },
+                "key": {
+                    "description": "Event name, or action id when event_type is 'actions'",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "negation": {
+                    "description": "Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators",
+                    "type": "boolean"
+                },
+                "operator": {
+                    "$ref": "#/definitions/AssistantBehavioralPropertyFilterOperator"
+                },
+                "operator_value": {
+                    "description": "Count threshold for performed_event_multiple",
+                    "type": "integer"
+                },
+                "time_interval": {
+                    "$ref": "#/definitions/TimeUnitType"
+                },
+                "time_value": {
+                    "description": "Relative time window size, paired with time_interval",
+                    "type": "integer"
+                },
+                "type": {
+                    "const": "behavioral",
+                    "description": "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/InlineBehavioralType"
+                }
+            },
+            "required": ["event_type", "key", "type", "value"],
+            "type": "object"
+        },
+        "AssistantBehavioralPropertyFilterOperator": {
+            "enum": ["exact", "gt", "gte", "lt", "lte"],
+            "type": "string"
+        },
         "AssistantBreakdownFilter": {
             "additionalProperties": false,
             "properties": {
@@ -3186,7 +3263,7 @@
                     "default": [],
                     "description": "Property filters for all series",
                     "items": {
-                        "$ref": "#/definitions/AssistantPropertyFilter"
+                        "$ref": "#/definitions/AssistantInsightPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -3539,6 +3616,16 @@
             "required": ["kind", "query"],
             "type": "object"
         },
+        "AssistantInsightPropertyFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/AssistantBehavioralPropertyFilter"
+                }
+            ]
+        },
         "AssistantInsightVizNode": {
             "additionalProperties": false,
             "properties": {
@@ -3581,7 +3668,7 @@
                     "default": [],
                     "description": "Property filters for all series",
                     "items": {
-                        "$ref": "#/definitions/AssistantPropertyFilter"
+                        "$ref": "#/definitions/AssistantInsightPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -3750,7 +3837,7 @@
                     "default": [],
                     "description": "Property filters for all series",
                     "items": {
-                        "$ref": "#/definitions/AssistantPropertyFilter"
+                        "$ref": "#/definitions/AssistantInsightPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -4081,7 +4168,7 @@
                     "default": [],
                     "description": "Property filters for all series",
                     "items": {
-                        "$ref": "#/definitions/AssistantPropertyFilter"
+                        "$ref": "#/definitions/AssistantInsightPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -4570,7 +4657,7 @@
                     "default": [],
                     "description": "Property filters for all series",
                     "items": {
-                        "$ref": "#/definitions/AssistantPropertyFilter"
+                        "$ref": "#/definitions/AssistantInsightPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -4825,7 +4912,7 @@
                     "default": [],
                     "description": "Property filters for all series",
                     "items": {
-                        "$ref": "#/definitions/AssistantPropertyFilter"
+                        "$ref": "#/definitions/AssistantInsightPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -5622,7 +5709,7 @@
                     "default": [],
                     "description": "Property filters for all series",
                     "items": {
-                        "$ref": "#/definitions/AssistantPropertyFilter"
+                        "$ref": "#/definitions/AssistantInsightPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -15370,6 +15457,10 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeIneligibleReason": {
+                    "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                    "type": "string"
+                },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                 },
@@ -15588,6 +15679,10 @@
                 },
                 "next_allowed_client_refresh": {
                     "format": "date-time",
+                    "type": "string"
+                },
+                "preComputeIneligibleReason": {
+                    "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                     "type": "string"
                 },
                 "preComputeStrategy": {
@@ -15818,6 +15913,10 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeIneligibleReason": {
+                    "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                    "type": "string"
+                },
                 "preComputeStale": {
                     "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
                     "type": "boolean"
@@ -15928,6 +16027,10 @@
                 },
                 "next_allowed_client_refresh": {
                     "format": "date-time",
+                    "type": "string"
+                },
+                "preComputeIneligibleReason": {
+                    "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
                     "type": "string"
                 },
                 "preComputeStrategy": {
@@ -17865,6 +17968,10 @@
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
                                 },
+                                "preComputeIneligibleReason": {
+                                    "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                                    "type": "string"
+                                },
                                 "preComputeStrategy": {
                                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                                 },
@@ -17948,6 +18055,10 @@
                                 },
                                 "offset": {
                                     "$ref": "#/definitions/integer"
+                                },
+                                "preComputeIneligibleReason": {
+                                    "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                                    "type": "string"
                                 },
                                 "preComputeStale": {
                                     "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
@@ -18202,6 +18313,10 @@
                                 "offset": {
                                     "$ref": "#/definitions/integer"
                                 },
+                                "preComputeIneligibleReason": {
+                                    "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                                    "type": "string"
+                                },
                                 "preComputeStrategy": {
                                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                                 },
@@ -18274,6 +18389,10 @@
                                 "modifiers": {
                                     "$ref": "#/definitions/HogQLQueryModifiers",
                                     "description": "Modifiers used when performing the query"
+                                },
+                                "preComputeIneligibleReason": {
+                                    "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                                    "type": "string"
                                 },
                                 "preComputeStrategy": {
                                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
@@ -26199,6 +26318,7 @@
                 "Customerly",
                 "Datascope",
                 "Dbt",
+                "Demodesk",
                 "Deputy",
                 "DevinAI",
                 "Docuseal",
@@ -37663,6 +37783,41 @@
             "enum": ["resource", "attribute", "auto"],
             "type": "string"
         },
+        "MetricsAxisScale": {
+            "description": "Matches quill's `YAxisConfig.scale` verbatim, so no vocabulary translation is needed. Deliberately not `YAxisSettings['scale']` ('logarithmic') or `TrendsFilter['yAxisScaleType']` ('log10').",
+            "enum": ["linear", "log"],
+            "type": "string"
+        },
+        "MetricsDisplaySettings": {
+            "additionalProperties": false,
+            "description": "Presentation only. The query engine never reads this, and it's stripped from the result cache key, so changing any of it re-renders without re-running the query.",
+            "properties": {
+                "goalLines": {
+                    "items": {
+                        "$ref": "#/definitions/GoalLine"
+                    },
+                    "type": "array"
+                },
+                "statSummary": {
+                    "$ref": "#/definitions/MetricsStatSummary",
+                    "default": "latest",
+                    "description": "`stat` display only: which summary the headline value shows."
+                },
+                "type": {
+                    "$ref": "#/definitions/MetricsDisplayType",
+                    "default": "line"
+                },
+                "yAxis": {
+                    "$ref": "#/definitions/MetricsYAxisSettings"
+                }
+            },
+            "type": "object"
+        },
+        "MetricsDisplayType": {
+            "description": "How a metrics result is charted. `stat` is a single headline value plus sparkline, not a time series.",
+            "enum": ["line", "area", "bar", "stat"],
+            "type": "string"
+        },
         "MetricsFilterOp": {
             "enum": ["eq", "neq", "regex", "not_regex"],
             "type": "string"
@@ -37684,6 +37839,10 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Defaults to the last 24 hours when omitted; dashboard date filters override it"
+                },
+                "display": {
+                    "$ref": "#/definitions/MetricsDisplaySettings",
+                    "description": "Chart presentation. A node without it renders as a line chart."
                 },
                 "formula": {
                     "description": "Arithmetic over clause aliases (e.g. \"a / b\"); when set, only the formula series are returned",
@@ -37888,6 +38047,34 @@
                 }
             },
             "required": ["labels", "points"],
+            "type": "object"
+        },
+        "MetricsStatSummary": {
+            "description": "Which summary the `stat` display's headline value shows.",
+            "enum": ["latest", "average", "total"],
+            "type": "string"
+        },
+        "MetricsYAxisSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "max": {
+                    "description": "Pins the top of the axis; unset means automatic. Pinning both ends drops the automatic stretch that keeps an off-scale goal line on-plot.",
+                    "type": "number"
+                },
+                "min": {
+                    "description": "Pins the bottom of the axis; unset means automatic. Ignored while `startAtZero` is on.",
+                    "type": "number"
+                },
+                "scale": {
+                    "$ref": "#/definitions/MetricsAxisScale",
+                    "default": "linear"
+                },
+                "startAtZero": {
+                    "default": true,
+                    "description": "When false the axis floats to the data range instead of starting at zero. Ignored on a logarithmic scale, and on the bar display, where a bar's length encodes magnitude from zero.",
+                    "type": "boolean"
+                }
+            },
             "type": "object"
         },
         "MinimalHedgehogConfig": {
@@ -39961,6 +40148,7 @@
                 "comments",
                 "conversations",
                 "customer_analytics",
+                "dashboards",
                 "data_catalog",
                 "data_warehouse",
                 "data_warehouse_saved_queries",
@@ -42132,6 +42320,10 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "preComputeIneligibleReason": {
+                            "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                            "type": "string"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
@@ -42215,6 +42407,10 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "preComputeIneligibleReason": {
+                            "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                            "type": "string"
                         },
                         "preComputeStale": {
                             "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
@@ -42549,6 +42745,10 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "preComputeIneligibleReason": {
+                            "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                            "type": "string"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
@@ -42621,6 +42821,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "preComputeIneligibleReason": {
+                            "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                            "type": "string"
                         },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
@@ -43781,6 +43985,10 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "preComputeIneligibleReason": {
+                            "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                            "type": "string"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
@@ -43864,6 +44072,10 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "preComputeIneligibleReason": {
+                            "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                            "type": "string"
                         },
                         "preComputeStale": {
                             "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
@@ -44118,6 +44330,10 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "preComputeIneligibleReason": {
+                            "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                            "type": "string"
+                        },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                         },
@@ -44190,6 +44406,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "preComputeIneligibleReason": {
+                            "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                            "type": "string"
                         },
                         "preComputeStrategy": {
                             "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
@@ -56808,6 +57028,10 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeIneligibleReason": {
+                    "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                    "type": "string"
+                },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
                 },
@@ -57201,6 +57425,10 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "preComputeIneligibleReason": {
+                    "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                    "type": "string"
                 },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
@@ -57608,6 +57836,10 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "preComputeIneligibleReason": {
+                    "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                    "type": "string"
+                },
                 "preComputeStale": {
                     "description": "Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline.",
                     "type": "boolean"
@@ -57833,6 +58065,10 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "preComputeIneligibleReason": {
+                    "description": "Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible.",
+                    "type": "string"
                 },
                 "preComputeStrategy": {
                     "$ref": "#/definitions/WebAnalyticsPreComputeStrategy"
