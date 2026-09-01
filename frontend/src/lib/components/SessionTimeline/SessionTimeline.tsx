@@ -284,6 +284,8 @@ function getCategoryTooltip(category: ItemCategory): string {
             return 'Custom event'
         case ItemCategory.PAGE_VIEWS:
             return 'Page view'
+        case ItemCategory.SCREEN_VIEWS:
+            return 'Screen view'
         case ItemCategory.CONSOLE_LOGS:
             return 'Console log'
     }
@@ -299,6 +301,8 @@ function getCategoryLabel(category: ItemCategory): string {
             return 'Custom events'
         case ItemCategory.PAGE_VIEWS:
             return 'Pageviews'
+        case ItemCategory.SCREEN_VIEWS:
+            return 'Screens'
         case ItemCategory.CONSOLE_LOGS:
             return 'Logs'
     }

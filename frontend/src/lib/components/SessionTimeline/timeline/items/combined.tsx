@@ -1,7 +1,7 @@
 /**
- * Combined event loader — fetches exceptions, pageviews, and custom events in a
- * single EventsQuery instead of 3 separate ones. Register the same instance for
- * all three event categories so the collector deduplicates it.
+ * Combined event loader — fetches exceptions, pageviews, screen views, and custom
+ * events in a single EventsQuery instead of separate ones. Register the same
+ * instance for every event category so the collector deduplicates it.
  */
 import api from 'lib/api'
 import { ErrorTrackingException, ErrorTrackingRuntime } from 'lib/components/Errors/types'
@@ -21,6 +21,7 @@ const SELECT = [
     'timestamp',
     'properties.$lib',
     'properties.$current_url',
+    'properties.$screen_name',
     'properties.$exception_list',
     'properties.$exception_fingerprint',
     'properties.$exception_issue_id',
@@ -32,6 +33,7 @@ type RawCombinedEventRow = [
     timestamp: unknown,
     lib: unknown,
     currentUrl: unknown,
+    screenName: unknown,
     rawExceptionList: unknown,
     exceptionFingerprint: unknown,
     exceptionIssueId: unknown,
@@ -43,6 +45,7 @@ interface ParsedCombinedEventRow {
     timestamp: string
     lib?: string
     currentUrl?: string
+    screenName?: string
     rawExceptionList: unknown
     exceptionFingerprint?: string
     exceptionIssueId?: string
@@ -55,7 +58,7 @@ interface CombinedEventQueryResponse {
 function buildWhere(sessionId: string): string[] {
     return [
         `equals($session_id, '${escapeHogQLString(sessionId)}')`,
-        "or(equals(event, '$exception'), equals(event, '$pageview'), notEquals(left(event, 1), '$'))",
+        "or(equals(event, '$exception'), equals(event, '$pageview'), equals(event, '$screen'), notEquals(left(event, 1), '$'))",
     ]
 }
 
@@ -116,12 +119,21 @@ function parseItemsFromResults(results: unknown[] | undefined): TimelineItem[] {
 }
 
 function parseCombinedEventRow(row: unknown): ParsedCombinedEventRow | null {
-    if (!Array.isArray(row) || row.length < 8) {
+    if (!Array.isArray(row) || row.length < 9) {
         return null
     }
 
-    const [uuid, eventName, timestamp, lib, currentUrl, rawExceptionList, exceptionFingerprint, exceptionIssueId] =
-        row as RawCombinedEventRow
+    const [
+        uuid,
+        eventName,
+        timestamp,
+        lib,
+        currentUrl,
+        screenName,
+        rawExceptionList,
+        exceptionFingerprint,
+        exceptionIssueId,
+    ] = row as RawCombinedEventRow
 
     if (typeof uuid !== 'string' || typeof eventName !== 'string') {
         return null
@@ -142,6 +154,7 @@ function parseCombinedEventRow(row: unknown): ParsedCombinedEventRow | null {
         timestamp: timestampValue.toISOString(),
         lib: typeof lib === 'string' ? lib : undefined,
         currentUrl: typeof currentUrl === 'string' ? currentUrl : undefined,
+        screenName: typeof screenName === 'string' ? screenName : undefined,
         rawExceptionList,
         exceptionFingerprint: typeof exceptionFingerprint === 'string' ? exceptionFingerprint : undefined,
         exceptionIssueId: typeof exceptionIssueId === 'string' ? exceptionIssueId : undefined,
@@ -174,6 +187,15 @@ function buildItem(evt: ParsedCombinedEventRow): TimelineItem {
             category: ItemCategory.PAGE_VIEWS,
             timestamp: ts,
             payload: { runtime, url: evt.currentUrl ?? '' },
+        }
+    }
+
+    if (evt.eventName === '$screen') {
+        return {
+            id: evt.uuid,
+            category: ItemCategory.SCREEN_VIEWS,
+            timestamp: ts,
+            payload: { runtime, name: evt.screenName ?? '' },
         }
     }
 

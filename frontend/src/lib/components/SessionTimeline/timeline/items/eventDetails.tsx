@@ -29,6 +29,8 @@ function getCategoryWhereClause(category: TimelineItem['category']): string | nu
             return "equals(event, '$exception')"
         case ItemCategory.PAGE_VIEWS:
             return "equals(event, '$pageview')"
+        case ItemCategory.SCREEN_VIEWS:
+            return "equals(event, '$screen')"
         case ItemCategory.CUSTOM_EVENTS:
             return "notEquals(left(event, 1), '$')"
         default:
