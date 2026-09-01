@@ -32,8 +32,8 @@ class TicketStatus(models.TextChoices):
     RESOLVED = "resolved", "Resolved"
 
 
-# The class was renamed so the derived schema name reads TicketStatusEnum; the
-# old name stays importable for the many existing callers.
+# The class name feeds the derived OpenAPI component name TicketStatusEnum.
+# Status is an alias for the many callers that import the short name.
 Status = TicketStatus
 
 

@@ -555,7 +555,7 @@ SPECTACULAR_SETTINGS = {
             # An entry below is for a choice set no class can carry, and each group states
             # why. drf-spectacular matches an entry to fields by a hash of the exact
             # (value, label) pairs, so editing values or labels on either side silently
-            # detaches the entry; posthog/openapi/enum_name_guard.py and --fail-on-warn in
+            # detaches the entry. posthog/openapi/enum_name_guard.py and --fail-on-warn in
             # `hogli build:openapi-schema` turn the fallout into a build failure.
             # `python manage.py find_enum_collisions` diagnoses a fresh collision and
             # suggests a fix.
@@ -563,13 +563,21 @@ SPECTACULAR_SETTINGS = {
             # Two definitions share identical (value, label) pairs but mean different
             # things. The hash cannot tell them apart, so no class is derived and the
             # entry decides the name.
+            # Matches ErrorTrackingIssue severity (low/medium/high/critical).
             "TicketPriorityEnum": "products.conversations.backend.models.constants.Priority",
+            # ExperimentMetricsRecalculation and ExperimentTimeseriesRecalculation both define this Status.
             "MetricsRecalculationStatusEnum": "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status",
+            # Matches tasks' LoopVisibility (personal/team).
             "MCPAgentGrantScopeEnum": "products.mcp_store.backend.models.AGENT_GRANT_SCOPE_CHOICES",
+            # BatchExport.Model and BatchExportOnDemand.Model are identical.
             "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
+            # Matches Subscription frequency (daily/weekly/monthly).
             "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
+            # Matches the messaging email channel setup provider list.
             "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
+            # vision_action and vision_alert both define AlertDirection.
             "VisionAlertDirectionEnum": "products.replay_vision.backend.models.vision_action.AlertDirection",
+            # Matches replay_vision's VisionAlertState.
             "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
             #
             # The published name is already derived by a different choice set, so the

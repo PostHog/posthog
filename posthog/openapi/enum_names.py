@@ -4,11 +4,10 @@ drf-spectacular names an enum component by hashing the field's (value, label)
 pairs and looking the hash up in ENUM_NAME_OVERRIDES first. Without an
 override entry the name is built from the field name and the serializer name,
 so it depends on which other serializers declare a field with the same name:
-a new colliding field anywhere renames an unrelated enum. That instability is
-why the hand-written override dict kept growing.
+a new colliding field anywhere renames an unrelated enum.
 
-ChoicesEnumNameOverrides replaces the hand-written dict. On first access it
-walks every django.db.models.Choices subclass and registers the class under a
+ChoicesEnumNameOverrides makes the name independent of that pool. On first
+access it walks every django.db.models.Choices subclass and registers the class under a
 name derived from its qualname, so the schema name follows the definition
 site of the choices and never depends on the enum pool. The explicit dict
 passed in wins over anything derived; it is reserved for choice sets no class
@@ -89,9 +88,9 @@ def _choices_hash(value: Any) -> str | None:
     Used only to decide which derived entries an explicit entry displaces, so
     a value that fails to normalize maps to None instead of raising.
     """
-    from django.db.models import Choices  # noqa: PLC0415 — deferred: settings import this module before Django is ready
+    from django.db.models import Choices  # noqa: PLC0415 because settings import this module before Django is ready
 
-    from drf_spectacular.plumbing import (  # noqa: PLC0415 — deferred: importing DRF reads settings
+    from drf_spectacular.plumbing import (  # noqa: PLC0415 because importing DRF reads settings
         deep_import_string,
         list_hash,
     )
@@ -127,16 +126,16 @@ def _all_subclasses(cls: type) -> Iterator[type]:
 class ChoicesEnumNameOverrides(Mapping[str, Any]):
     """A lazy ENUM_NAME_OVERRIDES value: explicit entries over derived ones.
 
-    The mapping is built on the first read, which drf-spectacular performs
-    inside schema generation, after every serializer module (and with them
-    every Choices class) has been imported. Reading it earlier would derive
-    names from whatever happens to be imported, so nothing else should read
-    it outside a schema build.
+    The mapping is built on every read from the Choices classes imported at
+    that moment. drf-spectacular reads it once per process, inside schema
+    generation, after every serializer module (and with them every Choices
+    class) has been imported. The result is deliberately not cached here: a
+    read from a partially imported process (a test, a management command)
+    must not freeze an incomplete mapping for the schema build that follows.
     """
 
     def __init__(self, explicit: dict[str, Any]) -> None:
         self._explicit = explicit
-        self._combined: dict[str, Any] | None = None
 
     def __getitem__(self, key: str) -> Any:
         return self._load()[key]
@@ -148,11 +147,7 @@ class ChoicesEnumNameOverrides(Mapping[str, Any]):
         return len(self._load())
 
     def _load(self) -> dict[str, Any]:
-        from django.db.models import (
-            Choices,  # noqa: PLC0415 — deferred: settings import this module before Django is ready
-        )
+        from django.db.models import Choices  # noqa: PLC0415 because settings import this module before Django is ready
 
-        if self._combined is None:
-            derived = build_derived_overrides(_all_subclasses(Choices), self._explicit)
-            self._combined = {**derived, **self._explicit}
-        return self._combined
+        derived = build_derived_overrides(_all_subclasses(Choices), self._explicit)
+        return {**derived, **self._explicit}

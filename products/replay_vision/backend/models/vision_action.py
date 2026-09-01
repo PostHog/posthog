@@ -39,8 +39,9 @@ class VisionActionAlertMetric(models.TextChoices):
     AVG_SCORE = "avg_score", "Average score"  # scorer scanners only
 
 
-# Renamed so the derived schema name reads VisionActionAlertMetricEnum; the old
-# name stays importable for existing callers.
+# The class name feeds the derived OpenAPI component name and must not collide
+# with vision_alert's VisionAlertMetric, which holds the same values under
+# different labels. AlertMetric is an alias for callers of the short name.
 AlertMetric = VisionActionAlertMetric
 
 
