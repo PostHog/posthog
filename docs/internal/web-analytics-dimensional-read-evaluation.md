@@ -40,11 +40,30 @@ Absolute volumes stay out of this page.
 The mean filtered view carries 1.37 filter items.
 
 The first row bounds the idea at 8.5% of views.
-The last row bounds the **latency** win much lower.
-Most filtered views repeat.
-About 59% of them sit in a filter set seen five or more times in the window, so the hourly
-demand warmer already builds those buckets and the lazy path already serves them.
-The slice a dimensional read would make faster is the one-off tail, near 1.8% of views.
+The latency win is smaller than that cap, but the one-off tail alone does not bound it.
+
+A dimensional read speeds up a filtered view only when that view serves live today, and two
+groups serve live.
+The first is the eligible one-off tail, near 1.8% of views: filter sets seen once, which
+repeat too rarely for the hourly demand warmer or the lazy path to build a bucket.
+About 59% of filtered views instead sit in a filter set seen five or more times, so the warmer
+and the lazy path already serve that eligible repeat traffic.
+
+The second group is larger, and repetition does not rescue it.
+The lazy precompute gate rejects any filter that is not an event or person filter, and the
+demand warmer takes the same gate, so a session-filtered view never receives a bucket however
+often it repeats.
+Many session keys still map to a stored column, including the seven entry-attribution keys in
+the table below.
+A view filtered on them serves live on every repeat, and a dimensional read could serve it.
+
+The doc's own shares bound that second group from below.
+Session filters appear on 33.6% of filtered views, and 80.0% of filtered views have every key
+mapped to a dimensional column.
+So at least 13.6% of filtered views are both fully covered and session-filtered, and stay live
+however often they repeat.
+That is about 1.4% of all views, and it is a floor: the exact accelerable share needs the
+intersection of coverage and eligibility, which this measurement did not compute.
 
 The operator column matters less than it looks.
 A stored dimension is a plain column, so `icontains` and `is_not` filter it as well as
