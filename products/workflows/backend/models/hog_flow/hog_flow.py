@@ -101,6 +101,11 @@ ROW_SCOPED_TRIGGER_TYPES: Final[set[str]] = {
 }
 
 
+def hog_flow_kind_choices() -> list[tuple[str, str]]:
+    # Callable so adding a purpose-built surface doesn't generate a no-op migration.
+    return list(HogFlow.Kind.choices)
+
+
 class HogFlow(UUIDTModel):
     """
     Stores the version, layout and other meta information for each HogFlow
@@ -144,7 +149,7 @@ class HogFlow(UUIDTModel):
     # Purpose-built UX discriminator (e.g. "broadcast" for one-time/scheduled email sends built by the
     # broadcasts wizard). Null for ordinary workflows. Doesn't affect execution — a broadcast is a plain
     # HogFlow and still opens in the full editor.
-    kind = models.CharField(max_length=40, choices=Kind, null=True, blank=True)
+    kind = models.CharField(max_length=40, choices=hog_flow_kind_choices, null=True, blank=True)
 
     trigger = models.JSONField(default=dict)
     trigger_masking = models.JSONField(null=True, blank=True)
