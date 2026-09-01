@@ -45,7 +45,7 @@ export function BroadcastContentStep(): JSX.Element {
                 value={email as unknown as EmailTemplate}
                 defaultValue={DEFAULT_BROADCAST_EMAIL as unknown as EmailTemplate}
                 onChange={(value) => setEmail(value as unknown as BroadcastEmailValue)}
-                variables={buildSampleGlobals('batch', null)}
+                variables={buildSampleGlobals({ type: 'batch' }, null)}
                 fieldErrors={fieldErrors}
             />
         </div>

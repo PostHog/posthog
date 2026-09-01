@@ -9,8 +9,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { UserType } from '~/types'
 
-import { createExampleEvent } from '../Workflows/hogflows/panel/testing/hogFlowEditorTestLogic'
 import { HogflowTestResult } from '../Workflows/hogflows/steps/types'
+import { createExampleEvent } from '../Workflows/hogflows/testEventFactory'
 import type { HogFlow, HogFlowAction, HogFlowEdge } from '../Workflows/hogflows/types'
 import { EXIT_NODE_ID, NEW_WORKFLOW, TRIGGER_NODE_ID } from '../Workflows/workflowLogic'
 import { BroadcastPreviewPerson, broadcastPreviewLogic } from './broadcastPreviewLogic'
