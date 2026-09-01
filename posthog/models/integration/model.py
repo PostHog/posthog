@@ -149,6 +149,7 @@ class Integration(models.Model):
         GOOGLE_PUBSUB = "google-pubsub"
         GOOGLE_SEARCH_CONSOLE = "google-search-console"
         GOOGLE_SHEETS = "google-sheets"
+        GOOGLE_TAG_MANAGER = "google-tag-manager"
         HUBSPOT = "hubspot"
         INSTAGRAM = "instagram"
         INTERCOM = "intercom"
