@@ -4,15 +4,12 @@ import { LemonMenu, LemonTag } from '@posthog/lemon-ui'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import type { SubscriptionDestination } from './subscriptionDestination'
 
-import { deliveryDestination, subscriptionDestination, type SubscriptionDestination } from './subscriptionDestination'
-
-function DestinationCellContents({ destination }: { destination: SubscriptionDestination }): JSX.Element {
+export function SubscriptionDestinationCell({ destination }: { destination: SubscriptionDestination }): JSX.Element {
     const { parts, copyDescription } = destination
 
     if (copyDescription === null) {
-        // The title is the masked value the cell already shows, never the URL it was masked from.
         return (
             <span className="text-secondary max-w-md truncate block" title={parts[0]}>
                 {parts[0]}
@@ -64,19 +61,4 @@ function DestinationCellContents({ destination }: { destination: SubscriptionDes
             </LemonMenu>
         </span>
     )
-}
-
-export function SubscriptionDestinationCell({ sub }: { sub: SubscriptionApi }): JSX.Element {
-    return <DestinationCellContents destination={subscriptionDestination(sub.target_type, sub.target_value)} />
-}
-
-/** Same destination UI as {@link SubscriptionDestinationCell}, for snapshot `target_type` / `target_value` (e.g. delivery history rows). */
-export function SubscriptionDeliveryDestinationCell({
-    targetType,
-    targetValue,
-}: {
-    targetType: string
-    targetValue: string
-}): JSX.Element {
-    return <DestinationCellContents destination={deliveryDestination(targetType, targetValue)} />
 }

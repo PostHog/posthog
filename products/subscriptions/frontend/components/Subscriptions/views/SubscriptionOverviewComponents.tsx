@@ -1,10 +1,9 @@
 import type { ReactNode } from 'react'
 
-import { IconAI, IconEllipsis, IconGraph, IconLetter, IconPause, IconPlay, IconTrash } from '@posthog/icons'
+import { IconAI, IconEllipsis, IconGraph, IconPause, IconPlay, IconTrash } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -14,10 +13,9 @@ import { urls } from 'scenes/urls'
 
 import { SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
-import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
-
 import { subscriptionDestination } from '../../../scenes/components/subscriptionDestination'
 import { isSubscriptionEnabled } from '../../../scenes/components/SubscriptionsTable'
+import { targetTypeOptions } from '../utils'
 
 const PROMPT_PREVIEW_MAX_CHARS = 80
 
@@ -29,6 +27,19 @@ interface SubscriptionListItemProps {
     onToggleEnabled?: (enabled: boolean) => void
     isDelivering?: boolean
     isToggling?: boolean
+}
+
+function subscriptionListDestination(subscription: SubscriptionType): {
+    icon: ReactNode
+    label: string
+    title: string
+} {
+    const destination = subscriptionDestination(subscription.target_type, subscription.target_value)
+    return {
+        icon: targetTypeOptions.find(({ value }) => value === subscription.target_type)?.icon,
+        label: destination.label,
+        title: destination.title,
+    }
 }
 
 export function SubscriptionEmptyState({
@@ -137,12 +148,7 @@ export function SubscriptionListItem({
     const aiPrompt = subscription.resource_type === SubscriptionResourceTypes.AiPrompt ? subscription.prompt : null
     const aiPromptTruncated = aiPrompt && aiPrompt.length > PROMPT_PREVIEW_MAX_CHARS
     const aiPromptPreview = aiPromptTruncated ? `${aiPrompt.slice(0, PROMPT_PREVIEW_MAX_CHARS)}…` : aiPrompt
-    const { parts: destinations, countNoun } = subscriptionDestination(
-        subscription.target_type,
-        subscription.target_value
-    )
-    const destinationLabel =
-        destinations.length === 1 ? destinations[0] : pluralize(destinations.length, countNoun, undefined, true)
+    const destination = subscriptionListDestination(subscription)
 
     return (
         <LemonButton
@@ -209,14 +215,10 @@ export function SubscriptionListItem({
                         </div>
                         <div
                             className="flex items-center gap-1 text-xs text-secondary shrink-0"
-                            title={destinations.join(', ')}
+                            title={destination.title}
                         >
-                            {subscription.target_type === 'email' && <IconLetter />}
-                            {subscription.target_type === 'slack' && <IconSlack />}
-                            {subscription.target_type === 'teams' && (
-                                <img src={IconMicrosoftTeams} alt="" className="h-4 w-4" />
-                            )}
-                            <span className="max-w-40 truncate">{destinationLabel}</span>
+                            {destination.icon}
+                            <span className="max-w-40 truncate">{destination.label}</span>
                         </div>
                     </div>
                     {aiPrompt ? (

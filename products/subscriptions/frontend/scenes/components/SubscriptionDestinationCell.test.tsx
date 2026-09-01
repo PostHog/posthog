@@ -2,9 +2,8 @@ import '@testing-library/jest-dom'
 
 import { render } from '@testing-library/react'
 
-import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
-
-import { SubscriptionDeliveryDestinationCell, SubscriptionDestinationCell } from './SubscriptionDestinationCell'
+import { deliveryDestination, subscriptionDestination } from './subscriptionDestination'
+import { SubscriptionDestinationCell } from './SubscriptionDestinationCell'
 
 const TEAMS_WEBHOOK_PATH =
     '/workflows/00000000/triggers/manual/paths/invoke?api-version=2016-06-01&sig=not-a-real-signature'
@@ -20,7 +19,7 @@ describe('SubscriptionDestinationCell', () => {
         ['the host returned by the subscription API', TEAMS_WEBHOOK_HOST],
     ])('shows %s by host and nothing that authorizes a post', (_label, targetValue) => {
         const { container } = render(
-            <SubscriptionDestinationCell sub={{ target_type: 'teams', target_value: targetValue } as SubscriptionApi} />
+            <SubscriptionDestinationCell destination={subscriptionDestination('teams', targetValue)} />
         )
 
         expect(container.textContent).toBe(TEAMS_WEBHOOK_HOST)
@@ -36,7 +35,7 @@ describe('SubscriptionDestinationCell', () => {
         ['the placeholder the API sends when the webhook URL did not parse', 'webhook'],
     ])('shows a Teams delivery as %s', (_label, targetValue) => {
         const { container } = render(
-            <SubscriptionDeliveryDestinationCell targetType="teams" targetValue={targetValue} />
+            <SubscriptionDestinationCell destination={deliveryDestination('teams', targetValue)} />
         )
 
         expect(container.textContent).toBe(targetValue)

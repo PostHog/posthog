@@ -587,8 +587,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         if target_type == Subscription.SubscriptionTarget.TEAMS:
             submitted = (attrs.get("target_value") or "").strip()
-            # Reads return the host, so a client that sends back what it read would otherwise
-            # overwrite the stored URL with a value that can never deliver.
             if self.instance and submitted and submitted == self.instance.recipient_label:
                 raise ValidationError({"target_value": [TEAMS_WEBHOOK_URL_MASKED_ERROR]})
             target_value = submitted or (self.instance.target_value if self.instance else "")
@@ -827,8 +825,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: Subscription) -> dict:
         data = super().to_representation(instance)
-        # A Teams webhook URL authorizes a post to the channel on its own, so read access to a
-        # subscription must not hand it out. Same host-only value the delivery snapshot carries.
         if instance.target_type == Subscription.SubscriptionTarget.TEAMS:
             data["target_value"] = instance.recipient_label
         return data
