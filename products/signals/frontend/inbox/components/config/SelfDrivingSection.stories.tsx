@@ -17,6 +17,8 @@ interface CardState {
     myThreshold?: string | null
     dailyLimit?: number | null
     reportsToday?: number
+    /** `stale_report_sweep_enabled` on the team config, or null when the team has not chosen. */
+    staleSweep?: boolean | null
 }
 
 function Card({
@@ -25,6 +27,7 @@ function Card({
     myThreshold = null,
     dailyLimit = null,
     reportsToday = 0,
+    staleSweep = null,
 }: CardState): JSX.Element {
     useStorybookMocks({
         get: {
@@ -36,6 +39,7 @@ function Card({
                 max_reports_per_day: dailyLimit,
                 reports_generated_today: reportsToday,
                 daily_report_limit_reached: dailyLimit != null && reportsToday >= dailyLimit,
+                stale_report_sweep_enabled: staleSweep,
             },
             '/api/users/@me/signal_autonomy/': {
                 id: 'auto-1',
@@ -92,4 +96,10 @@ export const PersonalDefault: Story = {
 // Master switch off: both thresholds are hidden and only the reassurance copy shows.
 export const Disabled: Story = {
     render: () => <Card enabled={false} />,
+}
+
+// Teams that predate the staleness sweep are backfilled opted out, so this is what most existing
+// teams see until someone turns it on.
+export const StaleSweepOptedOut: Story = {
+    render: () => <Card staleSweep={false} />,
 }

@@ -392,6 +392,8 @@ export interface SignalTeamConfig {
     reports_generated_today?: number
     /** Read-only: whether the daily report limit is reached, pausing new report generation until local midnight. Never send in a patch. */
     daily_report_limit_reached?: boolean
+    /** Whether the daily sweep may archive reports that stopped moving. Null reads as on, except for teams that predate the sweep. */
+    stale_report_sweep_enabled?: boolean | null
     created_at?: string
     updated_at?: string
 }

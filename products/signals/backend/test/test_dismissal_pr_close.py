@@ -269,3 +269,18 @@ class TestSupersededPrClose(BaseTest):
 
         comment_body = github.comment_on_pull_request.call_args.args[2]
         assert "a new PR replaces this one" in comment_body
+
+    def test_a_stale_close_says_the_report_went_quiet_rather_than_that_someone_dismissed_it(self):
+        # Whoever finds this closed PR reads only the comment. The staleness sweep archives through
+        # the same receiver as a dismissal, so without its own comment it would tell them a person
+        # decided against the work, which nobody did.
+        github = self._github()
+        with patch(
+            "products.signals.backend.implementation_pr.GitHubIntegration.first_for_team_repository",
+            return_value=github,
+        ):
+            close_implementation_pr_for_report(self.team.id, "report-1", reason="stale", pr_url=_PR_URL)
+
+        comment_body = github.comment_on_pull_request.call_args.args[2]
+        assert "went quiet" in comment_body
+        assert "suppressed" not in comment_body
