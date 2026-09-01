@@ -106,9 +106,8 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
     class Meta:
         indexes = [
             models.Index(
-                name="idx_dashboard_deleted_team_id",
-                fields=["-pinned", "name", "deleted", "team_id"],
-                condition=models.Q(deleted=False),
+                name="idx_dashboard_team_pinned_name",
+                fields=["team", "-pinned", "name"],
             ),
         ]
         db_table = "posthog_dashboard"
