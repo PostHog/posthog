@@ -59,6 +59,12 @@ func TestPathCleanerClean(t *testing.T) {
 			want:  "/classes/:id",
 		},
 		{
+			name:  "malformed legacy entry is skipped, later rules still apply",
+			rules: `["legacy", {"alias": "/users/:id", "regex": "/users/\\d+"}]`,
+			path:  "/users/42",
+			want:  "/users/:id",
+		},
+		{
 			name:  "inline re2 flags work",
 			rules: `[{"alias": "/docs", "regex": "(?i)/DOCS/.*"}]`,
 			path:  "/docs/setup",
@@ -82,17 +88,34 @@ func TestPathCleanerClean(t *testing.T) {
 }
 
 func TestNewPathCleanerFromJSONReturnsNilWhenNothingApplies(t *testing.T) {
+	// Truncating past the cap would clean with a prefix of the ruleset and
+	// group paths differently from the backfill query, so it must be all or
+	// nothing: the frontend falls back to full client-side cleaning on nil.
+	tooManyRules := "[" + strings.Repeat(`{"alias": "/x", "regex": "/x/.*"},`, maxPathCleaningRules) + `{"alias": "/x", "regex": "/x/.*"}]`
 	for name, raw := range map[string]string{
-		"empty string":       "",
-		"whitespace":         "   ",
-		"not json":           "not-json",
-		"empty array":        "[]",
-		"only invalid rules": `[{"alias": "x", "regex": "("}, {"alias": "y", "regex": ""}]`,
+		"empty string":        "",
+		"whitespace":          "   ",
+		"not json":            "not-json",
+		"empty array":         "[]",
+		"only invalid rules":  `[{"alias": "x", "regex": "("}, {"alias": "y", "regex": ""}]`,
+		"more rules than cap": tooManyRules,
 	} {
 		t.Run(name, func(t *testing.T) {
 			assert.Nil(t, NewPathCleanerFromJSON(raw))
 		})
 	}
+}
+
+func TestPathCleanerSkipsCaptureGroupBomb(t *testing.T) {
+	// Sizing a replacement materializes indexes for every capture group per
+	// match, so a rule stuffed with empty groups forces large allocations per
+	// event. Such a rule is dropped at compile time; the valid rule still applies.
+	bomb := strings.Repeat("()", maxPathCleaningCaptureGroups+1)
+	rules := fmt.Sprintf(`[{"alias": "x", "regex": %q}, {"alias": "/b", "regex": "/a/.*"}]`, bomb)
+	cleaner := NewPathCleanerFromJSON(rules)
+	require.NotNil(t, cleaner)
+
+	assert.Equal(t, "/b", cleaner.Clean("/a/123"))
 }
 
 func TestPathCleanerBoundsOutputAmplification(t *testing.T) {

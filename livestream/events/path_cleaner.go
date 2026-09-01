@@ -13,6 +13,11 @@ const (
 	maxPathCleaningRules    = 100
 	maxPathCleaningRegexLen = 1000
 	maxPathCleaningAliasLen = 1000
+	// Sizing a replacement walks every capture group of every match
+	// (replacementOverflows), so a rule packed with hundreds of empty groups
+	// could allocate tens of megabytes of match indexes per event. Aliases can
+	// only reference groups 1-9, so this cap costs real rules nothing.
+	maxPathCleaningCaptureGroups = 30
 	// Ceiling on the working path while cleaning. A rule can amplify output (a
 	// `(.) -> \1\1` rule doubles the string) and rules chain each fed the
 	// previous output, so N of them grow it 2^N. Bailing once the path passes a
@@ -34,48 +39,59 @@ type PathCleaner struct {
 	rules []pathCleaningRule
 }
 
-// NewPathCleanerFromJSON parses a JSON array of {alias, regex, order} rules,
-// the wire shape of team.path_cleaning_filters. Returns nil when there is
-// nothing to apply. Rules that don't compile are skipped, matching how the
-// query side skips rules that fail validation.
-func NewPathCleanerFromJSON(raw string) *PathCleaner {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
+// NewPathCleanerFromJSON parses a JSON array of {alias, regex} rules, the wire
+// shape of team.path_cleaning_filters (the array is already ordered; other
+// fields are ignored). Returns nil when there is nothing to apply. Rules that
+// don't compile are skipped, matching how the query side skips rules that fail
+// validation.
+func NewPathCleanerFromJSON(rawJSON string) *PathCleaner {
+	rawJSON = strings.TrimSpace(rawJSON)
+	if rawJSON == "" {
 		return nil
 	}
-	var payloads []struct {
-		Alias *string `json:"alias"`
-		Regex *string `json:"regex"`
-	}
-	if err := json.Unmarshal([]byte(raw), &payloads); err != nil {
+	var elements []json.RawMessage
+	if err := json.Unmarshal([]byte(rawJSON), &elements); err != nil {
 		log.Printf("WARNING: ignoring unparseable pathCleaning rules: %v", err)
 		return nil
 	}
-	if len(payloads) > maxPathCleaningRules {
-		payloads = payloads[:maxPathCleaningRules]
+	// Applying only a prefix of the ruleset would group paths differently from
+	// the query side, so past the cap emit nothing and let the frontend fall
+	// back to cleaning with the full ruleset.
+	if len(elements) > maxPathCleaningRules {
+		log.Printf("WARNING: ignoring pathCleaning rules: %d exceeds the cap of %d", len(elements), maxPathCleaningRules)
+		return nil
 	}
 
-	rules := make([]pathCleaningRule, 0, len(payloads))
-	for _, p := range payloads {
-		if p.Regex == nil || *p.Regex == "" || len(*p.Regex) > maxPathCleaningRegexLen {
+	rules := make([]pathCleaningRule, 0, len(elements))
+	for _, element := range elements {
+		var p struct {
+			Alias string `json:"alias"`
+			Regex string `json:"regex"`
+		}
+		// Stored rulesets may contain malformed legacy entries; Django skips
+		// each invalid element individually, so one bad entry must not disable
+		// the valid rules around it.
+		if err := json.Unmarshal(element, &p); err != nil {
 			continue
 		}
-		re, err := regexp.Compile(*p.Regex)
-		if err != nil {
-			log.Printf("WARNING: ignoring invalid path cleaning regex %q: %v", *p.Regex, err)
+		if p.Regex == "" || len(p.Regex) > maxPathCleaningRegexLen {
 			continue
-		}
-		alias := ""
-		if p.Alias != nil {
-			alias = *p.Alias
 		}
 		// A long alias packed with backreferences amplifies each match, so cap
 		// it alongside the regex. Without this a single rule could still blow the
 		// path up in one pass.
-		if len(alias) > maxPathCleaningAliasLen {
+		if len(p.Alias) > maxPathCleaningAliasLen {
 			continue
 		}
-		rules = append(rules, pathCleaningRule{regex: re, replacement: translateAlias(alias)})
+		re, err := regexp.Compile(p.Regex)
+		if err != nil {
+			log.Printf("WARNING: ignoring invalid path cleaning regex %q: %v", p.Regex, err)
+			continue
+		}
+		if re.NumSubexp() > maxPathCleaningCaptureGroups {
+			continue
+		}
+		rules = append(rules, pathCleaningRule{regex: re, replacement: translateAlias(p.Alias)})
 	}
 	if len(rules) == 0 {
 		return nil
