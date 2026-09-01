@@ -270,6 +270,7 @@ def build_agent_runtime_env_prefix(
     event_ingest_url: str | None = None,
     event_ingest_keep_stream_open: bool = False,
     rtk_enabled: bool = True,
+    benjamin_enabled: bool = False,
     peer_messaging: bool = False,
 ) -> str:
     env_vars = {
@@ -291,6 +292,7 @@ def build_agent_runtime_env_prefix(
         # Set explicitly in both states: "0" opts the run out, "1" pins auto-detection on
         # even if a stale env value survives in a resumed sandbox.
         "POSTHOG_RTK": "1" if rtk_enabled else "0",
+        "POSTHOG_BENJAMIN": "1" if benjamin_enabled else "0",
         # Exposure gate for the peer-messaging tools (PR: agent peer messaging). Set in
         # both states so a stale "1" in a resumed sandbox can't outlive a flag rollback;
         # the peers endpoints re-check authorization server-side regardless.
@@ -546,6 +548,7 @@ class SandboxBase(ABC):
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
+        benjamin_enabled: bool = False,
         peer_messaging: bool = False,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
