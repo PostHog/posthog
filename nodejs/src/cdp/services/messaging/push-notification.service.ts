@@ -488,10 +488,13 @@ export class PushNotificationService {
             integration.config.environment === 'sandbox' ? 'api.sandbox.push.apple.com' : 'api.push.apple.com'
         const url = `https://${apnsHost}/3/device/${token}`
 
+        // Apple requires `background` for a content-available push with no user-visible alert; a silent
+        // push declared `alert` is rejected or throttled. Anything with an alert body stays `alert`.
+        const isSilent = Boolean(payload.apns?.contentAvailable) && !payload.body
         const headers: Record<string, string> = {
             Authorization: `bearer ${jwt}`,
             'apns-topic': bundleId,
-            'apns-push-type': 'alert',
+            'apns-push-type': isSilent ? 'background' : 'alert',
         }
         if (payload.collapseKey) {
             headers['apns-collapse-id'] = payload.collapseKey
