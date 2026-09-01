@@ -665,7 +665,10 @@ function parseTable(resource: unknown): TableForm {
         id: nextTableId(),
         name: asString(r.name),
         path: asString(endpoint.path),
-        method: asString(endpoint.method) === 'POST' ? 'POST' : 'GET',
+        // Backend accepts lowercase get/post as well (source.py), so normalize
+        // before matching — otherwise a stored 'post' rebuilds with no method,
+        // which the backend reads as GET, silently downgrading the request.
+        method: asString(endpoint.method).toUpperCase() === 'POST' ? 'POST' : 'GET',
         data_selector: asString(endpoint.data_selector, 'data'),
         primary_key: Array.isArray(primaryKey) ? primaryKey.join(', ') : asString(primaryKey, 'id'),
         paginator,

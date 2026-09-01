@@ -450,6 +450,21 @@ describe('parseManifestIntoState', () => {
         expect(rebuilt.resources[0].endpoint.json).toEqual({ q: 'term', page: 1 })
     })
 
+    it('normalizes a lowercase POST method so the request verb survives parse → build', () => {
+        // The backend accepts lowercase 'post' (source.py), so a raw manifest can carry it.
+        // parseTable must recognize it — otherwise build drops the method and the backend reads
+        // it as GET, sending this PR's preserved endpoint.json on a request whose verb no longer matches.
+        const manifestJson = JSON.stringify({
+            client: { base_url: 'https://x' },
+            resources: [{ name: 'search', endpoint: { path: '/search', method: 'post', json: { q: 'term' } } }],
+        })
+        const state = parseManifestIntoState(manifestJson)
+        expect(state.tables[0].method).toBe('POST')
+        const rebuilt = buildManifest(state) as any
+        expect(rebuilt.resources[0].endpoint.method).toBe('POST')
+        expect(rebuilt.resources[0].endpoint.json).toEqual({ q: 'term' })
+    })
+
     it('round-trips all new fields without drift', () => {
         const original = baseState()
         original.auth_type = 'api_key'
