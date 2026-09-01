@@ -75,6 +75,9 @@ import { type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
+import 'products/notebooks/frontend/NotebookNodeGeneratedWidget/NotebookNodeGeneratedWidget'
+import { NotebookGeneratedWidgetRunButton } from 'products/notebooks/frontend/NotebookNodeGeneratedWidget/NotebookGeneratedWidgetRunButton'
+
 import { NODE_ICONS } from '../nodeIcons'
 import { NotebookCodeCellRunButton } from '../Nodes/components/NotebookCodeCellRunButton'
 import { NotebookNodeContext } from '../Nodes/NotebookNodeContext'
@@ -170,6 +173,9 @@ export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, Notebook
     DuckSQL: NotebookNodeType.DuckSQL,
     HogQLSQL: NotebookNodeType.HogQLSQL,
     SQLV2: NotebookNodeType.SQLV2,
+    Widget: NotebookNodeType.GeneratedWidget,
+    GeneratedWidget: NotebookNodeType.GeneratedWidget,
+    GenUI: NotebookNodeType.GeneratedWidget,
     Recording: NotebookNodeType.Recording,
     RecordingPlaylist: NotebookNodeType.RecordingPlaylist,
     FeatureFlag: NotebookNodeType.FeatureFlag,
@@ -228,10 +234,9 @@ function getMarkdownNodeOptions(tagName: string): CreatePostHogWidgetNodeOptions
     return nodeType ? KNOWN_NODES[nodeType] : null
 }
 
-// A code cell's `filters` panel is its code editor, and the shell leaves that panel closed
-// unless the node carries `showFilters`. A cell the user just inserted holds no code and no
-// result, so without this it renders as an empty box with nothing to type into.
-const CODE_CELL_EDITOR_OPEN_PROPS: NotebookComponentProps = { showFilters: true }
+// The notebook shell closes input panels unless the node carries `showFilters`. New programmable
+// blocks need immediate input, so opening the panel avoids an empty block with no visible next step.
+const INPUT_PANEL_OPEN_PROPS: NotebookComponentProps = { showFilters: true }
 
 export const MARKDOWN_NODE_DEFINITIONS: {
     tagName: string
@@ -261,7 +266,7 @@ export const MARKDOWN_NODE_DEFINITIONS: {
             aliases: ['python', 'py'],
             defaultProps: () => ({
                 ...getDefaultPropsForNodeType(NotebookNodeType.PythonV2),
-                ...CODE_CELL_EDITOR_OPEN_PROPS,
+                ...INPUT_PANEL_OPEN_PROPS,
                 nodeId: uuid(),
             }),
         },
@@ -288,11 +293,33 @@ export const MARKDOWN_NODE_DEFINITIONS: {
             // writes runId/result) would orphan the cell's run history and cross-cell refs.
             defaultProps: () => ({
                 ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2),
-                ...CODE_CELL_EDITOR_OPEN_PROPS,
+                ...INPUT_PANEL_OPEN_PROPS,
                 nodeId: uuid(),
             }),
         },
     },
+    {
+        tagName: 'Widget',
+        category: 'Code',
+        label: 'Widget',
+        ToolbarComponent: NotebookGeneratedWidgetRunButton,
+        insertCommand: {
+            category: COMMON_INSERT_COMMAND_CATEGORY,
+            aliases: ['visualization', 'widget', '3d'],
+            defaultProps: () => ({
+                ...getDefaultPropsForNodeType(NotebookNodeType.GeneratedWidget),
+                ...INPUT_PANEL_OPEN_PROPS,
+                nodeId: uuid(),
+            }),
+        },
+    },
+    {
+        tagName: 'GeneratedWidget',
+        category: 'Code',
+        label: 'Widget',
+        ToolbarComponent: NotebookGeneratedWidgetRunButton,
+    },
+    { tagName: 'GenUI', category: 'Code', label: 'Widget', ToolbarComponent: NotebookGeneratedWidgetRunButton },
     { tagName: 'RecordingPlaylist', category: 'Data', label: 'Session recordings' },
     { tagName: 'Experiment', category: 'Experiment' },
     { tagName: 'Image', category: 'Media', EditComponent: ImageEdit },
@@ -383,6 +410,9 @@ export function getMarkdownRegistryForFeatureFlags(featureFlags: FeatureFlagsSet
     const hiddenTags: string[] = []
     if (!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]) {
         hiddenTags.push('SQLV2', 'PythonV2')
+    }
+    if (!featureFlags[FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS]) {
+        hiddenTags.push('Widget')
     }
 
     if (hiddenTags.length === 0) {
