@@ -12,10 +12,12 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from products.tasks.backend.facade.sandbox import SandboxNotFoundError
+from products.wizard.backend.logic.artifacts.config import MAX_GIT_DIFF_BYTES
 from products.wizard.backend.logic.workers.commands import wizard_handoff_output_path
 from products.wizard.backend.logic.workers.config import (
     LOCAL_WIZARD_ARCHIVE_PATH,
     LOCAL_WIZARD_INSTALL_PATH,
+    WIZARD_DIFF_OUTPUT_PATH,
     WIZARD_PACKAGE_INSTALL_PATH,
     local_wizard_source_root,
 )
@@ -363,6 +365,8 @@ def test_git_repository_handoff_captures_diff_and_publishes_pull_request(
 
     assert result == WizardWorkerResult(diff=b"diff --git a/a b/a\n", pull_request=pull_request)
     assert "git add -N --all" in sandbox.execute.call_args_list[0].args[0]
+    assert WIZARD_DIFF_OUTPUT_PATH in sandbox.execute.call_args_list[0].args[0]
+    assert f"head -c {MAX_GIT_DIFF_BYTES + 1}" in sandbox.execute.call_args_list[0].args[0]
     assert wizard_handoff_output_path(request.run_id) in sandbox.execute.call_args_list[1].args[0]
     assert "head -c 60000" in sandbox.execute.call_args_list[1].args[0]
     create_signed_commit.assert_called_once_with(
