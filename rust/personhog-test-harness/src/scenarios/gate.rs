@@ -22,9 +22,8 @@ use crate::state::PersonState;
 use crate::stats::StatsCollector;
 use crate::verify::verify_postgres;
 
-/// The property every person created through the identity service
-/// carries from birth. The merge lane relies on it being present on
-/// every survivor.
+/// The property set on every person the identity service creates. The
+/// merge lane expects it on every survivor.
 pub const SEED_KEY: &str = "harness_seed";
 
 /// A chaos disruption scheduled relative to the start of the traffic phase.
@@ -157,8 +156,8 @@ pub async fn run(args: GateArgs) -> Result<()> {
     if args.external_router_url.is_some() && !args.leader_env.is_empty() {
         bail!("--leader-env requires a spawned stack; it cannot target --external-router-url");
     }
-    // Merges need persons with distinct ids, which only the identity
-    // create path provides.
+    // Merges need distinct ids. Only the identity create path provides
+    // them.
     let create_via_identity = args.create_via_identity || args.merge_concurrency > 0;
     if create_via_identity
         && args.external_router_url.is_some()
@@ -366,8 +365,6 @@ pub async fn run(args: GateArgs) -> Result<()> {
         })
     };
 
-    // The merge lane shares the traffic window, so the saga runs under
-    // the blast and prober writes above.
     let merges = identity_url
         .as_ref()
         .filter(|_| args.merge_concurrency > 0)
@@ -384,8 +381,8 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 rate_per_sec: args.merge_rate,
                 sources_per_call: args.merge_sources,
                 allow_identified_sources: args.merge_identified_sources,
-                // A survivor collects every distinct id of every merged
-                // source. The pool bounds that total, so no source ever
+                // A survivor collects the distinct ids of every merged
+                // source. This limit covers the whole pool, so no source
                 // trips the move guard.
                 move_limit: i64::from(args.persons)
                     + i64::from(args.merge_wide_persons)
@@ -615,9 +612,8 @@ pub async fn run(args: GateArgs) -> Result<()> {
     }
 
     // Merges that lost every response settle from their op records
-    // before anything is asserted. The sweeper claims an abandoned op
-    // once its lease (15s) lapses, then re-drives it on the converged
-    // stack.
+    // first. The sweeper re-drives an abandoned op only after its 15s
+    // lease lapses, which is why the deadline is long.
     let mut violations = prober_violations;
     violations.extend(
         merge::settle_unresolved(&pool, &state, unresolved_merges, Duration::from_secs(90)).await?,
@@ -667,9 +663,8 @@ pub async fn run(args: GateArgs) -> Result<()> {
     // get-or-create leave through the lifecycle saga, and both the
     // outcomes and the saga's idempotence are gate assertions — every
     // created person deletes exactly once, and a second attempt under a
-    // fresh op id answers not_found for all of them. Persons a merge
-    // destroyed are tombstones already, so they answer not_found on
-    // the first attempt.
+    // fresh op id answers not_found for all of them. A merged source is
+    // a tombstone already, so it answers not_found on the first attempt.
     if let Some(url) = &identity_url {
         if !args.keep_data {
             println!("Deleting persons through the lifecycle saga...");
@@ -720,16 +715,15 @@ pub async fn run(args: GateArgs) -> Result<()> {
 /// to the gate's standard: every id deleted on the first attempt, every
 /// id not_found on a second attempt under a fresh op id (deleting a
 /// tombstone is a no-op, never an error, never a false success).
-/// The merge saga destroyed `merged_ids`, so they must answer not_found
-/// on the first attempt. A "deleted" there means the merge left a
-/// living row behind. `uncertain_ids` had a merge call that never
-/// answered, so either outcome is accepted for them.
+/// `merged_ids` must answer not_found on the first attempt. A `deleted`
+/// there means the merge left a living row. `uncertain_ids` had a merge
+/// call that never answered, so either answer is accepted.
 ///
 /// A `skipped_conflict` means another lifecycle op still holds the
-/// person, usually a merge that chaos interrupted mid-saga. The sweeper
-/// must re-drive that op, so conflicts are retried under fresh op ids
-/// until the op settles. One that never settles fails the gate, because
-/// nobody can ever merge or delete that person again.
+/// person, usually a merge that chaos interrupted. The delete is retried
+/// under fresh op ids until the sweeper settles that op. An op that
+/// never settles fails the gate, because nobody can merge or delete
+/// that person again.
 async fn verify_lifecycle_delete(
     lifecycle: &crate::client::LifecycleClient,
     team_id: i64,
@@ -739,13 +733,10 @@ async fn verify_lifecycle_delete(
 ) -> Result<()> {
     use personhog_proto::personhog::lifecycle::v1::DeletePersonOutcome;
 
-    /// The sweeper claims an abandoned op once its lease (15s) lapses,
-    /// on its own cadence. A re-driven merge then needs its leader
-    /// calls to succeed on a converged stack.
+    /// The sweeper claims an abandoned op only after its 15s lease
+    /// lapses, then re-drives it. Sized for a few of those in sequence.
     const SETTLE_DEADLINE: Duration = Duration::from_secs(90);
 
-    // Everything answers on the first attempt. Conflicts are asked
-    // again until the holding op settles.
     let mut expected: HashMap<i64, Vec<DeletePersonOutcome>> = HashMap::new();
     for &id in person_ids {
         expected.insert(id, vec![DeletePersonOutcome::Deleted]);
@@ -801,9 +792,8 @@ async fn verify_lifecycle_delete(
         pending = conflicts;
     }
 
-    // Idempotence: a second attempt under a fresh op id answers
-    // not_found for everything. Deleting a tombstone is a no-op, never
-    // an error, and never a false success.
+    // A second attempt under a fresh op id must answer not_found for
+    // everything. Deleting a tombstone is a no-op, not an error.
     let mut all: Vec<i64> = expected.keys().copied().collect();
     all.sort_unstable();
     for chunk in all.chunks(200) {
@@ -890,9 +880,8 @@ async fn create_persons_via_identity(
     Ok(person_ids)
 }
 
-/// Create persons that carry `extra_distinct_ids` extra mappings each.
-/// A merge of this shape makes the flip repoint every mapping. The
-/// journaling is the same as on the ordinary create path.
+/// Create persons with `extra_distinct_ids` extra distinct ids each, so
+/// a merge makes the flip repoint many mappings.
 async fn create_wide_persons_via_identity(
     identity_url: &str,
     team_id: i64,

@@ -1,14 +1,12 @@
-//! The merge lane: MergePersons calls against random live persons while
-//! the blast writers and probers keep writing to all of them.
+//! The merge lane: MergePersons calls against live persons while the
+//! blast writers and probers keep writing to them.
 //!
-//! Every call names one target and one or more distinct live sources.
-//! Thus every source that settles as `merged` ran the durable saga end
-//! to end (fence, seal, fold, flip, release) with writes racing the
-//! source's fence and the target's fold. A source distinct id is reserved
-//! for one in-flight call and is never reused after a merge, so the
-//! journal always knows which person died. Targets are shared, so two
-//! calls can contend for one person and exercise the saga's conflict
-//! settlements.
+//! Each call names one target and one or more live sources. A source
+//! that settles as `merged` ran the durable saga end to end, with writes
+//! racing its fence and the target's fold. A source is reserved for one
+//! call at a time and is never reused after a merge, so the journal
+//! always knows which person died. Targets are shared, so two calls can
+//! contend for one person.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -32,15 +30,13 @@ use crate::scenarios::gate::SEED_KEY;
 use crate::state::{MergeAck, PersonState};
 use crate::stats::StatsCollector;
 
-/// Attempts per merge call under one op id. A retry under the same op id
-/// returns the recorded outcome, so a lost response is asked again, not
-/// guessed at.
+/// Attempts per call, all under one op id. A retry with the same op id
+/// returns the recorded outcome and does not merge again.
 const MERGE_ATTEMPTS: u32 = 3;
 const MERGE_RETRY_BACKOFF: Duration = Duration::from_millis(500);
 
-/// The `$set_once` value that must never land: it is sent for keys the
-/// survivor already holds, so the fold's set-once tier has to leave
-/// them alone.
+/// The `$set_once` value sent for keys the survivor already holds. It
+/// must never land.
 const SET_ONCE_LOSER: &str = "harness_set_once_must_not_win";
 
 pub struct MergeLane {
@@ -48,15 +44,13 @@ pub struct MergeLane {
     pub concurrency: usize,
     /// Combined target rate across the workers. Unset runs flat out.
     pub rate_per_sec: Option<f64>,
-    /// Sources per call. The leader folds several sealed sources in
-    /// request order, and only a call with more than one source
-    /// exercises that ordering.
+    /// Sources per call. Only a call with more than one source exercises
+    /// the leader's request-order fold.
     pub sources_per_call: usize,
     pub allow_identified_sources: bool,
     pub move_limit: i64,
-    /// Persons created with many distinct ids. Workers prefer a wide
-    /// pair while one is available, so the expensive merges happen
-    /// before the pool thins. Their latency is recorded apart.
+    /// Persons with many distinct ids. Workers prefer them while one is
+    /// available, so the expensive merges happen before the pool thins.
     pub wide_persons: Vec<i64>,
     pub wide_role: WideRole,
 }
@@ -83,10 +77,9 @@ impl WideRole {
 /// run anyway. The op record decides, see [`settle_unresolved`].
 pub struct UnresolvedMerge {
     pub op_id: uuid::Uuid,
-    /// The sources, as person id and distinct id, in request order.
+    /// Person id and distinct id per source, in request order.
     pub sources: Vec<(i64, String)>,
-    /// The merge event's `$set` and `$set_once`. Journaled on the
-    /// survivor if the op record says the merge ran.
+    /// Journaled on the survivor if the op record says the merge ran.
     pub set: HashMap<String, serde_json::Value>,
     pub set_once: HashMap<String, serde_json::Value>,
 }
@@ -96,10 +89,9 @@ pub struct MergeLaneResult {
     pub unresolved: Vec<UnresolvedMerge>,
 }
 
-/// The merge event's property writes for one call. Three `$set_once`
-/// keys cover the fold's set-once tier: a fresh key it must fill, the
-/// `$set` key it must lose to, and the seed key every person holds, which
-/// it must leave alone.
+/// The merge event's writes for one call. The three `$set_once` keys
+/// test the fold: a fresh key it must fill, the `$set` key it must lose
+/// to, and the seed key it must not change.
 struct MergeEvent {
     set: HashMap<String, serde_json::Value>,
     set_once: HashMap<String, serde_json::Value>,
@@ -119,8 +111,7 @@ impl MergeEvent {
         }
     }
 
-    /// The keys the survivor document must carry after the fold, with
-    /// their values.
+    /// The keys and values the survivor must carry after the fold.
     fn expected(&self) -> impl Iterator<Item = (&String, &serde_json::Value)> {
         self.set.iter().chain(
             self.set_once
@@ -130,10 +121,8 @@ impl MergeEvent {
     }
 }
 
-/// Drive merges until the deadline. Every `merged` ack is journaled into
-/// `state` and the destroyed sources leave `pool`. Returns the violations
-/// observed live: a survivor without the merge event's writes, a merged
-/// source that still reads as alive, or an ack with no survivor.
+/// Drive merges until the deadline. Merged acks go into `state`, and
+/// merged sources leave `pool`. Returns the violations seen live.
 #[allow(clippy::too_many_arguments)]
 pub async fn run_merges(
     identity: &IdentityClient,
@@ -151,8 +140,7 @@ pub async fn run_merges(
         .rate_per_sec
         .map(|rate| per_worker_tick(rate, lane.concurrency));
     let wide: Arc<HashSet<i64>> = Arc::new(lane.wide_persons.iter().copied().collect());
-    // The eligible set excludes the wide persons so an ordinary pick
-    // cannot spend a wide source.
+    // An ordinary pick must not spend a wide source.
     let eligible = Arc::new(Mutex::new(
         pool.snapshot()
             .into_iter()
@@ -200,8 +188,6 @@ pub async fn run_merges(
             });
             let mut violations = Vec::new();
             let mut unresolved = Vec::new();
-            // A source goes back to the set it was reserved from when the
-            // call leaves it alive.
             let release = |source: i64| {
                 if wide.contains(&source) {
                     wide_sources.lock().unwrap().push(source);
@@ -218,8 +204,8 @@ pub async fn run_merges(
                     pick_wide_pair(&wide_sources, &wide_targets, &eligible, &pool, &mut rng)
                         .or_else(|| pick_pair(&eligible, &pool, &mut rng));
                 let Some((first_source, target)) = picked else {
-                    // Fewer than two live persons remain, or every
-                    // source is reserved.
+                    // The pool is almost empty, or every source is
+                    // reserved.
                     if pool.len() < 2 {
                         note_dry(&dry_at, started.elapsed());
                     }
@@ -294,11 +280,10 @@ pub async fn run_merges(
                 };
                 let Some(response) = response else {
                     recorder.record_failure();
-                    // The saga is durable, and the sweeper re-drives
-                    // abandoned ops. The call can still destroy the
-                    // sources after this failure. The op record settles
-                    // them after traffic. Until then every source stays
-                    // reserved and takes no more traffic.
+                    // The saga can still destroy the sources after this
+                    // failure. The op record settles them after traffic.
+                    // Until then the sources stay reserved and take no
+                    // traffic.
                     for &source in &sources {
                         state.record_merge_uncertain(source).await;
                         pool.remove(source);
@@ -335,9 +320,9 @@ pub async fn run_merges(
                 }
 
                 let Some(survivor) = response.survivor else {
-                    // The sources are destroyed but the survivor is
-                    // unknown. Keep the reservations so reads tolerate
-                    // their absence, and stop asserting on them.
+                    // The sources are destroyed, but the survivor is
+                    // unknown. Keep them reserved, so reads tolerate
+                    // their absence.
                     for &source in &merged {
                         violations.push(ConsistencyViolation {
                             person_id: source,
@@ -352,8 +337,8 @@ pub async fn run_merges(
                 };
                 let survivor_props: serde_json::Value =
                     serde_json::from_slice(&survivor.properties).unwrap_or_else(|_| json!({}));
-                // The fold applies the merge event's writes last. The
-                // folded document in the ack must already carry them.
+                // The ack carries the folded document, so the merge
+                // event's writes must already be in it.
                 for (key, value) in event.expected() {
                     if survivor_props.get(key) != Some(value) {
                         violations.push(ConsistencyViolation {
@@ -390,9 +375,8 @@ pub async fn run_merges(
                     pool.remove(source);
                 }
 
-                // Read-your-merge check. The release produced each
-                // source's death document before the saga completed. A
-                // strong read served now must not find a living person.
+                // A strong read after the ack must not find a living
+                // source.
                 for &source in &merged {
                     let read_start = Instant::now();
                     match router
@@ -445,15 +429,11 @@ pub async fn run_merges(
     })
 }
 
-/// Settle every unresolved merge from the saga's own record. A
-/// `completed` op is journaled as the merge it was, with the sources the
-/// record says merged. That is safe after later merges' acks, because
-/// the journal orders folds by the recorded survivor version. An aborted
-/// op means every source lived on. So does a missing op row, because the
-/// call failed before the saga froze its request. An op still in flight
-/// is polled until `deadline` elapses, which gives the sweeper time to
-/// re-drive it. An op that never settles is a violation: no lifecycle
-/// op can ever touch those persons again.
+/// Settle each unresolved merge from its op record. A `completed` op is
+/// journaled as a merge with the sources the record says merged. An
+/// aborted op, or a missing op row, means every source lived on. An op
+/// still in flight is polled until `deadline`, which gives the sweeper
+/// time to re-drive it. An op that never settles is a violation.
 pub async fn settle_unresolved(
     pool: &PgPool,
     state: &PersonState,
@@ -479,8 +459,7 @@ pub async fn settle_unresolved(
                 .await
                 .context("reading an unresolved merge op")?;
             let Some(row) = row else {
-                // No op row means the saga never froze the request, so
-                // nothing destructive started.
+                // No op row means the saga never started.
                 for (source, _) in &merge.sources {
                     state.clear_merge_pending(*source).await;
                 }
@@ -567,8 +546,7 @@ pub async fn settle_unresolved(
 }
 
 /// A pair with a wide person on the configured side. None when no wide
-/// source is left to reserve and no wide target is live. With wide
-/// targets only, the source comes from the ordinary eligible set.
+/// source is free and no wide target is live.
 fn pick_wide_pair(
     wide_sources: &Mutex<Vec<i64>>,
     wide_targets: &[i64],
@@ -643,9 +621,8 @@ fn pick_pair(
     }
     let index = rng.gen_range(0..eligible.len());
     let source = eligible.swap_remove(index);
-    // The pool holds at least two persons, so a different target exists
-    // and a few random draws almost always find one. A miss only puts
-    // the source back.
+    // A few random draws almost always find a different target. A miss
+    // puts the source back.
     for _ in 0..16 {
         match pool.pick_random(rng) {
             Some(target) if target != source => return Some((source, target)),
@@ -703,9 +680,8 @@ pub fn outcome_name(outcome: MergeSourceOutcome) -> &'static str {
 mod tests {
     use super::*;
 
-    /// A call with several sources must not double-book a person: the
-    /// target is never one of its own sources, and every source comes
-    /// out of the eligible set exactly once.
+    /// The target is never one of its own sources, and each source
+    /// leaves the eligible set exactly once.
     #[test]
     fn extra_sources_are_reserved_apart_from_the_target() {
         let mut rng = rand::rngs::StdRng::seed_from_u64(7);
@@ -716,8 +692,7 @@ mod tests {
         assert_eq!(sources, vec![1, 2, 4]);
         assert_eq!(*eligible.lock().unwrap(), vec![3]);
 
-        // The eligible set running out caps the call, and does not
-        // spend the target.
+        // An empty eligible set caps the call. The target stays.
         reserve_more_sources(&eligible, &mut sources, 3, 10, &mut rng);
         assert_eq!(sources.len(), 3);
         assert_eq!(*eligible.lock().unwrap(), vec![3]);

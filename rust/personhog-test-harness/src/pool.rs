@@ -2,13 +2,10 @@ use std::sync::RwLock;
 
 use rand::Rng;
 
-/// The live traffic targets. Every lane picks from it. The merge lane
-/// removes a person once the saga destroyed it, because a dead person
-/// refuses every write and would only add expected failures.
-///
-/// Removal is deliberately late. A source keeps taking traffic until the
-/// merge acks, so writes race the fence, the fold, and the flip. That
-/// race is the point of merging under load.
+/// The live traffic targets. The merge lane removes a source after the
+/// merge ack, not before the call. The source keeps taking writes during
+/// the merge, so the writes race the fence and the fold. That race is
+/// the point of merging under load.
 pub struct TargetPool {
     ids: RwLock<Vec<i64>>,
 }
@@ -36,8 +33,8 @@ impl TargetPool {
         Some(ids[rng.gen_range(0..ids.len())])
     }
 
-    /// The person at `n` modulo the live count, for the probers'
-    /// round-robin walk. None once the pool is empty.
+    /// The person at `n` modulo the live count. None when the pool is
+    /// empty.
     pub fn pick_nth(&self, n: usize) -> Option<i64> {
         let ids = self.ids.read().unwrap();
         if ids.is_empty() {

@@ -152,8 +152,8 @@ pub async fn run_traffic(
                 if let Some(pacer) = pacer.as_mut() {
                     pacer.tick().await;
                 }
-                // The merge lane retires destroyed persons. An emptied
-                // pool ends the worker instead of letting it spin.
+                // The merge lane can empty the pool. Stop instead of
+                // spinning.
                 let Some(person_id) = person_ids.pick_random(&mut rng) else {
                     break;
                 };
@@ -189,8 +189,8 @@ pub async fn run_traffic(
                     }
                     Err(e) => {
                         if is_lifecycle_rejection(&e) {
-                            // The refusal means nothing applied, so the
-                            // key needs no uncertainty taint.
+                            // The write did not apply, so the key stays
+                            // certain.
                             collector.writes.record_lifecycle_rejection();
                             continue;
                         }
@@ -212,12 +212,10 @@ pub async fn run_traffic(
     Ok(())
 }
 
-/// Whether a write error is the typed refusal a lifecycle op requires:
-/// FAILED_PRECONDITION with the leader's fenced header for a fenced
-/// person, or NOT_FOUND for a destroyed one. Both mean the write did
-/// not apply. The header separates the fence from every other
-/// FAILED_PRECONDITION, such as a partition mid-handoff or a stale
-/// owner, which stay real failures.
+/// True for the refusals a lifecycle op causes: FAILED_PRECONDITION
+/// with the leader's fenced header, or NOT_FOUND for a destroyed
+/// person. Both mean the write did not apply. Other FAILED_PRECONDITION
+/// causes, such as a handoff, stay failures.
 pub fn is_lifecycle_rejection(err: &anyhow::Error) -> bool {
     let Some(status) = err.downcast_ref::<tonic::Status>() else {
         return false;
@@ -229,7 +227,6 @@ pub fn is_lifecycle_rejection(err: &anyhow::Error) -> bool {
     }
 }
 
-/// Whether a read error is the leader's NOT_FOUND for a destroyed person.
 pub fn is_not_found(err: &anyhow::Error) -> bool {
     err.downcast_ref::<tonic::Status>()
         .is_some_and(|status| status.code() == tonic::Code::NotFound)
@@ -248,8 +245,7 @@ pub fn per_worker_tick(rate_per_sec: f64, concurrency: usize) -> Duration {
 /// violation, not a skip: NotFound for a person with acked writes means the
 /// person is gone, and a read error (retried once, since verification can
 /// race a settling handoff) means visibility cannot be asserted at all.
-/// Persons a merge destroyed are held to the opposite rule: a strong
-/// read must not find them alive. Their acked writes are verified on
+/// A merged source must not read as alive. Its writes are verified on
 /// the survivor.
 pub async fn verify_strong(
     client: &HarnessClient,
@@ -263,8 +259,7 @@ pub async fn verify_strong(
     for person_id in state.merged_source_ids().await {
         let start = Instant::now();
         match strong_read_with_retry(client, team_id, person_id).await {
-            // A destroyed person answers NOT_FOUND. That is the expected
-            // shape, not a read failure.
+            // NOT_FOUND is the expected answer for a merged source.
             Err(e) if is_not_found(&e) => collector.reads.record_success(start.elapsed()),
             Ok(Some(person)) if !person.is_deleted => {
                 collector.reads.record_success(start.elapsed());

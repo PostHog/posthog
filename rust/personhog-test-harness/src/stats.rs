@@ -9,9 +9,9 @@ pub struct LatencyRecorder {
     histogram: Mutex<Histogram<u64>>,
     successes: AtomicU64,
     failures: AtomicU64,
-    /// Refusals the stack must give: writes to a person a lifecycle op
-    /// fenced or destroyed. Counted apart from failures so a merge
-    /// run's expected rejections do not read as a broken stack.
+    /// Writes refused because a lifecycle op fenced or destroyed the
+    /// person. Counted apart from failures, because a merge run expects
+    /// them.
     lifecycle_rejections: AtomicU64,
     start_time: Instant,
 }
@@ -85,13 +85,13 @@ pub struct StatsSnapshot {
 pub struct StatsCollector {
     pub writes: LatencyRecorder,
     pub reads: LatencyRecorder,
-    /// MergePersons calls. One call is one saga or one inline
-    /// settlement, so its latency is the end-to-end merge cost.
+    /// MergePersons calls. One call is one saga, so its latency is the
+    /// full merge cost.
     pub merges: LatencyRecorder,
-    /// Merge calls that involve a wide person (many distinct ids). Kept
-    /// apart so the expensive calls do not hide in the median.
+    /// Merge calls that involve a wide person. Kept apart so their cost
+    /// does not hide in the median.
     pub wide_merges: LatencyRecorder,
-    /// Per-source merge outcomes, by the wire outcome's name.
+    /// Merge outcomes per source, by name.
     merge_outcomes: Mutex<BTreeMap<&'static str, u64>>,
 }
 

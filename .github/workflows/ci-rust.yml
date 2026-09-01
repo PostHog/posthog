@@ -642,14 +642,13 @@ jobs:
             # The merge saga under load and chaos: MergePersons calls against
             # live persons while blast writes race each source's fence and
             # each target's fold, through a leader kill and a scale-up. Two
-            # sources per call exercise the fold's request-order precedence,
-            # and the wide persons make the flip repoint a thousand
-            # mappings per source. The gate asserts the sources' acked
-            # writes on the survivor under the fold rule, the merge event's
-            # $set and $set_once tiers, that each source is gone (not-found
-            # reads, a Postgres tombstone above every acked version, no
-            # mapping left behind), and that the delete leg answers
-            # not_found for merged sources.
+            # sources per call exercise the fold's request order. The wide
+            # persons make the flip repoint a thousand mappings per source.
+            # The gate asserts the folded survivor document, the merge
+            # event's $set and $set_once, that each source is gone (not-found
+            # reads, a tombstone above every acked version, no mapping left
+            # behind), and that the delete leg answers not_found for merged
+            # sources.
             - name: Run the e2e gate merging persons under chaos (kill + scale-up)
               run: |
                   ./target/debug/personhog-test-harness gate \

@@ -157,10 +157,9 @@ impl IdentityClient {
         Ok(resp.into_inner().results)
     }
 
-    /// Merge `source_distinct_ids` into the person `target_distinct_id`
-    /// resolves to, and apply `event_set` and `event_set_once` to the
-    /// survivor. A retry under the same op id returns the recorded
-    /// outcome and does not merge again.
+    /// Merge `source_distinct_ids` into the person that
+    /// `target_distinct_id` resolves to. A retry with the same op id
+    /// returns the recorded outcome and does not merge again.
     #[allow(clippy::too_many_arguments)]
     pub async fn merge_persons(
         &self,

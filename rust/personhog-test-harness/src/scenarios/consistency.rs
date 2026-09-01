@@ -283,10 +283,9 @@ pub async fn run_probers(
                     Ok(None) => {
                         // A served read that cannot see a person with an
                         // acked write is a violation, not an availability
-                        // blip. The exception is a merge destroying the
-                        // person: the write landed before the seal and
-                        // folded into the survivor, where end-of-run
-                        // verification asserts it.
+                        // blip. The exception is a merged person: its
+                        // writes folded into the survivor, and end-of-run
+                        // verification asserts them there.
                         if state.is_merge_pending_or_merged(person_id).await {
                             collector.reads.record_success(read_start.elapsed());
                             continue;

@@ -21,15 +21,12 @@ pub const QUIESCE_DEADLINE: Duration = Duration::from_secs(60);
 /// property writes at the acked version, or the quiesce deadline passes.
 /// Returns the outstanding violations (empty = converged).
 ///
-/// Merged sources are held to the tombstone shape the saga's flip
-/// writes and the writer's death-document projection preserves: the row
-/// is deleted, at a death version above every version the leader acked
-/// for it. The fence itself is checked against the sealed version the
-/// saga recorded on its `lifecycle_op_person` row. The fence seals the
-/// source at its then-current version, so an ack above the seal means a
-/// write got through the fence. The death version alone cannot catch
-/// that, because the leader derives it from its current version as well
-/// as the seal.
+/// A merged source must be a tombstone: the row is deleted, and its
+/// version is above every version the leader acked for it. The fence is
+/// checked against the sealed version on the source's
+/// `lifecycle_op_person` row. An ack above the seal means a write got
+/// through the fence. The death version alone cannot show that, because
+/// the leader derives it from its current version too.
 pub async fn verify_postgres(
     pool: &PgPool,
     table: &str,
@@ -50,9 +47,8 @@ pub async fn verify_postgres(
     );
     let tombstone_query =
         format!("SELECT id, is_deleted, version FROM {table} WHERE team_id = $1 AND id = ANY($2)");
-    // The flip repoints every one of a source's mappings to the survivor
-    // in the destroying transaction. A mapping left on a tombstone would
-    // resolve events to a person that no longer exists.
+    // A mapping left on a tombstone resolves events to a person that no
+    // longer exists.
     let leftover_dids_query = crate::seed::distinct_id_tables_for(table)
         .iter()
         .map(|pdi_table| {
@@ -62,9 +58,8 @@ pub async fn verify_postgres(
             )
         })
         .collect::<Vec<_>>();
-    // The saga's own record of each source's seal. The merge driver
-    // writes the sealed snapshot on the source's op row and settles the
-    // row as deleted when the death document is produced.
+    // The saga records each source's seal on its op row and sets the
+    // row's status to deleted after the flip.
     let sealed_query = "SELECT person_id, (sealed->>'version')::bigint AS sealed_version \
                         FROM lifecycle_op_person \
                         WHERE team_id = $1 AND role = 'source' AND status = 'deleted' \
@@ -199,7 +194,7 @@ pub async fn verify_postgres(
 
 /// The decision table for a merged source's row. `row` is
 /// `(is_deleted, version)`, or None when the row is gone. `sealed` is
-/// the version the saga recorded at the fence, or None when its op row
+/// the version the saga recorded at the fence, or None when the op row
 /// is missing.
 pub fn verify_tombstone(
     person_id: i64,
@@ -263,8 +258,6 @@ mod tests {
         violations.into_iter().map(|v| v.key).collect()
     }
 
-    /// A false negative here passes a run in which a write got through
-    /// the fence or the flip never tombstoned the source.
     #[test]
     fn tombstone_decision_table() {
         let source = MergedSource::for_test(2, 7);
@@ -287,8 +280,8 @@ mod tests {
             keys(verify_tombstone(1, &source, Some((false, 3)), Some(7))),
             vec!["__merged_source_tombstone", "__merged_source_death_version"]
         );
-        // The fence failed open. The ack sits above the recorded seal
-        // even though the leader's death version cleared it.
+        // The fence failed open: the ack sits above the recorded seal,
+        // but the death version cleared it.
         assert_eq!(
             keys(verify_tombstone(1, &source, Some((true, 20)), Some(6))),
             vec!["__merged_source_ack_above_seal"]

@@ -333,38 +333,31 @@ pub struct GateArgs {
     #[arg(long)]
     pub external_identity_url: Option<String>,
 
-    /// Concurrent merge workers running alongside the blast traffic and
-    /// probers. Each worker repeatedly picks two live persons and merges
-    /// one into the other through MergePersons on the identity service,
-    /// so every merged pair runs the durable saga under concurrent
-    /// writes to both. Merged sources leave the traffic pool. Their
-    /// acked writes are asserted on the survivor, and their rows must
-    /// end as tombstones above every acked version. Implies
-    /// --create-via-identity, because persons need distinct ids. 0
+    /// Merge workers that run next to the blast traffic and probers.
+    /// Each worker picks live persons and merges them through
+    /// MergePersons on the identity service while writes to them
+    /// continue. Merged sources leave the traffic pool. Implies
+    /// --create-via-identity, because merges need distinct ids. 0
     /// disables.
     #[arg(long, default_value_t = 0)]
     pub merge_concurrency: usize,
 
-    /// Combined merge rate across the merge workers (merges/second).
-    /// Unset runs them flat out, which measures the throughput ceiling
-    /// but drains the pool fast. Every merge retires one person, so
-    /// size --persons for rate x duration.
+    /// Total merge calls per second across the merge workers. Unset
+    /// runs them flat out. Each merged source retires one person, so
+    /// size --persons for sources x rate x duration.
     #[arg(long)]
     pub merge_rate: Option<f64>,
 
-    /// Sources per merge call. Ingestion sends one, and one is the
-    /// default. With more, the leader folds the sealed sources in
-    /// request order, and the journal holds the survivor to that order.
-    /// Every merged source retires a person, so size --persons for
-    /// sources x rate x duration.
+    /// Sources per merge call. Ingestion sends one. With more, the
+    /// leader folds the sources in request order, and the gate asserts
+    /// that order.
     #[arg(long, default_value_t = 1)]
     pub merge_sources: usize,
 
-    /// Persons created with --merge-wide-distinct-ids extra distinct ids
-    /// each, on top of --persons. The merge lane pairs them per
-    /// --merge-wide-role. The expensive merges, where the flip must
-    /// repoint a source's every mapping, then report on their own
-    /// `merges_wide` latency row. Requires --merge-concurrency.
+    /// Extra persons, each created with --merge-wide-distinct-ids
+    /// distinct ids. The merge lane uses them per --merge-wide-role and
+    /// reports their calls on the `merges_wide` row. Requires
+    /// --merge-concurrency.
     #[arg(long, default_value_t = 0)]
     pub merge_wide_persons: u32,
 
@@ -373,18 +366,16 @@ pub struct GateArgs {
     #[arg(long, default_value_t = 1000)]
     pub merge_wide_distinct_ids: u32,
 
-    /// Which side of a merge the wide persons take. With `source`, the
-    /// flip repoints every mapping, which is the expensive case. With
-    /// `target`, the flip is cheap but the survivor keeps growing.
+    /// Which side of a merge the wide persons take. `source` makes the
+    /// flip repoint every mapping. `target` makes the survivor grow.
     /// `both` merges wide into wide.
     #[arg(long, default_value = "source", value_parser = ["source", "target", "both"])]
     pub merge_wide_role: String,
 
-    /// Merge identified sources ($merge_dangerously semantics). A
-    /// survivor becomes identified. With this off it can never be a
-    /// source again, and the lane degrades to
-    /// skipped_already_identified once every live person has survived a
-    /// merge.
+    /// Merge identified sources, as $merge_dangerously does. A survivor
+    /// becomes identified. With this off, a survivor can never be a
+    /// source again, and the lane ends in skipped_already_identified
+    /// once every live person survived a merge.
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     pub merge_identified_sources: bool,
 
