@@ -241,6 +241,25 @@ def test_failure_metrics_record_stage_and_error_code() -> None:
     assert _sample("posthog_wizard_run_duration_seconds_sum", duration_labels) == duration_before + 60
 
 
+def test_failure_metrics_bound_unknown_error_code() -> None:
+    run = replace(
+        _cloud_run(),
+        status=WizardRunStatus.FAILED,
+        stage=None,
+        error_code="PHW_SOME_PINNED_VERSION_CODE",
+        started_at=datetime(2026, 8, 25, 12, 1, tzinfo=UTC),
+        finished_at=datetime(2026, 8, 25, 12, 2, tzinfo=UTC),
+    )
+    bounded_labels = {"environment": "cloud", "status": "failed", "error_code": "other"}
+    raw_labels = {"environment": "cloud", "status": "failed", "error_code": "PHW_SOME_PINNED_VERSION_CODE"}
+    bounded_before = _sample("posthog_wizard_runs_finished_total", bounded_labels)
+
+    metrics.report_run_finished(run, WizardRunStage.EXECUTING_WIZARD)
+
+    assert _sample("posthog_wizard_runs_finished_total", bounded_labels) == bounded_before + 1
+    assert REGISTRY.get_sample_value("posthog_wizard_runs_finished_total", raw_labels) is None
+
+
 def test_dispatch_reports_success() -> None:
     run = _cloud_run()
 
