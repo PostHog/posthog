@@ -1310,6 +1310,13 @@
             ],
             "label": "Script sample"
         },
+        "$csp_self_hosted": {
+            "description": "Set when the report came from a self-hosted PostHog install that reports to PostHog Cloud. Only ever set on PostHog's own project.",
+            "examples": [
+                true
+            ],
+            "label": "Self-hosted install"
+        },
         "$csp_source_file": {
             "description": "The source file where the violation occurred.",
             "examples": [
@@ -2332,6 +2339,17 @@
         "$mcp_response": {
             "description": "The response the MCP server returned. Large strings and sensitive keys are redacted before capture.",
             "label": "MCP response"
+        },
+        "$mcp_scope_preset": {
+            "description": "Which kind of caller minted the token behind an MCP request, worked out from its scope set. 'scout' is a Signals scout run, 'research' is a read-only report-research run, 'implementation' is a write-capable implementation run, 'sandbox' is any other server-minted run (a task started from the desktop app or the pipeline before the scratchpad scopes tell research and implementation apart), and 'user' is a person's own token. Stamped on every event by PostHog's own MCP server. Use it to split scratchpad and notes usage by caller, for example to measure scout scratchpad adoption apart from ordinary users.",
+            "examples": [
+                "scout",
+                "research",
+                "implementation",
+                "sandbox",
+                "user"
+            ],
+            "label": "MCP scope preset"
         },
         "$mcp_server_name": {
             "description": "The advertised name of the MCP server that handled the request.",
@@ -4554,6 +4572,17 @@
             "description": "The response the MCP server returned. Large strings and sensitive keys are redacted before capture.",
             "label": "MCP response"
         },
+        "$mcp_scope_preset": {
+            "description": "Which kind of caller minted the token behind an MCP request, worked out from its scope set. 'scout' is a Signals scout run, 'research' is a read-only report-research run, 'implementation' is a write-capable implementation run, 'sandbox' is any other server-minted run (a task started from the desktop app or the pipeline before the scratchpad scopes tell research and implementation apart), and 'user' is a person's own token. Stamped on every event by PostHog's own MCP server. Use it to split scratchpad and notes usage by caller, for example to measure scout scratchpad adoption apart from ordinary users.",
+            "examples": [
+                "scout",
+                "research",
+                "implementation",
+                "sandbox",
+                "user"
+            ],
+            "label": "MCP scope preset"
+        },
         "$mcp_server_name": {
             "description": "The advertised name of the MCP server that handled the request.",
             "examples": [
@@ -5900,6 +5929,13 @@
                 "eval('alert(1)')"
             ],
             "label": "Script sample"
+        },
+        "$csp_self_hosted": {
+            "description": "Set when the report came from a self-hosted PostHog install that reports to PostHog Cloud. Only ever set on PostHog's own project.",
+            "examples": [
+                true
+            ],
+            "label": "Self-hosted install"
         },
         "$csp_source_file": {
             "description": "The source file where the violation occurred.",
@@ -7340,6 +7376,17 @@
         "$mcp_response": {
             "description": "The response the MCP server returned. Large strings and sensitive keys are redacted before capture.",
             "label": "MCP response"
+        },
+        "$mcp_scope_preset": {
+            "description": "Which kind of caller minted the token behind an MCP request, worked out from its scope set. 'scout' is a Signals scout run, 'research' is a read-only report-research run, 'implementation' is a write-capable implementation run, 'sandbox' is any other server-minted run (a task started from the desktop app or the pipeline before the scratchpad scopes tell research and implementation apart), and 'user' is a person's own token. Stamped on every event by PostHog's own MCP server. Use it to split scratchpad and notes usage by caller, for example to measure scout scratchpad adoption apart from ordinary users.",
+            "examples": [
+                "scout",
+                "research",
+                "implementation",
+                "sandbox",
+                "user"
+            ],
+            "label": "MCP scope preset"
         },
         "$mcp_server_name": {
             "description": "The advertised name of the MCP server that handled the request.",

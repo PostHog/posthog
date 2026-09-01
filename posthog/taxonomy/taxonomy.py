@@ -3161,6 +3161,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Raw CSP report",
             "description": "The raw CSP report as received from the browser.",
         },
+        "$csp_self_hosted": {
+            "label": "Self-hosted install",
+            "description": "Set when the report came from a self-hosted PostHog install that reports to PostHog Cloud. Only ever set on PostHog's own project.",
+            "examples": [True],
+        },
         "$csp_referrer": {
             "label": "CSP Referrer",
             "description": "The referrer of the CSP report if available.",

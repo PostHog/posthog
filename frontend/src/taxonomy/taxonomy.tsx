@@ -111,6 +111,7 @@ export const POSTHOG_EVENT_PROMOTED_PROPERTIES = {
         '$csp_raw_report',
         '$csp_script_sample',
         '$csp_user_agent',
+        '$csp_self_hosted',
     ],
     $set: ['$set', '$set_once'],
     $exception: ['$exception_functions', '$exception_sources', '$exception_types', '$exception_values'],

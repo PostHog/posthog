@@ -10,7 +10,7 @@ from parameterized import parameterized
 from rest_framework import status
 from structlog.testing import capture_logs
 
-from posthog.api.csp import CSP_REPORT_REJECTED, CSP_SELF_HOSTED_FILTER
+from posthog.api.csp import CSP_REPORT_REJECTED
 from posthog.ph_client import PH_US_API_KEY
 
 SINGLE_VIOLATION_REPORT_URI = {
@@ -123,24 +123,43 @@ class TestCspReport(BaseTest):
 
     @parameterized.expand(
         [
-            ("report_uri_self_hosted", "application/csp-report", SINGLE_VIOLATION_REPORT_URI, True),
-            ("report_to_self_hosted", "application/reports+json", [SINGLE_VIOLATION_REPORT_TO], True),
-            ("crash_self_hosted", "application/reports+json", [CRASH_REPORT], True),
-            ("report_uri_customer", "application/csp-report", SINGLE_VIOLATION_REPORT_URI, False),
-            ("report_to_customer", "application/reports+json", [SINGLE_VIOLATION_REPORT_TO], False),
-            ("crash_customer", "application/reports+json", [CRASH_REPORT], False),
+            ("report_uri_self_hosted", "application/csp-report", SINGLE_VIOLATION_REPORT_URI, "$csp_self_hosted", True),
+            (
+                "report_to_self_hosted",
+                "application/reports+json",
+                [SINGLE_VIOLATION_REPORT_TO],
+                "$csp_self_hosted",
+                True,
+            ),
+            (
+                "crash_self_hosted",
+                "application/reports+json",
+                [CRASH_REPORT],
+                "$browser_crash_self_hosted",
+                True,
+            ),
+            ("report_uri_customer", "application/csp-report", SINGLE_VIOLATION_REPORT_URI, "$csp_self_hosted", False),
+            (
+                "report_to_customer",
+                "application/reports+json",
+                [SINGLE_VIOLATION_REPORT_TO],
+                "$csp_self_hosted",
+                False,
+            ),
+            ("crash_customer", "application/reports+json", [CRASH_REPORT], "$browser_crash_self_hosted", False),
         ]
     )
-    def test_cloud_drops_non_posthog_documents_only_for_the_self_hosted_token(
-        self, _name, content_type, payload, self_hosted_token
+    def test_cloud_labels_self_hosted_reports_only_for_the_posthog_token(
+        self, _name, content_type, payload, label, posthog_token
     ):
-        token = PH_US_API_KEY if self_hosted_token else self.team.api_token
+        # The label is how the self-hosted population stays countable, so it must land on
+        # PostHog's own token and never on a customer's, whose document URL is their own domain.
+        token = PH_US_API_KEY if posthog_token else self.team.api_token
 
         with (
-            self.settings(CLOUD_DEPLOYMENT="US", CSP_DROP_SELF_HOSTED_REPORTS=True),
+            self.settings(CLOUD_DEPLOYMENT="US"),
             patch("posthog.api.report.capture_batch_internal") as mock_batch_capture,
             patch("posthog.api.report.capture_internal") as mock_capture,
-            patch("posthog.api.report.csp_report_buffer") as mock_buffer,
         ):
             mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())
             mock_capture.return_value = MagicMock(raise_for_status=MagicMock())
@@ -152,54 +171,14 @@ class TestCspReport(BaseTest):
             )
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
-        assert (mock_batch_capture.called or mock_capture.called) is not self_hosted_token
-        mock_buffer.enqueue.assert_not_called()
-
-    @parameterized.expand(
-        [
-            ("report_uri", "application/csp-report", SINGLE_VIOLATION_REPORT_URI),
-            ("report_to", "application/reports+json", [SINGLE_VIOLATION_REPORT_TO]),
-        ]
-    )
-    def test_cloud_does_not_count_a_self_hosted_violation_that_sampling_discarded(self, _name, content_type, payload):
-        # The counter sizes the drop before we enable it, so it has to match ingested volume.
-        # Classifying before sampling would overstate it by the inverse of the sample rate.
-        would_drop_before = CSP_SELF_HOSTED_FILTER.labels(decision="would_drop")._value.get()
-
-        with (
-            self.settings(CLOUD_DEPLOYMENT="US"),
-            patch("posthog.api.report.capture_batch_internal") as mock_batch_capture,
-            patch("posthog.api.report.capture_internal") as mock_capture,
-        ):
-            response = self.client.post(
-                f"/report/?token={PH_US_API_KEY}&sample_rate=0",
-                data=json.dumps(payload),
-                content_type=content_type,
-            )
-
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-        assert not mock_batch_capture.called and not mock_capture.called
-        assert CSP_SELF_HOSTED_FILTER.labels(decision="would_drop")._value.get() == would_drop_before
+        if mock_batch_capture.called:
+            properties = mock_batch_capture.call_args.kwargs["events"][0]["properties"]
+        else:
+            properties = mock_capture.call_args.kwargs["properties"]
+        assert properties.get(label, False) is posthog_token
 
     @patch("posthog.api.report.capture_batch_internal")
-    def test_cloud_counts_but_keeps_self_hosted_reports_while_the_drop_is_off(self, mock_batch_capture):
-        mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())
-        would_drop_before = CSP_SELF_HOSTED_FILTER.labels(decision="would_drop")._value.get()
-
-        with self.settings(CLOUD_DEPLOYMENT="US"):
-            response = self.client.post(
-                f"/report/?token={PH_US_API_KEY}",
-                data=json.dumps([SINGLE_VIOLATION_REPORT_TO]),
-                content_type="application/reports+json",
-            )
-
-        assert response.status_code == status.HTTP_204_NO_CONTENT
-        events = mock_batch_capture.call_args.kwargs["events"]
-        assert [event["properties"]["$current_url"] for event in events] == ["https://example.com/foo/bar"]
-        assert CSP_SELF_HOSTED_FILTER.labels(decision="would_drop")._value.get() - would_drop_before == 1
-
-    @patch("posthog.api.report.capture_batch_internal")
-    def test_cloud_keeps_non_hobby_reports_from_a_mixed_bundle(self, mock_batch_capture):
+    def test_cloud_labels_only_the_self_hosted_reports_in_a_mixed_bundle(self, mock_batch_capture):
         mock_batch_capture.return_value = MagicMock(raise_for_status=MagicMock())
         posthog_violation = {
             **SINGLE_VIOLATION_REPORT_TO,
@@ -215,7 +194,7 @@ class TestCspReport(BaseTest):
         }
         posthog_crash = {**CRASH_REPORT, "url": "https://eu.posthog.com/project/1"}
 
-        with self.settings(CLOUD_DEPLOYMENT="US", CSP_DROP_SELF_HOSTED_REPORTS=True):
+        with self.settings(CLOUD_DEPLOYMENT="US"):
             response = self.client.post(
                 f"/report/?token={PH_US_API_KEY}",
                 data=json.dumps(
@@ -233,11 +212,20 @@ class TestCspReport(BaseTest):
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         events = mock_batch_capture.call_args.kwargs["events"]
-        assert [event["properties"]["$current_url"] for event in events] == [
-            "https://app.dev.posthog.dev/project/1",
-            None,
-            "http://localhost:8010/project/1",
-            "https://eu.posthog.com/project/1",
+        # Every report is ingested. Only the two on a host outside PostHog's own carry the label.
+        assert [
+            (
+                event["properties"]["$current_url"],
+                event["properties"].get("$csp_self_hosted", event["properties"].get("$browser_crash_self_hosted")),
+            )
+            for event in events
+        ] == [
+            ("https://example.com/foo/bar", True),
+            ("https://app.dev.posthog.dev/project/1", None),
+            (None, None),
+            ("http://localhost:8010/project/1", None),
+            ("https://app.example.com/dashboard/1", True),
+            ("https://eu.posthog.com/project/1", None),
         ]
 
     @patch("posthog.api.report.capture_batch_internal")

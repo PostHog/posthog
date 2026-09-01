@@ -28,12 +28,6 @@ CSP_REPORT_REJECTED = Counter(
     labelnames=["reason"],
 )
 
-CSP_SELF_HOSTED_FILTER = Counter(
-    "csp_report_self_hosted_filter",
-    "CSP reports seen by the self-hosted origin filter on Cloud, by decision.",
-    labelnames=["decision"],
-)
-
 CSP_REPORT_TYPES_MAPPING_TABLE = """
 | Normalized Key             | report-to format                     | report-uri format                  |
 | -------------------------- | ------------------------------------ | ---------------------------------- |
@@ -54,41 +48,35 @@ CSP_REPORT_TYPES_MAPPING_TABLE = """
 """
 
 
-def _drop_self_hosted_reports(reports: list[dict[str, object]], token: Optional[str]) -> list[dict[str, object]]:
-    """Ignore reports that a legacy self-hosted PostHog install sent to Cloud.
+SELF_HOSTED_REPORT_KEY = "self_hosted"
+
+
+def _label_self_hosted_reports(reports: list[dict[str, object]], token: Optional[str]) -> None:
+    """Mark, in place, the reports that a legacy self-hosted PostHog install sent to Cloud.
 
     Three sources reach this endpoint:
 
-    - A customer's site, on their own team token. Kept, from any domain.
-    - Cloud's own app, on PostHog's token from a PostHog or local host. Kept.
+    - A customer's site, on their own team token, from any domain.
+    - PostHog's own app or website, on PostHog's token from a host in
+      `POSTHOG_OWNED_HOST_SUFFIXES` or a local host. More than Cloud: we also reach the app over
+      a tailnet and preview the website on Vercel.
     - A self-hosted install, on PostHog's token because it runs PostHog's own `CSPMiddleware`,
-      from the operator's own host. Dropped.
+      from the operator's own host. This is the one we label.
 
-    Only the token tells the first case from the other two, so the token gate runs first and is
-    what protects customers. The document URL then splits Cloud's own app from self-hosted.
+    Only the token tells the first case from the other two, so it is checked first. The document
+    URL then splits PostHog's own hosts from a self-hosted install.
 
-    `CSP_DROP_SELF_HOSTED_REPORTS` gates the drop. While it is off the classifier still records
-    `would_drop`, so the counter shows what enabling it costs before it costs it.
-
-    Call this after sampling, never before. Sampling discards most violations, so classifying
-    first would overstate the counter by the inverse of the sample rate.
+    Nothing is dropped. A host allowlist cannot be complete, and every host missing from it
+    would have its reports discarded with no trace, so the label carries the classification into
+    the event instead. `$csp_self_hosted` then makes the population countable in PostHog, which
+    is what tracks the volume falling away as operators upgrade past the middleware change.
     """
-    if not is_cloud():
-        return reports
+    if not is_cloud() or token != PH_US_API_KEY:
+        return
 
-    if token != PH_US_API_KEY:
-        CSP_SELF_HOSTED_FILTER.labels(decision="kept").inc(len(reports))
-        return reports
-
-    enforcing = settings.CSP_DROP_SELF_HOSTED_REPORTS
-    accepted_reports = [report for report in reports if not is_hobby_url(report.get("document_url"))]
-    self_hosted_reports = len(reports) - len(accepted_reports)
-
-    CSP_SELF_HOSTED_FILTER.labels(decision="kept").inc(len(accepted_reports))
-    if self_hosted_reports:
-        CSP_SELF_HOSTED_FILTER.labels(decision="dropped" if enforcing else "would_drop").inc(self_hosted_reports)
-
-    return accepted_reports if enforcing else reports
+    for report in reports:
+        if is_hobby_url(report.get("document_url")):
+            report[SELF_HOSTED_REPORT_KEY] = True
 
 
 def sample_csp_report(properties: dict, percent: float, add_metadata: bool = False) -> bool:
@@ -345,8 +333,7 @@ def process_csp_report(request):
                 )
                 return None, cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
 
-            if not _drop_self_hosted_reports([properties], token):
-                return None, cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))
+            _label_self_hosted_reports([properties], token)
 
             return (
                 build_csp_event(
@@ -378,15 +365,14 @@ def process_csp_report(request):
                 if sample_csp_report(prop, sample_rate, add_metadata=True):
                     sampled_violations.append(prop)
 
+            _label_self_hosted_reports(sampled_violations, token)
+            _label_self_hosted_reports(crash_props, token)
+
             # Crash reports skip sampling: they are rare and each one is a dead tab, so
             # applying the CSP sample rate would silently discard most of the signal.
             events = [
-                build_csp_event(prop, distinct_id, session_id, version, user_agent)
-                for prop in _drop_self_hosted_reports(sampled_violations, token)
-            ] + [
-                build_crash_event(prop, distinct_id, session_id, user_agent)
-                for prop in _drop_self_hosted_reports(crash_props, token)
-            ]
+                build_csp_event(prop, distinct_id, session_id, version, user_agent) for prop in sampled_violations
+            ] + [build_crash_event(prop, distinct_id, session_id, user_agent) for prop in crash_props]
 
             if not events:
                 logger.warning(
