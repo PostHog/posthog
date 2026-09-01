@@ -9,16 +9,14 @@ describe('core filter definitions JSON', () => {
         const config = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, '.oxfmtrc.json'), 'utf-8'))
         const ignorePatterns: string[] = config.ignorePatterns ?? []
 
-        if (!ignorePatterns.includes(GENERATED_JSON)) {
-            throw new Error(
-                `${GENERATED_JSON} is missing from ignorePatterns in .oxfmtrc.json. lint-staged pipes staged JSON ` +
-                    'through `bin/hogli format:yaml` (oxfmt), and that entry is the only thing keeping oxfmt off ' +
-                    'this file. Without it the committed bytes stop matching the json.dump output of ' +
-                    'bin/build-taxonomy-json.py, so the taxonomy drift check in ci-python.yml fails for whoever ' +
-                    'next edits posthog/taxonomy/taxonomy.py. Restore the entry rather than reformatting the JSON.'
-            )
-        }
+        const missingEntryHint = ignorePatterns.includes(GENERATED_JSON)
+            ? undefined
+            : `${GENERATED_JSON} is missing from ignorePatterns in .oxfmtrc.json. lint-staged pipes staged JSON ` +
+              'through `bin/hogli format:yaml` (oxfmt), and that entry is the only thing keeping oxfmt off ' +
+              'this file. Without it the committed bytes stop matching the json.dump output of ' +
+              'bin/build-taxonomy-json.py, so the taxonomy drift check in ci-python.yml fails for whoever ' +
+              'next edits posthog/taxonomy/taxonomy.py. Restore the entry rather than reformatting the JSON.'
 
-        expect(ignorePatterns).toContain(GENERATED_JSON)
+        expect(missingEntryHint).toBeUndefined()
     })
 })
