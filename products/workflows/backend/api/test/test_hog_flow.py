@@ -272,6 +272,7 @@ class TestHogFlowAPI(APIBaseTest):
     def test_list_filter_by_workflow_type_rejects_unknown_value(self):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?type=campaign")
         assert response.status_code == 400
+
     def test_kind_is_writable_and_filterable(self):
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
