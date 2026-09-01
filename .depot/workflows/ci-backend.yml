@@ -46,6 +46,13 @@
 #   reporter can pair re-run recoveries with attempt-1 failures, and the guard that skips the
 #   job when both test matrices were skipped, with the needs: entries that feed it) need no
 #   depot bump.
+# - Hourly scheduled master run: canonical no longer runs the test matrices on master push
+#   (the merge queue's trunk-merge/** run gates every commit) and runs them from an hourly
+#   `schedule` trigger instead — the shape this shadow always had (its `!= 'push'` gates on
+#   turbo-discover / get_clickhouse_versions). A sampling trial must not run on a timer, so
+#   the schedule trigger and canonical's per-commit-vs-scheduled splits (the `!= 'schedule'`
+#   gates on check-migrations / check-openapi-types / repo-checks, report-test-timings' push
+#   exclusion, and the paths-filter schedule skip) are depot-exempt.
 # - mirror-schema-cache: canonical's master run copies the migrated schema dump out of the
 #   migrated-schema artifact into GitHub Actions Cache, so fork PRs (which run without
 #   secrets and cannot authenticate to Depot Cache) prime instead of migrating from scratch.
@@ -495,7 +502,8 @@ jobs:
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true'
+        # Not on master push: only feeds the matrices, which master pushes skip.
+        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
         outputs:
             mode: ${{ steps.detect.outputs.mode }}
         steps:

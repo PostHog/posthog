@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith import (
     DEFAULT_BASE_URL,
     REPEATED_CURSOR_ERROR,
+    RESPONSE_TOO_LARGE_ERROR,
     RUNS_PAGE_TOO_LARGE_ERROR,
     LangSmithResumeConfig,
     langsmith_source,
@@ -101,6 +102,7 @@ Leave the **Host** field blank for the US cloud (`api.smith.langchain.com`). Set
             "401 Client Error": "Your LangSmith API key is invalid or has been revoked. Create a new API key in your LangSmith settings, then reconnect.",
             "403 Client Error": "Your LangSmith API key does not have access to this workspace. Check the key's workspace scope, then reconnect.",
             REPEATED_CURSOR_ERROR: "LangSmith kept returning the same pagination cursor, so the import was stopped to avoid looping. This usually means the host is misconfigured. Check the Host field, then reconnect.",
+            RESPONSE_TOO_LARGE_ERROR: "A page of data from the LangSmith API exceeded 256 MB. This usually means individual records contain very large inputs or outputs. Contact PostHog support for next steps.",
             RUNS_PAGE_TOO_LARGE_ERROR: "A single LangSmith trace was too large to import, so the runs sync stopped. This usually means one trace has an unusually large input or output. Contact support so we can help unblock the sync.",
         }
 

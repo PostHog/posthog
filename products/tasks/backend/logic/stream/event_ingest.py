@@ -5,7 +5,7 @@ import json
 import math
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
-from typing import cast
+from typing import Literal, cast
 from uuid import NAMESPACE_URL, uuid5
 
 from django.conf import settings
@@ -21,6 +21,7 @@ from products.tasks.backend.logic.services.connection_token import (
     SandboxEventIngestTokenPayload,
     validate_sandbox_event_ingest_token,
 )
+from products.tasks.backend.logic.stream.agent_events import is_agent_command_dispatched, is_agent_generation_event
 from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunRedisStream,
     TaskRunStreamAlreadyCompleted,
@@ -370,6 +371,19 @@ def _parse_ingest_line(line: str) -> EventIngestEventLine | EventIngestCompleteL
 
 
 async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id: str, event: dict) -> None:
+    if is_agent_command_dispatched(event) and await redis_stream.claim_first_agent_command():
+        dispatched = await sync_to_async(_signal_agent_boot_milestone, thread_sensitive=True)(
+            run_id, "agent_command_dispatched"
+        )
+        if not dispatched:
+            await redis_stream.release_first_agent_command()
+    elif is_agent_generation_event(event) and await redis_stream.claim_first_agent_activity():
+        dispatched = await sync_to_async(_signal_agent_boot_milestone, thread_sensitive=True)(
+            run_id, "agent_activity_observed"
+        )
+        if not dispatched:
+            await redis_stream.release_first_agent_activity()
+
     if is_turn_complete(event):
         await redis_stream.set_agent_active(False)
         await _dispatch_turn_completed_if_interactive(run_id)
@@ -406,6 +420,21 @@ def _heartbeat_workflow(run_id: str, agent_active: bool) -> None:
         return
 
     task_run.heartbeat_workflow(agent_active=agent_active)
+
+
+def _signal_agent_boot_milestone(
+    run_id: str, milestone: Literal["agent_command_dispatched", "agent_activity_observed"]
+) -> bool:
+    if not settings.TEST:
+        close_old_connections()
+
+    try:
+        task_run = TaskRun.objects.get(id=run_id)
+    except TaskRun.DoesNotExist:
+        logger.warning("task_run_event_ingest_milestone_run_missing", run_id=run_id, milestone=milestone)
+        return False
+
+    return task_run.signal_agent_boot_milestone(milestone)
 
 
 async def _dispatch_turn_completed_if_interactive(run_id: str) -> None:

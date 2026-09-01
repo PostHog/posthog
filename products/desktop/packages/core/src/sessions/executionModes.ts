@@ -36,14 +36,14 @@ const availableModes: ModeInfo[] = [
   },
 ];
 
-export function getAvailableModes(): ModeInfo[] {
+function getAvailableModes(): ModeInfo[] {
   return availableModes;
 }
 
 // The preset literals live in @posthog/shared (one copy for every picker and
 // the app-server adapter's CODEX_MODES). Cloud sessions offer all presets,
 // including full-access; the agent package applies its own bypass gating.
-export function getAvailableCodexModes(): ModeInfo[] {
+function getAvailableCodexModes(): ModeInfo[] {
   return [...CODEX_MODE_PRESETS];
 }
 

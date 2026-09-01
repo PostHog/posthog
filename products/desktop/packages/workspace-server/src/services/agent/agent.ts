@@ -126,6 +126,7 @@ import {
   type PromptOutput,
   type ReconnectSessionInput,
   type RtkStatus,
+  type SessionContextChange,
   type SessionResponse,
   type SideQuestionOutput,
   type StartSessionInput,
@@ -1724,7 +1725,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
    */
   async notifySessionContext(
     sessionId: string,
-    context: import("./schemas.js").SessionContextChange,
+    context: SessionContextChange,
   ): Promise<void> {
     const session = this.sessions.get(sessionId);
     if (!session) {
@@ -1758,9 +1759,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     });
   }
 
-  private buildContextMessage(
-    context: import("./schemas.js").SessionContextChange,
-  ): string {
+  private buildContextMessage(context: SessionContextChange): string {
     if (context.isDetached) {
       return `Your worktree is now on detached HEAD while the user edits in their main repo. The branch is \`${context.branchName}\`.
 

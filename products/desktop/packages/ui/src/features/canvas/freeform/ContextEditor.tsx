@@ -55,7 +55,7 @@ export function CanvasContextEditor({ dashboardId }: { dashboardId: string }) {
   );
 }
 
-export function ContextEditor({
+function ContextEditor({
   value,
   onChange,
   onCommit,

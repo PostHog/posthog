@@ -50,7 +50,8 @@ class ScratchpadEntry:
     updated_at: str | None = None
     expires_at: str | None = None
     created_by_run_id: str | None = None
-    # Identity + deep-link of the scout run that created the entry, resolved from `created_by_run`.
+    # Who created the entry: the scout run's skill name, resolved from `created_by_run`, or the
+    # stored `pipeline:*` identity when a report-pipeline stage wrote it and there is no run.
     created_by_skill: str | None = None
     created_by_run_url: str | None = None
 
@@ -130,6 +131,7 @@ def remember(
     key: str,
     content: str,
     run_id: str | None = None,
+    identity: str | None = None,
     expires_at: datetime | None = None,
 ) -> ScratchpadEntry:
     """Write or update a memory entry. Idempotent on `(team, key)`.
@@ -139,24 +141,33 @@ def remember(
     a scout rewriting an entry that has since become permanent has no way to know an
     earlier run put a clock on it, and the entry would keep vanishing.
 
+    `identity` names a report-pipeline writer (`pipeline:report-research`,
+    `pipeline:implementation`), which has no `SignalScoutRun` row to point `run_id` at.
+    It is stored on create only, so provenance names the entry's author rather than
+    whoever last rewrote it — the same rule `created_by_run` follows.
+
     The previous `human_confirmed` authority guard was dropped — the human-in-the-
     loop write path was reserved-for-future and never landed. Re-add if it ships.
     """
     _validate_entry(key=key, content=content, expires_at=expires_at)
 
     try:
-        row = _upsert_entry(team_id=team_id, key=key, content=content, run_id=run_id, expires_at=expires_at)
+        row = _upsert_entry(
+            team_id=team_id, key=key, content=content, run_id=run_id, identity=identity, expires_at=expires_at
+        )
     except IntegrityError:
         # Lost the create race: our SELECT saw no row, but a concurrent request
         # committed an insert for the same `(team, key)` before ours, tripping the
         # unique constraint. The row now exists, so a single retry resolves to the
         # update branch and preserves the idempotent-upsert contract.
-        row = _upsert_entry(team_id=team_id, key=key, content=content, run_id=run_id, expires_at=expires_at)
+        row = _upsert_entry(
+            team_id=team_id, key=key, content=content, run_id=run_id, identity=identity, expires_at=expires_at
+        )
     return _to_entry(row)
 
 
 def _upsert_entry(
-    *, team_id: int, key: str, content: str, run_id: str | None, expires_at: datetime | None
+    *, team_id: int, key: str, content: str, run_id: str | None, identity: str | None, expires_at: datetime | None
 ) -> SignalScratchpad:
     with transaction.atomic():
         existing = SignalScratchpad.objects.select_for_update().filter(team_id=team_id, key=key).first()
@@ -166,11 +177,13 @@ def _upsert_entry(
                 key=key,
                 content=content,
                 created_by_run_id=run_id,
+                created_by_identity=identity,
                 expires_at=expires_at,
             )
         existing.content = content
         existing.expires_at = expires_at
-        # Don't overwrite `created_by_run` so we keep the original creator's lineage.
+        # Don't overwrite `created_by_run` / `created_by_identity` so we keep the original
+        # creator's lineage.
         existing.save(update_fields=["content", "expires_at", "updated_at"])
         return existing
 
@@ -224,7 +237,8 @@ def _to_entry(
     run_pk = getattr(row, "created_by_run_id", None)
     # Resolve the creating scout's identity + a deep-link to its run. `search_scratchpad` joins
     # both via select_related, so this is a no-N+1 read on the list path; the single-row write
-    # path lazy-loads, which is fine. A human-authored entry (no run) leaves these null.
+    # path lazy-loads, which is fine. A report-pipeline stage has no run, so it falls back to the
+    # `pipeline:*` identity it stamped; a human-authored entry has neither and leaves these null.
     run = row.created_by_run if run_pk else None
     task_run = getattr(run, "task_run", None) if run is not None else None
     return ScratchpadEntry(
@@ -234,7 +248,7 @@ def _to_entry(
         updated_at=row.updated_at.isoformat() if row.updated_at else None,
         expires_at=row.expires_at.isoformat() if row.expires_at else None,
         created_by_run_id=str(run_pk) if run_pk else None,
-        created_by_skill=run.skill_name if run is not None else None,
+        created_by_skill=run.skill_name if run is not None else row.created_by_identity,
         created_by_run_url=_build_task_url(
             team_id=row.team_id,
             task_id=str(task_run.task_id) if task_run is not None else None,

@@ -731,6 +731,7 @@ def _refresh_sandbox_mcp(
         scopes=scopes,
         interaction_origin=(state or {}).get("interaction_origin"),
         task_id=str(task_run.task_id),
+        origin_product=task_run.task.origin_product,
     )
     user_mcp_configs = get_user_mcp_server_configs(
         token=access_token,

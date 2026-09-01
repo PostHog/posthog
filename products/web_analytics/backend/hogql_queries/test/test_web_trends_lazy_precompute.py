@@ -1,10 +1,12 @@
 from dataclasses import replace
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -32,9 +34,75 @@ from products.web_analytics.backend.hogql_queries.web_overview import WebOvervie
 from products.web_analytics.backend.hogql_queries.web_trends import WebTrendsQueryRunner
 from products.web_analytics.backend.hogql_queries.web_trends_lazy_precompute import (
     WebTrendsMetric,
+    _current_period_boundary,
     build_inner_overview_query,
     trends_precompute_metric,
 )
+
+_UTC = ZoneInfo("UTC")
+
+
+def _d(year: int, month: int, day: int, hour: int = 0) -> datetime:
+    return datetime(year, month, day, hour, tzinfo=_UTC)
+
+
+class TestCurrentPeriodBoundary(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # The boundary is the start of the first still-evolving bucket. Below
+            # it precompute serves; at or above it the live tail does. Snapping to
+            # the containing week/month start is what sends a whole in-progress
+            # period live instead of only its trailing day.
+            (
+                "day_today_in_range",
+                [_d(2024, 1, x) for x in range(10, 17)],
+                _d(2024, 1, 16),
+                _d(2024, 1, 15),
+                _d(2024, 1, 15),
+            ),
+            # Range ends before today: nothing is evolving, so the boundary sits
+            # past every bucket and the whole range stays on precompute.
+            (
+                "fully_historical",
+                [_d(2024, 1, x) for x in range(1, 8)],
+                _d(2024, 1, 7),
+                _d(2024, 1, 15),
+                _d(2024, 1, 15),
+            ),
+            # Today is mid-week (Jan 17); the boundary snaps back to the Monday
+            # bucket so the in-progress week reads live.
+            (
+                "week_snaps_back",
+                [_d(2023, 12, 25), _d(2024, 1, 1), _d(2024, 1, 8), _d(2024, 1, 15)],
+                _d(2024, 1, 17),
+                _d(2024, 1, 17),
+                _d(2024, 1, 15),
+            ),
+            (
+                "month_snaps_back",
+                [_d(2023, 11, 1), _d(2023, 12, 1), _d(2024, 1, 1)],
+                _d(2024, 1, 15),
+                _d(2024, 1, 15),
+                _d(2024, 1, 1),
+            ),
+            # A single-bucket "today" range has no settled portion; the boundary
+            # equals that bucket, and the caller falls fully back to live.
+            ("today_only", [_d(2024, 1, 15)], _d(2024, 1, 15), _d(2024, 1, 15), _d(2024, 1, 15)),
+            # Hourly range whose tail is today: the boundary is today's midnight,
+            # so every hour of today reads live.
+            (
+                "hour_today",
+                [_d(2024, 1, 14, h) for h in range(24)] + [_d(2024, 1, 15, h) for h in range(13)],
+                _d(2024, 1, 15, 12),
+                _d(2024, 1, 15),
+                _d(2024, 1, 15),
+            ),
+        ]
+    )
+    def test_boundary(
+        self, _name: str, buckets: list[datetime], date_to: datetime, today_start: datetime, expected: datetime
+    ) -> None:
+        assert _current_period_boundary(buckets, date_to, today_start) == expected
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -78,6 +146,21 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             timestamp="2024-01-03T11:00:00Z",
             properties={"$session_id": s2, "$host": "other.com", "$current_url": "https://other.com/x"},
         )
+
+    def _seed_span(self) -> None:
+        # One historical day inside the range and one on the frozen "today"
+        # (2024-01-15). Each is a single-day session, so session-start and
+        # event-time attribution agree and both paths return identical data.
+        for day, distinct, host in (("2024-01-12", "p_hist", "example.com"), ("2024-01-15", "p_today", "other.com")):
+            _create_person(team_id=self.team.pk, distinct_ids=[distinct], properties={})
+            sid = str(uuid7(day))
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct,
+                timestamp=f"{day}T09:00:00Z",
+                properties={"$session_id": sid, "$host": host, "$current_url": f"https://{host}/x"},
+            )
 
     def _build_query(
         self,
@@ -382,6 +465,43 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert sum(response.results[0]["data"]) == 2  # served, not fallen back
         assert mock_stale.called
         assert mock_stale.call_args.kwargs["family"] == "web_overview"
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_today_spanning_range_stitches_live_tail(self) -> None:
+        # A range whose last bucket is "today": settled days come from precompute,
+        # today comes from the live tail. If the tail merge keyed buckets wrong,
+        # today would zero-fill and the served series would diverge from live.
+        self._seed_span()
+        query = self._build_query()
+        query.dateRange = DateRange(date_from="2024-01-10", date_to="2024-01-15")
+
+        live = TrendsQueryRunner(team=self.team, query=query).calculate()
+        with self._enable_lazy(), self._enable_trends_flag():
+            precomputed = WebTrendsQueryRunner(team=self.team, query=query).calculate()
+
+        assert precomputed.results[0]["data"] == live.results[0]["data"]
+        assert precomputed.results[0]["days"] == live.results[0]["days"]
+        assert precomputed.results[0]["labels"] == live.results[0]["labels"]
+        # Today (last bucket) is the live tail, not a zero-fill.
+        assert precomputed.results[0]["data"][-1] == 1
+        # Settled days were still precomputed — the path did not fully fall back.
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_today_only_range_falls_back_to_live(self) -> None:
+        # The whole range is the in-progress day, so nothing is settled enough to
+        # precompute: the path bails to live and mints no precompute jobs.
+        self._seed_span()
+        query = self._build_query()
+        query.dateRange = DateRange(date_from="2024-01-15", date_to="2024-01-15")
+
+        live = TrendsQueryRunner(team=self.team, query=query).calculate()
+        with self._enable_lazy(), self._enable_trends_flag():
+            precomputed = WebTrendsQueryRunner(team=self.team, query=query).calculate()
+
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+        assert precomputed.results[0]["data"] == live.results[0]["data"]
+        assert sum(precomputed.results[0]["data"]) == 1
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_week_interval_zero_fills_full_range(self) -> None:

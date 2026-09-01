@@ -154,9 +154,12 @@ import type {
     WebStatsTableQuery,
 } from '../../queries/schema/schema-general'
 import type { PathsV2Query } from '../../queries/schema/schema-general'
-import type { AnyPropertyFilter, GroupTypeIndex, PropertyGroupFilter } from '../../types'
+import type { ActionType, AnyPropertyFilter, GroupTypeIndex, PropertyGroupFilter } from '../../types'
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
+
+// Stable empty list so the allEventNames selector does not recompute while actionsModel is unmounted
+const NO_ACTIONS: ActionType[] = []
 
 // Trends/stickiness displays whose chart renders the in-chart quill legend (line/area/cumulative,
 // bar layouts, and pie). Lifecycle always renders it regardless of display.
@@ -1217,7 +1220,7 @@ export interface insightVizDataLogicMeta {
                 | WebOverviewQuery
                 | WebStatsTableQuery
                 | null,
-            actions: import('~/types').ActionType[]
+            arg: ActionType[]
         ) => string[]
         theme: (
             getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null, // dataThemeLogic
@@ -2448,7 +2451,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         // all events used in the insight (useful for fetching only relevant property definitions)
         allEventNames: [
-            (s) => [s.querySource, actionsModel.selectors.actions],
+            // actionsModel is only mounted by the surfaces that read this value. Reading it through
+            // findMounted keeps the shared insight logic from fetching every action on mount.
+            (s) => [s.querySource, () => actionsModel.findMounted()?.values.actions ?? NO_ACTIONS],
             (
                 querySource:
                     | FunnelsQuery

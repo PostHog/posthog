@@ -1,0 +1,29 @@
+name: schema_indexes
+description: >
+  Index definitions, validity and shape. Snapshot: index created/dropped/became
+  invalid become schema_indexes_* events. Pair with index_stats for unused-index
+  detection.
+interval: 1h
+scope: database
+kind: snapshot
+prefers_reader: true
+key: [schemaname, relname, indexname]
+query: |
+  SELECT n.nspname AS schemaname, t.relname, i.relname AS indexname, i.oid::bigint AS oid,
+         pg_get_indexdef(i.oid) AS definition,
+         am.amname AS access_method,
+         x.indisunique AS is_unique, x.indisprimary AS is_primary, x.indisvalid AS is_valid,
+         x.indisready AS is_ready, x.indisexclusion AS is_exclusion,
+         x.indnkeyatts::bigint AS n_key_columns, x.indnatts::bigint AS n_columns,
+         x.indpred IS NOT NULL AS is_partial, x.indexprs IS NOT NULL AS has_expression,
+         (SELECT string_agg(a.attname, ',' ORDER BY k.ord)
+            FROM unnest(x.indkey) WITH ORDINALITY k(attnum, ord)
+            LEFT JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum) AS columns,
+         array_to_string(i.reloptions, ',') AS reloptions
+  FROM pg_index x
+  JOIN pg_class i ON i.oid = x.indexrelid
+  JOIN pg_class t ON t.oid = x.indrelid
+  JOIN pg_namespace n ON n.oid = t.relnamespace
+  JOIN pg_am am ON am.oid = i.relam
+  WHERE n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+    AND n.nspname NOT LIKE 'pg_temp%'

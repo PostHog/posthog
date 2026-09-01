@@ -35,6 +35,10 @@ INSECURE_SCHEME_ERROR = "LangSmith host must use https"
 # cursor we've already paged is stuck or hostile; retrying re-hits the same cursor, so fail for good.
 REPEATED_CURSOR_ERROR = "LangSmith returned a repeated pagination cursor"
 
+# Raised (and registered non-retryable) when a page body exceeds MAX_RESPONSE_BYTES. The same page
+# is re-requested on every retry, so the cap is hit again deterministically — stop immediately.
+RESPONSE_TOO_LARGE_ERROR = "LangSmith API returned an oversized response"
+
 # Raised (and registered non-retryable) when a single runs page stays over MAX_RESPONSE_BYTES even at
 # the minimum limit. A page that big has runs with very large inputs/outputs; halving the page can't
 # help below one run, so fail with guidance instead of retrying the same wall.
@@ -130,7 +134,7 @@ def _read_capped_body(response: requests.Response, cap: int = MAX_RESPONSE_BYTES
     for chunk in response.iter_content(chunk_size=READ_CHUNK_BYTES):
         buffer.extend(chunk)
         if len(buffer) > cap:
-            raise LangSmithResponseTooLargeError(f"LangSmith API returned an oversized response (> {cap} bytes)")
+            raise LangSmithResponseTooLargeError(f"{RESPONSE_TOO_LARGE_ERROR} (> {cap} bytes)")
     return bytes(buffer)
 
 

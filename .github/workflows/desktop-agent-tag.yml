@@ -18,7 +18,7 @@ jobs:
     tag:
         permissions:
             contents: write
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
         steps:
             - name: Get app token

@@ -14,6 +14,7 @@ import type { SignalSourceValues } from "@posthog/ui/features/inbox/components/S
 import { InboxBadge } from "@posthog/ui/features/inbox/components/utils/InboxBadge";
 import { getSourceProductMeta } from "@posthog/ui/features/inbox/components/utils/source-product-icons";
 import { Badge } from "@posthog/ui/primitives/Badge";
+import { Spin } from "@posthog/ui/primitives/Spinner";
 import { Box, Flex, Spinner, Switch, Text } from "@radix-ui/themes";
 import { type ComponentType, memo, useCallback } from "react";
 
@@ -225,10 +226,9 @@ const ResponderAgentCard = memo(function ResponderAgentCard({
 
       {armed && agent.source === "session_replay" && status === "syncing" ? (
         <Flex align="center" gap="2" className="mt-2 ml-8">
-          <CircleNotchIcon
-            size={14}
-            className="animate-spin text-(--accent-11)"
-          />
+          <Spin className="text-(--accent-11)">
+            <CircleNotchIcon size={14} />
+          </Spin>
           <Text className="text-(--accent-11) text-[13px]">
             Session analysis run in progress…
           </Text>

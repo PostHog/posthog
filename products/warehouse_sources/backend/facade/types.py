@@ -262,6 +262,7 @@ class ExternalDataSourceType(models.TextChoices):
     GLADLY = "Gladly", "Gladly"
     QUALTRICS = "Qualtrics", "Qualtrics"
     AZUREDEVOPS = "AzureDevOps", "AzureDevOps"
+    ROKTADS = "RoktAds", "RoktAds"
     ROLLBAR = "Rollbar", "Rollbar"
     OPSGENIE = "Opsgenie", "Opsgenie"
     INCIDENTIO = "IncidentIo", "IncidentIo"
