@@ -21,9 +21,21 @@ Web analytics keeps the filter set in the scene URL.
 The measurement reads `$pageview` events on the web analytics scene over one fixed 14 day
 window, extracts the `filters` URL parameter, and classifies each filter item by type, key,
 and operator.
-A filter key counts as covered when it maps to a stored column, using the same key-to-column
-mapping the preaggregated read path applies in
-`products/web_analytics/backend/hogql_queries/pre_aggregated/properties.py`.
+A filter key counts as covered when the dimensional tables store its column, or can compute it
+from stored columns.
+The stored columns are declared in the dimensional table schemas
+(`posthog/clickhouse/preaggregation/web_stats_dimensional_preaggregated_sql.py` and
+`web_bounces_dimensional_preaggregated_sql.py`) and filled by the dimensional precompute insert
+in `products/web_analytics/backend/hogql_queries/web_dimensional_precompute.py`, which maps each
+event and session entry key to its column, for example `$entry_referring_domain` to
+`referring_domain`.
+`$channel_type` has no column of its own; it is computed at read time from stored columns such
+as the referring domain, UTM, and click id columns, so it counts as covered by computation.
+Do not read this set from
+`products/web_analytics/backend/hogql_queries/pre_aggregated/properties.py`: that is the
+deprecated v2 read path's mapping, and it differs.
+It credits four keys the dimensional tables do not store (see the first of the three findings
+below) and keys the referring domain as `$referring_domain`, not `$entry_referring_domain`.
 
 Every figure below is a share of web analytics scene views in that one window.
 Absolute volumes stay out of this page.
