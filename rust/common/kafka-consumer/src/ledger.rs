@@ -21,13 +21,13 @@ pub struct TakenFrontier {
 #[derive(Debug, Default)]
 pub struct OffsetLedger {
     /// The offset of `slots[0]`; `None` until the first delivery.
-    base: Option<Offset>,
+    base_offset: Option<Offset>,
     /// Number of completed slots at the front of the window, kept current on
     /// every completion so `frontier` stays O(1).
     prefix: usize,
     /// A dense sliding window over one contiguous offset range: `charge`
     /// appends at the back, `take_frontier` pops the front, and `complete`
-    /// indexes by offset minus `base`. Every operation is amortized constant
+    /// indexes by offset minus `base_offset`. Every operation is amortized constant
     /// time per offset.
     slots: VecDeque<Slot>,
 }
@@ -44,10 +44,13 @@ impl OffsetLedger {
     pub fn charge(&mut self, offsets: impl IntoIterator<Item = (Offset, Charge)>) -> Charge {
         let mut total = Charge::ZERO;
         for (offset, charge) in offsets {
-            let base = *self.base.get_or_insert(offset);
-            let end = base + self.slots.len();
-            assert!(offset >= end, "offset {offset} was not delivered in order");
-            for _ in 0..offset - end {
+            let base_offset = *self.base_offset.get_or_insert(offset);
+            let end_offset = base_offset + self.slots.len();
+            assert!(
+                offset >= end_offset,
+                "offset {offset} was not delivered in order"
+            );
+            for _ in 0..offset - end_offset {
                 self.slots.push_back(Slot {
                     complete: true,
                     charge: Charge::ZERO,
@@ -64,12 +67,13 @@ impl OffsetLedger {
 
     /// Mark delivered offsets complete in any order.
     pub fn complete(&mut self, offsets: &[Offset]) {
-        let base = self.base.expect("completion before any delivery");
+        let base_offset = self.base_offset.expect("completion before any delivery");
         for &offset in offsets {
-            let index = usize::try_from(offset - base).expect("completion below the window base");
+            let slot_index =
+                usize::try_from(offset - base_offset).expect("completion below the window base");
             let slot = self
                 .slots
-                .get_mut(index)
+                .get_mut(slot_index)
                 .expect("completion for an uncharged offset");
             assert!(!slot.complete, "offset {offset} completed twice");
             slot.complete = true;
@@ -87,23 +91,26 @@ impl OffsetLedger {
     /// filler ends the completed prefix; a commit one past it is still correct
     /// because a gap holds no messages.
     pub fn frontier(&self) -> Option<Offset> {
-        let base = self.base?;
-        (self.prefix > 0).then(|| base + (self.prefix - 1))
+        let base_offset = self.base_offset?;
+        (self.prefix > 0).then(|| base_offset + (self.prefix - 1))
     }
 
     /// Consume the contiguous completed prefix previously observable through
     /// `frontier`. This is intentionally separate from `complete` for shadow
     /// comparisons against the current commit path.
     pub fn take_frontier(&mut self) -> Option<TakenFrontier> {
-        let offset = self.frontier()?;
+        let frontier_offset = self.frontier()?;
         let charge = self
             .slots
             .drain(..self.prefix)
             .map(|slot| slot.charge)
             .sum();
-        self.base = Some(offset + 1);
+        self.base_offset = Some(frontier_offset + 1);
         self.prefix = 0;
-        Some(TakenFrontier { offset, charge })
+        Some(TakenFrontier {
+            offset: frontier_offset,
+            charge,
+        })
     }
 
     pub fn len(&self) -> usize {
