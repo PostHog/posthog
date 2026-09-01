@@ -65,7 +65,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.id_generator import IdGenerator
 from opentelemetry.trace import Status, StatusCode
-from posthog_owners import OwnersResolver
+from posthog_owners import OwnersResolver, first_team_owner
 
 logger = logging.getLogger("report_test_timings")
 
@@ -824,9 +824,7 @@ def owner_team_lookup() -> Callable[[str], str]:
         except Exception:
             logger.exception("owners resolution failed for %s; emitting span without team attribution", file)
             return ""
-        # An `@handle` first owner is a person, not a team; stamping it would mint a
-        # one-person "team" in every per-team rollup.
-        return next((owner for owner in owners or [] if not owner.startswith("@")), "")
+        return first_team_owner(owners)
 
     return lookup
 
