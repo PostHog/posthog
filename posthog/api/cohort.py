@@ -74,7 +74,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.utils import earliest_timestamp_func
 from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
 from posthog.models.property.property import Property
-from posthog.models.team.team import Team
+from posthog.models.team.team import DEPRECATED_ATTRS, Team
 from posthog.models.utils import UUIDT
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.ph_client import feature_enabled_or_false
@@ -1697,7 +1697,10 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         # `created_by` and `team` are forward FKs, so `select_related` JOINs them in
         # one query instead of the two extra round-trips `prefetch_related` costs.
-        queryset = queryset.select_related("created_by", "team")
+        # `select_related` selects every team column, bypassing the `.defer(*DEPRECATED_ATTRS)`
+        # that `TeamManager` applies on lazy loads. Re-apply it so the JOIN skips the deprecated
+        # taxonomy columns, which TOAST out to megabytes per team and get re-read for every row.
+        queryset = queryset.select_related("created_by", "team").defer(*(f"team__{attr}" for attr in DEPRECATED_ATTRS))
 
         # `experiment_set` is a reverse relation (a prefetch) and the per-row correlated
         # subquery over CohortCalculationHistory only feeds `last_error_message`. The basic

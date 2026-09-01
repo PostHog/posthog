@@ -33,7 +33,7 @@ from posthog.models.async_deletion.async_deletion import AsyncDeletion
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.person.util import get_person_by_id
 from posthog.models.property import BehavioralPropertyType
-from posthog.models.team.team import Team
+from posthog.models.team.team import DEPRECATED_ATTRS, Team
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_ch,
     calculate_cohort_from_list,
@@ -363,6 +363,25 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         with self.assertNumQueries(11):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 3
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_list_cohorts_does_not_select_deprecated_team_columns(self, patch_calculate_cohort, patch_capture):
+        # The list JOINs `posthog_team` via `select_related`, which bypasses the
+        # `.defer(*DEPRECATED_ATTRS)` that TeamManager applies on lazy loads. Guard that the fat
+        # deprecated taxonomy columns stay out of the JOIN so the list does not read them per row.
+        self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
+        )
+
+        with capture_db_queries() as context:
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
+        assert response.status_code == status.HTTP_200_OK
+
+        for query in context.captured_queries:
+            for attr in DEPRECATED_ATTRS:
+                assert f'posthog_team"."{attr}"' not in query["sql"]
 
     @parameterized.expand(
         [
