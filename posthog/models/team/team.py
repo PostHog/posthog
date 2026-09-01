@@ -910,9 +910,9 @@ class Team(UUIDTClassicModel):
         return self.count_groups_seen_so_far(group_type_index)
 
     def count_groups_seen_so_far(self, group_type_index: GroupTypeIndex, database: Optional["Database"] = None) -> int:
-        from posthog.hogql import ast
-        from posthog.hogql.context import HogQLContext
-        from posthog.hogql.query import execute_hogql_query
+        from posthog.hogql import ast  # noqa: PLC0415 — breaks team import cycle
+        from posthog.hogql.context import HogQLContext  # noqa: PLC0415 — breaks team import cycle
+        from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415 — breaks team import cycle
 
         with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.QUERY):
             return execute_hogql_query(
