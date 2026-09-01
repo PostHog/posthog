@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconExternal, IconPeople } from '@posthog/icons'
-import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumns, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { TimeSeriesLineChart, useChartTheme } from '@posthog/quill-charts'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -133,7 +133,6 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                     ) : undefined
                 }
             />
-            {/* Same scope grammar as the repo hub: repo chip, crumbs, then the window picker. */}
             <ScopeBar
                 repoSlot={<RepoScopeChip label={repository ?? 'repository'} to={urls.engineeringAnalytics()} />}
                 crumbs={[
@@ -141,111 +140,120 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                     { label: isUnowned ? 'unowned' : ownerTeam },
                 ]}
                 showDate={false}
-                extra={
+            />
+
+            {/* The panel is the scope: the picker sits on its rim, and everything inside reflects
+                its window (the repo-hub pattern). */}
+            <div className="relative mt-4 rounded-lg border border-primary p-4">
+                <div className="absolute -top-4 right-3 flex flex-wrap items-center justify-end gap-2 bg-primary px-2">
+                    {(healthRowLoading || mergeTrendLoading || activityLoading) && (
+                        <Spinner className="text-secondary" />
+                    )}
                     <DateFilter
                         dateFrom={window}
                         onChange={(from) => isTeamsWindow(from) && setWindow(from)}
                         dateOptions={TEAMS_WINDOW_DATE_OPTIONS}
                         size="small"
                     />
-                }
-            />
-
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                <WindowComparisonCard
-                    title="Tests owned"
-                    tooltip="Test files this team owns per the daily owners.yaml census."
-                    value={healthRow?.testFileCount}
-                    previousValue={healthRow?.testFileCountPrior}
-                    formatValue={humanFriendlyNumber}
-                    loading={healthRowLoading}
-                    emptyText="No census yet for this repository."
-                />
-                <WindowComparisonCard
-                    title="Flaky tests"
-                    tooltip="Owned tests one commit was seen both failing and passing in this window. Only tests with that recovery proof count as flaky."
-                    value={healthRow?.flakyTestCount}
-                    previousValue={healthRow?.flakyTestCountPrior}
-                    formatValue={humanFriendlyNumber}
-                    goodWhenDown
-                    loading={healthRowLoading}
-                    emptyText="No signal in this window."
-                />
-                <WindowComparisonCard
-                    title="Failed runs"
-                    tooltip="CI runs where an owned test failed or errored. Absolute counts, not rates: passing runs are mostly not recorded."
-                    value={healthRow?.failedRunCount}
-                    previousValue={healthRow?.failedRunCountPrior}
-                    formatValue={humanFriendlyNumber}
-                    goodWhenDown
-                    loading={healthRowLoading}
-                    emptyText="No signal in this window."
-                />
-                {!isUnowned && (
-                    <WindowComparisonCard
-                        title="PRs merged"
-                        tooltip="PRs merged by this team's members in the window, bots excluded. Attribution comes from the GitHub team membership snapshot."
-                        value={healthRow?.mergedPrCount}
-                        previousValue={healthRow?.mergedPrCountPrior}
-                        formatValue={humanFriendlyNumber}
-                        loading={healthRowLoading}
-                        emptyText="No team membership data. Sync the GitHub source's team_members endpoint to attribute merges."
-                    />
-                )}
-            </div>
-
-            {!isUnowned && (
-                <Section id="team-merge-trend" title="Time to merge" busy={mergeTrendLoading}>
-                    {mergeTrendSeries ? (
-                        // Flex column: the quill chart root is flex-1 and only gets height from a flex parent.
-                        <div className="flex h-48 w-full flex-col">
-                            <TimeSeriesLineChart
-                                series={[
-                                    { key: 'median', label: 'Median', data: mergeTrendSeries.median },
-                                    { key: 'average', label: 'Average', data: mergeTrendSeries.average },
-                                ]}
-                                labels={mergeTrendSeries.labels}
-                                theme={chartTheme}
-                                config={{
-                                    xAxis: { timezone, interval: 'day' },
-                                    yAxis: { format: 'duration' },
-                                    tooltip: { valueFormatter: (value) => compactHoursLabel(value) },
-                                    legend: { show: true },
-                                }}
+                </div>
+                <div className="flex flex-col gap-4 pt-2">
+                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                        <WindowComparisonCard
+                            title="Tests owned"
+                            tooltip="Test files this team owns per the daily owners.yaml census."
+                            value={healthRow?.testFileCount}
+                            previousValue={healthRow?.testFileCountPrior}
+                            formatValue={humanFriendlyNumber}
+                            loading={healthRowLoading}
+                            emptyText="No census yet for this repository."
+                        />
+                        <WindowComparisonCard
+                            title="Flaky tests"
+                            tooltip="Owned tests one commit was seen both failing and passing in this window. Only tests with that recovery proof count as flaky."
+                            value={healthRow?.flakyTestCount}
+                            previousValue={healthRow?.flakyTestCountPrior}
+                            formatValue={humanFriendlyNumber}
+                            goodWhenDown
+                            loading={healthRowLoading}
+                            emptyText="No signal in this window."
+                        />
+                        <WindowComparisonCard
+                            title="Failed runs"
+                            tooltip="CI runs where an owned test failed or errored. Absolute counts, not rates: passing runs are mostly not recorded."
+                            value={healthRow?.failedRunCount}
+                            previousValue={healthRow?.failedRunCountPrior}
+                            formatValue={humanFriendlyNumber}
+                            goodWhenDown
+                            loading={healthRowLoading}
+                            emptyText="No signal in this window."
+                        />
+                        {!isUnowned && (
+                            <WindowComparisonCard
+                                title="PRs merged"
+                                tooltip="PRs merged by this team's members in the window, bots excluded. Attribution comes from the GitHub team membership snapshot."
+                                value={healthRow?.mergedPrCount}
+                                previousValue={healthRow?.mergedPrCountPrior}
+                                formatValue={humanFriendlyNumber}
+                                loading={healthRowLoading}
+                                emptyText="No team membership data. Sync the GitHub source's team_members endpoint to attribute merges."
                             />
-                        </div>
-                    ) : mergeTrend && !mergeTrend.hasMembershipData ? (
-                        <div className="flex h-32 items-center text-xs text-secondary">
-                            No team membership data. Sync the GitHub source's team_members endpoint (needs the org
-                            Members read grant) to attribute merges to teams.
-                        </div>
-                    ) : (
-                        <div className="flex h-32 items-center text-xs text-secondary">
-                            No merged PRs in this window.
-                        </div>
-                    )}
-                </Section>
-            )}
-
-            <Section id="team-tests" title="Owned tests with signal" busy={activityLoading}>
-                <LemonTable
-                    data-attr="engineering-analytics-team-tests-table"
-                    size="small"
-                    columns={testColumns}
-                    dataSource={activity?.tests ?? []}
-                    rowKey={(row) => `${row.runner}:${row.nodeid}`}
-                    loading={activityLoading}
-                    pagination={{ pageSize: 25 }}
-                    useURLForSorting={false}
-                    emptyState="No owned tests with signal in this window."
-                    nouns={['test', 'tests']}
-                />
-                {activity?.truncatedTests && (
-                    <div className="mt-2 text-xs text-tertiary">
-                        Showing the strongest signals. More owned tests had signal in this window.
+                        )}
                     </div>
-                )}
-            </Section>
+
+                    {!isUnowned && (
+                        <Section id="team-merge-trend" title="Time to merge" busy={mergeTrendLoading}>
+                            {mergeTrendSeries ? (
+                                // Flex column: the quill chart root is flex-1 and only gets height from a flex parent.
+                                <div className="flex h-48 w-full flex-col">
+                                    <TimeSeriesLineChart
+                                        series={[
+                                            { key: 'median', label: 'Median', data: mergeTrendSeries.median },
+                                            { key: 'average', label: 'Average', data: mergeTrendSeries.average },
+                                        ]}
+                                        labels={mergeTrendSeries.labels}
+                                        theme={chartTheme}
+                                        config={{
+                                            xAxis: { timezone, interval: 'day' },
+                                            yAxis: { format: 'duration' },
+                                            tooltip: { valueFormatter: (value) => compactHoursLabel(value) },
+                                            legend: { show: true },
+                                        }}
+                                    />
+                                </div>
+                            ) : mergeTrend && !mergeTrend.hasMembershipData ? (
+                                <div className="flex h-32 items-center text-xs text-secondary">
+                                    No team membership data. Sync the GitHub source's team_members endpoint (needs the
+                                    org Members read grant) to attribute merges to teams.
+                                </div>
+                            ) : (
+                                <div className="flex h-32 items-center text-xs text-secondary">
+                                    No merged PRs in this window.
+                                </div>
+                            )}
+                        </Section>
+                    )}
+
+                    <Section id="team-tests" title="Owned tests with signal" busy={activityLoading}>
+                        <LemonTable
+                            data-attr="engineering-analytics-team-tests-table"
+                            size="small"
+                            columns={testColumns}
+                            dataSource={activity?.tests ?? []}
+                            rowKey={(row) => `${row.runner}:${row.nodeid}`}
+                            loading={activityLoading}
+                            pagination={{ pageSize: 25 }}
+                            useURLForSorting={false}
+                            emptyState="No owned tests with signal in this window."
+                            nouns={['test', 'tests']}
+                        />
+                        {activity?.truncatedTests && (
+                            <div className="mt-2 text-xs text-tertiary">
+                                Showing the strongest signals. More owned tests had signal in this window.
+                            </div>
+                        )}
+                    </Section>
+                </div>
+            </div>
         </SceneContent>
     )
 }
