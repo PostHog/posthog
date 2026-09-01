@@ -582,6 +582,32 @@ def _multi_search_not_found(search_call: ast.Call, expr: ast.Expr) -> ast.Expr:
     )
 
 
+_NEGATIVE_OPERATOR_COMPLEMENTS = {
+    PropertyOperator.IS_NOT: PropertyOperator.EXACT,
+    PropertyOperator.NOT_IN: PropertyOperator.IN_,
+    PropertyOperator.IS_NOT_SET: PropertyOperator.IS_SET,
+    PropertyOperator.NOT_ICONTAINS: PropertyOperator.ICONTAINS,
+    PropertyOperator.NOT_ICONTAINS_MULTI: PropertyOperator.ICONTAINS_MULTI,
+    PropertyOperator.NOT_REGEX: PropertyOperator.REGEX,
+    PropertyOperator.NOT_STARTS_WITH: PropertyOperator.STARTS_WITH,
+    PropertyOperator.NOT_ENDS_WITH: PropertyOperator.ENDS_WITH,
+    PropertyOperator.NOT_BETWEEN: PropertyOperator.BETWEEN,
+}
+
+
+def operator_is_negative(operator: PropertyOperator) -> bool:
+    return operator in _NEGATIVE_OPERATOR_COMPLEMENTS
+
+
+def _array_property_filter(array: ast.Expr, element_predicate: ast.Expr, negate: bool) -> ast.Expr:
+    """`element_predicate` is the positive form even when `negate` is set: a negative operator
+    negates the whole arrayExists, so an empty or missing array is kept and an array holding any
+    matching element is dropped. Negating per element instead keeps a row as soon as one element
+    fails to match and drops a row whose array is empty."""
+    exists = ast.Call(name="arrayExists", args=[ast.Lambda(args=["v"], expr=element_predicate), array])
+    return ast.Not(expr=exists) if negate else exists
+
+
 def _create_multi_search_call(expr: ast.Expr, value: list) -> ast.Call:
     """Create a multiSearchAnyCaseInsensitive call for the given expression and values."""
     return ast.Call(
@@ -1319,17 +1345,17 @@ def property_to_expr(
             expr = ast.Call(name="argMinMerge", args=[field])
 
         is_visited_page_property = property.type == "recording" and property.key == "visited_page"
-        if is_visited_page_property:
-            # Use the all_urls array field to filter for pages visited during recording.
-            all_urls_field = ast.Call(name="groupUniqArrayArray", args=[ast.Field(chain=["all_urls"])])
-
         is_exception_string_array_property = (
             property.type == "event" and property.key in EXCEPTION_STRING_ARRAY_PROPERTIES
         )
 
-        if is_exception_string_array_property:
+        array_field: ast.Expr | None = None
+        if is_visited_page_property:
+            # Use the all_urls array field to filter for pages visited during recording.
+            array_field = ast.Call(name="groupUniqArrayArray", args=[ast.Field(chain=["all_urls"])])
+        elif is_exception_string_array_property:
             # if materialized these columns will be strings so we need to extract them
-            extracted_field = ast.Call(
+            array_field = ast.Call(
                 name="JSONExtract",
                 args=[
                     ast.Call(name="ifNull", args=[field, ast.Constant(value="")]),
@@ -1356,61 +1382,22 @@ def property_to_expr(
                     PropertyOperator.IN_,
                     PropertyOperator.NOT_IN,
                 ):
-                    op = (
-                        ast.CompareOperationOp.In
-                        if operator in (PropertyOperator.EXACT, PropertyOperator.IN_)
-                        else ast.CompareOperationOp.NotIn
-                    )
-
-                    left = (
-                        ast.Field(chain=["v"])
-                        if (is_exception_string_array_property or is_visited_page_property)
-                        else expr
-                    )
                     coerced = cast(list, _coerce_numeric_value_for_string_property(value, property, team))
-                    compare_op = ast.CompareOperation(
-                        op=op,
-                        left=left,
-                        right=ast.Tuple(exprs=[ast.Constant(value=v) for v in coerced]),
+                    values = ast.Tuple(exprs=[ast.Constant(value=v) for v in coerced])
+                    negate = operator_is_negative(operator)
+                    if array_field is not None:
+                        return _array_property_filter(
+                            array_field,
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.In, left=ast.Field(chain=["v"]), right=values
+                            ),
+                            negate=negate,
+                        )
+                    return ast.CompareOperation(
+                        op=ast.CompareOperationOp.NotIn if negate else ast.CompareOperationOp.In,
+                        left=expr,
+                        right=values,
                     )
-
-                    if is_exception_string_array_property:
-                        return parse_expr(
-                            "arrayExists(v -> {compare_op}, {field})",
-                            {
-                                "compare_op": compare_op,
-                                "field": extracted_field,
-                            },
-                        )
-                    elif is_visited_page_property:
-                        return parse_expr(
-                            "arrayExists(v -> {compare_op}, {field})",
-                            {
-                                "compare_op": compare_op,
-                                "field": all_urls_field,
-                            },
-                        )
-                    else:
-                        return compare_op
-                elif operator in (PropertyOperator.ICONTAINS, PropertyOperator.NOT_ICONTAINS):
-                    # For contains operators, delegate to _expr_to_compare_op which handles multiple values efficiently
-                    if is_exception_string_array_property or is_visited_page_property:
-                        # For exception properties and visited_page, use multiSearch optimization within arrayExists
-                        multi_search_expr = _expr_to_compare_op(
-                            ast.Field(chain=["v"]), value, operator, property, property.type != "session", team
-                        )
-                        if is_exception_string_array_property:
-                            return parse_expr(
-                                "arrayExists(v -> {expr}, {key})",
-                                {"expr": multi_search_expr, "key": extracted_field},
-                            )
-                        else:  # is_visited_page_property
-                            return parse_expr(
-                                "arrayExists(v -> {expr}, {key})",
-                                {"expr": multi_search_expr, "key": all_urls_field},
-                            )
-                    else:
-                        return _expr_to_compare_op(expr, value, operator, property, property.type != "session", team)
 
                 exprs = [
                     property_to_expr(
@@ -1437,41 +1424,32 @@ def property_to_expr(
                     return ast.And(exprs=exprs)
                 return ast.Or(exprs=exprs)
 
-        expr = _expr_to_compare_op(
-            expr=ast.Field(chain=["v"]) if (is_exception_string_array_property or is_visited_page_property) else expr,
+        if array_field is None:
+            return _expr_to_compare_op(
+                expr=expr,
+                value=value,
+                operator=operator,
+                team=team,
+                property=property,
+                is_json_field=property.type != "session",
+            )
+
+        if operator in (PropertyOperator.IS_SET, PropertyOperator.IS_NOT_SET):
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt if operator == PropertyOperator.IS_SET else ast.CompareOperationOp.Eq,
+                left=ast.Call(name="length", args=[array_field]),
+                right=ast.Constant(value=0),
+            )
+
+        element_predicate = _expr_to_compare_op(
+            expr=ast.Field(chain=["v"]),
             value=value,
-            operator=operator,
+            operator=_NEGATIVE_OPERATOR_COMPLEMENTS.get(operator, operator),
             team=team,
             property=property,
             is_json_field=property.type != "session",
         )
-
-        if is_exception_string_array_property:
-            return parse_expr(
-                "arrayExists(v -> {expr}, {key})",
-                {"expr": expr, "key": extracted_field},
-            )
-        elif is_visited_page_property:
-            # Handle IS_SET and IS_NOT_SET operators specially for arrays
-            if operator == PropertyOperator.IS_SET:
-                return ast.CompareOperation(
-                    op=ast.CompareOperationOp.Gt,
-                    left=ast.Call(name="length", args=[all_urls_field]),
-                    right=ast.Constant(value=0),
-                )
-            elif operator == PropertyOperator.IS_NOT_SET:
-                return ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Call(name="length", args=[all_urls_field]),
-                    right=ast.Constant(value=0),
-                )
-            else:
-                return parse_expr(
-                    "arrayExists(v -> {expr}, {key})",
-                    {"expr": expr, "key": all_urls_field},
-                )
-        else:
-            return expr
+        return _array_property_filter(array_field, element_predicate, negate=operator_is_negative(operator))
     elif property.type == "element":
         if scope == "person":
             raise NotImplementedError(f"property_to_expr for scope {scope} not implemented for type '{property.type}'")
@@ -1917,17 +1895,3 @@ class _LowercaseIndexRewriter(CloningVisitor):
             right=right,
             op=op,
         )
-
-
-def operator_is_negative(operator: PropertyOperator) -> bool:
-    return operator in [
-        PropertyOperator.IS_NOT,
-        PropertyOperator.NOT_ICONTAINS,
-        PropertyOperator.NOT_ICONTAINS_MULTI,
-        PropertyOperator.NOT_STARTS_WITH,
-        PropertyOperator.NOT_ENDS_WITH,
-        PropertyOperator.NOT_REGEX,
-        PropertyOperator.IS_NOT_SET,
-        PropertyOperator.NOT_BETWEEN,
-        PropertyOperator.NOT_IN,
-    ]

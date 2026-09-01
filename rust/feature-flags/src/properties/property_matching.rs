@@ -69,9 +69,8 @@ pub fn to_f64_representation(value: &Value) -> Option<f64> {
 }
 
 /// Parses the property value being matched as f64, for the numeric comparison operators
-/// (Gt/Gte/Lt/Lte, Between/NotBetween). A missing or non-numeric value is a validation
-/// error here, distinct from `match_value.is_none()` short-circuiting earlier in each
-/// operator's match arm (to `Ok(false)`, except NotBetween's `Ok(true)`).
+/// (Gt/Gte/Lt/Lte). A missing or non-numeric value is a validation error here, distinct
+/// from `match_value.is_none()` short-circuiting to `Ok(false)` earlier in that match arm.
 fn parse_numeric_match_value(
     match_value: Option<&Value>,
     key: &str,
@@ -408,12 +407,6 @@ pub fn match_property(
             }
         }
         OperatorType::Between | OperatorType::NotBetween => {
-            if match_value.is_none() {
-                // Mirrors HogQL semantics (posthog/hogql/property.py): a missing value
-                // isn't in range, so Between doesn't match and its complement NotBetween does.
-                return Ok(operator == OperatorType::NotBetween);
-            }
-
             // Mirrors HogQL semantics (posthog/hogql/property.py): between is inclusive
             // on both ends, not_between is its complement, and the filter value must be
             // a two-element numeric array with min <= max.
@@ -451,7 +444,11 @@ pub fn match_property(
                 ));
             }
 
-            let parsed_value = parse_numeric_match_value(match_value, key, operator)?;
+            // A missing, null, or non-numeric value reads as NULL in HogQL, which is not in
+            // range: Between does not match and its complement NotBetween does.
+            let Some(parsed_value) = match_value.and_then(to_f64_representation) else {
+                return Ok(operator == OperatorType::NotBetween);
+            };
             if parsed_value.is_nan() {
                 // "NaN" parses successfully as f64::NAN rather than failing, but a NaN
                 // property value is malformed input, not a real number: it must be a
@@ -1914,28 +1911,6 @@ mod test_match_properties {
         )
         .expect("expected match to exist"));
 
-        // A missing person property isn't in range, so between doesn't match and its
-        // complement not_between does, mirroring HogQL semantics.
-        assert!(!match_property(&between, &HashMap::new(), false).expect("expected match to exist"));
-        let not_between = PropertyFilter {
-            operator: Some(OperatorType::NotBetween),
-            ..between.clone()
-        };
-        assert!(
-            match_property(&not_between, &HashMap::new(), false).expect("expected match to exist")
-        );
-
-        // Non-numeric person property value is a validation error (like Gt/Lt), which
-        // cohort evaluation resolves to a non-match
-        assert!(matches!(
-            match_property(
-                &between,
-                &HashMap::from([("key".to_string(), json!("abc"))]),
-                true
-            ),
-            Err(FlagMatchingError::ValidationError(_))
-        ));
-
         // A filter with no value is not a match
         let no_value = PropertyFilter {
             value: None,
@@ -1949,6 +1924,45 @@ mod test_match_properties {
         .expect("expected match to exist"));
     }
 
+    // Same inputs and outcomes as test_between_operators_treat_uncoercible_value_as_out_of_range in
+    // posthog/hogql/test/test_property.py, where such a value reads as NULL.
+    #[test_case(None, false, true; "absent")]
+    #[test_case(Some(json!(null)), false, true; "explicit null")]
+    #[test_case(Some(json!("abc")), false, true; "malformed")]
+    #[test_case(Some(json!("50")), true, false; "numeric string")]
+    #[test_case(Some(json!("NaN")), false, false; "NaN")]
+    #[test_case(Some(json!(50)), true, false; "in range")]
+    #[test_case(Some(json!(500)), false, true; "out of range")]
+    fn test_match_properties_between_operator_uncoercible_values(
+        property_value: Option<Value>,
+        expected_between: bool,
+        expected_not_between: bool,
+    ) {
+        let between = PropertyFilter {
+            key: "key".to_string(),
+            value: Some(json!([0, 100])),
+            operator: Some(OperatorType::Between),
+            prop_type: PropertyType::Person,
+            ..Default::default()
+        };
+        let not_between = PropertyFilter {
+            operator: Some(OperatorType::NotBetween),
+            ..between.clone()
+        };
+        let props: HashMap<String, Value> = property_value
+            .map(|v| HashMap::from([("key".to_string(), v)]))
+            .unwrap_or_default();
+
+        assert_eq!(
+            match_property(&between, &props, false).expect("expected match to exist"),
+            expected_between
+        );
+        assert_eq!(
+            match_property(&not_between, &props, false).expect("expected match to exist"),
+            expected_not_between
+        );
+    }
+
     #[test_case(json!(75000); "not an array")]
     #[test_case(json!([70000]); "one element")]
     #[test_case(json!([70000, 75000, 80000]); "three elements")]
@@ -1957,26 +1971,27 @@ mod test_match_properties {
     #[test_case(json!(["NaN", 80000]); "NaN lower bound")]
     #[test_case(json!([70000, "NaN"]); "NaN upper bound")]
     fn test_match_properties_between_operator_malformed_filter_value(filter_value: Value) {
+        // A malformed filter is rejected whether or not the entity carries the property, so a
+        // missing property cannot turn a filter HogQL refuses to run into a NotBetween match.
+        let property_maps = [
+            HashMap::from([("key".to_string(), json!(75000))]),
+            HashMap::new(),
+        ];
         for operator in [OperatorType::Between, OperatorType::NotBetween] {
             let property = PropertyFilter {
                 key: "key".to_string(),
                 value: Some(filter_value.clone()),
                 operator: Some(operator),
                 prop_type: PropertyType::Person,
-                group_type_index: None,
-                negation: None,
-                compiled_regex: None,
-                extra: Default::default(),
+                ..Default::default()
             };
 
-            assert!(matches!(
-                match_property(
-                    &property,
-                    &HashMap::from([("key".to_string(), json!(75000))]),
-                    true
-                ),
-                Err(FlagMatchingError::ValidationError(_))
-            ));
+            for props in &property_maps {
+                assert!(matches!(
+                    match_property(&property, props, false),
+                    Err(FlagMatchingError::ValidationError(_))
+                ));
+            }
         }
     }
 

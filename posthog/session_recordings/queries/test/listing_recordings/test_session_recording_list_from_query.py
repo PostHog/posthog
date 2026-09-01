@@ -3658,6 +3658,47 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [session_id_one, session_id_two],
         )
 
+    def test_filter_for_recordings_by_visited_page_negative_operator(self):
+        user = "test_visited_page_negative_filter-user"
+        create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        pricing_only = "pricing only session"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=pricing_only,
+            team_id=self.team.id,
+            all_urls=["https://example.com/home", "https://example.com/pricing"],
+        )
+        pricing_and_billing = "pricing and billing session"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=pricing_and_billing,
+            team_id=self.team.id,
+            all_urls=["https://example.com/pricing", "https://example.com/billing"],
+        )
+        no_urls = "no urls session"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=no_urls,
+            team_id=self.team.id,
+            all_urls=[],
+        )
+
+        # A negative filter applies to the whole recording: one visit to a matching page excludes it,
+        # and a recording with no pages cannot have visited one
+        self._assert_query_matches_session_ids(
+            {
+                "properties": '[{"key": "visited_page", "value": "billing", "operator": "not_icontains", "type": "recording"}]'
+            },
+            [pricing_only, no_urls],
+        )
+        self._assert_query_matches_session_ids(
+            {
+                "properties": '[{"key": "visited_page", "value": "billing", "operator": "icontains", "type": "recording"}]'
+            },
+            [pricing_and_billing],
+        )
+
     def test_duration_always_anded_with_visited_page_under_or(self):
         user = "test_duration_visited_page-user"
         create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})
