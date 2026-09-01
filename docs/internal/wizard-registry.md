@@ -68,7 +68,8 @@ Its command is empty, which keeps the Wizard package's default command.
 
 Cloud workers execute the program snapshot stored when the run was created.
 They do not evaluate the registry again.
+They run the pinned `wizard_version` from that snapshot, never a mutable tag such as `latest`.
 
 Program command tokens are positional command names.
-They appear after `@posthog/wizard@latest` and before worker-owned flags.
+They appear after `@posthog/wizard@{program.wizard_version}` and before worker-owned flags.
 Option flags and shell syntax are rejected, and every accepted token is shell-quoted before execution.
