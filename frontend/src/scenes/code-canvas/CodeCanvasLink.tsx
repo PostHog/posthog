@@ -44,27 +44,34 @@ export function CodeCanvasLink({ channelId, dashboardId }: CodeCanvasLinkProps):
         }
 
         let closeTimer: number | undefined
-        const stopWatchingForDesktop = (): void => {
+        let watchForDesktopTimer: number | undefined
+
+        function stopWatchingForDesktop(): void {
             document.removeEventListener('visibilitychange', closeAfterDesktopOpens)
         }
-        const closeAfterDesktopOpens = (): void => {
+
+        function closeAfterDesktopOpens(): void {
             if (document.visibilityState !== 'hidden' || closeTimer !== undefined) {
                 return
             }
 
-            window.clearTimeout(watchForDesktopTimer)
+            if (watchForDesktopTimer !== undefined) {
+                window.clearTimeout(watchForDesktopTimer)
+            }
             stopWatchingForDesktop()
             closeTimer = window.setTimeout(() => {
                 window.close()
             }, 5000)
         }
-        const watchForDesktopTimer = window.setTimeout(stopWatchingForDesktop, 2000)
 
+        watchForDesktopTimer = window.setTimeout(stopWatchingForDesktop, 2000)
         document.addEventListener('visibilitychange', closeAfterDesktopOpens)
         window.location.href = deepLink
 
         return () => {
-            window.clearTimeout(watchForDesktopTimer)
+            if (watchForDesktopTimer !== undefined) {
+                window.clearTimeout(watchForDesktopTimer)
+            }
             stopWatchingForDesktop()
             if (closeTimer !== undefined) {
                 window.clearTimeout(closeTimer)
