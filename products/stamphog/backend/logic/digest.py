@@ -4,7 +4,11 @@ Boring by design: ask a cheap model to drop the PRs that changed nothing a reade
 give the few that survive one plain sentence each. Any failure falls back to a deterministic list
 using each PR's title as its sentence, so a flaky model never loses a digest.
 
-Two calls, and the order is the point. The first picks the merges worth posting and writes one
+One rule runs before either call. A merge that owns a single file of a large change only swept this
+team up, so it is dropped here rather than described to the model, which has no diff to judge it by
+(see GRAZE_CHANGED_FILES).
+
+Then two calls, and the order is the point. The first picks the merges worth posting and writes one
 sentence each for the thread. The second writes the channel headline and is shown only what the
 first one kept, so a headline naming a change the thread does not carry is unreachable rather than
 forbidden. A single call had to be asked not to do it, and asking did not hold.
@@ -66,10 +70,19 @@ MAX_FALLBACK_PRS = 10
 # so a rule the model invented drops the merge instead of carrying it.
 KEEP_RULES = frozenset({"contract", "assumption", "decision", "customer"})
 
-# A team that owns exactly one file of a change this size was swept, not targeted. Derived from
-# what the audience row already carries, so it needs no capture-time decision. Flagged to the model
-# rather than dropped outright: a one-line change in a team's own product can still be the thing
-# that team needs to hear about, and only the diff says which it is.
+# A team that owns one source file of a change this size was swept, not targeted, and the merge is
+# taken out of that team's digest before the model reads it. Derived from what the audience row
+# already carries, so it needs no capture-time decision.
+#
+# This was a line in the prompt first, and the model kept a merge it had been told to drop. The
+# instruction asked for a judgment the prompt has no evidence for: the model sees the title, the
+# reviewed sentence and the paths, never the diff, so it cannot tell a one-file sweep from a
+# one-file change in the team's own area. Without the diff it falls back to what the PR was about,
+# which is the other team's announcement.
+#
+# The cost is accepted. A single-file change that a team really did need to hear about is now
+# silence for that team. The team that owns the rest of the merge still gets it, and a digest that
+# says nothing costs less than one that repeats another team's news.
 GRAZE_CHANGED_FILES = 8
 
 # Shared by both prompts. Who the digest is for decides what counts as worth saying, so the two
@@ -127,8 +140,10 @@ class DigestPRSummary:
 
 @frozen
 class DigestSummary:
-    # How many merged PRs the model was shown. The digest prints "3 of 11" from it, which is the
-    # line that stops a short digest from reading as everything that happened.
+    # How many merged PRs the audience claimed. The digest prints "3 of 11" from it, which is the
+    # line that stops a short digest from reading as everything that happened. Counted before the
+    # graze filter, so a team that was swept by eight merges still reads "0 of 8" rather than "0 of
+    # 0", which would say nothing landed in its area at all.
     considered: int
     # Prose about the changes that carry real consequence, and the only thing posted in the channel:
     # the per-PR lines go to its thread. Empty when the model judged nothing worth a channel-level
@@ -163,15 +178,18 @@ def _build_summary(
     return DigestSummary(considered=considered, headline=headline, prs=prs[:limit], judged=judged)
 
 
-def _fallback_summary(prs: list[PullRequest]) -> DigestSummary:
+def _fallback_summary(prs: list[PullRequest], considered: int) -> DigestSummary:
     """Deterministic no-LLM summary: no PR is judged, and each one's title becomes its sentence.
 
     Keeps the oldest MAX_FALLBACK_PRS merges and drops the rest. Without a model there is nothing
     to weigh, so which merges survive is merge order and not merit, and the reader gets a plain
     list rather than a digest. ``judged`` records that, because the post itself does not show it.
+
+    ``prs`` has already had the grazes taken out of it, so this path drops them too. That rule needs
+    no model, and an outage is the worst moment to post a team another team's news.
     """
     return _build_summary(
-        len(prs),
+        considered,
         [
             DigestPRSummary(
                 pr_number=pr.pr_number,
@@ -273,12 +291,8 @@ def _build_selection_prompt(prs: list[PullRequest], audiences: list[PullRequestA
         "A `your_files` line means this digest goes to the team owning those files, so judge the PR",
         "from their side: keep it when it changes how their area behaves, and drop it when it only",
         "grazed them (a repo-wide rename, a shared type bump, an import fix). Say what changed for",
-        "them, not what the PR was about overall.",
-        "",
-        "A `grazed` line means the team owns exactly one file of a large change. Drop the pull",
-        "request unless that one file changes how their area behaves. Being caught by a sweep is not",
-        "news. Treat this as an instruction and not a hint: an unexplained one-file touch is the",
-        "most common way this digest wastes a team's morning.",
+        "them, not what the PR was about overall. A line that would read the same in every team's",
+        "digest is a sign you wrote about the pull request instead of about their files.",
         "",
         "HOW TO WRITE THE LINE",
         "- One sentence. 20 words or fewer. Present tense. Active voice. One idea.",
@@ -343,8 +357,6 @@ def _build_selection_prompt(prs: list[PullRequest], audiences: list[PullRequestA
             if owned:
                 sample = _fenced(", ".join(owned))
                 lines.append(f"  <your_file_sample index={index}>{sample}</your_file_sample>")
-            if owned_count == 1 and pr.changed_files >= GRAZE_CHANGED_FILES:
-                lines.append(f"  grazed index={index}")
     return "\n".join(lines)
 
 
@@ -548,15 +560,56 @@ def _parse_selection(content: str, prs_by_index: dict[int, PullRequest]) -> list
     return picked
 
 
+def _grazed(pr: PullRequest, audience: PullRequestAudience | None) -> bool:
+    """True when this merge only swept the audience's team up, so the team is not told about it.
+
+    The test is the owned file count, never the path sample, which is capped and can be empty on a
+    row an older engine wrote. An audience whose count is zero is therefore never a graze: a
+    repo-declared audience asked for every merge in its repository, and a row carrying no count
+    says nothing either way. Both keep the merge and leave the judgment to the model.
+    """
+    return audience is not None and audience.owned_file_count == 1 and pr.changed_files >= GRAZE_CHANGED_FILES
+
+
+def _drop_grazes(
+    prs: list[PullRequest], audiences: list[PullRequestAudience] | None
+) -> tuple[list[PullRequest], list[PullRequestAudience] | None]:
+    """The merges this audience is actually told about, with its rows still positionally matched."""
+    if not audiences:
+        return prs, audiences
+
+    kept_prs = []
+    kept_audiences = []
+    for pr, audience in zip(prs, audiences):
+        if _grazed(pr, audience):
+            logger.info(
+                "stamphog_digest_graze_dropped",
+                pr_number=pr.pr_number,
+                audience_key=audience.audience_key,
+                changed_files=pr.changed_files,
+            )
+            continue
+        kept_prs.append(pr)
+        kept_audiences.append(audience)
+    return kept_prs, kept_audiences
+
+
 def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudience] | None = None) -> DigestSummary:
     """Summarize merged PRs into a digest, falling back to a plain list on any failure.
 
-    ``audiences`` is this channel's audience rows, positionally matching ``prs``. When a row is an
-    OWNED audience its file sample goes into the prompt, which is what lets the model drop a PR
-    that merely grazed the team's files while keeping one that changed their area.
+    ``audiences`` is this channel's audience rows, positionally matching ``prs``. A merge that only
+    grazed the team is dropped here, before any model reads it. What survives goes to the prompt
+    with its file sample, which is what lets the model tell a change in the team's area from a
+    sweep large enough to reach it through more than one file.
     """
     if not prs:
         return _build_summary(0, [])
+
+    # Everything the audience claimed, which is what the channel's "3 of 11" line counts.
+    considered = len(prs)
+    prs, audiences = _drop_grazes(prs, audiences)
+    if not prs:
+        return _build_summary(considered, [])
 
     team_id = prs[0].team_id
     try:
@@ -567,12 +620,12 @@ def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudi
         )
     except Exception as e:
         logger.warning("stamphog_digest_summarize_fallback", team_id=team_id, error=str(e))
-        return _fallback_summary(prs)
+        return _fallback_summary(prs, considered)
 
     # Built before the headline is asked for, so the headline call sees the railed list rather than
     # everything the model kept. A rail that trimmed the thread after the fact would reopen exactly
     # the gap this split closes, on the entries it cut.
-    summary = _build_summary(len(prs), picked)
+    summary = _build_summary(considered, picked)
     if not summary.prs:
         return summary
     return replace(summary, headline=_request_headline(client, team_id, summary.prs, prs))

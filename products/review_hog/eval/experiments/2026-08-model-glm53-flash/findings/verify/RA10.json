@@ -1,0 +1,6 @@
+{
+    "id": "RA10",
+    "real": false,
+    "source": "fresh",
+    "reasoning": "The pair is not redundant. default=False sets the Python-side value at instance construction; without it, a new unsaved instance holds Django's DatabaseDefault sentinel, breaking pre-save reads. db_default=False persists a DB-level DEFAULT so inserts omitting the column (old app code mid-deploy, raw SQL) satisfy NOT NULL; a plain default= migration drops the DB default after ALTER. The migration is makemigrations-generated (0019:1) from models.py:294, which declares both; hand-dropping default=False would create model/migration drift and a spurious follow-up migration. Every field on ReviewUserSettings uses this pattern (models.py:254, 293-300), so it is deliberate house convention, not an accident needing a rationale comment."
+}
