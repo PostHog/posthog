@@ -1988,7 +1988,9 @@ email@example.org,
         with capture_db_queries() as full_ctx:
             self.client.get(f"/api/projects/{self.team.id}/cohorts")
         full_sql = " ".join(q["sql"] for q in full_ctx.captured_queries)
-        self.assertIn("posthog_cohortcalculationhistory", full_sql)
+        # One correlated subquery returns both error fields as a JSON object, so the history
+        # table is scanned once per row. Two subqueries would scan it twice.
+        self.assertEqual(full_sql.count("posthog_cohortcalculationhistory"), 1)
         self.assertIn("posthog_experiment", full_sql)
 
         with capture_db_queries() as basic_ctx:

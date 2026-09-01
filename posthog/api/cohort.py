@@ -8,6 +8,7 @@ from copy import deepcopy
 from typing import Annotated, Any, ClassVar, Literal, Optional, Union, cast
 
 from django.db.models import OuterRef, QuerySet, Subquery
+from django.db.models.functions import JSONObject
 from django.utils import timezone
 
 import requests
@@ -694,10 +695,12 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 self.fields.pop(field_name, None)
 
     def get_last_error_message(self, cohort: Cohort) -> Optional[str]:
-        # Prefer the annotated last_error_code when available
-        if hasattr(cohort, "last_error_code"):
-            if cohort.last_error_code:
-                return get_friendly_error_message(cohort.last_error_code, getattr(cohort, "last_error_raw", None))
+        # Prefer the annotated error details when the queryset attached them (one correlated
+        # subquery over CohortCalculationHistory; see safely_get_queryset).
+        if hasattr(cohort, "last_error"):
+            error_details = cohort.last_error
+            if error_details and error_details.get("error_code"):
+                return get_friendly_error_message(error_details["error_code"], error_details.get("error"))
             return None
 
         # Fall back to querying calculation history.
@@ -1712,10 +1715,12 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 )
                 .exclude(error="")
                 .order_by("-started_at")
+                .annotate(error_details=JSONObject(error_code="error_code", error="error"))
             )
+            # One correlated subquery returns both fields as a JSON object; the serializer reads
+            # its keys. Two separate Subquery annotations would each scan the history table once.
             queryset = queryset.prefetch_related("experiment_set").annotate(
-                last_error_code=Subquery(last_failed_history.values("error_code")[:1]),
-                last_error_raw=Subquery(last_failed_history.values("error")[:1]),
+                last_error=Subquery(last_failed_history.values("error_details")[:1]),
             )
 
         if not search_ordered:
