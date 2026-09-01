@@ -238,6 +238,11 @@ describe('log-pattern-mask', () => {
             'checksum deadbeefdeadbeef00 verified',
             ...MESSAGE_KEYS.map((key) => JSON.stringify({ [key]: 'served 3 requests', level: 'info' })),
             '{"msg":"loses 2","message":"wins 1"}',
+            // Reach `extractJsonMessage` itself, not just the keys it reads. Widening it to accept a
+            // number, or trimming what it returns, reshapes real bodies while leaving every other
+            // corpus pattern byte-identical.
+            '{"msg":12345}',
+            '{"msg":"  padded 3  "}',
             '{"level":"info","count":3}',
             '{}',
             JSON.stringify(Object.fromEntries(Array.from({ length: 40 }, (_unused, index) => [`k${index}`, 1]))),
@@ -261,7 +266,7 @@ describe('log-pattern-mask', () => {
          * Versions before `RATCHET_FIRST_VERSION` predate this ratchet, so no digest was recorded for them.
          */
         const SHAPE_DIGESTS: Record<number, string> = {
-            3: '5e6a9ab3f22b15ea',
+            3: 'd7b045b1054244d1',
         }
 
         /**
