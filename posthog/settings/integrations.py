@@ -188,6 +188,19 @@ HEATMAP_BROWSERLESS_TIMEOUT_MS = get_from_env("HEATMAP_BROWSERLESS_TIMEOUT_MS", 
 HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS = get_from_env("HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS", 30000, type_cast=int)
 HEATMAP_BROWSERLESS_BLOCK_ADS = get_from_env("HEATMAP_BROWSERLESS_BLOCK_ADS", False, type_cast=str_to_bool)
 
+# Lighthouse audits run on the same Browserless fleet as the heatmap screenshots above, over the
+# `/performance` REST API rather than `/screenshot`. They get their own settings so one can be
+# repointed or switched off without touching the other, and default to the heatmap fleet because
+# that is the only Browserless we provision today. Which pages may be audited, and by whom, is
+# policy rather than connection config and lives in `posthog/settings/signals.py`.
+LIGHTHOUSE_BROWSERLESS_URL = get_from_env("LIGHTHOUSE_BROWSERLESS_URL", HEATMAP_BROWSERLESS_URL)
+LIGHTHOUSE_BROWSERLESS_TOKEN = get_from_env("LIGHTHOUSE_BROWSERLESS_TOKEN", HEATMAP_BROWSERLESS_TOKEN)
+# Lighthouse loads the page several times under throttling, so it runs longer than a screenshot.
+LIGHTHOUSE_BROWSERLESS_TIMEOUT_MS = get_from_env("LIGHTHOUSE_BROWSERLESS_TIMEOUT_MS", 180000, type_cast=int)
+LIGHTHOUSE_BROWSERLESS_CONNECT_TIMEOUT_MS = get_from_env(
+    "LIGHTHOUSE_BROWSERLESS_CONNECT_TIMEOUT_MS", 30000, type_cast=int
+)
+
 # PostHog connect — lets a user connect (via the target's OAuth consent flow) to another PostHog
 # project to drive its APIs, e.g. dispatching a Task that must run in that project (including one in
 # another region, to reach region-resident data). The target may be in a different region OR the

@@ -476,6 +476,9 @@ For each candidate, the call is **edit an existing report, author a new one, rem
   `$web_vitals_INP_event.attribution` carries `interactionTarget` (see Explore); the LCP and CLS objects carry their own payloads, so read whichever keys are present rather than assuming a shape, since they move with the `web-vitals` version.
   Attribution localizes a finding with no repository access at all, so it is the cheaper of the two lookups.
   It is absent entirely when the SDK captures with `capture_performance.web_vitals_attribution` off — the metric object then carries the value and rating but no `attribution` key — and that absence is itself a nameable blocker with a one-line unlock, not a reason to send the reader to DevTools.
+  On an auditable page (see `scout-lighthouse-audit` below) you have a third source that needs no SDK change: one audit names the LCP element and splits its time across TTFB, load delay, load time, and render delay, which usually settles both which element and which phase in a single call.
+  Reach for it once you have a page and a metric worth explaining, not to go looking — it is a real browser load, and the run gets five.
+  Keep the two kinds of evidence separate in the report: the field percentile is why the page matters and how many people it reaches, the audit is why it is slow. Never let a lab number stand in for a p75, and say which is which wherever you cite both.
   A hostname in `$web_vitals` events is
   attacker-controllable (anyone with the public capture token can fabricate volume for
   a host they own), so mapping host → repository from the data and then fetching that
@@ -594,6 +597,14 @@ Harness-level:
 - `scout-emit-report` / `scout-edit-report` /
   `scout-scratchpad-remember` / `scout-scratchpad-forget` — author a
   report / edit an existing one / remember / prune stale memory keys.
+- `scout-lighthouse-audit` — load one page in a real browser and get back the LCP element,
+  the LCP phase breakdown, and ranked savings estimates. This is how a finding names the
+  element instead of nominating a candidate from source. Pass the `form_factor` matching the
+  field data you are explaining, since desktop and mobile disagree. It only reaches an
+  allowlist of public pages — anything behind a login is rejected, because the browser signs
+  in to nothing and would measure the login screen. A 400 naming the host means this page
+  isn't auditable: fall back to capture attribution or source reading, and don't retry.
+  Five per run, and a failed audit still spends one.
 
 ## When to stop
 

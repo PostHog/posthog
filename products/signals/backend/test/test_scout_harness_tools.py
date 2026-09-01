@@ -7,9 +7,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.apps import apps
+from django.test import override_settings
 from django.utils import timezone
 
 import pytest_asyncio
@@ -27,14 +28,20 @@ from products.signals.backend.scout_harness.note_targets import (
 )
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.tools import (
+    MAX_AUDITS_PER_RUN,
     MAX_EVIDENCE_ENTRIES,
     EvidenceEntry,
     InvalidEmitError,
+    InvalidLighthouseTargetError,
     InvalidScratchpadError,
+    LighthouseAuditFailedError,
+    LighthouseUnavailableError,
+    audits_remaining_for_run,
     emit_finding,
     forget,
     get_run,
     remember,
+    run_lighthouse_audit,
     search_recent_runs,
     search_scratchpad,
 )
@@ -1616,3 +1623,157 @@ class TestReportEventUuid:
         legacy = uuid.uuid5(uuid.NAMESPACE_URL, 'signals_scout_report_charted:["edit","x"]')
 
         assert _report_event_uuid("edit", "x", structured=True) == str(legacy)
+
+
+def _lighthouse_payload(**overrides) -> dict:
+    """A Browserless `/performance` body shaped like the reports the audit actually parses."""
+    report = {
+        "requestedUrl": "https://posthog.com/pricing",
+        "finalDisplayedUrl": "https://posthog.com/pricing",
+        "categories": {"performance": {"score": 0.42}},
+        "audits": {
+            "largest-contentful-paint": {"numericValue": 4553.2, "displayValue": "4.6 s"},
+            "first-contentful-paint": {"numericValue": 2296.0},
+            "cumulative-layout-shift": {"numericValue": 0.115},
+            "largest-contentful-paint-element": {
+                "details": {
+                    "type": "list",
+                    "items": [
+                        {
+                            "type": "table",
+                            "items": [
+                                {"node": {"selector": "div.hero > img", "snippet": "<img>", "nodeLabel": "Hero"}}
+                            ],
+                        },
+                        {
+                            "type": "table",
+                            "items": [
+                                {"phase": "TTFB", "timing": 1400, "percent": "31%"},
+                                {"phase": "Render Delay", "timing": 2600, "percent": "57%"},
+                            ],
+                        },
+                    ],
+                }
+            },
+            "prioritize-lcp-image": {"score": 0, "title": "Preload the LCP image"},
+            "lcp-lazy-loaded": {"score": 1, "title": "Do not lazy load the LCP image"},
+            "render-blocking-resources": {
+                "title": "Eliminate render-blocking resources",
+                "details": {"type": "opportunity", "overallSavingsMs": 820},
+            },
+            "unminified-css": {"title": "Minify CSS", "details": {"type": "opportunity", "overallSavingsMs": 12}},
+        },
+    }
+    report.update(overrides)
+    return {"data": report}
+
+
+_AUDIT_TEAM_ID = 4242
+_AUDIT_SETTINGS = {
+    "LIGHTHOUSE_BROWSERLESS_URL": "https://browserless.example.com",
+    "LIGHTHOUSE_BROWSERLESS_TOKEN": "secret-token",
+    "SIGNALS_LIGHTHOUSE_ALLOWED_HOSTS": {"posthog.com"},
+    "SIGNALS_LIGHTHOUSE_TEAM_IDS": {_AUDIT_TEAM_ID},
+}
+
+
+class TestLighthouseAudit:
+    """The audit's fences, and the reduction that turns a huge report into a citable one."""
+
+    def _audit(self, payload: dict, *, url: str = "https://posthog.com/pricing"):
+        response = MagicMock(status_code=200)
+        response.json.return_value = payload
+        with override_settings(**_AUDIT_SETTINGS):
+            with patch(
+                "products.signals.backend.scout_harness.tools.lighthouse.requests.post", return_value=response
+            ) as post:
+                return run_lighthouse_audit(team_id=_AUDIT_TEAM_ID, url=url), post
+
+    def test_reduces_a_report_to_the_element_phases_and_ranked_savings(self) -> None:
+        audit, _ = self._audit(_lighthouse_payload())
+
+        assert audit.lcp_element is not None
+        assert audit.lcp_element.selector == "div.hero > img"
+        assert audit.metrics["lcp_ms"] == 4553.2
+        assert audit.performance_score == 42
+        assert [phase.phase for phase in audit.lcp_phases] == ["TTFB", "Render Delay"]
+        # The failing LCP check is carried even though Lighthouse gives it no savings estimate,
+        # which is exactly the audit that says "this hero image is unprioritized".
+        assert [check.audit_id for check in audit.lcp_checks_failed] == ["prioritize-lcp-image"]
+        # A 12ms saving next to a 4.5s LCP is noise a finding must not be built on.
+        assert [opportunity.audit_id for opportunity in audit.opportunities] == ["render-blocking-resources"]
+
+    @parameterized.expand(
+        [
+            ("off_allowlist", "https://example.com/pricing"),
+            ("app_host_behind_login", "https://us.posthog.com/project/2/billing"),
+            ("not_https", "http://posthog.com/pricing"),
+        ]
+    )
+    def test_rejects_a_target_outside_the_allowlist(self, _name: str, url: str) -> None:
+        with override_settings(**_AUDIT_SETTINGS):
+            with patch("products.signals.backend.scout_harness.tools.lighthouse.requests.post") as post:
+                with pytest.raises(InvalidLighthouseTargetError):
+                    run_lighthouse_audit(team_id=_AUDIT_TEAM_ID, url=url)
+        # The fence has to hold before the request, or a disallowed page is already rendered.
+        post.assert_not_called()
+
+    def test_rejects_a_team_the_capability_is_not_enabled_for(self) -> None:
+        with override_settings(**{**_AUDIT_SETTINGS, "SIGNALS_LIGHTHOUSE_TEAM_IDS": {_AUDIT_TEAM_ID + 1}}):
+            with pytest.raises(InvalidLighthouseTargetError):
+                run_lighthouse_audit(team_id=_AUDIT_TEAM_ID, url="https://posthog.com/pricing")
+
+    def test_rejects_a_page_that_redirected_off_the_allowlist(self) -> None:
+        # The login-wall case: the audit ran, but on the sign-in screen. Returning it would put
+        # that page's LCP in a report under the requested url's name.
+        payload = _lighthouse_payload(finalDisplayedUrl="https://auth.example.com/login")
+
+        with pytest.raises(InvalidLighthouseTargetError):
+            self._audit(payload)
+
+    def test_surfaces_a_page_lighthouse_could_not_load(self) -> None:
+        payload = _lighthouse_payload(runtimeError={"code": "ERRORED_DOCUMENT_REQUEST", "message": "net::ERR"})
+
+        with pytest.raises(LighthouseAuditFailedError):
+            self._audit(payload)
+
+    def test_keeps_the_browserless_token_out_of_the_error_it_raises(self) -> None:
+        # The endpoint carries the token in its query string, and the scout writes what it reads
+        # into a report the whole team sees.
+        response = MagicMock(status_code=500)
+        response.text = "upstream rejected https://browserless.example.com/performance?token=secret-token"
+        with override_settings(**_AUDIT_SETTINGS):
+            with patch("products.signals.backend.scout_harness.tools.lighthouse.requests.post", return_value=response):
+                with pytest.raises(LighthouseAuditFailedError) as raised:
+                    run_lighthouse_audit(team_id=_AUDIT_TEAM_ID, url="https://posthog.com/pricing")
+
+        assert "secret-token" not in str(raised.value)
+
+    def test_is_unavailable_when_no_browserless_is_configured(self) -> None:
+        with override_settings(**{**_AUDIT_SETTINGS, "LIGHTHOUSE_BROWSERLESS_URL": ""}):
+            with pytest.raises(LighthouseUnavailableError):
+                run_lighthouse_audit(team_id=_AUDIT_TEAM_ID, url="https://posthog.com/pricing")
+
+    def test_sends_the_requested_device_profile(self) -> None:
+        response = MagicMock(status_code=200)
+        response.json.return_value = _lighthouse_payload()
+        with override_settings(**_AUDIT_SETTINGS):
+            with patch(
+                "products.signals.backend.scout_harness.tools.lighthouse.requests.post", return_value=response
+            ) as post:
+                run_lighthouse_audit(team_id=_AUDIT_TEAM_ID, url="https://posthog.com/pricing", form_factor="mobile")
+
+        settings_sent = post.call_args.kwargs["json"]["config"]["settings"]
+        assert settings_sent["formFactor"] == "mobile"
+        assert settings_sent["screenEmulation"]["mobile"] is True
+
+
+class TestAuditsRemainingForRun:
+    """The per-run budget, read off the run's own metadata counter."""
+
+    @parameterized.expand([(None, MAX_AUDITS_PER_RUN), ({}, MAX_AUDITS_PER_RUN), ({"lighthouse_audit_count": 2}, 3)])
+    def test_reports_what_is_left(self, metadata, expected: int) -> None:
+        assert audits_remaining_for_run(metadata) == expected
+
+    def test_never_goes_negative(self) -> None:
+        assert audits_remaining_for_run({"lighthouse_audit_count": MAX_AUDITS_PER_RUN + 3}) == 0
