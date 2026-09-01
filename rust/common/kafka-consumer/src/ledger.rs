@@ -45,12 +45,12 @@ impl OffsetLedger {
         let mut total = Charge::ZERO;
         for (offset, charge) in offsets {
             let base_offset = *self.base_offset.get_or_insert(offset);
-            let end_offset = base_offset + self.slots.len();
+            let next_offset = base_offset + self.slots.len();
             assert!(
-                offset >= end_offset,
-                "offset {offset} was not delivered in order"
+                offset >= next_offset,
+                "offset {offset} delivered below the window's next offset {next_offset}"
             );
-            for _ in 0..offset - end_offset {
+            for _ in 0..offset - next_offset {
                 self.slots.push_back(Slot {
                     complete: true,
                     charge: Charge::ZERO,
