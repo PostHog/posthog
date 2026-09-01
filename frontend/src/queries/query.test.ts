@@ -3,7 +3,13 @@ import posthog from 'posthog-js'
 import api, { ApiError } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
-import { performQuery, pollForResults, queryExportContext, waitForPageVisible } from '~/queries/query'
+import {
+    performQuery,
+    pollForResults,
+    QueryPhaseTimings,
+    queryExportContext,
+    waitForPageVisible,
+} from '~/queries/query'
 import { EventsQuery, HogQLQuery, NodeKind, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -100,7 +106,14 @@ describe('query', () => {
         await performQuery(q)
         const queryCompletedCalls = captureSpy.mock.calls.filter((call) => call[0] === 'query completed')
         expect(queryCompletedCalls).toHaveLength(1)
-        expect(queryCompletedCalls[0][1]).toMatchObject({ query: q, duration: expect.any(Number) })
+        expect(queryCompletedCalls[0][1]).toMatchObject({
+            query: q,
+            duration: expect.any(Number),
+            request_duration: expect.any(Number),
+        })
+        // A query answered without polling must report no poll time, so its duration can never be
+        // read as time spent waiting on the async queue.
+        expect(queryCompletedCalls[0][1]).not.toHaveProperty('poll_duration')
     })
 
     it('emits a specific event on a HogQLQuery', async () => {
@@ -280,6 +293,49 @@ describe('query', () => {
             })
 
             await expect(promise).resolves.toMatchObject({ complete: true, results: ['ok'] })
+        })
+
+        it('reports time spent hidden apart from the rest of the poll loop', async () => {
+            Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+
+            let now = 0
+            jest.spyOn(performance, 'now').mockImplementation(() => now)
+
+            jest.spyOn(api.queryStatus, 'get')
+                .mockImplementationOnce(async () => {
+                    now += 500
+                    return { query_status: { complete: false } } as any
+                })
+                .mockImplementationOnce(async () => {
+                    now += 500
+                    return { query_status: { complete: true, results: ['ok'] } } as any
+                })
+
+            const timings: QueryPhaseTimings = {}
+            const promise = pollForResults(
+                'test-query-id',
+                undefined,
+                () => {
+                    // Background the tab for a minute between the two status requests.
+                    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+                    setTimeout(() => {
+                        now += 60000
+                        Object.defineProperty(document, 'visibilityState', {
+                            value: 'visible',
+                            configurable: true,
+                        })
+                        document.dispatchEvent(new Event('visibilitychange'))
+                    }, 0)
+                },
+                timings
+            )
+
+            await expect(promise).resolves.toMatchObject({ complete: true })
+            expect(timings).toEqual({
+                poll_count: 2,
+                poll_hidden_duration: 60000,
+                poll_duration: 61000,
+            })
         })
     })
 

@@ -65,6 +65,23 @@ const QUERY_ASYNC_TOTAL_POLL_SECONDS = 10 * 60 + 6 // keep in sync with backend-
 export const QUERY_TIMEOUT_ERROR_MESSAGE = 'Query timed out'
 
 /**
+ * The phases the client-observed query duration is made of. `duration` on its own spans the
+ * request, the async poll loop, and any time the tab sat in the background, while the server
+ * reports only its own handling time. That leaves the difference between the two unattributable,
+ * so a move in `duration` cannot be traced to a layer.
+ */
+export interface QueryPhaseTimings {
+    /** The initial request that starts the query. Absent when only polling an existing query id. */
+    request_duration?: number
+    /** The async poll loop, end to end. Absent when the query answered without polling. */
+    poll_duration?: number
+    /** Status requests the poll loop made before the query finished. */
+    poll_count?: number
+    /** Poll-loop time spent waiting for a backgrounded tab to come back, which no server sees. */
+    poll_hidden_duration?: number
+}
+
+/**
  * Parse error message that may be in ErrorDetail string format.
  * Backend sometimes serializes ValidationError.detail as a string like:
  * "[ErrorDetail(string='Message', code='code')]"
@@ -114,42 +131,61 @@ export function queryExportContext<N extends DataNode>(
 export async function pollForResults(
     queryId: string,
     methodOptions?: ApiMethodOptions,
-    onPoll?: (response: QueryStatus) => void
+    onPoll?: (response: QueryStatus) => void,
+    timings?: QueryPhaseTimings
 ): Promise<QueryStatus> {
     // Measured only across time spent actually polling (page visible), not raw wall-clock time -
     // otherwise a backgrounded tab burns down the deadline via waitForPageVisible below without
     // ever getting a chance to poll, and the query "times out" despite never really being tried.
     let activeElapsedMs = 0
     let currentDelay = 300 // start low, because all queries will take at minimum this
+    const pollStart = performance.now()
+    let hiddenMs = 0
+    let pollCount = 0
 
-    while (activeElapsedMs < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
-        await waitForPageVisible(methodOptions?.signal)
-        const iterationStart = performance.now()
-        await delay(currentDelay, methodOptions?.signal)
-        currentDelay = Math.min(currentDelay * 1.25, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
-        activeElapsedMs += performance.now() - iterationStart
-
-        try {
-            const statusResponse = (await api.queryStatus.get(queryId, true)).query_status
-            if (statusResponse.complete) {
-                return statusResponse
-            }
-            if (onPoll) {
-                onPoll(statusResponse)
-            }
-        } catch (e: any) {
-            // Parse error message to extract clean message and code if present
-            const parsed = parseErrorMessage(e.data?.query_status?.error_message ?? e.data?.detail ?? e.detail)
-            e.detail = parsed.message
-
-            // Prefer the structured code from QueryStatus over one parsed out of the message
-            e.code = e.data?.query_status?.error_code ?? e.data?.code ?? parsed.code ?? e.code
-
-            // Attach queryId to error for downstream error handling
-            e.queryId = queryId
-
-            throw e
+    const recordTimings = (): void => {
+        if (timings) {
+            timings.poll_duration = performance.now() - pollStart
+            timings.poll_hidden_duration = hiddenMs
+            timings.poll_count = pollCount
         }
+    }
+
+    try {
+        while (activeElapsedMs < QUERY_ASYNC_TOTAL_POLL_SECONDS * 1000) {
+            const hiddenStart = performance.now()
+            await waitForPageVisible(methodOptions?.signal)
+            hiddenMs += performance.now() - hiddenStart
+            const iterationStart = performance.now()
+            await delay(currentDelay, methodOptions?.signal)
+            currentDelay = Math.min(currentDelay * 1.25, QUERY_ASYNC_MAX_INTERVAL_SECONDS * 1000)
+            activeElapsedMs += performance.now() - iterationStart
+
+            try {
+                pollCount += 1
+                const statusResponse = (await api.queryStatus.get(queryId, true)).query_status
+                if (statusResponse.complete) {
+                    return statusResponse
+                }
+                if (onPoll) {
+                    onPoll(statusResponse)
+                }
+            } catch (e: any) {
+                // Parse error message to extract clean message and code if present
+                const parsed = parseErrorMessage(e.data?.query_status?.error_message ?? e.data?.detail ?? e.detail)
+                e.detail = parsed.message
+
+                // Prefer the structured code from QueryStatus over one parsed out of the message
+                e.code = e.data?.query_status?.error_code ?? e.data?.code ?? parsed.code ?? e.code
+
+                // Attach queryId to error for downstream error handling
+                e.queryId = queryId
+
+                throw e
+            }
+        }
+    } finally {
+        recordTimings()
     }
 
     // if we get here, the query timed out
@@ -180,19 +216,25 @@ async function executeQuery<N extends DataNode>(
      * (stale-while-revalidate: `is_cached` is true *and* an incomplete `query_status` is
      * attached), return the cached results immediately instead of blocking on the recompute.
      */
-    acceptStaleCache = false
+    acceptStaleCache = false,
+    timings: QueryPhaseTimings = {}
 ): Promise<NonNullable<N['response']>> {
     if (!pollOnly) {
         const refreshParam: RefreshType = refresh || 'blocking'
 
-        const response = await api.query(queryNode, {
-            requestOptions: methodOptions,
-            clientQueryId: queryId,
-            refresh: refreshParam,
-            filtersOverride,
-            variablesOverride,
-            limitContext,
-        })
+        const requestStart = performance.now()
+        const response = await api
+            .query(queryNode, {
+                requestOptions: methodOptions,
+                clientQueryId: queryId,
+                refresh: refreshParam,
+                filtersOverride,
+                variablesOverride,
+                limitContext,
+            })
+            .finally(() => {
+                timings.request_duration = performance.now() - requestStart
+            })
 
         if (response.detail) {
             throw new Error(response.detail)
@@ -219,7 +261,7 @@ async function executeQuery<N extends DataNode>(
         }
     }
 
-    const statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
+    const statusResponse = await pollForResults(queryId, methodOptions, setPollResponse, timings)
     return statusResponse.results
 }
 
@@ -238,6 +280,7 @@ export async function performQuery<N extends DataNode>(
 ): Promise<NonNullable<N['response']>> {
     let response: NonNullable<N['response']>
     const logParams: Record<string, any> = {}
+    const timings: QueryPhaseTimings = {}
     const startTime = performance.now()
 
     try {
@@ -254,7 +297,8 @@ export async function performQuery<N extends DataNode>(
                 variablesOverride,
                 pollOnly,
                 limitContext,
-                acceptStaleCache
+                acceptStaleCache,
+                timings
             )
             if (isHogQLQuery(queryNode) && response && typeof response === 'object') {
                 logParams.clickhouse_sql = (response as HogQLQueryResponse)?.clickhouse
@@ -280,6 +324,7 @@ export async function performQuery<N extends DataNode>(
             uses_data_warehouse_source: warehouseSources.length > 0 || queryUsesDataWarehouse(queryNode),
             data_warehouse_source_ids: warehouseSources.map((s) => s.id),
             data_warehouse_source_types: warehouseSources.map((s) => s.source_type).filter(Boolean),
+            ...timings,
             ...logParams,
         })
         return response
@@ -296,6 +341,7 @@ export async function performQuery<N extends DataNode>(
                 error_status: error?.status ?? null,
                 error_code: error?.code ?? null,
                 uses_data_warehouse_source: queryUsesDataWarehouse(queryNode),
+                ...timings,
                 ...logParams,
             })
         }
