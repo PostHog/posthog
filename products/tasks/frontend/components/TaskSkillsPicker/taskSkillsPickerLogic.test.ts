@@ -65,6 +65,17 @@ describe('taskSkillsPickerLogic', () => {
         expect(mockSkillsList).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ search: 'error' }))
     })
 
+    it('does not reload when the input resets to the current search', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.ensureOptionsLoaded()
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.actions.setSearch('')
+        }).toFinishAllListeners()
+
+        expect(mockSkillsList).toHaveBeenCalledTimes(1)
+    })
+
     it('appends the next page from the end of what is already loaded', async () => {
         respondWith(['a', 'b'], 4)
         await expectLogic(logic, () => {
@@ -73,7 +84,7 @@ describe('taskSkillsPickerLogic', () => {
 
         respondWith(['c', 'd'], 4)
         await expectLogic(logic, () => {
-            logic.actions.loadOptions({ append: true })
+            logic.actions.loadNextPage()
         }).toFinishAllListeners()
 
         expect(mockSkillsList).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ offset: 2 }))
@@ -89,7 +100,7 @@ describe('taskSkillsPickerLogic', () => {
             logic.actions.ensureOptionsLoaded()
         }).toFinishAllListeners()
         await expectLogic(logic, () => {
-            logic.actions.loadOptions({ append: true })
+            logic.actions.loadNextPage()
         }).toFinishAllListeners()
 
         respondWith(['error-triage'], 1)
@@ -104,6 +115,26 @@ describe('taskSkillsPickerLogic', () => {
         expect(logic.values.skillOptions.map((skill) => skill.name)).toEqual(['error-triage'])
     })
 
+    it('ignores load more while a replacement search is pending', async () => {
+        respondWith(['a', 'b'], 4)
+        await expectLogic(logic, () => {
+            logic.actions.ensureOptionsLoaded()
+        }).toFinishAllListeners()
+
+        respondWith(['error-triage'], 1)
+        await expectLogic(logic, () => {
+            logic.actions.setSearch('error')
+            logic.actions.loadNextPage()
+        }).toFinishAllListeners()
+
+        expect(mockSkillsList).toHaveBeenCalledTimes(2)
+        expect(mockSkillsList).toHaveBeenLastCalledWith(
+            expect.any(String),
+            expect.objectContaining({ offset: 0, search: 'error' })
+        )
+        expect(logic.values.skillOptions.map((skill) => skill.name)).toEqual(['error-triage'])
+    })
+
     it('knows when more skills are waiting behind the loaded page', async () => {
         respondWith(['a', 'b'], 4)
         await expectLogic(logic, () => {
@@ -114,7 +145,7 @@ describe('taskSkillsPickerLogic', () => {
 
         respondWith(['c', 'd'], 4)
         await expectLogic(logic, () => {
-            logic.actions.loadOptions({ append: true })
+            logic.actions.loadNextPage()
         }).toFinishAllListeners()
 
         expect(logic.values.hasMoreSkills).toBe(false)

@@ -1324,11 +1324,10 @@ class HogFlowActionSerializer(serializers.Serializer):
         skills = (inputs.get("skills") or {}).get("value")
         if skills:
             get_team = self.context.get("get_team")
-            # Skills are team-scoped, so no owner is needed. Keeping the check owner-free means a
-            # workflow stays saveable after its owner changes.
-            if get_team is not None:
+            owner_id = self.context.get("workflow_owner_id")
+            if get_team is not None and owner_id is not None:
                 try:
-                    validate_skill_names(get_team().id, skills)
+                    validate_skill_names(get_team(), owner_id, skills)
                 except WorkflowTaskSkillsInvalid as e:
                     raise serializers.ValidationError({"inputs": {"skills": str(e)}})
 

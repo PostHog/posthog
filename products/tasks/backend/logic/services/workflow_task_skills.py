@@ -16,6 +16,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.skills.backend.api.skill_services import skill_name_is_well_formed
 from products.skills.backend.models.skills import LLMSkill
 
 logger = structlog.get_logger(__name__)
@@ -53,26 +54,45 @@ def select_skill_names(names: list[str] | None) -> list[str]:
     return list(dict.fromkeys(names))[:MAX_ATTACHED_SKILLS]
 
 
-def validate_skill_names(team_id: int, names: list[str] | None) -> None:
-    """Raise `WorkflowTaskSkillsInvalid` for a name that has never been a skill on this team.
+def validate_skill_names(team: Team, owner_id: int, names: list[str] | None) -> None:
+    """Raise `WorkflowTaskSkillsInvalid` for a name the workflow owner cannot use.
 
     Called from the workflows product when a "Create AI task" action is saved, so a typo from a
     programmatic author fails at save time instead of quietly shrinking the manifest on every fire.
 
-    Existence is checked without `deleted=False` on purpose. Archiving soft-deletes every version
-    of a skill, and the fire path drops one it cannot resolve and runs anyway, so an archived
-    skill must not make its workflow unsaveable. This is weaker than the connector check because
-    the failure it guards is weaker: a dead connector leaves the prompt assuming a tool the run
-    never mounts, while a dead skill only costs the run one manifest line.
+    An archived skill remains valid when the owner could read one of its versions. The fire path
+    drops it and runs anyway, so archiving must not make its workflow unsaveable.
     """
     if not names:
         return
     if len(names) > MAX_ATTACHED_SKILLS:
         raise WorkflowTaskSkillsInvalid(f"Attach at most {MAX_ATTACHED_SKILLS} skills to one task step.")
-    known = set(LLMSkill.objects.filter(team_id=team_id, name__in=names).values_list("name", flat=True))
-    unknown = sorted(set(names) - known)
-    if unknown:
-        raise WorkflowTaskSkillsInvalid(f"Skill(s) not found: {unknown}", invalid_names=unknown)
+    requested = set(names)
+    valid_names = {name for name in requested if skill_name_is_well_formed(name)}
+    owner = User.objects.filter(id=owner_id).first()
+
+    readable_names: set[str] = set()
+    if owner is not None and valid_names:
+        access_control = UserAccessControl(user=owner, team=team)
+        active_candidates = LLMSkill.objects.filter(team=team, name__in=valid_names, deleted=False, is_latest=True)
+        active_names = set(active_candidates.values_list("name", flat=True))
+        readable_names.update(
+            access_control.filter_queryset_by_access_level(active_candidates, resource="llm_skill").values_list(
+                "name", flat=True
+            )
+        )
+
+        archived_only_names = valid_names - active_names
+        archived_candidates = LLMSkill.objects.filter(team=team, name__in=archived_only_names, deleted=True)
+        readable_names.update(
+            access_control.filter_queryset_by_access_level(archived_candidates, resource="llm_skill").values_list(
+                "name", flat=True
+            )
+        )
+
+    unavailable = sorted(requested - readable_names)
+    if unavailable:
+        raise WorkflowTaskSkillsInvalid(f"Skill(s) not found or unavailable: {unavailable}", invalid_names=unavailable)
 
 
 def resolve_attached_skills(team: Team, owner: User, names: list[str] | None) -> list[AttachedSkill]:
@@ -88,9 +108,10 @@ def resolve_attached_skills(team: Team, owner: User, names: list[str] | None) ->
     checks access itself when the agent calls. Filtering now stops the manifest promising a
     skill the agent will then be refused.
     """
-    wanted = select_skill_names(names)
-    if not wanted:
+    requested = select_skill_names(names)
+    if not requested:
         return []
+    wanted = [name for name in requested if skill_name_is_well_formed(name)]
 
     # Not `get_active_skill_queryset`: it annotates version-history metadata with three
     # correlated subqueries per row, none of which the manifest reads.
@@ -103,7 +124,7 @@ def resolve_attached_skills(team: Team, owner: User, names: list[str] | None) ->
         for name, version, description in readable.values_list("name", "version", "description")
     }
 
-    unresolved = [name for name in wanted if name not in live]
+    unresolved = [name for name in requested if name not in live]
     if unresolved:
         logger.warning(
             "workflow_task_skills_unresolved",
@@ -124,9 +145,10 @@ def _manifest_line(skill: AttachedSkill) -> str:
     # its tail read as the next skill's name. Collapsing every run of whitespace also folds the
     # tabs and carriage returns that survive a copy and paste into the store.
     description = " ".join(skill.description.split())[:MANIFEST_DESCRIPTION_MAX_CHARS]
+    name = " ".join(skill.name.split()).replace("`", "\\`")
     if not description:
-        return f"- `{skill.name}` (v{skill.version})"
-    return f"- `{skill.name}` (v{skill.version}): {description}"
+        return f"- `{name}` (v{skill.version})"
+    return f"- `{name}` (v{skill.version}): {description}"
 
 
 def render_skills_manifest(skills: list[AttachedSkill]) -> str:

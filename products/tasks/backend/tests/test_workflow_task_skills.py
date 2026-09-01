@@ -75,6 +75,19 @@ class TestRenderSkillsManifest(SimpleTestCase):
         self.assertEqual(len(lines), 2)
         self.assertIn("First line. Second line.", lines[0])
 
+    @parameterized.expand(
+        [
+            ("newline", "error\ntriage", "`error triage`"),
+            ("backtick", "error`triage", "`error\\`triage`"),
+        ]
+    )
+    def test_a_name_cannot_break_out_of_its_line(self, _name: str, skill_name: str, expected: str) -> None:
+        manifest = render_skills_manifest([_skill(skill_name), _skill("db-runbook")])
+
+        lines = [line for line in manifest.splitlines() if line.startswith("- ")]
+        self.assertEqual(len(lines), 2)
+        self.assertIn(expected, lines[0])
+
     def test_a_long_description_is_clamped(self) -> None:
         manifest = render_skills_manifest([_skill("error-triage", description="x" * 900)])
 

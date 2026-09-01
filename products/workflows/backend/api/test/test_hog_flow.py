@@ -5491,7 +5491,50 @@ class TestCreateTaskActionValidation(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "actions__1__inputs__skills"
+        assert "not found or unavailable" in response.json()["detail"]
         assert not HogFlow.objects.filter(team=self.team).exists()
+
+    def test_rejects_a_skill_the_workflow_owner_cannot_read(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        owner = User.objects.create_and_join(self.organization, "workflow-owner@posthog.com", "pw")
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="member"
+        )
+        AccessControl.objects.create(team=self.team, resource="llm_skill", resource_id=None, access_level="none")
+        LLMSkill.objects.create(
+            team=self.team,
+            name="restricted-skill",
+            description="Private procedure.",
+            body="# restricted-skill",
+            created_by=self.user,
+        )
+        self.client.force_login(owner)
+
+        response = self._post_flow({"skills": {"value": ["restricted-skill"]}})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "actions__1__inputs__skills"
+        assert "not found or unavailable" in response.json()["detail"]
+
+    @parameterized.expand([("slash", "Bad/Name"), ("newline", "bad\nname"), ("backtick", "bad`name")])
+    def test_rejects_a_malformed_legacy_skill_name(self, _name, skill_name):
+        LLMSkill.objects.create(
+            team=self.team,
+            name=skill_name,
+            description="Legacy procedure.",
+            body="# legacy",
+            created_by=self.user,
+        )
+
+        response = self._post_flow({"skills": {"value": [skill_name]}})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "actions__1__inputs__skills"
+        assert "not found or unavailable" in response.json()["detail"]
 
     def test_accepts_a_skill_name_that_exists(self):
         # products.workflows may not depend on products.skills' models directly (tach

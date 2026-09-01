@@ -33,9 +33,13 @@ export interface taskSkillsPickerLogicActions {
     ensureOptionsLoaded: () => {
         value: true
     }
-    loadOptions: ({ append, debounce }?: { append?: boolean; debounce?: boolean }) => {
+    loadNextPage: () => {
+        value: true
+    }
+    loadOptions: ({ append, debounce, search }: { append?: boolean; debounce?: boolean; search: string }) => {
         append?: boolean
         debounce?: boolean
+        search: string
     }
     loadOptionsFailure: (
         error: string,
@@ -49,12 +53,14 @@ export interface taskSkillsPickerLogicActions {
         payload?: {
             append?: boolean
             debounce?: boolean
+            search: string
         }
     ) => {
         skillOptions: LLMSkillListApi[]
         payload?: {
             append?: boolean
             debounce?: boolean
+            search: string
         }
     }
     setSearch: (search: string) => {
@@ -90,6 +96,7 @@ export const taskSkillsPickerLogic = kea<taskSkillsPickerLogicType>([
         setSearch: (search: string) => ({ search }),
         setSkillCount: (count: number) => ({ count }),
         ensureOptionsLoaded: true,
+        loadNextPage: true,
     }),
 
     reducers({
@@ -103,7 +110,7 @@ export const taskSkillsPickerLogic = kea<taskSkillsPickerLogicType>([
             [] as LLMSkillListApi[],
             {
                 loadOptions: async (
-                    { append, debounce }: { append?: boolean; debounce?: boolean } = {},
+                    { append, debounce, search }: { append?: boolean; debounce?: boolean; search: string },
                     breakpoint
                 ): Promise<LLMSkillListApi[]> => {
                     // Debounce keystrokes only. Opening the dropdown should not wait.
@@ -116,7 +123,7 @@ export const taskSkillsPickerLogic = kea<taskSkillsPickerLogicType>([
                     const response = await llmSkillsList(String(values.currentProjectId), {
                         limit: SKILL_OPTIONS_PAGE_SIZE,
                         offset,
-                        search: values.search || undefined,
+                        search: search || undefined,
                         // Only uncategorized skills. The endpoint reads the parameter's presence,
                         // even when empty, as "uncategorized only", which drops Signals scouts and
                         // ReviewHog perspectives. Those are loaded by their own harnesses and would
@@ -142,13 +149,20 @@ export const taskSkillsPickerLogic = kea<taskSkillsPickerLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
-        setSearch: () => {
-            actions.loadOptions({ debounce: true })
+    listeners(({ actions, selectors, values }) => ({
+        setSearch: ({ search }, _breakpoint, _action, previousState) => {
+            if (search !== selectors.search(previousState)) {
+                actions.loadOptions({ debounce: true, search })
+            }
+        },
+        loadNextPage: () => {
+            if (!values.skillOptionsLoading && values.hasMoreSkills) {
+                actions.loadOptions({ append: true, search: values.search })
+            }
         },
         ensureOptionsLoaded: () => {
             if (!values.hasLoadedOptions && !values.skillOptionsLoading) {
-                actions.loadOptions()
+                actions.loadOptions({ search: values.search })
             }
         },
     })),

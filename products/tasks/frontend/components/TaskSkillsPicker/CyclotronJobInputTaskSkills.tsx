@@ -8,7 +8,7 @@ import { MAX_ATTACHED_SKILLS, taskSkillsPickerLogic } from './taskSkillsPickerLo
 
 export default function CyclotronJobInputTaskSkills({ value, onChange }: CustomInputRendererProps): JSX.Element {
     const { skillOptions, skillOptionsLoading, skillCount, hasMoreSkills, search } = useValues(taskSkillsPickerLogic)
-    const { ensureOptionsLoaded, setSearch, loadOptions } = useActions(taskSkillsPickerLogic)
+    const { ensureOptionsLoaded, setSearch, loadNextPage } = useActions(taskSkillsPickerLogic)
 
     const selectedNames: string[] = Array.isArray(value) ? value : []
 
@@ -43,12 +43,13 @@ export default function CyclotronJobInputTaskSkills({ value, onChange }: CustomI
             // The server already applied `search`; re-filtering here would hide matches whose
             // description matched but whose name did not.
             disableFiltering
+            virtualized
             onFocus={ensureOptionsLoaded}
             onInputChange={setSearch}
             title={hasMoreSkills ? `Showing ${skillOptions.length} of ${skillCount} skills` : undefined}
             action={
-                hasMoreSkills
-                    ? { children: <>Load more skills</>, onClick: () => loadOptions({ append: true }) }
+                hasMoreSkills && !skillOptionsLoading
+                    ? { children: <>Load more skills</>, onClick: loadNextPage }
                     : undefined
             }
             emptyStateComponent={

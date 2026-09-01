@@ -453,6 +453,19 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert "`db-runbook`" not in run.state["initial_prompt_override"]
         assert run.state["config_snapshot"]["skills"] == [{"name": "error-triage", "version": 1}]
 
+    @parameterized.expand([("slash", "Bad/Name"), ("newline", "bad\nname"), ("backtick", "bad`name")])
+    def test_skips_a_malformed_legacy_skill(self, _name: str, skill_name: str) -> None:
+        self._seed_skill("error-triage")
+        self._seed_skill(skill_name)
+
+        response = self._post({"skills": ["error-triage", skill_name]})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert "`error-triage`" in run.state["initial_prompt_override"]
+        assert skill_name not in run.state["initial_prompt_override"]
+        assert run.state["config_snapshot"]["skills"] == [{"name": "error-triage", "version": 1}]
+
     def test_a_run_with_no_skills_carries_the_prompt_unchanged(self) -> None:
         response = self._post()
 
