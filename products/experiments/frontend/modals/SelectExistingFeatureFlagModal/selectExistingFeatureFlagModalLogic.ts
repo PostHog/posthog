@@ -205,6 +205,7 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
                         ...values.paramsFromFilters,
                         eligible_for_experiment: true,
                     })}`
+                    // nosemgrep: prefer-codegen-api
                     const response = await api.get(url)
                     return response
                 },
