@@ -6,9 +6,9 @@ from posthog.models.scoping.manager import TeamScopeError
 from posthog.models.team import Team
 
 from products.web_analytics.backend.content_autopilot.lifecycle import (
+    MAX_PROPOSAL_MARKDOWN_CHARS,
     ContentAutopilotLifecycleError,
     cancel_run,
-    claim_proposal_for_delivery,
     edit_proposal,
     regenerate_proposal,
     reject_proposal,
@@ -46,6 +46,21 @@ class TestContentAutopilotLifecycle(BaseTest):
         self.assertEqual(ContentAutopilotSiteProfile.objects.for_team(self.team.id).count(), 1)
         self.assertEqual(ContentAutopilotSiteProfile.objects.for_team(other_team.id).count(), 1)
 
+        with self.assertRaisesRegex(ValueError, "same team as its profile"):
+            create_content_autopilot_run(other_team, profile)
+        with self.assertRaisesRegex(ValueError, "same team as its run"):
+            create_content_autopilot_proposal(other_team, run)
+
+        proposal = create_content_autopilot_proposal(self.team, run)
+        with self.assertRaisesRegex(ContentAutopilotLifecycleError, "could not be found"):
+            reject_proposal(team=other_team, proposal_id=str(proposal.id))
+        with self.assertRaisesRegex(ContentAutopilotLifecycleError, "could not be found"):
+            cancel_run(team=other_team, run_id=str(run.id))
+        with self.assertRaisesRegex(ContentAutopilotLifecycleError, "Select a site"):
+            start_run(team=other_team, profile_id=str(profile.id), triggered_by_id=self.user.id)
+        proposal.refresh_from_db()
+        self.assertEqual(proposal.lifecycle_status, ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW)
+
     def test_each_site_has_its_own_active_run_boundary(self) -> None:
         first_profile = create_content_autopilot_profile(self.team, search_console_enabled=True)
         second_profile = create_content_autopilot_profile(self.team, domain="https://docs.example.com")
@@ -67,74 +82,100 @@ class TestContentAutopilotLifecycle(BaseTest):
         run = create_content_autopilot_run(self.team, profile)
         proposal = create_content_autopilot_proposal(self.team, run)
 
-        canceled = cancel_run(run=run)
-        rejected = reject_proposal(proposal=proposal)
+        canceled = cancel_run(team=self.team, run_id=str(run.id))
+        rejected = reject_proposal(team=self.team, proposal_id=str(proposal.id))
 
         self.assertEqual(canceled.run_status, ContentAutopilotRun.RunStatus.CANCELED)
         self.assertIsNotNone(canceled.completed_at)
         self.assertEqual(rejected.lifecycle_status, ContentAutopilotProposal.LifecycleStatus.REJECTED)
         with self.assertRaises(ContentAutopilotLifecycleError):
-            cancel_run(run=canceled)
+            cancel_run(team=self.team, run_id=str(canceled.id))
         with self.assertRaises(ContentAutopilotLifecycleError):
-            reject_proposal(proposal=rejected)
+            reject_proposal(team=self.team, proposal_id=str(rejected.id))
 
-    def test_edit_invalidates_validation_and_delivery_state(self) -> None:
+    def test_edit_keeps_markdown_single_sourced_and_invalidates_validation(self) -> None:
         profile = create_content_autopilot_profile(self.team)
         proposal = create_content_autopilot_proposal(self.team, create_content_autopilot_run(self.team, profile))
-        proposal.delivery_state = ContentAutopilotProposal.DeliveryState.DELIVERED
-        proposal.delivery_reference = "previous.md"
-        proposal.save(update_fields=["delivery_state", "delivery_reference"])
 
         edited = edit_proposal(
-            proposal=proposal,
+            team=self.team,
+            proposal_id=str(proposal.id),
             proposed_markdown="# Reviewed draft",
             content_package={**proposal.content_package, "markdown": "# Stale draft"},
         )
 
-        self.assertEqual(edited.content_package["markdown"], "# Reviewed draft")
+        self.assertNotIn("markdown", edited.content_package)
+        self.assertEqual(edited.proposed_markdown, "# Reviewed draft")
         self.assertEqual(edited.lifecycle_status, ContentAutopilotProposal.LifecycleStatus.GENERATING)
         self.assertEqual(edited.validation_report, {"passed": False, "checks": []})
-        self.assertEqual(edited.delivery_state, ContentAutopilotProposal.DeliveryState.NOT_DELIVERED)
-        self.assertEqual(edited.delivery_reference, "")
 
     @parameterized.expand(
         [
-            ("ready_for_review", ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW, True),
-            ("failed", ContentAutopilotProposal.LifecycleStatus.FAILED, True),
-            ("rejected", ContentAutopilotProposal.LifecycleStatus.REJECTED, False),
-            ("generating", ContentAutopilotProposal.LifecycleStatus.GENERATING, False),
+            ("ready_for_review", ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW),
+            ("failed", ContentAutopilotProposal.LifecycleStatus.FAILED),
         ]
     )
-    def test_regeneration_accepts_only_reviewed_or_failed_drafts(
-        self, _name: str, lifecycle_status: str, is_allowed: bool
-    ) -> None:
-        profile = create_content_autopilot_profile(self.team)
-        proposal = create_content_autopilot_proposal(self.team, create_content_autopilot_run(self.team, profile))
-        proposal.lifecycle_status = lifecycle_status
-        proposal.save(update_fields=["lifecycle_status"])
+    def test_regeneration_accepts_reviewed_or_failed_drafts(self, _name: str, lifecycle_status: str) -> None:
+        regenerated = regenerate_proposal(
+            team=self.team, proposal_id=str(self._proposal_with_status(lifecycle_status).id)
+        )
 
-        if not is_allowed:
-            with self.assertRaises(ContentAutopilotLifecycleError):
-                regenerate_proposal(proposal=proposal)
-            return
-
-        regenerated = regenerate_proposal(proposal=proposal)
         self.assertEqual(regenerated.lifecycle_status, ContentAutopilotProposal.LifecycleStatus.GENERATING)
         self.assertEqual(regenerated.validation_report, {"passed": False, "checks": []})
 
-    def test_export_claim_rejects_unvalidated_and_in_flight_proposals(self) -> None:
-        profile = create_content_autopilot_profile(self.team)
-        proposal = create_content_autopilot_proposal(self.team, create_content_autopilot_run(self.team, profile))
-        ContentAutopilotProposal.objects.for_team(self.team.id).filter(id=proposal.id).update(
-            delivery_state=ContentAutopilotProposal.DeliveryState.DELIVERING,
-        )
-
-        with self.assertRaises(ContentAutopilotLifecycleError, msg="a claimed proposal must not be claimed twice"):
-            claim_proposal_for_delivery(team_id=self.team.id, proposal_id=str(proposal.id))
-
-        ContentAutopilotProposal.objects.for_team(self.team.id).filter(id=proposal.id).update(
-            delivery_state=ContentAutopilotProposal.DeliveryState.NOT_DELIVERED,
-            validation_report={"passed": False, "checks": []},
-        )
+    @parameterized.expand(
+        [
+            ("rejected", ContentAutopilotProposal.LifecycleStatus.REJECTED),
+            ("generating", ContentAutopilotProposal.LifecycleStatus.GENERATING),
+        ]
+    )
+    def test_regeneration_refuses_other_drafts(self, _name: str, lifecycle_status: str) -> None:
         with self.assertRaises(ContentAutopilotLifecycleError):
-            claim_proposal_for_delivery(team_id=self.team.id, proposal_id=str(proposal.id))
+            regenerate_proposal(team=self.team, proposal_id=str(self._proposal_with_status(lifecycle_status).id))
+
+    @parameterized.expand(
+        [
+            (
+                "rejected draft",
+                ContentAutopilotProposal.LifecycleStatus.REJECTED,
+                "# Reviewed draft",
+                "ready for review can be edited",
+            ),
+            (
+                "generating draft",
+                ContentAutopilotProposal.LifecycleStatus.GENERATING,
+                "# Reviewed draft",
+                "ready for review can be edited",
+            ),
+            (
+                "oversized Markdown",
+                ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW,
+                "x" * (MAX_PROPOSAL_MARKDOWN_CHARS + 1),
+                "characters or fewer",
+            ),
+        ]
+    )
+    def test_edit_refuses_invalid_requests(
+        self, _name: str, lifecycle_status: str, proposed_markdown: str, expected_error: str
+    ) -> None:
+        proposal = self._proposal_with_status(lifecycle_status)
+
+        with self.assertRaisesRegex(ContentAutopilotLifecycleError, expected_error):
+            edit_proposal(
+                team=self.team,
+                proposal_id=str(proposal.id),
+                proposed_markdown=proposed_markdown,
+                content_package=proposal.content_package,
+            )
+
+        proposal.refresh_from_db()
+        self.assertEqual(proposal.lifecycle_status, lifecycle_status)
+        self.assertEqual(proposal.proposed_markdown, "# Improved guide\n\nUseful content.")
+
+    def _proposal_with_status(self, lifecycle_status: str) -> ContentAutopilotProposal:
+        profile = create_content_autopilot_profile(self.team)
+        return create_content_autopilot_proposal(
+            self.team,
+            create_content_autopilot_run(self.team, profile),
+            lifecycle_status=lifecycle_status,
+        )

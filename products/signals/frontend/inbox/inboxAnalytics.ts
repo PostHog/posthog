@@ -72,13 +72,15 @@ export type InboxReportFeedbackSentiment = 'positive' | 'negative'
 
 /**
  * Report actions cloud actually emits. Names match the desktop enum one-for-one (so the
- * `action_type` breakdown reads the same across clients), plus cloud-only `restore` (Archive tab),
- * `view_diff`, `show_more` (a list section widening its window), and the section expand/collapse
- * pair (desktop splits those per section instead).
+ * `action_type` breakdown reads the same across clients), plus cloud-only `restore` (Dismissed
+ * section), `resolve` (marking a report done without an inbox PR), `view_diff`, `show_more` (a list
+ * section widening its window), and the section expand/collapse pair (desktop splits those per
+ * section instead).
  * Desktop-only variants we don't fire yet are intentionally omitted.
  */
 export type InboxReportActionType =
     | 'dismiss'
+    | 'resolve'
     | 'discuss'
     | 'restore'
     | 'create_pr'
@@ -137,7 +139,7 @@ export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'repl
 /**
  * Scout-management actions. The first block matches desktop's enum; the trailing block is
  * cloud-only, covering affordances desktop doesn't have (creating and deleting scouts, the
- * scratchpad callout, and the roster's on/off filter and search).
+ * scratchpad callout, and the roster's on/off filter, owner filter, and search).
  */
 export type ScoutActionType =
     | 'open_settings'
@@ -161,6 +163,7 @@ export type ScoutActionType =
     | 'delete_scout'
     | 'open_memory'
     | 'filter_enabled'
+    | 'filter_owner'
     | 'search_scouts'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
@@ -637,12 +640,30 @@ function settingValueProperties(key: string, value: unknown): Record<string, unk
     return { [key]: value ?? null, [`${key}_size`]: null }
 }
 
+/**
+ * How the fleet materialization that preceded this view ended. The roster keeps its existing list
+ * when the sync is refused, so without this an `is_empty: true` view from a viewer who cannot write
+ * looks exactly like one from a project whose fleet genuinely failed to arrive.
+ */
+export type ScoutFleetSyncOutcome =
+    /** The sync ran and answered with the fleet. */
+    | 'synced'
+    /** No sync was issued — the roster opened before a project was resolved. */
+    | 'not_attempted'
+    /** 403: a member without `signal_scout:write`. The roster shows whatever the list read returned. */
+    | 'skipped_permission'
+    /** 404: a stale project id, usually left in the URL by a project switch. */
+    | 'not_found'
+    /** Anything else, including a 5xx. */
+    | 'failed'
+
 /** Roster shape at the moment the scout troop list was opened. Mirrors desktop's `Scout fleet viewed`. */
 export function captureScoutFleetViewed(params: {
     scoutCount: number
     enabledCount: number
     customCount: number
     dryRunCount: number
+    syncOutcome: ScoutFleetSyncOutcome
 }): void {
     captureInboxEvent(INBOX_EVENTS.SCOUT_FLEET_VIEWED, {
         scout_count: params.scoutCount,
@@ -650,6 +671,7 @@ export function captureScoutFleetViewed(params: {
         custom_count: params.customCount,
         dry_run_count: params.dryRunCount,
         is_empty: params.scoutCount === 0,
+        sync_outcome: params.syncOutcome,
     })
 }
 

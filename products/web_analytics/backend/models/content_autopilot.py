@@ -1,7 +1,17 @@
+from collections.abc import Iterable
+from typing import Any
+
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
+
+
+def _parent_team_id(child: models.Model, relation: str, update_fields: Iterable[str] | None) -> int | None:
+    touched = None if update_fields is None else set(update_fields)
+    if not (child._state.adding or touched is None or touched & {relation, f"{relation}_id", "team", "team_id"}):
+        return None
+    return getattr(child, relation).team_id
 
 
 def default_content_autopilot_package() -> dict[str, object]:
@@ -10,7 +20,6 @@ def default_content_autopilot_package() -> dict[str, object]:
         "title": "",
         "description": "",
         "slug": "",
-        "markdown": "",
         "frontmatter": [],
         "internal_links": [],
         "source_notes": [],
@@ -27,7 +36,7 @@ class ContentAutopilotSiteProfile(TeamScopedRootMixin, UUIDModel):
         on_delete=models.CASCADE,
         db_constraint=False,
         db_index=False,
-        related_name="content_autopilot_site_profiles",
+        related_name="+",
     )
     name = models.CharField(max_length=255, blank=True, default="")
     domain = models.URLField(max_length=2048)
@@ -60,13 +69,13 @@ class ContentAutopilotRun(TeamScopedRootMixin, UUIDModel):
         "posthog.Team",
         on_delete=models.CASCADE,
         db_constraint=False,
-        related_name="content_autopilot_runs",
+        db_index=False,
+        related_name="+",
     )
     profile = models.ForeignKey(ContentAutopilotSiteProfile, on_delete=models.CASCADE, related_name="runs")
     run_status = models.CharField(max_length=32, choices=RunStatus.choices, default=RunStatus.PENDING)
     input_snapshot = models.JSONField(default=dict)
     errors = models.JSONField(default=list)
-    workflow_id = models.CharField(max_length=255, blank=True, default="")
     triggered_by_id = models.BigIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -74,7 +83,22 @@ class ContentAutopilotRun(TeamScopedRootMixin, UUIDModel):
 
     class Meta:
         db_table = "posthog_contentautopilotrun"
-        indexes = [models.Index(fields=["team", "-created_at"], name="content_auto_run_team_created")]
+        indexes = [
+            models.Index(fields=["team", "-created_at"], name="content_auto_run_team_created"),
+            models.Index(
+                fields=["profile"],
+                condition=models.Q(run_status__in=["pending", "generating"]),
+                name="content_auto_run_active",
+            ),
+        ]
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        parent_team_id = _parent_team_id(self, "profile", kwargs.get("update_fields"))
+        if parent_team_id is not None:
+            if self.team_id is not None and self.team_id != parent_team_id:
+                raise ValueError("ContentAutopilotRun must belong to the same team as its profile.")
+            self.team_id = parent_team_id
+        super().save(*args, **kwargs)
 
 
 class ContentAutopilotProposal(TeamScopedRootMixin, UUIDModel):
@@ -89,17 +113,12 @@ class ContentAutopilotProposal(TeamScopedRootMixin, UUIDModel):
         EXPORTED = "exported", "Exported"
         FAILED = "failed", "Failed"
 
-    class DeliveryState(models.TextChoices):
-        NOT_DELIVERED = "not_delivered", "Not delivered"
-        DELIVERING = "delivering", "Delivering"
-        DELIVERED = "delivered", "Delivered"
-        FAILED = "failed", "Failed"
-
     team = models.ForeignKey(
         "posthog.Team",
         on_delete=models.CASCADE,
         db_constraint=False,
-        related_name="content_autopilot_proposals",
+        db_index=False,
+        related_name="+",
     )
     run = models.ForeignKey(ContentAutopilotRun, on_delete=models.CASCADE, related_name="proposals")
     proposal_type = models.CharField(max_length=32, choices=ProposalType.choices)
@@ -116,13 +135,6 @@ class ContentAutopilotProposal(TeamScopedRootMixin, UUIDModel):
     content_package = models.JSONField(default=default_content_autopilot_package)
     original_markdown = models.TextField(blank=True, default="")
     proposed_markdown = models.TextField(blank=True, default="")
-    delivery_state = models.CharField(
-        max_length=32,
-        choices=DeliveryState.choices,
-        default=DeliveryState.NOT_DELIVERED,
-    )
-    delivery_reference = models.CharField(max_length=1024, blank=True, default="")
-    delivery_error = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -131,3 +143,11 @@ class ContentAutopilotProposal(TeamScopedRootMixin, UUIDModel):
         indexes = [
             models.Index(fields=["team", "lifecycle_status", "-created_at"], name="content_auto_prop_status"),
         ]
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        parent_team_id = _parent_team_id(self, "run", kwargs.get("update_fields"))
+        if parent_team_id is not None:
+            if self.team_id is not None and self.team_id != parent_team_id:
+                raise ValueError("ContentAutopilotProposal must belong to the same team as its run.")
+            self.team_id = parent_team_id
+        super().save(*args, **kwargs)

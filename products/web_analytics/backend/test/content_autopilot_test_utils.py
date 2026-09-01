@@ -6,6 +6,8 @@ from products.web_analytics.backend.models import (
     ContentAutopilotSiteProfile,
 )
 
+UNSET_CONTENT_PACKAGE = object()
+
 
 def create_content_autopilot_profile(
     team: Team,
@@ -41,15 +43,26 @@ def create_content_autopilot_proposal(
     run: ContentAutopilotRun,
     *,
     proposal_type: str = ContentAutopilotProposal.ProposalType.PAGE_IMPROVEMENT,
-    file_path: str = "content/guides/example.md",
+    lifecycle_status: str = ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW,
+    file_path: object = "content/guides/example.md",
     validation_passed: bool = True,
     markdown: str = "# Improved guide\n\nUseful content.",
+    content_package: object = UNSET_CONTENT_PACKAGE,
 ) -> ContentAutopilotProposal:
+    default_package: dict[str, object] = {
+        "file_path": file_path,
+        "title": "Improved guide",
+        "description": "A clearer guide.",
+        "slug": "example",
+        "frontmatter": [{"key": "title", "value": "Improved guide"}],
+        "internal_links": ["https://example.com/docs"],
+        "source_notes": [],
+    }
     return ContentAutopilotProposal.objects.for_team(team.id).create(
         team=team,
         run=run,
         proposal_type=proposal_type,
-        lifecycle_status=ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW,
+        lifecycle_status=lifecycle_status,
         title="Improve the example guide",
         target_url="https://example.com/guides/example",
         evidence=[
@@ -62,15 +75,6 @@ def create_content_autopilot_proposal(
             }
         ],
         validation_report={"passed": validation_passed, "checks": []},
-        content_package={
-            "file_path": file_path,
-            "title": "Improved guide",
-            "description": "A clearer guide.",
-            "slug": "example",
-            "markdown": markdown,
-            "frontmatter": [{"key": "title", "value": "Improved guide"}],
-            "internal_links": ["https://example.com/docs"],
-            "source_notes": [],
-        },
+        content_package=default_package if content_package is UNSET_CONTENT_PACKAGE else content_package,
         proposed_markdown=markdown,
     )
