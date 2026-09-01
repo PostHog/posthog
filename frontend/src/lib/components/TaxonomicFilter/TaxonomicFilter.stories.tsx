@@ -490,7 +490,9 @@ const CATEGORY_DROPDOWN_ARGS: TaxonomicFilterProps = {
 }
 
 const CATEGORY_DROPDOWN_PARAMETERS = {
-    testOptions: { waitForSelector: '.taxonomic-infinite-list' },
+    // The picker mounts empty, hidden Recent/Pinned lists ahead of the active Events list, and the
+    // runner waits on the FIRST match. Skip the empty ones so it waits on the visible, populated list.
+    testOptions: { waitForSelector: '.taxonomic-infinite-list:not(.empty-infinite-list)' },
 }
 
 export const CategoryDropdownControl: Story = {
