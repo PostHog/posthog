@@ -155,10 +155,13 @@ describe('taskTrackerSceneLogic', () => {
 
         expect(createBody).toMatchObject({
             branch: null,
-            model: 'claude-sonnet-5',
             initial_permission_mode: 'auto',
             pending_user_message: 'do the thing',
         })
+        // An untouched selection defers the model triple to the backend, which resolves the
+        // stored default for warm matching the same way the warm was provisioned.
+        expect(createBody?.model).toBeUndefined()
+        expect(createBody?.runtime_adapter).toBeUndefined()
         expect(runBody).toBeNull()
         expect(logic.values.activeCreation?.runId).toBe('warm-run-1')
     })

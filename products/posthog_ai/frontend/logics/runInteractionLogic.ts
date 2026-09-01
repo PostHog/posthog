@@ -36,8 +36,8 @@ import { attachedContextLogic } from './attachedContextLogic'
 import { modelCatalogueLogic } from './modelCatalogueLogic'
 import { isTerminalRunStatus, runStreamLogic } from './runStreamLogic'
 import type { RunStatus } from './runStreamLogic'
-import { taskWarmLogic } from './taskWarmLogic'
 import { taskRunDefaultsLogic } from './taskRunDefaultsLogic'
+import { taskWarmLogic } from './taskWarmLogic'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
 
 export interface RunInteractionLogicProps {

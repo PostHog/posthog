@@ -89,15 +89,29 @@ const LAST_REPOSITORY_CONFIG_STORAGE_KEY = 'posthog_ai.tasks.lastRepositoryConfi
 function buildWarmRequest(
     form: TaskCreateForm,
     catalogue: ModelChoiceApi[],
-    // The displayed selection, not the raw form pick: an untouched form defers the triple to the
-    // server-resolved default, and the warm must be provisioned on that same resolved triple or
-    // the submit's warm lookup misses.
+    // The displayed selection, not the raw form pick: a partially pinned form still warms on
+    // exactly the triple the submit will send.
     displayModel: string,
     displayEffort: ReasoningEffortEnumApi
 ): WarmTaskRequestApi | null {
-    const { repositoryConfig, permissionMode } = form
+    const { repositoryConfig, model, reasoningEffort, permissionMode } = form
     if (repositoryConfig.repository && !repositoryConfig.branch) {
         return null
+    }
+    const base = {
+        repository: repositoryConfig.repository ?? null,
+        github_integration: repositoryConfig.integrationId ?? null,
+        branch: repositoryConfig.branch ?? null,
+        origin_product: WarmTaskRequestOriginProductEnumApi.PosthogAi,
+    }
+    // An untouched selection warms without the triple, mirroring the submit: the backend
+    // resolves the stored default for provisioning and matching alike, so both sides agree
+    // whatever the defaults fetch has or hasn't returned yet.
+    if (!model && !reasoningEffort) {
+        return {
+            ...base,
+            initial_permission_mode: permissionMode as WarmTaskRequestApi['initial_permission_mode'],
+        }
     }
     const runRequest = buildRunCreateRequest(catalogue, displayModel, displayEffort, permissionMode, {
         branch: repositoryConfig.branch ?? null,
@@ -106,14 +120,11 @@ function buildWarmRequest(
         return null
     }
     return {
-        repository: repositoryConfig.repository ?? null,
-        github_integration: repositoryConfig.integrationId ?? null,
-        branch: runRequest.branch,
+        ...base,
         runtime_adapter: runRequest.runtime_adapter,
         model: runRequest.model,
         reasoning_effort: runRequest.reasoning_effort,
         initial_permission_mode: runRequest.initial_permission_mode,
-        origin_product: WarmTaskRequestOriginProductEnumApi.PosthogAi,
     }
 }
 
@@ -734,7 +745,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 }
                 // An untouched selection pins nothing: the backend resolves the model triple from the
                 // stored team/user default (correct even while the defaults fetch is in flight or has
-                // failed) and clamps the stated permission mode to the resolved runtime. An explicit
+                // failed) and clamps the stated permission mode to the resolved runtime. The warm run
+                // was provisioned the same way, so provisioning and matching resolve alike. An explicit
                 // pick sends the full displayed selection, runtime derived from the model.
                 let pinnedRequest: ClaudeTaskRunCreateSchemaApi | CodexTaskRunCreateSchemaApi | null = null
                 if (!values.isDefaultSelection) {

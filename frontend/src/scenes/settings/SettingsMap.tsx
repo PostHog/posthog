@@ -36,11 +36,11 @@ import { PreAggregatedTablesSetting } from 'scenes/settings/environment/PreAggre
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
 import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
-import { OrganizationMCPAccess } from 'scenes/settings/organization/OrganizationMCPAccess'
 import {
     TaskAgentMyPreferenceSettings,
     TaskAgentProjectDefaultSettings,
 } from 'scenes/settings/environment/TaskAgentDefaultsSettings'
+import { OrganizationMCPAccess } from 'scenes/settings/organization/OrganizationMCPAccess'
 import { urls } from 'scenes/urls'
 
 import { ConfigScopeEnumApi } from '~/generated/core/api.schemas'
