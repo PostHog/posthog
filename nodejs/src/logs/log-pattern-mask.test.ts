@@ -3,16 +3,14 @@ import RE2 from 're2'
 
 import {
     JSON_ARRAY,
+    KEY_SET_MAX_KEYS,
     MASK_RULES,
     MESSAGE_KEYS,
     PATTERN_CAPS,
     PATTERN_VERSION,
-    type PatternCaps,
     computeLogPattern,
     maskString,
 } from './log-pattern-mask'
-
-const caps = (overrides: Partial<PatternCaps>): PatternCaps => ({ ...PATTERN_CAPS, ...overrides })
 
 describe('log-pattern-mask', () => {
     describe('maskString', () => {
@@ -124,30 +122,37 @@ describe('log-pattern-mask', () => {
 
     describe('computeLogPattern', () => {
         it('masks before truncating, so a UUID straddling the cut point still yields its placeholder', () => {
-            const body = 'abcdefghij 0f2d6faf-07e3-4cff-bf47-7efa1024aee2'
-            const result = computeLogPattern(body, caps({ maxOutputChars: 20 }))
-            expect(result.pattern).toEqual('abcdefghij <UUID>')
-            expect(result.maskedLength).toEqual('abcdefghij <UUID>'.length)
+            // Long enough that the raw UUID crosses the output cap, short enough that `<UUID>` does not.
+            // Filled with a non-hex letter, or the run itself masks to `<HEX>`.
+            const head = 'z'.repeat(PATTERN_CAPS.maxOutputChars - 24)
+            const body = `${head} 0f2d6faf-07e3-4cff-bf47-7efa1024aee2`
+            expect(body.length).toBeGreaterThan(PATTERN_CAPS.maxOutputChars)
+
+            const result = computeLogPattern(body)
+            expect(result.pattern).toEqual(`${head} <UUID>`)
+            expect(result.maskedLength).toEqual(`${head} <UUID>`.length)
         })
 
         it('reports the pre-truncation masked length and truncates the pattern', () => {
-            const result = computeLogPattern('x'.repeat(50), caps({ maxOutputChars: 10 }))
-            expect(result.pattern).toEqual('x'.repeat(10))
-            expect(result.maskedLength).toEqual(50)
+            const result = computeLogPattern('x'.repeat(PATTERN_CAPS.maxOutputChars * 2))
+            expect(result.pattern).toEqual('x'.repeat(PATTERN_CAPS.maxOutputChars))
+            expect(result.maskedLength).toEqual(PATTERN_CAPS.maxOutputChars * 2)
         })
 
         it('caps the input before masking and reports it', () => {
-            const result = computeLogPattern('abc 12345678', caps({ maxInputChars: 6 }))
+            const result = computeLogPattern(`${'z'.repeat(PATTERN_CAPS.maxInputChars)} 12345678`)
             expect(result.inputCapped).toEqual(true)
-            expect(result.pattern).toEqual('abc <N>')
+            // The number sat past the input cap, so no rule ever saw it.
+            expect(result.maskedLength).toEqual(PATTERN_CAPS.maxInputChars)
+            expect(result.ruleFires.every((fires) => fires === 0)).toEqual(true)
         })
 
         it('caps the raw body before the JSON parse, so an oversized JSON body is treated as truncated prose', () => {
-            const body = JSON.stringify({ message: 'x'.repeat(100) })
-            const result = computeLogPattern(body, caps({ maxInputChars: 20 }))
+            const body = JSON.stringify({ message: 'x'.repeat(PATTERN_CAPS.maxInputChars) })
+            const result = computeLogPattern(body)
             expect(result.inputCapped).toEqual(true)
             expect(result.bodyKind).toEqual('plaintext')
-            expect(result.pattern).toEqual(body.slice(0, 20))
+            expect(result.pattern).toEqual(body.slice(0, PATTERN_CAPS.maxOutputChars))
         })
 
         it.each([
@@ -250,12 +255,13 @@ describe('log-pattern-mask', () => {
          * One frozen digest per version. A red digest means the emitted shape moved, and the only correct
          * fix is a new entry under a new `PATTERN_VERSION` — editing an entry in place relabels rows
          * already in ClickHouse under that version. The one exception is growing `CORPUS`, which moves the
-         * digest without moving the shape; re-record only in a commit that touches nothing but the corpus.
+         * digest without moving the shape. Growing `SHAPE_INPUTS` does the same. Re-record for either only
+         * in a commit that moves no emitted pattern, and say so in the message.
          *
          * Versions before `RATCHET_FIRST_VERSION` predate this ratchet, so no digest was recorded for them.
          */
         const SHAPE_DIGESTS: Record<number, string> = {
-            3: 'ed312a5324f9f760',
+            3: '5e6a9ab3f22b15ea',
         }
 
         /**
@@ -271,6 +277,8 @@ describe('log-pattern-mask', () => {
             rules: MASK_RULES.map((rule) => [rule.name, rule.pattern, rule.replacement]),
             caps: PATTERN_CAPS,
             messageKeys: MESSAGE_KEYS,
+            keySetMaxKeys: KEY_SET_MAX_KEYS,
+            jsonArray: JSON_ARRAY,
         })
 
         const shapeDigest = (): string =>
@@ -291,6 +299,14 @@ describe('log-pattern-mask', () => {
             // Reported by pattern, not name: klogtime is four rules under one name, so a name would
             // not say which of them the corpus misses.
             expect(MASK_RULES.filter((_rule, index) => fires[index] === 0).map((rule) => rule.pattern)).toEqual([])
+        })
+
+        it('reaches every body kind, so a parse change cannot land without moving the digest', () => {
+            // `parseLogBodyForIngestion` picks which branch of `computeLogPattern` runs, and it lives in
+            // another module that neither half of the digest hashes. Reaching every kind is what makes a
+            // change over there surface as a moved digest instead of as silence.
+            const kinds = [...new Set(CORPUS.map((body) => computeLogPattern(body).bodyKind))].sort()
+            expect(kinds).toEqual(['empty', 'json_object_or_array', 'json_string', 'plaintext', 'primitive'])
         })
 
         it('carries a digest for every version since the ratchet, so a bump cannot drop its predecessor', () => {
