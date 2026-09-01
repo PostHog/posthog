@@ -200,7 +200,10 @@ struct BuilderConfig {
     /// confirms as a parity defect. Sized above one cohort recalculation episode,
     /// which holds `is_calculating` for seconds to minutes, and far below the TTL
     /// so a quiet team still confirms persistent drift.
-    #[envconfig(from = "FLAGS_CACHE_SHADOW_MIN_CONFIRM_INTERVAL", default = "60")]
+    #[envconfig(
+        from = "FLAGS_CACHE_SHADOW_MIN_CONFIRM_INTERVAL_SECONDS",
+        default = "60"
+    )]
     shadow_min_confirm_interval_seconds: u64,
 }
 
