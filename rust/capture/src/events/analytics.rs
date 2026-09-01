@@ -1458,7 +1458,7 @@ mod tests {
             "only the under-budget AI event must reach the sink"
         );
         let topics = test_topics();
-        let ai_topic = topics.topic_for(&crate::sinks::registry::Output::AiMain);
+        let ai_topic = topics.topic_for(&crate::sinks::registry::Destination::AiMain);
         assert_eq!(
             records[0].topic, ai_topic,
             "the surviving record must be on the AI lane"
@@ -1797,7 +1797,7 @@ mod tests {
             "only the under-budget event must reach the sink under Ai mode"
         );
         let topics = test_topics();
-        let ai_topic = topics.topic_for(&crate::sinks::registry::Output::AiMain);
+        let ai_topic = topics.topic_for(&crate::sinks::registry::Destination::AiMain);
         assert_eq!(
             records[0].topic, ai_topic,
             "an allowlisted AI event diverts to the AI lane under Ai mode too"
