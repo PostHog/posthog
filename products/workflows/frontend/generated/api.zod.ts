@@ -2339,8 +2339,8 @@ export const HogFlowsInvocationsCancelCreateBody = /* @__PURE__ */ zod
 /**
  * Whether PostHog may look at this workflow and suggest changes to it.
  *
- * The row is the opt-in, so turning it off deletes it and a producer stops seeing the workflow
- * at all. Suggestions already made are left alone: someone still has them to resolve.
+ * Turning it off stops a producer reading the workflow. Suggestions already made are left
+ * alone: someone still has them to resolve.
  */
 export const HogFlowsOptimisationCreateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().describe("Whether PostHog may read this workflow's metrics and suggest changes to it."),
