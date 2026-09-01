@@ -2414,7 +2414,7 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 201, response.json()
 
-    def test_hog_flow_slack_trigger_stores_the_bare_channel_id(self):
+    def test_hog_flow_internal_event_trigger_stores_the_bare_slack_channel_id(self):
         # The channel picker identifies a channel as `C123|#name`, but the event carries `C123`, so
         # storing the composite compiles a filter that never matches and the workflow never runs.
         trigger_action = {
@@ -2422,8 +2422,9 @@ class TestHogFlowAPI(APIBaseTest):
             "name": "trigger_1",
             "type": "trigger",
             "config": {
-                "type": "slack-message",
+                "type": "internal-event",
                 "filters": {
+                    "events": [{"id": "$slack_message_received", "type": "events"}],
                     "properties": [
                         {
                             "key": "channel",
@@ -2431,7 +2432,7 @@ class TestHogFlowAPI(APIBaseTest):
                             "operator": "exact",
                             "type": "event",
                         }
-                    ]
+                    ],
                 },
             },
         }
@@ -2440,6 +2441,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 201, response.json()
+        assert response.json()["trigger"]["filters"]["source"] == "internal-events"
         stored = response.json()["trigger"]["filters"]["properties"][0]["value"]
         assert stored == ["C0ALERTS"]
 
@@ -2449,7 +2451,14 @@ class TestHogFlowAPI(APIBaseTest):
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
-            "config": {"type": "slack-message", "filters": {"properties": properties}},
+            "config": {
+                "type": "internal-event",
+                "filters": {
+                    "source": "internal-events",
+                    "events": [{"id": "$slack_message_received", "type": "events"}],
+                    "properties": properties,
+                },
+            },
         }
 
     @parameterized.expand(
@@ -2507,18 +2516,115 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 201, response.json()
 
+    @parameterized.expand(
+        [
+            ("replay_vision", "$replay_vision_action_ready"),
+            ("activity_log", "$activity_log_entry_created"),
+            ("error_tracking", "$error_tracking_issue_created"),
+            ("discussion", "$discussion_mention_created"),
+            ("logs_alert", "$logs_alert_firing"),
+            ("insight_alert", "$insight_alert_firing"),
+        ]
+    )
+    def test_hog_flow_internal_event_trigger_rejects_events_it_does_not_own(self, _name, event_id):
+        # Starting a workflow needs only hog_flow:write, while these events carry data their own
+        # products gate behind narrower scopes - recording content, exception detail, activity
+        # detail, alert bodies. Without the allowlist a workflow author reads all of it.
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "internal-event",
+                "filters": {"source": "internal-events", "events": [{"id": event_id, "type": "events"}]},
+            },
+        }
+        hog_flow = {"name": "Scraping flow", "status": "active", "actions": [trigger_action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 400, response.json()
+        assert event_id in response.json()["detail"]
+
+    def test_hog_flow_internal_event_trigger_rejects_a_disallowed_event_alongside_an_allowed_one(self):
+        # Checking only the first event would let a second one smuggle the payload out.
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "internal-event",
+                "filters": {
+                    "source": "internal-events",
+                    "events": [
+                        {"id": "$slack_message_received", "type": "events"},
+                        {"id": "$replay_vision_action_ready", "type": "events"},
+                    ],
+                    "properties": [{"key": "channel", "value": ["C0ALERTS"], "operator": "exact", "type": "event"}],
+                },
+            },
+        }
+        hog_flow = {"name": "Mixed flow", "status": "active", "actions": [trigger_action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 400, response.json()
+        assert "$replay_vision_action_ready" in response.json()["detail"]
+
+    def test_hog_flow_internal_event_trigger_requires_an_explicit_event_even_when_draft(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {"type": "internal-event", "filters": {}},
+        }
+        hog_flow = {"name": "Incomplete internal event flow", "status": "draft", "actions": [trigger_action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 400, response.json()
+        assert "events" in str(response.json())
+
+    @parameterized.expand(
+        [
+            ("null", None),
+            ("number", 5),
+            ("boolean", True),
+        ]
+    )
+    def test_hog_flow_internal_event_trigger_rejects_non_list_events(self, _name, events_value):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {"type": "internal-event", "filters": {"events": events_value}},
+        }
+        hog_flow = {"name": "Malformed internal event flow", "status": "active", "actions": [trigger_action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+        assert response.status_code == 400, response.json()
+        assert "events" in str(response.json())
+
     @staticmethod
     def _github_trigger_action(properties: list[dict]) -> dict:
         return {
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
-            "config": {"type": "github-event", "filters": {"properties": properties}},
+            "config": {
+                "type": "internal-event",
+                "filters": {
+                    "source": "internal-events",
+                    "events": [{"id": "$github_event_received", "type": "events"}],
+                    "properties": properties,
+                },
+            },
         }
 
     def test_hog_flow_github_trigger_saves_and_compiles_filters(self):
-        # Before this branch existed, github-event fell through to "Invalid trigger type" on every
-        # non-draft save, so the trigger this registers in the frontend could never activate.
+        # A GitHub trigger stores its event in the filters like every other internal event, and
+        # still has to compile its repository and event type filters on a non-draft save.
         properties = [
             {"key": "repository", "value": ["PostHog/posthog"], "operator": "exact", "type": "event"},
             {"key": "event_type", "value": ["issues"], "operator": "exact", "type": "event"},
