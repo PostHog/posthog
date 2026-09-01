@@ -2,16 +2,9 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { handsFreeLogic } from 'scenes/max/handsFreeLogic'
-import {
-    Capability,
-    CapabilityGrouping,
-    capabilitiesForGrouping,
-    capabilityGroupingFromVariant,
-} from 'scenes/max/maxCapabilities'
+import { type PhaiViewMode, maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic, parseCommandString } from 'scenes/max/maxLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -27,7 +20,6 @@ import { emptySceneParams } from '~/scenes/scenes'
 import { Scene, SceneTab } from '~/scenes/sceneTypes'
 import { DashboardBasicType, SidePanelTab } from '~/types'
 
-import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { Node } from '../../../queries/schema/schema-general'
 import type { TeamPublicType, TeamType } from '../../../types'
 import type { DashboardType, QueryBasedInsightModel } from '../../../types'
@@ -56,7 +48,7 @@ export interface HomepageGridItem {
     itemType?: string | null
 }
 
-const GRID_LIMIT = 5
+const GRID_LIMIT = 8
 
 const PREVIOUS_HOMEPAGE_KEY = 'ai-first-previous-homepage'
 
@@ -87,7 +79,7 @@ function savePreviousHomepage(tab: SceneTab | null): void {
 export interface aiFirstHomepageLogicValues {
     dashboardsLoading: boolean // dashboardsModel
     pinnedDashboards: (DashboardBasicType | DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>)[] // dashboardsModel
-    featureFlags: FeatureFlagsSet // featureFlagLogic
+    effectivePhaiView: PhaiViewMode // maxGlobalLogic
     conversationId: string | null // maxLogic
     threadLogicKey: string // maxLogic
     cachedStarred: FileSystemEntry[] // projectTreeDataLogic
@@ -98,8 +90,6 @@ export interface aiFirstHomepageLogicValues {
     chatDraftFor: (tabId: string | undefined) => string // tabUiStateLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     animationPhase: AnimationPhase
-    capabilities: Capability[]
-    capabilityGrouping: CapabilityGrouping | null
     fillInHint: string | null
     gridItems: HomepageGridItem[]
     layoutState: LayoutState
@@ -180,8 +170,6 @@ export interface aiFirstHomepageLogicMeta {
         starredItemsLoading: (shortcutDataHasLoaded: boolean) => boolean
         mode: (layoutState: LayoutState) => HomepageMode
         animationPhase: (layoutState: LayoutState) => AnimationPhase
-        capabilityGrouping: (featureFlags: FeatureFlagsSet) => CapabilityGrouping | null
-        capabilities: (capabilityGrouping: CapabilityGrouping | null) => Capability[]
         pinnedDashboardItems: (
             pinnedDashboards: (DashboardBasicType | DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>>)[]
         ) => HomepageGridItem[]
@@ -219,8 +207,8 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             ['shortcutData as cachedStarred', 'shortcutDataHasLoaded'],
             tabUiStateLogic,
             ['chatDraftFor'],
-            featureFlagLogic,
-            ['featureFlags'],
+            maxGlobalLogic,
+            ['effectivePhaiView'],
         ],
         actions: [
             maxLogic({ panelId: HOMEPAGE_TAB_ID }),
@@ -332,16 +320,6 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             (s) => [s.layoutState],
             (layoutState: LayoutState): AnimationPhase => layoutState.animationPhase,
         ],
-        capabilityGrouping: [
-            (s) => [s.featureFlags],
-            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): CapabilityGrouping | null =>
-                capabilityGroupingFromVariant(featureFlags[FEATURE_FLAGS.MAX_HOMEPAGE_CAPABILITIES]),
-        ],
-        capabilities: [
-            (s) => [s.capabilityGrouping],
-            (capabilityGrouping: CapabilityGrouping | null): Capability[] =>
-                capabilityGrouping ? capabilitiesForGrouping(capabilityGrouping) : [],
-        ],
         pinnedDashboardItems: [
             (s) => [s.pinnedDashboards],
             (
@@ -406,6 +384,18 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             // resurrect it as "unsent input" the next time the homepage is mounted.
             actions.setChatDraftForTab(HOMEPAGE_IDLE_DRAFT_KEY, '')
 
+            // The homepage chat only drives the legacy runtime, so on the new PostHog AI surface a prompt
+            // submitted here would start a LangGraph conversation that surface never shows. Hand it to
+            // /ai instead, which seeds its composer from `ask` and submits it. An AI submit with no
+            // prompt is a chat being restored from `?mode=ai&chat=…` — that still opens here.
+            if (mode === 'ai' && values.effectivePhaiView === 'new' && values.query.trim()) {
+                router.actions.push(urls.ai(undefined, values.query))
+                // Undo the mode flip the reducers just made, so the legacy homepage thread never mounts
+                // and fires a second, competing send while the route change lands.
+                actions.returnToIdle()
+                return
+            }
+
             if (mode === 'ai' && !values.conversationId) {
                 actions.startNewConversation()
             }
@@ -456,8 +446,15 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
     })),
 
     actionToUrl(({ values }) => ({
-        submitQuery: () => {
+        submitQuery: ({ mode: submittedMode }) => {
             const { mode, query } = values
+            // On the new PostHog AI surface the homepage never owns an AI route: a submit with a prompt
+            // is navigated to /ai by the listener (which reads the query before clearing it), and one
+            // without is a restore that arrived on this URL already. Keyed off the submitted mode rather
+            // than `values.mode`, which the listener may already have reset.
+            if (submittedMode === 'ai' && values.effectivePhaiView === 'new') {
+                return undefined
+            }
             if (mode === 'ai') {
                 return [
                     urls.projectHomepage(),

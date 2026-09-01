@@ -1,18 +1,13 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sonarqube import (
     SonarqubeSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.settings import (
-    ENDPOINTS,
-    SONARQUBE_ENDPOINTS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.sonarqube import SonarqubeResumeConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.source import SonarqubeSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _INCREMENTAL_ENDPOINTS = {"issues"}
 _FULL_REFRESH_ENDPOINTS = {"projects", "metrics", "rules", "users"}
@@ -23,9 +18,6 @@ class TestSonarqubeSource:
         self.source = SonarqubeSource()
         self.team_id = 123
         self.config = SonarqubeSourceConfig(host="https://sonar.example.com", token="tok")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.SONARQUBE
 
     def test_get_source_config_is_released_alpha(self):
         # A finished source must be visible (no unreleasedSource) and soft-labeled ALPHA.
@@ -39,13 +31,6 @@ class TestSonarqubeSource:
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert field_names == ["host", "token"]
-
-    def test_token_field_is_secret_password(self):
-        config = self.source.get_source_config
-        token_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "token")
-        assert token_field.type == SourceFieldInputConfigType.PASSWORD
-        assert token_field.secret is True
-        assert token_field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -99,10 +84,6 @@ class TestSonarqubeSource:
         documented = self.source.get_documented_tables()
         assert {table["name"] for table in documented} == set(ENDPOINTS)
 
-    def test_canonical_descriptions_cover_every_endpoint(self):
-        canonical = self.source.get_canonical_descriptions()
-        assert set(canonical) == set(SONARQUBE_ENDPOINTS)
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
@@ -135,10 +116,6 @@ class TestSonarqubeSource:
         assert is_valid is False
         assert error_message == "Blocked internal host"
         mock_validate.assert_not_called()
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self):
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert manager._data_class is SonarqubeResumeConfig
 
     @mock.patch.object(SonarqubeSource, "is_database_host_valid", return_value=(True, None))
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.sonarqube.source.sonarqube_source")

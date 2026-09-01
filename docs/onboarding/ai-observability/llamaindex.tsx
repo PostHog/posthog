@@ -1,6 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
+import { getOtelSessionIdStep } from './_snippets/otel-session-id'
 
 export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
@@ -17,8 +18,8 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
                         <Markdown>
                             See the complete [Python
                             example](https://github.com/PostHog/posthog-python/tree/master/examples/example-ai-llamaindex)
-                            on GitHub. If you're using the PostHog SDK wrapper instead of OpenTelemetry, see the [Python
-                            wrapper
+                            on GitHub. If you use the PostHog SDK wrapper instead of OpenTelemetry, see this example
+                            instead: [Python wrapper
                             example](https://github.com/PostHog/posthog-python/tree/7223c52/examples/example-ai-llamaindex).
                         </Markdown>
                     </CalloutBox>
@@ -30,7 +31,7 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            pip install llama-index llama-index-llms-openai opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-llamaindex
+                            pip install llama-index llama-index-llms-openai opentelemetry-sdk "posthog[otel]" opentelemetry-instrumentation-openai-v2
                         `}
                     />
                 </>
@@ -53,7 +54,7 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
                             from opentelemetry.sdk.trace import TracerProvider
                             from opentelemetry.sdk.resources import Resource, SERVICE_NAME
                             from posthog.ai.otel import PostHogSpanProcessor
-                            from opentelemetry.instrumentation.llamaindex import LlamaIndexInstrumentor
+                            from opentelemetry.instrumentation.openai_v2 import OpenAIInstrumentor
 
                             resource = Resource(attributes={
                                 SERVICE_NAME: "my-app",
@@ -70,9 +71,18 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
                             )
                             trace.set_tracer_provider(provider)
 
-                            LlamaIndexInstrumentor().instrument()
+                            OpenAIInstrumentor().instrument()
                         `}
                     />
+
+                    <CalloutBox type="fyi" icon="IconInfo" title="What gets captured">
+                        <Markdown>
+                            This instruments the OpenAI calls LlamaIndex makes underneath, so you get one
+                            `$ai_generation` per LLM call. Retrieval and query-engine steps are not captured as spans.
+                            To record those, capture `$ai_span` events yourself with a shared `$ai_trace_id`. See
+                            [manual capture](https://posthog.com/docs/ai-observability/installation/manual-capture).
+                        </Markdown>
+                    </CalloutBox>
                 </>
             ),
         },
@@ -126,6 +136,7 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
                 </>
             ),
         },
+        getOtelSessionIdStep(ctx, { languages: ['Python'] }),
     ]
 }
 

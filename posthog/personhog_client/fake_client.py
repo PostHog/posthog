@@ -517,6 +517,12 @@ class FakePersonHogClient:
                         m.detail_dashboard_id = request.detail_dashboard_id
                     elif field == "default_columns":
                         m.default_columns = request.default_columns
+                    elif field == "created_at":
+                        # Mirror the replica: the path in the mask with no value nulls the column.
+                        if request.HasField("created_at"):
+                            m.created_at = request.created_at
+                        else:
+                            m.ClearField("created_at")
                 return group_pb2.UpdateGroupTypeMappingResponse(mapping=m)
         import grpc
 
@@ -603,15 +609,6 @@ class FakePersonHogClient:
             deleted_count += 1
         response = person_pb2.DeletePersonsBatchForTeamResponse(deleted_count=deleted_count)
         self.calls.append(_Call("delete_persons_batch_for_team", request, response))
-        return response
-
-    def delete_personless_distinct_ids_batch_for_team(
-        self, request: person_pb2.DeletePersonlessDistinctIdsBatchForTeamRequest, timeout: float | None = None
-    ) -> person_pb2.DeletePersonlessDistinctIdsBatchForTeamResponse:
-        # The fake does not model personless distinct IDs, so this records the
-        # call for assertions and reports nothing deleted.
-        response = person_pb2.DeletePersonlessDistinctIdsBatchForTeamResponse(deleted_count=0)
-        self.calls.append(_Call("delete_personless_distinct_ids_batch_for_team", request, response))
         return response
 
     # ── Person split ──────────────────────────────────────────────────

@@ -10,12 +10,21 @@ from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
-from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool
+from products.mcp_store.backend.models import (
+    MCPGatewayServer,
+    MCPServerInstallation,
+    MCPServerInstallationTool,
+    TeamMCPGatewayConfig,
+)
 from products.mcp_store.backend.oauth import TokenRefreshError
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
-from ee.hogai.tools.call_mcp_server.installations import _build_server_headers, _get_installations
+from ee.hogai.tools.call_mcp_server.installations import (
+    _build_server_headers,
+    _get_installations,
+    _get_tool_approval_states,
+)
 from ee.hogai.tools.call_mcp_server.mcp_client import MCPClientError
 from ee.hogai.tools.call_mcp_server.tool import CallMCPServerTool
 from ee.hogai.utils.types.base import AssistantState, NodePath
@@ -313,6 +322,87 @@ class TestCallTool(TestCallMCPServerTool):
             with self.assertRaises(MaxToolRetryableError) as ctx:
                 await tool._arun_impl(server_url="https://mcp.down.com", tool_name="some_tool", arguments={})
             self.assertIn("Failed to connect", str(ctx.exception))
+
+
+class TestGetToolApprovalStates(BaseTest):
+    def test_gateway_policy_uses_cached_tool_annotations(self) -> None:
+        server = MCPGatewayServer.objects.for_team(self.team.id).create(
+            team=self.team,
+            name="Issue server",
+            url="https://mcp.issue-policy.example.com/mcp",
+        )
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            display_name=server.name,
+            url=server.url,
+            gateway_server=server,
+        )
+        MCPServerInstallationTool.objects.create(
+            installation=installation,
+            tool_name="manage_issue",
+            annotations={"destructiveHint": True},
+            last_seen_at=timezone.now(),
+        )
+        TeamMCPGatewayConfig.objects.for_team(self.team.id).create(
+            team=self.team,
+            member_default_preset="block",
+        )
+
+        with self.assertNumQueries(5):
+            states = _get_tool_approval_states(str(installation.id), self.team.id, server.id, self.user)
+
+        assert states == {"manage_issue": "do_not_use"}
+
+
+class TestCachedToolListGatewayPolicy(TestCallMCPServerTool):
+    async def test_cached_tool_list_resolves_states_through_gateway_policy(self) -> None:
+        def _setup():
+            server = MCPGatewayServer.objects.for_team(self.team.id).create(
+                team=self.team,
+                name="Issue server",
+                url="https://mcp.example.com/mcp",
+            )
+            installation = self._install_server()
+            installation.gateway_server = server
+            installation.save()
+            for tool_name, description in (
+                ("delete_issue", "Deletes an issue permanently."),
+                ("read_issue", "Reads an issue."),
+            ):
+                MCPServerInstallationTool.objects.create(
+                    installation=installation,
+                    tool_name=tool_name,
+                    description=description,
+                    approval_state="approved",
+                    last_seen_at=timezone.now(),
+                )
+            TeamMCPGatewayConfig.objects.for_team(self.team.id).create(
+                team=self.team,
+                member_default_preset="block",
+            )
+            return installation, server
+
+        installation, server = await sync_to_async(_setup)()
+        tool = self._create_tool(
+            installations=[
+                {
+                    "id": str(installation.id),
+                    "display_name": "Test Server",
+                    "url": installation.url,
+                    "gateway_server_id": server.id,
+                }
+            ]
+        )
+
+        listing = await tool._get_cached_tool_list(installation.url)
+
+        assert listing is not None
+        assert "read_issue" in listing
+        # The legacy per-installation state says approved, but the team's
+        # "block destructive" preset must gate the cached list too.
+        assert "delete_issue" not in listing
+        assert tool._approval_cache[installation.url]["delete_issue"] == "do_not_use"
 
 
 class TestGetInstallations(TestCallMCPServerTool):

@@ -479,7 +479,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                             }}
                             availableColumns={schemaIncrementalFields.available_columns ?? []}
                             detectedPrimaryKeys={schemaIncrementalFields.detected_primary_keys ?? null}
-                            primaryKeyLocked={!!schema.table}
+                            primaryKeyLocked={!!schema.table && !!schema.primary_key_columns?.length}
                             onClose={() => {}}
                             onSave={persistSyncMethod}
                         />
@@ -658,7 +658,7 @@ function ColumnsAndRowFiltersSection({
     refreshingSchemas,
     supportsRowFilters,
 }: {
-    source: ExternalDataSource | null
+    source: SchemaSceneSource | null
     schema: ExternalDataSourceSchema
     updateSchema: (schema: ExternalDataSourceSchema) => void
     resyncSchema: (schema: ExternalDataSourceSchema) => void
@@ -668,6 +668,8 @@ function ColumnsAndRowFiltersSection({
 }): JSX.Element {
     const available = schema.available_columns ?? []
     const hasAvailableColumns = available.length > 0
+    const columnSelectionNeedsRefresh =
+        !!source?.requires_exact_column_metadata && schema.source_column_metadata_available === false
 
     // Plain value, not the render-prop form of SchemaEditorAction: a fresh inline render-prop on
     // every edit would remount the editors and wipe their drafts. See useSchemaEditorAccess's docstring.
@@ -766,12 +768,14 @@ function ColumnsAndRowFiltersSection({
                     description="Choose which columns from this table get synced. Primary keys and the active incremental field are always synced."
                 />
                 <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
-                    {!hasAvailableColumns ? (
+                    {!hasAvailableColumns || columnSelectionNeedsRefresh ? (
                         <div className="flex flex-col items-center gap-2 text-center text-muted-alt py-6">
                             <span className="text-sm">
-                                {!schema.last_synced_at
-                                    ? 'No columns discovered yet for this schema — they will appear after the first successful sync.'
-                                    : 'No columns discovered yet for this schema.'}
+                                {columnSelectionNeedsRefresh
+                                    ? 'Pull the latest source schema before changing columns. Existing synced columns remain available under Descriptions.'
+                                    : !schema.last_synced_at
+                                      ? 'No columns discovered yet for this schema — they will appear after the first successful sync.'
+                                      : 'No columns discovered yet for this schema.'}
                             </span>
                             <SchemaEditorAction schema={schema}>
                                 <LemonButton
@@ -802,7 +806,7 @@ function ColumnsAndRowFiltersSection({
                         description="Sync only rows that match these conditions. Filters are ANDed together and applied on the next sync — they don't remove rows already synced."
                     />
                     <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
-                        {!hasAvailableColumns ? (
+                        {!hasAvailableColumns || columnSelectionNeedsRefresh ? (
                             <div className="text-sm text-muted-alt py-2 text-center">
                                 No columns discovered yet — pull schemas from the Columns section above to add row
                                 filters.
@@ -971,7 +975,6 @@ function AnchorTimeField({
     const localTime = isProjectTime
         ? dayjs
               .utc(`${dayjs().format('YYYY-MM-DD')}T${utcTime}`)
-              .local()
               .tz(currentTeam?.timezone || 'UTC')
               .format('HH:mm:00')
         : utcTime
@@ -1025,7 +1028,7 @@ function AnchorTimeField({
                         accessDisabledReason ?? (!schema.should_sync ? 'Enable syncing to set anchor time' : undefined)
                     }
                     onChange={(checked) => {
-                        setDraftSyncTimeOfDay(checked ? (isProjectTime ? localTime : utcTime) : null)
+                        setDraftSyncTimeOfDay(checked ? utcTime : null)
                     }}
                 />
                 <LemonInput
@@ -1035,9 +1038,11 @@ function AnchorTimeField({
                     value={isSyncTimeSet ? localTime.substring(0, 5) : undefined}
                     onChange={(value) => {
                         const newValue = `${value}:00`
+                        // dayjs.tz(str, zone) interprets the wall-clock time in the project
+                        // timezone; plain dayjs(str) would parse it in the browser's timezone.
                         const utcValue = isProjectTime
-                            ? dayjs(`${dayjs().format('YYYY-MM-DD')}T${newValue}`)
-                                  .tz(currentTeam?.timezone || 'UTC')
+                            ? dayjs
+                                  .tz(`${dayjs().format('YYYY-MM-DD')}T${newValue}`, currentTeam?.timezone || 'UTC')
                                   .utc()
                                   .format('HH:mm:00')
                             : newValue

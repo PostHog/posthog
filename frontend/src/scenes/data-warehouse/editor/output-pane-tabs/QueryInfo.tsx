@@ -22,6 +22,7 @@ import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
 import { sqlEditorLogic } from '../sqlEditorLogic'
 import { infoTabLogic } from './infoTabLogic'
+import { ViewDataQualityChecks } from './ViewDataQualityChecks'
 
 interface QueryInfoProps {
     tabId: string
@@ -68,7 +69,10 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
         <div className="overflow-auto" data-attr="sql-editor-sidebar-query-info-pane">
             <div className="flex flex-col flex-1 gap-4">
                 {targetView ? (
-                    <MaterializationStatusPanel viewId={targetView.id} />
+                    <>
+                        <MaterializationStatusPanel viewId={targetView.id} />
+                        {featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS] && <ViewDataQualityChecks view={targetView} />}
+                    </>
                 ) : (
                     <div>
                         <div className="flex flex-row items-center gap-2">
@@ -128,7 +132,7 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                                                 </Tooltip>
                                             )
                                         }
-                                        if (last_run_at === 'never' && !status) {
+                                        if (!last_run_at && !status) {
                                             return (
                                                 <Tooltip title="This is a view, so it's always available with the latest data">
                                                     <span className="text-secondary">Available</span>
@@ -149,8 +153,12 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                                                 </Tooltip>
                                             )
                                         }
-                                        if (last_run_at === 'never' && !status) {
-                                            return (
+                                        if (!last_run_at) {
+                                            return status ? (
+                                                <Tooltip title="This materialized view hasn't completed a run yet">
+                                                    <span className="text-secondary">Not yet run</span>
+                                                </Tooltip>
+                                            ) : (
                                                 <Tooltip title="This is a view, so it is never run">
                                                     <span className="text-secondary">N/A</span>
                                                 </Tooltip>

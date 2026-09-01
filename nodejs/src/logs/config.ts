@@ -4,6 +4,7 @@ import {
     KAFKA_LOGS_INGESTION,
     KAFKA_LOGS_INGESTION_DLQ,
     KAFKA_LOGS_INGESTION_OVERFLOW,
+    KAFKA_LOG_ENTRIES,
     KAFKA_TRACES_CLICKHOUSE,
     KAFKA_TRACES_INGESTION,
     KAFKA_TRACES_INGESTION_DLQ,
@@ -13,9 +14,14 @@ import { isProdEnv } from '~/common/utils/env-utils'
 
 import { LogsProducerName, WARPSTREAM_INGESTION_PRODUCER, WARPSTREAM_LOGS_PRODUCER } from './outputs/producers'
 
+export const DEFAULT_PATTERN_MAX_INPUT_CHARS = 8192
+export const DEFAULT_PATTERN_MAX_OUTPUT_CHARS = 1024
+
 export type LogsIngestionOutputsConfig = {
     LOGS_INGESTION_OUTPUT_APP_METRICS_TOPIC: string
     LOGS_INGESTION_OUTPUT_APP_METRICS_PRODUCER: LogsProducerName
+    LOGS_INGESTION_OUTPUT_LOG_ENTRIES_TOPIC: string
+    LOGS_INGESTION_OUTPUT_LOG_ENTRIES_PRODUCER: LogsProducerName
     LOGS_INGESTION_OUTPUT_LOGS_PRODUCER: LogsProducerName
     LOGS_INGESTION_OUTPUT_DLQ_PRODUCER: LogsProducerName
 }
@@ -24,6 +30,8 @@ export function getDefaultLogsIngestionOutputsConfig(): LogsIngestionOutputsConf
     return {
         LOGS_INGESTION_OUTPUT_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
         LOGS_INGESTION_OUTPUT_APP_METRICS_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
+        LOGS_INGESTION_OUTPUT_LOG_ENTRIES_TOPIC: KAFKA_LOG_ENTRIES,
+        LOGS_INGESTION_OUTPUT_LOG_ENTRIES_PRODUCER: WARPSTREAM_INGESTION_PRODUCER,
         LOGS_INGESTION_OUTPUT_LOGS_PRODUCER: WARPSTREAM_LOGS_PRODUCER,
         LOGS_INGESTION_OUTPUT_DLQ_PRODUCER: WARPSTREAM_LOGS_PRODUCER,
     }
@@ -56,6 +64,16 @@ export type LogsIngestionConsumerConfig = {
     LOGS_METRICS_RULES_KILLSWITCH: boolean
     /** capture-logs OTLP metrics endpoint (e.g. `http://capture-logs:3308/i/v1/metrics`); empty disables emission. */
     LOGS_METRICS_RULES_EXPORT_URL: string
+    /** Comma-separated team IDs, or `*` for all teams, or empty to disable per-row retention rule evaluation entirely. */
+    LOGS_RETENTION_ENABLED_TEAMS: string
+    /** When `true`, retention rules are never evaluated (rows keep the team default via the batch header). */
+    LOGS_RETENTION_KILLSWITCH: boolean
+    /** Comma-separated team IDs, or `*` for all teams, or empty (default) to disable measure-only pattern masking. */
+    LOGS_PATTERN_MASKING_ENABLED_TEAMS: string
+    /** Ceiling on body chars fed to the pattern masker; longer bodies are cut first (CPU guard). */
+    LOGS_PATTERN_MASKING_MAX_INPUT_CHARS: number
+    /** Truncation applied to the masked pattern, after masking (so more real content survives the cut). */
+    LOGS_PATTERN_MASKING_MAX_OUTPUT_CHARS: number
     /**
      * When `true`, rows removed by drop rules are credited back to the billed usage metrics
      * (`bytes_ingested` / `records_ingested`). When `false` (default), the credit is only
@@ -63,6 +81,18 @@ export type LogsIngestionConsumerConfig = {
      * (shadow mode) — billing is unchanged.
      */
     LOGS_BILLING_PRORATE_ENABLED: boolean
+    /** Comma-separated team IDs, or `*` for all teams, or empty (default) to disable hog log transformations entirely. */
+    LOGS_TRANSFORMATIONS_ENABLED_TEAMS: string
+    /** When `true`, hog log transformations are skipped regardless of the allowlist. */
+    LOGS_TRANSFORMATIONS_KILLSWITCH: boolean
+    /** Hard per-record HogVM kill in milliseconds. */
+    LOGS_TRANSFORMATIONS_HOG_TIMEOUT_MS: number
+    /** Cumulative HogVM time budget per Kafka message; exhaustion skips remaining records (fail-open). */
+    LOGS_TRANSFORMATIONS_MESSAGE_BUDGET_MS: number
+    /** Cumulative HogVM time budget per consumer batch; bounds worst-case added batch latency. */
+    LOGS_TRANSFORMATIONS_BATCH_BUDGET_MS: number
+    /** Max failed invocations whose logs are captured, per function per message. */
+    LOGS_TRANSFORMATIONS_MAX_ERROR_LOGS_PER_FUNCTION: number
     REDIS_URL: string
     REDIS_POOL_MIN_SIZE: number
     REDIS_POOL_MAX_SIZE: number
@@ -92,7 +122,22 @@ export function getDefaultLogsIngestionConsumerConfig(): LogsIngestionConsumerCo
         LOGS_METRICS_RULES_ENABLED_TEAMS: isProdEnv() ? '' : '*',
         LOGS_METRICS_RULES_KILLSWITCH: false,
         LOGS_METRICS_RULES_EXPORT_URL: '',
+        // Off in prod until per-team rollout; on in dev for local end-to-end testing.
+        LOGS_RETENTION_ENABLED_TEAMS: isProdEnv() ? '' : '*',
+        LOGS_RETENTION_KILLSWITCH: false,
+        // Off by default: enabling forces decode+re-encode for allowlisted teams.
+        LOGS_PATTERN_MASKING_ENABLED_TEAMS: '',
+        LOGS_PATTERN_MASKING_MAX_INPUT_CHARS: DEFAULT_PATTERN_MAX_INPUT_CHARS,
+        LOGS_PATTERN_MASKING_MAX_OUTPUT_CHARS: DEFAULT_PATTERN_MAX_OUTPUT_CHARS,
         LOGS_BILLING_PRORATE_ENABLED: false,
+        LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '',
+        LOGS_TRANSFORMATIONS_KILLSWITCH: false,
+        LOGS_TRANSFORMATIONS_HOG_TIMEOUT_MS: 10,
+        // A regex-heavy scrub measured ~95µs/record (see transformations/benchmarks/);
+        // 100ms covers one such function over a full ~1,100-record message.
+        LOGS_TRANSFORMATIONS_MESSAGE_BUDGET_MS: 100,
+        LOGS_TRANSFORMATIONS_BATCH_BUDGET_MS: 2000,
+        LOGS_TRANSFORMATIONS_MAX_ERROR_LOGS_PER_FUNCTION: 3,
         // Overlapping fields with CommonConfig, included for standalone usage
         // ok to connect to localhost over plaintext
         // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport

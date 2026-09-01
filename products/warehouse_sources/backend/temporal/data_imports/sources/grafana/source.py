@@ -150,6 +150,12 @@ Self-hosted Grafana OSS can alternatively authenticate with a username and passw
             HOST_NOT_ALLOWED_ERROR: "The Grafana host is not allowed. Please use your instance's public URL.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_make_fetch` already retries a 429/5xx in-line with backoff (see grafana.py); if that
+        # budget is still exhausted, the failure is a transient Grafana-side blip rather than a
+        # bug here, and Temporal's activity retry will pick the sync back up.
+        return {"(retryable)"}
+
     def _build_auth(self, config: GrafanaSourceConfig) -> GrafanaAuth:
         return GrafanaAuth(
             method=config.auth_method.selection,

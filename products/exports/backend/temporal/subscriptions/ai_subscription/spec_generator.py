@@ -27,6 +27,8 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
     resolve_prompt,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
+    MAX_CHART_CATEGORIES,
+    MAX_CHARTS_PER_REPORT,
     EnrichedPromptSpec,
     QueryPlan,
     RelevantEvents,
@@ -87,7 +89,7 @@ WINDOW_PLACEHOLDERS = (
 )
 # Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
 # improvements reach existing subscriptions instead of only new ones.
-AI_QUERY_PLAN_VERSION = 3
+AI_QUERY_PLAN_VERSION = 5
 
 
 DEFAULT_PLANNER_MODEL = "gpt-4.1"
@@ -225,8 +227,9 @@ def sanitize_prompt(raw: str | None) -> str:
 
 
 def _top_event_names(team: Team, limit: int) -> list[str]:
-    query = TeamTaxonomyQuery(limit=limit)
-    response = TeamTaxonomyQueryRunner(query, team).run(
+    # Unlimited on purpose: the limit bounds output rows, not the 30-day GROUP BY behind them, so it
+    # saves ClickHouse nothing and only forks our cache key away from the other AI callers'.
+    response = TeamTaxonomyQueryRunner(TeamTaxonomyQuery(), team).run(
         ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
     )
     if not isinstance(response, CachedTeamTaxonomyQueryResponse):
@@ -234,8 +237,10 @@ def _top_event_names(team: Team, limit: int) -> list[str]:
     # Event names are user-controlled (project tokens are public — anyone can fire
     # events with arbitrary names). Sanitize so an attacker can't seed the LLM
     # context with prompt-injection payloads via crafted event names.
-    sanitized = (sanitize_user_text(item.event, EVENT_NAME_MAX_LENGTH) for item in response.results)
-    return [name for name in sanitized if name]
+    # `count > 0` drops the runner's count=0 WELL_KNOWN_EVENT_NAMES padding: under a "Top events"
+    # heading it would claim events fired that never did. Dormant ones are `_no_data_event_names`.
+    sanitized = (sanitize_user_text(item.event, EVENT_NAME_MAX_LENGTH) for item in response.results if item.count > 0)
+    return [name for name in sanitized if name][:limit]
 
 
 def _no_data_event_names(team: Team, limit: int) -> list[str]:
@@ -435,7 +440,15 @@ def _event_property_names(team: Team, events: list[str], per_event_limit: int) -
 
 
 def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequence[str] = ()) -> str:
-    event_names = _top_event_names(team, EVENT_NAMES_SAMPLE_LIMIT)
+    # Only a hint — the planner's actual event names arrive via `relevant_events` from the Postgres
+    # taxonomy — so a ClickHouse timeout on the 30-day scan behind it degrades rather than costing the
+    # whole report, as `_llm_selected_events` already does. None means "unknown", never "none".
+    event_names: list[str] | None
+    try:
+        event_names = _top_event_names(team, EVENT_NAMES_SAMPLE_LIMIT)
+    except Exception:
+        logger.warning("ai_subscription.top_event_names_failed", team_id=team.pk, exc_info=True)
+        event_names = None
 
     # Team / org names are also user-controlled and end up in the LLM context, so
     # apply the same sanitization as event names.
@@ -458,14 +471,19 @@ def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequen
         f"- Previous-period start (for period-over-period comparisons only, project timezone): "
         f"{window.compare_start_literal}",
     ]
-    if event_names:
+    if event_names is None:
+        # State, not an instruction to the model: this blob is also quoted verbatim into the synthesis
+        # prompt, so an imperative here can end up paraphrased at the reader. Distinct from the empty
+        # case because the projects whose scan times out are the ones with the most data.
+        lines.append("- Top events: (unavailable this run)")
+    elif event_names:
         lines.append("- Top events: " + ", ".join(event_names))
     else:
         lines.append("- Top events: (none recorded yet)")
 
     if relevant_events:
         props_by_event = _event_property_names(team, list(relevant_events), EVENT_PROPERTIES_PER_EVENT_LIMIT)
-        top_set = set(event_names)
+        top_set = set(event_names or ())
         seen: set[str] = set()
         matched: list[tuple[str, str]] = []  # (raw, clean), deduped on the sanitized name
         for raw in relevant_events:
@@ -535,7 +553,12 @@ def generate_query_plan(
 
     rendered_prompt = render_prompt(
         resolve_prompt(team, PLANNER_PROMPT_NAME, PLAN_GENERATION_PROMPT),
-        {"context_blob": context_blob, "cleaned_prompt": cleaned_prompt},
+        {
+            "context_blob": context_blob,
+            "cleaned_prompt": cleaned_prompt,
+            "max_charts": str(MAX_CHARTS_PER_REPORT),
+            "max_categories": str(MAX_CHART_CATEGORIES),
+        },
     )
 
     result = llm.invoke([("system", rendered_prompt)])

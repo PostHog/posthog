@@ -57,7 +57,7 @@ We want to achieve a state of full schema of each env and cluster to be represen
 End state: we have 5 environments schemas as HCL, a golden per cluster, something like:
 
 - local-single (in PostHog/posthog)
-  - schema.hcl
+  - all.hcl (one node hosts every role, so one golden)
 - local-multi (in PostHog/posthog):
   - ops.hcl
   - posthog.hcl
@@ -93,7 +93,33 @@ Envs:
 - prod-us
 - prod-eu
 
-Each table shall be defined once, if there's a difference between envs, it shall be extended (prefered) or overriden, whatever is simple.
+Each table shall be **defined** once, if there's a difference between envs, it shall be extended (prefered) or overriden, whatever is simple.
+
+"Defined once" counts _definition_ sites — plain declarations and `abstract` declarations (a copied abstract schema is still a copy). What does **not** count: declarations carrying `extend` (refinements of a definition that lives elsewhere, chschema #173), `patch_*` blocks, and a redeclaration carrying `override = true` (sanctioned whole-replacement — it still copies content, so it stays the last resort). What the rule forbids is the same schema authored in two places, i.e. copied.
+
+`hclexp locate -duplicates` draws exactly this line (verified against the pin: table+`patch_table` → 0, table+`override=true` → 0, `extend` refinements → 0, table+plain redeclaration → 1, abstract+abstract → 1), so it is the enforcement mechanism, not a heuristic. Both repos gate on it against a `duplicates-baseline.txt` that may only shrink.
+
+The patch vocabulary covers tables and materialized views fully, so "express it as a patch" is always available for a content difference. `patch_table` carries `column` and `index` (both with positional `after`), `modify_column` (full replacement column spec — `type` is required), additive `projection`, `engine`, `order_by`, `partition_by`, `ttl` and `settings`; `patch_view` and `patch_dictionary` do the same for views and dictionaries, and `patch_materialized_view` carries `query` (replace) plus the column operations — an MV whose query differs per env stays declared once with per-env query patches. `settings` merge into the target with the patch winning on collision; everything else replaces. Built on demand in PostHog/chschema — #153 (settings merge), #156 (full vocab + `patch_view`/`patch_dictionary`), #159 (positioned column adds), #161 (positioned index adds), #170 (`patch_materialized_view`, MV `override = true`, projections in `patch_table`), #174/#175 (patches resolve with inheritance: a concrete-target patch applies after `extend`, so it can modify, drop, or position against inherited columns; abstract-target patches propagate to every child).
+
+`patch_column` (#165) is the `extend` side of the same idea: a child using `extend` can specialize a single _inherited_ column — type, nullability, default kind, CODEC, TTL, comment — while keeping every unspecified field and the inherited column order. A plain `column` block on a child still means _add_, and still collides with an inherited name. This is what lets one codec-free abstract back both a storage table and its Distributed proxy, with only the storage child declaring CODECs:
+
+```hcl
+table "sharded_events" {
+  extend = "_event_base"
+
+  patch_column "timestamp" {
+    codec = "Delta(8), ZSTD(1)"
+  }
+}
+```
+
+Before that, the choice was to hang the CODECs on the abstract — forcing them onto the proxy too — or to stop sharing and repeat the column list.
+
+In this repo the cross-_role_ duplicates have been factored into `roles/coshared/<member-set>/` layers (one layer per set of stacks that co-host the objects), with env deltas as `patch_*` blocks in the env layers. The events family itself is the `_event_base` pattern live: `roles/shared/event_base.hcl` declares the abstract core once, `sharded_events` and the `events` proxy extend it in `roles/data/shared/`, the sessions nodes' replica of that proxy extends it in `roles/sessions/shared/`, `roles/data/local` carries the local delta as `patch_table` blocks, and posthog-cloud-infra's `overrides/data/<env>/` carry the cloud deltas the same way. The abstract sits in `roles/shared/` because that is the only layer every role composes, and an abstract emits nothing on a node that does not extend it.
+
+Positioning is the one thing a refinement cannot do: `after` is rejected on a column declared inside a table block, where declaration order is the order. A child that must interleave its own columns with inherited ones declares the table, then adds them in a `patch_table` with `after`. `roles/sessions/shared` does exactly that, which is why the sessions events proxy reproduces the live physical column order.
+
+What keeps the baseline non-empty is `raw_sessions_v3` and `channel_definition`, where one name covers a different object per cluster (storage on one, a Distributed proxy on the other). They resolve when the sessions cloud env layers move to posthog-cloud-infra rather than by any restructure here.
 
 The purpose of the extension is to making the schema changes uniform across all envs: think adding a column or table shall be possible in one place and affect all envs.
 
@@ -122,10 +148,12 @@ Full implementation plan: `docs/plans/2026-07-14-hcl-recreate.md`.
 ## Deployment
 
 1. local and schema changes to base are done in PostHog/posthog, this is also what all tests run against
-2. PR in PostHog/posthog shall trigger a run of a check in posthog-cloud-infra that validates that changes could be merged with the prod layer
+2. a PR in PostHog/posthog triggers a compose check in posthog-cloud-infra validating the changes still compose under the prod overrides — the `cloud-compose-gate` job in `ci-clickhouse-hcl-schema.yml` dispatches cloud-infra's `ci-clickhouse-hcl-compose-gate.yaml` against the PR head; it asserts composability, not cloud goldens
 3. the cloud schema is composed as base + customizations in posthog-cloud-infra
-4. when a PR is merged in PostHog/posthog it shall trigger a job and create PR in posthog-cloud-infra to bump pinned version of base; it shall generate a full ordered list of SQL queries that will be executed as part of migration
+4. when a PR is merged in PostHog/posthog, a base-ref bump PR in posthog-cloud-infra advances the pinned base sha, regenerates the cloud goldens, and generates the full ordered list of SQL queries that will be executed as part of migration (creation of that PR is to be automated)
 5. after approval, the PR is merged and a migrator executes a migration
+
+The change recipes (add a table, column, index; env variants) live in [README.md](README.md), "Making a change".
 
 ## Repos
 
@@ -134,5 +162,5 @@ Full implementation plan: `docs/plans/2026-07-14-hcl-recreate.md`.
 - PostHog/chschema - hclexp, github repo is PostHog/chschema
   - all needed tooling is on main (per-object comparison #139, locate + -duplicates #145); pin >= sha-5756e98
 - PostHog/posthog-cloud-infra - a repository with ansible and machine configurations
-  - notable branch: pawel/chore/clickhouse-hcl-data-goldens — the compose harness (vendored base + overrides + data goldens with mat\_ columns), to be merged first
+  - `clickhouse/hcl/` holds the compose harness (vendored base pinned by sha + `overrides/` + data goldens with mat\_ columns) and the compose-gate workflow
 - PostHog/charts - kubernetes config and apps deployment scripts, an old / current clickhouse migration mechanism is run here as job in django web app deployemnt

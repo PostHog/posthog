@@ -1,5 +1,7 @@
 from typing import Any, cast
 
+from django.db import transaction
+
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, request, response, serializers, status
@@ -7,11 +9,14 @@ from rest_framework.request import Request
 from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField
 from posthog.api.utils import action
 from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
 from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization import Organization
+from posthog.models.organization_domain import OrganizationDomain
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 from posthog.security.url_validation import is_url_allowed
 
@@ -30,7 +35,15 @@ def _capture_idp_config_event(
     )
 
 
+class _OrgScopedOrganizationDomainField(OrgScopedPrimaryKeyRelatedField):
+    scope_field = "organization"
+
+
 class IdentityProviderConfigSerializer(serializers.ModelSerializer):
+    saml_relay_state = serializers.CharField(
+        read_only=True,
+        help_text="Stable UUID sent as SAML RelayState to route authentication responses to this IdP configuration.",
+    )
     scim_bearer_token = serializers.SerializerMethodField(
         help_text="Plaintext SCIM bearer token. Only returned once, immediately after SCIM is enabled or the token is regenerated; null otherwise."
     )
@@ -47,15 +60,26 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
     has_id_jag = serializers.BooleanField(
         read_only=True, help_text="Whether ID-JAG (XAA) is configured on this config."
     )
+    organization_domain_ids = _OrgScopedOrganizationDomainField(
+        source="organization_domains",
+        many=True,
+        queryset=OrganizationDomain.objects.all(),
+        required=False,
+        help_text="Organization domain IDs that this identity provider configuration applies to.",
+    )
 
     class Meta:
         model = IdentityProviderConfig
         fields = (
             "id",
             "name",
+            "domain_scope",
+            "config_scope",
+            "organization_domain_ids",
             "created_at",
             "updated_at",
             "has_saml",
+            "saml_relay_state",
             "saml_entity_id",
             "saml_acs_url",
             "saml_x509_cert",
@@ -69,6 +93,16 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
         )
         extra_kwargs = {
             "name": {"help_text": "Display name for this IdP configuration (e.g. 'Okta production')."},
+            "domain_scope": {
+                "required": False,
+                "allow_null": True,
+                "help_text": "Domains this configuration applies to. An unset value behaves like selected domains.",
+            },
+            "config_scope": {
+                "required": False,
+                "allow_null": True,
+                "help_text": "Feature configured by this identity provider configuration.",
+            },
             "created_at": {"read_only": True},
             "updated_at": {"read_only": True},
             "saml_entity_id": {
@@ -153,20 +187,40 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
 
         return attrs
 
+    @staticmethod
+    def _sync_organization_domains(
+        instance: IdentityProviderConfig, organization_domains: list[OrganizationDomain]
+    ) -> None:
+        LinkedIdentityProviderConfig.objects.filter(identity_provider_config=instance).delete()
+        LinkedIdentityProviderConfig.objects.bulk_create(
+            [
+                LinkedIdentityProviderConfig(
+                    identity_provider_config=instance,
+                    organization_domain=organization_domain,
+                )
+                for organization_domain in organization_domains
+            ]
+        )
+
+    @transaction.atomic
     def create(self, validated_data: dict[str, Any]) -> IdentityProviderConfig:
         validated_data["organization"] = self.context["view"].organization
         scim_enabled = validated_data.pop("scim_enabled", None)
+        organization_domains = validated_data.pop("organization_domains", [])
         validated_data.pop("scim_bearer_token", None)
 
         instance: IdentityProviderConfig = super().create(validated_data)
+        self._sync_organization_domains(instance, organization_domains)
 
         if scim_enabled:
             self._scim_plain_token = enable_scim_for_config(instance)
 
         return instance
 
+    @transaction.atomic
     def update(self, instance: IdentityProviderConfig, validated_data: dict[str, Any]) -> IdentityProviderConfig:
         scim_enabled = validated_data.pop("scim_enabled", None)
+        organization_domains = validated_data.pop("organization_domains", None)
         validated_data.pop("scim_bearer_token", None)
 
         scim_plain_token: str | None = None
@@ -181,6 +235,8 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
                     disable_scim_for_config(instance)
 
         instance = super().update(instance, validated_data)
+        if organization_domains is not None:
+            self._sync_organization_domains(instance, organization_domains)
         self._scim_plain_token = scim_plain_token
 
         return instance
@@ -214,6 +270,19 @@ class IdentityProviderConfigViewSet(TeamAndOrgViewSetMixin, ModelViewSet):
         res = super().update(request, *args, **kwargs)
         _capture_idp_config_event(request, self.get_object(), "updated", {"fields": sorted(request.data.keys())})
         return res
+
+    def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        config = cast(IdentityProviderConfig, self.get_object())
+        # Deleting a config takes every SCIM provisioning record with it, and with them the IdP's
+        # immutable-id mapping for those users — the next sync provisions everyone again. Make that
+        # reachable only after the domain is explicitly unlinked, so it can't ride along on a
+        # misdirected request against a live configuration.
+        if config.organization_domains.exists():
+            raise exceptions.ValidationError(
+                "This configuration is mapped to an organization domain. Remove its domain mappings before deleting it.",
+                code="linked_to_domain",
+            )
+        return super().destroy(request, *args, **kwargs)
 
     @extend_schema(request=None, responses=SCIMTokenResponseSerializer)
     @action(methods=["POST"], detail=True, url_path="scim/token")

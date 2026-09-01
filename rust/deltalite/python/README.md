@@ -108,9 +108,12 @@ rejected (raising `DeltaLiteError`) rather than silently double-inserted.
 
 ### `UpsertStats`
 
-Returned by `upsert`. Fields: `version`, `partitions_touched`, `files_added`,
+Returned by `upsert`. Counts: `version`, `partitions_touched`, `files_added`,
 `files_removed`, `files_carried_over`, `files_probed`, `rows_updated`,
-`rows_inserted`, `rows_copied`, `source_rows`, `null_pk_rows`.
+`rows_inserted`, `rows_copied`, `source_rows`, `null_pk_rows`. Per-phase
+wall-clock timings (milliseconds): `plan_ms` (listing + pruning files),
+`rewrite_ms` (reading + rewriting the touched partitions), `commit_ms`
+(committing to the Delta log).
 
 ### Exceptions
 

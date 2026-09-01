@@ -5,14 +5,26 @@ import { BIN_COUNT_AUTO } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { average, percentage, sum } from 'lib/utils/numbers'
-import { findBreakdownColorConfig } from 'scenes/dashboard/dashboardBreakdownColors'
+import { ensureStringIsNotBlank } from 'lib/utils/strings'
+import {
+    BreakdownColorConfig,
+    computeTileFallbackTokens,
+    findBreakdownColorConfig,
+    getBreakdownPropertyKey,
+} from 'scenes/dashboard/dashboardBreakdownColors'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'scenes/insights/filters/aggregationTargetUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { getFunnelDatasetKey, getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
+import {
+    formatEventName,
+    getFunnelDatasetKey,
+    getFunnelDatasetPosition,
+    getFunnelResultCustomization,
+    getFunnelResultCustomizationColorToken,
+} from 'scenes/insights/utils'
 
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
@@ -59,6 +71,7 @@ import type {
     WebOverviewQuery,
     WebStatsTableQuery,
 } from '../../queries/schema/schema-general'
+import type { PathsV2Query } from '../../queries/schema/schema-general'
 import type { BreakdownKeyType, FunnelStep, IntervalType, LabelGroupType } from '../../types'
 import type { QuerySourceUpdate } from '../insights/insightVizDataLogic'
 import {
@@ -180,6 +193,92 @@ function isFunnelsQueryOrLegacyFilter(
     return isFunnelsQuery(querySource)
 }
 
+/**
+ * The display override a series carries. `custom_name` is set by the "Rename graph series" modal; a
+ * `name` that differs from the raw label is a rename applied through the query editor or the API.
+ * Mirrors `resolve_series_custom_name` in `query_runner.py`, which the backend runs for trends only.
+ *
+ * `rawLabel` is the label the series shows without an override. Pass null when there is none to
+ * compare against — a `name` is then indistinguishable from a default, so only `custom_name` counts.
+ */
+function resolveSeriesCustomName(node: FunnelsQuerySeriesNodeUnion, rawLabel: string | null): string | null {
+    const customName = ensureStringIsNotBlank(node.custom_name)
+    if (customName) {
+        return customName
+    }
+    // An action resolves its name from the database at query time, so a stored copy can be stale. A
+    // group composes its name from its members (`actionFilterGroupLogic`), so it is not typed by a
+    // person either. Neither is evidence of a rename; both rename through `custom_name`.
+    if (node.kind === NodeKind.ActionsNode || node.kind === NodeKind.GroupNode) {
+        return null
+    }
+    const name = ensureStringIsNotBlank(node.name)
+    // The picker writes the raw event key as `name`, and defaults write the label the UI renders it
+    // as, so a `name` matching either form is the default rather than a rename.
+    if (!name || rawLabel === null || name === rawLabel || name === formatEventName(rawLabel)) {
+        return null
+    }
+    return name
+}
+
+/**
+ * Whether a result step is still the one its series node describes. Results outlive the query that
+ * produced them, so a step the node has moved off carries a label from the previous run.
+ */
+function describesStep(node: FunnelsQuerySeriesNodeUnion, step: FunnelStepWithNestedBreakdown): boolean {
+    if (node.kind === NodeKind.EventsNode) {
+        return step.action_id === (node.event ?? null)
+    }
+    if (node.kind === NodeKind.FunnelsDataWarehouseNode) {
+        return step.name === node.table_name
+    }
+    return true
+}
+
+/**
+ * Cached results carry the step names from the run that produced them, so a step renamed since then
+ * renders under its old label. Mirrors `_apply_funnels_custom_names` in `query_runner.py`, which the
+ * stored-result path bypasses: the query wins in both directions. A cleared `custom_name` falls back
+ * to a `name` override, and blanks the label only when `name` matches the raw key. The `name` half is
+ * a widening `_apply_funnels_custom_names` does not yet share, so backend-rendered surfaces — CSV
+ * exports and API consumers reading `results[].custom_name` — keep the raw label until it does.
+ * Unordered funnels are exempt because they label steps by position, not by series.
+ */
+function applyQueryStepCustomNames(
+    steps: FunnelStepWithNestedBreakdown[],
+    querySource: FunnelsQuery | null
+): FunnelStepWithNestedBreakdown[] {
+    if (!querySource?.series?.length || querySource.funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED) {
+        return steps
+    }
+
+    let changed = false
+    const renamed = steps.map((step) => {
+        const node = querySource.series[step.order]
+        if (!node) {
+            return step
+        }
+
+        // An all-events step serializes with a null name; the UI renders it as "All events", so that
+        // is the raw label a rename is compared against, matching trends and the backend serializer.
+        const rawLabel = node.kind === NodeKind.EventsNode && node.event == null ? 'All events' : step.name
+        const customName = resolveSeriesCustomName(node, describesStep(node, step) ? rawLabel : null)
+        // Nested rows are breakdown or compare variants of the same step, so they take the parent's
+        // name. Their own `order` can hold a breakdown rank, which is not a series index.
+        const nested = step.nested_breakdown?.map((row) =>
+            row.custom_name === customName ? row : { ...row, custom_name: customName }
+        )
+        const nestedChanged = nested?.some((row, i) => row !== step.nested_breakdown?.[i])
+        if (customName === step.custom_name && !nestedChanged) {
+            return step
+        }
+
+        changed = true
+        return { ...step, custom_name: customName, ...(nested ? { nested_breakdown: nested } : {}) }
+    })
+    return changed ? renamed : steps
+}
+
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface funnelDataLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
@@ -201,6 +300,7 @@ export interface funnelDataLogicValues {
         | FunnelsQuery
         | LifecycleQuery
         | PathsQuery
+        | PathsV2Query
         | RetentionQuery
         | StickinessQuery
         | TrendsQuery
@@ -219,6 +319,7 @@ export interface funnelDataLogicValues {
     exclusionDefaultStepRange: FunnelExclusionSteps
     exclusionFilters: FilterType
     flattenedBreakdowns: FlattenedFunnelStepByBreakdown[]
+    funnelVizType: FunnelVizType
     getFunnelsColor: (dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics) => string
     getFunnelsColorToken: (
         dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
@@ -320,6 +421,7 @@ export interface funnelDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -332,6 +434,7 @@ export interface funnelDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -344,6 +447,7 @@ export interface funnelDataLogicMeta {
         isTimeToConvertFunnel: (funnelsFilter: FunnelsFilter | null | undefined) => boolean | null
         isTrendsFunnel: (funnelsFilter: FunnelsFilter | null | undefined) => boolean | null
         isEmptyFunnel: (querySource: FunnelsQuery | null) => boolean | null
+        funnelVizType: (funnelsFilter: FunnelsFilter | null | undefined) => FunnelVizType
         aggregationTargetLabel: (
             querySource: FunnelsQuery | null,
             aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
@@ -354,6 +458,7 @@ export interface funnelDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -368,6 +473,7 @@ export interface funnelDataLogicMeta {
                 | FunnelsQuery
                 | LifecycleQuery
                 | PathsQuery
+                | PathsV2Query
                 | RetentionQuery
                 | StickinessQuery
                 | TrendsQuery
@@ -475,7 +581,9 @@ export interface funnelDataLogicMeta {
             resultCustomizations: Record<string, ResultCustomizationByValue> | undefined,
             getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null,
             breakdownFilter: BreakdownFilter | null | undefined,
-            querySource: FunnelsQuery | null
+            querySource: FunnelsQuery | null,
+            flattenedBreakdowns: FlattenedFunnelStepByBreakdown[],
+            disableFunnelBreakdownBaseline: boolean
         ) => (
             dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
         ) => [DataColorTheme | null, DataColorToken | null]
@@ -621,9 +729,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (funnelsFilter: FunnelsFilter | null | undefined): boolean | null => {
                 return funnelsFilter === null
                     ? null
-                    : funnelsFilter === undefined
-                      ? true
-                      : funnelsFilter.funnelVizType === FunnelVizType.Steps
+                    : (funnelsFilter?.funnelVizType ?? FunnelVizType.Steps) === FunnelVizType.Steps
             },
         ],
         isTimeToConvertFunnel: [
@@ -647,6 +753,14 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                           .length === 0
                     : null
             },
+        ],
+
+        // Saved funnels can lack a viz type entirely: the backend relies on a schema default that never
+        // reaches the stored JSON the frontend reads. Resolve it once so every consumer agrees.
+        funnelVizType: [
+            (s) => [s.funnelsFilter],
+            (funnelsFilter: FunnelsFilter | null | undefined): FunnelVizType =>
+                funnelsFilter?.funnelVizType ?? FunnelVizType.Steps,
         ],
 
         aggregationTargetLabel: [
@@ -760,7 +874,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     // Reshape into one step per order with current+previous as nested bars. Trends
                     // also tags rows with compare_label but renders via indexedSteps, so gate on STEPS.
                     if (isStepsFunnel && isFunnelStepsCompareResult(results)) {
-                        return aggregateFunnelCompareResult(results)
+                        return applyQueryStepCustomNames(aggregateFunnelCompareResult(results), querySource)
                     }
                     if (isBreakdownFunnelResults(results)) {
                         const breakdownProperty = breakdownFilter?.breakdowns
@@ -771,11 +885,20 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                         // precede the plain breakdown path, which would otherwise treat each period
                         // as an independent breakdown value (and double-count the step aggregate).
                         if (isStepsFunnel && isFunnelStepsBreakdownCompareResult(results)) {
-                            return aggregateBreakdownCompareResult(results, breakdownProperty)
+                            return applyQueryStepCustomNames(
+                                aggregateBreakdownCompareResult(results, breakdownProperty),
+                                querySource
+                            )
                         }
-                        return aggregateBreakdownResult(results, breakdownProperty).sort((a, b) => a.order - b.order)
+                        return applyQueryStepCustomNames(
+                            aggregateBreakdownResult(results, breakdownProperty).sort((a, b) => a.order - b.order),
+                            querySource
+                        )
                     }
-                    return results.sort((a, b) => a.order - b.order)
+                    return applyQueryStepCustomNames(
+                        results.sort((a, b) => a.order - b.order),
+                        querySource
+                    )
                 }
 
                 return []
@@ -788,29 +911,34 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     return []
                 }
 
-                return querySource.series.map((node, index) => ({
-                    action_id:
+                return querySource.series.map((node, index) => {
+                    // No results yet, so the raw label comes from the node itself rather than a step.
+                    const rawLabel =
                         node.kind === NodeKind.ActionsNode
-                            ? String(node.id)
-                            : node.kind === NodeKind.EventsNode
-                              ? (node.event ?? '')
-                              : '',
-                    name:
-                        node.custom_name ||
-                        (node.kind === NodeKind.ActionsNode
                             ? `Action ${node.id}`
                             : node.kind === NodeKind.EventsNode
-                              ? (node.event ?? '')
-                              : ''),
-                    custom_name: node.custom_name ?? null,
-                    order: index,
-                    count: 0,
-                    type: (node.kind === NodeKind.ActionsNode ? 'actions' : 'events') as EntityType,
-                    average_conversion_time: null,
-                    median_conversion_time: null,
-                    converted_people_url: '',
-                    dropped_people_url: null,
-                }))
+                              ? (node.event ?? 'All events')
+                              : null
+                    // Same override rule the loaded steps use, so the label does not change on load.
+                    const customName = resolveSeriesCustomName(node, rawLabel)
+                    return {
+                        action_id:
+                            node.kind === NodeKind.ActionsNode
+                                ? String(node.id)
+                                : node.kind === NodeKind.EventsNode
+                                  ? (node.event ?? '')
+                                  : '',
+                        name: customName || rawLabel || '',
+                        custom_name: customName,
+                        order: index,
+                        count: 0,
+                        type: (node.kind === NodeKind.ActionsNode ? 'actions' : 'events') as EntityType,
+                        average_conversion_time: null,
+                        median_conversion_time: null,
+                        converted_people_url: '',
+                        dropped_people_url: null,
+                    }
+                })
             },
         ],
         // True when STEPS results carry compare-tagged nested bars (current + previous per step).
@@ -1236,15 +1364,64 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         getFunnelsColorToken: [
-            (s) => [s.resultCustomizations, s.getTheme, s.breakdownFilter, s.querySource],
+            (s) => [
+                s.resultCustomizations,
+                s.getTheme,
+                s.breakdownFilter,
+                s.querySource,
+                s.flattenedBreakdowns,
+                s.disableFunnelBreakdownBaseline,
+            ],
             (
                 resultCustomizations:
                     | Record<string, import('~/queries/schema/schema-general').ResultCustomizationByValue>
                     | undefined,
                 getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null,
                 breakdownFilter: null | import('~/queries/schema/schema-general').BreakdownFilter | undefined,
-                querySource: FunnelsQuery | null
+                querySource: FunnelsQuery | null,
+                flattenedBreakdowns: FlattenedFunnelStepByBreakdown[],
+                disableFunnelBreakdownBaseline: boolean
             ) => {
+                const breakdownPropertyKey = getBreakdownPropertyKey(breakdownFilter)
+                // The dashboard's colors live in another logic and are read at call time, so the
+                // per-tile fallback map is memoized here on the identity of what it derives from.
+                let fallbackSource: { overrides: BreakdownColorConfig[]; theme: DataColorTheme } | null = null
+                let fallbackTokens = new Map<number, DataColorToken>()
+                const tileFallbackToken = (
+                    overrides: BreakdownColorConfig[],
+                    theme: DataColorTheme,
+                    dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
+                ): DataColorToken | undefined => {
+                    if (fallbackSource?.overrides !== overrides || fallbackSource?.theme !== theme) {
+                        fallbackSource = { overrides, theme }
+                        // Completion only activates when a dashboard override actually sits on this
+                        // tile; a series customization alone must not shift its neighbors' colors.
+                        // Once active, customized series claim their slots like overrides do.
+                        let hasDashboardOverride = false
+                        const series = flattenedBreakdowns.map((breakdown) => {
+                            const overrideToken =
+                                findBreakdownColorConfig(
+                                    overrides,
+                                    JSON.parse(getFunnelDatasetKey(breakdown))['breakdown_value'],
+                                    breakdownFilter?.breakdown_type,
+                                    breakdownPropertyKey
+                                )?.colorToken ?? null
+                            hasDashboardOverride = hasDashboardOverride || !!overrideToken
+                            return {
+                                position: getFunnelDatasetPosition(breakdown, disableFunnelBreakdownBaseline),
+                                overrideToken:
+                                    overrideToken ??
+                                    getFunnelResultCustomization(breakdown, resultCustomizations)?.color ??
+                                    null,
+                            }
+                        })
+                        fallbackTokens = hasDashboardOverride
+                            ? computeTileFallbackTokens(series, Object.keys(theme).length)
+                            : new Map<number, DataColorToken>()
+                    }
+                    return fallbackTokens.get(getFunnelDatasetPosition(dataset, disableFunnelBreakdownBaseline))
+                }
+
                 return (
                     dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
                 ): [DataColorTheme | null, DataColorToken | null] => {
@@ -1255,7 +1432,8 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     const colorOverride = findBreakdownColorConfig(
                         logic?.values.effectiveBreakdownColors,
                         breakdownValue,
-                        breakdownFilter?.breakdown_type
+                        breakdownFilter?.breakdown_type,
+                        breakdownPropertyKey
                     )
 
                     if (colorOverride?.colorToken) {
@@ -1268,6 +1446,20 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     const theme = logic?.values.dataColorTheme || getTheme(querySource?.dataColorTheme)
                     if (!theme) {
                         return [null, null]
+                    }
+
+                    // On dashboards with auto colors, series without a value override fill the
+                    // palette slots the tile's overrides don't use, because the plain
+                    // position-based fallback can land on the same slot as an override shown on
+                    // this very chart. An explicit per-series customization still wins below.
+                    if (logic?.values.autoBreakdownColorsEnabled) {
+                        const customizationColor = getFunnelResultCustomization(dataset, resultCustomizations)?.color
+                        const fallbackToken = customizationColor
+                            ? undefined
+                            : tileFallbackToken(logic.values.effectiveBreakdownColors, theme, dataset)
+                        if (fallbackToken) {
+                            return [theme, fallbackToken]
+                        }
                     }
 
                     return [

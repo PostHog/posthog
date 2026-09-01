@@ -2,6 +2,10 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "description": "Request body for registering a scout config without waiting for the coordinator tick.\n\nUpsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already\nregistered the row, the provided tunables are applied to it instead.",
     "properties": {
+        "auto_pause_exempt": {
+            "description": "Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false.",
+            "type": "boolean"
+        },
         "emit": {
             "description": "Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true.",
             "type": "boolean"
@@ -9,6 +13,31 @@
         "enabled": {
             "description": "Whether this scout runs on its schedule. Defaults to true.",
             "type": "boolean"
+        },
+        "mcp_gateway_server_ids": {
+            "description": "MCP gateway servers (by id) this scout's runs may use, chosen from the connections members shared to the whole team. Selection is per scout: an empty list gives the scout no MCP servers. Applies from the scout's next run.",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+        },
+        "model": {
+            "anyOf": [
+                {
+                    "maxLength": 200,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it."
+        },
+        "network_access": {
+            "description": "What the scout's sandbox can reach over the network while it runs. Defaults to `trusted`, the platform's trusted-domain allowlist (PostHog, GitHub, common package registries). Set `full` to let this scout reach any site, for skills that read external sources such as documentation or papers.\n\n* `trusted` - Trusted domains only\n* `full` - Full",
+            "enum": ["trusted", "full"],
+            "type": "string"
         },
         "output_destinations": {
             "description": "Destinations that receive each finding or report this scout emits. Empty by default.",
@@ -27,12 +56,35 @@
                                             "type": "null"
                                         }
                                     ],
-                                    "description": "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
+                                    "description": "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until a channel or user is set."
                                 },
                                 "integration_id": {
                                     "description": "ID of the Slack integration whose bot posts this scout's findings and reports.",
                                     "minimum": 1,
                                     "type": "number"
+                                },
+                                "thread_reports": {
+                                    "default": false,
+                                    "description": "When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post.",
+                                    "type": "boolean"
+                                },
+                                "users": {
+                                    "anyOf": [
+                                        {
+                                            "items": {
+                                                "maxLength": 255,
+                                                "pattern": "^[UW][A-Z0-9]{4,}\\s*(\\|.*)?$",
+                                                "type": "string"
+                                            },
+                                            "maxItems": 5,
+                                            "minItems": 1,
+                                            "type": "array"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Slack members to send output to as direct messages, each in `member_id|@display-name` format (a bare member ID like `U0123ABC456` also works). Each member gets their own DM from the PostHog app; at most 5. Set either this or `channel`, not both. Useful for personal scouts where a DM beats a channel."
                                 }
                             },
                             "required": ["integration_id"],
@@ -43,6 +95,24 @@
                         }
                     ],
                     "description": "Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery."
+                },
+                "webhook": {
+                    "anyOf": [
+                        {
+                            "properties": {
+                                "hog_function_id": {
+                                    "description": "Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it.",
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["hog_function_id"],
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
                 }
             },
             "type": "object"
@@ -69,6 +139,29 @@
             "description": "The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.",
             "maxLength": 200,
             "type": "string"
+        },
+        "structured_output_schema": {
+            "anyOf": [
+                {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{\"type\": \"object\", \"properties\": {\"verdict\": {\"enum\": [\"good\", \"bad\", \"unsure\"]}, \"reason\": {\"type\": \"string\"}}, \"required\": [\"verdict\", \"reason\"]}`). The root must be `\"type\": \"object\"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched."
+        },
+        "tags": {
+            "description": "Free-form labels for grouping the fleet, e.g. `[\"revenue\", \"on-call\"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
         }
     },
     "required": ["skill_name"],

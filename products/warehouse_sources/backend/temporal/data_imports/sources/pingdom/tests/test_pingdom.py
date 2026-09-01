@@ -7,6 +7,7 @@ from unittest import mock
 
 from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import validate_incremental_sync
 from products.warehouse_sources.backend.temporal.data_imports.sources.pingdom.pingdom import (
     PingdomResumeConfig,
     _to_epoch,
@@ -232,14 +233,14 @@ class TestPingdomSourceResponse:
             assert response.partition_keys is None
 
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_alerts_flag_duplicate_primary_keys(self, MockSession):
+    def test_alerts_duplicate_composite_key_does_not_block_incremental_sync(self, MockSession):
+        # Alert rows' composite key (checkid, time, userid, via) can collide, but that's expected
+        # for this data and must not block incremental syncing (the only incremental field this
+        # endpoint offers is `time`) - regression test for the schema-wide incremental sync outage
+        # this caused when has_duplicate_primary_keys was set unconditionally for this endpoint.
         response = pingdom_source("token", "alerts", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        assert response.has_duplicate_primary_keys is True
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checks_do_not_flag_duplicate_primary_keys(self, MockSession):
-        response = pingdom_source("token", "checks", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-        assert response.has_duplicate_primary_keys is None
+        assert not response.has_duplicate_primary_keys
+        validate_incremental_sync(True, response)
 
     @pytest.mark.parametrize("config", list(PINGDOM_ENDPOINTS.values()))
     def test_partition_keys_are_stable_fields(self, config):

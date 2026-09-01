@@ -18,6 +18,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.tasks.backend.logic.services.sandbox_usage import SandboxCpuAttribution
 from products.tasks.backend.models import SandboxSession, Task, TaskRun
 
 _module = importlib.import_module("products.tasks.backend.temporal.process_task.activities.forward_pending_message")
@@ -89,6 +90,13 @@ class TestForwardPendingUserMessage(TestCase):
         run.refresh_from_db()
         assert run.state == {"mode": "background"}
 
+    def test_missing_run_raises_non_retryable(self):
+        # A run deleted mid-run (team deletion cascade) must fail the workflow at the
+        # first forward, not leave the agent session running headless.
+        with self.assertRaises(ApplicationError) as ctx:
+            forward_pending_user_message("550e8400-e29b-41d4-a716-446655440000")
+        assert ctx.exception.non_retryable is True
+
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
     def test_pending_message_delivered_successfully(self, mock_send, mock_token):
@@ -109,9 +117,10 @@ class TestForwardPendingUserMessage(TestCase):
         assert "pending_user_message" not in run.state
         assert "pending_user_message_id" not in run.state
 
+    @patch("products.tasks.backend.logic.services.sandbox_usage.measure_task_run_cpu_attribution")
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.logic.services.agent_command.send_user_message")
-    def test_successful_delivery_attributes_sandbox_usage(self, mock_send, mock_token):
+    def test_successful_delivery_attributes_sandbox_usage(self, mock_send, mock_token, mock_measure):
         run = self._make_run(
             state={
                 "await_user_message": True,
@@ -125,16 +134,39 @@ class TestForwardPendingUserMessage(TestCase):
             sandbox_id="sb-fwd",
             cpu_cores=4.0,
             memory_gb=16.0,
+            vm_runtime=True,
             ttl_seconds=3600,
             ttl_expires_at=timezone.now() + timedelta(seconds=3600),
         )
-        mock_send.return_value = _command_result(success=True, status_code=200)
+        measured_at = timezone.now()
+        calls = []
+
+        def measure(*args):
+            calls.append("measure")
+            return {
+                "sb-fwd": SandboxCpuAttribution(
+                    cpu_usage_usec=1_234_567,
+                    billed_cpu_usage_usec=1_500_000,
+                    measured_at=measured_at,
+                )
+            }
+
+        def send(*args, **kwargs):
+            calls.append("send")
+            return _command_result(success=True, status_code=200)
+
+        mock_measure.side_effect = measure
+        mock_send.side_effect = send
 
         forward_pending_user_message(str(run.id))
 
         session = SandboxSession.objects.unscoped().get(sandbox_id="sb-fwd")
         assert session.user_attributed_at is not None
         assert session.last_user_activity_at is not None
+        assert session.provider_cpu_usage_attribution_usec == 1_234_567
+        assert session.provider_billed_cpu_usage_attribution_usec == 1_500_000
+        assert session.provider_cpu_usage_attribution_measured_at == measured_at
+        assert calls == ["measure", "send"]
 
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.temporal.observability.posthoganalytics.capture")

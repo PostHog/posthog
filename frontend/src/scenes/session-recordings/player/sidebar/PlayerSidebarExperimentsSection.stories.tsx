@@ -8,7 +8,11 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { experimentSessionContextResponse } from '../../__mocks__/experiment_session_context'
+import {
+    ENROLLED_CURRENT_EXPERIMENT_ID,
+    experimentSessionContextEnrolledCurrentResponse,
+    experimentSessionContextResponse,
+} from '../../__mocks__/experiment_session_context'
 import { recordingMetaJson } from '../../__mocks__/recording_meta'
 import { sessionRecordingDataCoordinatorLogic } from '../sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
@@ -67,6 +71,27 @@ Default.decorators = [
         get: {
             '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
             '/api/projects/:team_id/experiments/session_context/': experimentSessionContextResponse,
+        },
+    }),
+]
+
+// The experiment the viewer arrived from has no exposure event in this session. Pinning takes it out
+// of the enrolled group, so the row itself has to say it wasn't exposed here.
+export function CurrentExperimentNotExposed(): JSX.Element {
+    router.actions.push(urls.experiment(ENROLLED_CURRENT_EXPERIMENT_ID))
+    return <MockedPlayerSidebarExperimentsSection sessionRecordingId="experiment-context-enrolled-current" />
+}
+CurrentExperimentNotExposed.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: true,
+        waitForSelector: '[data-attr=replay-experiment-context-not-exposed]',
+    },
+}
+CurrentExperimentNotExposed.decorators = [
+    mswDecorator({
+        get: {
+            '/api/environments/:team_id/session_recordings/:id': recordingMetaJson,
+            '/api/projects/:team_id/experiments/session_context/': experimentSessionContextEnrolledCurrentResponse,
         },
     }),
 ]

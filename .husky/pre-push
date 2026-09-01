@@ -10,6 +10,87 @@ then
     exit 1 # push will not execute
 fi
 
+# Refuse to push a branch whose PR sits in the Trunk merge queue, because the push knocks
+# it out of the queue. Queue membership comes from `trunk merge status`, which needs a
+# one-time `trunk login`; anything short of a recognized in-queue answer (missing gh or
+# trunk, not logged in, offline, unrecognized output) allows the push, with transient
+# gh and trunk failures retried three times before failing open. A PR in
+# "Pending Failure" also allows: after a failed batch, pushing a fix is the intended
+# action and Trunk drops the queue entry itself. TRUNK_QUEUE_PUSH_CHECK_DISABLED=1 skips.
+if [ -z "$TRUNK_QUEUE_PUSH_CHECK_DISABLED" ] \
+    && command -v gh >/dev/null 2>&1 \
+    && command -v trunk >/dev/null 2>&1
+then
+    repo=$(printf '%s' "$2" | sed -E 's#^.*github\.com[:/]##; s#\.git$##')
+    if [ -n "$repo" ] && [ "$repo" != "$2" ]
+    then
+        while read -r local_ref local_sha remote_ref remote_sha
+        do
+            case "$remote_ref" in
+                refs/heads/*) branch="${remote_ref#refs/heads/}" ;;
+                *) continue ;;
+            esac
+            case "$local_sha" in
+                *[!0]*) ;;
+                *) continue ;; # deleting the branch closes the PR; nothing for the guard to protect
+            esac
+            branch_prs=''
+            for attempt in 1 2 3
+            do
+                if branch_prs=$(gh pr list -R "$repo" --head "$branch" --state open \
+                    --json number --jq '.[].number' </dev/null 2>/dev/null)
+                then
+                    break
+                fi
+                branch_prs=''
+                sleep 1
+            done
+            for pr in $branch_prs
+            do
+                case "$pr" in
+                    *[!0-9]*) continue ;;
+                esac
+                trunk_ok=''
+                for attempt in 1 2 3
+                do
+                    if trunk_out=$(trunk merge status "$pr" --ci --no-progress </dev/null 2>&1)
+                    then
+                        trunk_ok=1
+                        break
+                    fi
+                    case "$trunk_out" in
+                        # Deterministic auth/config errors: retrying cannot help, and most
+                        # devs without a login would otherwise pay the retries on every push.
+                        *"not logged in"*|*"trunk login"*|*"trunk init"*)
+                            if [ -z "$trunk_login_hint_shown" ]
+                            then
+                                trunk_login_hint_shown=1
+                                echo "pre-push: trunk CLI is not logged in, so the merge-queue push guard is off. Run 'trunk login' once to enable it."
+                            fi
+                            break ;;
+                    esac
+                    sleep 1
+                done
+                [ -z "$trunk_ok" ] && continue
+                # Clear states first: "Pending Failure" would otherwise hit the queued
+                # pattern's "pending", and "not in the queue" its "queue".
+                if printf '%s' "$trunk_out" | grep -qiE '(not|no longer)[^.]*queue|pending failure|merged|failed|cancelled'
+                then
+                    continue
+                fi
+                if printf '%s' "$trunk_out" | grep -qiE 'queued|pending|testing|tests passed|waiting'
+                then
+                    echo "pre-push: PR #$pr ('$branch') is in the Trunk merge queue — this push would remove it from the queue."
+                    echo "Do NOT push to this branch. Let the queued PR merge, then make further changes on a NEW branch and open a NEW pull request."
+                    echo "If you really need to update this PR instead, run 'trunk merge cancel $pr' (or comment '/trunk cancel'), wait for it to leave the queue, then push again."
+                    exit 1
+                fi
+                echo "pre-push: unrecognized 'trunk merge status' output for PR #$pr — queue guard skipped for it."
+            done
+        done
+    fi
+fi
+
 # Catch deterministic CI failures before this push burns a CI matrix.
 # Advisories never block; HOGLI_PREFLIGHT_DISABLED=1 makes it a no-op; no hogli → skip.
 if command -v hogli >/dev/null 2>&1

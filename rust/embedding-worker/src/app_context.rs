@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use anyhow::Result;
 use common_kafka::{
@@ -20,6 +20,7 @@ use crate::{
     config::Config,
     metrics_utils::{LIMITS_UPDATED, LIMIT_BALANCE},
     organization::Organization,
+    recently_seen::{build_store, RecentlySeenStore},
 };
 
 pub struct AppContext {
@@ -31,6 +32,7 @@ pub struct AppContext {
     pub config: Config,
     pub client: reqwest::Client,
     pub org_cache: Cache<i32, Option<Organization>>,
+    pub recently_seen: Arc<dyn RecentlySeenStore>,
     rate_limits: RwLock<HashMap<String, Limiter>>,
 }
 
@@ -74,6 +76,8 @@ impl AppContext {
             .time_to_live(Duration::from_secs(30))
             .build();
 
+        let recently_seen = build_store(&config).await?;
+
         Ok(Self {
             health_registry,
             worker_liveness,
@@ -83,6 +87,7 @@ impl AppContext {
             config,
             client,
             org_cache,
+            recently_seen,
             rate_limits: Default::default(),
         })
     }

@@ -123,6 +123,15 @@ You can find your deployment URL and deploy key in your [Convex Dashboard](https
             "is older than Convex's ~30 day retention window": "Delta cursor is older than Convex's ~30 day retention window. Please trigger a full resync of this source.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_CONVEX_RETRY` (convex.py) already retries 429/5xx, including the Cloudflare 52x/530
+        # family Convex deployments can surface, at the urllib3 layer before this can even raise.
+        # A response that still exhausts that budget is a transient Convex/edge blip, not a bug,
+        # so Temporal's activity retry recovers once it clears rather than surfacing it as tracked
+        # exception noise. `requests.Response.raise_for_status` derives these prefixes from the
+        # status code alone, not the vendor's reason text, so they're stable to match on.
+        return {"Server Error", "429 Client Error"}
+
     def validate_credentials(
         self,
         config: ConvexSourceConfig,

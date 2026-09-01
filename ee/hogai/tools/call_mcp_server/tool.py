@@ -84,7 +84,8 @@ class CallMCPServerTool(MaxTool):
     _installations: list
     _installations_by_url: dict[str, dict]
     _server_headers: dict[str, dict[str, str]]
-    # {server_url: {tool_name: approval_state}} — lazily populated to minimize DB reads; also seeded by _get_cached_tool_list to avoid double lookup when calling __list_tools__
+    # {server_url: {tool_name: effective_state}} — lazily populated via
+    # _get_approval_states so every path holds gateway-policy-resolved states.
     _approval_cache: dict[str, dict[str, str]]
 
     @classmethod
@@ -136,7 +137,12 @@ class CallMCPServerTool(MaxTool):
         if cached is not None:
             return cached
         inst = self._get_installation(server_url)
-        states = await database_sync_to_async(_get_tool_approval_states)(str(inst["id"]))
+        states = await database_sync_to_async(_get_tool_approval_states)(
+            str(inst["id"]),
+            self._team.id,
+            inst.get("gateway_server_id"),
+            self._user,
+        )
         self._approval_cache[server_url] = states
         return states
 
@@ -195,9 +201,10 @@ class CallMCPServerTool(MaxTool):
         rows = await database_sync_to_async(_get_cached_tools)(str(inst["id"]))
         if not rows:
             return None
-        approval_states = {row["name"]: row["approval_state"] for row in rows}
-        # Seed the approval cache so a subsequent `tools/call` doesn't re-query.
-        self._approval_cache.setdefault(server_url, dict(approval_states))
+        # Resolve through the gateway policy engine (and warm the shared cache),
+        # never the raw per-installation flags — a team ceiling or org rule must
+        # gate the cached list exactly like a fresh tools/list.
+        approval_states = await self._get_approval_states(server_url)
         return self._format_tool_list(server_url, rows, approval_states)
 
     async def _call_server(self, server_url: str, tool_name: str, arguments: dict | None) -> str:

@@ -22,6 +22,18 @@ export function parseCsvParam<T extends string>(value: unknown, validValues?: re
     return validValues ? parsed.filter((v) => validValues.includes(v)) : parsed
 }
 
+/** Finite number from a URL param, tolerant of the router already coercing it; null when absent or unparseable. */
+export function parseNumericParam(value: unknown): number | null {
+    if (typeof value === 'number') {
+        return Number.isFinite(value) ? value : null
+    }
+    if (typeof value !== 'string' || value.trim().length === 0) {
+        return null
+    }
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+}
+
 /** `-`-prefixed sort token, or undefined when the sort matches `defaultSort` (keeps the URL clean). */
 export function serializeSortParam(sort: UrlSorting | null, defaultSort?: UrlSorting): string | undefined {
     if (!sort || (defaultSort && sort.columnKey === defaultSort.columnKey && sort.order === defaultSort.order)) {

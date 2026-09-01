@@ -165,6 +165,11 @@ def _pr_close_reason(
     if instance.status == SignalReport.Status.POTENTIAL and prior_status in _SNOOZE_SOURCE_STATUSES:
         return "snoozed"
 
+    # Only a resolve that a caller asked for through the state API supersedes the PR. The PR-merge
+    # webhook also lands in RESOLVED, and its PR is merged, so there is nothing to close there.
+    if instance.status == SignalReport.Status.RESOLVED and getattr(instance, "_close_pr_on_resolve", False):
+        return "resolved"
+
     return None
 
 
@@ -176,12 +181,13 @@ def close_pr_when_report_dismissed(
     update_fields: set[str] | None = None,
     **kwargs: Any,
 ) -> None:
-    """Close the implementation PR when a report is suppressed or snoozed.
+    """Close the implementation PR when a report is suppressed, snoozed, or resolved by a caller.
 
-    This is the single choke point for the archive→close side effect: every suppression surface
+    This is the single choke point for the dismiss→close side effect: every suppression surface
     (Slack, the REST state/bulk-state API, any future one) ends in a ``save`` that flips status
     to SUPPRESSED, and snoozing a ready/resolved report ends in READY/RESOLVED → POTENTIAL, so
-    hooking the model here covers them all without each caller opting in.
+    hooking the model here covers them all without each caller opting in. A resolve closes the PR
+    only when the state API flagged it (see ``_pr_close_reason``).
     """
     prior_status = getattr(instance, "_prior_status", None)
     reason = _pr_close_reason(
@@ -470,6 +476,13 @@ def capture_status_change_analytics(
     if prior_status is None or prior_status == instance.status:
         return
 
+    # Set by mark_report_pending_input_activity right before this save, so the pipeline's two
+    # doors into PENDING_INPUT (repo-selection failure vs. the agent requesting human input) are
+    # distinguishable in the training stream — mirrors failure_reason on signal_report_completed.
+    pending_reason = (
+        getattr(instance, "_pending_reason", None) if instance.status == SignalReport.Status.PENDING_INPUT else None
+    )
+
     # Snapshot now — the instance may be mutated again before the commit callback runs.
     properties = {
         "team_id": instance.team_id,
@@ -481,6 +494,7 @@ def capture_status_change_analytics(
         "run_count": instance.run_count,
         "report_created_at": instance.created_at.isoformat() if instance.created_at else None,
         "promoted_at": instance.promoted_at.isoformat() if instance.promoted_at else None,
+        "pending_reason": pending_reason,
     }
     report_id = str(instance.id)
     new_status = instance.status

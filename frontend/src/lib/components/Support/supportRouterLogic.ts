@@ -6,13 +6,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 
 import { SidePanelTab } from '~/types'
 
-import {
-    getLabelBasedOnTargetArea,
-    SEVERITY_LEVEL_TO_NAME,
-    SUPPORT_KIND_TO_SUBJECT,
-    supportLogic,
-    TARGET_AREA_TO_NAME,
-} from './supportLogic'
+import { SUPPORT_KIND_TO_SUBJECT, supportLogic } from './supportLogic'
 
 // Mirrors navigationLogic's `mode === 'full'` (the condition that mounts <SidePanel />), derived from
 // sources supportLogic can't import without a billingLogic init cycle. Keep here, not in supportLogic.
@@ -43,13 +37,18 @@ export const supportRouterLogic = kea<supportRouterLogicType>([
             const [panel, ...panelOptions] = (hashParams['panel'] ?? '').split(':')
 
             if (panel === SidePanelTab.Support) {
-                const [kind, area, severity, isEmailFormOpen] = panelOptions
+                // `kind` is the only routable field left. Links written before the triage fields were
+                // removed carry `kind:area:severity:isEmailFormOpen`, so read the flag by value rather
+                // than by position — positionally, an old link's area would land in its slot.
+                const [kind] = panelOptions
+
+                if (kind === 'ticket') {
+                    return
+                }
 
                 supportLogic.actions.openSupportForm({
                     kind: Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
-                    target_area: getLabelBasedOnTargetArea(area) ? area : null,
-                    severity_level: Object.keys(SEVERITY_LEVEL_TO_NAME).includes(severity) ? severity : null,
-                    isEmailFormOpen: isEmailFormOpen ?? 'false',
+                    isEmailFormOpen: panelOptions.includes('true') ? 'true' : 'false',
                     target,
                 })
                 return
@@ -57,12 +56,10 @@ export const supportRouterLogic = kea<supportRouterLogicType>([
 
             // Legacy supportModal param
             if ('supportModal' in hashParams) {
-                const [kind, area, severity] = (hashParams['supportModal'] || '').split(':')
+                const [kind] = (hashParams['supportModal'] || '').split(':')
 
                 supportLogic.actions.openSupportForm({
                     kind: Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
-                    target_area: Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null,
-                    severity_level: Object.keys(SEVERITY_LEVEL_TO_NAME).includes(severity) ? severity : null,
                     target,
                 })
             }

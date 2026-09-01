@@ -58,10 +58,28 @@ class TestScoutStatusTransitions(BaseTest):
             (
                 "other_writer_cannot_overwrite_pause",
                 Status.PAUSED_BY_SYSTEM,
-                Reason.NO_OUTPUT,
+                Reason.REPEATED_FAILURES,
                 Status.PAUSED_BY_SYSTEM,
                 Reason.IGNORED,
                 False,
+            ),
+            # The sweep owns both inactivity reasons, so reclassifying its own warning is not a
+            # foreign write. Reclassification restarts the grace clock via `status_changed_at`.
+            (
+                "sweep_reclassifies_its_own_warning",
+                Status.PENDING_PAUSE,
+                Reason.NO_OUTPUT,
+                Status.PENDING_PAUSE,
+                Reason.IGNORED,
+                True,
+            ),
+            (
+                "sweep_resumes_either_of_its_own_reasons",
+                Status.PENDING_PAUSE,
+                Reason.IGNORED,
+                Status.ACTIVE,
+                Reason.NO_OUTPUT,
+                True,
             ),
             (
                 "other_writer_cannot_resume",
@@ -157,6 +175,31 @@ class TestScoutStatusTransitions(BaseTest):
         assert applied is False
         paused.refresh_from_db()
         assert paused.enabled is False
+
+    def test_system_resume_starts_with_a_clean_failure_streak(self) -> None:
+        # Without the reset, the first failed run after a resume would re-trip the breaker
+        # off the stale pre-pause streak instead of five fresh failures.
+        config = self._config(status=Status.PAUSED_BY_SYSTEM, pause_reason=Reason.REPEATED_FAILURES)
+        SignalScoutConfig.objects.filter(pk=config.pk).update(consecutive_failure_count=5)
+
+        applied = config.transition_status_by_system(Status.ACTIVE, pause_reason=Reason.REPEATED_FAILURES)
+
+        assert applied is True
+        config.refresh_from_db()
+        assert config.consecutive_failure_count == 0
+
+    def test_human_re_enable_starts_with_a_clean_failure_streak(self) -> None:
+        config = self._config(status=Status.PAUSED_BY_SYSTEM, pause_reason=Reason.REPEATED_FAILURES)
+        SignalScoutConfig.objects.filter(pk=config.pk).update(consecutive_failure_count=5)
+        config.refresh_from_db()
+
+        serializer = SignalScoutConfigUpdateSerializer(config, data={"enabled": True}, partial=True, context={})
+        assert serializer.is_valid()
+        config = serializer.save()
+
+        config.refresh_from_db()
+        assert config.status == Status.ACTIVE
+        assert config.consecutive_failure_count == 0
 
     def test_system_transition_clears_the_human_attribution_stamp(self) -> None:
         # Without the clear, a system pause would keep pointing at whichever human made the

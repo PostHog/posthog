@@ -83,6 +83,8 @@ def emit_observation_signal_activity(inputs: EmitObservationSignalInputs) -> int
                     source_type=VISION_SIGNALS_SOURCE_TYPE,
                     # Unique per finding so several issues from one observation don't collide on dedup.
                     source_id=f"observation:{observation.id}:{index}",
+                    # Same key on a retry, so a re-run after a lost attempt re-emits nothing.
+                    idempotency_key=f"observation:{observation.id}:{index}",
                     description=signal.description,
                     weight=SIGNAL_WEIGHT,
                     extra={
@@ -95,6 +97,8 @@ def emit_observation_signal_activity(inputs: EmitObservationSignalInputs) -> int
                     },
                 )
                 emitted += 1
+                # Findings go out one network call at a time, so beat between them.
+                activity.heartbeat({"emitted": emitted, "index": index})
             except Exception:
                 # One bad finding never blocks the rest; signals are advisory.
                 any_failed = True

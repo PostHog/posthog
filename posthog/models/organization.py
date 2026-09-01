@@ -20,6 +20,7 @@ from rest_framework import exceptions
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, MAX_SLUG_LENGTH, AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import LowercaseSlugField, UUIDTModel, create_with_slug, sane_repr
@@ -56,12 +57,22 @@ class OrganizationUsageInfo(TypedDict):
     ai_credits: OrganizationUsageResource | None
     signals_credits: OrganizationUsageResource | None
     posthog_code_credits: OrganizationUsageResource | None
+    posthog_code_token_credits: OrganizationUsageResource | None
+    sandbox_compute_credits: OrganizationUsageResource | None
+    sandbox_compute_cpu_millicore_seconds: OrganizationUsageResource | None
+    sandbox_compute_memory_mib_seconds: OrganizationUsageResource | None
     workflow_emails: OrganizationUsageResource | None
     workflow_push: OrganizationUsageResource | None
     workflow_destinations_dispatched: OrganizationUsageResource | None
     logs_mb_ingested: OrganizationUsageResource | None
     replay_vision_credits: OrganizationUsageResource | None
     period: list[str] | None
+
+
+@frozen
+class BillingPeriod:
+    start: datetime
+    end: datetime
 
 
 class ProductFeature(TypedDict):
@@ -174,6 +185,18 @@ class Organization(ModelActivityMixin, UUIDTModel):
         BAYESIAN = "bayesian", "Bayesian"
         FREQUENTIST = "frequentist", "Frequentist"
 
+    class DeactivationReason(models.TextChoices):
+        UNPAID_BALANCE = "Access revoked due to unpaid balance.", "Unpaid balance"
+        COMPLIANCE_REVIEW = "Access disabled for compliance review.", "Compliance review"
+        TERMS_OF_SERVICE_VIOLATION = (
+            "Access revoked due to terms of service violation.",
+            "Terms of service violation",
+        )
+        DESKTOP_ABUSE = (
+            "Suspected PostHog Desktop abuse. Contact PostHog support if you think this is a mistake.",
+            "Desktop abuse",
+        )
+
     members = models.ManyToManyField(
         "posthog.User",
         through="posthog.OrganizationMembership",
@@ -204,6 +227,8 @@ class Organization(ModelActivityMixin, UUIDTModel):
         ),
         max_length=200,
     )
+    # Transient flag set by the pre_save signal to communicate active-state changes to post_save.
+    _is_active_changed: bool = False
 
     # Security / management settings
     session_cookie_age = models.IntegerField(
@@ -235,6 +260,11 @@ class Organization(ModelActivityMixin, UUIDTModel):
         help_text="When True, in-app callouts inviting members to enable AI training are shown.",
     )
     enforce_2fa = models.BooleanField(null=True, blank=True)
+    enforce_verified_domains = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text="When True, logins, signups, and invites for this organization are restricted to email addresses on its verified domains.",
+    )
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
     members_can_create_projects = models.BooleanField(
         default=False,
@@ -249,6 +279,12 @@ class Organization(ModelActivityMixin, UUIDTModel):
         help_text="When False, members (below admin) only see themselves in the members list and only project members in access control.",
     )
     allow_publicly_shared_resources = models.BooleanField(default=True)
+    read_only_mcp_access = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="When True, requests through the PostHog MCP server can read but not change this organization's data.",
+    )
     default_role = models.ForeignKey(
         "ee.Role",
         on_delete=models.SET_NULL,
@@ -305,6 +341,9 @@ class Organization(ModelActivityMixin, UUIDTModel):
         oauth_applications: models.Manager[Any]
     # Scoring levels defined in billing::customer::TrustScores
     customer_trust_scores = models.JSONField(default=dict, null=True, blank=True)
+    # Managed by Billing: whether the org had an active subscription (or active trial)
+    # at last customer sync. NULL = never synced = unknown; consumers must fail open on NULL.
+    has_active_subscription = models.BooleanField(null=True, blank=True)
 
     # DEPRECATED attributes (should be removed on next major version)
     setup_section_2_completed = models.BooleanField(default=True)
@@ -418,8 +457,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
         billing_period = self.current_billing_period
 
         if billing_period:
-            _start, end = billing_period
-            billing_period_end_timestamp = int(end.timestamp())
+            billing_period_end_timestamp = int(billing_period.end.timestamp())
 
             team_rows = [
                 (team_id, api_token) for team_id, api_token in self.teams.values_list("id", "api_token") if api_token
@@ -542,9 +580,9 @@ class Organization(ModelActivityMixin, UUIDTModel):
         return result
 
     @property
-    def current_billing_period(self) -> tuple[datetime, datetime] | None:
+    def current_billing_period(self) -> BillingPeriod | None:
         """
-        Returns the current billing period as a tuple of (start, end).
+        Returns the current billing period.
         Returns None if usage data is not available or period is not set.
         """
         if not self.usage or "period" not in self.usage:
@@ -557,7 +595,7 @@ class Organization(ModelActivityMixin, UUIDTModel):
 
             start = dateutil.parser.isoparse(period[0])
             end = dateutil.parser.isoparse(period[1])
-            return (start, end)
+            return BillingPeriod(start=start, end=end)
         except (ValueError, TypeError, KeyError) as e:
             logger.warning(f"Failed to parse billing period for organization {self.id}: {e}")
             return None
@@ -580,6 +618,38 @@ def organization_about_to_be_created(sender, instance: Organization, raw, using,
         instance.update_available_product_features()
         if not is_cloud():
             instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
+
+
+@receiver(models.signals.pre_save, sender=Organization)
+def remember_organization_is_active_change(sender, instance: Organization, **kwargs):
+    instance._is_active_changed = False
+    if instance._state.adding:
+        return
+
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "is_active" not in update_fields:
+        return
+
+    previous_is_active = sender.objects.filter(pk=instance.pk).values_list("is_active", flat=True).first()
+    instance._is_active_changed = previous_is_active != instance.is_active
+
+
+@receiver(post_save, sender=Organization)
+def invalidate_llm_gateway_quota_cache_on_active_state_change(sender, instance: Organization, created: bool, **kwargs):
+    if created or not instance._is_active_changed:
+        return
+
+    organization_id = instance.pk
+
+    def _invalidate_cache():
+        from posthog.models.team import Team
+
+        from ee.billing.quota_limiting import invalidate_llm_gateway_quota_cache
+
+        team_ids = list(Team.objects.filter(organization_id=organization_id).values_list("id", flat=True))
+        invalidate_llm_gateway_quota_cache(team_ids)
+
+    transaction.on_commit(_invalidate_cache)
 
 
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):

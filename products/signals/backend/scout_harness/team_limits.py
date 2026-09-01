@@ -323,6 +323,37 @@ def _resolve_global_max_runs_per_tick(payload: dict | None, default: int) -> int
     return default
 
 
+DISPATCH_SMEAR_SECONDS_KEY = "dispatch_smear_seconds"
+
+
+def _resolve_dispatch_smear_seconds(payload: dict | None, default: int) -> int:
+    if payload is None:
+        return default
+    override = payload.get(DISPATCH_SMEAR_SECONDS_KEY)
+    if isinstance(override, int) and not isinstance(override, bool) and override >= 0:
+        return override
+    return default
+
+
+# Flag payload key toggling slot-aligned dispatch anchors (the coordinator's `_slot_anchor`). On,
+# a dispatched scout's `last_run_at` is stamped at its own stable slot on the tick grid, so tick
+# latency stops pushing whole cohorts onto later ticks and merging them into ever larger waves.
+# Set `false` to fall back to stamping the wall clock, which is the only way back to the previous
+# behaviour without a deploy. Absent / malformed → on.
+SLOT_ALIGNED_DISPATCH_KEY = "slot_aligned_dispatch"
+
+
+def _resolve_slot_aligned_dispatch(payload: dict | None) -> bool:
+    """Whether the coordinator stamps slot-aligned dispatch anchors. Only a literal boolean is
+    honored, so a typo'd override can't silently flip the fleet's dispatch spread either way."""
+    if payload is None:
+        return True
+    override = payload.get(SLOT_ALIGNED_DISPATCH_KEY)
+    if isinstance(override, bool):
+        return override
+    return True
+
+
 def _resolve_github_read_access(team_id: int, team_configs: dict[int, dict], default_team_config: dict) -> bool:
     """Whether report-channel scouts on this team get the `gh` evidence prompt guidance,
     most-specific layer first: `team_configs[team_id]` → `default_team_config` → on. Only a

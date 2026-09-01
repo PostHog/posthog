@@ -6,6 +6,7 @@ import { TransactionClient } from '~/common/utils/db/postgres'
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PersonUpdateFields, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 
+import { LifecycleMarkPerson } from './person-repository'
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { RawPostgresPersonRepository } from './raw-postgres-person-repository'
 
@@ -58,6 +59,18 @@ export class PostgresPersonRepositoryTransaction implements PersonRepositoryTran
         return await this.repository.deletePersons(persons, this.transaction)
     }
 
+    async claimLifecycleMarks(opId: string, teamId: number, persons: LifecycleMarkPerson[]): Promise<void> {
+        return await this.repository.claimLifecycleMarks(opId, teamId, persons, this.transaction)
+    }
+
+    async releaseLifecycleMarks(opId: string, teamId: number): Promise<void> {
+        return await this.repository.releaseLifecycleMarks(opId, teamId, this.transaction)
+    }
+
+    async isPersonLive(person: InternalPerson): Promise<boolean> {
+        return await this.repository.isPersonLive(person, this.transaction)
+    }
+
     async addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]> {
         return await this.repository.addDistinctId(person, distinctId, version, this.transaction)
     }
@@ -86,10 +99,6 @@ export class PostgresPersonRepositoryTransaction implements PersonRepositoryTran
 
     async fetchPersonDistinctIds(person: InternalPerson, limit?: number): Promise<string[]> {
         return await this.repository.fetchPersonDistinctIds(person, limit, this.transaction)
-    }
-
-    async addPersonlessDistinctIdForMerge(teamId: Team['id'], distinctId: string): Promise<boolean> {
-        return await this.repository.addPersonlessDistinctIdForMerge(teamId, distinctId, this.transaction)
     }
 
     async updateCohortsAndFeatureFlagsForMerge(

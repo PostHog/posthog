@@ -6,13 +6,8 @@ from parameterized import parameterized
 
 from posthog.schema import SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.aviationstack import (
-    AviationstackResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.aviationstack.source import AviationstackSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_config(access_key: str = "key") -> Any:
@@ -22,9 +17,6 @@ def _make_config(access_key: str = "key") -> Any:
 
 
 class TestAviationstackSource:
-    def test_source_type(self) -> None:
-        assert AviationstackSource().source_type == ExternalDataSourceType.AVIATIONSTACK
-
     def test_source_config_has_single_access_key_field(self) -> None:
         config = AviationstackSource().get_source_config
         assert [f.name for f in config.fields] == ["access_key"]
@@ -34,11 +26,6 @@ class TestAviationstackSource:
         assert access_key_field.type == "password"
         assert access_key_field.secret is True
         assert access_key_field.required is True
-
-    def test_source_config_stays_unreleased_alpha(self) -> None:
-        config = AviationstackSource().get_source_config
-        assert config.releaseStatus == "alpha"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/aviationstack"
 
     def test_get_schemas_returns_every_endpoint_as_full_refresh(self) -> None:
         schemas = AviationstackSource().get_schemas(_make_config(), team_id=1)
@@ -68,13 +55,6 @@ class TestAviationstackSource:
             ok, message = AviationstackSource().validate_credentials(_make_config(), team_id=1)
         assert ok is expected_ok
         assert message == expected_message
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        inputs = MagicMock()
-        inputs.logger = MagicMock()
-        manager = AviationstackSource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is AviationstackResumeConfig
 
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         inputs = MagicMock()

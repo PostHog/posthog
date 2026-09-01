@@ -2,5 +2,34 @@
     "name": "@posthog/products-signals",
     "scripts": {
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/test -v --tb=short"
+    },
+    "dependencies": {
+        "@pierre/diffs": "1.2.11",
+        "@posthog/products-mcp-store": "workspace:*",
+        "@posthog/quill": "workspace:*",
+        "kea": "catalog:",
+        "kea-forms": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
+        "kea-subscriptions": "catalog:",
+        "mdast-util-from-markdown": "^2.0.3",
+        "mdast-util-gfm-table": "^2.0.0",
+        "micromark-extension-gfm-table": "^2.1.1",
+        "posthog-js": "catalog:"
+    },
+    "devDependencies": {
+        "@testing-library/react": "^14.3.1",
+        "kea-test-utils": "catalog:",
+        "msw": "^2.14.6"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "catalog:",
+        "@posthog/lemon-ui": "*",
+        "@storybook/react": "catalog:",
+        "@testing-library/dom": "*",
+        "@testing-library/user-event": "*",
+        "@types/react": "*",
+        "clsx": "*",
+        "react": "*"
     }
 }

@@ -10,9 +10,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import OrganizationMembership
-from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.customer_analytics.backend.facade.api import (
     AccountConflictError,
     _set_tags,
@@ -335,7 +335,12 @@ class UpsertAccountTool(MaxTool):
         for name, user_id in assignments.items():
             definition = definitions[name]
             if user_id is None:
-                relationships_logic.end_active(team_id=self._team.id, account=account, definition=definition)
+                relationships_logic.end_active(
+                    team_id=self._team.id,
+                    account=account,
+                    definition=definition,
+                    actor=self._user,
+                )
                 continue
             relationships_logic.assign(
                 team_id=self._team.id,

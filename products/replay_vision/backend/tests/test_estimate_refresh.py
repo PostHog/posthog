@@ -10,13 +10,26 @@ from django.utils import timezone
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
+from posthog.schema import FilterLogicalOperator, RecordingsQuery
+
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.printer import prepare_and_print_ast
+
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models import Organization, Team
+from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.queries import (
+    DISABLED_ESTIMATE_STALE_AFTER,
+    ESTIMATE_STALE_AFTER,
     ScannerVolumeEstimate,
     project_monthly_observations,
     refresh_scanner_estimate,
+)
+from products.replay_vision.backend.queries.scanner_volume_estimate import (
+    _ESTIMATE_EVENTS_SAMPLE_FACTOR,
+    estimate_scanner_session_volume,
 )
 from products.replay_vision.backend.temporal.activities.list_stale_scanner_estimates import (
     list_stale_scanner_estimates_activity,
@@ -35,6 +48,9 @@ from products.replay_vision.backend.temporal.estimates_types import (
     RefreshScannerEstimatesResult,
 )
 
+_STALE_HOURS = int(ESTIMATE_STALE_AFTER.total_seconds() // 3600) + 1
+_DISABLED_STALE_HOURS = int(DISABLED_ESTIMATE_STALE_AFTER.total_seconds() // 3600) + 1
+
 _ACTIVITY_HELPER = (
     "products.replay_vision.backend.temporal.activities.refresh_scanner_estimate.refresh_scanner_estimate"
 )
@@ -49,7 +65,7 @@ def _make_scanner(**overrides: Any) -> ReplayScanner:
         "name": "estimate-scanner",
         "scanner_type": ScannerType.MONITOR,
         "scanner_config": {"prompt": "p"},
-        "model": ScannerModel.GEMINI_3_6_FLASH,
+        "model": ScannerModel.GEMINI_3_7_FLASH,
     }
     defaults.update(overrides)
     return ReplayScanner.objects.create(**defaults)
@@ -62,10 +78,108 @@ def _set_estimate(scanner: ReplayScanner, value: int, hours_ago: float) -> None:
     )
 
 
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "recordings_query, expect_sampled",
+    [
+        (RecordingsQuery(events=[{"id": "$pageview", "type": "events", "name": "$pageview"}]), True),
+        (RecordingsQuery(), False),
+        # Negative filters build only the exclusion blocklist, which must never sample: it would under-exclude.
+        (
+            RecordingsQuery(
+                properties=[{"type": "event", "key": "$host", "operator": "not_icontains", "value": "localhost"}]
+            ),
+            False,
+        ),
+    ],
+)
+def test_estimate_samples_only_positive_events_subqueries(
+    recordings_query: RecordingsQuery, expect_sampled: bool
+) -> None:
+    scanner = _make_scanner()
+    list_query = SessionRecordingListFromQuery(
+        team=scanner.team, query=recordings_query, events_sample_factor=_ESTIMATE_EVENTS_SAMPLE_FACTOR
+    )
+    built = list_query.get_query()
+
+    assert list_query.events_subqueries_sampled == expect_sampled
+    sql = prepare_and_print_ast(built, HogQLContext(team_id=scanner.team.pk, enable_select_queries=True), "clickhouse")[
+        0
+    ]
+    assert (sql.count(f"SAMPLE {_ESTIMATE_EVENTS_SAMPLE_FACTOR}") > 0) == expect_sampled
+
+
+_EVENT_FILTERED_AND_QUERY = RecordingsQuery(
+    events=[{"id": "$pageview", "type": "events", "name": "$pageview"}],
+    properties=[{"type": "person", "key": "email", "operator": "icontains", "value": "@"}],
+    operand=FilterLogicalOperator.AND_,
+)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "execute_outcomes, expected_matched, expected_sampled, expected_budgets",
+    [
+        ([MagicMock(results=[[5, None]])], 5, False, [15]),
+        ([ClickHouseQueryTimeOut(), MagicMock(results=[[5, None]])], 50, True, [15, 30]),
+        ([ClickHouseQueryMemoryLimitExceeded(), MagicMock(results=[[5, None]])], 50, True, [15, 30]),
+    ],
+)
+def test_estimate_falls_back_to_sampling_only_when_the_exact_count_times_out(
+    execute_outcomes: list[Any], expected_matched: int, expected_sampled: bool, expected_budgets: list[int]
+) -> None:
+    scanner = _make_scanner()
+    with patch(
+        "products.replay_vision.backend.queries.scanner_volume_estimate.execute_hogql_query",
+        side_effect=execute_outcomes,
+    ) as mock_execute:
+        estimate = estimate_scanner_session_volume(team=scanner.team, query=_EVENT_FILTERED_AND_QUERY)
+    assert estimate.matched_sessions == expected_matched
+    assert estimate.sampled == expected_sampled
+    settings = [call.kwargs["settings"] for call in mock_execute.call_args_list]
+    assert [s.max_execution_time for s in settings] == expected_budgets
+    assert all(s.timeout_overflow_mode == "throw" for s in settings)
+    query_types = [call.kwargs["query_type"] for call in mock_execute.call_args_list]
+    assert query_types == (
+        ["ReplayVisionScannerEstimateExactQuery", "ReplayVisionScannerEstimateSampledQuery"]
+        if expected_sampled
+        else ["ReplayVisionScannerEstimateExactQuery"]
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "recordings_query, error",
+    [
+        (
+            RecordingsQuery(
+                events=[{"id": "$pageview", "type": "events", "name": "$pageview"}],
+                properties=[{"type": "person", "key": "email", "operator": "icontains", "value": "@"}],
+                operand=FilterLogicalOperator.OR_,
+            ),
+            ClickHouseQueryTimeOut(),
+        ),
+        (RecordingsQuery(), ClickHouseQueryTimeOut()),
+    ],
+)
+def test_estimate_propagates_errors_when_a_retry_would_not_help(
+    recordings_query: RecordingsQuery, error: Exception
+) -> None:
+    scanner = _make_scanner()
+    with patch(
+        "products.replay_vision.backend.queries.scanner_volume_estimate.execute_hogql_query",
+        side_effect=error,
+    ) as mock_execute:
+        with pytest.raises(type(error)):
+            estimate_scanner_session_volume(team=scanner.team, query=recordings_query)
+    assert mock_execute.call_count == 1
+
+
 @pytest.mark.parametrize(
     "matched, window_days, sampling_rate, expected",
     [
         (60, 30, 1.0, 60),
+        (14, 7, 1.0, 60),
         (60, 30, 0.5, 30),
         (0, 30, 1.0, 0),
         (10, 1, 0.5, 150),
@@ -180,9 +294,9 @@ class TestRefreshScannerEstimateActivity:
         "enabled, estimated_hours_ago, expect_refresh",
         [
             (True, None, True),  # never computed → refresh
-            (True, 25, True),  # stale → refresh
+            (True, _STALE_HOURS, True),  # stale → refresh
             (True, 1, False),  # fresh → no-op
-            (False, 25, True),  # disabled scanners refresh too, so re-enabling uses an accurate number
+            (False, _STALE_HOURS, True),  # disabled scanners refresh too, so re-enabling uses an accurate number
             (False, 1, False),  # fresh → no-op regardless of enabled
         ],
     )
@@ -221,13 +335,16 @@ class TestListStaleScannerEstimatesActivity:
     def test_returns_stale_scanners_enabled_first_then_oldest(self) -> None:
         never = _make_scanner(name="never-estimated")
         stale = _make_scanner(name="stale")
-        _set_estimate(stale, 10, hours_ago=48)
+        _set_estimate(stale, 10, hours_ago=_STALE_HOURS)
         very_stale = _make_scanner(name="very-stale")
-        _set_estimate(very_stale, 10, hours_ago=72)
+        _set_estimate(very_stale, 10, hours_ago=_STALE_HOURS + 24)
         fresh = _make_scanner(name="fresh")
         _set_estimate(fresh, 10, hours_ago=1)
         disabled = _make_scanner(name="disabled", enabled=False)
-        _set_estimate(disabled, 10, hours_ago=96)
+        _set_estimate(disabled, 10, hours_ago=_DISABLED_STALE_HOURS)
+        # Disabled scanners run on the slower clock: stale for an enabled scanner, not for a disabled one.
+        disabled_recent = _make_scanner(name="disabled-recent", enabled=False)
+        _set_estimate(disabled_recent, 10, hours_ago=_STALE_HOURS + 24)
 
         entries = list_stale_scanner_estimates_activity()
 

@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     ExplainRequestApi,
     LogsAlertConfigurationApi,
+    LogsAlertConfigurationDetailApi,
     LogsAlertCreateDestinationApi,
     LogsAlertDeleteDestinationApi,
     LogsAlertDestinationResponseApi,
@@ -18,13 +19,17 @@ import type {
     LogsAlertSimulateResponseApi,
     LogsAlertsEventsListParams,
     LogsAlertsListParams,
+    LogsAnomalyScanRequestApi,
+    LogsAnomalyScanResponseApi,
     LogsAttributesRetrieveParams,
     LogsExportCreate201,
     LogsHasLogsRetrieve200,
     LogsMetricRuleApi,
     LogsMetricRulesListParams,
     LogsRetentionRuleApi,
+    LogsRetentionRuleNameSuggestionApi,
     LogsRetentionRuleReorderApi,
+    LogsRetentionRuleSuggestNameApi,
     LogsRetentionRulesListParams,
     LogsRetentionRulesReorderCreateParams,
     LogsSamplingRuleApi,
@@ -32,6 +37,8 @@ import type {
     LogsSamplingRuleSimulateResponseApi,
     LogsSamplingRulesListParams,
     LogsSamplingRulesReorderCreateParams,
+    LogsSeriesBandsRequestApi,
+    LogsSeriesBandsResponseApi,
     LogsValuesRetrieveParams,
     LogsViewApi,
     LogsViewsListParams,
@@ -137,8 +144,8 @@ export const logsAlertsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<LogsAlertConfigurationApi> => {
-    return apiMutator<LogsAlertConfigurationApi>(getLogsAlertsRetrieveUrl(projectId, id), {
+): Promise<LogsAlertConfigurationDetailApi> => {
+    return apiMutator<LogsAlertConfigurationDetailApi>(getLogsAlertsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -299,6 +306,48 @@ export const logsAlertsSimulateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(logsAlertSimulateRequestApi),
+    })
+}
+
+export const getLogsAnomaliesScanCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/anomalies/scan/`
+}
+
+/**
+ * Runs anomaly detection on demand over one service's log volume for the given window. Learns per severity baselines from up to 6 weeks of history and returns per bucket expected bands plus any spike, drop, or silence issues. Synchronous and read only.
+ * @summary Scan a service's logs for volume anomalies
+ */
+export const logsAnomaliesScanCreate = async (
+    projectId: string,
+    logsAnomalyScanRequestApi: LogsAnomalyScanRequestApi,
+    options?: RequestInit
+): Promise<LogsAnomalyScanResponseApi> => {
+    return apiMutator<LogsAnomalyScanResponseApi>(getLogsAnomaliesScanCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsAnomalyScanRequestApi),
+    })
+}
+
+export const getLogsAnomaliesSeriesBandsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/anomalies/series_bands/`
+}
+
+/**
+ * Returns the last 7 days of log volume for every (namespace, environment, severity) series of one service, with a time-of-week expected band derived from the prior weeks of the volume rollup. Synchronous and read only.
+ * @summary Per-series log volume with expected bands
+ */
+export const logsAnomaliesSeriesBandsCreate = async (
+    projectId: string,
+    logsSeriesBandsRequestApi: LogsSeriesBandsRequestApi,
+    options?: RequestInit
+): Promise<LogsSeriesBandsResponseApi> => {
+    return apiMutator<LogsSeriesBandsResponseApi>(getLogsAnomaliesSeriesBandsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsSeriesBandsRequestApi),
     })
 }
 
@@ -747,6 +796,26 @@ export const logsRetentionRulesReorderCreate = async (
     })
 }
 
+export const getLogsRetentionRulesSuggestNameCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/retention_rules/suggest_name/`
+}
+
+/**
+ * Suggest a human-readable name for a retention rule from its retention tier and filter group. Used by the create form as an auto-suggest; nothing is persisted. Returns an empty name when a suggestion can't be generated.
+ */
+export const logsRetentionRulesSuggestNameCreate = async (
+    projectId: string,
+    logsRetentionRuleSuggestNameApi: LogsRetentionRuleSuggestNameApi,
+    options?: RequestInit
+): Promise<LogsRetentionRuleNameSuggestionApi> => {
+    return apiMutator<LogsRetentionRuleNameSuggestionApi>(getLogsRetentionRulesSuggestNameCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsRetentionRuleSuggestNameApi),
+    })
+}
+
 export const getLogsSamplingRulesListUrl = (projectId: string, params?: LogsSamplingRulesListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1079,7 +1148,7 @@ export const getTasksRunsLogsRetrieveUrl = (projectId: string, taskId: string, i
 }
 
 /**
- * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history and can find the most recent git_checkpoint event regardless of which run emitted it.
+ * Fetch the logs for a task run as JSONL. If the run resumes from another (state.resume_from_run_id), each ancestor's log is concatenated first (oldest ancestor → ... → this run) so resume consumers see a single continuous history.
  * @summary Get task run logs
  */
 export const tasksRunsLogsRetrieve = async (

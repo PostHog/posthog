@@ -80,7 +80,7 @@ export function DateFilterExclusionsControl({
             <PopoverContent side="right" align="end" {...panelProps} className="w-64 gap-0 p-0">
                 {showIncomplete && (
                     <div className="flex items-center justify-between gap-2 px-3 py-2.5">
-                        <Label htmlFor="date-filter-exclude-incomplete">Incomplete period</Label>
+                        <Label htmlFor="date-filter-exclude-incomplete">Incomplete periods</Label>
                         <Switch
                             id="date-filter-exclude-incomplete"
                             size="sm"

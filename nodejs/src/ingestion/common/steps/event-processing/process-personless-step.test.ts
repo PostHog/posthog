@@ -15,7 +15,7 @@ import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
-import { createOrganization, createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createOrganization, createTeam, getTeam } from '~/tests/helpers/sql'
 import { EventHeaders, InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 
 import { createNormalizeEventStep } from './normalize-event-step'
@@ -77,7 +77,6 @@ describe('createProcessPersonlessStep', () => {
     let personsStore: BatchWritingPersonsStore
 
     beforeEach(async () => {
-        await resetTestDatabase()
         infra = await createIngestionTestInfra()
         const organizationId = await createOrganization(infra.postgres)
         teamId = await createTeam(infra.postgres, organizationId)
@@ -253,9 +252,7 @@ describe('createProcessPersonlessStep', () => {
             expect(fetchForCheckingSpy).not.toHaveBeenCalled()
         })
 
-        it('defaults to personless and records the distinct ID when no person exists', async () => {
-            const addPersonlessDistinctIdSpy = jest.spyOn(personsStore, 'addPersonlessDistinctId')
-
+        it('defaults to personless when no person exists', async () => {
             const step = buildStep()
             const result = await step(
                 createInput({
@@ -273,62 +270,10 @@ describe('createProcessPersonlessStep', () => {
                 expect(result.value.normalizedEvent.properties?.$set).toBeUndefined()
                 expect(result.value.normalizedEvent.properties?.$process_person_profile).toBe(false)
             }
-            expect(addPersonlessDistinctIdSpy).toHaveBeenCalledWith(teamId, pluginEvent.distinct_id, 0)
-        })
-
-        it('skips the personless distinct ID insert when the batch already has a result', async () => {
-            jest.spyOn(personsStore, 'getPersonlessBatchResult').mockReturnValue(false)
-            const addPersonlessDistinctIdSpy = jest.spyOn(personsStore, 'addPersonlessDistinctId')
-
-            const step = buildStep()
-            const result = await step(createInput({ processPerson: true, normalizedEvent: flagCalledEvent() }))
-
-            expect(result.type).toBe(PipelineResultType.OK)
-            if (isOkResult(result)) {
-                expect(result.value.processPerson).toBe(false)
-            }
-            expect(addPersonlessDistinctIdSpy).not.toHaveBeenCalled()
-        })
-
-        it('keeps the event personful when the distinct ID turns out to be merged', async () => {
-            const personUuid = new UUIDT().toString()
-            const person = await createPerson(infra, timestamp, {}, {}, {}, teamId, null, false, personUuid, {
-                distinctId: 'merge-target',
-            })
-
-            jest.spyOn(personsStore, 'fetchForChecking').mockResolvedValue(null)
-            jest.spyOn(personsStore, 'addPersonlessDistinctId').mockResolvedValue(true)
-            const fetchForUpdateSpy = jest.spyOn(personsStore, 'fetchForUpdate').mockResolvedValue(person)
-
-            const step = buildStep()
-            const result = await step(createInput({ processPerson: true, normalizedEvent: flagCalledEvent() }))
-
-            expect(result.type).toBe(PipelineResultType.OK)
-            if (isOkResult(result)) {
-                expect(result.value.processPerson).toBe(true)
-                expect(result.value.personlessPerson).toBeUndefined()
-            }
-            expect(fetchForUpdateSpy).toHaveBeenCalledWith(teamId, pluginEvent.distinct_id, 0)
-        })
-
-        it('defaults to personless when the merged person cannot be fetched from the leader', async () => {
-            jest.spyOn(personsStore, 'fetchForChecking').mockResolvedValue(null)
-            jest.spyOn(personsStore, 'addPersonlessDistinctId').mockResolvedValue(true)
-            jest.spyOn(personsStore, 'fetchForUpdate').mockResolvedValue(null)
-
-            const step = buildStep()
-            const result = await step(createInput({ processPerson: true, normalizedEvent: flagCalledEvent() }))
-
-            expect(result.type).toBe(PipelineResultType.OK)
-            if (isOkResult(result)) {
-                expect(result.value.processPerson).toBe(false)
-                expect(result.value.personlessPerson).toBeDefined()
-            }
         })
 
         it('takes the generic personless path, not the defaulting branch, when already force-disabled', async () => {
             const fetchForCheckingSpy = jest.spyOn(personsStore, 'fetchForChecking')
-            const addPersonlessDistinctIdSpy = jest.spyOn(personsStore, 'addPersonlessDistinctId')
 
             const step = buildStep()
             const result = await step(
@@ -340,7 +285,6 @@ describe('createProcessPersonlessStep', () => {
                 expect(result.value.personlessPerson).toBeDefined()
             }
             expect(fetchForCheckingSpy).not.toHaveBeenCalled()
-            expect(addPersonlessDistinctIdSpy).not.toHaveBeenCalled()
         })
 
         // Pipes an event through the same normalization steps that precede the personless
@@ -397,8 +341,6 @@ describe('createProcessPersonlessStep', () => {
         })
 
         it('skips the defaulting branch for explicit $process_person_profile=false events', async () => {
-            const addPersonlessDistinctIdSpy = jest.spyOn(personsStore, 'addPersonlessDistinctId')
-
             const personlessStep = buildStep()
             const normalized = await runThroughNormalization(flagCalledEvent({ $process_person_profile: false }))
 
@@ -409,8 +351,6 @@ describe('createProcessPersonlessStep', () => {
                 expect(result.value.processPerson).toBe(false)
                 expect(result.value.personlessPerson).toBeDefined()
             }
-            // The plain personless path leaves the insert to the batch step.
-            expect(addPersonlessDistinctIdSpy).not.toHaveBeenCalled()
         })
     })
 
@@ -446,28 +386,6 @@ describe('createProcessPersonlessStep', () => {
                 expect(person.uuid).toBe(personUuid)
                 expect(person.properties).toEqual({})
                 expect(person.force_upgrade).toBeUndefined()
-            }
-        })
-
-        it('checks batch result for personless distinct ID when no person exists', async () => {
-            const getPersonlessBatchResultSpy = jest.spyOn(personsStore, 'getPersonlessBatchResult')
-
-            const step = buildStep()
-            await step(createInput())
-
-            expect(getPersonlessBatchResultSpy).toHaveBeenCalledWith(teamId, pluginEvent.distinct_id)
-        })
-
-        it('returns fake person when batch result indicates no merge', async () => {
-            jest.spyOn(personsStore, 'getPersonlessBatchResult').mockReturnValue(false)
-
-            const step = buildStep()
-            const result = await step(createInput())
-
-            expect(result.type).toBe(PipelineResultType.OK)
-            if (isOkResult(result)) {
-                const person = result.value.personlessPerson!
-                expect(person.created_at.toISO()).toBe('1970-01-01T00:00:05.000Z')
             }
         })
     })
@@ -533,40 +451,9 @@ describe('createProcessPersonlessStep', () => {
         })
     })
 
-    describe('merge detection', () => {
-        it('detects when person was merged and re-fetches from leader', async () => {
-            const personUuid = new UUIDT().toString()
-            const personCreatedAt = DateTime.fromISO('2020-02-20T00:00:00Z')
-
-            const person = await createPerson(
-                infra,
-                personCreatedAt,
-                { name: 'John' },
-                {},
-                {},
-                teamId,
-                null,
-                false,
-                personUuid,
-                { distinctId: pluginEvent.distinct_id }
-            )
-
-            jest.spyOn(personsStore, 'fetchForChecking').mockResolvedValueOnce(null)
-            jest.spyOn(personsStore, 'getPersonlessBatchResult').mockReturnValue(true)
-            const fetchForUpdateSpy = jest.spyOn(personsStore, 'fetchForUpdate').mockResolvedValue(person)
-
-            const step = buildStep()
-            const result = await step(createInput())
-
-            expect(result.type).toBe(PipelineResultType.OK)
-            expect(fetchForUpdateSpy).toHaveBeenCalledWith(teamId, pluginEvent.distinct_id, 0)
-        })
-    })
-
     describe('forceDisablePersonProcessing', () => {
         it('skips all DB operations and returns fake person immediately when true', async () => {
             const fetchForCheckingSpy = jest.spyOn(personsStore, 'fetchForChecking')
-            const getPersonlessBatchResultSpy = jest.spyOn(personsStore, 'getPersonlessBatchResult')
 
             const step = buildStep()
             const result = await step(createInput({ forceDisablePersonProcessing: true }))
@@ -580,7 +467,6 @@ describe('createProcessPersonlessStep', () => {
             }
 
             expect(fetchForCheckingSpy).not.toHaveBeenCalled()
-            expect(getPersonlessBatchResultSpy).not.toHaveBeenCalled()
         })
 
         it('performs normal processing when false', async () => {

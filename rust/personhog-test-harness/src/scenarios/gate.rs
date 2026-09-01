@@ -10,7 +10,7 @@ use sqlx::postgres::PgPool;
 
 use personhog_proto::personhog::identity::v1::GetOrCreatePersonEntry;
 
-use crate::cli::GateArgs;
+use crate::cli::{GateArgs, DEFAULT_KEYS_PER_PERSON};
 use crate::client::{HarnessClient, IdentityClient};
 use crate::report::print_report;
 use crate::scenarios::{blast, consistency};
@@ -33,6 +33,8 @@ enum ChaosEvent {
     WriterResume,
     RouterKill { fast: bool },
     RouterShutdown,
+    FencePersons,
+    ReleaseFences,
 }
 
 impl fmt::Display for ChaosEvent {
@@ -52,6 +54,8 @@ impl fmt::Display for ChaosEvent {
             ChaosEvent::RouterKill { fast: false } => {
                 write!(f, "coordinator router crash (lease TTL expiry)")
             }
+            ChaosEvent::FencePersons => write!(f, "fence persons (lifecycle delete op)"),
+            ChaosEvent::ReleaseFences => write!(f, "release fences (aborted)"),
             ChaosEvent::RouterShutdown => write!(f, "coordinator router graceful shutdown"),
         }
     }
@@ -98,6 +102,14 @@ fn chaos_timeline(args: &GateArgs) -> Vec<(Duration, ChaosEvent)> {
     if let Some(after) = args.router_shutdown_after {
         events.push((after, ChaosEvent::RouterShutdown));
     }
+    if let Some(after) = args.fence_after {
+        events.push((after, ChaosEvent::FencePersons));
+        events.push((
+            args.fence_release_after
+                .expect("validated: --fence-after requires --fence-release-after"),
+            ChaosEvent::ReleaseFences,
+        ));
+    }
     events.sort_by_key(|(after, _)| *after);
     events
 }
@@ -127,8 +139,16 @@ fn default_bin_dir() -> PathBuf {
 pub async fn run(args: GateArgs) -> Result<()> {
     seed::validate_table_name(&args.pg_target_table)?;
     let chaos = chaos_timeline(&args);
-    if args.external_router_url.is_some() && (!chaos.is_empty() || args.kill_handoff_target) {
+    // Fence events act through the router client, so they are the one kind
+    // of chaos an external stack can host.
+    let needs_stack_chaos = chaos
+        .iter()
+        .any(|(_, event)| !matches!(event, ChaosEvent::FencePersons | ChaosEvent::ReleaseFences));
+    if args.external_router_url.is_some() && (needs_stack_chaos || args.kill_handoff_target) {
         bail!("chaos flags require a spawned stack; they cannot target --external-router-url");
+    }
+    if args.external_router_url.is_some() && !args.leader_env.is_empty() {
+        bail!("--leader-env requires a spawned stack; it cannot target --external-router-url");
     }
     if args.create_via_identity
         && args.external_router_url.is_some()
@@ -136,12 +156,9 @@ pub async fn run(args: GateArgs) -> Result<()> {
     {
         bail!("--create-via-identity with --external-router-url needs --external-identity-url");
     }
-    // The identity service writes the real posthog_person table (its distinct
-    // id FKs require it); a stack targeting another table would recover
-    // created persons from a table they were never written to.
-    if args.create_via_identity && args.pg_target_table != "posthog_person" {
-        bail!("--create-via-identity requires --pg-target-table posthog_person");
-    }
+    // The spawned identity derives its whole table set (person, distinct id,
+    // hash-key overrides) from --pg-target-table, so any known table set
+    // works; Stack::up rejects person tables without a known companion set.
     if (args.router_kill_after.is_some() || args.router_shutdown_after.is_some())
         && args.routers < 3
     {
@@ -153,6 +170,18 @@ pub async fn run(args: GateArgs) -> Result<()> {
     }
     if args.kill_handoff_target && args.shutdown_after.is_none() && args.scale_up_after.is_none() {
         bail!("--kill-handoff-target needs a handoff-creating event (--shutdown-after or --scale-up-after)");
+    }
+    match (args.fence_after, args.fence_release_after) {
+        (Some(fence), Some(release)) if release <= fence => {
+            bail!("--fence-release-after must be after --fence-after");
+        }
+        (Some(_), None) | (None, Some(_)) => {
+            bail!("--fence-after and --fence-release-after must be given together");
+        }
+        _ => {}
+    }
+    if args.fence_after.is_some() && args.fence_count == 0 {
+        bail!("--fence-count must be at least 1 with --fence-after");
     }
 
     let mut stack = match &args.external_router_url {
@@ -171,6 +200,7 @@ pub async fn run(args: GateArgs) -> Result<()> {
                     writer_flush_interval_ms: 1000,
                     pg_target_table: args.pg_target_table.clone(),
                     cache_memory_capacity: args.cache_capacity,
+                    extra_leader_env: args.leader_env.clone(),
                     recovery_pool_size: args.recovery_pool_size,
                     leader_lease_ttl: args.leader_lease_ttl,
                     spawn_identity: args.create_via_identity,
@@ -192,8 +222,15 @@ pub async fn run(args: GateArgs) -> Result<()> {
         .context("connecting to persons DB")?;
 
     // A crashed prior run may have left rows behind; the team id belongs to
-    // the harness, so start from a clean slate.
+    // the harness, so start from a clean slate. Lifecycle ops included: a
+    // leftover mark would make a later run's takeover scan install a stale
+    // fence for this team.
     seed::cleanup_team(&pool, &args.pg_target_table, args.team_id).await?;
+    sqlx::query("DELETE FROM lifecycle_op WHERE team_id = $1")
+        .bind(args.team_id as i32)
+        .execute(&pool)
+        .await
+        .context("cleaning lifecycle ops")?;
     let state = PersonState::new();
     // A spawned stack always uses its own identity service — the gate's
     // assertions target that stack, so an external identity service pointed
@@ -242,7 +279,11 @@ pub async fn run(args: GateArgs) -> Result<()> {
                 duration,
                 concurrency,
                 None,
-                "harness_gate_",
+                &blast::PropertyPlan::new(
+                    "harness_gate_".to_string(),
+                    DEFAULT_KEYS_PER_PERSON,
+                    concurrency,
+                ),
                 &collector,
                 &state,
                 Arc::new(AtomicBool::new(false)),
@@ -279,9 +320,113 @@ pub async fn run(args: GateArgs) -> Result<()> {
     // through the disruption must still be visible afterwards.
     let traffic_start = Instant::now();
     let mut handoff_kill_armed = args.kill_handoff_target;
+    // Fenced persons and their shared op id, filled by FencePersons and
+    // drained by ReleaseFences.
+    let fence_op = uuid::Uuid::new_v4();
+    let mut fenced_persons: Vec<i64> = Vec::new();
     for (after, event) in chaos {
-        let stack = stack.as_mut().expect("chaos requires a spawned stack");
         tokio::time::sleep_until((traffic_start + after).into()).await;
+        // The fence events act through the router like any client; they
+        // need no spawned stack.
+        match event {
+            ChaosEvent::FencePersons => {
+                // The durable fence record is the mark, written before any
+                // seal — a leader taking partition ownership mid-window
+                // rebuilds its fences from these rows. Fencing without them
+                // would not survive a restart (the harness acts as the
+                // saga's mark step here).
+                sqlx::query(
+                    "INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request) \
+                     VALUES ($1, 'delete', $2, 'started', '{}'::jsonb)",
+                )
+                .bind(fence_op)
+                .bind(args.team_id as i32)
+                .execute(&pool)
+                .await
+                .context("inserting fence op row")?;
+                for &person_id in person_ids.iter().take(args.fence_count) {
+                    sqlx::query(
+                        "INSERT INTO lifecycle_op_person \
+                         (op_id, team_id, person_id, person_uuid, role, status) \
+                         VALUES ($1, $2, $3, gen_random_uuid(), 'victim', 'marked')",
+                    )
+                    .bind(fence_op)
+                    .bind(args.team_id as i32)
+                    .bind(person_id)
+                    .execute(&pool)
+                    .await
+                    .context("inserting fence mark")?;
+                }
+                for &person_id in person_ids.iter().take(args.fence_count) {
+                    match client
+                        .fence_person(args.team_id, person_id, &fence_op)
+                        .await
+                    {
+                        Ok(response) => {
+                            let sealed = response
+                                .sealed
+                                .map(|person| person.version)
+                                .unwrap_or_default();
+                            state.open_fence(person_id, sealed).await;
+                            fenced_persons.push(person_id);
+                        }
+                        // Chaos may legitimately fail the call (a partition
+                        // mid-handoff); an unfenced person just isn't
+                        // asserted on.
+                        Err(e) => tracing::warn!(person_id, error = %e, "fence failed; skipping"),
+                    }
+                }
+                println!(
+                    "Chaos at {:.1}s: {event} → {} of {} fenced (op {fence_op})",
+                    traffic_start.elapsed().as_secs_f64(),
+                    fenced_persons.len(),
+                    args.fence_count,
+                );
+                continue;
+            }
+            ChaosEvent::ReleaseFences => {
+                let mut released = 0usize;
+                for person_id in fenced_persons.drain(..) {
+                    // Close the window before releasing so a write racing
+                    // the release ack cannot be flagged as a phantom
+                    // violation.
+                    state.close_fence(person_id).await;
+                    match client
+                        .release_fence_aborted(args.team_id, person_id, &fence_op)
+                        .await
+                    {
+                        Ok(()) => released += 1,
+                        Err(e) => {
+                            tracing::warn!(person_id, error = %e, "release failed; person stays fenced")
+                        }
+                    }
+                }
+                // The op is over: settle it so the marks leave the live
+                // set (an aborted op's marks must not fence anyone after
+                // release).
+                sqlx::query(
+                    "UPDATE lifecycle_op_person SET status = 'skipped_conflict' WHERE op_id = $1",
+                )
+                .bind(fence_op)
+                .execute(&pool)
+                .await
+                .context("settling fence marks")?;
+                sqlx::query(
+                    "UPDATE lifecycle_op SET step = 'aborted', completed_at = now() WHERE op_id = $1",
+                )
+                .bind(fence_op)
+                .execute(&pool)
+                .await
+                .context("completing fence op")?;
+                println!(
+                    "Chaos at {:.1}s: {event} → {released} released",
+                    traffic_start.elapsed().as_secs_f64(),
+                );
+                continue;
+            }
+            _ => {}
+        }
+        let stack = stack.as_mut().expect("chaos requires a spawned stack");
         let creates_handoff = matches!(event, ChaosEvent::Shutdown | ChaosEvent::ScaleUp);
         let pod = match event {
             ChaosEvent::Kill { fast } => Some(stack.kill_leader(fast).await?),
@@ -304,6 +449,9 @@ pub async fn run(args: GateArgs) -> Result<()> {
             }
             ChaosEvent::RouterKill { fast } => Some(stack.kill_coordinator_router(fast).await?),
             ChaosEvent::RouterShutdown => Some(stack.shutdown_coordinator_router().await?),
+            ChaosEvent::FencePersons | ChaosEvent::ReleaseFences => {
+                unreachable!("fence events are dispatched before the stack match")
+            }
         };
         println!(
             "Chaos at {:.1}s: {event} → pod {} | {}",
@@ -372,6 +520,20 @@ pub async fn run(args: GateArgs) -> Result<()> {
         &violations,
     );
 
+    // The delete leg of the identity path: persons created through
+    // get-or-create leave through the lifecycle saga, and both the
+    // outcomes and the saga's idempotence are gate assertions — every
+    // created person deletes exactly once, and a second attempt under a
+    // fresh op id answers not_found for all of them.
+    if let Some(url) = &identity_url {
+        if !args.keep_data {
+            println!("Deleting persons through the lifecycle saga...");
+            let lifecycle = crate::client::LifecycleClient::connect(url).await?;
+            verify_lifecycle_delete(&lifecycle, args.team_id, &person_ids).await?;
+            println!("Lifecycle delete verified: all deleted, re-delete answers not_found");
+        }
+    }
+
     if !args.keep_data {
         let persons = seed::cleanup_team(&pool, &args.pg_target_table, args.team_id).await?;
         println!("Cleaned up {persons} persons");
@@ -401,6 +563,40 @@ pub async fn run(args: GateArgs) -> Result<()> {
         bail!("no writes were acked; the gate asserted nothing");
     }
     println!("Gate passed: every acked write visible in strong reads and Postgres");
+    Ok(())
+}
+
+/// Delete `person_ids` through the lifecycle saga and hold the answers
+/// to the gate's standard: every id deleted on the first attempt, every
+/// id not_found on a second attempt under a fresh op id (deleting a
+/// tombstone is a no-op, never an error, never a false success).
+async fn verify_lifecycle_delete(
+    lifecycle: &crate::client::LifecycleClient,
+    team_id: i64,
+    person_ids: &[i64],
+) -> Result<()> {
+    use personhog_proto::personhog::lifecycle::v1::DeletePersonOutcome;
+
+    for (attempt, expected) in [
+        (1, DeletePersonOutcome::Deleted),
+        (2, DeletePersonOutcome::NotFound),
+    ] {
+        // The lifecycle service caps batches at 250 person ids.
+        for chunk in person_ids.chunks(200) {
+            let op_id = uuid::Uuid::new_v4();
+            let outcomes = lifecycle
+                .delete_persons(team_id, chunk.to_vec(), &op_id)
+                .await?;
+            for (person_id, outcome) in outcomes {
+                if outcome != expected {
+                    bail!(
+                        "lifecycle delete attempt {attempt}: person {person_id} answered \
+                         {outcome:?}, expected {expected:?}"
+                    );
+                }
+            }
+        }
+    }
     Ok(())
 }
 

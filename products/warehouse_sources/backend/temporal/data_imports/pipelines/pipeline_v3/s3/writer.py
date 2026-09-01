@@ -12,6 +12,9 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    unify_schemas_with_text_fallback,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.metrics import (
     get_s3_write_duration_metric,
     get_s3_write_errors_metric,
@@ -142,7 +145,11 @@ class S3BatchWriter:
         if self._schema is None:
             self._schema = pa_table.schema
         else:
-            self._schema = pa.unify_schemas([self._schema, pa_table.schema])
+            # Batches infer their own types, so one run's column can land int64 in an early batch and
+            # double in a later one (whole vs fractional values). Permissive promotion widens to the
+            # common type; flips promotion can't reconcile (string vs int64) fall back to text
+            # instead of raising ArrowTypeError.
+            self._schema = unify_schemas_with_text_fallback([self._schema, pa_table.schema], self._logger)
 
         self._logger.debug(
             f"Batch {batch_index} written successfully",

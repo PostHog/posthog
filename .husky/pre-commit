@@ -20,6 +20,26 @@ fi
 # commands -- skip telemetry so the dashboard reflects intentional usage only.
 export POSTHOG_TELEMETRY_OPT_OUT=1
 
+# Fixture-provenance warning. Runs here rather than as a lint-staged task because
+# lint-staged prints nothing for a task that succeeds, and this one always does.
+# Never blocks: the question it raises is not one a script can answer.
+if [ -x .github/scripts/check-fixture-provenance.sh ]; then
+    .github/scripts/check-fixture-provenance.sh || true
+fi
+
+# Same deal for the HogQL access control doc: warn when documented files change
+# without the doc, never block.
+if [ -x .github/scripts/check-access-control-doc-sync.sh ]; then
+    .github/scripts/check-access-control-doc-sync.sh || true
+fi
+
+# Same deal for a product directory that appears without coming from
+# `hogli product:bootstrap`: warn at the commit that introduces it, rather than
+# leaving the author to find out from CI after the shape is set.
+if [ -x .github/scripts/check-product-scaffold.sh ]; then
+    .github/scripts/check-product-scaffold.sh || true
+fi
+
 # Activate Flox environment if available and not already active
 # This ensures lint-staged commands work in GUI Git clients (GitHub Desktop, etc.)
 if command -v flox > /dev/null 2>&1 && [ -d ".flox/cache" ] && [ -z "$FLOX_ENV" ]; then

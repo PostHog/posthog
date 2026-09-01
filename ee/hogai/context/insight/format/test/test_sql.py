@@ -4,7 +4,7 @@ from posthog.test.base import BaseTest
 
 from posthog.schema import AssistantHogQLQuery
 
-from .. import TRUNCATED_MARKER, SQLResultsFormatter
+from .. import NULL_MARKER, TRUNCATED_MARKER, SQLResultsFormatter
 
 
 class TestSQLResultsFormatter(BaseTest):
@@ -47,7 +47,31 @@ class TestSQLResultsFormatter(BaseTest):
         columns = ["id", "name"]
 
         formatter = SQLResultsFormatter(query, results, columns)
-        expected = "id|name\n1|test\n2|None"
+        expected = f"id|name\n1|test\n2|{NULL_MARKER}"
+        self.assertEqual(formatter.format(), expected)
+
+    def test_format_none_is_distinguishable_from_the_string_none(self):
+        query = AssistantHogQLQuery(query="SELECT id, name")
+        results: list[Any] = [
+            {"id": 1, "name": None},
+            {"id": 2, "name": "None"},
+        ]
+        columns = ["id", "name"]
+
+        formatter = SQLResultsFormatter(query, results, columns)
+        expected = f"id|name\n1|{NULL_MARKER}\n2|None"
+        self.assertEqual(formatter.format(), expected)
+
+    def test_format_none_is_distinguishable_from_a_literal_marker_value(self):
+        query = AssistantHogQLQuery(query="SELECT id, name")
+        results: list[Any] = [
+            {"id": 1, "name": None},
+            {"id": 2, "name": NULL_MARKER},
+        ]
+        columns = ["id", "name"]
+
+        formatter = SQLResultsFormatter(query, results, columns)
+        expected = f'id|name\n1|{NULL_MARKER}\n2|"{NULL_MARKER}"'
         self.assertEqual(formatter.format(), expected)
 
     def test_format_with_numeric_values(self):

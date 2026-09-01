@@ -21,7 +21,14 @@ import structlog
 from celery import shared_task
 from celery.exceptions import MaxRetriesExceededError, Retry
 
+from posthog.comment.formatting import (
+    extract_images_from_rich_content,
+    rich_content_to_html,
+    rich_content_to_markdown,
+    rich_content_to_slack_payload,
+)
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.helpers.slack_identity import resolve_slack_avatar_by_email
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.comment import Comment as CommentModel
 from posthog.models.github_integration_base import GitHubIntegrationError
@@ -32,12 +39,6 @@ from posthog.storage import object_storage
 
 from products.conversations.backend.cache import NUDGE_DISMISS_TTL, suppress_nudge
 from products.conversations.backend.events import capture_ticket_status_changed
-from products.conversations.backend.formatting import (
-    extract_images_from_rich_content,
-    rich_content_to_html,
-    rich_content_to_markdown,
-    rich_content_to_slack_payload,
-)
 from products.conversations.backend.mailgun import (
     MailgunDomainNotRegistered,
     MailgunNotConfigured,
@@ -72,7 +73,6 @@ from products.conversations.backend.slack import (
     handle_support_message,
     handle_support_reaction,
     nudge_event_properties,
-    resolve_slack_avatar_by_email,
     ticket_created_text,
 )
 from products.conversations.backend.support_teams import (
@@ -273,7 +273,7 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
         raw_verdict = value.get("classifier")
         classifier_verdict: NudgeFunnelVerdict = (
             raw_verdict if raw_verdict in get_args(NudgeClassifierVerdict) else "unknown"
-        )
+        )  # ty: ignore[invalid-assignment]
         click_properties = nudge_event_properties(source_channel, source_message_ts, clicker, classifier_verdict)
 
         if action_id == TICKET_CONFIRM_ACTION_DISMISS:
@@ -390,7 +390,9 @@ def post_reply_to_slack(
         )
         return
 
-    slack_text, slack_blocks = rich_content_to_slack_payload(rich_content, content, include_images=False)
+    slack_text, slack_blocks = rich_content_to_slack_payload(
+        rich_content, content, include_images=False, organization_id=team.organization_id
+    )
     rich_images = extract_images_from_rich_content(rich_content)
     logger.info(
         "🧵 slack_reply_payload_prepared",

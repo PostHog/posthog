@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
-from typing import Any
+from typing import Any, Final
 
 import litellm
 from fastapi import HTTPException
@@ -9,13 +9,35 @@ from litellm.llms.anthropic.experimental_pass_through.adapters.handler import (
     LiteLLMMessagesToCompletionTransformationHandler,
 )
 
+from llm_gateway.anthropic_request import convert_enabled_thinking_to_adaptive
 from llm_gateway.anthropic_stream import observe_anthropic_stream
 from llm_gateway.config import Settings
 
 BASETEN_PUBLIC_MODEL = "@cf/zai-org/glm-5.2"
 BASETEN_GLM_MODEL = "zai-org/GLM-5.2"
 BASETEN_METRIC_MODEL = "baseten/zai-org/glm-5.2"
-_BASETEN_LITELLM_MODEL = f"openai/{BASETEN_GLM_MODEL}"
+BASETEN_DEEPSEEK_PUBLIC_MODEL = "deepseek-ai/deepseek-v4-flash-0731"
+BASETEN_DEEPSEEK_MODEL = "deepseek-ai/DeepSeek-V4-Flash-0731"
+BASETEN_DEEPSEEK_METRIC_MODEL = "baseten/deepseek-ai/deepseek-v4-flash-0731"
+BASETEN_GLM53_PUBLIC_MODEL = "zai-org/glm-5.3"
+BASETEN_GLM53_MODEL = "zai-org/GLM-5.3"
+BASETEN_GLM53_METRIC_MODEL = "baseten/zai-org/glm-5.3"
+BASETEN_GLM53_FLASH_PUBLIC_MODEL = "zai-org/glm-5.3-flash"
+BASETEN_GLM53_FLASH_MODEL = "zai-org/GLM-5.3-Flash"
+BASETEN_GLM53_FLASH_METRIC_MODEL = "baseten/zai-org/glm-5.3-flash"
+BASETEN_MODELS = {
+    BASETEN_PUBLIC_MODEL: BASETEN_GLM_MODEL,
+    BASETEN_DEEPSEEK_PUBLIC_MODEL: BASETEN_DEEPSEEK_MODEL,
+    BASETEN_GLM53_PUBLIC_MODEL: BASETEN_GLM53_MODEL,
+    BASETEN_GLM53_FLASH_PUBLIC_MODEL: BASETEN_GLM53_FLASH_MODEL,
+}
+# Models with no Cloudflare/Modal fallback — always routed to Baseten.
+BASETEN_EXCLUSIVE_COST_MODELS: Final[dict[str, str]] = {
+    BASETEN_DEEPSEEK_PUBLIC_MODEL: BASETEN_DEEPSEEK_METRIC_MODEL,
+    BASETEN_GLM53_PUBLIC_MODEL: BASETEN_GLM53_METRIC_MODEL,
+    BASETEN_GLM53_FLASH_PUBLIC_MODEL: BASETEN_GLM53_FLASH_METRIC_MODEL,
+}
+BASETEN_EXCLUSIVE_MODELS: frozenset[str] = frozenset(BASETEN_EXCLUSIVE_COST_MODELS)
 
 
 def is_baseten_configured(settings: Settings) -> bool:
@@ -33,11 +55,12 @@ def ensure_baseten_configured(settings: Settings) -> tuple[str, str]:
 
 
 def _inject_baseten_params(kwargs: dict[str, Any], api_base: str, api_key: str) -> None:
+    model = kwargs["model"]
     kwargs["api_base"] = api_base
     kwargs["api_key"] = api_key
     kwargs.pop("headers", None)
-    kwargs["extra_headers"] = {"Authorization": f"Api-Key {api_key}"}
-    kwargs["model"] = _BASETEN_LITELLM_MODEL
+    kwargs["extra_headers"] = {"Authorization": f"Bearer {api_key}"}
+    kwargs["model"] = f"openai/{BASETEN_MODELS[model]}"
     kwargs.setdefault("drop_params", True)
     if kwargs.get("stream"):
         stream_options = dict(kwargs.get("stream_options") or {})
@@ -47,6 +70,7 @@ def _inject_baseten_params(kwargs: dict[str, Any], api_base: str, api_key: str) 
 
 def make_baseten_anthropic_call(api_base: str, api_key: str) -> Callable[..., Awaitable[Any]]:
     async def llm_call(**kwargs: Any) -> Any:
+        kwargs = convert_enabled_thinking_to_adaptive(kwargs)
         _inject_baseten_params(kwargs, api_base, api_key)
         response = await LiteLLMMessagesToCompletionTransformationHandler.async_anthropic_messages_handler(**kwargs)
         if isinstance(response, AsyncIterator):

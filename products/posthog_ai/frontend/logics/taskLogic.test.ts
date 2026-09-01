@@ -1,6 +1,11 @@
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
-import { ApiError } from 'lib/api'
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api, { ApiError } from 'lib/api'
+import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -28,6 +33,11 @@ const createMockTask = (id: string): Task => ({
     updated_at: '2024-01-01T00:00:00Z',
     created_by: null,
 })
+
+jest.mock('@posthog/lemon-ui', () => ({
+    ...jest.requireActual('@posthog/lemon-ui'),
+    lemonToast: { error: jest.fn(), success: jest.fn() },
+}))
 
 describe('taskLogic', () => {
     let logic: ReturnType<typeof taskLogic.build>
@@ -81,6 +91,67 @@ describe('taskLogic', () => {
         })
     })
 
+    describe('runTaskFailure', () => {
+        it('surfaces the error and clears the in-flight state so the button is clickable again', async () => {
+            logic = taskLogic({ taskId: 'task-123' })
+            logic.mount()
+
+            logic.actions.runTask()
+            expect(logic.values.runTaskInFlight).toBe(true)
+
+            logic.actions.runTaskFailure('Sandbox unavailable', new ApiError('Sandbox unavailable', 503))
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.runTaskInFlight).toBe(false)
+            expect(lemonToast.error).toHaveBeenCalledWith('Sandbox unavailable')
+        })
+    })
+
+    describe('refreshing task lists after a mutation', () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        // A mutation from the detail view reloads every mounted list. A bare `loadTasks()` defaults
+        // to `{}`, which drops the active filter — e.g. "For you"'s scout exclusion — and returns the
+        // whole visible set until the next filter/search change. The refresh must carry each list's
+        // current params.
+        it.each([
+            ['updateTask', () => logic.actions.updateTask({ data: { title: 'renamed' } })],
+            ['deleteTask', () => logic.actions.deleteTask()],
+        ])('%s reloads the list with its active filter, not the unfiltered default', async (_name, mutate) => {
+            userLogic.mount()
+            userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+
+            const listSpy = jest
+                .spyOn(api.tasks, 'list')
+                .mockResolvedValue({ results: [], count: 0, next: null } as any)
+            jest.spyOn(api.tasks, 'update').mockResolvedValue(createMockTask('task-123'))
+            jest.spyOn(api.tasks, 'delete').mockResolvedValue(undefined)
+
+            const tasksLogicInstance = tasksLogic()
+            tasksLogicInstance.mount()
+            tasksLogicInstance.actions.setAssigneeFilter('my_scouts')
+            await expectLogic(tasksLogicInstance).toFinishAllListeners()
+            listSpy.mockClear()
+
+            logic = taskLogic({ taskId: 'task-123' })
+            logic.mount()
+
+            await expectLogic(tasksLogicInstance, () => {
+                mutate()
+            }).toDispatchActions(['loadTasks', 'loadTasksSuccess'])
+
+            expect(listSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    created_by: MOCK_DEFAULT_USER.id,
+                    origin_product: OriginProduct.SIGNALS_SCOUT,
+                })
+            )
+            tasksLogicInstance.unmount()
+        })
+    })
+
     describe('runTaskSuccess', () => {
         it('updates tasksLogic with task including new run', async () => {
             const tasksLogicInstance = tasksLogic()
@@ -100,6 +171,9 @@ describe('taskLogic', () => {
                     branch: null,
                     status: TaskRunStatus.QUEUED,
                     environment: TaskRunEnvironment.CLOUD,
+                    runtime_adapter: null,
+                    model: null,
+                    reasoning_effort: null,
                     log_url: null,
                     error_message: null,
                     output: null,

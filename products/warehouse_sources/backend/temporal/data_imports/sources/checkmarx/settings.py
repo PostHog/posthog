@@ -2,20 +2,29 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Optional
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+
+
+@frozen
+class RegionHosts:
+    api_base_url: str
+    iam_base_url: str
+
 
 # Checkmarx One is deployed per region; both the API host and the IAM (auth) host vary with it.
 # Region values match the documented multi-tenant deployments (https://checkmarx.com/resource/documents/en/34965-68630-checkmarx-one-regions.html).
-CHECKMARX_REGION_HOSTS: dict[str, tuple[str, str]] = {
-    "us": ("https://ast.checkmarx.net", "https://iam.checkmarx.net"),
-    "us2": ("https://us.ast.checkmarx.net", "https://us.iam.checkmarx.net"),
-    "eu": ("https://eu.ast.checkmarx.net", "https://eu.iam.checkmarx.net"),
-    "eu2": ("https://eu-2.ast.checkmarx.net", "https://eu-2.iam.checkmarx.net"),
-    "deu": ("https://deu.ast.checkmarx.net", "https://deu.iam.checkmarx.net"),
-    "anz": ("https://anz.ast.checkmarx.net", "https://anz.iam.checkmarx.net"),
-    "ind": ("https://ind.ast.checkmarx.net", "https://ind.iam.checkmarx.net"),
-    "sng": ("https://sng.ast.checkmarx.net", "https://sng.iam.checkmarx.net"),
-    "mea": ("https://mea.ast.checkmarx.net", "https://mea.iam.checkmarx.net"),
+CHECKMARX_REGION_HOSTS: dict[str, RegionHosts] = {
+    "us": RegionHosts(api_base_url="https://ast.checkmarx.net", iam_base_url="https://iam.checkmarx.net"),
+    "us2": RegionHosts(api_base_url="https://us.ast.checkmarx.net", iam_base_url="https://us.iam.checkmarx.net"),
+    "eu": RegionHosts(api_base_url="https://eu.ast.checkmarx.net", iam_base_url="https://eu.iam.checkmarx.net"),
+    "eu2": RegionHosts(api_base_url="https://eu-2.ast.checkmarx.net", iam_base_url="https://eu-2.iam.checkmarx.net"),
+    "deu": RegionHosts(api_base_url="https://deu.ast.checkmarx.net", iam_base_url="https://deu.iam.checkmarx.net"),
+    "anz": RegionHosts(api_base_url="https://anz.ast.checkmarx.net", iam_base_url="https://anz.iam.checkmarx.net"),
+    "ind": RegionHosts(api_base_url="https://ind.ast.checkmarx.net", iam_base_url="https://ind.iam.checkmarx.net"),
+    "sng": RegionHosts(api_base_url="https://sng.ast.checkmarx.net", iam_base_url="https://sng.iam.checkmarx.net"),
+    "mea": RegionHosts(api_base_url="https://mea.ast.checkmarx.net", iam_base_url="https://mea.iam.checkmarx.net"),
 }
 
 _SCAN_CREATED_AT_INCREMENTAL_FIELD: IncrementalField = {

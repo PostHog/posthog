@@ -20,6 +20,7 @@ pub use decode::{decode_seed, DecodedSeed};
 pub use ids::{ClaimEpoch, ConditionHash, ConditionHashError, RunId, SChunkMs, ScannedAtMs};
 pub use person::{PersonSeed, PersonSeedError, MAX_PERSON_SEED_HASHES};
 pub use reconcile::{
-    BehavioralShapeHash, BehavioralShapeHashError, ReconcileCompleteMarker, ReconcileTile,
+    BehavioralShapeHash, PersonShapeHash, ReconcileCompleteMarker, ReconcileScope, ReconcileTile,
+    ReconcileTileError, ScopeKind, ShapeHashError, UnknownScopeKind,
 };
 pub use tile::SeedTile;

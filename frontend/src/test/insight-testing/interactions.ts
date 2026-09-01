@@ -23,6 +23,22 @@ import { type InsightTooltipAccessor, createInsightTooltipAccessor } from './too
 
 const DEBOUNCE_TIMEOUT = 3000
 
+/* Budget for one chart interaction, shared between its two waits (canvas render, then
+ * tooltip poll) rather than given to each in full. Two full DEBOUNCE_TIMEOUTs chained
+ * together outlast Jest's 5s per-test budget, so on a loaded shard the test dies before
+ * either wait reaches its own deadline, reporting "Exceeded timeout of 5000 ms" against
+ * the `it(` line instead of naming the phase that never completed. */
+const CHART_INTERACTION_TIMEOUT = 4000
+
+/** Milliseconds left until `deadline`, floored so the wait still gets one poll. */
+const budgetUntil = (deadline: number): number => Math.max(50, deadline - Date.now())
+
+/** The chart's event-handling wrapper, once its canvas has rendered. */
+async function findChartWrapper(deadline: number): Promise<HTMLElement> {
+    const canvas = await screen.findByLabelText(/chart with/i, {}, { timeout: budgetUntil(deadline) })
+    return canvas.parentElement!
+}
+
 function getLogic(): ReturnType<typeof insightVizDataLogic.build> {
     const props: InsightLogicProps = { dashboardItemId: INSIGHT_TEST_ID }
     return insightVizDataLogic(props)
@@ -150,15 +166,15 @@ export const chart = {
         index: number,
         totalLabels = trendsSeries.pageviews.labels.length
     ): Promise<InsightTooltipAccessor> {
-        const canvas = await screen.findByLabelText(/chart with/i, {}, { timeout: DEBOUNCE_TIMEOUT })
-        const wrapper = canvas.parentElement!
-        const tooltip = await hoverUntilTooltip(wrapper, index, totalLabels)
+        const deadline = Date.now() + CHART_INTERACTION_TIMEOUT
+        const wrapper = await findChartWrapper(deadline)
+        const tooltip = await hoverUntilTooltip(wrapper, index, totalLabels, budgetUntil(deadline))
         return createInsightTooltipAccessor(tooltip)
     },
     async clickAtIndex(index: number, totalLabels = trendsSeries.pageviews.labels.length): Promise<void> {
-        const canvas = await screen.findByLabelText(/chart with/i, {}, { timeout: DEBOUNCE_TIMEOUT })
-        const wrapper = canvas.parentElement!
-        await clickAtIndex(wrapper, index, totalLabels)
+        const deadline = Date.now() + CHART_INTERACTION_TIMEOUT
+        const wrapper = await findChartWrapper(deadline)
+        await clickAtIndex(wrapper, index, totalLabels, budgetUntil(deadline))
     },
     /** Click a row inside the pinned tooltip by matching its label text. Use
      *  after `clickAtIndex` has pinned a multi-series tooltip. */
@@ -178,9 +194,9 @@ export const chart = {
  *  `totalLabels` (the x-axis label count) is required: there's no canonical default series. */
 export const sqlChart = {
     async hoverTooltip(index: number, totalLabels: number): Promise<DefaultTooltipAccessor> {
-        const canvas = await screen.findByLabelText(/chart with/i, {}, { timeout: DEBOUNCE_TIMEOUT })
-        const wrapper = canvas.parentElement!
-        const tooltip = await hoverUntilTooltip(wrapper, index, totalLabels)
+        const deadline = Date.now() + CHART_INTERACTION_TIMEOUT
+        const wrapper = await findChartWrapper(deadline)
+        const tooltip = await hoverUntilTooltip(wrapper, index, totalLabels, budgetUntil(deadline))
         return createDefaultTooltipAccessor(tooltip)
     },
 }

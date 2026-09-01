@@ -10,7 +10,8 @@ import {
 } from 'products/customer_analytics/frontend/generated/api'
 import type { AccountApi, AccountChannelSummaryApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { accountSummariesLogic } from './accountSummariesLogic'
+import { periodLabel } from './AccountSummariesExpansion'
+import { accountSummariesLogic, FIRST_SUMMARY_POLL_TIMEOUT_MS, FIRST_SUMMARY_QUIET_MS } from './accountSummariesLogic'
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
     // Keep the real module for everything else — connected logics call other generated
@@ -30,6 +31,8 @@ const ACCOUNT = {
     slack_summary_cadence: 'weekly',
 } as unknown as AccountApi
 
+const CADENCE_OFF = { ...ACCOUNT, slack_summary_cadence: null } as unknown as AccountApi
+
 const SUMMARY = { id: 's-1', cadence: 'weekly', content: '## What happened' } as AccountChannelSummaryApi
 
 describe('accountSummariesLogic', () => {
@@ -43,11 +46,13 @@ describe('accountSummariesLogic', () => {
     })
 
     afterEach(() => {
+        // Clears this account's module-level backfill deadline, which would leak into the next test.
+        logic?.actions.stopFirstSummaryPolling()
         logic?.unmount()
     })
 
-    const mount = async (): Promise<void> => {
-        logic = accountSummariesLogic({ accountId: 'acc-1' })
+    const mount = async (accountId = 'acc-1'): Promise<void> => {
+        logic = accountSummariesLogic({ accountId })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
     }
@@ -103,6 +108,111 @@ describe('accountSummariesLogic', () => {
         expect(mockPatch).toHaveBeenCalledWith(expect.any(String), 'acc-1', { slack_summary_cadence: 'monthly' })
         expect(logic.values.summariesResult.cadence).toBe('monthly')
         expect(logic.values.cadenceSaving).toBe(false)
+    })
+
+    it('watches for the backfilled summaries after turning summaries on', async () => {
+        mockRetrieve.mockResolvedValue(CADENCE_OFF)
+        mockList.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
+        mockPatch.mockResolvedValue(CADENCE_OFF)
+        await mount()
+
+        logic.actions.setCadence('daily')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.generatingFirstSummary).toBe(true)
+
+        mockList.mockResolvedValue({ count: 1, next: null, previous: null, results: [SUMMARY] })
+        logic.actions.loadSummaries()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.summariesResult.summaries).toEqual([SUMMARY])
+    })
+
+    it('resumes the wait after the account row is collapsed and re-expanded', async () => {
+        mockRetrieve.mockResolvedValue(CADENCE_OFF)
+        mockList.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
+        mockPatch.mockResolvedValue(CADENCE_OFF)
+        await mount('acc-collapse')
+
+        logic.actions.setCadence('daily')
+        await expectLogic(logic).toFinishAllListeners()
+        logic.unmount()
+
+        await mount('acc-collapse')
+
+        expect(logic.values.generatingFirstSummary).toBe(true)
+    })
+
+    it('keeps waiting while summaries are still arriving, then stops when the backfill goes quiet', async () => {
+        mockRetrieve.mockResolvedValue(CADENCE_OFF)
+        mockList.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
+        mockPatch.mockResolvedValue(CADENCE_OFF)
+        await mount('acc-daily')
+        const startedAt = Date.now()
+        const nowSpy = jest.spyOn(Date, 'now')
+
+        logic.actions.setCadence('daily')
+        await expectLogic(logic).toFinishAllListeners()
+
+        for (const count of [3, 6]) {
+            nowSpy.mockReturnValue(startedAt + FIRST_SUMMARY_QUIET_MS * 2)
+            mockList.mockResolvedValue({ count, next: null, previous: null, results: [SUMMARY] })
+            logic.actions.loadSummaries()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.generatingFirstSummary).toBe(true)
+        }
+
+        nowSpy.mockReturnValue(startedAt + FIRST_SUMMARY_QUIET_MS * 3 + 1)
+        logic.actions.loadSummaries()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.generatingFirstSummary).toBe(false)
+        nowSpy.mockRestore()
+    })
+
+    it('stops waiting at the deadline even when no summary ever lands', async () => {
+        mockRetrieve.mockResolvedValue(CADENCE_OFF)
+        mockList.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
+        mockPatch.mockResolvedValue(CADENCE_OFF)
+        await mount('acc-deadline')
+        // Pin the clock before setCadence: the deadline is written with Date.now() inside the
+        // listener, and any real-clock drift past startedAt would put the mocked "now" below it.
+        const startedAt = Date.now()
+        const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(startedAt)
+
+        logic.actions.setCadence('daily')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.generatingFirstSummary).toBe(true)
+
+        nowSpy.mockReturnValue(startedAt + FIRST_SUMMARY_POLL_TIMEOUT_MS + 1)
+        logic.actions.loadSummaries()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.generatingFirstSummary).toBe(false)
+        nowSpy.mockRestore()
+    })
+
+    it.each([
+        ['the account already has summaries', [SUMMARY], 'daily' as const],
+        ['summaries are being turned off', [], null],
+        // ACCOUNT starts on 'weekly', and only an off-to-on switch backfills.
+        ['switching between two enabled cadences', [], 'daily' as const],
+    ])('does not poll when %s', async (_name, results, cadence) => {
+        mockRetrieve.mockResolvedValue(ACCOUNT)
+        mockList.mockResolvedValue({ count: results.length, next: null, previous: null, results })
+        mockPatch.mockResolvedValue(ACCOUNT)
+        await mount()
+
+        logic.actions.setCadence(cadence)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.generatingFirstSummary).toBe(false)
+    })
+
+    it.each([
+        ['2026-07-27T00:00:00Z', '2026-07-28T00:00:00Z', '2026-07-27'],
+        ['2026-07-21T00:00:00Z', '2026-07-28T15:30:00Z', '2026-07-21 to 2026-07-28'],
+    ])('labels a daily summary spanning %s to %s as "%s"', (period_start, period_end, expected) => {
+        expect(periodLabel({ ...SUMMARY, cadence: 'daily', period_start, period_end })).toBe(expected)
     })
 
     it('a failed cadence save keeps the previous cadence and resets the saving flag', async () => {

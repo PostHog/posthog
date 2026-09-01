@@ -2,7 +2,7 @@ import { MakeLogicType, actions, kea, path, props, reducers, selectors, useActio
 import { urlToAction } from 'kea-router'
 
 import { IconApple, IconAndroid, IconLetter, IconPlusSmall } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonMenu, LemonMenuItems, LemonTag } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -31,6 +31,7 @@ import { SuppressionScene } from './Suppression/SuppressionScene'
 import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
 import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
+import { WorkflowsReputation } from './Workflows/Reputation/WorkflowsReputation'
 import { WorkflowsTable } from './Workflows/WorkflowsTable'
 import { workflowsEmailSuspensionLogic } from './workflowsEmailSuspensionLogic'
 
@@ -114,11 +115,6 @@ export const workflowsSceneLogic = kea<workflowsSceneLogicType>([
             [urls.workflows(':tab' as WorkflowsSceneTab)]: ({ tab }) => {
                 let possibleTab: WorkflowsSceneTab = (tab as WorkflowsSceneTab) ?? 'workflows'
                 possibleTab = WORKFLOW_SCENE_TABS.includes(possibleTab) ? possibleTab : 'workflows'
-
-                // The reputation tab is not yet exposed to users, so redirect any direct navigation to it.
-                if (possibleTab === 'reputation') {
-                    possibleTab = 'workflows'
-                }
 
                 if (possibleTab !== values.currentTab) {
                     actions.setCurrentTab(possibleTab)
@@ -233,6 +229,19 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
             key: 'suppression',
             content: <SuppressionScene />,
             link: urls.workflows('suppression'),
+        },
+        {
+            label: (
+                <>
+                    Reputation{' '}
+                    <LemonTag className="ml-1" type="completion">
+                        Beta
+                    </LemonTag>
+                </>
+            ),
+            key: 'reputation',
+            content: <WorkflowsReputation />,
+            link: urls.workflows('reputation'),
         },
     ]
 

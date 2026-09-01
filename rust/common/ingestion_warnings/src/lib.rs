@@ -154,6 +154,49 @@ pub const CAPTURE_LEGACY_RATE_LIMIT: WarningSource = WarningSource {
     pipeline_step: "capture_rate_limit",
 };
 
+/// Capture's legacy analytics validation path (`rust/capture/src/events/analytics.rs`
+/// and its `v0_endpoint` caller). Unlike `CAPTURE_V1_ANALYTICS`, the legacy
+/// pipeline aborts the whole request on the first invalid event, so warnings
+/// from this source charge the full batch's event count rather than a per-event
+/// tally.
+pub const CAPTURE_LEGACY_ANALYTICS: WarningSource = WarningSource {
+    service: serializer::SOURCE_CAPTURE,
+    path: "legacy_analytics",
+    pipeline_step: "capture_validation",
+};
+
+/// Capture's AI events endpoint (`rust/capture/src/ai_endpoint.rs`, `/i/v0/ai`).
+/// One multipart event per request, so warnings from this source always carry
+/// `count = 1`.
+pub const CAPTURE_AI_EVENTS: WarningSource = WarningSource {
+    service: serializer::SOURCE_CAPTURE,
+    path: "ai_events",
+    pipeline_step: "capture_validation",
+};
+
+/// Capture's OTLP trace endpoint (`rust/capture/src/otel`, `/i/v0/ai/otel`).
+/// Split from `CAPTURE_AI_EVENTS` by `path` because the two AI endpoints take
+/// unrelated payload formats and fail for unrelated reasons, so a spike in one
+/// says nothing about the other.
+pub const CAPTURE_AI_OTEL: WarningSource = WarningSource {
+    service: serializer::SOURCE_CAPTURE,
+    path: "ai_otel",
+    pipeline_step: "capture_validation",
+};
+
+/// Capture's session replay endpoint (`rust/capture/src/events/recordings.rs`,
+/// `/s`). Like `CAPTURE_LEGACY_ANALYTICS`, a validation failure aborts the whole
+/// request, so warnings charge the batch's event count; unlike it, the batch was
+/// on its way to becoming a single `$snapshot_items` message, so "the batch" and
+/// "the message" are the same thing here. One source rather than a validation /
+/// rate-limit pair because `CaptureMode::Recordings` registers no other route and
+/// runs no per-distinct_id limiter.
+pub const CAPTURE_REPLAY: WarningSource = WarningSource {
+    service: serializer::SOURCE_CAPTURE,
+    path: "replay",
+    pipeline_step: "capture_validation",
+};
+
 /// Sink-agnostic emitter seam. The Kafka implementation is
 /// [`KafkaWarningEmitter`]; tests use
 /// [`test_support::CollectingEmitter`].

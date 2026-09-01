@@ -1,0 +1,22 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "base_version": {
+            "description": "Version returned by channel-instructions-retrieve. Use 0 when the channel has no instructions.",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+        },
+        "content": {
+            "description": "The complete markdown instructions (CONTEXT.md) for the channel.",
+            "maxLength": 100000,
+            "type": "string"
+        },
+        "id": {
+            "description": "ID of the channel whose instructions to update.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "content", "base_version"],
+    "type": "object"
+}

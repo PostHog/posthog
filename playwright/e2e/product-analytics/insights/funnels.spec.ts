@@ -434,7 +434,7 @@ test.describe('Funnel insights', () => {
             await insight.goToInsight(seededInsightId(), {
                 queryParams: { filters_override: { date_from: '-14d' }, dashboard: dashboardId },
             })
-            await expect(page.getByText('filter/variable overrides')).toBeVisible({ timeout: 20000 })
+            await expect(page.getByText("a dashboard's filters applied")).toBeVisible({ timeout: 20000 })
             await expect(
                 page
                     .getByRole('button', { name: 'Discard overrides' })
@@ -447,7 +447,7 @@ test.describe('Funnel insights', () => {
                 .getByRole('button', { name: 'Discard overrides' })
                 .or(page.getByRole('link', { name: 'Discard overrides' }))
                 .click()
-            await expect(page.getByText('filter/variable overrides')).not.toBeVisible()
+            await expect(page.getByText("a dashboard's filters applied")).not.toBeVisible()
             await expect(insight.editButton).toBeVisible()
         })
 

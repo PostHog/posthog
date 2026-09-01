@@ -1,0 +1,30 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "category_key": {
+            "description": "Message category key applied to entries without their own. If omitted, recipients are opted out of all marketing messages.",
+            "type": "string"
+        },
+        "opt_outs": {
+            "description": "Recipients to opt out, at most 1000 per request.",
+            "items": {
+                "properties": {
+                    "category_key": {
+                        "description": "Message category key for this recipient. Overrides the request-level category_key.",
+                        "type": "string"
+                    },
+                    "identifier": {
+                        "description": "The recipient identifier to opt out (e.g. email address).",
+                        "maxLength": 512,
+                        "type": "string"
+                    }
+                },
+                "required": ["identifier"],
+                "type": "object"
+            },
+            "type": "array"
+        }
+    },
+    "required": ["opt_outs"],
+    "type": "object"
+}

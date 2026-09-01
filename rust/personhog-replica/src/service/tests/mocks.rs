@@ -103,14 +103,6 @@ impl storage::PersonLookup for FailingStorage {
         Err(self.error.clone())
     }
 
-    async fn delete_personless_distinct_ids_batch_for_team(
-        &self,
-        _team_id: i64,
-        _batch_size: i64,
-    ) -> storage::StorageResult<i64> {
-        Err(self.error.clone())
-    }
-
     async fn split_person(
         &self,
         _team_id: i64,
@@ -384,6 +376,7 @@ impl storage::GroupStorage for FailingStorage {
         _name_plural: Option<&str>,
         _detail_dashboard_id: Option<i64>,
         _default_columns: Option<&[String]>,
+        _created_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> storage::StorageResult<Option<storage::GroupTypeMapping>> {
         Err(self.error.clone())
     }
@@ -477,14 +470,6 @@ impl storage::PersonLookup for SuccessStorage {
     }
 
     async fn delete_persons_batch_for_team(
-        &self,
-        _team_id: i64,
-        _batch_size: i64,
-    ) -> storage::StorageResult<i64> {
-        Ok(0)
-    }
-
-    async fn delete_personless_distinct_ids_batch_for_team(
         &self,
         _team_id: i64,
         _batch_size: i64,
@@ -781,6 +766,7 @@ impl storage::GroupStorage for SuccessStorage {
         _name_plural: Option<&str>,
         _detail_dashboard_id: Option<i64>,
         _default_columns: Option<&[String]>,
+        _created_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> storage::StorageResult<Option<storage::GroupTypeMapping>> {
         Ok(None)
     }
@@ -917,14 +903,6 @@ impl storage::PersonLookup for PopulatedStorage {
     }
 
     async fn delete_persons_batch_for_team(
-        &self,
-        _team_id: i64,
-        _batch_size: i64,
-    ) -> storage::StorageResult<i64> {
-        Ok(0)
-    }
-
-    async fn delete_personless_distinct_ids_batch_for_team(
         &self,
         _team_id: i64,
         _batch_size: i64,
@@ -1221,6 +1199,7 @@ impl storage::GroupStorage for PopulatedStorage {
         _name_plural: Option<&str>,
         _detail_dashboard_id: Option<i64>,
         _default_columns: Option<&[String]>,
+        _created_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> storage::StorageResult<Option<storage::GroupTypeMapping>> {
         Ok(None)
     }
@@ -1333,14 +1312,6 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
     }
 
     async fn delete_persons_batch_for_team(
-        &self,
-        _team_id: i64,
-        _batch_size: i64,
-    ) -> storage::StorageResult<i64> {
-        Ok(0)
-    }
-
-    async fn delete_personless_distinct_ids_batch_for_team(
         &self,
         _team_id: i64,
         _batch_size: i64,
@@ -1653,6 +1624,7 @@ impl storage::GroupStorage for ConsistencyTrackingStorage {
         _name_plural: Option<&str>,
         _detail_dashboard_id: Option<i64>,
         _default_columns: Option<&[String]>,
+        _created_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> storage::StorageResult<Option<storage::GroupTypeMapping>> {
         Ok(None)
     }

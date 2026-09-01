@@ -42,9 +42,9 @@ from products.batch_exports.backend.service import (
     unpause_batch_export,
     update_batch_export_backfill,
 )
+from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.metrics import log_query_duration
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
-from products.batch_exports.backend.temporal.spmc import compose_filters_clause
 from products.batch_exports.backend.temporal.workflow_metadata import (
     WorkflowDetails,
     build_logs_link,
@@ -451,8 +451,9 @@ async def _get_backfill_info_for_sessions(
 ) -> tuple[dt.datetime | None, int | None]:
     """Get earliest timestamp and estimated record count for sessions model.
 
-    Queries the sessions table via HogQL, filtering by $end_timestamp
-    (this logic is the same as the actual export query, which aliases `$end_timestamp` as `_inserted_at`).
+    Queries the sessions table via HogQL, filtering by $end_timestamp. This matches
+    the event-time semantics of backfill export queries (see
+    `SessionsRecordBatchModel.get_hogql_query` with `is_backfill=True`).
 
     Returns:
         A tuple of (min_timestamp, estimated_records_count).

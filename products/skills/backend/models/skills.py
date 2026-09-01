@@ -39,6 +39,7 @@ class LLMSkill(UUIDModel):
 
     # Required by Agent Skills spec (https://agentskills.io/specification)
     name = models.CharField(max_length=64)
+    # Column holds 4096 to keep legacy rows valid; new writes cap at 1024 (the spec limit) in the serializer.
     description = models.CharField(max_length=4096)
 
     # The SKILL.md body content (markdown instructions)
@@ -58,6 +59,7 @@ class LLMSkill(UUIDModel):
     # Versioning (same pattern as LLMPrompt)
     version = models.PositiveIntegerField(default=1)
     is_latest = models.BooleanField(default=True)
+    version_description = models.CharField(max_length=400, null=True, blank=True)
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     created_by = models.ForeignKey(

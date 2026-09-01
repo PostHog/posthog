@@ -3,13 +3,15 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
-import { CertificationTargetType, certificationsLogic } from '../certificationsLogic'
+import { CertificationTargetType, ProposedStatus, certificationsLogic } from '../certificationsLogic'
 
-const VIEW_TABLE_TYPES = new Set(['view', 'materialized_view', 'managed_view'])
+// TODO: Managed-view certification needs its own target column and migration.
+const VIEW_TABLE_TYPES = new Set(['view', 'materialized_view'])
 
 function targetTypeForTable(tableType: string): CertificationTargetType | null {
     if (tableType === 'data_warehouse') {
@@ -36,6 +38,7 @@ export function NewCertificationModal(): JSX.Element {
         )
         .map(({ table, targetType }) => ({
             value: `${targetType}:${table.name}`,
+            id: table.id,
             name: table.name,
             targetType,
         }))
@@ -51,13 +54,14 @@ export function NewCertificationModal(): JSX.Element {
         : null
 
     const submitDisabledReason = !newCertificationForm.targetName ? 'Choose a table or view' : undefined
+    const proposingDeprecation = newCertificationForm.proposedStatus === 'deprecated'
 
     return (
         <LemonModal
             isOpen={newCertificationModalOpen}
             onClose={closeNewCertificationModal}
             width={560}
-            title="Propose a certification"
+            title="Propose a trust mark"
         >
             <LemonModal.Content>
                 <div className="flex flex-col gap-4">
@@ -68,6 +72,7 @@ export function NewCertificationModal(): JSX.Element {
                                 const selected = optionEntries.find((entry) => entry.value === value)
                                 setNewCertificationForm({
                                     targetName: selected?.name ?? '',
+                                    targetId: selected?.id ?? '',
                                     targetType: selected?.targetType ?? 'table',
                                 })
                             }}
@@ -78,11 +83,29 @@ export function NewCertificationModal(): JSX.Element {
                         />
                     </LemonField.Pure>
 
+                    <LemonField.Pure label="Proposal">
+                        <LemonSegmentedButton
+                            value={newCertificationForm.proposedStatus}
+                            onChange={(proposedStatus: ProposedStatus) => setNewCertificationForm({ proposedStatus })}
+                            options={[
+                                { value: 'certified', label: 'Certify - trust this source' },
+                                { value: 'deprecated', label: 'Deprecate - avoid this source' },
+                            ]}
+                            fullWidth
+                            size="small"
+                            data-attr="data-catalog-certification-proposed-status"
+                        />
+                    </LemonField.Pure>
+
                     <LemonField.Pure label="Notes">
                         <LemonTextArea
                             value={newCertificationForm.notes}
                             onChange={(notes) => setNewCertificationForm({ notes })}
-                            placeholder="Why should the team trust this source?"
+                            placeholder={
+                                proposingDeprecation
+                                    ? 'Why should the team avoid this source?'
+                                    : 'Why should the team trust this source?'
+                            }
                             minRows={2}
                         />
                     </LemonField.Pure>
@@ -100,7 +123,7 @@ export function NewCertificationModal(): JSX.Element {
                     disabledReason={submitDisabledReason}
                     data-attr="data-catalog-create-certification-submit"
                 >
-                    Propose certification
+                    {proposingDeprecation ? 'Propose deprecation' : 'Propose certification'}
                 </LemonButton>
             </LemonModal.Footer>
         </LemonModal>

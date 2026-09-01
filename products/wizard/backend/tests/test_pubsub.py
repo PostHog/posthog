@@ -28,6 +28,7 @@ def _dto(team_id: int = 1) -> WizardSessionDTO:
         event_plan=None,
         error=None,
         pending_input=None,
+        handoff_text=None,
         created_by=None,
         created_at=now,
         updated_at=now,

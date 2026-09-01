@@ -25,7 +25,7 @@ export async function execHog(
     })
 }
 
-function execHogImmediate(
+export function execHogImmediate(
     bytecode: any,
     options?: ExecOptions
 ): {

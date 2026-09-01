@@ -16,6 +16,18 @@ const AUDIO_B64 = AUDIO_BYTES.toString('base64')
 const OPTS = { minBase64Length: 8192 }
 
 describe('extractBlobs', () => {
+    it('counts occurrences and their bytes even when the payload deduplicates to one blob', () => {
+        const url = `data:image/png;base64,${PNG_B64}`
+        const input = [
+            { role: 'user', content: [{ type: 'image_url', image_url: { url } }] },
+            { role: 'user', content: [{ type: 'image_url', image_url: { url } }] },
+        ]
+        const result = extractBlobs(input, OPTS)
+        expect(result.blobs).toHaveLength(1)
+        expect(result.occurrences).toBe(2)
+        expect(result.occurrenceBytes).toBe(2 * PNG_BYTES.length)
+    })
+
     it('replaces an openai image data-URI with a pointer and captures exact bytes', () => {
         const input = [
             {

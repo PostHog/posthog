@@ -5,6 +5,7 @@ from typing import Any
 from django.conf import settings
 
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import InternalCHQueryError
 
 # Calibrated against a serialized `PersonSeed` (rust/cohort-core/src/seed/person.rs): the fixed
 # envelope (schema_version, kind, team_id, person_id, scanned_at_ms, run_id, claim_epoch) plus one
@@ -12,6 +13,16 @@ from posthog.clickhouse.client import sync_execute
 # pinned condition came back TRUE. Recalibrate when that struct's wire fields change.
 PERSON_SEED_BASE_BYTES = 256
 PERSON_SEED_PER_HASH_BYTES = 38
+
+# TOO_MANY_ROWS / TOO_MANY_BYTES: what `read_overflow_mode: throw` raises when the scan hits the
+# caps below. Deterministic for a given team, unlike a timeout or transport failure.
+_READ_CAP_ERROR_CODES = (158, 307)
+
+
+class PersonSeedEstimateScanCapExceeded(Exception):
+    """The sizing scan hit its own read cap: the team's person history exceeds what the estimate may
+    read, so the answer will not change on retry and the caller should refuse rather than repeat the
+    capped scan."""
 
 
 @dataclass(frozen=True)
@@ -49,27 +60,34 @@ def estimate_person_seed_topic_bytes(
     # Collapsing versions per id before counting keeps persons whose latest in-window row is a
     # deletion out of the estimate — counting them inflates the topic-byte figure and biases the
     # budget gate toward refusing runs that would have fit.
-    rows = sync_execute(
-        """
-        SELECT count()
-        FROM (
-            SELECT id
-            FROM person
-            WHERE team_id = %(team_id)s
-              AND _timestamp >= %(person_scan_since)s
-            GROUP BY id
-            HAVING argMax(is_deleted, version) = 0
+    try:
+        rows = sync_execute(
+            """
+            SELECT count()
+            FROM (
+                SELECT id
+                FROM person
+                WHERE team_id = %(team_id)s
+                  AND _timestamp >= %(person_scan_since)s
+                GROUP BY id
+                HAVING argMax(is_deleted, version) = 0
+            )
+            """,
+            {"team_id": team_id, "person_scan_since": person_scan_since},
+            settings={
+                "max_execution_time": 30,
+                "max_bytes_to_read": 10_000_000_000,
+                "read_overflow_mode": "throw",
+            },
+            team_id=team_id,
+            readonly=True,
         )
-        """,
-        {"team_id": team_id, "person_scan_since": person_scan_since},
-        settings={
-            "max_execution_time": 30,
-            "max_bytes_to_read": 10_000_000_000,
-            "read_overflow_mode": "throw",
-        },
-        team_id=team_id,
-        readonly=True,
-    )
+    except InternalCHQueryError as error:
+        if error.code in _READ_CAP_ERROR_CODES:
+            raise PersonSeedEstimateScanCapExceeded(
+                f"Person sizing scan for team {team_id} exceeded its read cap"
+            ) from error
+        raise
     estimated_persons = int(rows[0][0])
     bytes_per_seed = PERSON_SEED_BASE_BYTES + PERSON_SEED_PER_HASH_BYTES * pinned_condition_count
     return PersonSeedEstimate(

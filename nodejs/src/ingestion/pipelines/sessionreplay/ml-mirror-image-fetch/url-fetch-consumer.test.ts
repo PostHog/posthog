@@ -1,0 +1,655 @@
+import { Message } from 'node-rdkafka'
+
+import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/tophog'
+
+import { FetchCandidate, MAX_HOPS, serializeFrontierRecord } from './collected-urls-record'
+import { CrawlHistoryItem, CrawlHistoryStore, configurationCacheKey } from './crawl-history'
+import { AttemptOutcome, DELAY_TOO_LONG, FetchAttempt, FetchPass, HOPS_EXHAUSTED } from './fetch-runner'
+import { FrontierDeadLetterSink } from './frontier-dead-letter-sink'
+import { FrontierPublisher, RepublishFlushResult, RepublishResult } from './frontier-publisher'
+import { ImageFetchConsumerMetrics, ImageFetchRequestMetrics } from './metrics'
+import { ImageFetchTopHogMetrics } from './tophog-metrics'
+import { UrlFetchConsumer } from './url-fetch-consumer'
+
+const NOW_MS = 1_700_000_000_000
+
+function candidate(name: string, overrides: Partial<FetchCandidate> = {}): FetchCandidate {
+    const hash = name.padEnd(22, '0')
+    return {
+        originalRef: `imageurl:${hash}`,
+        currentUrl: `https://cdn.example.com/${name}.png`,
+        host: 'cdn.example.com',
+        origin: 'https://cdn.example.com',
+        registrableDomain: 'example.com',
+        remainingHops: MAX_HOPS,
+        notBeforeMs: 0,
+        firstSeenAtMs: NOW_MS,
+        fetchCount: 0,
+        republishCount: 0,
+        lastRepublishReason: null,
+        ...overrides,
+    }
+}
+
+function message(candidates: FetchCandidate[], key = 'example.com', partition = 0): Message {
+    const value = serializeFrontierRecord(candidates)
+    return {
+        value,
+        key: Buffer.from(key),
+        size: value.length,
+        topic: 'session_replay_image_fetch',
+        partition,
+        offset: 0,
+    }
+}
+
+class FakeCrawlHistory implements CrawlHistoryStore {
+    public readonly items = new Map<string, CrawlHistoryItem>()
+    public readKeys: string[][] = []
+    public writes: CrawlHistoryItem[][] = []
+    public readError: Error | undefined
+    public writeError: Error | undefined
+
+    read(keys: string[]): Promise<Map<string, CrawlHistoryItem>> {
+        this.readKeys.push(keys)
+        if (this.readError) {
+            return Promise.reject(this.readError)
+        }
+        return Promise.resolve(
+            new Map(keys.flatMap((key) => (this.items.has(key) ? [[key, this.items.get(key)!] as const] : [])))
+        )
+    }
+
+    write(items: CrawlHistoryItem[]): Promise<void> {
+        this.writes.push(items)
+        if (this.writeError) {
+            return Promise.reject(this.writeError)
+        }
+        for (const item of items) {
+            this.items.set(item.key, item)
+        }
+        return Promise.resolve()
+    }
+}
+
+function terminal(candidate: FetchCandidate, outcome: AttemptOutcome = 'ok'): FetchAttempt {
+    return {
+        candidate,
+        outcome,
+        finished: true,
+        lost: false,
+        history: {
+            kind: 'url',
+            key: candidate.originalRef,
+            nextFetchAtMs: NOW_MS + 30 * 24 * 60 * 60 * 1000,
+            storageExpiresAtMs: NOW_MS + 30 * 24 * 60 * 60 * 1000,
+            outcome,
+        },
+        configurationUpdates: [],
+    }
+}
+
+interface Harness {
+    consumer: UrlFetchConsumer
+    history: FakeCrawlHistory
+    run: jest.Mock<Promise<FetchAttempt[]>, [FetchCandidate[], Map<string, CrawlHistoryItem>]>
+    republish: jest.Mock<Promise<RepublishResult>, any[]>
+    flush: jest.Mock<Promise<RepublishFlushResult>, []>
+    park: jest.Mock<Promise<void>, any[]>
+    topHogRecords: Map<string, RecordedTopHogMetric[]>
+}
+
+function build(dryRun = false, deadLettersEnabled = true): Harness {
+    const history = new FakeCrawlHistory()
+    const run = jest.fn((candidates: FetchCandidate[], _stored: Map<string, CrawlHistoryItem>) =>
+        Promise.resolve(candidates.map((item) => terminal(item)))
+    )
+    const republish = jest.fn(() => Promise.resolve('queued' as const))
+    const flush = jest.fn(() => Promise.resolve({ failedUrls: 0 }))
+    const park = jest.fn(() => Promise.resolve())
+    const recordingTopHog = createRecordingTopHog()
+    const topHogMetrics = new ImageFetchTopHogMetrics(recordingTopHog.registry)
+    const consumer = new UrlFetchConsumer(
+        history,
+        { createRepublishBatch: () => ({ republish, flush }) } as unknown as FrontierPublisher,
+        { seenTtlSeconds: 30 * 24 * 60 * 60, dryRun },
+        dryRun ? undefined : ({ run } as FetchPass),
+        deadLettersEnabled ? ({ park } as FrontierDeadLetterSink) : null,
+        topHogMetrics
+    )
+    return { consumer, history, run, republish, flush, park, topHogRecords: recordingTopHog.records }
+}
+
+describe('UrlFetchConsumer', () => {
+    afterEach(() => jest.restoreAllMocks())
+
+    it.each([Number.NaN, 0, 3_599, 3_600.5])('refuses an invalid crawl-history TTL of %p', (seenTtlSeconds) => {
+        expect(
+            () =>
+                new UrlFetchConsumer(new FakeCrawlHistory(), {} as FrontierPublisher, { seenTtlSeconds, dryRun: true })
+        ).toThrow('AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS')
+    })
+
+    it('refuses active mode without a fetch pass', () => {
+        expect(
+            () =>
+                new UrlFetchConsumer(new FakeCrawlHistory(), {} as FrontierPublisher, {
+                    seenTtlSeconds: 3_600,
+                    dryRun: false,
+                })
+        ).toThrow('fetch runner')
+    })
+
+    it('parses dry-run traffic without reading or writing shared state', async () => {
+        const harness = build(true)
+
+        await harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)
+
+        expect(harness.history.readKeys).toEqual([])
+        expect(harness.history.writes).toEqual([])
+    })
+
+    it('bulk reads URL and per-origin configuration keys', async () => {
+        const harness = build()
+
+        await harness.consumer.handleBatch([message([candidate('a'), candidate('b')])], NOW_MS)
+
+        expect(harness.history.readKeys).toEqual([
+            [
+                candidate('a').originalRef,
+                candidate('b').originalRef,
+                configurationCacheKey(candidate('a').origin, 'robots'),
+                configurationCacheKey(candidate('a').origin, 'tdmrep'),
+            ],
+        ])
+        expect(harness.run.mock.calls[0][0]).toEqual([
+            candidate('a', { sourcePartitions: [0] }),
+            candidate('b', { sourcePartitions: [0] }),
+        ])
+        expect(harness.history.writes[0]).toHaveLength(2)
+    })
+
+    it('records distinct origins and registrable domains for the poll batch', async () => {
+        const harness = build()
+        const observeBatch = jest.spyOn(ImageFetchConsumerMetrics, 'observeBatch')
+        const observeBatchDiversity = jest.spyOn(ImageFetchConsumerMetrics, 'observeBatchDiversity')
+        const otherExampleOrigin = candidate('b', {
+            currentUrl: 'https://img.example.com/b.png',
+            host: 'img.example.com',
+            origin: 'https://img.example.com',
+        })
+        const otherRegistrableDomain = candidate('c', {
+            currentUrl: 'https://img.other.net/c.png',
+            host: 'img.other.net',
+            origin: 'https://img.other.net',
+            registrableDomain: 'other.net',
+        })
+
+        await harness.consumer.handleBatch(
+            [message([candidate('a'), otherExampleOrigin]), message([otherRegistrableDomain], 'other.net')],
+            NOW_MS
+        )
+
+        expect(observeBatch).toHaveBeenCalledWith(3, 2, expect.any(Number))
+        expect(observeBatchDiversity).toHaveBeenCalledWith([1, 1, 1], [2, 1])
+    })
+
+    it('attributes joined batch work and outcomes to each source partition', async () => {
+        const harness = build()
+        const observePartitionRecord = jest.spyOn(ImageFetchConsumerMetrics, 'observePartitionRecord')
+        const incPartitionUrls = jest.spyOn(ImageFetchConsumerMetrics, 'incPartitionUrls')
+        const observePartitionBatchDiversity = jest.spyOn(ImageFetchConsumerMetrics, 'observePartitionBatchDiversity')
+        const incPartitionAttempt = jest.spyOn(ImageFetchRequestMetrics, 'incPartitionAttempt')
+        const fromPartition7 = candidate('a')
+        const fromPartition42 = candidate('b', {
+            currentUrl: 'https://cdn.other.net/b.png',
+            host: 'cdn.other.net',
+            origin: 'https://cdn.other.net',
+            registrableDomain: 'other.net',
+        })
+
+        await harness.consumer.handleBatch(
+            [message([fromPartition7], 'example.com', 7), message([fromPartition42], 'other.net', 42)],
+            NOW_MS
+        )
+
+        expect(observePartitionRecord).toHaveBeenCalledWith(7, 1, 1)
+        expect(observePartitionRecord).toHaveBeenCalledWith(42, 1, 1)
+        expect(incPartitionUrls).toHaveBeenCalledWith(7, 'unique', 1)
+        expect(incPartitionUrls).toHaveBeenCalledWith(7, 'fetchable', 1)
+        expect(incPartitionUrls).toHaveBeenCalledWith(42, 'unique', 1)
+        expect(incPartitionUrls).toHaveBeenCalledWith(42, 'fetchable', 1)
+        expect(observePartitionBatchDiversity).toHaveBeenCalledWith(7, [1], [1])
+        expect(observePartitionBatchDiversity).toHaveBeenCalledWith(42, [1], [1])
+        expect(harness.run.mock.calls[0][0]).toEqual([
+            { ...fromPartition7, sourcePartitions: [7] },
+            { ...fromPartition42, sourcePartitions: [42] },
+        ])
+        expect(harness.topHogRecords.get('ml_image_fetch_attempts_by_registrable_domain')).toEqual([
+            {
+                key: {
+                    registrable_domain: 'example.com',
+                    disposition: 'completed',
+                    outcome: 'ok',
+                    partition: '7',
+                },
+                value: 1,
+            },
+            {
+                key: {
+                    registrable_domain: 'other.net',
+                    disposition: 'completed',
+                    outcome: 'ok',
+                    partition: '42',
+                },
+                value: 1,
+            },
+        ])
+        expect(incPartitionAttempt).toHaveBeenCalledWith(7, 'completed', 'ok')
+        expect(incPartitionAttempt).toHaveBeenCalledWith(42, 'completed', 'ok')
+    })
+
+    it('keeps attribution when one ref arrives from different partitions', async () => {
+        const harness = build()
+        const incPartitionUrls = jest.spyOn(ImageFetchConsumerMetrics, 'incPartitionUrls')
+        const observePartitionBatchDiversity = jest.spyOn(ImageFetchConsumerMetrics, 'observePartitionBatchDiversity')
+        const incPartitionAttempt = jest.spyOn(ImageFetchRequestMetrics, 'incPartitionAttempt')
+        const fromPartition7 = candidate('a')
+        const fromPartition42 = candidate('a', {
+            currentUrl: 'https://cdn.other.net/a.png',
+            host: 'cdn.other.net',
+            origin: 'https://cdn.other.net',
+            registrableDomain: 'other.net',
+            remainingHops: 9,
+            republishCount: 1,
+            lastRepublishReason: 'redirect',
+        })
+
+        await harness.consumer.handleBatch(
+            [message([fromPartition7], 'example.com', 7), message([fromPartition42], 'other.net', 42)],
+            NOW_MS
+        )
+
+        expect(harness.run.mock.calls[0][0]).toEqual([{ ...fromPartition42, sourcePartitions: [7, 42] }])
+        for (const partition of [7, 42]) {
+            expect(incPartitionUrls).toHaveBeenCalledWith(partition, 'unique', 1)
+            expect(incPartitionUrls).toHaveBeenCalledWith(partition, 'fetchable', 1)
+            expect(observePartitionBatchDiversity).toHaveBeenCalledWith(partition, [1], [1])
+            expect(incPartitionAttempt).toHaveBeenCalledWith(partition, 'completed', 'ok')
+        }
+    })
+
+    it('deduplicates one global ref within the batch', async () => {
+        const harness = build()
+
+        await harness.consumer.handleBatch([message([candidate('a')]), message([candidate('a')])], NOW_MS)
+
+        expect(harness.run.mock.calls[0][0]).toEqual([candidate('a', { sourcePartitions: [0] })])
+    })
+
+    it('keeps the most conservative durable state from duplicate jobs', async () => {
+        const harness = build()
+        const stale = candidate('a')
+        const advanced = candidate('a', {
+            currentUrl: 'https://cdn.example.com/moved.png',
+            remainingHops: 7,
+            firstSeenAtMs: NOW_MS - 5_000,
+            fetchCount: 4,
+            republishCount: 3,
+            lastRepublishReason: 'retry',
+        })
+
+        await harness.consumer.handleBatch([message([stale]), message([advanced])], NOW_MS)
+
+        expect(harness.run.mock.calls[0][0]).toEqual([{ ...advanced, sourcePartitions: [0] }])
+    })
+
+    it('keeps the latest not-before time from duplicate jobs', async () => {
+        const harness = build()
+        const stale = candidate('a')
+        const delayed = candidate('a', {
+            remainingHops: 9,
+            notBeforeMs: NOW_MS + 30_000,
+            republishCount: 1,
+            lastRepublishReason: 'retry',
+        })
+
+        await harness.consumer.handleBatch([message([stale]), message([delayed])], NOW_MS)
+
+        expect(harness.run.mock.calls[0][0]).toEqual([])
+        expect(harness.republish).toHaveBeenCalledWith(
+            expect.objectContaining({ remainingHops: 9, notBeforeMs: NOW_MS + 30_000 }),
+            expect.any(Object),
+            'not_ready',
+            30_000
+        )
+    })
+
+    it('skips a URL whose crawl-history interval has not ended', async () => {
+        const harness = build()
+        harness.history.items.set(candidate('a').originalRef, {
+            kind: 'url',
+            key: candidate('a').originalRef,
+            nextFetchAtMs: NOW_MS + 1,
+            storageExpiresAtMs: NOW_MS + 1,
+            outcome: 'ok',
+        })
+
+        await harness.consumer.handleBatch([message([candidate('a'), candidate('b')])], NOW_MS)
+
+        expect(harness.run.mock.calls[0][0]).toEqual([candidate('b', { sourcePartitions: [0] })])
+    })
+
+    it('republishes a job that arrives before its durable not-before time', async () => {
+        const harness = build()
+        const early = candidate('a', {
+            notBeforeMs: NOW_MS + 30_000,
+            lastBlockReason: 'configuration_unreachable',
+        })
+
+        await harness.consumer.handleBatch([message([early])], NOW_MS)
+
+        expect(harness.run.mock.calls[0][0]).toEqual([])
+        expect(harness.republish).toHaveBeenCalledWith(
+            { ...early, sourcePartitions: [0], lastBlockReason: 'configuration_unreachable' },
+            {
+                currentUrl: early.currentUrl,
+                host: early.host,
+                origin: early.origin,
+                registrableDomain: early.registrableDomain,
+            },
+            'not_ready',
+            30_000
+        )
+        expect(harness.history.writes).toEqual([])
+        expect(harness.topHogRecords.get('ml_image_fetch_attempts_by_registrable_domain')).toEqual([
+            {
+                key: {
+                    registrable_domain: 'example.com',
+                    disposition: 'republished',
+                    outcome: 'backoff',
+                    partition: '0',
+                },
+                value: 1,
+            },
+        ])
+        expect(harness.topHogRecords.get('ml_image_fetch_block_events_by_registrable_domain')).toEqual([
+            {
+                key: {
+                    registrable_domain: 'example.com',
+                    reason: 'configuration_unreachable',
+                    partition: '0',
+                },
+                value: 1,
+            },
+        ])
+        expect(harness.topHogRecords.get('ml_image_fetch_blocked_ms_by_registrable_domain')).toEqual([
+            {
+                key: {
+                    registrable_domain: 'example.com',
+                    reason: 'configuration_unreachable',
+                    partition: '0',
+                },
+                value: 30_000,
+            },
+        ])
+    })
+
+    it('records a terminal refusal when the remaining delay is over one hour', async () => {
+        const harness = build()
+        harness.republish.mockResolvedValue('refused_delay')
+        const early = candidate('a', { notBeforeMs: NOW_MS + 3_600_001 })
+
+        await harness.consumer.handleBatch([message([early])], NOW_MS)
+
+        expect(harness.history.writes[0]).toEqual([
+            expect.objectContaining({ kind: 'url', key: early.originalRef, outcome: DELAY_TOO_LONG }),
+        ])
+    })
+
+    it('records a terminal refusal when a delayed job has no remaining hops', async () => {
+        const harness = build()
+        const early = candidate('a', { notBeforeMs: NOW_MS + 30_000, remainingHops: 0 })
+
+        await harness.consumer.handleBatch([message([early])], NOW_MS)
+
+        expect(harness.republish).not.toHaveBeenCalled()
+        expect(harness.history.writes[0]).toEqual([
+            expect.objectContaining({ kind: 'url', key: early.originalRef, outcome: HOPS_EXHAUSTED }),
+        ])
+    })
+
+    it('throws when a not-ready republish delivery fails', async () => {
+        const harness = build()
+        harness.flush.mockResolvedValue({ failedUrls: 1 })
+        const early = candidate('a', { notBeforeMs: NOW_MS + 30_000 })
+
+        await expect(harness.consumer.handleBatch([message([early])], NOW_MS)).rejects.toThrow('account for 1 URLs')
+        expect(harness.history.writes).toEqual([])
+    })
+
+    it('records a retry cause after the republish batch is durable', async () => {
+        const harness = build()
+        const retryCause = jest.spyOn(ImageFetchRequestMetrics, 'incRetryCause').mockImplementation()
+        harness.run.mockImplementation((candidates) =>
+            Promise.resolve(
+                candidates.map((item) => ({
+                    candidate: item,
+                    outcome: 'server_error',
+                    finished: false,
+                    lost: false,
+                    configurationUpdates: [],
+                }))
+            )
+        )
+
+        await harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)
+
+        expect(retryCause).toHaveBeenCalledWith('server_error')
+    })
+
+    it('does not record a retry cause when the republish batch fails', async () => {
+        const harness = build()
+        const retryCause = jest.spyOn(ImageFetchRequestMetrics, 'incRetryCause').mockImplementation()
+        harness.flush.mockResolvedValue({ failedUrls: 1 })
+        harness.run.mockImplementation((candidates) =>
+            Promise.resolve(
+                candidates.map((item) => ({
+                    candidate: item,
+                    outcome: 'server_error',
+                    finished: false,
+                    lost: false,
+                    configurationUpdates: [],
+                }))
+            )
+        )
+
+        await expect(harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)).rejects.toThrow(
+            'account for 1 URLs'
+        )
+        expect(retryCause).not.toHaveBeenCalled()
+    })
+
+    it('quarantines a malformed record before completing the source batch', async () => {
+        const harness = build()
+        const invalid = message([candidate('a')])
+        invalid.value = Buffer.from('{')
+        let releasePark: () => void = () => undefined
+        harness.park.mockImplementation(
+            () =>
+                new Promise<void>((resolve) => {
+                    releasePark = resolve
+                })
+        )
+        const completed = jest.fn()
+
+        const sourceBatch = harness.consumer.handleBatch([invalid], NOW_MS)
+        void sourceBatch.then(completed)
+        await new Promise((resolve) => setImmediate(resolve))
+
+        expect(harness.park).toHaveBeenCalledWith(invalid, 'malformed')
+        expect(completed).not.toHaveBeenCalled()
+        expect(harness.run).not.toHaveBeenCalled()
+
+        releasePark()
+        await expect(sourceBatch).resolves.toBeUndefined()
+        expect(completed).toHaveBeenCalledTimes(1)
+    })
+
+    it('quarantines rejected records concurrently', async () => {
+        const harness = build()
+        const first = message([candidate('a')])
+        first.value = Buffer.from('{')
+        const second = message([candidate('b')])
+        second.value = Buffer.from('{')
+        second.offset = 1
+        const releases: Array<() => void> = []
+        harness.park.mockImplementation(
+            () =>
+                new Promise<void>((resolve) => {
+                    releases.push(resolve)
+                })
+        )
+
+        const sourceBatch = harness.consumer.handleBatch([first, second], NOW_MS)
+        await new Promise((resolve) => setImmediate(resolve))
+
+        expect(harness.park).toHaveBeenCalledTimes(2)
+
+        for (const release of releases) {
+            release()
+        }
+        await expect(sourceBatch).resolves.toBeUndefined()
+    })
+
+    it('does not quarantine rejected records before other batch work succeeds', async () => {
+        const harness = build()
+        const invalid = message([candidate('a')])
+        invalid.value = Buffer.from('{')
+        harness.history.readError = new Error('read failed')
+
+        await expect(harness.consumer.handleBatch([invalid, message([candidate('b')])], NOW_MS)).rejects.toThrow(
+            'read failed'
+        )
+
+        expect(harness.park).not.toHaveBeenCalled()
+    })
+
+    it('keeps the source batch uncommitted when quarantine publication fails', async () => {
+        const harness = build()
+        const invalid = message([candidate('a')])
+        invalid.value = Buffer.from('{')
+        harness.park.mockRejectedValue(new Error('DLQ unavailable'))
+        const deadLetterFailed = jest.spyOn(ImageFetchConsumerMetrics, 'incDeadLetterFailed')
+        const dropped = jest.spyOn(ImageFetchConsumerMetrics, 'incDropped')
+
+        await expect(harness.consumer.handleBatch([invalid], NOW_MS)).rejects.toThrow('DLQ unavailable')
+
+        expect(deadLetterFailed).toHaveBeenCalledWith('malformed')
+        expect(dropped).not.toHaveBeenCalled()
+        expect(harness.run).not.toHaveBeenCalled()
+        expect(harness.history.readKeys).toEqual([])
+    })
+
+    it('commits and drops rejected input when quarantine is disabled', async () => {
+        const harness = build(false, false)
+        const invalid = message([candidate('a')])
+        invalid.value = Buffer.from('{')
+
+        await expect(harness.consumer.handleBatch([invalid], NOW_MS)).resolves.toBeUndefined()
+
+        expect(harness.park).not.toHaveBeenCalled()
+        expect(harness.run).not.toHaveBeenCalled()
+    })
+
+    it('rejects a whole multi-job record when one job belongs to another partition', async () => {
+        const harness = build()
+        const foreign = candidate('foreign', {
+            currentUrl: 'https://img.other.net/foreign.png',
+            host: 'img.other.net',
+            origin: 'https://img.other.net',
+            registrableDomain: 'other.net',
+        })
+
+        await harness.consumer.handleBatch([message([candidate('a'), foreign])], NOW_MS)
+
+        expect(harness.run).not.toHaveBeenCalled()
+        expect(harness.history.readKeys).toEqual([])
+    })
+
+    it('throws when the bulk read fails', async () => {
+        const harness = build()
+        harness.history.readError = new Error('read failed')
+        const observeBatch = jest.spyOn(ImageFetchConsumerMetrics, 'observeBatch')
+        const observeStoreDuration = jest.spyOn(ImageFetchConsumerMetrics, 'observeStoreDuration')
+        const startBatch = jest.spyOn(ImageFetchConsumerMetrics, 'startBatch')
+        const finishBatch = jest.spyOn(ImageFetchConsumerMetrics, 'finishBatch')
+
+        await expect(harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)).rejects.toThrow('read failed')
+        expect(observeBatch).toHaveBeenCalledWith(1, 1, expect.any(Number))
+        expect(observeStoreDuration).toHaveBeenCalledWith('read', 'error', expect.any(Number))
+        expect(startBatch).toHaveBeenCalledTimes(1)
+        expect(finishBatch).toHaveBeenCalledTimes(1)
+    })
+
+    it('throws when the final bulk write fails', async () => {
+        const harness = build()
+        harness.history.writeError = new Error('write failed')
+
+        await expect(harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)).rejects.toThrow('write failed')
+        expect(harness.flush).not.toHaveBeenCalled()
+    })
+
+    it('writes durable state before it flushes buffered republishes', async () => {
+        const harness = build()
+        const order: string[] = []
+        harness.run.mockImplementation((candidates) => {
+            order.push('published')
+            return Promise.resolve(candidates.map((item) => terminal(item)))
+        })
+        const write = harness.history.write.bind(harness.history)
+        harness.history.write = async (items) => {
+            order.push('history')
+            await write(items)
+        }
+        harness.flush.mockImplementation(() => {
+            order.push('republished')
+            return Promise.resolve({ failedUrls: 0 })
+        })
+
+        await harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)
+
+        expect(order).toEqual(['published', 'history', 'republished'])
+    })
+
+    it('throws when the fetch pass reports a lost URL', async () => {
+        const harness = build()
+        harness.run.mockImplementation((candidates) =>
+            Promise.resolve([
+                {
+                    candidate: candidates[0],
+                    outcome: 'timeout',
+                    finished: false,
+                    lost: true,
+                    configurationUpdates: [],
+                },
+                terminal(candidates[1]),
+            ])
+        )
+
+        await expect(harness.consumer.handleBatch([message([candidate('a'), candidate('b')])], NOW_MS)).rejects.toThrow(
+            'account for 1 URLs'
+        )
+        expect(harness.topHogRecords.get('ml_image_fetch_attempts_by_registrable_domain')).toEqual([
+            {
+                key: {
+                    registrable_domain: 'example.com',
+                    disposition: 'completed',
+                    outcome: 'ok',
+                    partition: '0',
+                },
+                value: 1,
+            },
+        ])
+    })
+})

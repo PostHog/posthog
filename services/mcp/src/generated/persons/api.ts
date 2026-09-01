@@ -24,6 +24,12 @@ export const personsListQueryPropertiesItemValuesItemOperatorDefault = `exact`
 export const personsListQueryPropertiesItemValuesItemTypeDefault = `event`
 
 export const PersonsListQueryParams = /* @__PURE__ */ zod.object({
+    client_query_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Names the ClickHouse query this request runs. Send the same id to `DELETE \/api\/projects\/:project_id\/query\/:client_query_id\/` to stop a search that is still running. Up to 128 characters.'
+        ),
     distinct_id: zod.string().optional().describe('Filter list by distinct id.'),
     email: zod.string().optional().describe('Filter persons by email (exact match)'),
     format: zod.enum(['csv', 'json']).optional(),
@@ -136,7 +142,9 @@ export const PersonsListQueryParams = /* @__PURE__ */ zod.object({
     search: zod
         .string()
         .optional()
-        .describe('Search persons, either by email (full text search) or distinct_id (exact match).'),
+        .describe(
+            'Search persons by email, name, person ID, or distinct ID. Partial values match. When the term is a complete email address or UUID that exactly matches a distinct ID or person ID, only that person is returned.'
+        ),
 })
 
 /**
@@ -171,8 +179,15 @@ export const PersonsDeletePropertyCreateQueryParams = /* @__PURE__ */ zod.object
     format: zod.enum(['csv', 'json']).optional(),
 })
 
+export const personsDeletePropertyCreateBodyUnsetTwoMax = 1000
+
 export const PersonsDeletePropertyCreateBody = /* @__PURE__ */ zod.object({
-    $unset: zod.string().describe('The property key to remove from this person.'),
+    $unset: zod
+        .union([
+            zod.string().min(1),
+            zod.array(zod.string().min(1)).min(1).max(personsDeletePropertyCreateBodyUnsetTwoMax),
+        ])
+        .describe('A property key, or a list of property keys, to remove from this person.'),
 })
 
 /**

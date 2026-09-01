@@ -74,6 +74,7 @@ def _lookup_distinct_id(
         FROM posthog_persondistinctid pdi
         JOIN posthog_person p ON p.id = pdi.person_id AND p.team_id = pdi.team_id
         WHERE pdi.team_id = %s AND pdi.distinct_id = %s
+          AND pdi.is_deleted = false AND p.is_deleted = false
         """,
         [team_id, distinct_id],
     )
@@ -107,7 +108,7 @@ def _count_other_distinct_ids(
         """
         SELECT COUNT(*) AS count
         FROM posthog_persondistinctid
-        WHERE team_id = %s AND person_id = %s AND id != %s
+        WHERE team_id = %s AND person_id = %s AND id != %s AND is_deleted = false
         """,
         [team_id, person_pk, exclude_pdi_id],
     )

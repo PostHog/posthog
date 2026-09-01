@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
+from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
 from posthog.models.integration import Integration, SlackIntegration
@@ -152,6 +153,65 @@ class TestExtractMessageText:
                     ],
                 },
                 "duplicated\ndifferent",
+            ),
+            (
+                # Human messages carry a rich_text mirror of `text` whose flattening drops
+                # mentions and emoji — a near-duplicate that must not reach the agent prompt.
+                "rich_text_mirror_of_text_is_skipped",
+                {
+                    "text": "never seen it work anywhere :joy: cc <@UCLEO>",
+                    "blocks": [
+                        {
+                            "type": "rich_text",
+                            "elements": [
+                                {
+                                    "type": "rich_text_section",
+                                    "elements": [
+                                        {"type": "text", "text": "never seen it work anywhere "},
+                                        {"type": "emoji", "name": "joy"},
+                                        {"type": "text", "text": " cc "},
+                                        {"type": "user", "user_id": "UCLEO"},
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                },
+                "never seen it work anywhere :joy: cc <@UCLEO>",
+            ),
+            (
+                "rich_text_still_flattened_when_text_empty",
+                {
+                    "text": "",
+                    "blocks": [
+                        {
+                            "type": "rich_text",
+                            "elements": [
+                                {
+                                    "type": "rich_text_section",
+                                    "elements": [{"type": "text", "text": "bot content only in blocks"}],
+                                }
+                            ],
+                        }
+                    ],
+                },
+                "bot content only in blocks",
+            ),
+            (
+                "non_rich_text_blocks_kept_alongside_text",
+                {
+                    "text": "🔴 Alert firing",
+                    "blocks": [
+                        {
+                            "type": "rich_text",
+                            "elements": [
+                                {"type": "rich_text_section", "elements": [{"type": "text", "text": "🔴 Alert firing"}]}
+                            ],
+                        },
+                        {"type": "section", "text": {"type": "mrkdwn", "text": "value 42 exceeded threshold 10"}},
+                    ],
+                },
+                "🔴 Alert firing\nvalue 42 exceeded threshold 10",
             ),
             (
                 "no_content_returns_empty",
@@ -528,3 +588,45 @@ class TestCollectThreadMessages:
         assert len(result) == 2
         assert result[0]["user"] == "PostHog"
         assert result[1]["text"] == "still here"
+
+    @parameterized.expand(["thread_not_found", "message_not_found"])
+    def test_deleted_root_reads_as_an_empty_thread(self, error):
+        # Raising instead would exhaust the activity's retries and land in the workflow's
+        # error handler, which announces the failure in Slack — for a retracted prompt.
+        self.slack.client.conversations_replies.side_effect = SlackApiError(error, {"error": error})
+
+        assert collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id=None) == []
+
+    def test_other_slack_errors_still_propagate(self):
+        self.slack.client.conversations_replies.side_effect = SlackApiError("ratelimited", {"error": "ratelimited"})
+
+        with pytest.raises(SlackApiError):
+            collect_thread_messages(self.slack, self.integration, "C001", "1.234", our_bot_id=None)
+
+
+class TestCollectThreadMessagesUntilTs:
+    """A fork reads the thread as it stood when the reader forked it. Without the clip
+    it would answer using messages posted after they stopped looking."""
+
+    def _collect(self, until_ts=None):
+        slack = MagicMock()
+        slack.client.conversations_replies.return_value = {
+            "messages": [
+                {"ts": "1.000", "user": "U1", "text": "first"},
+                {"ts": "2.000", "user": "U1", "text": "forked here"},
+                {"ts": "3.000", "user": "U1", "text": "said afterwards"},
+            ]
+        }
+        integration = MagicMock()
+        with patch(
+            "products.slack_app.backend.services.slack_messages.get_slack_user_info",
+            return_value={"user": {"profile": {"display_name": "mira"}}},
+        ):
+            return collect_thread_messages(slack, integration, "C1", "1.000", None, until_ts=until_ts)
+
+    def test_the_clip_is_inclusive_of_the_forked_message(self):
+        assert [m["text"] for m in self._collect(until_ts="2.000")] == ["first", "forked here"]
+
+    def test_no_bound_reads_the_whole_thread(self):
+        # The mention path passes none — it answers the thread as it stands.
+        assert [m["text"] for m in self._collect()] == ["first", "forked here", "said afterwards"]

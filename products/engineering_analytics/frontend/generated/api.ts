@@ -16,11 +16,13 @@ import type {
     CISignalsConfigApi,
     CISignalsConfigUpdateApi,
     CurrentBranchHealthApi,
+    DoraOverviewApi,
     EngineeringAnalyticsAuthorWorkflowCostsParams,
     EngineeringAnalyticsBrokenTestsParams,
     EngineeringAnalyticsCiCardsParams,
     EngineeringAnalyticsCiFailureLogsParams,
     EngineeringAnalyticsCurrentBranchHealthParams,
+    EngineeringAnalyticsDoraParams,
     EngineeringAnalyticsFlakyTestsParams,
     EngineeringAnalyticsJobAggregatesParams,
     EngineeringAnalyticsMasterFailuresParams,
@@ -36,6 +38,7 @@ import type {
     EngineeringAnalyticsTeamCiActivityParams,
     EngineeringAnalyticsTeamCiHealthParams,
     EngineeringAnalyticsTeamMergeTrendParams,
+    EngineeringAnalyticsTrunkQuarantineParams,
     EngineeringAnalyticsWorkflowHealthParams,
     EngineeringAnalyticsWorkflowJobsParams,
     EngineeringAnalyticsWorkflowRunActivityParams,
@@ -56,6 +59,7 @@ import type {
     TeamCIActivityApi,
     TeamCIHealthListApi,
     TeamMergeTrendApi,
+    TrunkQuarantineDebtApi,
     WorkflowCostApi,
     WorkflowHealthItemApi,
     WorkflowJobAggregateApi,
@@ -118,7 +122,7 @@ export const getEngineeringAnalyticsBrokenTestsUrl = (
 }
 
 /**
- * The broken-tests triage panel: live CI failures over the last 2 days grouped into distinct failures (by test id + normalized error signature) and classified by how each is behaving right now — breaking trunk, a new failure spreading across branches, probably-resolved, flaky, or one PR's own problem — ranked with the most urgent first. Also returns breaking_master_jobs, the default-branch jobs whose latest run is red. Reach for this to answer 'what CI failures should I care about right now'; expand a row's latest_run_id via run_failure_logs for the failing lines. Fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the breaking/resolved distinction needs the job-level source synced — without it those failures fall through to flaky/pr_only rather than being misreported.
+ * The broken-tests triage panel: live CI failures over the last 2 days grouped into distinct failures (by test id + normalized error signature) and classified by how each is behaving right now — breaking trunk, blocking the merge queue, a new failure spreading across branches, probably-resolved, flaky, or one PR's own problem — ranked with the most urgent first. A blocking_merge_queue row is a failure on a merge-queue gate branch that never hit trunk: the commit had already passed the PR's own CI, so it is the semantic conflict the queue exists to catch, and it is holding up landings. Also returns breaking_master_jobs, the default-branch jobs whose latest run is red. Reach for this to answer 'what CI failures should I care about right now'; expand a row's latest_run_id via run_failure_logs for the failing lines. Fingerprinting is pytest-only for now (jest/playwright/cargo failures aren't grouped yet), and the breaking/resolved distinction needs the job-level source synced — without it those failures fall through to flaky/pr_only rather than being misreported.
  */
 export const engineeringAnalyticsBrokenTests = async (
     projectId: string,
@@ -259,6 +263,36 @@ export const engineeringAnalyticsCurrentBranchHealth = async (
     options?: RequestInit
 ): Promise<CurrentBranchHealthApi> => {
     return apiMutator<CurrentBranchHealthApi>(getEngineeringAnalyticsCurrentBranchHealthUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsDoraUrl = (projectId: string, params?: EngineeringAnalyticsDoraParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/dora/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/dora/`
+}
+
+/**
+ * DORA-style deploy metrics over the GitHub deployments + deployment_statuses warehouse pair, each headline with its previous-window twin: deployment frequency, merge-to-deploy lead time (with a per-bucket box-plot series), and honest proxies for change failure rate and time to restore (deploy-status based — no incident data is linked). deploy_data_available is false when the deploy tables aren't synced.
+ */
+export const engineeringAnalyticsDora = async (
+    projectId: string,
+    params?: EngineeringAnalyticsDoraParams,
+    options?: RequestInit
+): Promise<DoraOverviewApi> => {
+    return apiMutator<DoraOverviewApi>(getEngineeringAnalyticsDoraUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -564,7 +598,7 @@ export const getEngineeringAnalyticsRepoOverviewUrl = (
 }
 
 /**
- * Repo-level headline aggregates over a window (default -30d): run count, success rate, re-run cycles, merged-PR count (bots included), median PR open-to-merge (bots and drafts excluded; coarse — draft and ready time fused), and billable minutes + estimated cost — each with its equal-length previous-window twin so a caller can render honest deltas. Also carries the detected default branch and its completed-run history series (skippable via include_series=false). Cost figures are null until the job-level source is synced.
+ * Repo-level headline aggregates over a window (default -30d): run count, conclusive-run success rate, re-run cycles, merged-PR count (bots included), median PR open-to-merge (bots and drafts excluded; coarse — draft and ready time fused), median time-to-green, billable minutes + estimated cost (with the merge-queue slice of billable minutes broken out), and merge-queue landing stats (queue-landed merges, first-gate-to-merge median and p90, gate attempts, failed-gate share) — each with its equal-length previous-window twin so a caller can render honest deltas. Also carries the detected default branch and its completed-run history series (skippable via include_series=false). Cost figures are null until the job-level source is synced.
  */
 export const engineeringAnalyticsRepoOverview = async (
     projectId: string,
@@ -792,6 +826,40 @@ export const engineeringAnalyticsTeamMergeTrend = async (
     })
 }
 
+export const getEngineeringAnalyticsTrunkQuarantineUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsTrunkQuarantineParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/trunk_quarantine/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/trunk_quarantine/`
+}
+
+/**
+ * The standing Trunk quarantine debt: every test Trunk currently quarantines (failures suppressed in CI), attributed to its owning team from the per-test CI spans, aged against a TTL, and rolled up per team with the most indebted first. A quarantine only masks a test; it never fixes it, so this is the work queue of tests someone still has to repair or delete. `available` is false when no TrunkIo source has the QuarantinedTests endpoint synced — that is not an error.
+ * @summary Trunk quarantine debt by owning team
+ */
+export const engineeringAnalyticsTrunkQuarantine = async (
+    projectId: string,
+    params?: EngineeringAnalyticsTrunkQuarantineParams,
+    options?: RequestInit
+): Promise<TrunkQuarantineDebtApi> => {
+    return apiMutator<TrunkQuarantineDebtApi>(getEngineeringAnalyticsTrunkQuarantineUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getEngineeringAnalyticsWorkflowHealthUrl = (
     projectId: string,
     params?: EngineeringAnalyticsWorkflowHealthParams
@@ -812,7 +880,7 @@ export const getEngineeringAnalyticsWorkflowHealthUrl = (
 }
 
 /**
- * Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success rate, p50/p95 duration, last failure time, latest-run status, and a zero-filled run history bucketed by hour/day/week to fit the window. p50/p95 are over successful runs only, so cancelled (superseded) and failed runs never bias the duration trend. Optionally scope to a single git branch via `branch`, or to attributed pull-request runs via `run_scope=pull_request`. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
+ * Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success rate, p50/p95 duration, last failure time, latest-run status, and a zero-filled run history bucketed by hour/day/week to fit the window. Success rate covers runs that succeeded or ended in a decisive failure. Skipped, cancelled, neutral, and action-required runs are excluded. p50/p95 are over successful runs only, so cancelled (superseded) and failed runs never bias the duration trend. Optionally scope to a single git branch via `branch`, or to attributed pull-request runs via `run_scope=pull_request`. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
  */
 export const engineeringAnalyticsWorkflowHealth = async (
     projectId: string,

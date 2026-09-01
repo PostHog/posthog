@@ -104,6 +104,8 @@ export interface BuildTrendsBarTimeSeriesConfigOpts {
 export function buildTrendsBarTimeSeriesConfig(
     opts: BuildTrendsBarTimeSeriesConfigOpts
 ): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
+    // No range extras: bar length encodes magnitude from zero, so a bound carried over from another
+    // display type is dropped rather than silently truncating bars with no control left to clear it.
     const yAxis = buildTrendsYAxisConfig(opts.trendsFilter, opts.isPercentStackView, opts.baseCurrency, {
         yAxisScaleType: opts.yAxisScaleType,
         showGrid: true,

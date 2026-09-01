@@ -32,9 +32,10 @@ use cohort_stream_processor::partitions::{
     LiveWatermarks, OffsetTracker, PartitionPauser, PartitionRouter,
 };
 use cohort_stream_processor::producer::{
-    CascadeSink, KafkaCascadeSink, KafkaMembershipSink, KafkaSeedTileSink, KafkaStreamEventSink,
-    KafkaTransferSink, MembershipSink, NoopCascadeSink, NoopSeedTileSink, SeedTileSink,
-    StreamEventSink, TransferSink,
+    CascadeSink, KafkaCascadeSink, KafkaMembershipSink, KafkaReconcileMarkerSink,
+    KafkaSeedTileSink, KafkaStreamEventSink, KafkaTransferSink, MembershipSink, NoopCascadeSink,
+    NoopReconcileMarkerSink, NoopSeedTileSink, ReconcileMarkerSink, SeedTileSink, StreamEventSink,
+    TransferSink,
 };
 use cohort_stream_processor::store::durability::{
     run_boot_restore, upload_cadence, CheckpointExporter, CheckpointSweeper, OffsetManifest,
@@ -177,14 +178,15 @@ async fn async_main(config: Config) -> Result<()> {
             config.cohort_membership_changed_topic.clone(),
         )
         .await
-        .context("creating shadow producer")?,
+        .context("creating membership producer")?,
     );
 
-    // Only the transfer sink gets the shorter `message.timeout.ms`: its produce runs inline on a
-    // partition worker under a bounded retry loop, so a long per-attempt timeout would multiply into
-    // a worker hold past the 30 s graceful-shutdown window. The membership and re-key sinks keep the
-    // shared 20 s — membership drops on fail (at-most-once) and the re-key produce rides the
-    // events-path offset gate (held-then-redelivered), so neither blocks a worker for the full timeout.
+    // The transfer and marker sinks get the shorter `message.timeout.ms`: both produce inline on a
+    // partition worker and both are retried on a cadence — the transfer by a bounded inline loop, the
+    // marker by the drain sweeper — so a long per-attempt timeout repeats into a worker hold rather
+    // than costing it once. The membership and re-key sinks keep the shared 20 s: membership drops on
+    // fail (at-most-once) and the re-key produce rides the events-path offset gate
+    // (held-then-redelivered), so neither retries a black-holed produce on a timer.
     let transfer_kafka_config = config.build_transfer_kafka_config();
     let transfer_sink: Arc<dyn TransferSink> = Arc::new(
         KafkaTransferSink::new(
@@ -221,6 +223,18 @@ async fn async_main(config: Config) -> Result<()> {
     } else {
         Arc::new(NoopSeedTileSink)
     };
+    let marker_sink: Arc<dyn ReconcileMarkerSink> = if config.cohort_seed_reconcile_enabled {
+        Arc::new(
+            KafkaReconcileMarkerSink::new(
+                &config.build_marker_kafka_config(),
+                config.cohort_reconcile_markers_topic.clone(),
+            )
+            .await
+            .context("creating cohort_reconcile_markers producer")?,
+        )
+    } else {
+        Arc::new(NoopReconcileMarkerSink)
+    };
     let reconcile_backlog = Arc::new(ReconcileBacklog::default());
     let merge_deps = Arc::new(MergeWorkerDeps {
         transfer_sink,
@@ -243,6 +257,7 @@ async fn async_main(config: Config) -> Result<()> {
             enabled: config.cohort_seed_reconcile_enabled,
             scan_page: config.cohort_seed_reconcile_scan_page,
             backlog: reconcile_backlog.clone(),
+            marker_sink,
         },
         person_seed: PersonSeedDeps {
             enabled: config.cohort_seed_person_apply_enabled,
@@ -386,6 +401,22 @@ async fn async_main(config: Config) -> Result<()> {
             config.cohort_stream_seed_events_topic,
             seed_partitions,
         );
+        // Nothing co-partitions with the marker topic, so only its existence matters. Failing here
+        // beats the alternative: a marker produce retrying forever while it holds the seed offset.
+        // Nested under the seed consumer on purpose: reconcile jobs are admitted only from seed
+        // tiles, so without it no marker can be produced and there is nothing to prove.
+        if config.cohort_seed_reconcile_enabled {
+            fetch_partition_count(seed_consumer, &config.cohort_reconcile_markers_topic).with_context(
+                || {
+                    format!(
+                        "{} must exist before a processor with COHORT_SEED_RECONCILE_ENABLED starts. \
+                         Provision the topic, or set COHORT_SEED_RECONCILE_ENABLED=false to start \
+                         without the reconcile path.",
+                        config.cohort_reconcile_markers_topic,
+                    )
+                },
+            )?;
+        }
     }
 
     if let Some(manifest) = restore.manifest.as_ref() {
@@ -784,6 +815,7 @@ fn log_startup(config: &Config) {
         kafka_hosts = %config.kafka_hosts,
         input_topic = %config.cohort_stream_events_topic,
         output_topic = %config.cohort_membership_changed_topic,
+        reconcile_markers_topic = %config.cohort_reconcile_markers_topic,
         consumer_group = %config.kafka_consumer_group,
         offset_reset = %config.kafka_consumer_offset_reset,
         merge_topic = %config.person_merge_events_topic,

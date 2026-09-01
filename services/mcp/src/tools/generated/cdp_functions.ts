@@ -5,6 +5,7 @@ import type { Schemas } from '@/api/generated'
 import {
     HogFunctionsCreateBody,
     HogFunctionsDestroyParams,
+    HogFunctionsDiscardDraftCreateParams,
     HogFunctionsInvocationsCreateBody,
     HogFunctionsInvocationsCreateParams,
     HogFunctionsListQueryParams,
@@ -14,8 +15,15 @@ import {
     HogFunctionsMetricsRetrieveQueryParams,
     HogFunctionsPartialUpdateBody,
     HogFunctionsPartialUpdateParams,
+    HogFunctionsPublishCreateBody,
+    HogFunctionsPublishCreateParams,
     HogFunctionsRearrangePartialUpdateBody,
     HogFunctionsRetrieveParams,
+    HogFunctionsRevisionsListParams,
+    HogFunctionsRevisionsListQueryParams,
+    HogFunctionsRevisionsRestoreCreateBody,
+    HogFunctionsRevisionsRestoreCreateParams,
+    HogFunctionsRevisionsRetrieveParams,
 } from '@/generated/cdp_functions/api'
 import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -107,6 +115,36 @@ const cdpFunctionsDelete = (): ToolBase<typeof CdpFunctionsDeleteSchema, Schemas
     },
 })
 
+const CdpFunctionsDiscardDraftSchema = HogFunctionsDiscardDraftCreateParams.omit({ project_id: true })
+
+const cdpFunctionsDiscardDraft = (): ToolBase<typeof CdpFunctionsDiscardDraftSchema, Schemas.HogFunction> => ({
+    name: 'cdp-functions-discard-draft',
+    schema: CdpFunctionsDiscardDraftSchema,
+    handler: async (context: Context, params: z.infer<typeof CdpFunctionsDiscardDraftSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.HogFunction>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/discard_draft/`,
+        })
+        return result
+    },
+})
+
+const CdpFunctionsGetRevisionSchema = HogFunctionsRevisionsRetrieveParams.omit({ project_id: true })
+
+const cdpFunctionsGetRevision = (): ToolBase<typeof CdpFunctionsGetRevisionSchema, Schemas.HogFunctionRevision> => ({
+    name: 'cdp-functions-get-revision',
+    schema: CdpFunctionsGetRevisionSchema,
+    handler: async (context: Context, params: z.infer<typeof CdpFunctionsGetRevisionSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.HogFunctionRevision>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/revisions/${encodeURIComponent(String(params.version))}/`,
+        })
+        return result
+    },
+})
+
 const CdpFunctionsInvocationsCreateSchema = HogFunctionsInvocationsCreateParams.omit({ project_id: true }).extend(
     HogFunctionsInvocationsCreateBody.shape
 )
@@ -122,6 +160,9 @@ const cdpFunctionsInvocationsCreate = (): ToolBase<
         const body: Record<string, unknown> = {}
         if (params.configuration !== undefined) {
             body['configuration'] = params.configuration
+        }
+        if (params.use_draft !== undefined) {
+            body['use_draft'] = params.use_draft
         }
         if (params.globals !== undefined) {
             body['globals'] = params.globals
@@ -189,6 +230,30 @@ const cdpFunctionsList = (): ToolBase<
             ),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/pipeline')
+    },
+})
+
+const CdpFunctionsListRevisionsSchema = HogFunctionsRevisionsListParams.omit({ project_id: true }).extend(
+    HogFunctionsRevisionsListQueryParams.shape
+)
+
+const cdpFunctionsListRevisions = (): ToolBase<
+    typeof CdpFunctionsListRevisionsSchema,
+    WithPostHogUrl<Schemas.PaginatedHogFunctionRevisionBasicList>
+> => ({
+    name: 'cdp-functions-list-revisions',
+    schema: CdpFunctionsListRevisionsSchema,
+    handler: async (context: Context, params: z.infer<typeof CdpFunctionsListRevisionsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedHogFunctionRevisionBasicList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/revisions/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/pipeline')
     },
 })
 
@@ -299,6 +364,9 @@ const cdpFunctionsPartialUpdate = (): ToolBase<typeof CdpFunctionsPartialUpdateS
         if (params.execution_order !== undefined) {
             body['execution_order'] = params.execution_order
         }
+        if (params.base_updated_at !== undefined) {
+            body['base_updated_at'] = params.base_updated_at
+        }
         const result = await context.api.request<Schemas.HogFunction>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/`,
@@ -306,6 +374,31 @@ const cdpFunctionsPartialUpdate = (): ToolBase<typeof CdpFunctionsPartialUpdateS
         })
         const filtered = omitResponseFields(result, ['inputs.*.value', 'mappings.*.inputs.*.value']) as typeof result
         return filtered
+    },
+})
+
+const CdpFunctionsPublishSchema = HogFunctionsPublishCreateParams.omit({ project_id: true }).extend(
+    HogFunctionsPublishCreateBody.shape
+)
+
+const cdpFunctionsPublish = (): ToolBase<typeof CdpFunctionsPublishSchema, Schemas.HogFunctionPublishResponse> => ({
+    name: 'cdp-functions-publish',
+    schema: CdpFunctionsPublishSchema,
+    handler: async (context: Context, params: z.infer<typeof CdpFunctionsPublishSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.confirm !== undefined) {
+            body['confirm'] = params.confirm
+        }
+        if (params.confirm_token !== undefined) {
+            body['confirm_token'] = params.confirm_token
+        }
+        const result = await context.api.request<Schemas.HogFunctionPublishResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/publish/`,
+            body,
+        })
+        return result
     },
 })
 
@@ -332,6 +425,28 @@ const cdpFunctionsRearrangePartialUpdate = (): ToolBase<
     },
 })
 
+const CdpFunctionsRestoreRevisionSchema = HogFunctionsRevisionsRestoreCreateParams.omit({ project_id: true }).extend(
+    HogFunctionsRevisionsRestoreCreateBody.shape
+)
+
+const cdpFunctionsRestoreRevision = (): ToolBase<typeof CdpFunctionsRestoreRevisionSchema, Schemas.HogFunction> => ({
+    name: 'cdp-functions-restore-revision',
+    schema: CdpFunctionsRestoreRevisionSchema,
+    handler: async (context: Context, params: z.infer<typeof CdpFunctionsRestoreRevisionSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.overwrite !== undefined) {
+            body['overwrite'] = params.overwrite
+        }
+        const result = await context.api.request<Schemas.HogFunction>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_functions/${encodeURIComponent(String(params.id))}/revisions/${encodeURIComponent(String(params.version))}/restore/`,
+            body,
+        })
+        return result
+    },
+})
+
 const CdpFunctionsRetrieveSchema = HogFunctionsRetrieveParams.omit({ project_id: true })
 
 const cdpFunctionsRetrieve = (): ToolBase<typeof CdpFunctionsRetrieveSchema, Schemas.HogFunction> => ({
@@ -350,11 +465,16 @@ const cdpFunctionsRetrieve = (): ToolBase<typeof CdpFunctionsRetrieveSchema, Sch
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'cdp-functions-create': cdpFunctionsCreate,
     'cdp-functions-delete': cdpFunctionsDelete,
+    'cdp-functions-discard-draft': cdpFunctionsDiscardDraft,
+    'cdp-functions-get-revision': cdpFunctionsGetRevision,
     'cdp-functions-invocations-create': cdpFunctionsInvocationsCreate,
     'cdp-functions-list': cdpFunctionsList,
+    'cdp-functions-list-revisions': cdpFunctionsListRevisions,
     'cdp-functions-logs-retrieve': cdpFunctionsLogsRetrieve,
     'cdp-functions-metrics-retrieve': cdpFunctionsMetricsRetrieve,
     'cdp-functions-partial-update': cdpFunctionsPartialUpdate,
+    'cdp-functions-publish': cdpFunctionsPublish,
     'cdp-functions-rearrange-partial-update': cdpFunctionsRearrangePartialUpdate,
+    'cdp-functions-restore-revision': cdpFunctionsRestoreRevision,
     'cdp-functions-retrieve': cdpFunctionsRetrieve,
 }

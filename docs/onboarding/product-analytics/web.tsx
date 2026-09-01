@@ -2,10 +2,9 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 
 import { StepDefinition } from '../steps'
 
-export const getWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+export const getWebInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, Tab, dedent, snippets } = ctx
 
-    const JSEventCapture = snippets?.JSEventCapture
     const JSHtmlSnippet = snippets?.JSHtmlSnippet
     const JSInitSnippet = snippets?.JSInitSnippet
 
@@ -63,6 +62,13 @@ export const getWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                                 pnpm add posthog-js
                                             `,
                                         },
+                                        {
+                                            language: 'bash',
+                                            file: 'bun',
+                                            code: dedent`
+                                                bun add posthog-js
+                                            `,
+                                        },
                                     ]}
                                 />
                                 {JSInitSnippet && <JSInitSnippet />}
@@ -72,20 +78,32 @@ export const getWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                 </>
             ),
         },
-        {
-            title: 'Send events',
-            badge: 'recommended',
-            content: (
-                <>
-                    <Markdown>
-                        Once installed, PostHog will automatically start capturing events. You can also manually send
-                        events to test your integration:
-                    </Markdown>
-                    {JSEventCapture && <JSEventCapture />}
-                </>
-            ),
-        },
     ]
 }
+
+export const getWebEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const { Markdown, snippets } = ctx
+
+    const JSEventCapture = snippets?.JSEventCapture
+
+    return {
+        title: 'Send events',
+        badge: 'recommended',
+        content: (
+            <>
+                <Markdown>
+                    Once installed, PostHog will automatically start capturing events. You can also manually send events
+                    to test your integration:
+                </Markdown>
+                {JSEventCapture && <JSEventCapture />}
+            </>
+        ),
+    }
+}
+
+export const getWebSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getWebInstallSteps(ctx),
+    getWebEventStep(ctx),
+]
 
 export const WebInstallation = createInstallation(getWebSteps)

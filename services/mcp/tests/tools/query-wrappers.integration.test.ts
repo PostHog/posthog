@@ -288,21 +288,6 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
         })
     })
 
-    describe('query-llm-traces-list', () => {
-        it('should execute a traces query and return formatted results', async () => {
-            const tool = getToolByName(GENERATED_TOOLS, 'query-llm-traces-list')
-            const result = (await tool.handler(context, {
-                dateRange: { date_from: '-7d' },
-                limit: 10,
-            })) as any
-
-            expect(result).toHaveProperty('results')
-            expect(result).toHaveProperty('_posthogUrl')
-            // TracesQuery may not have a formatter — result could be string or JSON fallback
-            expect(result.results !== undefined).toBe(true)
-        })
-    })
-
     describe('factory behavior', () => {
         it('should wrap query in InsightVizNode in the URL', async () => {
             const tool = getToolByName(GENERATED_TOOLS, 'query-trends')
@@ -445,7 +430,7 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             expect(result.results.columns).toEqual(['distinct_id', 'email', 'name'])
         })
 
-        it('wraps the source query in an outer ActorsQuery with select=["actor"] and no orderBy', async () => {
+        it('wraps the source query in an outer ActorsQuery with select=["actor"] and no explicit orderBy', async () => {
             const tool = getToolByName(GENERATED_TOOLS, 'query-lifecycle-actors')
             const result = (await tool.handler(context, {
                 source: lifecycleSource,
@@ -455,7 +440,7 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
 
             expect(result.query.kind).toBe('ActorsQuery')
             expect(result.query.select).toEqual(['actor'])
-            expect(result.query.orderBy).toEqual([])
+            expect(result.query).not.toHaveProperty('orderBy')
             expect(result.query.source.kind).toBe('InsightActorsQuery')
             expect(result.query.source.source.kind).toBe('LifecycleQuery')
             expect(result.query.source.status).toBe('returning')
@@ -644,7 +629,7 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
 
             expect(result.query.kind).toBe('ActorsQuery')
             expect(result.query.select).toEqual(['actor'])
-            expect(result.query.orderBy).toEqual([])
+            expect(result.query).not.toHaveProperty('orderBy')
             expect(result.query.source.kind).toBe('InsightActorsQuery')
             expect(result.query.source.day).toBe(2)
             expect(result.query.source.series).toBe(0)
@@ -689,7 +674,7 @@ describe('Query Wrapper Integration Tests', { concurrent: false }, () => {
             const result = (await tool.handler(context, { source: funnelSource, funnelStep: 2 })) as any
 
             expect(result.query.kind).toBe('ActorsQuery')
-            expect(result.query.orderBy).toEqual([])
+            expect(result.query).not.toHaveProperty('orderBy')
             expect(result.query.source.kind).toBe('FunnelsActorsQuery')
             expect(result.query.source.funnelStep).toBe(2)
             expect(result.query.source.source.kind).toBe('FunnelsQuery')

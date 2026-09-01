@@ -16,6 +16,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter, Layer};
 
+use cohort_seeder::app::completion::verify_marker_topic;
 use cohort_seeder::app::{
     AutoDispatchPolicy, CompletionDriver, KafkaCommittedOffsets, KafkaTopicOffsets,
     MarkerWatchTask, ObservePolicy, OrchestratorSettings, PersonComponents, PgMarkerFlush,
@@ -31,6 +32,7 @@ use cohort_seeder::kafka::markers::MarkerWatcher;
 use cohort_seeder::kafka::pacing::TilePacer;
 use cohort_seeder::kafka::producer::SeedTileProducer;
 use cohort_seeder::observability;
+use cohort_seeder::store::runs::RunKind;
 
 common_alloc::used!();
 
@@ -117,9 +119,16 @@ async fn async_main(config: Config) -> Result<()> {
         scanner: PersonScanner::new(clickhouse_client),
         pacer: TilePacer::new(person_settings.seeds_per_sec),
     });
-    let completion = build_completion(&config, &pool, &producer, observe_policy, watch_handle)
-        .await
-        .context("validating completion driver policies")?;
+    let completion = build_completion(
+        &config,
+        settings.completion_kinds(),
+        &pool,
+        &producer,
+        observe_policy,
+        watch_handle,
+    )
+    .await
+    .context("validating completion driver policies")?;
     let claimed_by = format!("cohort-seeder:{}", uuid::Uuid::now_v7());
     let orchestrator = SeederOrchestrator::new(
         pool,
@@ -168,10 +177,11 @@ struct WiredCompletion {
 /// (CAS + tile produce + record); the observer arms the observation half (marker-watch directives +
 /// the observation pass) and its dedicated watch task. Either half alone is valid; both off leaves the
 /// dark path with no extra queries. A misconfigured policy (dispatch enabled without attestation, or a
-/// non-contract partition count) is a startup error, as is an unreachable membership topic — a typo'd
+/// non-contract partition count) is a startup error, as is an unreachable marker topic — a typo'd
 /// name would otherwise surface only as runs stuck re-dispatching forever.
 async fn build_completion(
     config: &Config,
+    kinds: &'static [RunKind],
     pool: &sqlx::PgPool,
     producer: &SeedTileProducer,
     observe_policy: ObservePolicy,
@@ -188,18 +198,16 @@ async fn build_completion(
         });
     }
 
-    // Both halves ride the membership topic — dispatch produces reconcile tiles onto it, the observer
-    // watches it for markers — so prove it is reachable before either arms.
-    let verify_producer = producer.clone();
-    let membership_topic = config.cohort_membership_changed_topic.clone();
-    tokio::task::spawn_blocking(move || {
-        verify_producer.capture_topic_offsets(&membership_topic, PARTITION_VERIFY_TIMEOUT)
-    })
-    .await
-    .context("joining membership topic verification task")?
-    .context("verifying the membership topic is reachable")?;
+    // Both halves anchor on the marker topic — dispatch captures its watermarks, the observer watches
+    // it for markers — so prove it is reachable before either arms.
+    verify_marker_topic(producer, &config.cohort_reconcile_markers_topic).await?;
 
-    let mut driver = CompletionDriver::new(pool.clone(), config.team_allowlist.clone());
+    let mut driver = CompletionDriver::new(
+        pool.clone(),
+        config.team_allowlist.clone(),
+        kinds,
+        config.cohort_reconcile_markers_topic.clone(),
+    );
 
     if let AutoDispatchPolicy::Enabled(register_backfill) = dispatch_policy {
         let max_inflight = NonZeroUsize::new(config.seeder_max_inflight_tiles)
@@ -209,7 +217,6 @@ async fn build_completion(
                 .context("SEEDER_RECONCILE_MAX_CONCURRENT_DISPATCHES must be greater than zero")?;
         driver = driver.with_dispatch(
             producer.clone(),
-            config.cohort_membership_changed_topic.clone(),
             max_inflight,
             max_concurrent_dispatches,
             register_backfill,
@@ -254,7 +261,7 @@ async fn build_completion(
             );
             let topic_ends = KafkaTopicOffsets::new(
                 producer.clone(),
-                config.cohort_membership_changed_topic.clone(),
+                config.cohort_reconcile_markers_topic.clone(),
                 offsets_timeout,
             );
             // Unique group id: the watcher never commits or joins a group, but a distinct id keeps it
@@ -262,7 +269,7 @@ async fn build_completion(
             let watch_group = format!("cohort-seeder-marker-watch-{}", uuid::Uuid::now_v7());
             let watcher = MarkerWatcher::new(
                 &config.build_kafka_config(),
-                config.cohort_membership_changed_topic.clone(),
+                config.cohort_reconcile_markers_topic.clone(),
                 &watch_group,
                 offsets_timeout,
             )
@@ -276,7 +283,7 @@ async fn build_completion(
             );
             Some(MarkerWatchTask::new(
                 watcher,
-                PgMarkerFlush::new(pool.clone()),
+                PgMarkerFlush::new(pool.clone(), config.cohort_reconcile_markers_topic.clone()),
                 directives_rx,
                 handle,
                 persist_interval,
@@ -300,6 +307,9 @@ fn log_startup(config: &Config) {
         team_allowlist = ?config.team_allowlist,
         run_poll_secs = config.seeder_run_poll_secs,
         max_concurrent_chunks = config.seeder_max_concurrent_chunks,
+        max_chunk_attempts = config.seeder_max_chunk_attempts,
+        retry_backoff_base_secs = config.seeder_retry_backoff_base_secs,
+        retry_backoff_cap_secs = config.seeder_retry_backoff_cap_secs,
         max_lookback_days = config.seeder_max_lookback_days,
         bands_per_day = config.seeder_bands_per_day,
         tiles_per_second = config.seeder_tiles_per_sec,
@@ -312,7 +322,7 @@ fn log_startup(config: &Config) {
         reconcile_auto_dispatch_enabled = config.seeder_reconcile_auto_dispatch_enabled,
         confirm_register_backfilled = config.seeder_confirm_register_backfilled,
         reconcile_max_concurrent_dispatches = config.seeder_reconcile_max_concurrent_dispatches,
-        membership_topic = %config.cohort_membership_changed_topic,
+        reconcile_markers_topic = %config.cohort_reconcile_markers_topic,
         reconcile_observer_enabled = config.seeder_reconcile_observer_enabled,
         seed_consumer_group = %config.kafka_seed_consumer_group,
         reconcile_offsets_timeout_ms = config.seeder_reconcile_offsets_timeout_ms,

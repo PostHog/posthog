@@ -40,6 +40,15 @@
             "severityLevels",
             "timezone",
             "wrapLines"
+        ],
+        "conversations_recent_tickets": [
+            "assignees",
+            "channel",
+            "limit",
+            "priorities",
+            "savedViewId",
+            "search",
+            "status"
         ]
     },
     "configPropertyTrees": {
@@ -415,6 +424,38 @@
             },
             "timezone": {
                 "$enum": ["UTC", "local"]
+            },
+            "savedViewId": {
+                "$type": "string"
+            }
+        },
+        "conversations_recent_tickets": {
+            "limit": {
+                "$type": "integer"
+            },
+            "status": {
+                "$enum": ["all", "new", "on_hold", "open", "pending", "resolved"]
+            },
+            "priorities": {
+                "$array": {
+                    "$enum": ["critical", "high", "low", "medium"]
+                }
+            },
+            "channel": {
+                "$enum": ["all", "email", "github", "slack", "teams", "widget"]
+            },
+            "assignees": {
+                "$array": {
+                    "id": {
+                        "$types": ["integer", "string"]
+                    },
+                    "type": {
+                        "$enum": ["role", "user"]
+                    }
+                }
+            },
+            "search": {
+                "$type": "string"
             },
             "savedViewId": {
                 "$type": "string"

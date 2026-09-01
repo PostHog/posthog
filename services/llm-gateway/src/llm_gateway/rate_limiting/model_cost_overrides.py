@@ -2,6 +2,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Final, cast
 
+from llm_gateway.baseten import (
+    BASETEN_DEEPSEEK_METRIC_MODEL,
+    BASETEN_GLM53_FLASH_METRIC_MODEL,
+    BASETEN_GLM53_METRIC_MODEL,
+    BASETEN_METRIC_MODEL,
+)
+
 if TYPE_CHECKING:
     from llm_gateway.rate_limiting.model_cost_service import ModelCost
 
@@ -31,10 +38,39 @@ BASETEN_GLM_COST: Final[ModelCost] = {
     "supports_prompt_caching": True,
 }
 
+BASETEN_GLM53_COST: Final[ModelCost] = {
+    "litellm_provider": "baseten",
+    "mode": "chat",
+    "input_cost_per_token": 1.4e-06,
+    "output_cost_per_token": 4.4e-06,
+    "cache_read_input_token_cost": 1.4e-07,
+    "supports_prompt_caching": True,
+}
+
+BASETEN_GLM53_FLASH_COST: Final[ModelCost] = {
+    "litellm_provider": "baseten",
+    "mode": "chat",
+    "input_cost_per_token": 1.5e-07,
+    "output_cost_per_token": 5e-07,
+    "cache_read_input_token_cost": 3e-08,
+    "supports_prompt_caching": True,
+}
+
+BASETEN_DEEPSEEK_COST: Final[ModelCost] = {
+    "litellm_provider": "baseten",
+    "mode": "chat",
+    "input_cost_per_token": 1.3e-07,
+    "output_cost_per_token": 2.6e-07,
+    "cache_read_input_token_cost": 2.8e-08,
+    "supports_prompt_caching": True,
+}
+
 MODEL_COST_OVERRIDES: Final[dict[str, ModelCost]] = {
-    "openai/zai-org/GLM-5.2": cast("ModelCost", dict(BASETEN_GLM_COST)),
+    BASETEN_METRIC_MODEL: cast("ModelCost", dict(BASETEN_GLM_COST)),
+    BASETEN_DEEPSEEK_METRIC_MODEL: cast("ModelCost", dict(BASETEN_DEEPSEEK_COST)),
+    BASETEN_GLM53_METRIC_MODEL: cast("ModelCost", dict(BASETEN_GLM53_COST)),
+    BASETEN_GLM53_FLASH_METRIC_MODEL: cast("ModelCost", dict(BASETEN_GLM53_FLASH_COST)),
     "moonshotai/kimi-k3": cast("ModelCost", dict(KIMI_K3_COST)),
-    "openai/moonshotai/kimi-k3": cast("ModelCost", dict(KIMI_K3_COST)),
     "claude-fable-5": {
         "litellm_provider": "anthropic",
         "mode": "chat",
@@ -87,7 +123,9 @@ MODEL_COST_OVERRIDES: Final[dict[str, ModelCost]] = {
 }
 
 # Provider-specific contract prices must not be replaced by a same-named LiteLLM entry.
-PINNED_MODEL_COST_OVERRIDES: Final[frozenset[str]] = frozenset({"openai/zai-org/GLM-5.2"})
+PINNED_MODEL_COST_OVERRIDES: Final[frozenset[str]] = frozenset(
+    {BASETEN_METRIC_MODEL, BASETEN_DEEPSEEK_METRIC_MODEL, BASETEN_GLM53_METRIC_MODEL, BASETEN_GLM53_FLASH_METRIC_MODEL}
+)
 
 
 def apply_model_cost_overrides(model_cost: dict[str, ModelCost]) -> dict[str, ModelCost]:

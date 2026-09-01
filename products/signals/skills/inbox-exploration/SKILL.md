@@ -17,7 +17,7 @@ The **Inbox** is where PostHog surfaces signal reports — clusters of related o
 /checkout"). Reports come from multiple source products: error tracking, session replay, web
 analytics, experiments, and integrations like Linear, GitHub, and Zendesk.
 
-Inbox is part of [PostHog Desktop](https://posthog.com/code), PostHog's agentic surface for
+Inbox is part of [PostHog Desktop](https://posthog.com/desktop), PostHog's agentic surface for
 engineering teams.
 
 Don't assume the user's project has reports, or that any signal sources are configured — plenty
@@ -147,12 +147,12 @@ Three meaningful cases:
 
 The user hasn't onboarded to Inbox / signals. **Don't pretend the inbox has data.** Tell the user
 plainly that Inbox needs signal sources to be set up first, and that the recommended way to do
-this is to install **PostHog Desktop** at <https://posthog.com/code>. Example response:
+this is to install **PostHog Desktop** at <https://posthog.com/desktop>. Example response:
 
 > Your project doesn't have any signal sources configured yet, so the Inbox is empty. Inbox surfaces
 > issues and trends that PostHog automatically clusters from sources like error tracking, session
 > replay, GitHub, Linear, and Zendesk. The fastest way to set this up is to install
-> [PostHog Desktop](https://posthog.com/code) — once it's connected, signals will start flowing in
+> [PostHog Desktop](https://posthog.com/desktop) — once it's connected, signals will start flowing in
 > and reports will appear in your inbox over the next day or so.
 
 Stop here unless the user wants to discuss setup. Don't run further inbox tools — they'll all be
@@ -367,14 +367,18 @@ inbox-reports-set-state
   `suppressed` report that held one of those when archived; anything else returns `409`. **Only
   resolve work that has actually landed.** A fix shipping as a PR resolves itself on merge (see
   _Step 4_); resolve by hand only where the webhook can never reach — a skill-body edit, a config
-  change, a `NO_REPO` report. Don't use `already_fixed` + `state: "potential"` when _you_ did the
-  fixing: that pairing means "fixed by something else, might recur", so the report comes back.
+  change, a `NO_REPO` report. Record `dismissal_reason: "fixed_outside_posthog"` for that (the fix
+  landed without a pull request); use `pr_merged` when a pull request with the fix was merged but
+  did not resolve the report on its own; reserve `already_fixed` for an issue fixed before the
+  report was filed. Don't use `already_fixed` + `state: "potential"` when _you_ did the fixing:
+  that pairing means "fixed by something else, might recur", so the report comes back.
 - `state: "suppressed"` dismisses the report from the inbox; `state: "potential"` snoozes it back
   into the pipeline. When snoozing, `snooze_for: <N>` holds it until it accumulates N more signals.
-- `dismissal_reason` must be one of six server-validated canonical codes — `already_fixed`,
-  `report_unclear`, `analysis_wrong`, `wontfix_intentional`, `wontfix_irrelevant`, `other` — an
-  unlisted value returns `400`. Reach for `other` plus a `dismissal_note` for anything that doesn't
-  fit a specific code. `dismissal_note` is free-form (≤ 4000 chars). Both persist as a DISMISSAL
+- `dismissal_reason` must be one of eight server-validated canonical codes — `already_fixed`,
+  `report_unclear`, `analysis_wrong`, `wontfix_intentional`, `wontfix_irrelevant`,
+  `fixed_outside_posthog`, `pr_merged`, `other` — an unlisted value returns `400`. Reach for `other` plus a
+  `dismissal_note` for anything that doesn't fit a specific code. `dismissal_note` is free-form
+  (≤ 4000 chars). Both persist as a DISMISSAL
   artefact, so the rationale survives later transitions — **always include them**, on a resolve too,
   so a future reader knows _why_.
 - On a dismiss, snooze, or restore, the `dismissal_note` is also forwarded as a steering note to the
@@ -465,7 +469,7 @@ inbox-source-configs-partial-update
 
 - **Check setup before assuming the inbox is empty.** If `inbox-reports-list` returns `count: 0`,
   call `inbox-source-configs-list` first — no sources means the user needs to install
-  [PostHog Desktop](https://posthog.com/code) to start receiving signals; sources-but-no-reports
+  [PostHog Desktop](https://posthog.com/desktop) to start receiving signals; sources-but-no-reports
   means signals are flowing but nothing has clustered yet
 - **Always surface `_posthogUrl`** so the user can click through to the report
 - The default ordering already prioritizes the user's suggested reports — don't reorder unless

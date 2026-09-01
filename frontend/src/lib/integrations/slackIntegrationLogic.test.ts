@@ -273,6 +273,91 @@ describe('recentSlackChannels store', () => {
     })
 })
 
+describe('slackIntegrationLogic — inactive Slack integration', () => {
+    let logic: ReturnType<typeof slackIntegrationLogic.build>
+    // Toggled per test: when true the channels endpoint responds like a revoked/expired workspace token.
+    let respondInactive = false
+
+    const inactiveDetail = 'Your Slack connection is no longer active. Reconnect Slack to load channels.'
+
+    beforeEach(() => {
+        respondInactive = false
+        useMocks({
+            get: {
+                '/api/environments/:team_id/integrations/:id/channels': () =>
+                    respondInactive
+                        ? [
+                              400,
+                              { type: 'validation_error', code: 'slack_integration_inactive', detail: inactiveDetail },
+                          ]
+                        : [
+                              200,
+                              {
+                                  channels: [fixtureChannel('C1', 'general')],
+                                  lastRefreshedAt: '2026-01-01T00:00:00Z',
+                              },
+                          ],
+            },
+        })
+        initKeaTests()
+        logic = slackIntegrationLogic({ id: 1 })
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    it('surfaces the message inline without a failure toast when the integration is inactive', async () => {
+        respondInactive = true
+
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels()
+        })
+            .toDispatchActions(['setSlackIntegrationInactive', 'loadAllSlackChannelsSuccess'])
+            .toNotHaveDispatchedActions(['loadAllSlackChannelsFailure'])
+
+        expect(logic.values.slackIntegrationInactiveMessage).toBe(inactiveDetail)
+    })
+
+    it('keeps previously loaded channels when a later load hits an inactive integration', async () => {
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels()
+        }).toFinishAllListeners()
+        expect(logic.values.slackChannels.map((c) => c.id)).toEqual(['C1'])
+
+        respondInactive = true
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels()
+        }).toFinishAllListeners()
+
+        // The revoked-token load must not wipe the channels the user already had.
+        expect(logic.values.slackChannels.map((c) => c.id)).toEqual(['C1'])
+        expect(logic.values.slackIntegrationInactiveMessage).toBe(inactiveDetail)
+    })
+
+    it('keeps the message on a plain load and clears it only on a successful forced refresh', async () => {
+        respondInactive = true
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels()
+        }).toFinishAllListeners()
+        expect(logic.values.slackIntegrationInactiveMessage).toBe(inactiveDetail)
+
+        respondInactive = false
+        // A plain load can be served from the backend cache without touching Slack, so its
+        // success proves nothing about the token and must not hide the reconnect banner.
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels()
+        }).toFinishAllListeners()
+        expect(logic.values.slackIntegrationInactiveMessage).toBe(inactiveDetail)
+
+        await expectLogic(logic, () => {
+            logic.actions.loadAllSlackChannels(true)
+        }).toFinishAllListeners()
+        expect(logic.values.slackIntegrationInactiveMessage).toBeNull()
+    })
+})
+
 describe('slackIntegrationLogic — slackChannelsForPicker', () => {
     let logic: ReturnType<typeof slackIntegrationLogic.build>
     const allChannels = [

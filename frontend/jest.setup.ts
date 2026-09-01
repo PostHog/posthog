@@ -121,6 +121,9 @@ mockResizeObserver.mockReturnValue({
 })
 ;(globalThis as any).ResizeObserver = mockResizeObserver
 
+// jsdom has no layout, so hit-testing at a point can't return anything
+document.elementsFromPoint = document.elementsFromPoint ?? ((): Element[] => [])
+
 // Tell React Testing Library to use "data-attr" as the test ID attribute
 configure({ testIdAttribute: 'data-attr' })
 
@@ -175,12 +178,19 @@ jest.mock('posthog-js', () => {
         isFeatureEnabled: jest.fn(),
         getEarlyAccessFeatures: jest.fn(),
         getSurveys: jest.fn(),
+        displaySurvey: jest.fn(),
         onFeatureFlags: jest.fn(() => () => {}),
+        onSurveysLoaded: jest.fn((cb: (surveys: unknown[], context: { isLoaded: boolean }) => void) => {
+            cb([], { isLoaded: true })
+            return () => {}
+        }),
         debug: jest.fn(),
         get_session_id: jest.fn(),
         get_session_replay_url: jest.fn(),
         get_distinct_id: jest.fn(),
+        get_property: jest.fn(),
         register: jest.fn(),
+        unregister: jest.fn(),
         reset: jest.fn(),
         group: jest.fn(),
         updateEarlyAccessFeatureEnrollment: jest.fn(),

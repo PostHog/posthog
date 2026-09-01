@@ -1,6 +1,8 @@
 """Shared OpenAPI parameter vocabulary, query-param helpers, and the viewset base."""
 
 from datetime import datetime
+from enum import Enum
+from typing import TypeVar
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
@@ -19,6 +21,8 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 
 ENGINEERING_ANALYTICS_TAG = "engineering_analytics"
+
+_EnumT = TypeVar("_EnumT", bound=Enum)
 
 _DATE_FROM = OpenApiParameter(
     name="date_from",
@@ -120,6 +124,18 @@ def _optional_datetime_param(request: Request, name: str) -> datetime | None:
         return serializers.DateTimeField().to_internal_value(raw)
     except serializers.ValidationError:
         raise ValueError(f"{name} must be an ISO8601 datetime") from None
+
+
+def _optional_enum_param(request: Request, name: str, choices: type[_EnumT]) -> _EnumT | None:
+    """Optional enum query param; None when absent/blank, ValueError when present but not a member."""
+    raw = request.query_params.get(name)
+    if not raw:
+        return None
+    try:
+        return choices(raw)
+    except ValueError:
+        allowed = ", ".join(member.value for member in choices)
+        raise ValueError(f"{name} must be one of: {allowed}") from None
 
 
 def _bool_param(request: Request, name: str, *, default: bool) -> bool:

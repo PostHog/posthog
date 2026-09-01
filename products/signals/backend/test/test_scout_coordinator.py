@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import random
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
 import pytest
+from freezegun import freeze_time
 from unittest.mock import AsyncMock, patch
 
 from django.test import override_settings
@@ -24,6 +25,11 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, sync_canonical_skills
+from products.signals.backend.scout_harness.limits import (
+    AUTO_PAUSE_PROBE_INTERVAL_S,
+    DISPATCH_BATCH_INTERVAL_SECONDS,
+    DISPATCH_SMEAR_SECONDS,
+)
 
 # The flag-payload read + per-team cap resolution live in `scout_harness/team_limits.py`; helpers
 # defined there are imported and patched there (see `_PAYLOAD_PATH` / `_IS_CLOUD_PATH`).
@@ -35,24 +41,34 @@ from products.signals.backend.scout_harness.team_limits import (
     _enrolled_team_ids,
     _parse_enrollment,
     _read_flag_payload,
+    _resolve_dispatch_smear_seconds,
     _resolve_enrolled,
     _resolve_github_read_access,
     _resolve_global_max_runs_per_tick,
     _resolve_max_runs_per_day,
+    _resolve_slot_aligned_dispatch,
     _resolve_withheld_skills,
     _team_configs,
 )
 from products.signals.backend.temporal.agentic.scout_coordinator import (
+    COORDINATOR_INTERVAL_MINUTES,
+    DUE_GRACE_SECONDS,
     MAX_RUNS_PER_TICK,
     CoordinatorWorkflowInput,
     CoordinatorWorkflowOutput,
     FetchEnabledRunsInput,
+    FetchEnabledRunsOutput,
     PlannedRun,
     SignalsScoutCoordinatorWorkflow,
     StampDispatchedRunsInput,
     _allocate_tick_budget,
+    _breaker_paused_configs_by_team,
+    _collect_probe_runs,
+    _dispatch_batches,
+    _dispatch_slot,
     _DueRun,
     _overdue_seconds,
+    _slot_anchor,
     fetch_enabled_signals_scout_runs_activity,
     stamp_dispatched_signals_scout_runs_activity,
 )
@@ -60,6 +76,28 @@ from products.skills.backend.models.skills import LLMSkill
 
 _PAYLOAD_PATH = "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload"
 _IS_CLOUD_PATH = "products.signals.backend.scout_harness.team_limits.is_cloud"
+
+# A dispatch instant deliberately off the tick grid, so a stamp that reaches the wall clock is
+# distinguishable from one that snapped to a slot.
+_DISPATCHED_AT = datetime(2026, 8, 8, 16, 31, 12, tzinfo=UTC)
+
+# When the tick that planned the dispatch started. Distinct from `_DISPATCHED_AT` so a stamp
+# anchored on the tick is distinguishable from one that read the clock when its batch ran, and
+# off the tick grid too so it can never coincide with a slot anchor.
+_TICK_STARTED_AT = datetime(2026, 8, 8, 16, 30, 7, tzinfo=UTC)
+
+# Config ids drawn once and pinned, so slot spread and stability are asserted against fixed input
+# rather than a fresh sample per run.
+_SLOT_TEST_PKS = [
+    "97599cd0-c5d8-457d-ac65-139f71a1eb41",
+    "cbbfeb14-54e5-4dc3-b5cc-5f6341e40e36",
+    "c01ddd7f-dffa-44f8-88fc-a99c7d8b8302",
+    "2d3aee44-2ea5-4e35-bd94-125664596ff4",
+    "f6011ab7-2cf9-4488-9bb8-81fbc47e94fb",
+    "fcb15539-9802-4a2d-99aa-09fd0103ac53",
+    "9fc3e630-5d1a-4836-b102-ca8e7a4633ee",
+    "53892108-7c13-4518-bc63-f3e82903ae05",
+]
 
 # Enrollment is driven by the `signals-scout` flag payload allowlist. These async tests commit
 # (no transaction rollback across the worker thread), so leftover teams from other modules can
@@ -284,6 +322,30 @@ async def test_wildcard_dispatches_team_with_enabled_config(ateam):
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.flag_off
+async def test_wildcard_keeps_a_fully_breaker_paused_team_enrolled_for_probes(ateam):
+    # A wildcard team whose ONLY scout the breaker paused has no enabled config left, so an
+    # enabled-only wildcard scan would drop the team from participation before probe collection
+    # ever ran — the promised recovery probe could never dispatch and the lane would stay paused
+    # until a human noticed.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-errors")
+    await database_sync_to_async(_create_config)(
+        ateam,
+        "signals-scout-errors",
+        status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+        pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+        consecutive_failure_count=5,
+        last_run_at=timezone.now() - timedelta(seconds=AUTO_PAUSE_PROBE_INTERVAL_S + 60),
+    )
+
+    with patch(_PAYLOAD_PATH, return_value={"guaranteed_team_ids": ["*"]}):
+        planned = await _run_activity()
+
+    assert any(p.team_id == ateam.id and p.skill_name == "signals-scout-errors" for p in planned)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.flag_off
 async def test_wildcard_does_not_auto_seed_a_config_less_team(ateam):
     # Under "*" a team participates only if it ALREADY has configs — the wildcard never seeds from
     # nothing (that's the explicit-id path). A team with a scout skill but no config row is left
@@ -400,6 +462,24 @@ def test_resolve_global_max_runs_per_tick(payload, expected):
     assert _resolve_global_max_runs_per_tick(payload, MAX_RUNS_PER_TICK) == expected
 
 
+# `dispatch_smear_seconds: 0` is the no-deploy kill switch for paced fan-out, so a key that
+# silently fails to resolve would leave no way to turn smearing off during an incident.
+@pytest.mark.parametrize(
+    "payload,expected",
+    [
+        (None, DISPATCH_SMEAR_SECONDS),  # no payload → code default
+        ({}, DISPATCH_SMEAR_SECONDS),  # absent key → code default
+        ({"dispatch_smear_seconds": 0}, 0),  # the kill switch: back to a single burst
+        ({"dispatch_smear_seconds": 300}, 300),  # narrow the window
+        ({"dispatch_smear_seconds": -60}, DISPATCH_SMEAR_SECONDS),  # negative → default
+        ({"dispatch_smear_seconds": "0"}, DISPATCH_SMEAR_SECONDS),  # wrong type → default
+        ({"dispatch_smear_seconds": False}, DISPATCH_SMEAR_SECONDS),  # bool is not a valid int here
+    ],
+)
+def test_resolve_dispatch_smear_seconds(payload, expected):
+    assert _resolve_dispatch_smear_seconds(payload, DISPATCH_SMEAR_SECONDS) == expected
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_disabled_config_is_skipped(ateam):
@@ -473,6 +553,115 @@ async def test_config_whose_skill_is_gone_is_skipped(ateam):
 
 
 # ── Schedule: deterministic due-check, no sampling ──────────────────────────────
+
+
+@pytest.mark.django_db
+class TestFailureStreakProbeCollection:
+    # The half-open side of the breaker. The pause itself removes the lane from the normal
+    # `enabled=True` dispatch query, so if probe collection regresses — wrong reason scope,
+    # wrong cooldown arithmetic, a human pause probed — a wedged lane either never recovers
+    # or a deliberately-paused scout keeps burning sandbox leases.
+    @parameterized.expand(
+        [
+            (
+                "cooldown_elapsed_probes",
+                SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+                SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+                AUTO_PAUSE_PROBE_INTERVAL_S + 60,
+                True,
+            ),
+            (
+                "inside_cooldown_holds",
+                SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+                SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+                AUTO_PAUSE_PROBE_INTERVAL_S - 60,
+                False,
+            ),
+            (
+                "user_pause_is_never_probed",
+                SignalScoutConfig.Status.PAUSED_BY_USER,
+                None,
+                AUTO_PAUSE_PROBE_INTERVAL_S + 60,
+                False,
+            ),
+            (
+                "another_writers_pause_is_never_probed",
+                SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+                SignalScoutConfig.PauseReason.NO_OUTPUT,
+                AUTO_PAUSE_PROBE_INTERVAL_S + 60,
+                False,
+            ),
+        ]
+    )
+    def test_only_the_breakers_own_cooled_down_pauses_are_probed(
+        self,
+        _name: str,
+        status: SignalScoutConfig.Status,
+        pause_reason: SignalScoutConfig.PauseReason | None,
+        last_run_seconds_ago: int,
+        expect_probe: bool,
+    ) -> None:
+        now = timezone.now()
+        team = Team.objects.create(organization=Organization.objects.create(name="probe-org"), name="probe-team")
+        with team_scope(team.id, canonical=True):
+            _create_config(
+                team,
+                "signals-scout-general",
+                status=status,
+                pause_reason=pause_reason,
+                consecutive_failure_count=5,
+                last_run_at=now - timedelta(seconds=last_run_seconds_ago),
+            )
+
+        paused_by_team = _breaker_paused_configs_by_team()
+        probes = _collect_probe_runs(paused_by_team.get(team.id, []), {"signals-scout-general"}, now)
+
+        assert [p.skill_name for p in probes] == (["signals-scout-general"] if expect_probe else [])
+
+    def test_a_lane_paused_after_a_backdated_stamp_still_serves_its_full_cooldown(self) -> None:
+        # The run that trips the breaker is dispatched while the lane is still enabled, so it is
+        # stamped with a slot anchor that can sit up to a full period before the trip. Reading the
+        # cooldown off `last_run_at` alone then makes a lane paused seconds ago look a day cold,
+        # and it probes on the very next tick instead of serving the cooldown.
+        now = timezone.now()
+        team = Team.objects.create(organization=Organization.objects.create(name="probe-org"), name="probe-team")
+        with team_scope(team.id, canonical=True):
+            _create_config(
+                team,
+                "signals-scout-general",
+                status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+                pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+                consecutive_failure_count=5,
+                last_run_at=now - timedelta(seconds=AUTO_PAUSE_PROBE_INTERVAL_S + 3600),
+                status_changed_at=now - timedelta(minutes=5),
+            )
+
+        paused_by_team = _breaker_paused_configs_by_team()
+        probes = _collect_probe_runs(paused_by_team.get(team.id, []), {"signals-scout-general"}, now)
+
+        assert probes == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_planning_dispatches_a_probe_for_a_breaker_paused_lane(ateam):
+    # Wiring guard for the whole half-open path: a lane the breaker paused is invisible to the
+    # `enabled=True` dispatch query, so only `_collect_probe_runs` inside `_collect_planned_runs`
+    # can bring it back — if that call is dropped, a wedged lane whose cause was fixed stays
+    # paused forever with no human in the loop.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-broken")
+    await database_sync_to_async(_create_config)(
+        ateam,
+        "signals-scout-broken",
+        status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+        pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+        consecutive_failure_count=5,
+        last_run_at=timezone.now() - timedelta(seconds=AUTO_PAUSE_PROBE_INTERVAL_S + 60),
+    )
+
+    planned = await _run_activity()
+
+    assert [p.skill_name for p in planned] == ["signals-scout-broken"]
 
 
 class TestCronScheduleDueCheck:
@@ -638,6 +827,89 @@ async def test_due_check_grace_boundary(ateam, seconds_short, expected_skill_nam
     assert [p.skill_name for p in planned] == expected_skill_names
 
 
+def _ceil_to_tick(moment: datetime) -> datetime:
+    tick = timedelta(minutes=COORDINATOR_INTERVAL_MINUTES)
+    ticks = -(-int(moment.timestamp()) // int(tick.total_seconds()))
+    return datetime.fromtimestamp(ticks * tick.total_seconds(), tz=UTC)
+
+
+class TestSlotAlignedDispatchAnchors:
+    # Dispatch used to anchor on the post-fan-out wall clock, which made `last_run_at` absorb each
+    # tick's latency: once the creep passed `DUE_GRACE_SECONDS` a cohort missed its usual tick and
+    # re-anchored on the next one, merging into that tick's cohort, and the larger wave then made
+    # the next slip more likely. These pin the two properties that replace it — anchors land on the
+    # tick grid, and a cohort sharing a tick is spread over the interval rather than kept together.
+
+    @parameterized.expand([(1440,), (720,), (60,), (45,), (15,)])
+    def test_anchor_is_a_grid_point_no_more_than_one_interval_behind_the_tick(self, interval: int) -> None:
+        # The bound is what makes the next due time land in `(this tick, this tick + interval]`: an
+        # anchor in the future would stall the scout, one further back would re-dispatch it at once.
+        tick_start = datetime(2026, 8, 8, 16, 30, tzinfo=UTC)
+        for config_pk in _SLOT_TEST_PKS:
+            anchor = _slot_anchor(config_pk, interval, tick_start + timedelta(seconds=97))
+            assert anchor <= tick_start
+            assert tick_start - anchor < timedelta(minutes=interval)
+            assert int(anchor.timestamp()) % (COORDINATOR_INTERVAL_MINUTES * 60) == 0
+
+    @parameterized.expand(
+        [(30, 30), (31, 30), (45, 60), (60, 60), (61, 60), (75, 90), (100, 120), (720, 720), (1440, 1440)]
+    )
+    def test_steady_state_cadence_matches_the_tick_grid(self, interval: int, expected_gap: int) -> None:
+        # The slot period has to equal the gap the grid actually produces, or the anchor drags the
+        # scout onto a shorter schedule than its owner configured, every dispatch, forever. Two
+        # ways to get it wrong, both caught here: rounding the interval down (a 75-minute scout
+        # dispatches hourly) and ignoring DUE_GRACE_SECONDS (a 31-minute scout comes due at 30
+        # minutes exactly, so its period is one tick, not two).
+        config_pk = _SLOT_TEST_PKS[0]
+        dispatched_at = _slot_anchor(config_pk, interval, datetime(2026, 8, 8, 16, 30, tzinfo=UTC))
+        for _ in range(4):
+            due_at = dispatched_at + timedelta(minutes=interval, seconds=-DUE_GRACE_SECONDS)
+            next_tick = _ceil_to_tick(due_at)
+            assert next_tick - dispatched_at == timedelta(minutes=expected_gap)
+            dispatched_at = _slot_anchor(config_pk, interval, next_tick)
+
+    def test_slot_does_not_move_between_processes(self) -> None:
+        # Pinned rather than recomputed: a switch to the builtin `hash()` would still be stable
+        # within one worker and reshuffle the whole fleet on every restart.
+        assert _dispatch_slot("97599cd0-c5d8-457d-ac65-139f71a1eb41", 1440) == 28
+
+    def test_a_cohort_sharing_one_tick_is_spread_across_the_interval(self) -> None:
+        dispatched_at = datetime(2026, 8, 8, 16, 31, 12, tzinfo=UTC)
+        anchors = {_slot_anchor(config_pk, 1440, dispatched_at) for config_pk in _SLOT_TEST_PKS}
+        assert len(anchors) > len(_SLOT_TEST_PKS) / 2
+
+    def test_dispatch_at_its_own_slot_re_anchors_on_that_slot(self) -> None:
+        # The steady state, and the property the ratchet lacked: a scout dispatched at its slot
+        # anchors exactly there however long planning and fan-out took, so nothing accumulates.
+        config_pk = _SLOT_TEST_PKS[0]
+        slot_start = _slot_anchor(config_pk, 1440, datetime(2026, 8, 8, 16, 30, tzinfo=UTC))
+        assert _slot_anchor(config_pk, 1440, slot_start + timedelta(days=1, seconds=214)) == slot_start + timedelta(
+            days=1
+        )
+
+    def test_a_deferred_dispatch_anchors_back_on_the_slot_it_missed(self) -> None:
+        # A run held back by a per-team cap or a missed tick used to re-anchor wherever it landed,
+        # which is how cohorts merged; it now returns to its own slot.
+        config_pk = _SLOT_TEST_PKS[0]
+        slot_start = _slot_anchor(config_pk, 1440, datetime(2026, 8, 8, 16, 30, tzinfo=UTC))
+        assert _slot_anchor(config_pk, 1440, slot_start + timedelta(hours=3)) == slot_start
+
+
+@pytest.mark.parametrize(
+    "payload,expected",
+    [
+        (None, True),
+        ({}, True),
+        ({"slot_aligned_dispatch": False}, False),
+        ({"slot_aligned_dispatch": True}, True),
+        ({"slot_aligned_dispatch": "false"}, True),  # not a literal bool → the default posture
+        ({"slot_aligned_dispatch": 0}, True),
+    ],
+)
+def test_resolve_slot_aligned_dispatch(payload, expected):
+    assert _resolve_slot_aligned_dispatch(payload) is expected
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
 async def test_overdue_config_is_planned_without_stamping(ateam):
@@ -659,22 +931,85 @@ async def test_overdue_config_is_planned_without_stamping(ateam):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_stamp_activity_advances_dispatched_configs(ateam):
+async def test_stamp_activity_advances_dispatched_configs_to_their_slot_anchor(ateam):
+    # The stamp must advance the schedule, and must land on the config's slot rather than the wall
+    # clock: stamping `now()` let fan-out latency accumulate on `last_run_at` until whole cohorts
+    # slipped onto a later tick and merged there.
     await database_sync_to_async(_create_skill)(ateam, "signals-scout-foo")
-    old = timezone.now() - timedelta(minutes=2000)
+    old = _DISPATCHED_AT - timedelta(minutes=2000)
     config = await database_sync_to_async(_create_config)(
         ateam, "signals-scout-foo", enabled=True, run_interval_minutes=1440, last_run_at=old
     )
 
-    before = timezone.now()
-    env = ActivityEnvironment()
-    await env.run(
-        stamp_dispatched_signals_scout_runs_activity,
-        StampDispatchedRunsInput(dispatched_runs=[PlannedRun(team_id=ateam.id, skill_name="signals-scout-foo")]),
-    )
+    with freeze_time(_DISPATCHED_AT):
+        env = ActivityEnvironment()
+        await env.run(
+            stamp_dispatched_signals_scout_runs_activity,
+            StampDispatchedRunsInput(dispatched_runs=[PlannedRun(team_id=ateam.id, skill_name="signals-scout-foo")]),
+        )
 
     refreshed = await database_sync_to_async(SignalScoutConfig.all_teams.get)(pk=config.pk)
-    assert refreshed.last_run_at is not None and refreshed.last_run_at >= before
+    assert refreshed.last_run_at == _slot_anchor(str(config.pk), 1440, _DISPATCHED_AT)
+    assert refreshed.last_run_at != _DISPATCHED_AT
+    assert refreshed.last_run_at > old
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "config_kwargs",
+    [
+        # A cron scout's `last_run_at` is the reference croniter picks the next slot from, so
+        # moving it back could re-select the slot this dispatch just fulfilled and double the run.
+        {"enabled": True, "run_cron_schedule": "30 16 * * *"},
+        # A disabled config here is a lane the failure breaker paused and the coordinator is
+        # probing; its `last_run_at` is the probe cooldown clock, which backdating would shorten.
+        {"enabled": False},
+    ],
+)
+async def test_stamp_activity_keeps_the_wall_clock_for_cron_and_probed_configs(ateam, config_kwargs):
+    # `dispatched_at` is the tick's start time, and it has to reach the write: a batch dispatched
+    # minutes into the smear would otherwise push a cron scout's croniter reference past the next
+    # occurrence, silently costing it that run.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-foo")
+    config = await database_sync_to_async(_create_config)(
+        ateam, "signals-scout-foo", run_interval_minutes=1440, **config_kwargs
+    )
+
+    with freeze_time(_DISPATCHED_AT):
+        env = ActivityEnvironment()
+        await env.run(
+            stamp_dispatched_signals_scout_runs_activity,
+            StampDispatchedRunsInput(
+                dispatched_runs=[PlannedRun(team_id=ateam.id, skill_name="signals-scout-foo")],
+                dispatched_at=_TICK_STARTED_AT,
+            ),
+        )
+
+    refreshed = await database_sync_to_async(SignalScoutConfig.all_teams.get)(pk=config.pk)
+    assert refreshed.last_run_at == _TICK_STARTED_AT
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_stamp_activity_falls_back_to_the_wall_clock_when_slot_alignment_is_off(ateam):
+    # `slot_aligned_dispatch: false` is the only way back to the previous stamping behaviour
+    # without a deploy, so it has to reach the write.
+    await database_sync_to_async(_create_skill)(ateam, "signals-scout-foo")
+    config = await database_sync_to_async(_create_config)(
+        ateam, "signals-scout-foo", enabled=True, run_interval_minutes=1440
+    )
+    payload = {**_allowlist_payload(), "slot_aligned_dispatch": False}
+
+    with freeze_time(_DISPATCHED_AT), patch(_PAYLOAD_PATH, side_effect=lambda *a, **k: payload):
+        env = ActivityEnvironment()
+        await env.run(
+            stamp_dispatched_signals_scout_runs_activity,
+            StampDispatchedRunsInput(dispatched_runs=[PlannedRun(team_id=ateam.id, skill_name="signals-scout-foo")]),
+        )
+
+    refreshed = await database_sync_to_async(SignalScoutConfig.all_teams.get)(pk=config.pk)
+    assert refreshed.last_run_at == _DISPATCHED_AT
 
 
 @pytest.mark.asyncio
@@ -1390,15 +1725,18 @@ async def test_payload_enrolled_unseeded_team_is_seeded_by_tick(ateam):
 # dispatch counts (started vs already-running skip), not completion outcomes.
 
 
+def _fake_info(workflow_id: str = "tick-1"):
+    return type("Info", (), {"workflow_id": workflow_id, "start_time": _TICK_STARTED_AT})()
+
+
 @pytest.mark.asyncio
 async def test_workflow_returns_zero_counts_when_no_planned_runs():
     coordinator = SignalsScoutCoordinatorWorkflow()
-    fake_fetch_result = type("R", (), {"planned_runs": []})()
 
     with patch(
         "products.signals.backend.temporal.agentic.scout_coordinator.workflow.execute_activity",
         new_callable=AsyncMock,
-        return_value=fake_fetch_result,
+        return_value=FetchEnabledRunsOutput(planned_runs=[]),
     ):
         output = await coordinator.run(CoordinatorWorkflowInput())
 
@@ -1407,12 +1745,15 @@ async def test_workflow_returns_zero_counts_when_no_planned_runs():
 
 @pytest.mark.asyncio
 async def test_workflow_dispatches_children_fire_and_forget():
+    # `dispatch_smear_seconds` left at its default, which is also what an in-flight coordinator
+    # replaying a pre-smear history decodes it to: one batch, one stamp, no timers, original
+    # order. That default is the whole replay gate — a non-zero one would fail those replays,
+    # and a wedged coordinator starves every later tick under `ScheduleOverlapPolicy.SKIP`.
     planned = [
         PlannedRun(team_id=1, skill_name="signals-scout-a"),
         PlannedRun(team_id=1, skill_name="signals-scout-b"),
         PlannedRun(team_id=2, skill_name="signals-scout-c"),
     ]
-    fake_fetch_result = type("R", (), {"planned_runs": planned})()
 
     # Second dispatch raises WorkflowAlreadyStartedError → counted as skipped, others as started.
     dispatch_outcomes: list[BaseException | None] = [
@@ -1421,6 +1762,7 @@ async def test_workflow_dispatches_children_fire_and_forget():
         None,
     ]
     dispatch_calls: list[tuple[int, str]] = []
+    stamp_calls: list[StampDispatchedRunsInput] = []
 
     async def fake_start_child(_workflow_run, run_input, **kwargs):
         idx = len(dispatch_calls)
@@ -1430,16 +1772,21 @@ async def test_workflow_dispatches_children_fire_and_forget():
             raise outcome
         return AsyncMock()
 
+    async def fake_execute_activity(activity, activity_input, **kwargs):
+        if activity is stamp_dispatched_signals_scout_runs_activity:
+            stamp_calls.append(activity_input)
+            return None
+        return FetchEnabledRunsOutput(planned_runs=planned)
+
     coordinator = SignalsScoutCoordinatorWorkflow()
     with (
         patch(
             "products.signals.backend.temporal.agentic.scout_coordinator.workflow.execute_activity",
-            new_callable=AsyncMock,
-            return_value=fake_fetch_result,
+            side_effect=fake_execute_activity,
         ),
         patch(
             "products.signals.backend.temporal.agentic.scout_coordinator.workflow.info",
-            return_value=type("Info", (), {"workflow_id": "tick-1"})(),
+            return_value=_fake_info(),
         ),
         patch(
             "products.signals.backend.temporal.agentic.scout_coordinator.workflow.logger",
@@ -1448,6 +1795,10 @@ async def test_workflow_dispatches_children_fire_and_forget():
             "products.signals.backend.temporal.agentic.scout_coordinator.workflow.start_child_workflow",
             side_effect=fake_start_child,
         ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.sleep",
+            new_callable=AsyncMock,
+        ) as sleep_mock,
     ):
         output = await coordinator.run(CoordinatorWorkflowInput())
 
@@ -1459,6 +1810,132 @@ async def test_workflow_dispatches_children_fire_and_forget():
         (1, "signals-scout-b"),
         (2, "signals-scout-c"),
     ]
+    sleep_mock.assert_not_awaited()
+    assert [call.dispatched_runs for call in stamp_calls] == [planned]
+
+
+@pytest.mark.asyncio
+async def test_smeared_fan_out_paces_batches_and_stamps_each_one():
+    # Catches the fan-out reverting to a single burst, a batching bug dropping or double-dispatching
+    # a scout, and a batch left unstamped before the coordinator sleeps — the last one re-runs those
+    # scouts next tick, which is the crash window per-batch stamping exists to keep small.
+    planned = [PlannedRun(team_id=team_id, skill_name=f"signals-scout-{team_id}") for team_id in range(9)]
+    smear_seconds = 3 * DISPATCH_BATCH_INTERVAL_SECONDS
+
+    events: list[tuple[str, Any]] = []
+
+    async def fake_start_child(_workflow_run, run_input, **kwargs):
+        events.append(("start", run_input.team_id))
+        return AsyncMock()
+
+    async def fake_execute_activity(activity, activity_input, **kwargs):
+        if activity is stamp_dispatched_signals_scout_runs_activity:
+            events.append(("stamp", activity_input))
+            return None
+        return FetchEnabledRunsOutput(planned_runs=planned, dispatch_smear_seconds=smear_seconds)
+
+    async def fake_sleep(duration):
+        events.append(("sleep", duration))
+
+    coordinator = SignalsScoutCoordinatorWorkflow()
+    with (
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.execute_activity",
+            side_effect=fake_execute_activity,
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.info",
+            return_value=_fake_info(),
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.now",
+            return_value=_TICK_STARTED_AT,
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.start_child_workflow",
+            side_effect=fake_start_child,
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.sleep",
+            side_effect=fake_sleep,
+        ),
+    ):
+        output = await coordinator.run(CoordinatorWorkflowInput())
+
+    assert output == CoordinatorWorkflowOutput(planned_count=9, started_count=9, skipped_count=0)
+
+    stamps = [payload for kind, payload in events if kind == "stamp"]
+    assert len(stamps) == 3
+    # Every planned run dispatched exactly once, and every dispatched run stamped.
+    assert sorted(run.team_id for stamp in stamps for run in stamp.dispatched_runs) == list(range(9))
+    assert [kind for kind, _ in events].count("start") == 9
+    # The tick's own start time, not the moment each batch ran: a batch stamped minutes late
+    # would re-anchor its scouts and could skip a cron scout's next occurrence.
+    assert {stamp.dispatched_at for stamp in stamps} == {_TICK_STARTED_AT}
+
+    kinds = [kind for kind, _ in events]
+    assert kinds.count("sleep") == 2, "a sleep between batches, and none after the last"
+    # Each batch is fully stamped before the coordinator sleeps on it.
+    for index, kind in enumerate(kinds):
+        if kind == "sleep":
+            assert kinds[index - 1] == "stamp"
+
+
+@pytest.mark.asyncio
+async def test_smeared_fan_out_stops_sleeping_once_the_window_is_spent():
+    # A tick that burns its window on slow activities must dispatch the remainder back to back
+    # rather than run past the tick, where `ScheduleOverlapPolicy.SKIP` would drop the next one.
+    planned = [PlannedRun(team_id=team_id, skill_name=f"signals-scout-{team_id}") for team_id in range(9)]
+    smear_seconds = 3 * DISPATCH_BATCH_INTERVAL_SECONDS
+    sleeps: list[timedelta] = []
+
+    async def fake_execute_activity(activity, activity_input, **kwargs):
+        if activity is stamp_dispatched_signals_scout_runs_activity:
+            return None
+        return FetchEnabledRunsOutput(planned_runs=planned, dispatch_smear_seconds=smear_seconds)
+
+    coordinator = SignalsScoutCoordinatorWorkflow()
+    with (
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.execute_activity",
+            side_effect=fake_execute_activity,
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.info",
+            return_value=_fake_info(),
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.now",
+            return_value=_TICK_STARTED_AT + timedelta(seconds=smear_seconds),
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.start_child_workflow",
+            new_callable=AsyncMock,
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_coordinator.workflow.sleep",
+            side_effect=lambda duration: sleeps.append(duration),
+        ),
+    ):
+        output = await coordinator.run(CoordinatorWorkflowInput())
+
+    assert output.started_count == 9
+    assert sleeps == []
+
+
+@parameterized.expand(
+    [
+        ("no smear collapses to one batch in planned order", 0, [[0, 1, 2, 3, 4]]),
+        ("strided so one team is never confined to one batch", 120, [[0, 2, 4], [1, 3]]),
+        ("fewer runs than batches never stretches", 600, [[0], [1], [2], [3], [4]]),
+    ]
+)
+def test_dispatch_batches(_name, smear_seconds, expected_indices):
+    planned = [PlannedRun(team_id=team_id, skill_name="signals-scout-a") for team_id in range(5)]
+
+    batches = _dispatch_batches(planned, smear_seconds)
+
+    assert [[idx for idx, _ in batch] for batch in batches] == expected_indices
 
 
 @pytest.mark.asyncio
@@ -1466,12 +1943,11 @@ async def test_hard_dispatch_error_does_not_stamp():
     # A non-dedupe start_child error must abort before the stamp activity, so the affected
     # configs stay unstamped and re-dispatch next tick instead of being suppressed.
     planned = [PlannedRun(team_id=1, skill_name="signals-scout-a")]
-    fake_fetch_result = type("R", (), {"planned_runs": planned})()
     execute_activity_calls: list[Any] = []
 
     async def fake_execute_activity(activity, *args, **kwargs):
         execute_activity_calls.append(activity)
-        return fake_fetch_result
+        return FetchEnabledRunsOutput(planned_runs=planned)
 
     async def fake_start_child(_workflow_run, run_input, **kwargs):
         raise RuntimeError("temporal unavailable")
@@ -1484,7 +1960,7 @@ async def test_hard_dispatch_error_does_not_stamp():
         ),
         patch(
             "products.signals.backend.temporal.agentic.scout_coordinator.workflow.info",
-            return_value=type("Info", (), {"workflow_id": "tick-1"})(),
+            return_value=_fake_info(),
         ),
         patch(
             "products.signals.backend.temporal.agentic.scout_coordinator.workflow.start_child_workflow",

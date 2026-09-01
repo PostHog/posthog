@@ -13,21 +13,17 @@ from posthog.cdp.validation import compile_hog
 
 from products.cdp.backend.prompts import (
     DESTINATION_LIMITATIONS_MESSAGE,
-    EVENT_PROPERTY_TAXONOMY_MESSAGE,
-    EVENT_TAXONOMY_MESSAGE,
-    FILTER_TAXONOMY_MESSAGE,
     HOG_EXAMPLE_MESSAGE,
     HOG_FUNCTION_FILTERS_ASSISTANT_ROOT_SYSTEM_PROMPT,
-    HOG_FUNCTION_FILTERS_SYSTEM_PROMPT,
     HOG_FUNCTION_INPUTS_ASSISTANT_ROOT_SYSTEM_PROMPT,
     HOG_FUNCTION_INPUTS_SYSTEM_PROMPT,
     HOG_GRAMMAR_MESSAGE,
     HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT,
     IDENTITY_MESSAGE_HOG,
     INPUT_SCHEMA_TYPES_MESSAGE,
-    PERSON_TAXONOMY_MESSAGE,
     TRANSFORMATION_LIMITATIONS_MESSAGE,
     TRANSFORMATION_STRUCTURE_MESSAGE,
+    render_filters_system_prompt,
 )
 
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
@@ -53,7 +49,7 @@ class HogFunctionFiltersOutput(BaseModel):
 
 class CreateHogTransformationFunctionTool(MaxTool):
     name: str = "create_hog_transformation_function"  # Must match a value in AssistantTool enum
-    description: str = "Write or edit the hog code to create your desired function and apply it to the current editor"
+    description: str = "Write or edit the Hog code for the data pipeline transformation function currently open in the editor, and apply the result to the editor"
     args_schema: type[BaseModel] = CreateHogTransformationFunctionArgs
     context_prompt_template: str = (
         HOG_TRANSFORMATION_ASSISTANT_ROOT_SYSTEM_PROMPT
@@ -165,23 +161,7 @@ class CreateHogFunctionFiltersTool(MaxTool):
         current_filters = self.context.get("current_filters", "{}")
         function_type = self.context.get("function_type", "destination")
 
-        system_content = (
-            HOG_FUNCTION_FILTERS_SYSTEM_PROMPT
-            + f"\n\nCurrent filters: {current_filters}"
-            + f"\nFunction type: {function_type}"
-            + "\n\n<event_taxonomy>\n"
-            + EVENT_TAXONOMY_MESSAGE
-            + "\n</event_taxonomy>\n\n"
-            + "\n\n<event_property_taxonomy>\n"
-            + EVENT_PROPERTY_TAXONOMY_MESSAGE
-            + "\n</event_property_taxonomy>\n\n"
-            + "\n\n<person_property_taxonomy>\n"
-            + PERSON_TAXONOMY_MESSAGE
-            + "\n</person_property_taxonomy>\n\n"
-            + "\n\n<filter_taxonomy>\n"
-            + FILTER_TAXONOMY_MESSAGE
-            + "\n</filter_taxonomy>"
-        )
+        system_content = render_filters_system_prompt(function_type, current_filters)
 
         user_content = f"Create filters for this hog function: {instructions}"
 

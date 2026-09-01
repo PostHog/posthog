@@ -11,6 +11,7 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 
@@ -36,33 +37,36 @@ class TestSCIMRequestLogCapture(APILicensedTest):
             domain="example.com",
             verified_at="2024-01-01T00:00:00Z",
         )
-        self.plain_token, hashed_token = generate_scim_token()
-        config = IdentityProviderConfig.objects.create(
-            organization=self.organization, scim_enabled=True, scim_bearer_token=hashed_token
+        token = generate_scim_token()
+        self.plain_token = token.plain
+        self.config = IdentityProviderConfig.objects.create(
+            organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
         )
-        self.domain.identity_provider_config = config
-        self.domain.save()
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=self.domain, identity_provider_config=self.config
+        )
+        self.config.refresh_from_db()
 
     def test_get_request_creates_log(self):
         response = self.client.get(
-            f"/scim/v2/{self.domain.id}/Users", headers={"authorization": f"Bearer {self.plain_token}"}
+            f"/scim/v2/{self.config.scim_slug}/Users", headers={"authorization": f"Bearer {self.plain_token}"}
         )
         assert response.status_code == status.HTTP_200_OK
 
-        logs = SCIMRequestLog.objects.filter(organization_domain=self.domain)
+        logs = SCIMRequestLog.objects.filter(identity_provider_config=self.config)
         assert logs.count() == 1
 
         log = logs.first()
         assert log is not None
         assert log.request_method == "GET"
-        assert f"/scim/v2/{self.domain.id}/Users" in log.request_path
+        assert f"/scim/v2/{self.config.scim_slug}/Users" in log.request_path
         assert log.response_status == 200
         assert log.duration_ms is not None
         assert log.duration_ms >= 0
 
     def test_post_request_logs_masked_body(self):
         self.client.post(
-            f"/scim/v2/{self.domain.id}/Users",
+            f"/scim/v2/{self.config.scim_slug}/Users",
             data={
                 "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
                 "userName": "testuser",
@@ -74,14 +78,16 @@ class TestSCIMRequestLogCapture(APILicensedTest):
             headers={"authorization": f"Bearer {self.plain_token}"},
         )
 
-        log = SCIMRequestLog.objects.filter(organization_domain=self.domain).first()
+        log = SCIMRequestLog.objects.filter(identity_provider_config=self.config).first()
         assert log is not None
         assert log.request_body is not None
         assert "test@example.com" not in str(log.request_body)
 
     def test_authorization_header_is_fully_masked(self):
-        self.client.get(f"/scim/v2/{self.domain.id}/Users", headers={"authorization": f"Bearer {self.plain_token}"})
-        log = SCIMRequestLog.objects.filter(organization_domain=self.domain).first()
+        self.client.get(
+            f"/scim/v2/{self.config.scim_slug}/Users", headers={"authorization": f"Bearer {self.plain_token}"}
+        )
+        log = SCIMRequestLog.objects.filter(identity_provider_config=self.config).first()
         assert log is not None
         auth_header = log.request_headers.get("Authorization", "")
         assert self.plain_token not in auth_header
@@ -89,16 +95,19 @@ class TestSCIMRequestLogCapture(APILicensedTest):
 
     def test_response_body_stored(self):
         self.client.get(
-            f"/scim/v2/{self.domain.id}/ServiceProviderConfig", headers={"authorization": f"Bearer {self.plain_token}"}
+            f"/scim/v2/{self.config.scim_slug}/ServiceProviderConfig",
+            headers={"authorization": f"Bearer {self.plain_token}"},
         )
-        log = SCIMRequestLog.objects.filter(organization_domain=self.domain).first()
+        log = SCIMRequestLog.objects.filter(identity_provider_config=self.config).first()
         assert log is not None
         assert log.response_body is not None
         assert "schemas" in log.response_body
 
     def test_duration_is_tracked(self):
-        self.client.get(f"/scim/v2/{self.domain.id}/Users", headers={"authorization": f"Bearer {self.plain_token}"})
-        log = SCIMRequestLog.objects.filter(organization_domain=self.domain).first()
+        self.client.get(
+            f"/scim/v2/{self.config.scim_slug}/Users", headers={"authorization": f"Bearer {self.plain_token}"}
+        )
+        log = SCIMRequestLog.objects.filter(identity_provider_config=self.config).first()
         assert log is not None
         assert log.duration_ms is not None
         assert isinstance(log.duration_ms, int)
@@ -108,15 +117,19 @@ class TestSCIMRequestLogCapture(APILicensedTest):
 class TestSCIMRequestLogCleanup(TestCase):
     def setUp(self):
         self.organization = Organization.objects.create(name="Test Org")
+        self.config = IdentityProviderConfig.objects.create(organization=self.organization, scim_enabled=True)
         self.domain = OrganizationDomain.objects.create(
             organization=self.organization,
             domain="cleanup-test.com",
             verified_at=timezone.now(),
         )
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=self.domain, identity_provider_config=self.config
+        )
 
     def _create_log(self, age_days: int) -> SCIMRequestLog:
         log = SCIMRequestLog.objects.create(
-            organization_domain=self.domain,
+            identity_provider_config=self.config,
             request_method="GET",
             request_path="/scim/v2/test/Users",
             request_headers={},
@@ -140,12 +153,23 @@ class TestSCIMRequestLogCleanup(TestCase):
         exists = SCIMRequestLog.objects.filter(id=log.id).exists()
         assert exists != should_be_deleted
 
+    def test_deleting_the_config_leaves_the_history_behind(self):
+        # The log is the record of what an IdP did to org memberships, so it outlives the
+        # configuration it was written against and ages out on its own retention window.
+        log = self._create_log(1)
+        self.config.delete()
+
+        log.refresh_from_db()
+
+        assert log.identity_provider_config_id is None
+        assert log.request_path == "/scim/v2/test/Users"
+
     def test_cleanup_batches_deletes(self):
         for _ in range(5):
             self._create_log(200)
         with patch("ee.tasks.scim_request_log_cleanup.CLEANUP_BATCH_SIZE", 2):
             cleanup_old_scim_request_logs()
-        assert SCIMRequestLog.objects.filter(organization_domain=self.domain).count() == 0
+        assert SCIMRequestLog.objects.filter(identity_provider_config=self.config).count() == 0
 
 
 class TestSCIMLogsEndpoint(APILicensedTest):
@@ -159,15 +183,19 @@ class TestSCIMLogsEndpoint(APILicensedTest):
             self.organization.available_product_features = features
             self.organization.save()
 
+        self.config = IdentityProviderConfig.objects.create(organization=self.organization, scim_enabled=True)
         self.domain = OrganizationDomain.objects.create(
             organization=self.organization,
             domain="example.com",
             verified_at="2024-01-01T00:00:00Z",
         )
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=self.domain, identity_provider_config=self.config
+        )
 
     def _create_log(self, **kwargs) -> SCIMRequestLog:
         defaults = {
-            "organization_domain": self.domain,
+            "identity_provider_config": self.config,
             "request_method": "GET",
             "request_path": "/scim/v2/test/Users",
             "request_headers": {},
@@ -192,6 +220,20 @@ class TestSCIMLogsEndpoint(APILicensedTest):
         )
         response = self.client.get(f"/api/organizations/{self.organization.id}/domains/{self.domain.id}/scim/logs")
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_logs_written_before_the_move_to_configs_are_still_listed(self):
+        # Requests are logged against the config now, but an admin opening a domain's SCIM logs has
+        # to keep seeing the history logged against the domain itself.
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
+        self._create_log(identity_provider_config=None, organization_domain=self.domain)
+        self._create_log()
+
+        response = self.client.get(f"/api/organizations/{self.organization.id}/domains/{self.domain.id}/scim/logs")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 2
 
     def test_search_by_path(self):
         OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(

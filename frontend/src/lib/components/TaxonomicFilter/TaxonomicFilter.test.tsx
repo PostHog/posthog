@@ -22,6 +22,7 @@ import {
 } from '~/test/mocks'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import { clearApiCache } from './infiniteListLogic'
 import { recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
 import { TaxonomicFilter } from './TaxonomicFilter'
 import { TaxonomicFilterGroupType } from './types'
@@ -64,12 +65,21 @@ describe('TaxonomicFilter', () => {
         // Recents/pinned persist to localStorage; clear so an earlier test's selection
         // (which records a recent) can't leak in and reorder a later single-group list.
         localStorage.clear()
+        // infiniteListLogic caches list responses in module state for a minute, so two tests
+        // searching the same term against the same endpoint would otherwise share the first
+        // one's fixture. Same reset infiniteListLogic.test.ts does.
+        clearApiCache()
         initKeaTests()
         actionsModel.mount()
         groupsModel.mount()
     })
 
     afterEach(() => {
+        // A test that hits jest's per-test timeout inside withoutDebounceDelay is abandoned with
+        // fake timers still installed, and its `finally` then flips them back to real *during the
+        // next test* — which makes that test's waitFor throw "Changed from using fake timers to
+        // real timers". Restoring here keeps one slow test from failing its neighbour as well.
+        jest.useRealTimers()
         cleanup()
     })
 
@@ -926,9 +936,10 @@ describe('TaxonomicFilter', () => {
                 expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
             })
 
-            await withoutDebounceDelay((user) =>
-                user.type(screen.getByTestId('taxonomic-filter-searchfield'), 'zzznonexistentevent12345')
-            )
+            // Keep the query short: every keystroke re-runs the search cascade across all mounted
+            // lists plus a React commit, so a long query is what tipped this test over jest's
+            // per-test timeout on a loaded runner. Matching nothing is all the assertion needs.
+            await withoutDebounceDelay((user) => user.type(screen.getByTestId('taxonomic-filter-searchfield'), 'zzq'))
 
             await waitFor(() => {
                 expect(screen.queryAllByTestId(/^prop-filter-events-/)).toHaveLength(0)
@@ -976,7 +987,7 @@ describe('TaxonomicFilter', () => {
             expect(screen.getByTestId('prop-filter-event_properties-0')).toBeInTheDocument()
         })
 
-        await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), search)
+        await withoutDebounceDelay((user) => user.type(screen.getByTestId('taxonomic-filter-searchfield'), search))
 
         await waitFor(() => {
             expect(screen.getByTestId('prop-filter-event_properties-0')).toHaveTextContent(
@@ -1265,8 +1276,9 @@ describe('TaxonomicFilter', () => {
             })
 
             const searchInput = await waitFor(() => screen.getByTestId('taxonomic-filter-searchfield'))
-            // A query unique to this test so the module-level `apiCache` in infiniteListLogic
-            // can't serve a non-empty response cached by an earlier test under the same URL.
+            // A query unique to this test, so this stays sound even if the `apiCache` reset in
+            // beforeEach ever goes away — a cached non-empty response under the same URL would
+            // make the negative assertions below pass for the wrong reason.
             await withoutDebounceDelay((user) => user.type(searchInput, 'nomatchquery'))
 
             await waitFor(() => expect(valuesFetched).toBe(true))

@@ -10,14 +10,19 @@ from parameterized import parameterized
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.cal_com import (
-    CAL_COM_BASE_URL,
     CalComResumeConfig,
     cal_com_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.cal_com.settings import (
     CAL_COM_ENDPOINTS,
+    CAL_COM_HOSTS,
     ENDPOINTS,
+)
+
+US_BASE_URL = CAL_COM_HOSTS["us"]
+REJECTED_MESSAGE = (
+    "Cal.com rejected this API key. Check the key, and check that the selected region matches your Cal.com account."
 )
 
 # RESTClient builds its session via make_tracked_session in the rest_client module.
@@ -32,7 +37,7 @@ def _response(body: Any, status_code: int = 200, url: str | None = None, reason:
     resp = Response()
     resp.status_code = status_code
     resp.reason = reason
-    resp.url = url or f"{CAL_COM_BASE_URL}/bookings"
+    resp.url = url or f"{US_BASE_URL}/bookings"
     resp._content = json.dumps(body).encode()
     return resp
 
@@ -300,14 +305,42 @@ class TestErrorHandling:
         session = MockSession.return_value
         _wire(
             session,
-            [_response({}, status_code=status, url=f"{CAL_COM_BASE_URL}/bookings?limit=100", reason=reason)],
+            [_response({}, status_code=status, url=f"{US_BASE_URL}/bookings?limit=100", reason=reason)],
         )
 
         with pytest.raises(requests.HTTPError) as exc_info:
             _rows(_source("bookings"))
 
         # The base URL must be in the message so `get_non_retryable_errors()` can match on it.
-        assert f"{status} Client Error: {reason} for url: {CAL_COM_BASE_URL}/bookings" in str(exc_info.value)
+        assert f"{status} Client Error: {reason} for url: {US_BASE_URL}/bookings" in str(exc_info.value)
+
+
+class TestRegionHost:
+    @parameterized.expand(
+        [
+            ("us", "us", "https://api.cal.com/v2/bookings"),
+            ("eu", "eu", "https://api.cal.eu/v2/bookings"),
+            # An account created before the region field existed has no stored value.
+            ("unset", None, "https://api.cal.com/v2/bookings"),
+        ]
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_region_selects_the_api_host(self, _name: str, region: str | None, expected_url: str, MockSession) -> None:
+        session = MockSession.return_value
+        requested_urls: list[str] = []
+
+        def _prepare(request: Any) -> mock.MagicMock:
+            requested_urls.append(request.url)
+            return mock.MagicMock()
+
+        session.headers = {}
+        session.prepare_request.side_effect = _prepare
+        session.send.side_effect = [_page([{"id": 1}], next_cursor=None, has_more=False)]
+
+        kwargs: dict[str, Any] = {} if region is None else {"region": region}
+        _rows(_source("bookings", **kwargs))
+
+        assert requested_urls == [expected_url]
 
 
 class TestValidateCredentials:
@@ -322,8 +355,8 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Cal.com API key"),
-            ("forbidden", 403, False, "Invalid Cal.com API key"),
+            ("unauthorized", 401, False, REJECTED_MESSAGE),
+            ("forbidden", 403, False, REJECTED_MESSAGE),
             ("server_error", 500, False, "Cal.com returned HTTP 500"),
         ]
     )
@@ -336,6 +369,20 @@ class TestValidateCredentials:
         session = self._session(requests.ConnectionError("boom"))
         with mock.patch(CAL_COM_SESSION_PATCH, return_value=session):
             assert validate_credentials("cal_live_key") == (False, "Could not connect to Cal.com")
+
+    @parameterized.expand(
+        [
+            ("us", "us", "https://api.cal.com/v2/me"),
+            ("eu", "eu", "https://api.cal.eu/v2/me"),
+        ]
+    )
+    def test_probes_the_host_for_the_selected_region(self, _name: str, region: str, expected_url: str) -> None:
+        # An EU key probed against the US host comes back 401, which reads as a bad key.
+        session = self._session(mock.MagicMock(status_code=200))
+        with mock.patch(CAL_COM_SESSION_PATCH, return_value=session):
+            assert validate_credentials("cal_live_key", region) == (True, None)
+
+        assert session.get.call_args.args[0] == expected_url
 
 
 class TestCalComSourceResponse:

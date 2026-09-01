@@ -20,8 +20,10 @@ class SourceRegistry:
         # on first registry use rather than at package import, so a process that never
         # touches the registry (most of them) doesn't pay for every vendor SDK at startup.
         # Double-checked lock: concurrent first-callers in a web worker must not observe a
-        # half-populated registry, and `_loaded` flips only after the import succeeds — so a
-        # failed load (e.g. a broken optional dependency) is retried rather than cached.
+        # half-populated registry, and `_loaded` flips only after the load returns — so a load
+        # that raises outright is retried rather than cached. A single source module that can't
+        # be imported is skipped by `load_all_sources`, leaving it absent here (and reported as
+        # an unknown type by `get_source`) rather than taking every other source down with it.
         if cls._loaded:
             return
         with cls._load_lock:

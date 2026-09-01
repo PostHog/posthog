@@ -25,6 +25,7 @@ from products.feature_flags.backend.flags_cache import (
     cleanup_stale_expiry_tracking,
     clear_flags_cache,
     get_cache_stats,
+    publish_shadow_invalidation,
     refresh_expiring_flags_caches,
     update_flags_cache,
 )
@@ -111,6 +112,13 @@ def update_team_service_flags_cache(team_id: int) -> None:
     HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
         namespace="feature_flags", cache_name="flags", operation="update", result="success" if success else "failure"
     ).inc()
+
+    # KAFKA-CUTOVER TRANSITIONAL CODE — remove with the block it belongs to in
+    # flags_cache.py. Gated on `success` because a shadow build must diff against
+    # the entry this task just wrote. After a failed write the live entry is the
+    # stale one, and the diff would report Python's failure as Rust drift.
+    if success:
+        publish_shadow_invalidation(team_id)
 
 
 @shared_task(
@@ -256,14 +264,14 @@ def refresh_expiring_flags_cache_entries(self: PushGatewayTask) -> None:
         limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
     )
 
-    successful, failed = refresh_expiring_flags_caches(
+    counts = refresh_expiring_flags_caches(
         ttl_threshold_hours=settings.FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
         limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
     )
 
     # Record metrics
-    successful_gauge.set(successful)
-    failed_gauge.set(failed)
+    successful_gauge.set(counts.successful)
+    failed_gauge.set(counts.failed)
 
     # Note: Teams processed metrics are pushed to Pushgateway by
     # cache_expiry_manager.refresh_expiring_caches() via push_hypercache_teams_processed_metrics()
@@ -275,8 +283,8 @@ def refresh_expiring_flags_cache_entries(self: PushGatewayTask) -> None:
 
     logger.info(
         "Completed flags cache refresh",
-        successful_refreshes=successful,
-        failed_refreshes=failed,
+        successful_refreshes=counts.successful,
+        failed_refreshes=counts.failed,
         total_cached=stats_after.get("total_cached", 0),
         total_teams=stats_after.get("total_teams", 0),
         cache_coverage=stats_after.get("cache_coverage", "unknown"),
@@ -472,20 +480,20 @@ def refresh_expiring_flag_definitions_cache_entries(self: PushGatewayTask) -> No
         limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
     )
 
-    successful, failed = refresh_expiring_caches(
+    counts = refresh_expiring_caches(
         config=FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
         ttl_threshold_hours=settings.FLAGS_CACHE_REFRESH_TTL_THRESHOLD_HOURS,
         limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
     )
 
-    successful_gauge.set(successful)
-    failed_gauge.set(failed)
+    successful_gauge.set(counts.successful)
+    failed_gauge.set(counts.failed)
 
     duration = time.time() - start_time
     logger.info(
         "Completed flag definitions cache refresh",
-        successful_refreshes=successful,
-        failed_refreshes=failed,
+        successful_refreshes=counts.successful,
+        failed_refreshes=counts.failed,
         duration_seconds=duration,
     )
 

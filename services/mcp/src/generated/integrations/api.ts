@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 7 enabled ops
+ * PostHog API - MCP 9 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -21,6 +21,7 @@ export const IntegrationsListQueryParams = /* @__PURE__ */ zod.object({
         .enum([
             'anthropic',
             'apns',
+            'aws-redshift',
             'aws-s3',
             'azure-blob',
             'bing-ads',
@@ -35,12 +36,14 @@ export const IntegrationsListQueryParams = /* @__PURE__ */ zod.object({
             'gitlab',
             'google-ads',
             'google-analytics',
+            'google-calendar',
             'google-cloud-service-account',
             'google-cloud-storage',
             'google-pubsub',
             'google-search-console',
             'google-sheets',
             'hubspot',
+            'instagram',
             'intercom',
             'jira',
             'linear',
@@ -49,6 +52,7 @@ export const IntegrationsListQueryParams = /* @__PURE__ */ zod.object({
             'pardot',
             'pinterest-ads',
             'postgresql',
+            'posthog',
             'reddit-ads',
             'resend',
             's3-compatible',
@@ -61,10 +65,11 @@ export const IntegrationsListQueryParams = /* @__PURE__ */ zod.object({
             'tiktok-ads',
             'twilio',
             'vercel',
+            'youtube-analytics',
         ])
         .optional()
         .describe(
-            '\* `anthropic` - Anthropic\n\* `apns` - Apple Push\n\* `aws-s3` - Aws S3\n\* `azure-blob` - Azure Blob\n\* `bing-ads` - Bing Ads\n\* `clickup` - Clickup\n\* `customerio-app` - Customerio App\n\* `customerio-track` - Customerio Track\n\* `customerio-webhook` - Customerio Webhook\n\* `databricks` - Databricks\n\* `email` - Email\n\* `firebase` - Firebase\n\* `github` - Github\n\* `gitlab` - Gitlab\n\* `google-ads` - Google Ads\n\* `google-analytics` - Google Analytics\n\* `google-cloud-service-account` - Google Cloud Service Account\n\* `google-cloud-storage` - Google Cloud Storage\n\* `google-pubsub` - Google Pubsub\n\* `google-search-console` - Google Search Console\n\* `google-sheets` - Google Sheets\n\* `hubspot` - Hubspot\n\* `intercom` - Intercom\n\* `jira` - Jira\n\* `linear` - Linear\n\* `linkedin-ads` - Linkedin Ads\n\* `meta-ads` - Meta Ads\n\* `pardot` - Pardot\n\* `pinterest-ads` - Pinterest Ads\n\* `postgresql` - Postgresql\n\* `reddit-ads` - Reddit Ads\n\* `resend` - Resend\n\* `s3-compatible` - S3 Compatible\n\* `salesforce` - Salesforce\n\* `slack` - Slack\n\* `slack-posthog-code` - Slack Posthog Code\n\* `snapchat` - Snapchat\n\* `snowflake` - Snowflake\n\* `stripe` - Stripe\n\* `tiktok-ads` - Tiktok Ads\n\* `twilio` - Twilio\n\* `vercel` - Vercel'
+            '\* `anthropic` - Anthropic\n\* `apns` - Apple Push\n\* `aws-redshift` - Aws Redshift\n\* `aws-s3` - Aws S3\n\* `azure-blob` - Azure Blob\n\* `bing-ads` - Bing Ads\n\* `clickup` - Clickup\n\* `customerio-app` - Customerio App\n\* `customerio-track` - Customerio Track\n\* `customerio-webhook` - Customerio Webhook\n\* `databricks` - Databricks\n\* `email` - Email\n\* `firebase` - Firebase\n\* `github` - Github\n\* `gitlab` - Gitlab\n\* `google-ads` - Google Ads\n\* `google-analytics` - Google Analytics\n\* `google-calendar` - Google Calendar\n\* `google-cloud-service-account` - Google Cloud Service Account\n\* `google-cloud-storage` - Google Cloud Storage\n\* `google-pubsub` - Google Pubsub\n\* `google-search-console` - Google Search Console\n\* `google-sheets` - Google Sheets\n\* `hubspot` - Hubspot\n\* `instagram` - Instagram\n\* `intercom` - Intercom\n\* `jira` - Jira\n\* `linear` - Linear\n\* `linkedin-ads` - Linkedin Ads\n\* `meta-ads` - Meta Ads\n\* `pardot` - Pardot\n\* `pinterest-ads` - Pinterest Ads\n\* `postgresql` - Postgresql\n\* `posthog` - Posthog\n\* `reddit-ads` - Reddit Ads\n\* `resend` - Resend\n\* `s3-compatible` - S3 Compatible\n\* `salesforce` - Salesforce\n\* `slack` - Slack\n\* `slack-posthog-code` - Slack Posthog Code\n\* `snapchat` - Snapchat\n\* `snowflake` - Snowflake\n\* `stripe` - Stripe\n\* `tiktok-ads` - Tiktok Ads\n\* `twilio` - Twilio\n\* `vercel` - Vercel\n\* `youtube-analytics` - Youtube Analytics'
         ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -174,4 +179,80 @@ export const IntegrationsLinearTeamsRetrieveParams = /* @__PURE__ */ zod.object(
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+export const IntegrationsUsersRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.number().describe('A unique integer value identifying this integration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const integrationsUsersRetrieveQueryForceRefreshDefault = false
+export const integrationsUsersRetrieveQueryLimitDefault = 50
+export const integrationsUsersRetrieveQueryLimitMax = 200
+
+export const integrationsUsersRetrieveQueryOffsetDefault = 0
+export const integrationsUsersRetrieveQueryOffsetMin = 0
+
+export const integrationsUsersRetrieveQuerySearchDefault = ``
+export const integrationsUsersRetrieveQueryUserIdDefault = ``
+
+export const IntegrationsUsersRetrieveQueryParams = /* @__PURE__ */ zod.object({
+    force_refresh: zod
+        .boolean()
+        .default(integrationsUsersRetrieveQueryForceRefreshDefault)
+        .describe(
+            'Bypass the 1 hour member cache. Honored only for browser session callers; API key, OAuth, and MCP callers always read through the cache.'
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(integrationsUsersRetrieveQueryLimitMax)
+        .default(integrationsUsersRetrieveQueryLimitDefault)
+        .describe('Maximum number of members to return per request (max 200).'),
+    offset: zod
+        .number()
+        .min(integrationsUsersRetrieveQueryOffsetMin)
+        .default(integrationsUsersRetrieveQueryOffsetDefault)
+        .describe('Number of members to skip before returning results.'),
+    search: zod
+        .string()
+        .default(integrationsUsersRetrieveQuerySearchDefault)
+        .describe('Optional case-insensitive member name or ID search query.'),
+    user_id: zod
+        .string()
+        .default(integrationsUsersRetrieveQueryUserIdDefault)
+        .describe(
+            'Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that member.'
+        ),
+})
+
+/**
+ * Replay an API request against the connected PostHog project. The server injects the connection's token; the response is passed through.
+ * @summary Forward a request through a PostHog connection
+ */
+export const PosthogConnectionsForwardCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const PosthogConnectionsForwardCreateBody = /* @__PURE__ */ zod.object({
+    method: zod
+        .enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
+        .describe('\* `GET` - GET\n\* `POST` - POST\n\* `PUT` - PUT\n\* `PATCH` - PATCH\n\* `DELETE` - DELETE')
+        .describe(
+            "HTTP method to use against the target project's API.\n\n\* `GET` - GET\n\* `POST` - POST\n\* `PUT` - PUT\n\* `PATCH` - PATCH\n\* `DELETE` - DELETE"
+        ),
+    path: zod
+        .string()
+        .describe('Relative target API path with no host or scheme, e.g. `api\/projects\/2\/insights\/`.'),
+    query: zod.record(zod.string(), zod.string()).optional().describe('Query parameters to send to the target.'),
+    data: zod.unknown().optional().describe('JSON request body for write methods.'),
 })

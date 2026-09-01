@@ -108,6 +108,11 @@
                     "description": "Break down sparkline by \"severity\" (default) or \"service\".\n\n* `severity` - severity\n* `service` - service",
                     "enum": ["severity", "service"],
                     "type": "string"
+                },
+                "sparklineRankBy": {
+                    "description": "Rank breakdown values by \"count\" (default) or \"bytes\" before collapsing the tail into \"other\".\n\n* `count` - count\n* `bytes` - bytes",
+                    "enum": ["count", "bytes"],
+                    "type": "string"
                 }
             },
             "type": "object"

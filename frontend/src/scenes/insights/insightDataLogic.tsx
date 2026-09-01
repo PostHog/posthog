@@ -67,6 +67,7 @@ import type {
     QuerySchema,
     QueryStatus,
     RefreshType,
+    ResolvedDateRangeResponse,
     SessionsQueryResponse,
     TraceSpansAggregationQueryResponse,
     TraceSpansAttributeBreakdownQueryResponse,
@@ -136,6 +137,7 @@ export interface insightDataLogicValues {
     propsQuery: QuerySchema | null | undefined
     query: Node | null
     queryChanged: boolean
+    queryFromUrl: boolean
     showDebugPanel: boolean
     showQueryEditor: boolean
 }
@@ -271,6 +273,7 @@ export interface insightDataLogicActions {
             order: number | null
             query: Node<Record<string, any>> | null
             query_status?: QueryStatus | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result: any
             saved: boolean
             short_id: InsightShortId
@@ -317,6 +320,7 @@ export interface insightDataLogicActions {
             order: number | null
             query: Node<Record<string, any>> | null
             query_status?: QueryStatus | undefined
+            resolved_date_range?: ResolvedDateRangeResponse | null | undefined
             result: any
             saved: boolean
             short_id: InsightShortId
@@ -380,7 +384,11 @@ export interface insightDataLogicActions {
     persistDisplayOptions: (query: Node) => {
         query: Node<Record<string, any>>
     }
-    setQuery: (query: Node | null) => {
+    setQuery: (
+        query: Node | null,
+        fromUrl?: boolean
+    ) => {
+        fromUrl: boolean
         query: Node<Record<string, any>> | null
     }
     syncQueryFromProps: (query: Node | null) => {
@@ -488,7 +496,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
     })),
 
     actions({
-        setQuery: (query: Node | null) => ({ query }),
+        setQuery: (query: Node | null, fromUrl: boolean = false) => ({ query, fromUrl }),
         syncQueryFromProps: (query: Node | null) => ({ query }),
         toggleQueryEditorPanel: true,
         toggleDebugPanel: true,
@@ -502,6 +510,13 @@ export const insightDataLogic = kea<insightDataLogicType>([
             {
                 setQuery: (_, { query }) => query,
                 syncQueryFromProps: (_, { query }) => query,
+            },
+        ],
+        queryFromUrl: [
+            false,
+            {
+                setQuery: (_, { fromUrl }) => fromUrl,
+                syncQueryFromProps: () => false,
             },
         ],
         showQueryEditor: [
@@ -770,6 +785,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
         },
         loadInsightSuccess: ({ insight }) => {
+            // A shared link's query (`#q=`) is applied before the saved insight arrives, so re-syncing
+            // here would silently discard the date range and interval the sender chose.
+            if (values.queryFromUrl) {
+                return
+            }
+
             // `internalQuery` wins over `insight.query` in the `query` selector, and the SQL editor
             // updates a different logic instance — so a reload alone leaves this scene on the stale
             // query until a hard refresh. Re-sync the override to the freshly loaded query.

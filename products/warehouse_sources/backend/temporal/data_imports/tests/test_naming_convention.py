@@ -94,7 +94,9 @@ class TestNamingConvention:
 
     @pytest.mark.parametrize("value", ["", " ", "   ", "\t\n"])
     def test_empty_after_strip_raises(self, value):
-        with pytest.raises(ValueError):
+        # The message has to say something: an exception with an empty str() reaches the user as
+        # Temporal's "Application error" placeholder, which tells them nothing at all.
+        with pytest.raises(ValueError, match="empty"):
             NamingConvention.normalize_identifier(value)
 
     @pytest.mark.parametrize("source,expected", HAND_VERIFIED_CASES)

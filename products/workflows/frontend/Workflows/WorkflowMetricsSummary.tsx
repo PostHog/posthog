@@ -7,10 +7,12 @@ import { LemonLabel, LemonTable, LemonTableColumns, LemonTag, Link, SpinnerOverl
 import { getColorVar } from 'lib/colors'
 import { type AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
+import { type ExpandableConfig } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { WorkflowMetricCard } from './WorkflowMetricCard'
 import {
+    type EmailLinkRow,
     type EmailMetric,
     type EmailMetricRow,
     METRIC_COLORS,
@@ -22,11 +24,11 @@ import {
 } from './workflowMetricsSummaryLogic'
 
 const TRACKED_SENDS_TOOLTIP =
-    'Untracked sends can never record opens or clicks, so engagement is shown against tracked sends (sent minus untracked).'
+    'Untracked sends can never record opens or clicks, so engagement is shown against tracked sends (sent minus untracked). Counts and rates compare activity within the selected date range, so opens of emails sent before the range can push a rate above 100%.'
 
 // Opens and clicks are only possible on tracked sends, so pair the raw count with the denominator it
-// should be read against. A step that tracked every send shows the count alone, because its Sent
-// column is already the right denominator.
+// should be read against, plus the rate over that denominator. A step with no tracked sends shows a
+// dash instead of a rate.
 function trackedEngagementColumn(value: number, row: EmailMetricRow): JSX.Element {
     return (
         <span>
@@ -34,6 +36,10 @@ function trackedEngagementColumn(value: number, row: EmailMetricRow): JSX.Elemen
             {row.untracked > 0 && (
                 <span className="text-muted"> of {row.trackedSends.toLocaleString()} tracked sends</span>
             )}
+            <span className="text-muted">
+                {' '}
+                ({row.trackedSends > 0 ? `${((value / row.trackedSends) * 100).toFixed(1)}%` : '-'})
+            </span>
         </span>
     )
 }
@@ -60,6 +66,7 @@ export function WorkflowMetricsSummary({
         workflowSummaryTrends,
         emailMetricsRows,
         emailTotalsByActionIdLoading,
+        emailLinkTotalsByActionId,
         pushMetricsRows,
         pushTotalsByActionIdLoading,
         conversionRate,
@@ -123,8 +130,8 @@ export function WorkflowMetricsSummary({
                             metric: 'email_bounced' as EmailMetric,
                         },
                         {
-                            label: 'blocked',
-                            value: row.blocked,
+                            label: 'marked as spam',
+                            value: row.markedAsSpam,
                             type: 'danger' as const,
                             metric: 'email_blocked' as EmailMetric,
                         },
@@ -167,6 +174,58 @@ export function WorkflowMetricsSummary({
         ]
     }, [onSelectAction, onMetricClick, viewMetricsColumn])
 
+    const emailLinkColumns: LemonTableColumns<EmailLinkRow> = useMemo(
+        () => [
+            {
+                title: 'Link',
+                key: 'url',
+                render: (_: unknown, row: EmailLinkRow) => (
+                    <div className="flex items-center gap-2">
+                        {row.truncated ? (
+                            // Navigating to a URL that was cut mid-path would land somewhere wrong,
+                            // so show it as text rather than something clickable.
+                            <span className="break-all" title="This link was too long to store in full">
+                                {row.url}…
+                            </span>
+                        ) : (
+                            <Link to={row.url} target="_blank" className="break-all">
+                                {row.url}
+                            </Link>
+                        )}
+                        {row.duplicateUrl && row.linkIndex ? (
+                            <LemonTag type="muted" title="Another link in this email points to the same page">
+                                Position {row.linkIndex}
+                            </LemonTag>
+                        ) : null}
+                    </div>
+                ),
+            },
+            {
+                title: 'Clicks',
+                key: 'clicks',
+                align: 'right',
+                render: (_: unknown, row: EmailLinkRow) => humanFriendlyNumber(row.clicks),
+            },
+        ],
+        []
+    )
+
+    const emailExpandable: ExpandableConfig<EmailMetricRow> = useMemo(
+        () => ({
+            rowExpandable: (row: EmailMetricRow) => (emailLinkTotalsByActionId[row.id]?.length ?? 0) > 0,
+            expandedRowRender: (row: EmailMetricRow) => (
+                <LemonTable
+                    columns={emailLinkColumns}
+                    dataSource={emailLinkTotalsByActionId[row.id] ?? []}
+                    rowKey={(link) => `${link.linkIndex}:${link.url}`}
+                    size="small"
+                    embedded
+                />
+            ),
+        }),
+        [emailLinkTotalsByActionId, emailLinkColumns]
+    )
+
     const pushColumns: LemonTableColumns<PushMetricRow> = useMemo(() => {
         return [
             {
@@ -177,6 +236,7 @@ export function WorkflowMetricsSummary({
             { title: 'Sent', key: 'sent', align: 'right', render: (_, row) => row.sent.toLocaleString() },
             { title: 'Skipped', key: 'skipped', align: 'right', render: (_, row) => row.skipped.toLocaleString() },
             { title: 'Failed', key: 'failed', align: 'right', render: (_, row) => row.failed.toLocaleString() },
+            { title: 'Opened', key: 'opened', align: 'right', render: (_, row) => row.opened.toLocaleString() },
             ...(onSelectAction
                 ? [
                       {
@@ -324,6 +384,7 @@ export function WorkflowMetricsSummary({
                         loading={emailTotalsByActionIdLoading}
                         rowKey="id"
                         size="small"
+                        expandable={emailExpandable}
                     />
                 </div>
             ) : null}

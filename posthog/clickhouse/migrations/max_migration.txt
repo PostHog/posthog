@@ -1,1 +1,1 @@
-0291_add_ai_channel_type
+0310_add_cleanup_snapshot_tables

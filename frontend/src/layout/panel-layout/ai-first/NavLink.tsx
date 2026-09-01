@@ -41,7 +41,11 @@ export function NavLink({
 
     const isHomePage = to === urls.projectRoot()
     const currentPath = removeProjectIdIfPresent(pathname)
-    const isActive = currentPath === to || (isHomePage && currentPath === urls.projectHomepage())
+    const isInbox = to === urls.inbox()
+    const isActive =
+        currentPath === to ||
+        (isHomePage && currentPath === urls.projectHomepage()) ||
+        (isInbox && currentPath.startsWith(`${to}/`))
     const hasSideActionRight = !!sideAction && !isCollapsed
 
     return (

@@ -525,6 +525,11 @@
             .NotebookColumn__content {
                 width: var(--notebook-column-right-width);
                 transform: translateX(100%);
+
+                // Sidebar nodes lost the legacy NotebookNode__gap spacer between them
+                > * + * {
+                    margin-top: 0.75rem;
+                }
             }
         }
 
@@ -714,7 +719,8 @@ body[theme='dark'].has-markdown-v2-notebook .main-content-container > main {
         .Notebook__markdown-v2,
         .MarkdownNotebook__debug-layout,
         .MarkdownNotebook__main,
-        .MarkdownNotebook__canvas {
+        .MarkdownNotebook__canvas,
+        .MarkdownNotebook__canvas-header {
             width: 100%;
             max-width: none;
         }

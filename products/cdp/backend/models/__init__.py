@@ -1,5 +1,5 @@
 from .hog_function_template import HogFunctionTemplate
-from .hog_functions import HogFunction
+from .hog_functions import HogFunction, HogFunctionRevision
 from .hog_functions.hog_function import HogFunctionState
 from .hook import Hook
 from .plugin import (
@@ -15,6 +15,7 @@ from .plugin import (
 
 __all__ = [
     "HogFunction",
+    "HogFunctionRevision",
     "HogFunctionState",
     "HogFunctionTemplate",
     "Hook",

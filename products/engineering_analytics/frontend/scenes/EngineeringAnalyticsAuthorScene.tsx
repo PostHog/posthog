@@ -70,7 +70,7 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
     const singleRepo = repoSlugs.length === 1 ? prs[0] : null
 
     return (
-        <SceneContent>
+        <SceneContent className="pb-16">
             <SceneTitleSection name="Author" resourceType={{ type: 'health' }} />
             <ScopeBar
                 repoSlot={

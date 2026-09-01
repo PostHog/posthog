@@ -60,10 +60,17 @@ vars on the web app and the data-warehouse worker — nothing else.
 
 ## 4. Secrets — write the values into AWS Secrets Manager (PostHog/secrets)
 
-`PostHog/secrets` is a **CLI over AWS Secrets Manager — values are never committed to git.** Use the
-bulk `template` command with a **local, uncommitted** YAML file (copy `template-example.yaml`). App-name
-keys are the full `-secrets` store names; the same value repeats across environments for one shared
-client:
+`PostHog/secrets` is a **web UI and CLI over AWS Secrets Manager — values are never committed to git.**
+
+The [secrets UI](https://secrets-ui.hedgehog-kitefin.ts.net/) is the preferred way to write secrets: it
+only needs the PostHog tailnet (Tailscale) — no local install, AWS profile, or SSO login — and it can add
+a key across environments from one place.
+
+**Two things this step needs are not in the UI yet** (planned, but CLI-only today): bulk multi-store /
+multi-env writes, and the Argo force-sync after a write. For two keys × two stores × three environments
+that makes the CLI's `template` command the fewer-steps option here. Use it with a **local,
+uncommitted** YAML file (copy `template-example.yaml`). App-name keys are the full `-secrets` store
+names; the same value repeats across environments for one shared client:
 
 ```yaml
 secrets:
@@ -100,13 +107,18 @@ Notes:
   `terraform/modules/eks/external-secrets.tf` (posthog-cloud-infra).
 - ExternalSecrets sync from AWS SM to Kubernetes hourly; the CLI offers an immediate Argo force-sync
   after writing (needs the PostHog tailnet), else `kubectl annotate es <name> force-sync=$(date +%s) --overwrite -n posthog`.
+  The UI does not force-sync — after writing there, force it via ArgoCD or wait for the hourly sync.
+- UI/CLI parity gaps that matter beyond this step: force-sync, search-by-value, `blame`/`--who`
+  attribution, and bulk `template` writes are all CLI-only for now. The wiki tracks the current list
+  and what's planned: [Not yet in the UI](https://runbooks.posthog.com/operations/secrets/application#not-yet-in-the-ui).
 
 ## What an agent can and cannot do here
 
 - **Can**: the settings code change; the charts PR (both blocks); register the client if the provider
   has a registration API and the user supplies a provider API key; scaffold the `secrets` template YAML
   with **placeholder** values plus the exact `--dry-run`/apply commands for the human to run.
-- **Should not**: run the `secrets template` apply. It needs interactive `aws sso login`, the
-  `secrets-editor` AWS role, and the tailnet for the force-sync — and it handles the **live**
-  `client_secret`, which must never flow through agent tool output or land in any file (committed or
-  scratch). Hand the filled template + commands to the user for that step.
+- **Should not**: write the secret values, by any route. Both the UI and the `secrets template` apply
+  handle the **live** `client_secret`, which must never flow through agent tool output or land in any
+  file (committed or scratch); the CLI additionally needs interactive `aws sso login`, the
+  `secrets-editor` AWS role, and the tailnet. Hand the filled template + commands (or the UI link) to
+  the user for that step.

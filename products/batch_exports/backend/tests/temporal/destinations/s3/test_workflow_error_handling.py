@@ -232,7 +232,7 @@ async def test_s3_export_workflow_handles_cancellation(ateam, s3_compatible_batc
 async def test_s3_export_workflow_with_request_timeouts(
     clickhouse_client,
     ateam,
-    minio_client,
+    object_storage_client,
     bucket_name,
     interval,
     s3_compatible_batch_export,
@@ -261,7 +261,7 @@ async def test_s3_export_workflow_with_request_timeouts(
                 async def faulty_upload_part(*args, **kwargs):
                     nonlocal raised
 
-                    if raised < 5:
+                    if raised < ConcurrentS3Consumer.UPLOAD_PART_MAX_ATTEMPTS:
                         raised = raised + 1
                         raise botocore.exceptions.ClientError(
                             error_response={
@@ -354,7 +354,7 @@ async def test_s3_export_workflow_with_request_timeouts(
         second=data_interval_end.strftime("%S"),
     )
 
-    objects = await minio_client.list_objects_v2(Bucket=bucket_name, Prefix=expected_key_prefix)
+    objects = await object_storage_client.list_objects_v2(Bucket=bucket_name, Prefix=expected_key_prefix)
     key = objects["Contents"][0].get("Key")
     assert len(objects.get("Contents", [])) == 1
     assert key.startswith(expected_key_prefix)
@@ -367,7 +367,7 @@ async def test_s3_export_workflow_with_request_timeouts(
             sort_key = "session_id"
 
     await assert_clickhouse_records_in_s3(
-        s3_compatible_client=minio_client,
+        s3_compatible_client=object_storage_client,
         clickhouse_client=clickhouse_client,
         bucket_name=bucket_name,
         key_prefix=expected_key_prefix,

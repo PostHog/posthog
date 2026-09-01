@@ -8,9 +8,11 @@
 //! `cohort_core::seed` — shared with the processor — and is re-exported here.
 
 pub mod aggregate;
+pub mod backoff;
 pub mod chunk;
 pub mod completion;
 pub mod condition;
+pub mod condition_analysis;
 pub mod ids;
 pub mod ledger;
 pub mod partition;
@@ -22,24 +24,28 @@ pub mod window;
 pub use aggregate::{
     AggregateError, ChunkAccumulator, OutcomeKind, RecordOutcome, RecordStats, VmFailureCounts,
 };
+pub use backoff::{AttemptCount, BackoffPolicyError, RetryBackoffPolicy};
 pub use chunk::{
     BandSpec, BandSpecError, CancelCause, ChunkDomainError, ChunkLease, ChunkSpec, ChunkStatus,
     ClaimKind, ClaimedChunk, EnqueuedChunk, HaltReason, Halted, ProduceHwms, ProducedChunk,
-    ScannedChunk, StreamedChunk, UnknownChunkStatus,
+    ScanVolume, ScannedChunk, StreamedChunk, UnknownChunkStatus,
 };
 pub use cohort_core::seed::{
-    BehavioralShapeHash, BehavioralShapeHashError, PersonSeed, ReconcileCompleteMarker,
-    ReconcileTile, SeedTile,
+    BehavioralShapeHash, PersonSeed, PersonShapeHash, ReconcileCompleteMarker, ReconcileScope,
+    ReconcileTile, ScopeKind, SeedTile, ShapeHashError, UnknownScopeKind,
 };
 pub(crate) use completion::MARKER_WATCH_SCHEMA;
 pub use completion::{
     CommittedOffset, CompletionParts, CompletionPhase, CompletionStatus, DispatchEpoch,
     DispatchedReconcile, LivenessCheck, MarkerNovelty, MarkerPartition, MarkerPartitionError,
-    MarkerWatch, MembershipPartition, NextOffset, ObservationEnds, ObservedMarker, PartitionBitmap,
+    MarkerWatch, NextOffset, ObservationEnds, ObservedMarker, PartitionBitmap,
     PartitionBitmapError, ProducedOffset, ReconcileHwms, ReconcileHwmsError, SeedGroupCommits,
-    SettleProof, UndispatchedReason, WatchPositions,
+    SettleProof, UndispatchedReason, WatchPartition, WatchPositions,
 };
 pub use condition::{EventNameSet, Lookback, PinnedCondition};
+pub use condition_analysis::{
+    ConditionAnalyses, ConditionCensus, ConditionClass, MISSING_BYTECODE_REASON,
+};
 pub use ids::{
     Band, ChunkId, ClaimEpoch, ConditionHash, ConditionHashError, DayIdx, RunId, SChunkMs,
     ScannedAtMs, UtcMillis, UtcMsRange, UtcRangeError,

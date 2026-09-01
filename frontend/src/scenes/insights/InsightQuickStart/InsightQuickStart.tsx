@@ -1,5 +1,6 @@
 import './InsightQuickStart.scss'
 
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
@@ -7,7 +8,9 @@ import { IconPlay, IconSparkles } from '@posthog/icons'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
+import { isInsightTypeCreatable } from 'scenes/saved-insights/insightTypesMetadata'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -147,9 +150,10 @@ function InsightOptionCard({
 }
 
 export function InsightQuickStart(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const insightEntries = Object.entries(INSIGHT_TYPES_METADATA).filter(
         ([insightType, metadata]) =>
-            metadata.inMenu &&
+            isInsightTypeCreatable(metadata, featureFlags) &&
             insightType !== InsightType.JSON &&
             insightType !== InsightType.WEB_ANALYTICS &&
             insightType !== InsightType.HOG

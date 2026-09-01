@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import httpx
 import pytest
@@ -15,6 +15,7 @@ from llm_gateway.services.quota_resolver import (
     QuotaResolver,
     QuotaResourceStatus,
     _billing_key,
+    _generation_key,
     _redis_key,
     resolve_quota_status,
 )
@@ -215,21 +216,21 @@ class TestQuotaResolver:
         assert redis.ttls[_billing_key(42)] == _LAST_KNOWN_BILLING_TTL_SECONDS
 
         # The per-team quota entry expires; the refetch fails.
-        del redis.store[_redis_key("ai_credits", 42)]
+        del redis.store[_redis_key("ai_credits", 42, "Bearer phx_test")]
         status = await resolver.get_resource_status("ai_credits", team_id=42, auth_header="Bearer phx_test")
 
         assert status == QuotaResourceStatus(limited=False, code_usage_billing_active=True)
         if failure_mode == "retries_exhausted":
-            assert json.loads(redis.store[_redis_key("ai_credits", 42)]) == {
+            assert json.loads(redis.store[_redis_key("ai_credits", 42, "Bearer phx_test")]) == {
                 "limited": False,
                 "code_usage_billing_active": True,
                 "used_usd": None,
                 "limit_usd": None,
             }
-            assert redis.ttls[_redis_key("ai_credits", 42)] == _FAIL_OPEN_CACHE_TTL_SECONDS
+            assert redis.ttls[_redis_key("ai_credits", 42, "Bearer phx_test")] == _FAIL_OPEN_CACHE_TTL_SECONDS
         else:
             # 4xx is caller-specific and must not repopulate the shared entry.
-            assert _redis_key("ai_credits", 42) not in redis.store
+            assert _redis_key("ai_credits", 42, "Bearer phx_test") not in redis.store
 
     @pytest.mark.asyncio
     async def test_parses_credit_numbers_into_usd(self) -> None:
@@ -264,6 +265,7 @@ class TestQuotaResolver:
 
         assert status.used_usd is None
         assert status.limit_usd is None
+        assert status.posthog_desktop_usage is None
 
     @pytest.mark.asyncio
     async def test_usd_numbers_round_trip_through_the_cache(self) -> None:
@@ -282,6 +284,143 @@ class TestQuotaResolver:
         assert (first.used_usd, first.limit_usd) == (12.34, 50.0)
         assert (cached.used_usd, cached.limit_usd) == (12.34, 50.0)
         assert http_client.get.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_cached_usage_is_scoped_to_the_callers_credential(self) -> None:
+        redis = _FakeRedis()
+        http_client = _make_http_client_sequence(
+            [
+                _make_response(
+                    200,
+                    {
+                        "limited": {
+                            "posthog_code_credits": {"limited": False, "usage": 57, "limit": 1000},
+                            "posthog_code_token_credits": {"limited": False, "usage": 33, "limit": None},
+                            "sandbox_compute_credits": {"limited": False, "usage": 24, "limit": None},
+                        }
+                    },
+                ),
+                _make_response(403, {"detail": "token is not scoped to this team"}),
+            ]
+        )
+        resolver = QuotaResolver(redis=redis, http_client=http_client)  # type: ignore[arg-type]
+
+        allowed = await resolver.get_resource_status("posthog_code_credits", team_id=42, auth_header="Bearer allowed")
+        denied = await resolver.get_resource_status("posthog_code_credits", team_id=42, auth_header="Bearer restricted")
+
+        assert allowed.posthog_desktop_usage is not None
+        assert denied.posthog_desktop_usage is None
+        assert denied.used_usd is None
+        assert http_client.get.await_count == 2
+        assert "allowed" not in _redis_key("posthog_code_credits", 42, "Bearer allowed")
+
+    @pytest.mark.asyncio
+    async def test_component_integers_round_trip_through_cache(self) -> None:
+        breakdown = {
+            "token_credits": 1234,
+            "compute_credits": 67,
+            "cpu_millicore_seconds": 9_876_543_210,
+            "memory_mib_seconds": 7_654_321_098,
+        }
+        redis = _FakeRedis()
+        resolver = QuotaResolver(
+            redis=redis,  # type: ignore[arg-type]
+            http_client=_make_http_client(
+                _make_response(
+                    200,
+                    {
+                        "limited": {
+                            "posthog_code_credits": {"limited": False, "usage": 1301, "limit": 2000},
+                            "posthog_code_token_credits": {"limited": False, "usage": 1234, "limit": None},
+                            "sandbox_compute_credits": {"limited": False, "usage": 67, "limit": None},
+                            "sandbox_compute_cpu_millicore_seconds": {
+                                "limited": False,
+                                "usage": 9_876_543_210,
+                                "limit": None,
+                            },
+                            "sandbox_compute_memory_mib_seconds": {
+                                "limited": False,
+                                "usage": 7_654_321_098,
+                                "limit": None,
+                            },
+                        },
+                    },
+                )
+            ),
+        )
+
+        first = await resolver.get_resource_status("posthog_code_credits", 42, "Bearer phx_test")
+        cached = await resolver.get_resource_status("posthog_code_credits", 42, "Bearer phx_test")
+
+        assert first.posthog_desktop_usage == breakdown
+        assert cached.posthog_desktop_usage == breakdown
+        token_credits = first.posthog_desktop_usage["token_credits"]
+        compute_credits = first.posthog_desktop_usage["compute_credits"]
+        assert isinstance(token_credits, int)
+        assert isinstance(compute_credits, int)
+        assert token_credits + compute_credits == 1301
+        assert first.used_usd == 13.01
+        assert first.limit_usd == 20.0
+
+    @pytest.mark.asyncio
+    async def test_explicit_zero_survives_component_transport(self) -> None:
+        resolver = QuotaResolver(
+            redis=None,
+            http_client=_make_http_client(
+                _make_response(
+                    200,
+                    {
+                        "limited": {
+                            "posthog_code_credits": {"limited": False, "usage": 0, "limit": 2000},
+                            "posthog_code_token_credits": {"limited": False, "usage": 0, "limit": None},
+                            "sandbox_compute_credits": {"limited": False, "usage": 0, "limit": None},
+                        },
+                    },
+                )
+            ),
+        )
+
+        status = await resolver.get_resource_status("posthog_code_credits", 42, "Bearer phx_test")
+
+        assert status.posthog_desktop_usage is not None
+        assert status.posthog_desktop_usage["token_credits"] == 0
+        assert status.posthog_desktop_usage["compute_credits"] == 0
+
+    @pytest.mark.asyncio
+    async def test_parses_real_quota_limits_wire_shape(self) -> None:
+        # DRF's FloatField emits integral usage values as JSON floats. Preserve
+        # those exact integer quantities in the Desktop response.
+        resolver = QuotaResolver(
+            redis=None,
+            http_client=_make_http_client(
+                _make_response(
+                    200,
+                    {
+                        "limited": {
+                            "events": {"limited": False, "usage": None, "limit": None},
+                            "ai_credits": {"limited": False, "usage": 50.0, "limit": None},
+                            "posthog_code_credits": {"limited": False, "usage": 57.0, "limit": 1000.0},
+                            "posthog_code_token_credits": {"limited": False, "usage": 33.0, "limit": None},
+                            "sandbox_compute_credits": {"limited": False, "usage": 24.0, "limit": None},
+                            "sandbox_compute_cpu_millicore_seconds": {"limited": False, "usage": 0.0, "limit": None},
+                            "sandbox_compute_memory_mib_seconds": {"limited": False, "usage": None, "limit": None},
+                        },
+                        "code_usage_billing_active": True,
+                    },
+                )
+            ),
+        )
+
+        status = await resolver.get_resource_status("posthog_code_credits", 42, "Bearer phx_test")
+
+        assert status.posthog_desktop_usage == {
+            "token_credits": 33,
+            "compute_credits": 24,
+            "cpu_millicore_seconds": 0,
+            "memory_mib_seconds": None,
+        }
+        assert status.used_usd == 0.57
+        assert status.limit_usd == 10.0
 
     @pytest.mark.asyncio
     async def test_fetches_and_parses_unlimited_response(self) -> None:
@@ -357,15 +496,32 @@ class TestQuotaResolver:
     @pytest.mark.asyncio
     async def test_uses_cached_result_and_skips_http(self) -> None:
         redis = AsyncMock()
-        redis.get = AsyncMock(return_value=json.dumps({"limited": True}).encode())
+        redis.get = AsyncMock(side_effect=[b"7", json.dumps({"limited": True}).encode()])
         http_client = _make_http_client(_make_response(200))
         resolver = QuotaResolver(redis=redis, http_client=http_client)
 
         status = await resolver.get_resource_status("ai_credits", team_id=42, auth_header="Bearer phx_test")
 
         assert status == QuotaResourceStatus(limited=True)
-        redis.get.assert_awaited_once_with(_redis_key("ai_credits", 42))
+        assert redis.get.await_args_list == [
+            call(_generation_key(42)),
+            call(_redis_key("ai_credits", 42, "Bearer phx_test", "7")),
+        ]
         http_client.get.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_generation_change_bypasses_cached_result(self) -> None:
+        redis = _FakeRedis()
+        http_client = _make_http_client(_make_response(200, {"limited": {"ai_credits": {"limited": True}}}))
+        resolver = QuotaResolver(redis=redis, http_client=http_client)  # type: ignore[arg-type]
+
+        first = await resolver.get_resource_status("ai_credits", team_id=42, auth_header="Bearer phx_test")
+        redis.store[_generation_key(42)] = b"1"
+        second = await resolver.get_resource_status("ai_credits", team_id=42, auth_header="Bearer phx_test")
+
+        assert first.limited is True
+        assert second.limited is True
+        assert http_client.get.await_count == 2
 
     @pytest.mark.asyncio
     async def test_writes_cache_on_miss(self) -> None:
@@ -379,7 +535,9 @@ class TestQuotaResolver:
 
         # One write per key: the team+resource quota entry and the per-team
         # last-known billing bit.
-        quota_writes = [c for c in redis.set.await_args_list if c.args[0] == _redis_key("ai_credits", 42)]
+        quota_writes = [
+            c for c in redis.set.await_args_list if c.args[0] == _redis_key("ai_credits", 42, "Bearer phx_test")
+        ]
         assert len(quota_writes) == 1
         call = quota_writes[0]
         assert json.loads(call.args[1]) == {

@@ -17,11 +17,12 @@ import { TitledSnack } from 'lib/components/TitledSnack'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ceilMsToClosestSecond } from 'lib/utils/durations'
 import { autoCaptureEventToDescription } from 'lib/utils/events'
 import { getPrimaryPropertyForEvent } from 'lib/utils/events'
-import { isString } from 'lib/utils/guards'
+import { isNumber, isString } from 'lib/utils/guards'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { insightUrlForEvent } from 'scenes/insights/utils'
 import { urls } from 'scenes/urls'
@@ -32,12 +33,20 @@ import { ItemTimeDisplay } from '../../../components/ItemTimeDisplay'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
 import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { AIEventExpanded, AIEventSummary } from './AIEventItems'
+import { EventFlagsTab } from './EventFlagsTab'
 import { PinPrimaryPropertyButton } from './PinPrimaryPropertyButton'
 
 export interface ItemEventProps {
     item: InspectorListItemEvent
     groupCount?: number
     groupedItems?: InspectorListItemEvent[]
+}
+
+// Captured web vitals reach us with the value missing, or as a numeric string, or as something
+// unusable, so only render it when it converts to a finite number.
+function webVitalValue(value: unknown): string {
+    const asNumber = isString(value) && value.trim() !== '' ? Number(value) : value
+    return isNumber(asNumber) && Number.isFinite(asNumber) ? `: ${asNumber.toFixed(2)}` : ''
 }
 
 function WebVitalEventSummary({ event }: { event: Record<string, any> }): JSX.Element {
@@ -50,7 +59,8 @@ function WebVitalEventSummary({ event }: { event: Record<string, any> }): JSX.El
                     titleSuffix=""
                     value={
                         <>
-                            {event.rating}: {event.value.toFixed(2)}
+                            {event.rating}
+                            {webVitalValue(event.value)}
                         </>
                     }
                 />
@@ -79,11 +89,13 @@ function ExceptionTitlePill({ event }: { event: Record<string, any> }): JSX.Elem
         connector = ':'
     }
     return (
-        <div className="flex flex-row items-center gap-1 justify-between border px-1 truncate ellipsis border-x-danger-dark bg-danger-highlight">
-            <span>{errorProps.type}</span>
-            <span>{connector}</span>
-            <span>{errorProps.value}</span>
-        </div>
+        <Tooltip title="This error was captured on the recorded page.">
+            <div className="flex flex-row items-center gap-1 justify-between border px-1 truncate ellipsis border-x-danger-dark bg-danger-highlight">
+                <span>{errorProps.type}</span>
+                <span>{connector}</span>
+                <span>{errorProps.value}</span>
+            </div>
+        </Tooltip>
     )
 }
 
@@ -280,7 +292,13 @@ function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
                             </>
                         )
                     case 'error_display':
-                        return <ErrorDisplay eventProperties={properties} eventId={idFrom(event as ErrorEventType)} />
+                        return (
+                            <ErrorDisplay
+                                eventProperties={properties}
+                                eventId={idFrom(event as ErrorEventType)}
+                                eventTimestamp={event.timestamp}
+                            />
+                        )
                     case 'properties':
                         return (
                             <SimpleKeyValueList
@@ -289,6 +307,8 @@ function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
                                 rowActions={primaryPropertyActions}
                             />
                         )
+                    case 'flags':
+                        return <EventFlagsTab properties={properties} promotedKeys={promotedKeys} />
                     default:
                         return <SimpleKeyValueList item={properties} promotedKeys={promotedKeys} />
                 }

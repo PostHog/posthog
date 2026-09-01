@@ -43,14 +43,15 @@ jobs:
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            - name: Config render golden tests
-              run: products/metrics/agent/tests/render/run.sh
+            - parallel:
+                  - name: Config render golden tests
+                    run: products/metrics/agent/tests/render/run.sh
 
-            - name: Helm chart tests
-              run: products/metrics/agent/tests/helm/run.sh
+                  - name: Helm chart tests
+                    run: products/metrics/agent/tests/helm/run.sh
 
-            - name: Integration smoke test (exemplars survive scrape -> OTLP)
-              run: products/metrics/agent/tests/integration/run.sh
+                  - name: Integration smoke test (exemplars survive scrape -> OTLP)
+                    run: products/metrics/agent/tests/integration/run.sh
 
     # PR validation only: proves the multi-arch image builds, with no registry
     # logins, no push destinations, and a read-only token, so PR-controlled

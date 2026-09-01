@@ -47,6 +47,83 @@ def build_source_normalization_expr(source_expr: ast.Expr, source_mappings: dict
     return normalized_expr
 
 
+def build_campaign_display_normalization_expr(
+    campaign_expr: ast.Expr,
+    source_expr: ast.Expr,
+    team_config: Any,
+) -> ast.Expr:
+    """Collapse a team's dirty UTM campaign spellings onto the clean name they're mapped to
+    ('spring-sale-2026' -> 'Spring Sale 2026'), case-insensitively and scoped to the integration
+    whose sources the touchpoint arrived on.
+
+    This is the *display* subset of what `ConversionGoalsAggregator._apply_campaign_name_mappings`
+    does. That one also maps utm_campaign onto campaign_id for sources configured to match on id,
+    because it has to line the label up with a cost row; there is no cost join here, so sources with
+    a `campaign_id` preference are skipped — their clean_name is an id, and the dashboard leaves the
+    displayed campaign name raw for them too. Kept as one place so a team's mappings can't mean two
+    different things depending on which surface is reading them.
+    """
+    from .adapters.factory import MarketingSourceFactory  # noqa: PLC0415 — avoids an import cycle
+
+    campaign_mappings = team_config.campaign_name_mappings if team_config else {}
+    if not campaign_mappings:
+        return campaign_expr
+
+    preferences = team_config.campaign_field_preferences or {}
+    lowercase_campaign = ast.Call(name="lower", args=[campaign_expr])
+    lowercase_source = ast.Call(name="lower", args=[source_expr])
+    conditions: list[ast.Expr] = []
+
+    for integration, clean_name_to_raw_values in campaign_mappings.items():
+        if not clean_name_to_raw_values:
+            continue
+        if preferences.get(integration, {}).get("match_field", "campaign_name") == "campaign_id":
+            continue
+
+        adapter_class = MarketingSourceFactory._adapter_registry.get(integration)
+        if not adapter_class:
+            continue
+        utm_sources = [
+            s for alternatives in adapter_class.get_source_identifier_mapping().values() for s in alternatives
+        ]
+        if not utm_sources:
+            continue
+
+        source_condition = ast.Call(
+            name="in",
+            args=[lowercase_source, ast.Array(exprs=[ast.Constant(value=s.lower()) for s in utm_sources])],
+        )
+
+        for clean_name, raw_values in clean_name_to_raw_values.items():
+            # An empty utm_campaign is the absence of a campaign, not a misspelling of one: mapping it
+            # onto a real name would invent attribution, and would put a session that "Exclude
+            # unattributed traffic" drops under a label that looks like a campaign that stayed.
+            raw_values = [v for v in raw_values if v]
+            if not raw_values:
+                continue
+            conditions.append(
+                ast.Call(
+                    name="and",
+                    args=[
+                        source_condition,
+                        ast.Call(
+                            name="in",
+                            args=[
+                                lowercase_campaign,
+                                ast.Array(exprs=[ast.Constant(value=v.lower()) for v in raw_values]),
+                            ],
+                        ),
+                    ],
+                )
+            )
+            conditions.append(ast.Constant(value=clean_name))
+
+    if not conditions:
+        return campaign_expr
+
+    return ast.Call(name="multiIf", args=[*conditions, campaign_expr])
+
+
 def _filter_to_model_fields(goal_dict: dict[str, Any], model: type[BaseModel]) -> dict[str, Any]:
     """Keep only keys the target pydantic model declares, so extra fields (e.g. data-warehouse-only
     fields on a saved goal) don't trip the model's ``extra="forbid"`` validation."""

@@ -136,3 +136,16 @@ for (const scope of ['flag', 'feature-flag', 'feature_flags', 'feature_flag']) {
         assert.ok(labelsForTitle(`feat(${scope}): x`, loadRules()).length > 0, `${scope} scope maps to no labels`)
     })
 }
+
+// Desktop PRs rely on these scopes for the `feature/desktop` label; bind each
+// to the shipped config so an edit that drops or mislabels one regresses
+// loudly here. Asserts containment rather than the exact list so the rule can
+// gain labels without breaking.
+for (const scope of ['desktop', 'tasks', 'agent-proxy', 'canvas']) {
+    test(`the shipped config maps the ${scope} scope to the desktop label`, () => {
+        assert.ok(
+            labelsForTitle(`feat(${scope}): x`, loadRules()).includes('feature/desktop'),
+            `${scope} scope does not map to feature/desktop`
+        )
+    })
+}

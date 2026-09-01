@@ -93,7 +93,10 @@ If you can request how many rows are about to be imported (this is usually more 
 
 #### `has_duplicate_primary_keys`
 
-Also optional, setting this to `True` will stop the pipeline from syncing any data and give the user feedback that they can't sync until they no longer have duplicate primary keys. Again, this is more of a problem with database sources than API backed sources. But, the point of this is to ensure we don't try to merge incremental data with duplicate merge keys as this blows up the memory usage of our pods and kills them with OOM errors.
+Also optional, setting this to `True` will stop the pipeline from syncing any data and give the user feedback that they can't sync until they no longer have duplicate primary keys.
+This is for the case where duplicates signal a likely mistake the user can fix — e.g. a database source fell back to a declared key that turns out not to be unique on the live table, so a merge would silently keep an arbitrary row per key instead of the one the user expects.
+
+Don't set this for a source whose primary key is inherently non-unique by design and isn't user-configurable — e.g. an aggregated report API whose dimensions can collide on blank values (Adjust, AppsFlyer, Clari, Pingdom's alerts endpoint). There's no key the user could pick instead, so blocking the sync leaves it permanently unusable. The pipeline already dedupes a batch on its primary key before merging (keeping the last occurrence), which is exactly the right behavior for that case, so just leave `has_duplicate_primary_keys` unset and let the sync proceed normally.
 
 ### Partitioning
 
@@ -130,9 +133,10 @@ If your source uses OAuth (SourceFieldOauthConfig):
    YOUR_SOURCE_CLIENT_SECRET = get_from_env("YOUR_SOURCE_CLIENT_SECRET", "")
    ```
 
-2. **Integration Kind**: Add your integration to `posthog/models/integration.py`:
+2. **Integration Kind**: Add your integration to the `posthog/models/integration/` package.
+   Its `__init__.py` only re-exports the public surface, so edit the defining modules below.
 
-   **a) Add to `IntegrationKind` enum:**
+   **a) Add to the `IntegrationKind` enum in `model.py`:**
 
    ```python
    class IntegrationKind(models.TextChoices):
@@ -140,7 +144,7 @@ If your source uses OAuth (SourceFieldOauthConfig):
        YOUR_SOURCE = "your-source"
    ```
 
-   **b) Add to `OauthIntegration.supported_kinds` list:**
+   **b) Add to the `OauthIntegration.supported_kinds` list in `oauth.py`:**
 
    ```python
    supported_kinds = [
@@ -149,7 +153,7 @@ If your source uses OAuth (SourceFieldOauthConfig):
    ]
    ```
 
-   **c) Add OAuth config in `oauth_config_for_kind()` method:**
+   **c) Add OAuth config in the `oauth_config_for_kind()` method, also in `oauth.py`:**
 
    ```python
    elif kind == "your-source":

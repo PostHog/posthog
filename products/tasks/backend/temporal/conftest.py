@@ -1,4 +1,5 @@
 import os
+import time
 import random
 
 import pytest
@@ -26,6 +27,24 @@ def _runs_on_internal_pr() -> bool:
 def activity_environment():
     """Return a testing temporal ActivityEnvironment."""
     return ActivityEnvironment()
+
+
+@pytest.fixture
+def assert_sandbox_shutdown():
+    """Assert a sandbox reaches SHUTDOWN, polling because `Sandbox.destroy()` does not wait.
+
+    `destroy()` fires Modal's terminate RPC and returns immediately, by design: the sandbox
+    TTL is the backstop if termination never lands. So the shutdown a cleanup activity causes
+    is only observable some time after the activity returns.
+    """
+
+    def _assert_sandbox_shutdown(sandbox_id: str, timeout_seconds: float = 60.0) -> None:
+        deadline = time.monotonic() + timeout_seconds
+        while Sandbox.get_by_id(sandbox_id).is_running():
+            assert time.monotonic() < deadline, f"sandbox {sandbox_id} still running after {timeout_seconds}s"
+            time.sleep(1)
+
+    return _assert_sandbox_shutdown
 
 
 @pytest.fixture(autouse=True)

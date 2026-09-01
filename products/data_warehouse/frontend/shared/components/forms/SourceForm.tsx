@@ -7,6 +7,7 @@ import {
     LemonDivider,
     LemonFileInput,
     LemonInput,
+    LemonInputSelect,
     LemonSelect,
     LemonSkeleton,
     LemonSwitch,
@@ -37,7 +38,7 @@ import { CDC_SOURCE_TYPES } from '../../cdc'
 import { isCustomSourceAiBuilderEnabled } from './customSourceManifest'
 import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
 import { customSourceManifestBuilderLogic } from './customSourceManifestBuilderLogic'
-import { IntegrationAccountSelector } from './IntegrationAccountSelector'
+import { IntegrationAccountSelector, findOauthBranch } from './IntegrationAccountSelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
 import { parseConnectionStringForSource } from './parsers'
 import { supportsDirectQuery } from './schemaGroupingUtils'
@@ -196,11 +197,15 @@ export const sourceFieldToElement = (
     }
 
     if (field.type === 'switch-group') {
-        const enabled = !!lastValue?.[field.name]?.enabled || lastValue?.[field.name]?.enabled === 'True'
+        // job_inputs booleans round-trip through the encrypted field as the strings "True"/"False",
+        // and LemonSwitch treats anything but a real `true` as off — translate before rendering.
+        // `lastValue` is already scoped to this group by the caller.
+        const toBool = (flag: unknown): boolean => flag === true || flag === 'True'
+        const enabled = toBool(lastValue?.enabled)
         return (
             <LemonField key={field.name} name={[field.name, 'enabled']} label={field.label}>
                 {({ value, onChange }) => {
-                    const isEnabled = value === undefined || value === null || value === 'False' ? enabled : value
+                    const isEnabled = value === undefined || value === null ? enabled : toBool(value)
                     return (
                         <>
                             {!!field.caption && <p className="mb-0">{field.caption}</p>}
@@ -222,6 +227,31 @@ export const sourceFieldToElement = (
                         </>
                     )
                 }}
+            </LemonField>
+        )
+    }
+
+    if (field.type === 'select' && field.multiple) {
+        // A config saved before the field became multiple still holds a bare string.
+        const toArray = (value: any): string[] => (Array.isArray(value) ? value : value ? [value] : [])
+
+        return (
+            <LemonField
+                key={field.name}
+                name={field.name}
+                label={field.label}
+                help={field.caption ? <LemonMarkdown className="text-xs">{field.caption}</LemonMarkdown> : undefined}
+            >
+                {({ value, onChange }) => (
+                    <LemonInputSelect
+                        mode="multiple"
+                        data-attr={field.name}
+                        placeholder={`Select ${field.label.toLowerCase()}`}
+                        options={field.options.map((option) => ({ key: option.value, label: option.label }))}
+                        value={toArray(value === undefined || value === null ? lastValue?.[field.name] : value)}
+                        onChange={onChange}
+                    />
+                )}
             </LemonField>
         )
     }
@@ -338,6 +368,7 @@ export const sourceFieldToElement = (
                 caption={field.caption}
                 multiple={field.multiple}
                 legacySingleField={legacySingleField}
+                oauthBranch={findOauthBranch(sourceConfig.fields, field.integrationField)}
             />
         )
     }
@@ -949,8 +980,8 @@ export function SourceFormComponent({
             {showPrefix && !isDirectQuerySource && !customAiIntroActive && (
                 <LemonField
                     name="prefix"
-                    label="Table prefix (optional)"
-                    help="Use only letters, numbers, and underscores. Must start with a letter or underscore."
+                    label="Table name prefix (optional)"
+                    help="Renames the tables PostHog creates. It doesn't filter which tables get imported. Use only letters, numbers, and underscores, and start with a letter or underscore."
                 >
                     {({ value, onChange }) => {
                         const cleaned = value ? value.trim().replace(/^_+|_+$/g, '') : ''

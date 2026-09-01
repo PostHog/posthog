@@ -55,7 +55,7 @@ impl Stage for ExceptionEventPipeline {
 
     async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
         batch
-            // Resolve stack traces
+            // Resolve stack traces and the event-level release
             .apply_stage(ResolutionStage::from(&self.app_context))
             .await?
             // Group events by fingerprint

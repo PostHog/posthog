@@ -11,6 +11,7 @@ import pytz
 from posthog.schema import HogQLQuery
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models.team import Team
 from posthog.session_recordings.models.metadata import ONGOING_SESSION_WINDOW_MINUTES, RecordingMetadata
@@ -443,7 +444,9 @@ class SessionReplayEvents:
                 max(retention_period_days) as retention_period_days,
                 dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time,
                 dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl,
-                max(_timestamp) >= toDateTime(%(python_now)s) - INTERVAL {ongoing_window_minutes} MINUTE as ongoing
+                max(_timestamp) >= toDateTime(%(python_now)s) - INTERVAL {ongoing_window_minutes} MINUTE as ongoing,
+                sum(size) as total_size,
+                sum(event_count) as event_count
             FROM
                 session_replay_events
             PREWHERE
@@ -496,6 +499,8 @@ class SessionReplayEvents:
             expiry_time=replay[19],
             recording_ttl=replay[20],
             ongoing=bool(replay[21]),
+            total_size=replay[22],
+            event_count=replay[23],
         )
 
     def get_metadata(
@@ -503,18 +508,19 @@ class SessionReplayEvents:
         session_id: str,
         team: Team,
         recording_start_time: Optional[datetime] = None,
+        ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     ) -> Optional[RecordingMetadata]:
         if recording_start_time is not None:
-            return self._get_metadata_from(session_id, team, recording_start_time)
+            return self._get_metadata_from(session_id, team, recording_start_time, ch_user=ch_user)
 
         # Most callers don't know the recording's start time (it is only persisted
         # for pinned recordings); derive a lower bound from the session id instead.
         # Unlike a real start time it carries clock-skew slack, so on a miss fall
         # back to the unbounded scan rather than reporting not-found.
         derived_lower_bound = uuidv7_session_lower_bound(session_id)
-        metadata = self._get_metadata_from(session_id, team, derived_lower_bound)
+        metadata = self._get_metadata_from(session_id, team, derived_lower_bound, ch_user=ch_user)
         if metadata is None and derived_lower_bound is not None:
-            metadata = self._get_metadata_from(session_id, team, None)
+            metadata = self._get_metadata_from(session_id, team, None, ch_user=ch_user)
         return metadata
 
     def _get_metadata_from(
@@ -522,6 +528,7 @@ class SessionReplayEvents:
         session_id: str,
         team: Team,
         lower_bound: Optional[datetime],
+        ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     ) -> Optional[RecordingMetadata]:
         query = self.get_metadata_query(lower_bound)
         tag_queries(product=Product.REPLAY, feature=Feature.QUERY, team_id=team.pk)
@@ -533,6 +540,7 @@ class SessionReplayEvents:
                 "recording_start_time": lower_bound,
                 "python_now": datetime.now(pytz.timezone("UTC")),
             },
+            ch_user=ch_user,
         )
         recording_metadata = self.build_recording_metadata(session_id, replay_response)
         return recording_metadata
@@ -582,7 +590,9 @@ class SessionReplayEvents:
                 max(retention_period_days) as retention_period_days,
                 dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time,
                 dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl,
-                max(_timestamp) >= toDateTime(%(python_now)s) - INTERVAL {ONGOING_SESSION_WINDOW_MINUTES} MINUTE as ongoing
+                max(_timestamp) >= toDateTime(%(python_now)s) - INTERVAL {ONGOING_SESSION_WINDOW_MINUTES} MINUTE as ongoing,
+                sum(size) as total_size,
+                sum(event_count) as event_count
             FROM
                 session_replay_events
             PREWHERE
@@ -678,6 +688,7 @@ class SessionReplayEvents:
         extra_fields: list[str] | None = None,
         limit: int | None = None,
         page: int = 0,
+        ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     ) -> SessionEventsPage:
         """Return one page of events. When `limit` is set, fetches one extra row internally to detect whether more pages exist."""
         from posthog.schema import HogQLQueryResponse
@@ -696,6 +707,7 @@ class SessionReplayEvents:
         result: HogQLQueryResponse = HogQLQueryRunner(
             team=team,
             query=hq,
+            ch_user=ch_user,
         ).calculate()
         columns, rows = result.columns, result.results
         if limit is not None and limit > 0 and rows is not None and len(rows) > limit:

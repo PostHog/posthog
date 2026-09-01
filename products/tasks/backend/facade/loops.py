@@ -34,22 +34,30 @@ from pydantic import Field
 from pydantic.dataclasses import dataclass
 
 from posthog.models import User
-from posthog.models.file_system.file_system import FileSystem
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
-from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.mcp_store.backend.facade.api import get_active_installations
 from products.tasks.backend import loop_service
+from products.tasks.backend.github_repository_access import inaccessible_repositories_via_integration
 from products.tasks.backend.logic.services import loop_runs
 from products.tasks.backend.loop_lifecycle import (
     pause_loops_for_deactivated_user,
     pause_loops_for_removed_member,
     pause_loops_referencing_integrations,
 )
-from products.tasks.backend.models import Loop, LoopTrigger, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.models import (
+    Channel,
+    Loop,
+    LoopTrigger,
+    SandboxEnvironment,
+    Task,
+    TaskClientProvenance,
+    TaskRun,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -117,14 +125,6 @@ def _deep_merge(base: dict, overlay: dict) -> dict:
         existing = merged.get(key)
         merged[key] = _deep_merge(existing, value) if isinstance(value, dict) and isinstance(existing, dict) else value
     return merged
-
-
-# Desktop file-system node types the loop's context attachment references (see LOOPS.md). A context
-# is a `folder`; a maintained living dashboard is a `dashboard` (canvas). Both live on the `desktop`
-# surface.
-DESKTOP_SURFACE = "desktop"
-DESKTOP_FOLDER_TYPE = "folder"
-DESKTOP_CANVAS_TYPE = "dashboard"
 
 
 class LoopPermissionError(Exception):
@@ -206,9 +206,9 @@ class LoopContextOutputsDTO:
 
 @dataclass(frozen=True)
 class LoopContextTargetDTO:
-    """The context (a "#channel" / desktop folder) a loop is attached to, plus what it maintains."""
+    """The context (a "#channel") a loop is attached to, plus what it maintains."""
 
-    folder_id: str
+    channel_id: str
     name: str
     outputs: LoopContextOutputsDTO = Field(default_factory=LoopContextOutputsDTO)
 
@@ -365,14 +365,14 @@ def _connectors_dto(raw: dict | None) -> LoopConnectorsDTO:
 
 def _context_target_dto(raw: dict | None) -> LoopContextTargetDTO | None:
     raw = raw or {}
-    folder_id = raw.get("folder_id")
+    channel_id = raw.get("channel_id")
     name = raw.get("name")
-    if not folder_id or not name:
+    if not channel_id or not name:
         return None
     outputs = raw.get("outputs") or {}
     canvas_id = outputs.get("canvas_id")
     return LoopContextTargetDTO(
-        folder_id=str(folder_id),
+        channel_id=str(channel_id),
         name=str(name),
         outputs=LoopContextOutputsDTO(
             post_to_feed=bool(outputs.get("post_to_feed", False)),
@@ -646,37 +646,24 @@ def repository_accessible_via_integration(team_id: int, integration_id: int, ful
     accept only an exact match against the resulting list. A missing/invalidated cache is a normal
     state, so treating it as permissive would leave the cross-project boundary bypassable; if the
     list can't be resolved (refresh error, no snapshot) we reject rather than authorize."""
-    integration = Integration.objects.filter(team_id=team_id, kind="github", id=integration_id).first()
-    if integration is None:
-        return False
-    normalized = full_name.strip().lower()
-    try:
-        repositories = GitHubIntegration(integration).list_all_cached_repositories()
-    except Exception:
-        logger.warning(
-            "loop_repository_access_check_unavailable",
-            exc_info=True,
-            extra={"team_id": team_id, "integration_id": integration_id},
-        )
-        return False
-    return any(isinstance(repo, dict) and str(repo.get("full_name", "")).lower() == normalized for repo in repositories)
+    return not inaccessible_repositories_via_integration(team_id, integration_id, [full_name])
 
 
-def _desktop_node_exists(team_id: int, node_id: str, *, node_type: str) -> bool:
-    parsed = _parse_uuid(node_id)
+def context_channel_exists(team_id: int, channel_id: str, user_id: int | None) -> bool:
+    """Whether `channel_id` is a live channel in this team (loop context-attach validation)."""
+    parsed = _parse_uuid(channel_id)
     if parsed is None:
         return False
-    return FileSystem.objects.filter(team_id=team_id, surface=DESKTOP_SURFACE, type=node_type, id=parsed).exists()
+    visible = Channel.visible_to_q(user_id)
+    return Channel.objects.filter(Q(team_id=team_id, id=parsed, deleted=False) & visible).exists()
 
 
-def desktop_folder_exists(team_id: int, folder_id: str) -> bool:
-    """Whether `folder_id` is a desktop context folder in this team (loop context-attach validation)."""
-    return _desktop_node_exists(team_id, folder_id, node_type=DESKTOP_FOLDER_TYPE)
-
-
-def desktop_canvas_exists(team_id: int, canvas_id: str) -> bool:
-    """Whether `canvas_id` is a desktop canvas in this team (loop context-attach validation)."""
-    return _desktop_node_exists(team_id, canvas_id, node_type=DESKTOP_CANVAS_TYPE)
+def context_canvas_exists(team_id: int, canvas_id: str, user_id: int | None) -> bool:
+    """Whether `canvas_id` is a canvas in this team (loop context-attach validation)."""
+    parsed = _parse_uuid(canvas_id)
+    if parsed is None:
+        return False
+    return loop_runs.context_canvas_is_visible(team_id, parsed, user_id)
 
 
 # --- CRUD ---
@@ -830,7 +817,13 @@ def _validate_context_visibility(visibility: str, context_target: dict | None) -
         raise LoopValidationError("A loop attached to a context must have team visibility.")
 
 
-def create_loop(team_id: int, user: User | None, validated_data: dict) -> LoopDTO:
+def create_loop(
+    team_id: int,
+    user: User | None,
+    validated_data: dict,
+    *,
+    client_provenance: TaskClientProvenance | None = None,
+) -> LoopDTO:
     data = dict(validated_data)
     validate_loop_write(team_id, data)
     _validate_context_visibility(data.get("visibility", Loop.Visibility.PERSONAL), data.get("context_target"))
@@ -881,6 +874,7 @@ def create_loop(team_id: int, user: User | None, validated_data: dict) -> LoopDT
             # the public API are always user-facing and attributed to `user_created`.
             internal=data.get("internal", False),
             origin_product=data.get("origin_product", Task.OriginProduct.USER_CREATED),
+            client_provenance=client_provenance,
         )
         created_triggers = [
             LoopTrigger.objects.create(
@@ -1570,8 +1564,8 @@ __all__ = [
     "create_loop",
     "delete_internal_loop",
     "delete_team_loop_schedules",
-    "desktop_canvas_exists",
-    "desktop_folder_exists",
+    "context_canvas_exists",
+    "context_channel_exists",
     "fire_loop_api",
     "fire_loop_api_for_user",
     "fire_loop_manual",

@@ -6,6 +6,7 @@ import * as magnifyingGlass from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import * as readingIsMagic from '@posthog/brand/hoggies/png/reading-is-magic'
 import * as reporter from '@posthog/brand/hoggies/png/reporter'
 import * as robot from '@posthog/brand/hoggies/png/robot'
+import * as trafficController from '@posthog/brand/hoggies/png/traffic-controller'
 import {
     IconBolt,
     IconBuilding,
@@ -14,6 +15,7 @@ import {
     IconDatabase,
     IconDecisionTree,
     IconDownload,
+    IconEye,
     IconGear,
     IconGraph,
     IconLive,
@@ -37,7 +39,7 @@ import {
 } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { ExplorerHog, FeatureFlagHog, MailHog } from 'lib/components/hedgehogs'
+import { ExplorerHog, MailHog } from 'lib/components/hedgehogs'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -52,6 +54,7 @@ const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlass)
 const HedgehogReadingIsMagic = pngHoggie(readingIsMagic)
 const HedgehogReporter = pngHoggie(reporter)
 const HedgehogRobot = pngHoggie(robot)
+const HedgehogTrafficController = pngHoggie(trafficController)
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string; color?: string }>> = {
     IconBolt,
@@ -61,6 +64,7 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string; color?:
     IconDatabase,
     IconDecisionTree,
     IconDownload,
+    IconEye,
     IconGear,
     IconGraph,
     IconLive,
@@ -221,7 +225,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
             { title: 'Release conditions', problem: 'Control who sees what based on properties or cohorts' },
             { title: 'Multivariate flags', problem: 'Test multiple variants without redeploying' },
         ],
-        hedgehog: FeatureFlagHog,
+        hedgehog: HedgehogTrafficController,
         icon: 'IconToggle',
         iconColor: 'rgb(48 171 198)',
         breadcrumbsName: 'Feature Flags',
@@ -319,6 +323,23 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         scene: Scene.Logs,
         setupEffort: 'low',
     },
+    [ProductKey.METRICS]: {
+        name: 'Metrics',
+        description: 'Chart and alert on the metrics your services already expose',
+        userCentricDescription: 'See how your services are performing over time',
+        capabilities: ['Prometheus and OpenTelemetry ingest', 'Metric charts and dashboards', 'Anomaly detection'],
+        valueProps: [
+            { title: 'Bring your existing metrics', problem: 'Scrape a Prometheus endpoint without changing your app' },
+            { title: 'Charts and dashboards', problem: 'Watch latency, throughput, and error rates over time' },
+            { title: 'Metric to trace links', problem: 'Jump from a spike straight to the trace behind it' },
+        ],
+        hedgehog: HedgehogChart,
+        icon: 'IconGraph',
+        iconColor: 'var(--color-product-metrics-light)',
+        url: urls.metrics(),
+        scene: Scene.Metrics,
+        setupEffort: 'low',
+    },
     [ProductKey.MCP_ANALYTICS]: {
         name: 'MCP analytics',
         description: 'See how AI agents use your MCP server — tool calls, intent, and failures',
@@ -332,7 +353,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         hedgehog: HedgehogRobot,
         icon: 'IconLlmAnalytics',
         iconColor: 'rgb(182 42 217)',
-        url: urls.mcpAnalyticsDashboard(),
+        url: urls.mcpAnalytics(),
         scene: Scene.MCPAnalytics,
         setupEffort: 'low',
     },

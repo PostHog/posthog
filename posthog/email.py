@@ -29,7 +29,7 @@ from posthog.celery_queues import CeleryQueue
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import sanitize_display_name, sanitize_email_string
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.messaging import MessagingRecord
+from posthog.models.messaging import MessagingRecord, get_email_hashes
 
 logger = structlog.get_logger(__name__)
 
@@ -129,6 +129,7 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "login_notification": "44",
     "personal_api_key_exposed": "45",
     "code_based_verification": "75",
+    "email_verification_code": "79",
     "feature_flags_secure_api_key_exposed": "49",
     "project_secret_api_key_exposed": "76",
     "oauth_token_exposed": "50",
@@ -246,19 +247,25 @@ def _send_via_http(
 
                 provider_response = response.json()
 
-                posthoganalytics.capture(
-                    distinct_id=dest.get("distinct_id") or dest["raw_email"],
-                    event="transactional email triggered",
-                    properties={
-                        "template_name": template_name,
-                        "campaign_key": campaign_key,
-                        "recipient_email": dest["raw_email"],
-                        **provider_response,
-                    },
-                )
-
+                # Mark delivery before any non-essential step so a delivered email is never
+                # recorded as rejected (raise_if_delivery_rejected keys off sent_at). Analytics
+                # is best-effort and isolated so its failure can't roll back a successful send.
                 record.sent_at = timezone.now()
                 record.save()
+
+                try:
+                    posthoganalytics.capture(
+                        distinct_id=dest.get("distinct_id") or dest["raw_email"],
+                        event="transactional email triggered",
+                        properties={
+                            "template_name": template_name,
+                            "campaign_key": campaign_key,
+                            "recipient_email": dest["raw_email"],
+                            **provider_response,
+                        },
+                    )
+                except Exception as analytics_err:
+                    logger.warning("email_send_analytics_capture_failed", error=str(analytics_err))
 
                 EMAIL_SEND_COUNTER.labels(outcome="sent", transport="http").inc()
                 sent_count += 1
@@ -320,11 +327,23 @@ def _send_via_smtp(
                 )
                 email_message.attach_alternative(html_body, "text/html")
 
-                connection.send_messages([email_message])
-
-                record.sent_at = timezone.now()
-                record.save()
-                EMAIL_SEND_COUNTER.labels(outcome="sent", transport="smtp").inc()
+                # Django's contract returns the accepted count, but some backends return None.
+                # Treat only an explicit 0 as rejection — a non-zero count or a None (backend that
+                # returns nothing after a non-raising handoff) means the provider took the email.
+                accepted_count = connection.send_messages([email_message])
+                if accepted_count == 0:
+                    logger.warning("email_send_smtp_not_accepted", recipient=dest["raw_email"])
+                    EMAIL_SEND_COUNTER.labels(outcome="failed", transport="smtp").inc()
+                else:
+                    if accepted_count != 1:
+                        logger.warning(
+                            "email_send_smtp_unexpected_count",
+                            recipient=dest["raw_email"],
+                            accepted_count=accepted_count,
+                        )
+                    record.sent_at = timezone.now()
+                    record.save()
+                    EMAIL_SEND_COUNTER.labels(outcome="sent", transport="smtp").inc()
     except _TRANSIENT_SMTP_ERRORS as err:
         # Re-raise so the task's autoretry (3x + backoff) retries instead of dropping the email.
         # warning, not capture_exception: expected + auto-retried, capturing each attempt is noise.
@@ -359,6 +378,29 @@ def _send_via_smtp(
                 connection.close()
             except Exception as err:
                 logger.warning("email_connection_close_failed", error=str(err))
+
+
+class EmailDeliveryError(Exception):
+    """A synchronous send returned without the provider accepting the email."""
+
+
+def was_email_delivered(campaign_key: str, email: str) -> bool:
+    """Return whether the provider accepted this campaign for this recipient (MessagingRecord.sent_at set)."""
+    return MessagingRecord.objects.filter(
+        campaign_key=campaign_key, email_hash__in=get_email_hashes(email), sent_at__isnull=False
+    ).exists()
+
+
+def raise_if_delivery_rejected(campaign_key: str, email: str) -> None:
+    """Raise EmailDeliveryError only when the provider accepted nothing for this recipient.
+
+    Only fires when zero messages were accepted: SMTP `send_messages` returned 0, or a 5xx
+    `SMTPRecipientsRefused` was swallowed without recording any delivery. Any accepted email
+    sets `MessagingRecord.sent_at` *before* a post-accept step (posthog capture, record save)
+    can raise, so a delivered email never reaches this branch.
+    """
+    if not was_email_delivered(campaign_key, email):
+        raise EmailDeliveryError(f"provider accepted no email for {email} under {campaign_key}")
 
 
 # `utm_tags` carries hardcoded query-string fragments (`a=1&b=2`) and is never

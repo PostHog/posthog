@@ -6,6 +6,9 @@ import {
     ConversationsTicketsListQueryParams,
     ConversationsTicketsMessagesListParams,
     ConversationsTicketsMessagesListQueryParams,
+    ConversationsTicketsNotesDestroyParams,
+    ConversationsTicketsNotesPartialUpdateBody,
+    ConversationsTicketsNotesPartialUpdateParams,
     ConversationsTicketsPartialUpdateBody,
     ConversationsTicketsPartialUpdateParams,
     ConversationsTicketsReplyCreateBody,
@@ -36,6 +39,7 @@ const conversationsTicketsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/`,
             query: {
+                ai_triage_result: params.ai_triage_result,
                 assignee: params.assignee,
                 channel_detail: params.channel_detail,
                 channel_source: params.channel_source,
@@ -49,10 +53,12 @@ const conversationsTicketsList = (): ToolBase<
                 priority: params.priority,
                 search: params.search,
                 sla: params.sla,
+                snoozed: params.snoozed,
                 status: params.status,
                 tags: params.tags,
                 tags_all: params.tags_all,
                 tags_exclude: params.tags_exclude,
+                view: params.view,
             },
         })
         const filtered = {
@@ -96,6 +102,49 @@ const conversationsTicketsMessagesRetrieve = (): ToolBase<
                 limit: params.limit,
                 offset: params.offset,
             },
+        })
+        return result
+    },
+})
+
+const ConversationsTicketsNotesDestroySchema = ConversationsTicketsNotesDestroyParams.omit({ project_id: true })
+
+const conversationsTicketsNotesDestroy = (): ToolBase<typeof ConversationsTicketsNotesDestroySchema, unknown> => ({
+    name: 'conversations-tickets-notes-destroy',
+    schema: ConversationsTicketsNotesDestroySchema,
+    handler: async (context: Context, params: z.infer<typeof ConversationsTicketsNotesDestroySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/${encodeURIComponent(String(params.id))}/notes/${encodeURIComponent(String(params.message_id))}/`,
+        })
+        return result
+    },
+})
+
+const ConversationsTicketsNotesPartialUpdateSchema = ConversationsTicketsNotesPartialUpdateParams.omit({
+    project_id: true,
+}).extend(ConversationsTicketsNotesPartialUpdateBody.shape)
+
+const conversationsTicketsNotesPartialUpdate = (): ToolBase<
+    typeof ConversationsTicketsNotesPartialUpdateSchema,
+    Schemas.TicketMessage
+> => ({
+    name: 'conversations-tickets-notes-partial-update',
+    schema: ConversationsTicketsNotesPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof ConversationsTicketsNotesPartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.message !== undefined) {
+            body['message'] = params.message
+        }
+        if (params.rich_content !== undefined) {
+            body['rich_content'] = params.rich_content
+        }
+        const result = await context.api.request<Schemas.TicketMessage>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/${encodeURIComponent(String(params.id))}/notes/${encodeURIComponent(String(params.message_id))}/`,
+            body,
         })
         return result
     },
@@ -196,6 +245,9 @@ const conversationsTicketsUpdate = (): ToolBase<
         if (params.priority !== undefined) {
             body['priority'] = params.priority
         }
+        if (params.assignee !== undefined) {
+            body['assignee'] = params.assignee
+        }
         if (params.sla_due_at !== undefined) {
             body['sla_due_at'] = params.sla_due_at
         }
@@ -243,6 +295,8 @@ const conversationsViewsList = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'conversations-tickets-list': conversationsTicketsList,
     'conversations-tickets-messages-retrieve': conversationsTicketsMessagesRetrieve,
+    'conversations-tickets-notes-destroy': conversationsTicketsNotesDestroy,
+    'conversations-tickets-notes-partial-update': conversationsTicketsNotesPartialUpdate,
     'conversations-tickets-reply-create': conversationsTicketsReplyCreate,
     'conversations-tickets-retrieve': conversationsTicketsRetrieve,
     'conversations-tickets-update': conversationsTicketsUpdate,

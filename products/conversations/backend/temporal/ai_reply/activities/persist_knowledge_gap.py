@@ -25,9 +25,7 @@ async def support_persist_knowledge_gap_activity(input: PersistKnowledgeGapInput
     """Record knowledge gaps from the support pipeline as suggestions for the BK product."""
     if not input.missing:
         return
-    created = await database_sync_to_async(_persist_sync, thread_sensitive=False)(
-        input.team_id, input.ticket_id, input.missing, input.ticket_type, input.outcome
-    )
+    created = await database_sync_to_async(_persist_sync, thread_sensitive=False)(input)
     if created:
         logger.info(
             "support_reply: knowledge gaps recorded",
@@ -37,17 +35,11 @@ async def support_persist_knowledge_gap_activity(input: PersistKnowledgeGapInput
         )
 
 
-def _persist_sync(
-    team_id: int,
-    ticket_id: str,
-    missing: list[str],
-    ticket_type: str,
-    outcome: str,
-) -> int:
+def _persist_sync(input: PersistKnowledgeGapInput) -> int:
     return upsert_knowledge_gaps(
-        team_id=team_id,
-        ticket_id=ticket_id,
-        topics=missing,
-        ticket_type=ticket_type,
-        outcome=outcome,
+        team_id=input.team_id,
+        ticket_id=input.ticket_id,
+        topics=input.missing,
+        ticket_type=input.ticket_type,
+        outcome=input.outcome,
     )

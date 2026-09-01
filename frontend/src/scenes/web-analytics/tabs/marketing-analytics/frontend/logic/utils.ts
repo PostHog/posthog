@@ -14,7 +14,7 @@ import {
     NodeKind,
     VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
-import { HogQLMathType, ManualLinkSourceType } from '~/types'
+import { HogQLMathType, ManualLinkSourceType, PropertyMathType } from '~/types'
 
 import { NativeSource } from './marketingAnalyticsLogic'
 
@@ -107,6 +107,16 @@ export const NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES: Partial<
     }).filter((entry): entry is [NativeMarketingSource, NativeSourceHierarchySchemaNames] => entry !== null)
 )
 
+/** Mirrors the backend `_extract_schema_name` (factory.py). Warehouse tables are named
+ * `{user_prefix}{source_type}_{schema_name}`, and the prefix is free text, so it can
+ * repeat the marker — take the last occurrence, which is always the real boundary. */
+export function extractSchemaName(tableName: string, sourceType: string): string {
+    const suffix = tableName.split('.').pop()?.toLowerCase() || ''
+    const marker = `${sourceType.toLowerCase()}_`
+    const index = suffix.lastIndexOf(marker)
+    return index === -1 ? suffix : suffix.slice(index + marker.length)
+}
+
 // Old syncs may still use a stats table's pre-rename name — mirrors the backend
 // fallback in factory.py.
 const LEGACY_TABLE_NAME_FALLBACKS: Partial<Record<NativeMarketingSource, Record<string, string[]>>> = {
@@ -183,6 +193,18 @@ export function generateUniqueName(baseName: string, existingNames: string[]): s
     }
 
     return newName
+}
+
+/**
+ * Mirrors the backend `goal_sums_a_property` (conversion_goal_processor.py): whether a goal's
+ * column holds a summed property value rather than a conversion count. The backend builds ROAS
+ * only from summing revenue goals and CAC only from counting customer goals, so the column gates
+ * here must apply the same test — otherwise the table requests a ratio column the backend leaves
+ * out, and it silently disappears.
+ */
+export function goalSumsAProperty(goal: ConversionGoalFilter): boolean {
+    const math = goal.math
+    return math === PropertyMathType.Sum || (typeof math === 'string' && math.endsWith('_sum'))
 }
 
 export function isDraftConversionGoalColumn(column: string, draftConversionGoal: ConversionGoalFilter | null): boolean {
@@ -336,7 +358,9 @@ function buildConversionExpr(
 
 const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
     GoogleAds: {
-        idField: 'id',
+        // idField is a column on the stats table, which flattens `campaign.id` to
+        // `campaign_id` and has no bare `id`.
+        idField: 'campaign_id',
         timestampField: 'segments_date',
         columnMappings: {
             cost: 'metrics_cost_micros',
@@ -379,7 +403,8 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
         },
     },
     LinkedinAds: {
-        idField: 'id',
+        // campaign_group_stats keys rows by `campaign_group_id`, it has no `id`.
+        idField: 'campaign_group_id',
         timestampField: 'date_start',
         columnMappings: {
             cost: 'cost_in_usd',
