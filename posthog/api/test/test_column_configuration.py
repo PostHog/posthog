@@ -102,6 +102,40 @@ class TestColumnConfigurationAPI(APIBaseTest):
         assert response.status_code == status.HTTP_409_CONFLICT
         assert response.json()["detail"] == "A shared view with this name already exists"
 
+    @parameterized.expand(
+        [
+            ("private", ColumnConfiguration.Visibility.PRIVATE, "A private view with this name already exists"),
+            ("shared", ColumnConfiguration.Visibility.SHARED, "A shared view with this name already exists"),
+        ]
+    )
+    def test_rename_onto_existing_view_name_returns_409(self, _name, visibility, expected_detail):
+        # Renaming a view onto a name that already exists collides on the partial unique index.
+        # The update path must return the same 409 as create, not an opaque 500.
+        ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=visibility,
+            name="Taken",
+            context_key="dupe-key",
+            columns=["*"],
+            created_by=self.user,
+        )
+        to_rename = ColumnConfiguration.objects.create(
+            team=self.team,
+            visibility=visibility,
+            name="Original",
+            context_key="dupe-key",
+            columns=["*"],
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/column_configurations/{to_rename.id}/",
+            {"name": "Taken"},
+        )
+
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert response.json()["detail"] == expected_detail
+
     def test_user_can_only_access_their_private_views(self):
         ColumnConfiguration.objects.create(
             team=self.team,

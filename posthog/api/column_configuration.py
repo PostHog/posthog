@@ -175,9 +175,20 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return super().create(request, *args, **kwargs)
 
     def perform_create(self, serializer):
+        instance = self._save_view(serializer, team=self.team, created_by=self.request.user)
+        self._log_activity(instance=instance, previous=None)
+
+    def perform_update(self, serializer):
+        previous = self.get_object()
+        instance = self._save_view(serializer)
+        self._log_activity(instance=instance, previous=previous)
+
+    def _save_view(self, serializer, **save_kwargs):
+        # The partial unique indexes are DB-enforced, and DRF can't pre-validate them because
+        # they include `team`, which isn't a serializer field. So a duplicate name reaches
+        # Postgres as an IntegrityError on both create and rename. Map it to a 409 either way.
         try:
-            instance = serializer.save(team=self.team, created_by=self.request.user)
-            self._log_activity(instance=instance, previous=None)
+            return serializer.save(**save_kwargs)
         except IntegrityError as e:
             error_str = str(e)
             if "unique_user_view_name" in error_str:
@@ -185,11 +196,6 @@ class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             elif "unique_team_view_name" in error_str:
                 raise Conflict(detail="A shared view with this name already exists")
             raise
-
-    def perform_update(self, serializer):
-        previous = self.get_object()
-        instance = serializer.save()
-        self._log_activity(instance=instance, previous=previous)
 
     def _log_activity(self, instance, previous):
         log_activity_from_viewset(
