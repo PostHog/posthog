@@ -8,7 +8,6 @@ files are fetched and cached.
 import random
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import field
 from http import HTTPStatus
 from typing import Protocol, TypeVar
 
@@ -16,8 +15,9 @@ from django.core.cache import cache
 
 import requests
 import structlog
-from posthog_owners import OwnersResolver
+from posthog_owners import OwnershipSource, OwnersResolver
 from posthog_owners.matcher import normalize_path
+from requests.adapters import HTTPAdapter
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import github_request
@@ -31,7 +31,7 @@ _T = TypeVar("_T")
 
 # The raw host serves a public repo's files off a CDN, so these reads draw on no GitHub API rate
 # limit, and the HEAD ref follows the default branch. A private repo answers 404 to all of it, which
-# the root-file guard in RepoOwnership catches.
+# the root-file guard in _place catches.
 _RAW_HOST = "https://raw.githubusercontent.com"
 _REF = "HEAD"
 _EGRESS_SOURCE = "engineering_analytics_ownership"
@@ -51,51 +51,71 @@ _ABSENT = "\x00absent"
 
 _ROOT_OWNERS_FILE = "owners.yaml"
 
-# Directories a suite can run from, so its tests arrive named relative to one of these.
-_SUITE_ROOTS = ("nodejs/", "frontend/", "services/mcp/")
+# Directories a TypeScript suite can run from, so its tests arrive named relative to one of these.
+# Keep in step with jest_root_for_suite in .github/scripts/report_test_timings.py, which stamps the
+# same repositioning onto the CI spans.
+_SUITE_ROOTS = ("nodejs/", "frontend/", "services/mcp/", "common/replay-shared/")
 
 
 class OwnershipUnavailable(Exception):
     """The repository's ownership files could not be read, so no attribution is trustworthy."""
 
 
-class RepoFiles(Protocol):
-    def read(self, path: str) -> str | None: ...
+class RepoFiles(OwnershipSource, Protocol):
+    """An ownership source that also answers which paths the repository holds, in batches."""
 
-    def exists(self, path: str) -> bool: ...
+    def exists_all(self, paths: list[str]) -> dict[str, bool]: ...
 
-    def warm(self, paths: list[str]) -> None: ...
+    def read_all(self, paths: list[str]) -> None: ...
 
 
-@frozen
 class GitHubRepoFiles:
-    """A public repository's files over HTTPS, cached. One per batch: it holds the batch's memo and
-    its HTTP connections."""
+    """A public repository's files over HTTPS, cached in Redis. Build one per batch: it holds the
+    batch's memo and its HTTP connections."""
 
-    repository: str
-    # The resolver reads each file again after the batch warmed it, and Redis is a network hop too.
-    _memo: dict[str, str | None] = field(default_factory=dict)
-    _session: requests.Session = field(default_factory=requests.Session)
+    def __init__(self, repository: str) -> None:
+        self.repository = repository
+        # Raw cache values, so ``_ABSENT`` rather than None for a file the repository does not hold.
+        # The resolver reads each file again after the batch fetched it, and Redis is a network hop too.
+        self._bodies: dict[str, str] = {}
+        self._session = requests.Session()
+        # requests pools 10 connections by default and discards the overflow, so a smaller pool than
+        # the worker count makes most of the batch pay a fresh TLS handshake.
+        self._session.mount(_RAW_HOST, HTTPAdapter(pool_connections=_FETCH_WORKERS, pool_maxsize=_FETCH_WORKERS))
 
     def read(self, path: str) -> str | None:
-        if path not in self._memo:
-            body = self._cached("text", path, lambda: self._body("GET", path))
-            self._memo[path] = None if body == _ABSENT else body
-        return self._memo[path]
+        if path not in self._bodies:
+            self.read_all([path])
+        return None if self._bodies[path] == _ABSENT else self._bodies[path]
 
-    def exists(self, path: str) -> bool:
-        return bool(self._cached("exists", path, lambda: self._body("HEAD", path) != _ABSENT))
+    def read_all(self, paths: list[str]) -> None:
+        """Take every file the batch needs before it reads any, so one Redis round trip and one
+        concurrent fetch cover them all."""
+        self._bodies.update(self._batch("text", [p for p in paths if p not in self._bodies], self._get))
 
-    def warm(self, paths: list[str]) -> None:
-        _fetch_all(self.read, paths)
+    def exists_all(self, paths: list[str]) -> dict[str, bool]:
+        return self._batch("exists", paths, self._head)
 
-    def _cached(self, kind: str, path: str, fetch: Callable[[], _T]) -> _T:
-        key = f"{_CACHE_PREFIX}:{kind}:{self.repository}:{_REF}:{path}"
-        cached = cache.get(key)
-        if cached is None:
-            cached = fetch()
-            cache.set(key, cached, _CACHE_TTL_SECONDS + random.randint(0, _CACHE_TTL_JITTER_SECONDS))
-        return cached
+    def _batch(self, kind: str, paths: Iterable[str], fetch: Callable[[str], _T]) -> dict[str, _T]:
+        todo = list(dict.fromkeys(paths))
+        if not todo:
+            return {}
+        by_key = {self._key(kind, path): path for path in todo}
+        known = {by_key[key]: value for key, value in cache.get_many(list(by_key)).items()}
+        fetched = _fetch_all(fetch, [path for path in todo if path not in known])
+        if fetched:
+            cache.set_many({self._key(kind, path): value for path, value in fetched.items()}, _ttl())
+            known.update(fetched)
+        return known
+
+    def _key(self, kind: str, path: str) -> str:
+        return f"{_CACHE_PREFIX}:{kind}:{self.repository}:{_REF}:{path}"
+
+    def _get(self, path: str) -> str:
+        return self._body("GET", path)
+
+    def _head(self, path: str) -> bool:
+        return self._body("HEAD", path) != _ABSENT
 
     def _body(self, method: str, path: str) -> str:
         """The file's text, or ``_ABSENT`` when the repository has no such file. Any status but 200
@@ -150,42 +170,44 @@ class RepoOwnershipResult:
     resolved: bool
 
 
-class RepoOwnership:
-    """Ownership for one repository's tests. Build one per batch: it parses each ownership file once."""
+def resolve_test_ownership(
+    repository: str, tests: list[QuarantinedTestFile], files: RepoFiles | None = None
+) -> RepoOwnershipResult:
+    """Place every test in the repository and name the team that owns it."""
+    reader = files if files is not None else GitHubRepoFiles(repository)
+    try:
+        return RepoOwnershipResult(tests=_place(repository, reader, tests), resolved=True)
+    except OwnershipUnavailable:
+        # One unreadable file makes every later answer suspect too, so the batch fails together
+        # rather than attributing part of it.
+        logger.exception("repo_ownership_unavailable", repository=repository)
+        return RepoOwnershipResult(tests=[UNPLACED] * len(tests), resolved=False)
 
-    def __init__(self, repository: str, files: RepoFiles | None = None) -> None:
-        self._repository = repository
-        self._files: RepoFiles = files if files is not None else GitHubRepoFiles(repository=repository)
-        self._resolver = OwnersResolver(source=self._files)
 
-    def for_tests(self, tests: list[QuarantinedTestFile]) -> RepoOwnershipResult:
-        try:
-            return RepoOwnershipResult(tests=self._resolve(tests), resolved=True)
-        except OwnershipUnavailable:
-            # One unreadable file makes every later answer suspect too, so the batch fails together
-            # rather than attributing part of it.
-            logger.exception("repo_ownership_unavailable", repository=self._repository)
-            return RepoOwnershipResult(tests=[UNPLACED] * len(tests), resolved=False)
+def _place(repository: str, files: RepoFiles, tests: list[QuarantinedTestFile]) -> list[PlacedTest]:
+    if files.read(_ROOT_OWNERS_FILE) is None:
+        # Every repo this runs against declares one, so its absence proves the reader is blind
+        # (a private or renamed repo answers 404 to everything), not that nobody owns anything.
+        raise OwnershipUnavailable(f"{repository} has no root {_ROOT_OWNERS_FILE}")
+    resolver = OwnersResolver(source=files)
+    candidates = [_candidate_paths(test) for test in tests]
+    present = files.exists_all([path for group in candidates for path in group])
+    placed = [next((path for path in group if present[path]), None) for group in candidates]
+    found = [path for path in placed if path]
+    files.read_all(resolver.ownership_file_paths(found))
+    owners = resolver.map(found)
+    return [
+        PlacedTest(
+            # A Rust crate is placed by its manifest, which is not the test's file.
+            path="" if path is None or test.crate else path,
+            owner_team=_team(owners[path].owners if path else None),
+        )
+        for test, path in zip(tests, placed, strict=True)
+    ]
 
-    def _resolve(self, tests: list[QuarantinedTestFile]) -> list[PlacedTest]:
-        if self._files.read(_ROOT_OWNERS_FILE) is None:
-            # Every repo this runs against declares one, so its absence proves the reader is blind
-            # (a private or renamed repo answers 404 to everything), not that nobody owns anything.
-            raise OwnershipUnavailable(f"{self._repository} has no root {_ROOT_OWNERS_FILE}")
-        candidates = [_candidate_paths(test) for test in tests]
-        present = _fetch_all(self._files.exists, [path for group in candidates for path in group])
-        placed = [next((path for path in group if present[path]), None) for group in candidates]
-        found = [path for path in placed if path]
-        self._files.warm(self._resolver.ownership_file_paths(found))
-        owners = self._resolver.map(found)
-        return [
-            PlacedTest(
-                # A Rust crate is placed by its manifest, which is not the test's file.
-                path="" if path is None or test.crate else path,
-                owner_team=_team(owners[path].owners if path else None),
-            )
-            for test, path in zip(tests, placed, strict=True)
-        ]
+
+def _ttl() -> int:
+    return _CACHE_TTL_SECONDS + random.randint(0, _CACHE_TTL_JITTER_SECONDS)
 
 
 def _team(owners: list[str] | None) -> str:
@@ -224,6 +246,8 @@ def _candidate_paths(test: QuarantinedTestFile) -> list[str]:
     reported = _strip_relative_prefix(normalize_path(test.source_path))
     if "/" not in reported:
         return []  # a suite name ('pytest', a jest project), not a file
+    if reported.endswith(".py"):
+        return [reported]  # pytest runs from the repo root, and every suite root holds TypeScript
     return [reported, *(f"{root}{reported}" for root in _SUITE_ROOTS)]
 
 

@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from types import SimpleNamespace
 
 from unittest.mock import patch
@@ -8,6 +8,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.dataclasses import frozen
+
 from products.engineering_analytics.backend.facade.contracts import UNOWNED_TEAM
 from products.engineering_analytics.backend.logic.ownership import (
     UNPLACED,
@@ -15,7 +17,7 @@ from products.engineering_analytics.backend.logic.ownership import (
     OwnershipUnavailable,
     PlacedTest,
     QuarantinedTestFile,
-    RepoOwnership,
+    resolve_test_ownership,
 )
 
 _OWNERS = {
@@ -35,7 +37,7 @@ _TRACKED = {
 }
 
 
-@dataclass
+@frozen(frozen=False)
 class _FakeRepoFiles:
     owners: dict[str, str] = field(default_factory=lambda: dict(_OWNERS))
     tracked: set[str] = field(default_factory=lambda: set(_TRACKED))
@@ -43,24 +45,22 @@ class _FakeRepoFiles:
     def read(self, path: str) -> str | None:
         return self.owners.get(path)
 
-    def exists(self, path: str) -> bool:
-        return path in self.tracked
+    def exists_all(self, paths: list[str]) -> dict[str, bool]:
+        return {path: path in self.tracked for path in paths}
 
-    def warm(self, paths: list[str]) -> None:
+    def read_all(self, paths: list[str]) -> None:
         pass
 
 
 def _placements(files: _FakeRepoFiles) -> list[PlacedTest]:
-    return (
-        RepoOwnership("PostHog/posthog", files=files)
-        .for_tests(
-            [
-                QuarantinedTestFile(source_path="src/cdp/cdp-e2e.serial.test.ts", crate=""),
-                QuarantinedTestFile(source_path="", crate="personhog-coordination"),
-            ]
-        )
-        .tests
-    )
+    return resolve_test_ownership(
+        "PostHog/posthog",
+        [
+            QuarantinedTestFile(source_path="src/cdp/cdp-e2e.serial.test.ts", crate=""),
+            QuarantinedTestFile(source_path="", crate="personhog-coordination"),
+        ],
+        files=files,
+    ).tests
 
 
 class TestRepoOwnership(SimpleTestCase):
@@ -90,8 +90,9 @@ class TestRepoOwnership(SimpleTestCase):
         ]
     )
     def test_places_a_test_and_names_its_owner(self, source_path: str, crate: str, path: str, owner: str) -> None:
-        ownership = RepoOwnership("PostHog/posthog", files=_FakeRepoFiles())
-        [placed] = ownership.for_tests([QuarantinedTestFile(source_path=source_path, crate=crate)]).tests
+        [placed] = resolve_test_ownership(
+            "PostHog/posthog", [QuarantinedTestFile(source_path=source_path, crate=crate)], files=_FakeRepoFiles()
+        ).tests
         assert placed.path == path
         assert placed.owner_team == owner
 
@@ -109,7 +110,7 @@ class TestRepoOwnership(SimpleTestCase):
         assert _placements(no_root) == [UNPLACED, UNPLACED]
 
     def test_a_resolved_batch_says_so(self) -> None:
-        assert RepoOwnership("PostHog/posthog", files=_FakeRepoFiles()).for_tests([]).resolved
+        assert resolve_test_ownership("PostHog/posthog", [], files=_FakeRepoFiles()).resolved
 
 
 class TestGitHubRepoFiles(SimpleTestCase):
@@ -124,17 +125,17 @@ class TestGitHubRepoFiles(SimpleTestCase):
             return_value=_response(status),
         ):
             with self.assertRaises(OwnershipUnavailable):
-                GitHubRepoFiles(repository="PostHog/posthog").read("owners.yaml")
+                GitHubRepoFiles("PostHog/posthog").read("owners.yaml")
 
     def test_a_missing_file_is_absent_and_fetched_once(self) -> None:
         with patch(
             "products.engineering_analytics.backend.logic.ownership.github_request",
             return_value=_response(404),
         ) as request:
-            files = GitHubRepoFiles(repository="PostHog/posthog")
+            files = GitHubRepoFiles("PostHog/posthog")
             assert files.read("nodejs/owners.yaml") is None
             assert files.read("nodejs/owners.yaml") is None
-            assert GitHubRepoFiles(repository="PostHog/posthog").read("nodejs/owners.yaml") is None
+            assert GitHubRepoFiles("PostHog/posthog").read("nodejs/owners.yaml") is None
         assert request.call_count == 1
 
 

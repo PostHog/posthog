@@ -13,7 +13,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     TrunkQuarantinedTest,
     TrunkQuarantineTeamDebt,
 )
-from products.engineering_analytics.backend.logic.ownership import QuarantinedTestFile, RepoOwnership
+from products.engineering_analytics.backend.logic.ownership import QuarantinedTestFile, resolve_test_ownership
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
 _QUARANTINED_SELECT = """
@@ -75,15 +75,14 @@ def query_trunk_quarantine_debt(
             tests=[],
         )
 
-    owned_by_test = RepoOwnership(curated.repository).for_tests(
-        [
-            QuarantinedTestFile(source_path=source_path, crate=crate)
-            for _runner, _nodeid, source_path, crate, *_rest in rows
-        ]
-    )
+    parsed = [
+        (runner, nodeid, QuarantinedTestFile(source_path=source_path, crate=crate), status, setting, case_id, at)
+        for runner, nodeid, source_path, crate, status, setting, case_id, at in rows
+    ]
+    owned_by_test = resolve_test_ownership(curated.repository, [row[2] for row in parsed])
     tests: list[TrunkQuarantinedTest] = []
-    for (runner, nodeid, _path, _crate, status, quarantine_setting, test_case_id, quarantined_at), owned in zip(
-        rows, owned_by_test.tests, strict=True
+    for (runner, nodeid, _file, status, quarantine_setting, test_case_id, quarantined_at), owned in zip(
+        parsed, owned_by_test.tests, strict=True
     ):
         if quarantined_at.tzinfo is None:
             quarantined_at = quarantined_at.replace(tzinfo=UTC)
