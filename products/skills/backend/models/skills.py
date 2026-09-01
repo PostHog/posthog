@@ -38,8 +38,8 @@ class LLMSkill(UUIDModel):
         ]
         indexes = [
             # The lazy-seed reconcilers read every version of one skill, tombstones included, so
-            # they pass no `deleted` predicate and the partial unique indexes above cannot serve
-            # them. Without this index Postgres scans the team's whole skill history per lookup.
+            # they pass no `deleted` predicate and the partial unique constraints above cannot
+            # serve them. Without this, Postgres scans the team's whole skill history per lookup.
             models.Index(fields=["team", "name", "-version"], name="llm_skill_team_name_ver_idx"),
         ]
 
