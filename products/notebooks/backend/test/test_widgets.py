@@ -139,7 +139,10 @@ class TestWidgetGeneration(SimpleTestCase):
         assert "Self-contained means no downloaded assets, not flat or textureless materials" in prompt
         assert "THREE.CanvasTexture" in prompt
         assert "give every planet a distinct procedural surface" in prompt
-        assert "choose encodings that fit the data" in prompt
+        assert "`@posthog/quill-charts`" in prompt
+        assert "prefer `@posthog/quill-charts` over `recharts`" in prompt
+        assert "useChartTheme()" in prompt
+        assert "Choose encodings that fit the data" in prompt
         assert "Fill 100% of the available width and height" in prompt
         assert "ResizeObserver" in prompt
         assert "Always provide controls for interacting with the visualization" in prompt

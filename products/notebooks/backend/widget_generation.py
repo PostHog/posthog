@@ -117,7 +117,7 @@ Before producing the source, privately plan the visual composition, implementati
 
 The source must:
 - Default-export one React component that takes no props. Do not import `react-dom` or call `createRoot`.
-- Use only static imports from `react`, `@posthog/quill`, `recharts`, `lucide-react`, `dayjs`, `d3`, `three`, or `framer-motion`. Do not import package subpaths.
+- Use only static imports from `react`, `@posthog/quill`, `@posthog/quill-charts`, `recharts`, `lucide-react`, `dayjs`, `d3`, `three`, or `framer-motion`. Do not import package subpaths.
 - Do not import `usePostHog` or any other analytics hook from `@posthog/quill`. Use React state and the provided `ph` bridge only.
 - Read notebook data only with `await ph.readFrame("literal_name", {{ offset, limit }})`, using one of {json.dumps(input_names)}.
 - Read only the available frames that help answer the request. Do not read every frame by default, and use none when the request does not need notebook data.
@@ -128,7 +128,8 @@ The source must:
 - Make the requested subject or data story immediately recognizable. Match its distinctive silhouette, proportions, spatial relationships, material cues, and visual hierarchy. Do not reduce a complex subject to one generic primitive or a placeholder symbol.
 - For illustrative or 3D scenes, compose complex forms from appropriate geometry and procedural details. Deliberately frame the focal point and use lighting, depth, color, and motion to communicate its form.
 - When a 3D subject normally has visible surface detail, generate texture maps in code with `THREE.CanvasTexture`, `THREE.DataTexture`, layered noise, gradients, bands, spots, craters, or similar procedural techniques. Apply color maps and, where useful, bump or roughness maps. Self-contained means no downloaded assets, not flat or textureless materials. Never render planets, terrain, fruit, or other naturally textured subjects with only solid-color materials. In solar systems, give every planet a distinct procedural surface using recognizable bands, clouds, continents, craters, storms, or ice where appropriate. Dispose every generated texture on unmount.
-- For data visualizations, choose encodings that fit the data and include useful context, labels, legends, and formatting without clutter.
+- For data visualizations, prefer `@posthog/quill-charts` over `recharts`. Use `useChartTheme()` and give each chart container a real height.
+- Choose encodings that fit the data and include useful context, labels, legends, and formatting without clutter.
 - Fill 100% of the available width and height. Do not impose a fixed size, aspect ratio, maximum width, or maximum height on the root layout.
 - Respond to container resizes with `ResizeObserver`. For HTML canvas or WebGL output, resize the renderer and update the camera or coordinate system without leaving whitespace.
 - Always provide controls for interacting with the visualization. For 3D output, support camera orbit, pan, and zoom with pointer and touch input, using only the allowed imports. For 2D output, provide controls for exploring or manipulating the data, such as filters, zoom, ranges, parameters, or series toggles.

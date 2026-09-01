@@ -56,6 +56,19 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertIn(".quill-button", stylesheet["content"])
         self.assertIn("--background", stylesheet["content"])
 
+    def test_canvas_build_bundles_quill_charts(self) -> None:
+        payload = synthetic_source_project(
+            'import { TimeSeriesLineChart, useChartTheme } from "@posthog/quill-charts"; '
+            'export default function Canvas() { const theme = useChartTheme(); return <div className="h-64">'
+            '<TimeSeriesLineChart series={[{ key: "events", label: "Events", data: [1, 2] }]} '
+            'labels={["2026-01-01", "2026-01-02"]} theme={theme} /></div> }'
+        )
+
+        result = run_cloud_builder(payload)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        validate_builder_output(result)
+
     def test_publication_validation_allows_relative_worker_and_asset_imports(self) -> None:
         payload = synthetic_source_project(
             'import workerUrl from "./sum.worker.ts?worker"; import image from "../assets/pixel.png"; void workerUrl; void image'
