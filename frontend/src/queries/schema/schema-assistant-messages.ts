@@ -460,7 +460,6 @@ export type AssistantTool =
     | 'create_hog_function_filters'
     | 'create_hog_function_inputs'
     | 'create_message_template'
-    | 'create_broadcast'
     | 'filter_error_tracking_issues'
     | 'search_error_tracking_issues'
     | 'find_error_tracking_impactful_issue_event_list'
