@@ -550,7 +550,8 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
             "should have targeted, in 'owner/repo' format (case-insensitive). It is recorded with "
             "the dismissal and fed into future repository selection for this project. When the "
             "repository is connected to the project, it also becomes the report's corrected repo "
-            "selection, so restoring the report re-researches against it."
+            "selection, which the report's next research run targets once new signals re-promote "
+            "it. Restoring the report does not itself start a research run."
         ),
     )
     snooze_for = serializers.IntegerField(
