@@ -1662,12 +1662,14 @@ class TestComputationExecutorExecute(BaseTest):
     def test_returns_immediately_when_all_ranges_ready(self):
         query_info, query_hash = self._make_query_info()
 
+        computed_at = django_timezone.now() - timedelta(minutes=30)
         ready_job = PreaggregationJob.objects.create(
             team=self.team,
             query_hash=query_hash,
             time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
             time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
             status=PreaggregationJob.Status.READY,
+            computed_at=computed_at,
             expires_at=django_timezone.now() + timedelta(days=7),
         )
 
@@ -1682,6 +1684,8 @@ class TestComputationExecutorExecute(BaseTest):
 
         assert result.ready is True
         assert ready_job.id in result.job_ids
+        # The materialized-at time of the served window is surfaced for the "data as of X" badge.
+        assert result.computed_at == computed_at
 
     def test_inserts_missing_ranges_and_returns_all_job_ids(self):
         query_info, query_hash = self._make_query_info()
