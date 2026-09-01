@@ -100,6 +100,21 @@ class TestSizeLint:
         assert from_worktree == []
         assert [finding.crossed for finding in from_head] == [True]
 
+    def test_a_file_moved_twice_is_still_not_a_new_one(self, repo: Path) -> None:
+        # A commit rename and a staged rename come back as two separate records, so one
+        # lookup lands on the intermediate name, which does not exist at the base. That
+        # reads as a new file and blames the move for a crossing it did not cause.
+        _write(repo, "posthog/big.py", CROSSED_AT + 100)
+        _commit_on_branch(repo)
+        _git(repo, "checkout", "-qb", "feature")
+        _git(repo, "mv", "posthog/big.py", "posthog/middle.py")
+        _commit_on_branch(repo)
+        _git(repo, "mv", "posthog/middle.py", "posthog/final.py")
+
+        findings = _findings(["posthog/final.py"], _merge_base(None))
+
+        assert findings == []
+
     def test_at_most_one_note_for_files_that_were_already_huge(self, repo: Path) -> None:
         # Reporting every oversized file fires on most commits. One note keeps the
         # reading cost visible without burning context on a list.
@@ -138,10 +153,20 @@ class TestSizeLint:
         _write(repo, "posthog/big.py", CROSSED_AT + 100)
         _commit_on_branch(repo)
 
-        result = runner.invoke(cli, ["lint:size", "--against", "no-such-ref", "posthog/big.py"])
+        unresolvable = runner.invoke(cli, ["lint:size", "--against", "no-such-ref", "posthog/big.py"])
+        assert unresolvable.exit_code != 0
+        assert "no-such-ref" in unresolvable.output
 
-        assert result.exit_code != 0
-        assert "no-such-ref" in result.output
+        # A ref that resolves but shares no history fails the same way, because it also
+        # leaves nothing to compare against.
+        _git(repo, "checkout", "-q", "--orphan", "unrelated")
+        _write(repo, "posthog/other.py", 1)
+        _commit_on_branch(repo)
+        _git(repo, "checkout", "-q", "feature")
+
+        unrelated = runner.invoke(cli, ["lint:size", "--against", "unrelated", "posthog/big.py"])
+        assert unrelated.exit_code != 0
+        assert "unrelated" in unrelated.output
 
     def test_cli_reports_findings_without_failing(self, repo: Path, tmp_path: Path) -> None:
         # The check is advisory, and preflight reads a soft check as a warning only when

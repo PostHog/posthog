@@ -118,6 +118,22 @@ def _renamed_from(base: str) -> dict[str, str]:
     return _rename_map(f"{base}...HEAD") | _rename_map("--cached", "HEAD")
 
 
+def _path_at_base(sources: dict[str, str], path: str) -> str:
+    """Follow a rename chain back to the name the file had at the merge base.
+
+    A file renamed in a commit and again in the index produces two separate records,
+    so one lookup lands on the intermediate name, which does not exist at the base.
+    That reads as a new file and reports a crossing the move did not cause.
+    """
+    seen = {path}
+    while path in sources:
+        path = sources[path]
+        if path in seen:  # a rename cycle would otherwise loop forever
+            break
+        seen.add(path)
+    return path
+
+
 def _lines_at(rev: str, path: str) -> int:
     result = _git("show", f"{rev}:{path}")
     return 0 if result.returncode != 0 else len(result.stdout.splitlines())
@@ -149,7 +165,7 @@ def _findings(files: list[str], base: str | None, rev: str | None = None) -> lis
         # CROSSED_AT is the lower of the two thresholds, so nothing under it is reportable.
         if lines <= CROSSED_AT:
             continue
-        was = _lines_at(base, sources.get(path, path)) if base is not None else 0
+        was = _lines_at(base, _path_at_base(sources, path)) if base is not None else 0
         # Without a base there is no "before" size, so nothing can be called a crossing.
         if base is not None and was <= CROSSED_AT:
             crossings.append(Finding(file=path, lines=lines, was=was, crossed=True))
@@ -200,10 +216,12 @@ def _report(finding: Finding) -> None:
     help="Also write the findings as JSON to this path (used by the CI report poster).",
 )
 def cmd_lint_size(files: tuple[str, ...], against: str | None, committed: bool, report_path: str | None) -> None:
+    base = _merge_base(against)
     # Explicit files skip changed_files, which is what would otherwise reject a bad ref.
-    # Without this a typo reads as "no base available" and quietly turns crossings off.
-    if against is not None and _git("rev-parse", "--verify", "--quiet", f"{against}^{{commit}}").returncode != 0:
-        raise click.UsageError(f"git ref {against!r} could not be resolved")
+    # Degrading here instead would turn crossing detection off without saying so, and a
+    # ref that resolves but shares no history fails the same way a typo does.
+    if against is not None and base is None:
+        raise click.UsageError(f"no merge base with {against!r}: check the ref exists and shares history")
     paths = list(files) if files else changed_files(against)
     in_scope = [
         path
@@ -211,7 +229,6 @@ def cmd_lint_size(files: tuple[str, ...], against: str | None, committed: bool, 
         if (REPO_ROOT / path).is_file() and matches_globs(path, SCOPE) and not matches_globs(path, EXCLUDED)
     ]
 
-    base = _merge_base(against)
     if in_scope and base is None:
         # Printed to stdout so a soft preflight check reports a degraded run as a
         # warning rather than a silent pass.
