@@ -19,7 +19,9 @@ import { linksEmptyState } from 'products/links/frontend/emptyState/linksEmptySt
 import { logsEmptyState } from 'products/logs/frontend/emptyState/logsEmptyState'
 import { mcpAnalyticsEmptyState } from 'products/mcp_analytics/frontend/emptyState/mcpAnalyticsEmptyState'
 import { metricsEmptyState } from 'products/metrics/frontend/emptyState/metricsEmptyState'
+import { productAnalyticsEmptyState } from 'products/product_analytics/frontend/emptyState/productAnalyticsEmptyState'
 import { productToursEmptyState } from 'products/product_tours/frontend/emptyState/productToursEmptyState'
+import { sessionReplayEmptyState } from 'products/replay/frontend/emptyState/sessionReplayEmptyState'
 import { replayVisionEmptyState } from 'products/replay_vision/frontend/emptyState/replayVisionEmptyState'
 import { llmSkillsEmptyState } from 'products/skills/frontend/emptyState/llmSkillsEmptyState'
 import { surveysEmptyState } from 'products/surveys/frontend/emptyState/surveysEmptyState'
@@ -216,6 +218,17 @@ export const DashboardsNeedsSetup: ProductEmptyStateStory = productEmptyStateSto
     { mocks: dashboardsMocks }
 )
 
+// Product analytics detection lists insights on mount - answer "none yet".
+const productAnalyticsMocks = {
+    get: { '/api/projects/:team_id/insights/': [200, { count: 0, results: [] }] },
+} as const
+
+export const ProductAnalyticsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    productAnalyticsEmptyState,
+    'needs-setup',
+    { mocks: productAnalyticsMocks }
+)
+
 // Error tracking detection asks the issues-exists API on mount - answer "none yet".
 const errorTrackingMocks = {
     get: { '/api/projects/:team_id/error_tracking/issues/exists/': [200, { exists: false }] },
@@ -254,3 +267,21 @@ export const MetricsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
 export const SurveysNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(surveysEmptyState, 'needs-setup', {
     mocks: { get: { '/api/projects/:team_id/surveys/': [200, { count: 0, results: [] }] } },
 })
+
+// Session replay detection lists recordings on mount - answer "none yet".
+const sessionReplayMocks = {
+    // nosemgrep: no-environments-api-urls-frontend -- api.recordings is env-scoped, so the msw mock must match /api/environments to intercept it
+    get: { '/api/environments/:team_id/session_recordings': [200, { results: [] }] },
+} as const
+
+export const SessionReplayNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    sessionReplayEmptyState,
+    'needs-setup',
+    { mocks: sessionReplayMocks }
+)
+
+export const SessionReplayWaitingForData: ProductEmptyStateStory = productEmptyStateStory(
+    sessionReplayEmptyState,
+    'waiting-for-data',
+    { mocks: sessionReplayMocks }
+)
