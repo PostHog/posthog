@@ -101375,6 +101375,10 @@ export namespace Schemas {
      * @minLength 1
      */
     name?: string;
+    /**
+     * Read one workflow version's metrics instead of the workflow's whole history. Workflow metrics only; ignored elsewhere. Use it to compare a change against the version before it.
+     */
+    version?: number;
     };
 
     export type HogFlowsMetricsRetrieveBreakdownBy = typeof HogFlowsMetricsRetrieveBreakdownBy[keyof typeof HogFlowsMetricsRetrieveBreakdownBy];
@@ -101437,6 +101441,10 @@ export namespace Schemas {
      * @minLength 1
      */
     name?: string;
+    /**
+     * Read one workflow version's metrics instead of the workflow's whole history. Workflow metrics only; ignored elsewhere. Use it to compare a change against the version before it.
+     */
+    version?: number;
     };
 
     export type HogFlowsMetricsTotalsRetrieveBreakdownBy = typeof HogFlowsMetricsTotalsRetrieveBreakdownBy[keyof typeof HogFlowsMetricsTotalsRetrieveBreakdownBy];
@@ -101637,6 +101645,10 @@ export namespace Schemas {
      * @minLength 1
      */
     name?: string;
+    /**
+     * Read one workflow version's metrics instead of the workflow's whole history. Workflow metrics only; ignored elsewhere. Use it to compare a change against the version before it.
+     */
+    version?: number;
     };
 
     export type HogFunctionsMetricsRetrieveBreakdownBy = typeof HogFunctionsMetricsRetrieveBreakdownBy[keyof typeof HogFunctionsMetricsRetrieveBreakdownBy];
@@ -101699,6 +101711,10 @@ export namespace Schemas {
      * @minLength 1
      */
     name?: string;
+    /**
+     * Read one workflow version's metrics instead of the workflow's whole history. Workflow metrics only; ignored elsewhere. Use it to compare a change against the version before it.
+     */
+    version?: number;
     };
 
     export type HogFunctionsMetricsTotalsRetrieveBreakdownBy = typeof HogFunctionsMetricsTotalsRetrieveBreakdownBy[keyof typeof HogFunctionsMetricsTotalsRetrieveBreakdownBy];
