@@ -124,6 +124,12 @@ tools:
             safe.
 
 
+            A key lookup that finds nothing does not mean the flag is absent. Archived flags are hidden from
+            `feature-flag-get-definition-by-key` and from `feature-flag-get-all`, so a flag that is already archived
+            looks missing on a retry. Pass `archived=true` to `feature-flag-get-all` before you report the flag as
+            missing.
+
+
             Use `feature-flag-unarchive` to put the flag back in the list, or `delete-feature-flag` when the user wants
             it gone rather than tidied away.
         param_overrides:
@@ -158,6 +164,11 @@ tools:
             Returns 400 when other active flags depend on this one; `feature-flags-dependent-flags-retrieve` lists them.
             Returns 409 when an approval policy gates disabling. Disabling an already-disabled flag succeeds and changes
             nothing, so retrying is safe.
+
+
+            A key lookup that finds nothing does not mean the flag is absent. Archived flags are hidden from
+            `feature-flag-get-definition-by-key` and from `feature-flag-get-all`, and an archived flag is already
+            disabled. Pass `archived=true` to `feature-flag-get-all` before you report the flag as missing.
 
 
             To turn the flag off at a future time instead, use `scheduled-changes-create` with the `update_status`
