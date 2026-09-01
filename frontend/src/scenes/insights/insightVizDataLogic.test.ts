@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS, FunnelLayout } from 'lib/constants'
+import { FunnelLayout } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelInvalidExclusionError, funnelResult } from 'scenes/funnels/__mocks__/funnelDataLogicMocks'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -471,11 +471,7 @@ describe('insightVizDataLogic', () => {
             })
         })
 
-        it('auto-selects quarter interval for >36-month range when flag is on', async () => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS]: true,
-            })
-
+        it('auto-selects quarter interval for >36-month range', async () => {
             await expectLogic(builtInsightDataLogic, () => {
                 builtInsightVizDataLogic.actions.updateDateRange({
                     date_from: '2020-01-01',
@@ -489,33 +485,6 @@ describe('insightVizDataLogic', () => {
                         kind: NodeKind.InsightVizNode,
                         source: expect.objectContaining({
                             interval: 'quarter',
-                        }),
-                    },
-                })
-
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS]: false,
-            })
-        })
-
-        it('auto-selects month interval for >36-month range when flag is off', async () => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS]: false,
-            })
-
-            await expectLogic(builtInsightDataLogic, () => {
-                builtInsightVizDataLogic.actions.updateDateRange({
-                    date_from: '2020-01-01',
-                    date_to: '2024-01-01',
-                    explicitDate: true,
-                })
-            })
-                .toFinishAllListeners()
-                .toMatchValues({
-                    query: {
-                        kind: NodeKind.InsightVizNode,
-                        source: expect.objectContaining({
-                            interval: 'month',
                         }),
                     },
                 })
@@ -779,30 +748,9 @@ describe('insightVizDataLogic', () => {
                     hour: { label: 'hour', newDateFrom: 'dStart' },
                     month: { label: 'month', newDateFrom: '-90d' },
                     week: { label: 'week', newDateFrom: '-30d' },
-                    quarter: { label: 'quarter', newDateFrom: '-3y', hidden: true },
-                    year: { label: 'year', newDateFrom: '-5y', hidden: true },
+                    quarter: { label: 'quarter', newDateFrom: '-3y' },
+                    year: { label: 'year', newDateFrom: '-5y' },
                 },
-            })
-        })
-
-        it('unhides quarter and year when the flag is enabled', () => {
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS]: true,
-            })
-
-            expect(builtInsightVizDataLogic.values.enabledIntervals.quarter).toEqual({
-                label: 'quarter',
-                newDateFrom: '-3y',
-                hidden: false,
-            })
-            expect(builtInsightVizDataLogic.values.enabledIntervals.year).toEqual({
-                label: 'year',
-                newDateFrom: '-5y',
-                hidden: false,
-            })
-
-            featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS]: false,
             })
         })
 
@@ -841,14 +789,12 @@ describe('insightVizDataLogic', () => {
                     quarter: {
                         label: 'quarter',
                         newDateFrom: '-3y',
-                        hidden: true,
                         disabledReason:
                             'Grouping by quarter is not supported on insights with weekly active users series.',
                     },
                     year: {
                         label: 'year',
                         newDateFrom: '-5y',
-                        hidden: true,
                         disabledReason:
                             'Grouping by year is not supported on insights with weekly active users series.',
                     },
