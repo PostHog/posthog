@@ -118,7 +118,7 @@ export const PRICE_LOOKUP_TIMEOUT_MS = 1500
 /** The parts of a kernel status the sandbox-start notice reads, from either source it can come from. */
 type NotebookKernelStatusLike = {
     backend?: string | null
-    next_hourly_price?: number | null
+    hourly_price?: number | null
 }
 
 export const SQL_V2_DEFAULT_PAGE_SIZE = 50
@@ -642,7 +642,7 @@ export const notebookNodeSQLV2Logic = kea<notebookNodeSQLV2LogicType>([
                 }
                 // Only a Modal sandbox is charged. A local Docker kernel is free, so quoting a
                 // rate for one would invent a bill the user will never be sent.
-                const hourlyPrice = status?.backend === 'modal' ? (status.next_hourly_price ?? null) : null
+                const hourlyPrice = status?.backend === 'modal' ? (status.hourly_price ?? null) : null
                 lemonToast.info(
                     hourlyPrice == null
                         ? 'Starting a compute sandbox. The cell will run once it’s ready.'

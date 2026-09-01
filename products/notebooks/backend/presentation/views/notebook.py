@@ -979,9 +979,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             "memory_gb": sandbox_config.memory_gb,
             "disk_size_gb": sandbox_config.disk_size_gb,
             "idle_timeout_seconds": sandbox_config.ttl_seconds,
-            "next_hourly_price": get_compute_rates().hourly_price(
-                cpu_cores=cpu_cores, memory_gb=sandbox_config.memory_gb
-            ),
+            "hourly_price": get_compute_rates().hourly_price(cpu_cores=cpu_cores, memory_gb=sandbox_config.memory_gb),
             "preset_key": self._preset_key_for(cpu_cores, sandbox_config.memory_gb),
         }
         return Response(NotebookKernelStatusResponseSerializer(payload).data)
@@ -1000,6 +998,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         serializer.is_valid(raise_exception=True)
         notebook = self._get_notebook_for_kernel()
         update_fields = []
+        # A sandbox takes its size at provision time, so a live one keeps the old shape until it
+        # restarts. Capture the shape before the write so we can tell whether a restart is the
+        # only way to make the configuration true.
+        shape_before = build_notebook_sandbox_config(notebook)
 
         if "cpu_cores" in serializer.validated_data:
             notebook.kernel_cpu_cores = serializer.validated_data["cpu_cores"]
@@ -1017,16 +1019,34 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # Price the shape the next sandbox will actually get, so a notebook that leaves one knob
         # unset is still quoted against the default that fills it in.
         configured = build_notebook_sandbox_config(notebook)
+        kernel_is_live = KernelRuntime.objects.filter(
+            team_id=self.team_id,
+            notebook_short_id=notebook.short_id,
+            status__in=(KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING),
+        ).exists()
+        shape_changed = (
+            abs(shape_before.cpu_cores - configured.cpu_cores) > 1e-6
+            or abs(shape_before.memory_gb - configured.memory_gb) > 1e-6
+        )
+
+        # Restart on a resize so the quoted price describes the sandbox that is actually running.
+        # Only on a resize: a restart discards every materialized dataframe, which is too much to
+        # spend on an idle-timeout change that a live sandbox cannot pick up anyway.
+        restarted = False
+        if kernel_is_live and shape_changed:
+            try:
+                get_kernel_runtime(notebook, self._current_user()).restart()
+                restarted = True
+            except (SandboxProvisionError, RuntimeError):
+                logger.exception("notebook_kernel_config_restart_failed", notebook_short_id=notebook.short_id)
+
         config_payload = {
             "cpu_cores": notebook.kernel_cpu_cores,
             "memory_gb": notebook.kernel_memory_gb,
             "idle_timeout_seconds": notebook.kernel_idle_timeout_seconds,
-            "restart_required": KernelRuntime.objects.filter(
-                team_id=self.team_id,
-                notebook_short_id=notebook.short_id,
-                status__in=(KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING),
-            ).exists(),
-            "next_hourly_price": get_compute_rates().hourly_price(
+            "restarted": restarted,
+            "restart_required": kernel_is_live and not restarted,
+            "hourly_price": get_compute_rates().hourly_price(
                 cpu_cores=configured.cpu_cores, memory_gb=configured.memory_gb
             ),
             "preset_key": self._preset_key_for(configured.cpu_cores, configured.memory_gb),

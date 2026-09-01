@@ -1,4 +1,5 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -12,7 +13,7 @@ from products.notebooks.backend.compute_pricing import (
     get_default_compute_preset,
 )
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config
-from products.notebooks.backend.models import Notebook
+from products.notebooks.backend.models import KernelRuntime, Notebook
 
 
 class TestComputePricing(SimpleTestCase):
@@ -88,7 +89,7 @@ class TestComputeOptionsEndpoint(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         payload = response.json()
-        assert payload["next_hourly_price"] == get_compute_rates().hourly_price(cpu_cores=4, memory_gb=8)
+        assert payload["hourly_price"] == get_compute_rates().hourly_price(cpu_cores=4, memory_gb=8)
         assert payload["preset_key"] == "balanced"
 
     def test_config_quotes_the_default_for_knobs_the_notebook_leaves_unset(self) -> None:
@@ -103,10 +104,68 @@ class TestComputeOptionsEndpoint(APIBaseTest):
         assert response.status_code == 200, response.json()
         payload = response.json()
         assert payload["cpu_cores"] is None
-        assert payload["next_hourly_price"] == get_compute_rates().hourly_price(
+        assert payload["hourly_price"] == get_compute_rates().hourly_price(
             cpu_cores=default_preset.cpu_cores, memory_gb=default_preset.memory_gb
         )
         assert payload["preset_key"] == DEFAULT_COMPUTE_PRESET_KEY
+
+    def _live_kernel(self, notebook: Notebook) -> KernelRuntime:
+        return KernelRuntime.objects.create(
+            team=self.team,
+            notebook=notebook,
+            notebook_short_id=notebook.short_id,
+            user=self.user,
+            status=KernelRuntime.Status.RUNNING,
+            backend=KernelRuntime.Backend.MODAL,
+        )
+
+    @patch("products.notebooks.backend.presentation.views.notebook.get_kernel_runtime")
+    def test_a_resize_restarts_the_live_kernel(self, mock_runtime: MagicMock) -> None:
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, kernel_cpu_cores=1, kernel_memory_gb=2)
+        self._live_kernel(notebook)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/kernel/config/",
+            {"cpu_cores": 4, "memory_gb": 8},
+        )
+
+        assert response.status_code == 200, response.json()
+        mock_runtime.return_value.restart.assert_called_once()
+        payload = response.json()
+        assert payload["restarted"] is True
+        # The quote now describes the sandbox that is actually running.
+        assert payload["restart_required"] is False
+
+    @patch("products.notebooks.backend.presentation.views.notebook.get_kernel_runtime")
+    def test_an_idle_timeout_change_leaves_the_kernel_alone(self, mock_runtime: MagicMock) -> None:
+        # A restart discards every materialized dataframe, which is far too much to spend on a
+        # setting a live sandbox cannot pick up anyway.
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, kernel_cpu_cores=4, kernel_memory_gb=8)
+        self._live_kernel(notebook)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/kernel/config/",
+            {"idle_timeout_seconds": 1800},
+        )
+
+        assert response.status_code == 200, response.json()
+        mock_runtime.return_value.restart.assert_not_called()
+        payload = response.json()
+        assert payload["restarted"] is False
+        assert payload["restart_required"] is True
+
+    @patch("products.notebooks.backend.presentation.views.notebook.get_kernel_runtime")
+    def test_a_resize_with_no_live_kernel_starts_nothing(self, mock_runtime: MagicMock) -> None:
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, kernel_cpu_cores=1, kernel_memory_gb=2)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/kernel/config/",
+            {"cpu_cores": 4, "memory_gb": 8},
+        )
+
+        assert response.status_code == 200, response.json()
+        mock_runtime.return_value.restart.assert_not_called()
+        assert response.json()["restarted"] is False
 
     def test_a_new_sandbox_gets_the_default_preset_shape(self) -> None:
         notebook = Notebook.objects.create(team=self.team, created_by=self.user)
