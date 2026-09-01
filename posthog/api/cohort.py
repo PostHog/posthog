@@ -1695,12 +1695,21 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             if is_basic_list:
                 queryset = queryset.defer("query")
 
-        # `created_by` and `team` are forward FKs, so `select_related` JOINs them in
-        # one query instead of the two extra round-trips `prefetch_related` costs.
-        # `select_related` selects every team column, bypassing the `.defer(*DEPRECATED_ATTRS)`
-        # that `TeamManager` applies on lazy loads. Re-apply it so the JOIN skips the deprecated
-        # taxonomy columns, which TOAST out to megabytes per team and get re-read for every row.
-        queryset = queryset.select_related("created_by", "team").defer(*(f"team__{attr}" for attr in DEPRECATED_ATTRS))
+        # `created_by` and `team` are forward FKs, so `select_related` JOINs them in one query
+        # instead of the extra round-trips `prefetch_related` costs. The list serializer never
+        # reads `cohort.team`, so the list path only `select_related`s `created_by`. Project
+        # scoping still JOINs `posthog_team` to filter on `project_id`, but without hydration that
+        # JOIN reads only the id — not the full team payload (heavy JSON and array columns) each
+        # cohort row would otherwise carry. Detail and write actions do read `cohort.team`, so they
+        # keep the hydrating JOIN but re-apply `.defer(*DEPRECATED_ATTRS)` — mirroring
+        # `TeamManager`'s lazy-load defer — so the deprecated taxonomy columns, which TOAST out to
+        # megabytes per team, stay off it.
+        if self.action == "list":
+            queryset = queryset.select_related("created_by")
+        else:
+            queryset = queryset.select_related("created_by", "team").defer(
+                *(f"team__{attr}" for attr in DEPRECATED_ATTRS)
+            )
 
         # `experiment_set` is a reverse relation (a prefetch) and the per-row correlated
         # subquery over CohortCalculationHistory only feeds `last_error_message`. The basic

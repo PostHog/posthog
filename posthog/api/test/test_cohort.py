@@ -33,7 +33,7 @@ from posthog.models.async_deletion.async_deletion import AsyncDeletion
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.person.util import get_person_by_id
 from posthog.models.property import BehavioralPropertyType
-from posthog.models.team.team import DEPRECATED_ATTRS, Team
+from posthog.models.team.team import Team
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_ch,
     calculate_cohort_from_list,
@@ -366,10 +366,13 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
-    def test_list_cohorts_does_not_select_deprecated_team_columns(self, patch_calculate_cohort, patch_capture):
-        # The list JOINs `posthog_team` via `select_related`, which bypasses the
-        # `.defer(*DEPRECATED_ATTRS)` that TeamManager applies on lazy loads. Guard that the fat
-        # deprecated taxonomy columns stay out of the JOIN so the list does not read them per row.
+    def test_list_cohorts_does_not_hydrate_team(self, patch_calculate_cohort, patch_capture):
+        # The list serializer never reads `cohort.team`, so the cohort SELECT must not hydrate the
+        # team payload — the heavy JSON and array columns each row would otherwise carry. Project
+        # scoping still JOINs `posthog_team` to filter on `project_id`, so guard the payload columns
+        # specifically rather than the JOIN. The nplus1 query-count guard would not catch a re-added
+        # `select_related("team")`, since hydrating columns onto that existing JOIN adds no query,
+        # so assert the SQL directly.
         self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
@@ -379,9 +382,13 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
         assert response.status_code == status.HTTP_200_OK
 
-        for query in context.captured_queries:
-            for attr in DEPRECATED_ATTRS:
-                assert f'posthog_team"."{attr}"' not in query["sql"]
+        cohort_queries = [q["sql"] for q in context.captured_queries if 'FROM "posthog_cohort"' in q["sql"]]
+        assert cohort_queries, "expected the list to run a query against posthog_cohort"
+        # These team payload columns are never part of the cohort filter, so their presence would
+        # mean the team row is hydrated onto each cohort row.
+        for sql in cohort_queries:
+            for column in ("test_account_filters", "session_replay_config"):
+                assert f'posthog_team"."{column}"' not in sql
 
     @parameterized.expand(
         [
