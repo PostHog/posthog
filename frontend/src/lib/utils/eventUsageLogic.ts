@@ -828,9 +828,11 @@ export interface eventUsageLogicActions {
     }
     reportDashboardLoadingTime: (
         loadingMilliseconds: number,
-        dashboardId: number
+        dashboardId: number,
+        insightsFetched: number
     ) => {
         dashboardId: number
+        insightsFetched: number
         loadingMilliseconds: number
     }
     reportDashboardModeToggled: (
@@ -2850,9 +2852,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportFeatureFlagScheduleSuccess: true,
         reportFeatureFlagScheduleFailure: (error) => ({ error }),
         reportInviteMembersButtonClicked: true,
-        reportDashboardLoadingTime: (loadingMilliseconds: number, dashboardId: number) => ({
+        reportDashboardLoadingTime: (loadingMilliseconds: number, dashboardId: number, insightsFetched: number) => ({
             loadingMilliseconds,
             dashboardId,
+            insightsFetched,
         }),
         reportInstanceSettingChange: (name: string, value: string | boolean | number) => ({ name, value }),
         reportAxisUnitsChanged: (properties: Record<string, any>) => ({ ...properties }),
@@ -3162,8 +3165,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportPersonalIntegrationConnectClicked: ({ kind }) => {
             posthog.capture('personal integration connect clicked', { integration_kind: kind })
         },
-        reportDashboardLoadingTime: async ({ loadingMilliseconds, dashboardId }) => {
-            posthog.capture('dashboard loading time', { loadingMilliseconds, dashboardId })
+        reportDashboardLoadingTime: async ({ loadingMilliseconds, dashboardId, insightsFetched }) => {
+            posthog.capture('dashboard loading time', {
+                loadingMilliseconds,
+                dashboardId,
+                insights_fetched: insightsFetched,
+            })
         },
         reportInsightRefreshTime: async ({ loadingMilliseconds, insightShortId }) => {
             posthog.capture('insight refresh time', { loadingMilliseconds, insightShortId })

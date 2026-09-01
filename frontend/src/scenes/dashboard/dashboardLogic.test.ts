@@ -353,6 +353,19 @@ describe('dashboardLogic', () => {
         })
     })
 
+    describe('load timing', () => {
+        it('reports dashboard loading time with insights_fetched once tiles settle', async () => {
+            eventUsageLogic.mount()
+            const reportLoadingTime = jest.spyOn(eventUsageLogic.actions, 'reportDashboardLoadingTime')
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            // The report must wait for the tile refresh to settle, so it carries insights_fetched.
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(reportLoadingTime).toHaveBeenCalledWith(expect.any(Number), 5, expect.any(Number))
+        })
+    })
+
     describe('tile layouts', () => {
         beforeEach(() => {
             logic = dashboardLogic({ id: 5 })
