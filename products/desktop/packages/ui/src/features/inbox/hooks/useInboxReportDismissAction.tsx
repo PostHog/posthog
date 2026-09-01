@@ -22,6 +22,7 @@ const EMPTY_REPORTS: SignalReport[] = [];
 export function useInboxReportDismissAction(
   report: SignalReport,
   surface: InboxReportActionSurface = "detail_pane",
+  triageId?: string,
 ): {
   actionButton: ReactElement;
   dialog: ReactElement | null;
@@ -40,6 +41,7 @@ export function useInboxReportDismissAction(
     reportsForActions,
     open ? report.id : null,
     surface,
+    triageId,
   );
 
   const isPending = bulkActions.isSuppressing || bulkActions.isSnoozing;

@@ -101,7 +101,9 @@ export function ReportTriageFocus({
   const [expanded, setExpanded] = useState(false);
   const chatOpen = useReportChatPanelStore((state) => state.open);
   const setChatOpen = useReportChatPanelStore((state) => state.setOpen);
+  const triageIdRef = useRef(crypto.randomUUID());
   const sessionContextRef = useRef({
+    triage_id: triageIdRef.current,
     queue_size: reports.length,
     scope: inboxReviewerScopeValue(scope),
     has_active_filters: hasActiveFilters,
@@ -187,6 +189,7 @@ export function ReportTriageFocus({
     allReports,
     report?.id ?? null,
     "triage",
+    triageIdRef.current,
   );
   const dismissPending = bulkActions.isSuppressing || bulkActions.isSnoozing;
 
@@ -299,10 +302,15 @@ export function ReportTriageFocus({
               variant="triage-actions"
               prHotkey={dismissOpen || !prShortcut ? undefined : "c"}
               surface="triage"
+              triageId={triageIdRef.current}
             />
           }
           reviewers={
-            <SuggestedReviewerAvatarStack report={report} surface="triage" />
+            <SuggestedReviewerAvatarStack
+              report={report}
+              surface="triage"
+              triageId={triageIdRef.current}
+            />
           }
           onExit={handleExit}
           onPrevious={goPrev}
@@ -322,7 +330,13 @@ export function ReportTriageFocus({
           />
         )}
       </div>
-      {chatOpen && <ReportChatSidebar report={report} />}
+      {chatOpen && (
+        <ReportChatSidebar
+          report={report}
+          surface="triage"
+          triageId={triageIdRef.current}
+        />
+      )}
     </div>
   );
 }
