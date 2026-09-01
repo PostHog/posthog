@@ -128,50 +128,53 @@ export default function SchemaForm(): JSX.Element {
                 const isUnavailable = !!schema.permission_error
 
                 return (
-                    <div className="flex items-center gap-2">
-                        <span
-                            className={`font-mono ${
-                                isUnavailable ? 'text-muted-alt line-through cursor-not-allowed' : 'cursor-pointer'
-                            }`}
-                            onClick={() => {
-                                if (isUnavailable) {
-                                    return
-                                }
-                                onClickCheckbox(schema, !schema.should_sync)
-                            }}
-                        >
-                            {schema.label || schema.table}
-                        </span>
-                        {schema.description && (
-                            <Tooltip title={schema.description}>
-                                <IconInfo className="text-muted-alt text-base" />
-                            </Tooltip>
-                        )}
-                        {isUnavailable && (
-                            <Tooltip
-                                title={`Source credentials cannot read this table: ${schema.permission_error}. Grant the missing scope in your source provider and reconnect.`}
-                                placement="top"
+                    <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                            <span
+                                className={`font-mono ${
+                                    isUnavailable ? 'text-muted-alt line-through cursor-not-allowed' : 'cursor-pointer'
+                                }`}
+                                onClick={() => {
+                                    if (isUnavailable) {
+                                        return
+                                    }
+                                    onClickCheckbox(schema, !schema.should_sync)
+                                }}
                             >
-                                <LemonTag type="warning" className="cursor-help">
-                                    <IconWarning className="mr-1" />
-                                    Permission missing
-                                </LemonTag>
-                            </Tooltip>
-                        )}
-                        {isSuggested && (
-                            <Tooltip title={tooltip} placement="top">
-                                <LemonTag type="primary" className="cursor-help">
-                                    Suggested
-                                </LemonTag>
-                            </Tooltip>
-                        )}
-                        {schema.rls_warning && (
-                            <Tooltip title={schema.rls_warning} placement="top">
-                                <LemonTag type="warning" className="cursor-help">
-                                    <IconWarning className="mr-1" />
-                                    RLS may hide rows
-                                </LemonTag>
-                            </Tooltip>
+                                {schema.label || schema.table}
+                            </span>
+                            {isUnavailable && (
+                                <Tooltip
+                                    title={`Source credentials cannot read this table: ${schema.permission_error}. Grant the missing scope in your source provider and reconnect.`}
+                                    placement="top"
+                                >
+                                    <LemonTag type="warning" className="cursor-help">
+                                        <IconWarning className="mr-1" />
+                                        Permission missing
+                                    </LemonTag>
+                                </Tooltip>
+                            )}
+                            {isSuggested && (
+                                <Tooltip title={tooltip} placement="top">
+                                    <LemonTag type="primary" className="cursor-help">
+                                        Suggested
+                                    </LemonTag>
+                                </Tooltip>
+                            )}
+                            {schema.rls_warning && (
+                                <Tooltip title={schema.rls_warning} placement="top">
+                                    <LemonTag type="warning" className="cursor-help">
+                                        <IconWarning className="mr-1" />
+                                        RLS may hide rows
+                                    </LemonTag>
+                                </Tooltip>
+                            )}
+                        </div>
+                        {schema.description && (
+                            <div className="flex items-start gap-1 text-muted-alt text-xs max-w-prose">
+                                <IconInfo className="text-sm shrink-0 mt-0.5" />
+                                <span>{schema.description}</span>
+                            </div>
                         )}
                     </div>
                 )

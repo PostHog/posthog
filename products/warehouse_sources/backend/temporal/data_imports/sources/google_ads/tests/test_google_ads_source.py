@@ -2069,6 +2069,8 @@ class TestBreakdownStatsDefaultOff:
             "user_location_stats",
             "ad_group_criterion",
             "campaign_criterion",
+            "search_term_stats",
+            "keyword_stats",
         ],
     )
     def test_breakdown_stats_are_opt_in_and_described(self, alias):
