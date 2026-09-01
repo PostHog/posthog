@@ -1,5 +1,9 @@
 # Wizard registry
 
+Status: design document for the Wizard run stack.
+This layer ships only the data models and the registry parsing described under "Remote configuration".
+The "API" routes and the "Cloud execution" workers describe planned behavior and do not exist yet; they land in later stack layers.
+
 The Wizard Registry lists the programs a person can run in the Wizard.
 Programs are personalized by the signed-in user's distinct ID and the organization that owns the selected project.
 
