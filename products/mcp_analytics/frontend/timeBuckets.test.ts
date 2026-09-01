@@ -12,6 +12,14 @@ import {
 } from './timeBuckets'
 
 describe('timeBuckets', () => {
+    beforeEach(() => {
+        jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
+    })
+
+    afterEach(() => {
+        jest.useRealTimers()
+    })
+
     describe('normalizeBucket', () => {
         // Guards the flat-zero-sparkline bug: however the query serializes the bucket, its
         // wall-clock digits must survive verbatim, even when the browser sits in a different
@@ -48,21 +56,16 @@ describe('timeBuckets', () => {
         })
 
         it('emits one key per day across a relative window, including empty trailing days', () => {
-            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
-            try {
-                expect(buildBucketKeys('-7d', null, 'UTC', 'day')).toEqual([
-                    '2026-06-11 00:00:00',
-                    '2026-06-12 00:00:00',
-                    '2026-06-13 00:00:00',
-                    '2026-06-14 00:00:00',
-                    '2026-06-15 00:00:00',
-                    '2026-06-16 00:00:00',
-                    '2026-06-17 00:00:00',
-                    '2026-06-18 00:00:00',
-                ])
-            } finally {
-                jest.useRealTimers()
-            }
+            expect(buildBucketKeys('-7d', null, 'UTC', 'day')).toEqual([
+                '2026-06-11 00:00:00',
+                '2026-06-12 00:00:00',
+                '2026-06-13 00:00:00',
+                '2026-06-14 00:00:00',
+                '2026-06-15 00:00:00',
+                '2026-06-16 00:00:00',
+                '2026-06-17 00:00:00',
+                '2026-06-18 00:00:00',
+            ])
         })
 
         it('truncates weekly buckets to ISO Monday starts (matching ClickHouse dateTrunc)', () => {
@@ -95,13 +98,8 @@ describe('timeBuckets', () => {
         })
 
         it('produces keys a normalized query bucket lands on', () => {
-            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
-            try {
-                const keys = buildBucketKeys('-7d', null, 'UTC', 'day')
-                expect(keys).toContain(normalizeBucket('2026-06-18T00:00:00Z'))
-            } finally {
-                jest.useRealTimers()
-            }
+            const keys = buildBucketKeys('-7d', null, 'UTC', 'day')
+            expect(keys).toContain(normalizeBucket('2026-06-18T00:00:00Z'))
         })
     })
 
