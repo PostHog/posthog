@@ -121,9 +121,9 @@ class PropertyDefinition(UUIDTModel):
             # The taxonomy list query (`QueryContext.as_sql`) filters on project, type, and group type
             # index, then orders by name. `index_property_def_query_proj` above cannot serve that order:
             # `query_usage_30_day` sits between the equality prefix and `name`, so the planner sorts every
-            # matching row instead of walking the index to the limit. Only event definitions write that
-            # column, so on property definitions it is always null. This index drops it, so the read
-            # can stop at the page it asked for.
+            # matching row instead of walking the index to the limit. The planner reads its path keys from
+            # the index shape, not the stored values, so this column blocks the name-order walk whatever it
+            # holds. This index drops it, so the read can stop at the page it asked for.
             models.Index(
                 Coalesce(F("project_id"), F("team_id")),
                 F("type"),
