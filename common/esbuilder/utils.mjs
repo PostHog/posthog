@@ -90,18 +90,55 @@ export function copyIndexHtml(
 
     const jsFileFallback = `${entry}.js?t=${buildId}`
     const scriptCode = `
-        window.ESBUILD_LOAD_SCRIPT = async function (file) {
+        function esbuildStaticUrl(file) {
+            return (window.JS_URL || '') + '/static/' + file
+        }
+        async function esbuildChunkError(file, url, cause) {
+            // A parse error means the request returned the wrong body (CSS or HTML instead of JS).
+            // Fetch the URL again to read what the server actually served, so the captured error
+            // names the chunk, the resolved URL, and the content type instead of a bare SyntaxError.
+            let contentType = 'unknown';
             try {
-                await import((window.JS_URL || '') + '/static/' + file)
+                const response = await fetch(url, { cache: 'no-store' });
+                contentType = response.headers.get('content-type') || 'unknown';
+            } catch (fetchError) {
+                // Keep 'unknown' when the follow-up request also fails.
+            }
+            const error = new Error(
+                'Failed to load chunk "' + file + '" from "' + url + '" (content-type: ' + contentType + '): ' + ((cause && cause.message) || cause)
+            );
+            error.name = 'ChunkLoadError';
+            error.chunk = file;
+            error.url = url;
+            error.contentType = contentType;
+            error.cause = cause;
+            return error;
+        }
+        function esbuildReportChunkError(error) {
+            console.error(error);
+            // Re-throw out of band so the global error handler records the structured error
+            // instead of a context-free unhandled rejection.
+            setTimeout(function () { throw error; });
+        }
+        window.ESBUILD_LOAD_SCRIPT = async function (file) {
+            const url = esbuildStaticUrl(file);
+            try {
+                await import(url);
             } catch (error) {
-                console.error('Error loading chunk: "' + file + '"')
-                console.error(error)
-                if (file === ${JSON.stringify(jsFile)} && file !== ${JSON.stringify(jsFileFallback)}) {
-                    await import((window.JS_URL || '') + '/static/' + ${JSON.stringify(jsFileFallback)})
+                const fallbackFile = ${JSON.stringify(jsFileFallback)};
+                if (file === ${JSON.stringify(jsFile)} && file !== fallbackFile) {
+                    const fallbackUrl = esbuildStaticUrl(fallbackFile);
+                    try {
+                        await import(fallbackUrl);
+                        return;
+                    } catch (fallbackError) {
+                        throw await esbuildChunkError(fallbackFile, fallbackUrl, fallbackError);
+                    }
                 }
+                throw await esbuildChunkError(file, url, error);
             }
         }
-        window.ESBUILD_LOAD_SCRIPT(${JSON.stringify(jsFile)})
+        window.ESBUILD_LOAD_SCRIPT(${JSON.stringify(jsFile)}).catch(esbuildReportChunkError)
     `
 
     // Esbuild "chunks" a scene into possibly hundreds of tiny files. When we load the first few files,
@@ -117,8 +154,12 @@ export function copyIndexHtml(
             const chunks = ${JSON.stringify(chunksToServe)}[name] || [];
             for (const chunk of chunks) {
                 if (!window.ESBUILD_LOADED_CHUNKS.has(chunk)) {
-                    window.ESBUILD_LOAD_SCRIPT('chunk-'+chunk+'.js');
-                    window.ESBUILD_LOADED_CHUNKS.add(chunk);
+                    // Mark the chunk loaded only after the import resolves, so a failed chunk is
+                    // retried on the next call instead of being skipped forever. These calls are
+                    // fire-and-forget (see sceneLogic), so catch the rejection here.
+                    window.ESBUILD_LOAD_SCRIPT('chunk-'+chunk+'.js')
+                        .then(function () { window.ESBUILD_LOADED_CHUNKS.add(chunk); })
+                        .catch(esbuildReportChunkError);
                 }
             }
         }
