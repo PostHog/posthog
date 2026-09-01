@@ -571,28 +571,12 @@ def test_patch_rejects_destination_type_change(
     organization,
     team,
     user,
-    aws_s3_integration,
+    s3_batch_export_data,
     bigquery_integration,
 ):
     """Assert PATCH cannot change the destination type — callers must delete and recreate."""
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
     client.force_login(user)
-    batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
+    batch_export = create_batch_export_ok(client, team.pk, s3_batch_export_data)
 
     new_destination_data = {
         "type": "BigQuery",
@@ -623,27 +607,11 @@ def test_put_rejects_destination_type_change(
     organization,
     team,
     user,
-    aws_s3_integration,
+    s3_batch_export_data,
 ):
     """Assert PUT cannot change the destination type either — same restriction as PATCH."""
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
     client.force_login(user)
-    batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
+    batch_export = create_batch_export_ok(client, team.pk, s3_batch_export_data)
 
     new_batch_export_data = {
         "name": "my-production-s3-bucket-destination",
@@ -668,31 +636,15 @@ def test_put_rejects_destination_type_change(
 
 
 def test_can_patch_hogql_query(
-    client: HttpClient, temporal, encryption_codec, organization, team, user, aws_s3_integration
+    client: HttpClient, temporal, encryption_codec, organization, team, user, s3_batch_export_data
 ):
     """Test we can patch a schema with a HogQL query."""
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
     client.force_login(user)
 
     batch_export = create_batch_export_ok(
         client,
         team.pk,
-        batch_export_data,
+        s3_batch_export_data,
     )
     old_schedule = describe_schedule(temporal, batch_export["id"])
 

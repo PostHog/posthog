@@ -199,7 +199,7 @@ def test_can_run_s3_test_step_for_destination(
 
 
 def test_run_test_step_rejects_destination_type_change(
-    client: HttpClient, temporal, organization, team, user, aws_s3_integration
+    client: HttpClient, temporal, organization, team, user, s3_batch_export_data
 ):
     """A test step must not be able to change the destination type of an existing export.
 
@@ -208,24 +208,8 @@ def test_run_test_step_rejects_destination_type_change(
     tested against that endpoint.
     """
 
-    destination_data = {
-        "type": "AwsS3",
-        "integration": aws_s3_integration.id,
-        "config": {
-            "bucket_name": "my-production-s3-bucket",
-            "region": "us-east-1",
-            "prefix": "posthog-events/",
-        },
-    }
-
-    batch_export_data = {
-        "name": "my-production-s3-bucket-destination",
-        "destination": destination_data,
-        "interval": "hour",
-    }
-
     client.force_login(user)
-    batch_export = create_batch_export_ok(client, team.pk, batch_export_data)
+    batch_export = create_batch_export_ok(client, team.pk, s3_batch_export_data)
 
     malicious_data = {
         "name": "my-production-s3-bucket-destination",
