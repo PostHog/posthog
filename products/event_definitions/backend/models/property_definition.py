@@ -118,6 +118,19 @@ class PropertyDefinition(UUIDTModel):
                 F("name").asc(),
                 name="index_property_def_query_proj",
             ),
+            # The taxonomy list query (`QueryContext.as_sql`) filters on project, type, and group type
+            # index, then orders by name. `index_property_def_query_proj` above cannot serve that order:
+            # `query_usage_30_day` sits between the equality prefix and `name`, so the planner sorts every
+            # matching row instead of walking the index to the limit. Only event definitions write that
+            # column, so on property definitions it is always null. This index drops it, so the read
+            # can stop at the page it asked for.
+            models.Index(
+                Coalesce(F("project_id"), F("team_id")),
+                F("type"),
+                Coalesce(F("group_type_index"), -1),
+                F("name").asc(),
+                name="index_propdef_proj_name",
+            ),
             # creates an index pganalyze identified as missing
             # https://app.pganalyze.com/servers/i35ydkosi5cy5n7tly45vkjcqa/checks/index_advisor/missing_index/15282978
             models.Index(fields=["team_id", "type", "is_numerical"]),
