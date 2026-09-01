@@ -13,10 +13,13 @@ intraday schedule reports today, the finalizer reports yesterday.
 """
 
 import json
+from collections.abc import Awaitable, Callable
 from datetime import timedelta
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+from temporalio.client import Client, Schedule
 
 from posthog.temporal.schedule import (
     create_finalize_experimental_realtime_usage_schedule,
@@ -34,6 +37,8 @@ EXPERIMENTAL_SCHEDULE_CASES = [
     (create_gather_experimental_realtime_usage_schedule, "gather-experimental-realtime-usage-schedule", 0),
     (create_finalize_experimental_realtime_usage_schedule, "finalize-experimental-realtime-usage-schedule", 1),
 ]
+
+ScheduleCreator = Callable[[Client], Awaitable[None]]
 
 
 @pytest.mark.asyncio
@@ -146,11 +151,13 @@ async def test_finalizer_schedule_retries_until_the_day_is_captured() -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("create_schedule_fn,schedule_id,expected_day_offset", EXPERIMENTAL_SCHEDULE_CASES)
 async def test_experimental_realtime_usage_schedules_are_separate_and_serializable(
-    create_schedule_fn, schedule_id, expected_day_offset
+    create_schedule_fn: ScheduleCreator, schedule_id: str, expected_day_offset: int
 ) -> None:
     captured: dict = {}
 
-    async def fake_create_schedule(client, created_schedule_id, schedule, trigger_immediately=False):
+    async def fake_create_schedule(
+        client: Client, created_schedule_id: str, schedule: Schedule, trigger_immediately: bool = False
+    ) -> None:
         captured["schedule_id"] = created_schedule_id
         captured["schedule"] = schedule
 
