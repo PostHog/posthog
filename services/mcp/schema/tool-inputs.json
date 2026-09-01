@@ -271,6 +271,44 @@
             },
             "required": ["id", "operations"]
         },
+        "EventDefinitionCreateSchema": {
+            "type": "object",
+            "properties": {
+                "eventName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 400,
+                    "description": "The name of the event to create (e.g. \"user_signed_up\")"
+                },
+                "data": {
+                    "description": "Optional metadata for the new event definition",
+                    "type": "object",
+                    "properties": {
+                        "description": {
+                            "description": "Description explaining when the event is triggered",
+                            "type": "string"
+                        },
+                        "tags": {
+                            "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
+                            "type": "array",
+                            "items": {
+                                "type": "string",
+                                "maxLength": 255
+                            }
+                        },
+                        "verified": {
+                            "description": "Mark as verified to indicate the event is properly instrumented and tracking correctly",
+                            "type": "boolean"
+                        },
+                        "hidden": {
+                            "description": "Mark event as no longer used/captured. Hides it from UI while preserving historical data",
+                            "type": "boolean"
+                        }
+                    }
+                }
+            },
+            "required": ["eventName"]
+        },
         "EventDefinitionUpdateInputSchema": {
             "type": "object",
             "properties": {
@@ -282,7 +320,8 @@
                     "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
                     "type": "array",
                     "items": {
-                        "type": "string"
+                        "type": "string",
+                        "maxLength": 255
                     }
                 },
                 "verified": {
@@ -313,7 +352,8 @@
                             "description": "Tags to organize events by product area (e.g. \"checkout\", \"onboarding\") or user journey stage (e.g. \"acquisition\", \"activation\", \"monetization\", \"retention\")",
                             "type": "array",
                             "items": {
-                                "type": "string"
+                                "type": "string",
+                                "maxLength": 255
                             }
                         },
                         "verified": {

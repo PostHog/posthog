@@ -1165,6 +1165,46 @@ describe('dashboardLogic', () => {
             })
         })
 
+        describe('url filter overrides', () => {
+            const PROPERTY_OVERRIDE = [{ key: '$browser', value: 'Chrome', type: 'event' }]
+
+            const openWithUrlFilters = async (urlFilters: Record<string, any>): Promise<void> => {
+                logic.unmount()
+                router.actions.push('/dashboard/5', {
+                    [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: JSON.stringify(urlFilters),
+                })
+                logic = dashboardLogic({ id: 5 })
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+            }
+
+            // The overrides banner renders off hasUrlFilters. An override that constrains nothing still
+            // has keys, so testing for key presence announces overrides on a dashboard that is showing
+            // exactly its saved state.
+            const activeOverrideCases: [string, Record<string, any>, boolean][] = [
+                ['a date override is active', { date_from: '-7d', date_to: null }, true],
+                ['a property override is active', { properties: PROPERTY_OVERRIDE }, true],
+                ['properties cleared to empty is not active', { properties: [] }, false],
+            ]
+
+            it.each(activeOverrideCases)('%s', async (_name, urlFilters, expected) => {
+                await openWithUrlFilters(urlFilters)
+
+                expect(logic.values.hasUrlFilters).toBe(expected)
+            })
+
+            it('drops the url param when the last filter is cleared', async () => {
+                await openWithUrlFilters({ properties: PROPERTY_OVERRIDE })
+                expect(router.values.searchParams[dashboardUtils.SEARCH_PARAM_FILTERS_KEY]).not.toBeUndefined()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setProperties([])
+                }).toFinishAllListeners()
+
+                expect(router.values.searchParams[dashboardUtils.SEARCH_PARAM_FILTERS_KEY]).toBeUndefined()
+            })
+        })
+
         describe('hasUnsavedLayoutChanges selector', () => {
             const moveFirstTile = (): void => {
                 const firstTile = logic.values.dashboard!.tiles[0]

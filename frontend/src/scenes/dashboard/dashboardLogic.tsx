@@ -133,6 +133,7 @@ import {
     mergeBreakdownColorConfigs,
 } from './dashboardBreakdownColors'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from './dashboardConstants'
+import { isDashboardFilterEmpty } from './dashboardFilterEmpty'
 import {
     BREAKPOINT_COLUMN_COUNTS,
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
@@ -153,6 +154,7 @@ import {
     parseURLFilters,
     parseURLVariables,
     runWithLimit,
+    searchParamsWithUrlFilters,
     shouldSharedDashboardAutoForceForStaleTime,
     shouldSnapshotUrlAtEditModeEntry,
 } from './dashboardUtils'
@@ -2547,10 +2549,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (intermittentFilters: DashboardFilter) =>
                 Object.values(intermittentFilters).some((filter) => filter !== undefined),
         ],
-        hasUrlFilters: [
-            (s) => [s.urlFilters],
-            (urlFilters: DashboardFilter) => Object.values(urlFilters).some((filter) => filter !== undefined),
-        ],
+        // An override that constrains nothing still has keys — clearing the last property filter leaves
+        // `{"properties":[]}` in the URL. Counting keys reads that as an active override, so the dashboard
+        // announces overrides while showing exactly its saved state.
+        hasUrlFilters: [(s) => [s.urlFilters], (urlFilters: DashboardFilter) => !isDashboardFilterEmpty(urlFilters)],
         showApplyFiltersBanner: [
             (s) => [s.canAutoPreview, s.hasIntermittentFilters],
             (canAutoPreview: boolean, hasIntermittentFilters: boolean) => !canAutoPreview && hasIntermittentFilters,
@@ -4778,13 +4780,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const urlFilters = parseURLFilters(currentLocation.searchParams)
             const newUrlFilters: DashboardFilter = combineDashboardFilters(urlFilters, values.intermittentFilters)
 
-            const newSearchParams = {
-                ...currentLocation.searchParams,
-            }
-
             return [
                 currentLocation.pathname,
-                { ...newSearchParams, ...encodeURLFilters(newUrlFilters) },
+                searchParamsWithUrlFilters(currentLocation.searchParams, newUrlFilters),
                 currentLocation.hashParams,
             ]
         },
@@ -4801,13 +4799,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 properties,
             }
 
-            const newSearchParams = {
-                ...currentLocation.searchParams,
-            }
-
             return [
                 currentLocation.pathname,
-                { ...newSearchParams, ...encodeURLFilters(newUrlFilters) },
+                searchParamsWithUrlFilters(currentLocation.searchParams, newUrlFilters),
                 currentLocation.hashParams,
             ]
         },
@@ -4826,13 +4820,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 explicitDate: explicit_date ?? values.intermittentFilters.explicitDate,
             }
 
-            const newSearchParams = {
-                ...currentLocation.searchParams,
-            }
-
             return [
                 currentLocation.pathname,
-                { ...newSearchParams, ...encodeURLFilters(newUrlFilters) },
+                searchParamsWithUrlFilters(currentLocation.searchParams, newUrlFilters),
                 currentLocation.hashParams,
             ]
         },
@@ -4849,13 +4839,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 breakdown_filter,
             }
 
-            const newSearchParams = {
-                ...currentLocation.searchParams,
-            }
-
             return [
                 currentLocation.pathname,
-                { ...newSearchParams, ...encodeURLFilters(newUrlFilters) },
+                searchParamsWithUrlFilters(currentLocation.searchParams, newUrlFilters),
                 currentLocation.hashParams,
             ]
         },
@@ -4874,7 +4860,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             return [
                 currentLocation.pathname,
-                { ...currentLocation.searchParams, ...encodeURLFilters(newUrlFilters) },
+                searchParamsWithUrlFilters(currentLocation.searchParams, newUrlFilters),
                 currentLocation.hashParams,
             ]
         },
@@ -4893,7 +4879,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             return [
                 currentLocation.pathname,
-                { ...currentLocation.searchParams, ...encodeURLFilters(newUrlFilters) },
+                searchParamsWithUrlFilters(currentLocation.searchParams, newUrlFilters),
                 currentLocation.hashParams,
             ]
         },

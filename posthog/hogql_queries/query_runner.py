@@ -600,7 +600,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "FunnelsQuery":
-        from .insights.funnels.funnels_query_runner import FunnelsQueryRunner
+        from products.product_analytics.backend.facade.queries import FunnelsQueryRunner
 
         return FunnelsQueryRunner(
             query=cast(FunnelsQuery | dict[str, Any], query),
@@ -775,7 +775,7 @@ def get_query_runner(
             user=user,
         )
     if kind == "FunnelCorrelationQuery":
-        from .insights.funnels.funnel_correlation_query_runner import FunnelCorrelationQueryRunner
+        from products.product_analytics.backend.facade.queries import FunnelCorrelationQueryRunner
 
         return FunnelCorrelationQueryRunner(
             query=cast(FunnelCorrelationQuery | dict[str, Any], query),
@@ -1682,6 +1682,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.query_id = query_id
         self.workload = workload
         self.ch_user = ch_user
+        self._modifiers_override_provided = modifiers is not None
 
         if not self.is_query_node(query):
             if isinstance(self.query_type, UnionType):
@@ -1718,6 +1719,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self._shared_database = None
 
     @property
+    def user_access_control(self) -> Optional[UserAccessControl]:
+        """Access-control snapshot the shared database is built with. None here; overridden by
+        AnalyticsQueryRunner with a lazily built, per-run instance so the cache fingerprint and
+        the database resolve access from the same rows."""
+        return None
+
+    @property
     def shared_database(self) -> Database:
         """One Database for every query this runner executes and for the response SQL printer.
 
@@ -1728,7 +1736,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # Kill switch: build per access so query threads never share schema state. No timings
             # measure here because concurrent threads reach this path and HogQLTimings is not
             # thread-safe.
-            return Database.create_for(team=self.team, user=self.user, modifiers=self.modifiers)
+            return Database.create_for(
+                team=self.team,
+                user=self.user,
+                user_access_control=self.user_access_control,
+                modifiers=self.modifiers,
+                trigger="shared_kill_switch",
+            )
         if self._shared_database is None:
             # Concurrent query threads (funnels compare mode) can first-touch this property at the
             # same time. The lock makes the build run once, and keeps the measure on the single
@@ -1739,8 +1753,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         self._shared_database = Database.create_for(
                             team=self.team,
                             user=self.user,
+                            user_access_control=self.user_access_control,
                             modifiers=self.modifiers,
                             timings=self.timings,
+                            trigger="shared",
                         )
         return self._shared_database
 
@@ -2961,6 +2977,12 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
 
     def _on_user_changed(self) -> None:
         super()._on_user_changed()
+        if (
+            self._user_access_control is not None
+            and isinstance(self.user, User)
+            and self._user_access_control.user.pk == self.user.pk
+        ):
+            return
         self._user_access_control = None
 
     @property
@@ -3090,7 +3112,7 @@ class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
         self._build_hogql_context_for_user(self.user)
 
     def _build_hogql_context_for_user(self, user: Optional[User]) -> None:
-        self.database = Database.create_for(team=self.team, user=user)
+        self.database = Database.create_for(team=self.team, user=user, trigger="runner_context")
         self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database, user=user)
 
     def _on_user_changed(self) -> None:

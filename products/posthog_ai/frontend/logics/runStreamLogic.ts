@@ -1855,6 +1855,9 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 sseOpened: () => 'open',
                 sseReconnecting: () => 'reconnecting',
                 closeSse: () => 'closed',
+                // The sentinel tears the connection down without reconnecting, so the stream is no
+                // longer open — say so, rather than leaving a dead connection reading as healthy.
+                streamEnded: () => 'closed',
                 handleStreamError: () => 'error',
                 reset: () => 'idle',
             },
@@ -2481,6 +2484,19 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 return
             }
 
+            // Every open starts a fresh connection. The end sentinel and the proxy re-mint budget
+            // belong to the connection that saw them, so a stale `streamEnded` must not leak into
+            // this one — it suppresses the drop handler, which leaves a dropped stream dead with no
+            // reconnect and no terminal refetch (the thread then waits on a turn nothing delivers).
+            // A stream that really is finished re-delivers the sentinel on this connection.
+            cache.streamEnded = false
+            cache.streamTokenRefreshes = 0
+            const previousRun = cache.activeRun as { taskId: string; runId: string } | undefined
+            if (previousRun && previousRun.runId !== runId) {
+                // The cursor is a Redis id from the previous run's stream — it addresses nothing in
+                // this one, so resuming from it can skip this run's opening frames.
+                cache.lastEventId = undefined
+            }
             // Track the active run so the reconnect loop can refetch it on a drop.
             cache.activeRun = { taskId, runId }
 
@@ -3061,6 +3077,13 @@ export const runStreamLogic = kea<runStreamLogicType>([
             // stamp the turn start for per-turn duration metrics and append it as a `client`-sourced
             // log entry the projection renders in order.
             cache.turnStartedAtMs = Date.now()
+            // A send does NOT revive a dead stream, and reviving one is harder than it looks:
+            // `sseStatus: 'error'` covers a failed history bootstrap as well as an exhausted
+            // reconnect budget, and the bootstrap case has already dropped buffered frames whose
+            // ids advanced the resume cursor, so reopening from it silently skips them; a reopen
+            // also inherits the spent reconnect budgets, so the next drop gives up at once. A
+            // stream the durable sentinel closed cannot be revived at all — its Redis stream holds
+            // a completion entry the server stops at and refuses to write past.
             actions.appendEntries([
                 {
                     entry: {

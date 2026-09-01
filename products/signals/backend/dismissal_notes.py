@@ -29,7 +29,6 @@ import logging
 from collections.abc import Sequence
 from datetime import timedelta
 
-from django.db.models import Q
 from django.utils import timezone
 
 from rest_framework.request import Request
@@ -38,9 +37,9 @@ from posthog.models import Team, User
 from posthog.permissions import get_authenticator_scoped_team_ids
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.signals.backend.models import SignalReport, SignalScoutNote, SignalScoutRun
+from products.signals.backend.models import SignalReport, SignalScoutNote
+from products.signals.backend.scout_authorship import resolve_authoring_skill_names
 from products.signals.backend.scout_harness.tools.notes import leave_note
-from products.skills.backend.models.skills import LLMSkill
 
 logger = logging.getLogger(__name__)
 
@@ -207,15 +206,6 @@ def user_can_steer_scouts(user: User, canonical_team: Team) -> bool:
     return UserAccessControl(user=user, team=canonical_team).check_access_level_for_resource("llm_skill", "editor")
 
 
-def resolve_report_scout_skill(team_id: int, report_id: str) -> str:
-    """The scout skill a report's derived note should target, "" meaning the whole fleet.
-
-    Thin single-report wrapper over `_target_skill_names` (the same emit-time authorship resolution
-    the dismissal path uses), shared with `discussion_notes`.
-    """
-    return _target_skill_names(team_id, [report_id]).get(report_id, "")
-
-
 def _describe(reports: Sequence[SignalReport]) -> list[tuple[SignalReport, str]]:
     """Pair each report with the verb to tell a scout, dropping the ones that aren't forwarded."""
     return [
@@ -229,63 +219,11 @@ def _group_by_target(
     team_id: int, described: Sequence[tuple[SignalReport, str]]
 ) -> dict[tuple[str, str], list[SignalReport]]:
     """Bucket described reports by the scout to tell and what happened to them."""
-    targets = _target_skill_names(team_id, [str(report.id) for report, _ in described])
+    targets = resolve_authoring_skill_names(team_id, [str(report.id) for report, _ in described])
     grouped: dict[tuple[str, str], list[SignalReport]] = {}
     for report, verb in described:
         grouped.setdefault((targets[str(report.id)], verb), []).append(report)
     return grouped
-
-
-def _target_skill_names(team_id: int, report_ids: list[str]) -> dict[str, str]:
-    """Map every report id to the scout its feedback should be addressed to, "" meaning the fleet.
-
-    Resolved from Postgres only. The inbox reads a report's authoring scout off the signal store in
-    ClickHouse, but that read lags emit and can fail, and this runs on the dismissal request path,
-    so authorship comes from the run rows that record it at emit time instead. A scout that only
-    emitted the *signals* a report was later grouped from leaves no such row, and those reports get
-    the fleet-wide target, where every scout still sees them.
-
-    Two queries regardless of how many reports a bulk dismissal covers, because the alternative
-    (containment lookup per report) is a scan of the team's runs per id, up to the 100-id cap.
-    """
-    if not report_ids:
-        return {}
-
-    touched = Q()
-    for report_id in report_ids:
-        touched |= Q(emitted_report_ids__contains=[report_id]) | Q(edited_report_ids__contains=[report_id])
-    runs = (
-        SignalScoutRun.objects.filter(team_id=team_id)
-        .filter(touched)
-        # Ascending so that when several runs touched the same report the newest one, applied last,
-        # is the skill that ends up owning it.
-        .order_by("created_at")
-        .values_list("skill_name", "emitted_report_ids", "edited_report_ids")
-    )
-
-    wanted = set(report_ids)
-    authored: dict[str, str] = {}
-    edited: dict[str, str] = {}
-    for skill_name, emitted_ids, edited_ids in runs:
-        if not skill_name:
-            continue
-        for report_id in wanted.intersection(emitted_ids or []):
-            authored[report_id] = skill_name
-        for report_id in wanted.intersection(edited_ids or []):
-            edited[report_id] = skill_name
-    # Authorship wins over having merely edited the report: a scout that appended evidence to a
-    # pipeline report is worth telling, but the scout that filed it is the one being judged.
-    resolved = {report_id: authored.get(report_id) or edited.get(report_id, "") for report_id in report_ids}
-
-    named = {skill_name for skill_name in resolved.values() if skill_name}
-    # A note addressed to a skill that no longer exists steers no one, because the run-time read is
-    # an exact match on the skill name (and `leave_note` rejects the target outright).
-    live = (
-        set(LLMSkill.objects.filter(team_id=team_id, name__in=named, deleted=False).values_list("name", flat=True))
-        if named
-        else set()
-    )
-    return {report_id: (skill_name if skill_name in live else "") for report_id, skill_name in resolved.items()}
 
 
 def _build_note_content(*, verb: str, reason: str | None, note: str, reports: Sequence[SignalReport]) -> str:

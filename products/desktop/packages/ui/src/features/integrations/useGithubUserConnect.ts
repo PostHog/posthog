@@ -23,8 +23,8 @@ const IS_DEV = import.meta.env.DEV;
 const POLL_INTERVAL_MS = 3_000;
 const POLL_TIMEOUT_MS = 300_000;
 
-export type GithubUserConnectState = ConnectState;
-export type GithubUserConnectError = ConnectError;
+type GithubUserConnectState = ConnectState;
+type GithubUserConnectError = ConnectError;
 
 interface Options {
   projectId: number | null;
