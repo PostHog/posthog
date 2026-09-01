@@ -48,26 +48,26 @@ Close out empty. Re-running with the same key refreshes the timestamp. Never sug
 
 Per workflow, `workflows-stats` with `version=<the workflow's current version>`, `breakdown_by=name`, and `instance_id` set to the email step you are reading. Without `version` you get every version of that workflow merged together, which cannot tell you whether the last change helped. The metrics that matter:
 
-| Metric | Reading |
-| --- | --- |
-| `email_sent` | Everything that went out. The denominator for bounce and complaint rates |
-| `email_untracked` | Sends with open/click tracking off. They can never record an open |
-| `email_opened` | Opens. Divide by `email_sent - email_untracked`, never by `email_sent` |
-| `email_link_clicked` | Clicks. Same denominator as opens |
-| `email_bounced`, `email_blocked` | The counter-metrics. Read them before proposing anything about copy |
+| Metric                           | Reading                                                                  |
+| -------------------------------- | ------------------------------------------------------------------------ |
+| `email_sent`                     | Everything that went out. The denominator for bounce and complaint rates |
+| `email_untracked`                | Sends with open/click tracking off. They can never record an open        |
+| `email_opened`                   | Opens. Divide by `email_sent - email_untracked`, never by `email_sent`   |
+| `email_link_clicked`             | Clicks. Same denominator as opens                                        |
+| `email_bounced`, `email_blocked` | The counter-metrics. Read them before proposing anything about copy      |
 
 **Engagement metrics split by version only for sends made after the versioned tracking code shipped.** A version whose sends predate it reads zero opens, which is a measurement gap, not a bad subject line. If opens are zero and sends are healthy, check whether the version is older than the workflow's most recent publish before believing it.
 
 ### Profile shape
 
-| Pattern | What it usually means |
-| --- | --- |
-| Open rate under 20% on ≥ 20 tracked sends, long subject | Copy problem — the case this scout exists for |
-| Open rate looks terrible, `email_untracked` is most of `email_sent` | Measurement artefact. Say so in a report; do not propose copy |
-| Bounce rate above ~2%, or any complaint rate above ~0.1% | Deliverability, not copy. A better subject sends more mail to spam folders faster |
-| Zero opens, zero clicks, healthy sends, version older than the tracking rollout | Blind spot, not a finding |
-| Fewer than 20 tracked sends | No sample. Remember it, do not file it |
-| Open rate healthy, click rate near zero | The body or the call to action, not the subject. Only suggest if you can name the change |
+| Pattern                                                                         | What it usually means                                                                    |
+| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Open rate under 20% on ≥ 20 tracked sends, long subject                         | Copy problem — the case this scout exists for                                            |
+| Open rate looks terrible, `email_untracked` is most of `email_sent`             | Measurement artefact. Say so in a report; do not propose copy                            |
+| Bounce rate above ~2%, or any complaint rate above ~0.1%                        | Deliverability, not copy. A better subject sends more mail to spam folders faster        |
+| Zero opens, zero clicks, healthy sends, version older than the tracking rollout | Blind spot, not a finding                                                                |
+| Fewer than 20 tracked sends                                                     | No sample. Remember it, do not file it                                                   |
+| Open rate healthy, click rate near zero                                         | The body or the call to action, not the subject. Only suggest if you can name the change |
 
 ### Decide
 
