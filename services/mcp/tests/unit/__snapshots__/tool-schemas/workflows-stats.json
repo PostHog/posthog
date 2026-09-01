@@ -42,6 +42,10 @@
             "description": "Comma-separated metric names to filter by.",
             "minLength": 1,
             "type": "string"
+        },
+        "version": {
+            "description": "Read one workflow version's metrics instead of the workflow's whole history. Workflow metrics only; ignored elsewhere. Use it to compare a change against the version before it.",
+            "type": "number"
         }
     },
     "required": ["id"],
