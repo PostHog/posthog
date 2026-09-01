@@ -484,7 +484,7 @@ class RunSQLAnalyzer(OperationAnalyzer):
                         score=1,
                         reason="CREATE INDEX CONCURRENTLY is safe (non-blocking)",
                         details={"sql": sql},
-                        guidance="Prefer `SafeAddIndexConcurrently` (or the raw-SQL `CreateIndexConcurrently`) from posthog.migration_helpers. IF NOT EXISTS matches by name, not validity, so this raw form skips past an `indisvalid = false` leftover from an interrupted build and never rebuilds it; the helpers detect and rebuild it. If you keep the raw form, also prefix with `SET lock_timeout = 0;` so the deploy lock_timeout can't cancel the build in the first place.",
+                        guidance="Prefer `SafeAddIndexConcurrently` (or the raw-SQL `CreateIndexConcurrently`) from posthog.migration_helpers. IF NOT EXISTS matches by name, not validity, so this raw form skips past an `indisvalid = false` leftover from an interrupted build and never rebuilds it; the helpers detect and rebuild it. If you keep the raw form, also prefix with `SET lock_timeout = 0; SET statement_timeout = 0;` so neither the deploy lock_timeout nor a configured statement_timeout can cancel the build in the first place.",
                     )
                 return OperationRisk(
                     type=self.operation_type,
