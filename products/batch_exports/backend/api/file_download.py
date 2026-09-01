@@ -19,7 +19,6 @@ from rest_framework import mixins, response, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.throttling import BaseThrottle
 
-from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import execute_hogql_query
 
@@ -49,6 +48,7 @@ from products.batch_exports.backend.service import (
     start_file_download_batch_export,
 )
 from products.batch_exports.backend.temporal.record_batch_model import HogQLQueryRecordBatchModel
+from products.batch_exports.backend.temporal.sql.common import get_user_hogql_batch_export_query_settings
 
 SESSION = boto3.Session()
 FILE_DOWNLOAD_MAX_RANGE = dt.timedelta(weeks=1)
@@ -174,19 +174,21 @@ def count_rows_for_hogql_batch_export(team: Team, hogql_query: str, timeout: int
     validate_hogql_query_for_batch_export(hogql_query, team)
 
     record_batch_model = HogQLQueryRecordBatchModel(team_id=team.pk, hogql_query=hogql_query)
+    query_settings = get_user_hogql_batch_export_query_settings()
+    query_settings.max_execution_time = timeout
+
     # HogQL exports have no data interval: `create` runs them with a now/now interval.
     # TODO: We should support these interval or just make it not required.
     now = dt.datetime.now(dt.UTC)
+
     # `execute_hogql_query` resolves modifiers differently than the batch
     # export, which could potentially affect counts.
     # TODO: How big is the difference? Is it worth aligning these two?
-    # Note `execute_hogql_query` only accepts `HogQLGlobalSettings`, so aligning query
-    # settings with the export's `UserHogQLBatchExportQuerySettings` means copying fields over.
     query_response = execute_hogql_query(
         query=record_batch_model.get_count_hogql_query(now, now),
         team=team,
         query_type="HogQLBatchExportCountRowsQuery",
-        settings=HogQLGlobalSettings(max_execution_time=timeout),
+        settings=query_settings,
     )
     return query_response.results[0][0] if query_response.results else 0
 
