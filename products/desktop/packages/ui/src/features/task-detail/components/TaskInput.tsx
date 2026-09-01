@@ -17,7 +17,11 @@ import {
 import { useServiceOptional } from "@posthog/di/react";
 import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { ButtonGroup } from "@posthog/quill";
-import { type AgentRuntime, ANALYTICS_EVENTS } from "@posthog/shared";
+import {
+  type AgentRuntime,
+  ANALYTICS_EVENTS,
+  adapterForModelId,
+} from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
   spendStopMessage,
@@ -1176,17 +1180,44 @@ export function TaskInput({
     [sessionId, setLastUsedAgentRuntime],
   );
 
+  // A manual harness switch keeps the selected model when the target harness
+  // runs it; otherwise the target falls back to its default.
   const handleHarnessChange = useCallback(
     (harness: AgentHarness) => {
       if (harness === "pi") {
+        if (runtime !== "pi" && currentModel) {
+          // Session-only: the Pi resolver falls back to Pi's own default when
+          // its catalog lacks the model, without clobbering the saved Pi pick.
+          setSelectedPiModelId(currentModel);
+        }
         handleRuntimeChange("pi");
         return;
       }
 
+      if (runtime === "pi") {
+        const carried = currentPiModel?.id;
+        if (carried && adapterForModelId(carried) === harness) {
+          setLastUsedModel(carried);
+          if (harness === adapter && isValidConfigValue(modelOption, carried)) {
+            // Same adapter means no config refetch, so apply the pick directly.
+            setConfigOption(modelOption.id, carried);
+          }
+        }
+      }
       handleRuntimeChange("acp");
       setAdapter(harness);
     },
-    [handleRuntimeChange, setAdapter],
+    [
+      adapter,
+      currentModel,
+      currentPiModel,
+      handleRuntimeChange,
+      modelOption,
+      runtime,
+      setAdapter,
+      setConfigOption,
+      setLastUsedModel,
+    ],
   );
 
   // Saving the model before the switch lets the new harness's config restore
