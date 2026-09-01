@@ -4230,8 +4230,8 @@ class TestCachedTeamFlag(TestCase):
     def tearDown(self):
         _TEAM_FLAG_CACHE.clear()
 
-    @override_settings(HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS=30.0)
-    def test_evaluates_once_within_ttl_and_isolates_teams(self):
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value=30.0)
+    def test_evaluates_once_within_ttl_and_isolates_teams(self, _get_setting):
         team_a = cast(Team, SimpleNamespace(uuid="team-a-uuid"))
         team_b = cast(Team, SimpleNamespace(uuid="team-b-uuid"))
         evaluate = Mock(side_effect=[True, False])
@@ -4244,8 +4244,8 @@ class TestCachedTeamFlag(TestCase):
         assert _cached_team_flag("some-flag", team_b, evaluate) is False
         assert evaluate.call_count == 2
 
-    @override_settings(HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS=0)
-    def test_zero_ttl_disables_caching(self):
+    @patch("posthog.models.instance_setting.get_instance_setting", return_value=0.0)
+    def test_zero_ttl_disables_caching(self, _get_setting):
         team = cast(Team, SimpleNamespace(uuid="team-uuid"))
         evaluate = Mock(return_value=True)
 

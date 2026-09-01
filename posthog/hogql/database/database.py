@@ -15,8 +15,6 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from django.conf import settings
-
 import structlog
 from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict
@@ -355,7 +353,11 @@ _TEAM_FLAG_CACHE_MAX_ENTRIES = 50_000
 
 
 def _cached_team_flag(flag_key: str, team: Team, evaluate: Callable[[], bool]) -> bool:
-    ttl = settings.HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS
+    # Function-local: keeps the Django model import off the django.setup() path. The instance
+    # setting has its own short in-process cache, so this read costs no query per build.
+    from posthog.models.instance_setting import get_instance_setting  # noqa: PLC0415
+
+    ttl = float(get_instance_setting("HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS"))
     if ttl <= 0:
         return evaluate()
     cache_key = (str(team.uuid), flag_key)

@@ -144,14 +144,6 @@ PROM_PUSHGATEWAY_ADDRESS: str | None = os.getenv("PROM_PUSHGATEWAY_ADDRESS", Non
 
 HOGQL_INCREASED_MAX_EXECUTION_TIME: int = get_from_env("HOGQL_INCREASED_MAX_EXECUTION_TIME", 600, type_cast=int)
 
-# Per-process TTL for the per-team feature-flag decisions read on every HogQL database build.
-# 0 disables the cache (every build re-evaluates the flags). Off in tests: test classes share one
-# team across tests while patching flag evaluation differently per test, so a cached decision from
-# one test would leak into the next.
-HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS: float = get_from_env(
-    "HOGQL_TEAM_FLAG_CACHE_TTL_SECONDS", 0.0 if TEST else 30.0, type_cast=float
-)
-
 QUERY_COALESCING_MAX_WAIT_SECONDS: int = get_from_env("QUERY_COALESCING_MAX_WAIT_SECONDS", 300, type_cast=int)
 
 # Extend and override these settings with EE's ones
