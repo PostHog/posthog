@@ -26,7 +26,6 @@ use crate::serialization::Serializer;
 use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 use crate::sinks::registry::{Destination, TopicTable};
 use crate::sinks::sink::{fold_results, Outcome, PreparedPayload, Sink, SinkResult};
-use crate::sinks::Event;
 use crate::v0_request::{DataType, ProcessedEvent};
 use async_trait::async_trait;
 use metrics::{counter, gauge, histogram};
@@ -199,14 +198,11 @@ impl<P: KafkaProducer> Clone for KafkaSinkBase<P> {
     }
 }
 
-/// Map a lane address to the sink's configured [`Destination`]. The sink owns
-/// this mapping only until the outputs layer exists to own the address →
-/// output table. Every `(pipeline, lane)` pair is spelled out so that a new
-/// lane, or a change making an unbacked pair reachable, has to visit this
-/// match instead of being absorbed by a wildcard. `None` marks a pair
-/// [`pipeline::resolve`] never produces — no output backs it, and the caller
-/// dlqs the event (the typed-per-pipeline-lanes step makes these pairs
-/// unrepresentable).
+/// Map a lane address to the sink's configured [`Destination`]. Every
+/// `(pipeline, lane)` pair is spelled out so that a new lane, or a change
+/// making an unbacked pair reachable, has to visit this match instead of
+/// being absorbed by a wildcard. `None` marks a pair [`pipeline::resolve`]
+/// never produces — no output backs it, and the caller dlqs the event.
 fn lane_output(pipeline: Pipeline, lane: Lane) -> Option<Destination> {
     match (pipeline, lane) {
         (Pipeline::Analytics, Lane::Main) => Some(Destination::AnalyticsMain),
@@ -550,12 +546,25 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
         })
     }
 
-    /// Prep + enqueue for the single-event path. Retained as a thin wrapper so
-    /// the `Event::send` impl stays unchanged; the batch path runs the same
-    /// pieces through `prepare_batch` and `Sink::publish`.
+    /// Prep + enqueue for the one-event fast path, returning the raw ack
+    /// future so a single send can await it inline.
+    ///
+    /// Records the same two phase histograms as the batch path, on the error
+    /// exits as well, so a publish of one event stays in the same population
+    /// as a publish of many. Without this, the cheapest publishes leave the
+    /// distribution and the in-process quantiles step up on their own.
     fn kafka_send(&self, event: ProcessedEvent) -> Result<P::AckFuture, CaptureError> {
-        let payload = self.prepare_record(event)?;
-        self.enqueue_record(payload)
+        let prep_start = Instant::now();
+        let payload = self.prepare_record(event);
+        histogram!("capture_kafka_batch_prep_duration_seconds")
+            .record(prep_start.elapsed().as_secs_f64());
+
+        let enqueue_start = Instant::now();
+        let ack_future = self.enqueue_record(payload?);
+        histogram!("capture_kafka_batch_enqueue_duration_seconds")
+            .record(enqueue_start.elapsed().as_secs_f64());
+
+        ack_future
     }
 }
 
@@ -728,41 +737,19 @@ impl<P: KafkaProducer + 'static> Sink for KafkaSinkBase<P> {
 #[async_trait]
 impl<P: KafkaProducer + 'static> PublishEvents for KafkaSinkBase<P> {
     #[instrument(skip_all)]
-    async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        self.kafka_send(event)?
-            .instrument(info_span!("ack_wait_one"))
-            .await
-    }
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+        // Skip `prepare_batch`, a `JoinSet` of one, and a fold over one
+        // result on the endpoints that publish a single event per request.
+        if events.len() == 1 {
+            let event = events.into_iter().next().expect("length checked above");
+            return self
+                .kafka_send(event)?
+                .instrument(info_span!("ack_wait_one"))
+                .await;
+        }
 
-    #[instrument(skip_all)]
-    async fn publish_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         let payloads = self.prepare_batch(events).await?;
-        fold_results(self.publish(payloads).await)
-    }
-
-    fn flush(&self) -> Result<(), anyhow::Error> {
-        Sink::flush(self)
-    }
-}
-
-#[async_trait]
-impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
-    async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        let ack_future = self.kafka_send(event)?;
-        histogram!("capture_event_batch_size").record(1.0);
-        ack_future.instrument(info_span!("ack_wait_one")).await
-    }
-
-    /// The v0 bridge onto the mechanism seam: prep, publish, fold. The
-    /// per-event results collapse to the whole-request `CaptureError` the
-    /// `Event` callers expect.
-    async fn send_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
-        // Record the batch-size histogram up front so the distribution is a
-        // faithful view of batches submitted, not only those that succeeded.
-        // Matches the single-event `send` path which records before any await.
-        histogram!("capture_event_batch_size").record(events.len() as f64);
-
-        PublishEvents::publish_batch(self, events).await
+        fold_results(Sink::publish(self, payloads).await)
     }
 
     fn flush(&self) -> Result<(), anyhow::Error> {
@@ -803,8 +790,8 @@ pub(crate) use crate::sinks::registry::test_topics;
 mod tests {
     use crate::api::CaptureError;
     use crate::config::{self, EnvelopeCompression};
+    use crate::outputs::PublishEvents;
     use crate::sinks::kafka::KafkaSink;
-    use crate::sinks::Event;
     use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata};
     use common_types::CapturedEvent;
@@ -946,16 +933,16 @@ mod tests {
 
         // Wait for producer to be healthy, to keep kafka_message_timeout_ms short and tests faster
         for _ in 0..20 {
-            if sink.send(event.clone()).await.is_ok() {
+            if sink.publish_events(vec![event.clone()]).await.is_ok() {
                 break;
             }
         }
 
         // Send events to confirm happy path
-        sink.send(event.clone())
+        sink.publish_events(vec![event.clone()])
             .await
             .expect("failed to send one initial event");
-        sink.send_batch(vec![event.clone(), event.clone()])
+        sink.publish_events(vec![event.clone(), event.clone()])
             .await
             .expect("failed to send initial event batch");
 
@@ -986,7 +973,7 @@ mod tests {
             metadata: metadata.clone(),
         };
 
-        sink.send(big_event)
+        sink.publish_events(vec![big_event])
             .await
             .expect("failed to send event larger than default max size");
 
@@ -1016,7 +1003,7 @@ mod tests {
             metadata: metadata.clone(),
         };
 
-        match sink.send(big_event).await {
+        match sink.publish_events(vec![big_event]).await {
             Err(CaptureError::EventTooBig(_)) => {} // Expected
             Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
@@ -1026,7 +1013,7 @@ mod tests {
         cluster.clear_request_errors(RDKafkaApiKey::Produce);
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_MSG_SIZE_TOO_LARGE; 1];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
-        match sink.send(event.clone()).await {
+        match sink.publish_events(vec![event.clone()]).await {
             Err(CaptureError::EventTooBig(_)) => {} // Expected
             Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
@@ -1034,7 +1021,10 @@ mod tests {
         cluster.clear_request_errors(RDKafkaApiKey::Produce);
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_INVALID_PARTITIONS; 1];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
-        match sink.send_batch(vec![event.clone(), event.clone()]).await {
+        match sink
+            .publish_events(vec![event.clone(), event.clone()])
+            .await
+        {
             Err(CaptureError::RetryableSinkError) => {} // Expected
             Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
@@ -1044,13 +1034,13 @@ mod tests {
         cluster.clear_request_errors(RDKafkaApiKey::Produce);
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_BROKER_NOT_AVAILABLE; 2];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
-        sink.send(event.clone())
+        sink.publish_events(vec![event.clone()])
             .await
             .expect("failed to send one event after recovery");
         cluster.clear_request_errors(RDKafkaApiKey::Produce);
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_BROKER_NOT_AVAILABLE; 2];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
-        sink.send_batch(vec![event.clone(), event.clone()])
+        sink.publish_events(vec![event.clone(), event.clone()])
             .await
             .expect("failed to send event batch after recovery");
 
@@ -1058,12 +1048,15 @@ mod tests {
         cluster.clear_request_errors(RDKafkaApiKey::Produce);
         let err = [RDKafkaRespErr::RD_KAFKA_RESP_ERR_BROKER_NOT_AVAILABLE; 50];
         cluster.request_errors(RDKafkaApiKey::Produce, &err);
-        match sink.send(event.clone()).await {
+        match sink.publish_events(vec![event.clone()]).await {
             Err(CaptureError::RetryableSinkError) => {} // Expected
             Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
         };
-        match sink.send_batch(vec![event.clone(), event.clone()]).await {
+        match sink
+            .publish_events(vec![event.clone(), event.clone()])
+            .await
+        {
             Err(CaptureError::RetryableSinkError) => {} // Expected
             Err(err) => panic!("wrong error code {err}"),
             Ok(()) => panic!("should have errored"),
@@ -1326,7 +1319,7 @@ mod tests {
             );
 
             let event = create_test_event(&input);
-            sink.send(event).await.unwrap();
+            sink.publish_events(vec![event]).await.unwrap();
 
             let records = producer.get_records();
             assert_eq!(records.len(), 1, "Expected exactly one record");
@@ -2413,7 +2406,7 @@ mod tests {
                 ..Default::default()
             });
             event.metadata.overflow_reason = Some(OverflowReason::ForceLimited);
-            sink.send(event).await.unwrap();
+            sink.publish_events(vec![event]).await.unwrap();
 
             let records = producer.get_records();
             assert_eq!(records.len(), 1);
@@ -2508,8 +2501,8 @@ mod tests {
             let mut exception_event = base;
             exception_event.metadata.data_type = DataType::ExceptionErrorTracking;
 
-            sink.send(ai_event).await.unwrap();
-            sink.send(exception_event).await.unwrap();
+            sink.publish_events(vec![ai_event]).await.unwrap();
+            sink.publish_events(vec![exception_event]).await.unwrap();
 
             let records = producer.get_records();
             assert_eq!(records.len(), 2);
@@ -2854,14 +2847,14 @@ mod tests {
             .await;
         }
 
-        // ==================== send_batch ordering + error tests ====================
-        // These exercise the B2 three-phase send_batch: parallel prepare_record,
+        // ==================== publish_events ordering + error tests ====================
+        // These exercise the three-phase batch path: parallel prepare_record,
         // serial enqueue_record, concurrent ack drain. The ordering test runs on
         // a multi-thread runtime so phase 1 actually parallelizes across workers
         // and we can detect if phase 2 is accidentally reordering records.
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-        async fn send_batch_preserves_order_same_key() {
+        async fn publish_events_preserves_order_same_key() {
             let producer = MockKafkaProducer::new();
             let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
 
@@ -2885,7 +2878,9 @@ mod tests {
             let input_uuids: Vec<String> =
                 events.iter().map(|e| e.event.uuid.to_string()).collect();
 
-            sink.send_batch(events).await.expect("send_batch failed");
+            sink.publish_events(events)
+                .await
+                .expect("publish_events failed");
 
             let records = producer.get_records();
             assert_eq!(records.len(), 20, "expected 20 records");
@@ -2908,7 +2903,7 @@ mod tests {
 
             assert_eq!(
                 output_uuids, input_uuids,
-                "send_batch must preserve input order for same-key events"
+                "publish_events must preserve input order for same-key events"
             );
 
             // Sanity: all records share the same partition key.
@@ -2923,7 +2918,7 @@ mod tests {
         }
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-        async fn send_batch_prep_error_aborts_batch() {
+        async fn publish_events_prep_error_aborts_batch() {
             let producer = MockKafkaProducer::new();
             let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
 
@@ -2961,11 +2956,11 @@ mod tests {
             bad.metadata.session_id = None;
             events[2] = bad;
 
-            let res = sink.send_batch(events).await;
+            let res = sink.publish_events(events).await;
             match res {
                 Err(CaptureError::MissingSessionId) => {}
                 Err(other) => panic!("expected MissingSessionId, got {other:?}"),
-                Ok(()) => panic!("expected send_batch to fail on prep error"),
+                Ok(()) => panic!("expected publish_events to fail on prep error"),
             }
 
             let records = producer.get_records();
@@ -2976,7 +2971,7 @@ mod tests {
             );
         }
 
-        // ==================== send_batch fast-path + mid-batch failure tests ====================
+        // ==================== publish_events fast-path + mid-batch failure tests ====================
 
         /// Builds N AnalyticsMain events with sequential distinct_ids so each
         /// record is individually identifiable in the mock producer's output.
@@ -2991,9 +2986,9 @@ mod tests {
         }
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-        async fn send_batch_mid_enqueue_failure_preserves_earlier_records() {
+        async fn publish_events_mid_enqueue_failure_preserves_earlier_records() {
             // Fail at phase-2 send #3 (0-indexed): events [0, 1, 2] should land
-            // in the mock, send_batch must return Err, and no event at index
+            // in the mock, publish_events must return Err, and no event at index
             // >= 3 should ever hit the producer. Batch size is well above the
             // scatter-gather threshold so phase 2 runs post-parallel-prep.
             const BATCH: usize = 10;
@@ -3005,11 +3000,11 @@ mod tests {
             let input_distinct_ids: Vec<String> =
                 events.iter().map(|e| e.event.distinct_id.clone()).collect();
 
-            let res = sink.send_batch(events).await;
+            let res = sink.publish_events(events).await;
             match res {
                 Err(CaptureError::RetryableSinkError) => {}
                 Err(other) => panic!("expected RetryableSinkError, got {other:?}"),
-                Ok(()) => panic!("expected send_batch to fail on enqueue #{FAIL_IDX}"),
+                Ok(()) => panic!("expected publish_events to fail on enqueue #{FAIL_IDX}"),
             }
 
             let records = producer.get_records();
@@ -3041,22 +3036,90 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn send_batch_single_event_via_batch_path() {
-            // batch_size=1 exercises the serial fast path (1 < SCATTER_GATHER_MIN_BATCH)
-            // and verifies the loop handles a single-element batch correctly.
+        async fn publish_events_single_event_skips_the_batch_path() {
+            // One event short-circuits to kafka_send: no prepare_batch, no
+            // JoinSet. This is the live path for the single-event endpoints.
             let producer = MockKafkaProducer::new();
             let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
 
             let events = build_batch(1);
-            sink.send_batch(events).await.expect("send_batch failed");
+            sink.publish_events(events)
+                .await
+                .expect("publish_events failed");
 
             let records = producer.get_records();
             assert_eq!(records.len(), 1, "expected exactly one record");
             assert_eq!(records[0].topic, MAIN_TOPIC);
         }
 
+        #[tokio::test]
+        async fn publish_events_two_events_take_the_batch_path() {
+            // Two events is the smallest batch that still reaches
+            // prepare_batch. A one-event guard that grew an off-by-one would
+            // swallow the second event here and nowhere else.
+            let producer = MockKafkaProducer::new();
+            let sink = KafkaSinkBase::with_producer(producer.clone(), test_topics());
+
+            sink.publish_events(build_batch(2))
+                .await
+                .expect("publish_events failed");
+
+            let records = producer.get_records();
+            assert_eq!(records.len(), 2, "both events must reach the producer");
+        }
+
+        /// Runs `f` under a local metrics recorder and counts the samples that
+        /// landed on `name`. The recorder is thread-scoped, so `f` has to drive
+        /// its own futures on this thread.
+        fn histogram_sample_count(name: &str, f: impl FnOnce()) -> usize {
+            use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+            let recorder = DebuggingRecorder::new();
+            let snapshotter = recorder.snapshotter();
+            let _guard = metrics::set_default_local_recorder(&recorder);
+            f();
+
+            snapshotter
+                .snapshot()
+                .into_vec()
+                .into_iter()
+                .filter_map(|(key, _, _, value)| match value {
+                    DebugValue::Histogram(samples) if key.key().name() == name => {
+                        Some(samples.len())
+                    }
+                    _ => None,
+                })
+                .sum()
+        }
+
+        #[test]
+        fn publish_events_one_event_feeds_the_phase_histograms() {
+            // The one-event path skips prepare_batch and Sink::publish, which
+            // own these two histograms, so it has to record them itself.
+            // Otherwise every single-event endpoint drops out of the
+            // distribution and the in-process quantiles step up unprompted.
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("runtime");
+
+            for name in [
+                "capture_kafka_batch_prep_duration_seconds",
+                "capture_kafka_batch_enqueue_duration_seconds",
+            ] {
+                let samples = histogram_sample_count(name, || {
+                    let producer = MockKafkaProducer::new();
+                    let sink = KafkaSinkBase::with_producer(producer, test_topics());
+                    runtime
+                        .block_on(sink.publish_events(build_batch(1)))
+                        .expect("publish_events failed");
+                });
+                assert_eq!(samples, 1, "{name} must see the one-event publish");
+            }
+        }
+
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-        async fn send_batch_just_below_threshold_uses_serial_path() {
+        async fn publish_events_just_below_threshold_uses_serial_path() {
             // batch_size = SCATTER_GATHER_MIN_BATCH - 1 takes the serial fast
             // path. We can't observe "which path ran" directly, so we assert
             // behavioral equivalence: N records, correct topic, input order.
@@ -3068,7 +3131,9 @@ mod tests {
             let input_distinct_ids: Vec<String> =
                 events.iter().map(|e| e.event.distinct_id.clone()).collect();
 
-            sink.send_batch(events).await.expect("send_batch failed");
+            sink.publish_events(events)
+                .await
+                .expect("publish_events failed");
 
             let records = producer.get_records();
             assert_eq!(records.len(), size);
@@ -3087,7 +3152,7 @@ mod tests {
         }
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-        async fn send_batch_at_threshold_uses_scatter_gather_path() {
+        async fn publish_events_at_threshold_uses_scatter_gather_path() {
             // batch_size = SCATTER_GATHER_MIN_BATCH takes the scatter-gather
             // path. Behavioral equivalence with the serial path must hold:
             // same N records, same order, same topics.
@@ -3099,7 +3164,9 @@ mod tests {
             let input_distinct_ids: Vec<String> =
                 events.iter().map(|e| e.event.distinct_id.clone()).collect();
 
-            sink.send_batch(events).await.expect("send_batch failed");
+            sink.publish_events(events)
+                .await
+                .expect("publish_events failed");
 
             let records = producer.get_records();
             assert_eq!(records.len(), size);
@@ -3120,7 +3187,7 @@ mod tests {
         // ==================== Sink mechanism seam ====================
         // The per-event result surface `Sink::publish` reports: uuid-aligned
         // with the input payloads, batch-uniform on failure. `fold_results`
-        // discards this shape, so the send_batch tests above cannot see it —
+        // discards this shape, so the publish_events tests above cannot see it —
         // and the outputs layer builds on it.
 
         #[tokio::test]
@@ -3240,7 +3307,9 @@ mod tests {
                 events.push(create_test_event(&EventInput::default()));
             }
 
-            sink.send_batch(events).await.expect("send_batch failed");
+            sink.publish_events(events)
+                .await
+                .expect("publish_events failed");
 
             let records = producer.get_records();
             assert_eq!(records.len(), pad_to.max(5));
@@ -3264,13 +3333,13 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn send_batch_mixed_datatypes_serial_path() {
+        async fn publish_events_mixed_datatypes_serial_path() {
             // 5 events < SCATTER_GATHER_MIN_BATCH => serial fast path.
             mixed_datatypes_routing_for_batch(5).await;
         }
 
         #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-        async fn send_batch_mixed_datatypes_scatter_gather_path() {
+        async fn publish_events_mixed_datatypes_scatter_gather_path() {
             // 10 events >= SCATTER_GATHER_MIN_BATCH => scatter-gather path.
             mixed_datatypes_routing_for_batch(10).await;
         }

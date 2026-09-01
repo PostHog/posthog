@@ -11,14 +11,7 @@ pub struct PrintSink {}
 
 #[async_trait]
 impl PublishEvents for PrintSink {
-    async fn publish_one(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
-        info!("single event: {:?}", event);
-        counter!("capture_events_ingested_total").increment(1);
-
-        Ok(())
-    }
-
-    async fn publish_batch(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
+    async fn publish_events(&self, events: Vec<ProcessedEvent>) -> Result<(), CaptureError> {
         let span = tracing::span!(tracing::Level::INFO, "batch of events");
         let _enter = span.enter();
 

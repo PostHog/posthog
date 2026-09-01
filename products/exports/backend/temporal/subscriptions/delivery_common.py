@@ -261,7 +261,8 @@ async def deliver_slack(
     except ApplicationError:
         raise
     except Exception as exc:
-        slack_error_code = exc.response.get("error") if isinstance(exc, SlackApiError) else None
+        slack_response = exc.response if isinstance(exc, SlackApiError) else {}
+        slack_error_code = slack_response.get("error")
         _capture_delivery_failed_event(subscription, exc)
         LOGGER.error(
             "deliver_subscription.slack_failed",
@@ -275,7 +276,7 @@ async def deliver_slack(
         if slack_error_code in SLACK_USER_CONFIG_ERRORS:
             # Won't self-heal without user action — auto-disable so it stops re-firing.
             needed_scopes = {
-                scope.strip() for scope in str(exc.response.get("needed") or "").split(",") if scope.strip()
+                scope.strip() for scope in str(slack_response.get("needed") or "").split(",") if scope.strip()
             }
             reason = (
                 SLACK_FILE_UPLOAD_PERMISSION_REVOKED_DISABLE_REASON

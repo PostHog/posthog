@@ -27,7 +27,6 @@ use crate::sinks::kafka::KafkaSink;
 use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
 use crate::sinks::s3::S3Sink;
-use crate::sinks::Event;
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
@@ -126,7 +125,7 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
 pub struct CaptureComponents {
     pub app: Router,
     pub server_handle: lifecycle::Handle,
-    pub sink: Arc<dyn Event + Send + Sync>,
+    pub outputs: Arc<OutputRegistry>,
     pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     pub event_restriction_service: Option<EventRestrictionService>,
     pub http1_header_read_timeout_ms: Option<u64>,
@@ -291,12 +290,12 @@ pub async fn build_components(
         _ => None,
     };
 
-    let sink: Arc<dyn Event + Send + Sync> = Arc::from(
-        create_sink(&config, sink_handle, advisory_handle)
+    let outputs = Arc::new(
+        create_output_registry(&config, sink_handle, advisory_handle)
             .await
-            .expect("failed to create sink"),
+            .expect("failed to create the output registry"),
     );
-    let sink_for_flush = sink.clone();
+    let outputs_for_flush = outputs.clone();
 
     let event_restriction_service = if let Some(handle) = event_restrictions_handle {
         create_event_restriction_service(
@@ -384,7 +383,7 @@ pub async fn build_components(
         crate::time::SystemTime {},
         readiness,
         liveness,
-        sink,
+        outputs,
         redis_client,
         global_rate_limiter_token_distinctid,
         quota_limiter,
@@ -423,7 +422,7 @@ pub async fn build_components(
     CaptureComponents {
         app,
         server_handle: server,
-        sink: sink_for_flush,
+        outputs: outputs_for_flush,
         v1_sink_router,
         event_restriction_service,
         http1_header_read_timeout_ms: config.http1_header_read_timeout_ms,
@@ -566,13 +565,13 @@ fn create_v1_sink_router(
     Ok(Arc::new(router))
 }
 
-async fn create_sink(
+async fn create_output_registry(
     config: &Config,
     sink_handle: Option<lifecycle::Handle>,
     advisory_handle: Option<lifecycle::Handle>,
-) -> anyhow::Result<Box<dyn Event + Send + Sync>> {
+) -> anyhow::Result<OutputRegistry> {
     let output = create_output(config, sink_handle, advisory_handle).await?;
-    Ok(Box::new(OutputRegistry::new(output)))
+    Ok(OutputRegistry::new(output))
 }
 
 async fn create_output(
@@ -1249,7 +1248,7 @@ mod tests {
         config.kafka.outputs_completeness_check_enabled = true;
         config.kafka.kafka_dlq_topic = String::new();
 
-        let err = create_sink(&config, None, None)
+        let err = create_output_registry(&config, None, None)
             .await
             .err()
             .expect("boot must be refused when an output topic is empty");
@@ -1262,7 +1261,7 @@ mod tests {
         // The default: with the check off, the same blank topic boots (and
         // would fail at first produce instead).
         config.kafka.outputs_completeness_check_enabled = false;
-        create_sink(&config, None, None)
+        create_output_registry(&config, None, None)
             .await
             .expect("boot must proceed when the completeness check is disabled");
     }

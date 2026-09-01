@@ -2170,6 +2170,83 @@
                 }
             ]
         },
+        "AssistantBehavioralPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "event_filters": {
+                    "description": "Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/EventPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/PersonPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/ElementPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/FeaturePropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/HogQLPropertyFilter"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                },
+                "event_type": {
+                    "$ref": "#/definitions/BehavioralEventSource"
+                },
+                "explicit_datetime": {
+                    "description": "Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval",
+                    "type": "string"
+                },
+                "explicit_datetime_to": {
+                    "type": "string"
+                },
+                "key": {
+                    "description": "Event name, or action id when event_type is 'actions'",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "negation": {
+                    "description": "Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators",
+                    "type": "boolean"
+                },
+                "operator": {
+                    "$ref": "#/definitions/AssistantBehavioralPropertyFilterOperator"
+                },
+                "operator_value": {
+                    "description": "Count threshold for performed_event_multiple",
+                    "type": "integer"
+                },
+                "time_interval": {
+                    "$ref": "#/definitions/TimeUnitType"
+                },
+                "time_value": {
+                    "description": "Relative time window size, paired with time_interval",
+                    "type": "integer"
+                },
+                "type": {
+                    "const": "behavioral",
+                    "description": "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/InlineBehavioralType"
+                }
+            },
+            "required": ["event_type", "key", "type", "value"],
+            "type": "object"
+        },
+        "AssistantBehavioralPropertyFilterOperator": {
+            "enum": ["exact", "gt", "gte", "lt", "lte"],
+            "type": "string"
+        },
         "AssistantBreakdownFilter": {
             "additionalProperties": false,
             "properties": {
@@ -3186,7 +3263,7 @@
                     "default": [],
                     "description": "Property filters for all series",
                     "items": {
-                        "$ref": "#/definitions/AssistantPropertyFilter"
+                        "$ref": "#/definitions/AssistantInsightPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -3539,6 +3616,16 @@
             "required": ["kind", "query"],
             "type": "object"
         },
+        "AssistantInsightPropertyFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/AssistantBehavioralPropertyFilter"
+                }
+            ]
+        },
         "AssistantInsightVizNode": {
             "additionalProperties": false,
             "properties": {
@@ -3581,7 +3668,7 @@
                     "default": [],
                     "description": "Property filters for all series",
                     "items": {
-                        "$ref": "#/definitions/AssistantPropertyFilter"
+                        "$ref": "#/definitions/AssistantInsightPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -3750,7 +3837,7 @@
                     "default": [],
                     "description": "Property filters for all series",
                     "items": {
-                        "$ref": "#/definitions/AssistantPropertyFilter"
+                        "$ref": "#/definitions/AssistantInsightPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -4081,7 +4168,7 @@
                     "default": [],
                     "description": "Property filters for all series",
                     "items": {
-                        "$ref": "#/definitions/AssistantPropertyFilter"
+                        "$ref": "#/definitions/AssistantInsightPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -4570,7 +4657,7 @@
                     "default": [],
                     "description": "Property filters for all series",
                     "items": {
-                        "$ref": "#/definitions/AssistantPropertyFilter"
+                        "$ref": "#/definitions/AssistantInsightPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -4825,7 +4912,7 @@
                     "default": [],
                     "description": "Property filters for all series",
                     "items": {
-                        "$ref": "#/definitions/AssistantPropertyFilter"
+                        "$ref": "#/definitions/AssistantInsightPropertyFilter"
                     },
                     "type": "array"
                 },
@@ -5622,7 +5709,7 @@
                     "default": [],
                     "description": "Property filters for all series",
                     "items": {
-                        "$ref": "#/definitions/AssistantPropertyFilter"
+                        "$ref": "#/definitions/AssistantInsightPropertyFilter"
                     },
                     "type": "array"
                 },
