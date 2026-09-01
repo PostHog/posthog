@@ -34,8 +34,8 @@ describe('LemonToast', () => {
         expect(windowOpen).not.toHaveBeenCalled()
     })
 
-    // The toolbar and the exporter render toasts but have no support form to open, so they keep
-    // the posthog.com fallback.
+    // The toolbar and the exporter render toasts but have no support form to open, so they fall
+    // back to the support options docs.
     it('falls back to the support options docs when nothing is registered', () => {
         const windowOpen = jest.spyOn(window, 'open').mockImplementation(() => null)
 
