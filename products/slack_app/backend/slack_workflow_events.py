@@ -70,6 +70,12 @@ def _event_properties(
     }
 
 
+def _reaction_item(event: dict[str, Any]) -> dict[str, Any]:
+    """The thing that was reacted to, or an empty dict when Slack sent something unexpected."""
+    item = event.get("item")
+    return item if isinstance(item, dict) else {}
+
+
 def reaction_name(raw: Any) -> str:
     """The emoji's base name, with any skin tone dropped.
 
@@ -83,7 +89,7 @@ def reaction_name(raw: Any) -> str:
 def _reaction_properties(
     event: dict[str, Any], slack_team_id: str, *, integration_id: int, is_ext_shared_channel: bool
 ) -> dict[str, Any]:
-    item = event.get("item") if isinstance(event.get("item"), dict) else {}
+    item = _reaction_item(event)
     return {
         # The PostHog Slack connection this copy belongs to. The CDP consumer reads its stored bot
         # user id from here to recognize, and ignore, a reaction PostHog itself added.
@@ -168,7 +174,7 @@ def emit_slack_reaction_event(
     """
     if not is_triggering_reaction(event):
         return False
-    item = event.get("item") if isinstance(event.get("item"), dict) else {}
+    item = _reaction_item(event)
     return _emit(
         event,
         slack_team_id,
