@@ -3,7 +3,7 @@ import {
   type ModelThinkingLevel,
 } from "@earendil-works/pi-ai";
 import type { ModelInfo } from "@earendil-works/pi-coding-agent";
-import type { CloudRegion } from "@posthog/shared";
+import { type CloudRegion, formatGatewayModelName } from "@posthog/shared";
 import {
   fetchPosthogGatewayModels,
   type GatewayModel,
@@ -22,6 +22,7 @@ const PI_MODEL_LABELS: Record<string, string> = {
   "gpt-5.6-luna": "GPT-5.6 Luna",
   "@cf/zai-org/glm-5.2": "GLM-5.2",
   "zai-org/glm-5.3": "GLM-5.3",
+  "zai-org/glm-5.3-flash": "GLM-5.3 Flash",
   "moonshotai/kimi-k3": "Kimi K3",
 };
 
@@ -39,6 +40,7 @@ const HIDDEN_PI_MODEL_IDS = new Set([
   "gpt-5.4",
   "gpt-5.5",
   "gpt-5-mini",
+  "@cf/zai-org/glm-5.2",
 ]);
 
 export type PiModelCatalogEntry = Omit<
@@ -51,6 +53,20 @@ export type PiModelCatalogEntry = Omit<
   thinkingLevels: ModelThinkingLevel[];
 };
 
+// The provider config loses owned_by, so the shared formatter falls back to
+// id-based detection. Keeps Pi's names identical to the shared model picker.
+function piModelDisplayName(model: { id: string; name: string }): string {
+  if (model.name !== model.id) return model.name;
+  return formatGatewayModelName({
+    id: model.id,
+    owned_by: "",
+    context_window: 0,
+    supports_streaming: false,
+    supports_vision: false,
+    allowed: true,
+  });
+}
+
 export function resolvePosthogPiModelCatalog(
   gatewayModels: GatewayModel[],
   region: CloudRegion,
@@ -60,7 +76,7 @@ export function resolvePosthogPiModelCatalog(
     .map((model) => ({
       provider: "posthog",
       id: model.id,
-      name: PI_MODEL_LABELS[model.id] ?? model.name,
+      name: PI_MODEL_LABELS[model.id] ?? piModelDisplayName(model),
       isDefault: model.id === DEFAULT_PI_MODEL_ID,
       contextWindow: model.contextWindow,
       thinkingLevels: getSupportedThinkingLevels({

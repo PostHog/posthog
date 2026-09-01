@@ -26,12 +26,15 @@ from products.stamphog.backend.logic.channel_resolution import (
     SlackChannel,
 )
 from products.stamphog.backend.logic.digest import (
+    _HEADLINE_MAX_RETRIES,
+    _HEADLINE_TIMEOUT_SECONDS,
+    GRAZE_CHANGED_FILES,
     MAX_DIGEST_PRS,
     MAX_FALLBACK_PRS,
     DigestPRSummary,
     DigestSummary,
     _build_summary,
-    _parse_llm_response,
+    _parse_selection,
     summarize_merged_prs,
 )
 from products.stamphog.backend.logic.digest_runs import (
@@ -648,33 +651,127 @@ def _pr_stub(repository: str, pr_number: int, title: str, url: str) -> PullReque
     )
 
 
-def _fake_llm_client(content: str) -> Any:
-    response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
-    return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kwargs: response)))
+def _recording_llm_client(answers: list[Any]) -> Any:
+    """Answers each call with the next entry, recording the prompts it was given on `.prompts`.
+
+    An entry that is an exception is raised instead, which is how the selection call and the
+    headline call are given different fates.
+    """
+    prompts: list[str] = []
+
+    def create(**kwargs: Any) -> Any:
+        prompts.append(kwargs["messages"][0]["content"])
+        answer = answers[len(prompts) - 1]
+        if isinstance(answer, Exception):
+            raise answer
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=answer))])
+
+    client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create)), prompts=prompts, options=[]
+    )
+    # The real client hands back a bounded copy. The fake records the bounds and answers as itself,
+    # so a test can assert what the optional headline call was limited to.
+    client.with_options = lambda **kwargs: (client.options.append(kwargs), client)[1]
+    return client
 
 
-def test_a_filtered_entry_takes_the_headline_with_it() -> None:
-    # The headline is written over the whole answer, so an entry dropped for citing no valid rule
-    # can leave it naming a change the thread does not carry. The renderer falls back to the scope
-    # line, which the counts already agree with.
-    prs_by_index = {
-        0: _pr_stub("o/r", 1, "Kept", "https://github.com/o/r/pull/1"),
-        1: _pr_stub("o/r", 2, "Dropped", "https://github.com/o/r/pull/2"),
-    }
-    content = json.dumps(
+def test_the_headline_call_never_sees_a_merge_the_thread_left_out() -> None:
+    # The single-call version asked the model not to name a change it had dropped, and shipped two
+    # headlines that named one anyway: both accurate, both with no line under them and no link. The
+    # split makes that unreachable rather than forbidden, so what is asserted is the prompt, not the
+    # answer. A merge dropped for citing no valid rule must be absent from the second call's input.
+    prs = [
+        _pr_stub("o/r", 1, "Kept", "https://github.com/o/r/pull/1"),
+        _pr_stub("o/r", 2, "Dropped and unmentionable", "https://github.com/o/r/pull/2"),
+    ]
+    # The kept PR's reviewed summary has to travel with it. It is where a condition like a flag
+    # lives, and a headline that drops one states a gated change as shipped.
+    prs[0].summary_line = "Playback blocking is behind a flag, off by default."
+    selection = json.dumps(
         {
-            "headline": "Two things changed today.",
             "prs": [
                 {"index": 0, "rule": "contract", "summary": "The kept one."},
                 {"index": 1, "rule": "vibes", "summary": "The dropped one."},
-            ],
+            ]
         }
     )
+    client = _recording_llm_client([selection, json.dumps({"headline": "The kept one shipped."})])
 
-    summary = _parse_llm_response(content, prs_by_index)
+    with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=client):
+        summary = summarize_merged_prs(prs)
 
     assert [p.pr_number for p in summary.prs] == [1]
+    assert summary.headline == "The kept one shipped."
+    selection_prompt, headline_prompt = client.prompts
+    assert "Dropped and unmentionable" in selection_prompt
+    assert "Dropped and unmentionable" not in headline_prompt
+    assert "The kept one." in headline_prompt
+    assert "Playback blocking is behind a flag, off by default." in headline_prompt
+
+
+def test_a_headline_failure_keeps_the_judged_digest() -> None:
+    # The selection call already succeeded, so its lines are the digest. Taking a second-call
+    # timeout to the deterministic fallback would replace judged lines with unreviewed titles and
+    # throw away the half of the work that worked.
+    prs = [_pr_stub("o/r", 1, "Kept", "https://github.com/o/r/pull/1")]
+    answers = [
+        json.dumps({"prs": [{"index": 0, "rule": "contract", "summary": "It ships."}]}),
+        RuntimeError("gateway down"),
+    ]
+
+    client = _recording_llm_client(answers)
+
+    with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=client):
+        summary = summarize_merged_prs(prs)
+
+    assert summary.judged is True
+    assert [p.summary for p in summary.prs] == ["It ships."]
     assert summary.headline == ""
+    # The same call also has to be bounded. It sits in front of a Slack post that is already ready,
+    # and a team's audiences post one at a time, so an unbounded stall on an optional call holds up
+    # this digest and every audience behind it. The client's own default is ten minutes with retries.
+    assert client.options == [{"timeout": _HEADLINE_TIMEOUT_SECONDS, "max_retries": _HEADLINE_MAX_RETRIES}]
+
+
+@pytest.mark.parametrize(
+    "owned_count,changed_files,dropped",
+    [
+        (1, GRAZE_CHANGED_FILES, True),
+        (1, GRAZE_CHANGED_FILES - 1, False),
+        (2, GRAZE_CHANGED_FILES, False),
+    ],
+)
+def test_a_merge_that_only_grazed_the_team_never_reaches_the_model(
+    owned_count: int, changed_files: int, dropped: bool
+) -> None:
+    # A repo-wide config change owned one line in ten products and reached every one of their
+    # channels. The prompt named the graze and asked the model to drop it, and the model kept it
+    # anyway: the prompt carries no diff, so nothing in it says what that one file does. Code
+    # decides now. The grazed merge goes first so a filter that forgot to renumber the index map
+    # would resolve the model's index 0 to the wrong PR.
+    grazed = _pr_stub("o/r", 1, "Swept in", "https://github.com/o/r/pull/1")
+    grazed.changed_files = changed_files
+    owned = _pr_stub("o/r", 2, "Ours", "https://github.com/o/r/pull/2")
+    audiences = [
+        PullRequestAudience(
+            audience_key=AUDIENCE,
+            reason=AudienceReason.OWNED,
+            owned_files=[f"a{i}.py" for i in range(count)],
+            owned_file_count=count,
+        )
+        for count in (owned_count, 1)
+    ]
+    selection = json.dumps({"prs": [{"index": 0, "rule": "contract", "summary": "The first one."}]})
+    client = _recording_llm_client([selection, json.dumps({"headline": "Something shipped."})])
+
+    with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=client):
+        summary = summarize_merged_prs([grazed, owned], audiences)
+
+    assert ("Swept in" in client.prompts[0]) is not dropped
+    assert [p.pr_number for p in summary.prs] == [2 if dropped else 1]
+    # The scope line still counts every merge the audience claimed. Counting only what survived
+    # would tell a swept team that nothing landed in its area at all.
+    assert summary.considered == 2
 
 
 def test_a_model_outage_posts_a_short_plain_list_and_says_it_judged_nothing() -> None:
@@ -701,7 +798,7 @@ def test_same_pr_number_across_repos_both_survive_summarization() -> None:
         _pr_stub("acme/a", 123, "A change", "https://github.com/acme/a/pull/123"),
         _pr_stub("acme/b", 123, "B change", "https://github.com/acme/b/pull/123"),
     ]
-    content = json.dumps(
+    selection = json.dumps(
         {
             "prs": [
                 {"index": 0, "rule": "contract", "summary": "repo a change"},
@@ -710,7 +807,10 @@ def test_same_pr_number_across_repos_both_survive_summarization() -> None:
         }
     )
 
-    with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=_fake_llm_client(content)):
+    with patch(
+        "products.stamphog.backend.logic.digest.get_llm_client",
+        return_value=_recording_llm_client([selection, json.dumps({"headline": "Both repos changed."})]),
+    ):
         summary = summarize_merged_prs(prs)
 
     assert len(summary.prs) == 2
@@ -719,6 +819,41 @@ def test_same_pr_number_across_repos_both_survive_summarization() -> None:
         "https://github.com/acme/b/pull/123",
     }
     assert {p.summary for p in summary.prs} == {"repo a change", "repo b change"}
+
+
+@pytest.mark.parametrize(
+    "raw_summary,expected",
+    [
+        ("The widget opens on the first click.", "The widget opens on the first click."),
+        ("  padded  ", "padded"),
+        (None, "The reviewer's own sentence."),
+        ("", "The reviewer's own sentence."),
+        ({"text": "Shipped"}, "The reviewer's own sentence."),
+        (["Shipped"], "The reviewer's own sentence."),
+        (42, "The reviewer's own sentence."),
+    ],
+    ids=[
+        "a_string_is_the_line",
+        "surrounding_whitespace_goes",
+        "an_omitted_summary_falls_back_to_the_reviewed_sentence",
+        "an_empty_summary_falls_back_too",
+        "a_dict_never_reaches_the_post_as_its_repr",
+        "a_list_does_not_either",
+        "nor_a_number",
+    ],
+)
+def test_only_a_string_becomes_a_change_line(raw_summary: Any, expected: str) -> None:
+    # Coercing whatever arrived put `{'text': 'Shipped'}` in the thread as its Python repr, and the
+    # channel lead can now promote a change line, so the repr had a route to the one line a reader
+    # cannot skip. Falling back to the reviewed sentence keeps a malformed entry saying something
+    # true rather than dropping the change.
+    pr = _pr_stub("o/r", 1, "The author's own claim.", "https://github.com/o/r/pull/1")
+    pr.summary_line = "The reviewer's own sentence."
+    content = json.dumps({"prs": [{"index": 0, "rule": "contract", "summary": raw_summary}]})
+
+    picked = _parse_selection(content, {0: pr})
+
+    assert [p.summary for p in picked] == [expected]
 
 
 @parameterized.expand(
@@ -745,10 +880,10 @@ def test_only_a_genuinely_empty_result_posts_nothing(_name: str, content: str, a
     # an empty post instead of falling back to the deterministic list.
     prs_by_index = {0: _pr_stub("PostHog/posthog", 1, "Title", "https://example.com/1")}
     if accepted:
-        assert _parse_llm_response(content, prs_by_index).prs == []
+        assert _parse_selection(content, prs_by_index) == []
     else:
         with pytest.raises(ValueError):
-            _parse_llm_response(content, prs_by_index)
+            _parse_selection(content, prs_by_index)
 
 
 @pytest.mark.parametrize(
@@ -775,11 +910,15 @@ def test_the_headline_reaches_the_channel_as_one_link_free_paragraph(raw_headlin
     # to read as prose. A model that answers with bullets puts the list back in the channel, and one
     # that answers with a URL either shows a raw link mid-sentence or, once escaped, shows raw
     # markup. Neither is repairable in place, so a link drops the headline and the renderer leads
-    # with the scope line instead.
-    content = json.dumps({"headline": raw_headline, "prs": [{"index": 0, "rule": "contract", "summary": "Ship it."}]})
-    summary = _parse_llm_response(content, {0: _pr_stub("o/r", 1, "Ship it", "https://example.com/1")})
+    # with the change's own line instead.
+    contents = [
+        json.dumps({"prs": [{"index": 0, "rule": "contract", "summary": "Ship it."}]}),
+        json.dumps({"headline": raw_headline}),
+    ]
+    with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=_recording_llm_client(contents)):
+        summary = summarize_merged_prs([_pr_stub("o/r", 1, "Ship it", "https://example.com/1")])
     assert summary.headline == expected
-    # A rejected headline never costs the change line it was written over.
+    # A rejected headline never costs the change line the selection call already wrote.
     assert len(summary.prs) == 1
 
 

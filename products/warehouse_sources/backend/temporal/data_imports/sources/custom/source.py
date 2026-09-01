@@ -529,11 +529,26 @@ def validate_manifest_urls(manifest: dict[str, Any], team_id: int) -> tuple[bool
     return True, None
 
 
+_HTTP_METHODS = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"})
+
+
+def _has_leading_http_method(url: str) -> bool:
+    """True when a URL starts with an HTTP verb, e.g. a "POST https://..." pasted from API docs.
+    urlparse then reads no host, so the URL is rejected for a missing hostname it plainly has."""
+    head, _, rest = url.strip().partition(" ")
+    return bool(rest) and head.upper() in _HTTP_METHODS
+
+
 def _check_url(url: str, team_id: int) -> tuple[bool, str | None]:
     # `_url_hostname` mirrors the real connect host (backslash/whitespace-normalized) so the
     # validator can't be fooled into vetting a different host than the request reaches.
     hostname = _url_hostname(url)
     if not hostname:
+        if _has_leading_http_method(url):
+            return (
+                False,
+                "Remove the HTTP method from the URL and enter just the address (for example, https://api.example.com).",
+            )
         return False, f"URL {url!r} is missing a hostname"
     if is_cloud() and urlparse(url).scheme != "https":
         return False, f"URL {url!r} must use https:// on PostHog Cloud"

@@ -70,6 +70,7 @@ __all__ = [
     "get_table",
     "get_queryable_table",
     "resolve_object_by_name",
+    "direct_access_table_ids",
     "list_tables_for_source",
     "list_jobs_for_source",
     "list_column_statistics",
@@ -354,6 +355,22 @@ def resolve_object_by_name(team_id: int, name: str) -> contracts.WarehouseObject
         else contracts.WAREHOUSE_OBJECT_VIEW
     )
     return contracts.WarehouseObjectRef(kind=kind, id=resolved.id)
+
+
+def all_queryable_table_names(team_id: int) -> dict[UUID, str]:
+    """The current name of every table in this team that is still queryable. One query."""
+    rows = _DataWarehouseTable.raw_objects.queryable().filter(team_id=team_id)
+    return dict(rows.values_list("id", "name"))
+
+
+def direct_access_table_ids(team_id: int) -> set[UUID]:
+    """The queryable tables belonging to direct-access sources in this team. One query."""
+    rows = (
+        _DataWarehouseTable.raw_objects.queryable()
+        .filter(team_id=team_id, external_data_source__access_method=_ExternalDataSource.AccessMethod.DIRECT)
+        .values_list("id", flat=True)
+    )
+    return set(rows)
 
 
 def list_tables_for_source(source_id: UUID, team_id: int) -> list[contracts.DataWarehouseTable]:

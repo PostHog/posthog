@@ -10,17 +10,19 @@ import posthoganalytics
 from pydantic import BaseModel, ValidationError
 
 from posthog.dataclasses import frozen
+from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
+from posthog.temporal.oauth import McpScopePreset, grants_scratchpad_write
 
 from products.business_knowledge.backend.logic import is_available_for_team
 from products.signals.backend.agent_runtime import STEP_RESEARCH, resolve_agent_runtime
 from products.signals.backend.artefact_schemas import ArtefactContent, RelatedTo, SuggestedReviewers
-from products.signals.backend.auto_start import ReviewerContent, maybe_autostart_implementation_task
+from products.signals.backend.auto_start import ReviewerContent
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
 from products.signals.backend.report_generation.research import (
@@ -41,6 +43,7 @@ from products.signals.backend.report_generation.reviewer_telemetry import (
     capture_suggested_reviewers_unresolved,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_steering import ReportSteering, load_research_steering
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -445,28 +448,10 @@ async def _persist_agentic_report_artefacts(
         await database_sync_to_async(tasks_facade.set_task_title, thread_sensitive=False)(
             result.research_task_id, team_id, f"Research: {result.title}"
         )
-
-    try:
-        await maybe_autostart_implementation_task(
-            team_id=team_id,
-            report_id=report_id,
-            repository=repo_selection.repository or "",
-            title=result.title,
-            summary=result.summary,
-            actionability=result.effective_actionability(),
-            priority=result.effective_priority(),
-            reviewers_content=reviewers_content,
-            repository_autostart_eligible=repo_selection.autostart_eligible,
-        )
-    except Exception as error:
-        posthoganalytics.capture_exception(error)
-        logger.exception(
-            "signals auto-start task failed",
-            report_id=report_id,
-            team_id=team_id,
-            repository=repo_selection.repository,
-            error=str(error),
-        )
+    # Auto-start is not triggered here. The summary workflow starts implementation once the report
+    # has settled (READY with no pending signals), so the task is scoped to the report's final
+    # summary rather than whichever research pass finished first — see
+    # `maybe_autostart_implementation_activity` in temporal/summary.py.
 
 
 def _team_has_business_knowledge(team_id: int) -> bool:
@@ -504,6 +489,47 @@ def _team_report_charts_enabled(team_id: int) -> bool:
         return False
 
 
+# The posture the research sandbox's token is minted from. Named once because two things depend on
+# it: the token the sandbox holds, and the memory protocol rendered into the research prompt. The
+# prompt side derives its gate from this constant, so a posture that loses the scratchpad write
+# scope also loses the instructions that depend on it.
+RESEARCH_MCP_SCOPES: McpScopePreset = "signals_research"
+
+
+def _capture_research_steering_attached(*, team_id: int, report_id: str, steering: ReportSteering) -> None:
+    """`signals_research_steering_attached` — fired for every research run, so the share that carried
+    the team's steering is readable against the share that carried none, and against how those
+    reports were judged afterwards (join `signal_report_completed` on `report_id`).
+
+    `dismissal_notes_attached` is the one that answers whether a reviewer's "stop flagging this"
+    reaches the stage that decides whether to flag it again. `pipeline_notes_attached` answers
+    whether anyone addresses notes to this stage at all.
+
+    Delivery is at-least-once, because an activity retry re-fires an identical payload, so read
+    report state as the latest event per `report_id` rather than by counting raw events.
+    """
+    try:
+        team = Team.objects.select_related("organization").get(id=team_id)
+        posthoganalytics.capture(
+            event="signals_research_steering_attached",
+            distinct_id=str(team.uuid),
+            properties={
+                "team_id": team.id,
+                "organization_id": str(team.organization.id),
+                "report_id": report_id,
+                "notes_attached": steering.notes_attached,
+                "dismissal_notes_attached": steering.dismissal_notes_attached,
+                "pipeline_notes_attached": steering.pipeline_notes_attached,
+                "scratchpad_available": steering.scratchpad_available,
+                "memory_protocol": steering.memory_protocol,
+            },
+            groups=groups(team.organization, team),
+        )
+    except Exception:
+        # Analytics must never break research.
+        logger.exception("Failed to capture signals_research_steering_attached", report_id=report_id)
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -528,10 +554,11 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 user_id=user_id,
                 repository=repository,
                 sandbox_environment_id=sandbox_env_id,
-                # Reads only: the research agent queries data/insights and can list the report's
-                # artefacts, but never writes artefacts itself — the pipeline persists its
-                # structured outputs after the session.
-                posthog_mcp_scopes="read_only",
+                # Reads, plus the scratchpad: the research agent queries data/insights and can
+                # list the report's artefacts, but never writes artefacts itself — the pipeline
+                # persists its structured outputs after the session. What it does keep is what it
+                # judged, so the next run over the same entities starts from it.
+                posthog_mcp_scopes=RESEARCH_MCP_SCOPES,
                 model=agent_runtime.model,
                 runtime_adapter=agent_runtime.runtime_adapter,
                 reasoning_effort=agent_runtime.reasoning_effort,
@@ -546,6 +573,14 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             resolved_report_title, resolved_report_summary = await _load_resolved_report_context(
                 input.team_id, input.report_id
             )
+            # 2c. Load what the team already told the scout fleet, so a reviewer's verdict on an
+            # earlier report reaches the stage that judges this one.
+            steering = await database_sync_to_async(load_research_steering, thread_sensitive=False)(
+                input.team_id, input.report_id, memory_writable=grants_scratchpad_write(RESEARCH_MCP_SCOPES)
+            )
+            await database_sync_to_async(_capture_research_steering_attached, thread_sensitive=False)(
+                team_id=input.team_id, report_id=input.report_id, steering=steering
+            )
             # 3. Run the agentic research in the sandbox
             result = await run_multi_turn_research(
                 input.signals,
@@ -557,6 +592,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 resolved_report_title=resolved_report_title,
                 resolved_report_summary=resolved_report_summary,
                 charts_enabled=charts_enabled,
+                steering_section=steering.section,
             )
             # 4. Persist artefacts, avoid partial data from failed runs
             await _persist_agentic_report_artefacts(

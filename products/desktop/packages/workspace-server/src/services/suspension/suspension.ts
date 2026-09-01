@@ -53,7 +53,7 @@ type StepFn = (
   rollback?: RollbackFn,
 ) => Promise<void>;
 
-export const SuspensionServiceEvent = {
+const SuspensionServiceEvent = {
   Suspended: "suspended",
   Restored: "restored",
 } as const;

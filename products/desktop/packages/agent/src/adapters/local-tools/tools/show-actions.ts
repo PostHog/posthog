@@ -12,7 +12,7 @@ export const showActionsSchema = {
     .describe("One to four actions, in the order they should appear."),
 };
 
-export const SHOW_ACTIONS_TOOL_DESCRIPTION =
+const SHOW_ACTIONS_TOOL_DESCRIPTION =
   "Show the user a card of clickable buttons in PostHog Desktop, so they can " +
   "act on what you just told them without retyping it. Pass 1 to 4 actions. " +
   "Each action is a typed verb, never a URL: there is no URL parameter and " +

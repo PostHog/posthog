@@ -11,6 +11,7 @@ import { useCallback } from 'react'
 import { IconCopy, IconFilter, IconGroupIntersect, IconPencil, IconTrash } from '@posthog/icons'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { AddBehavioralFilterButton } from 'lib/components/PropertyFilters/components/AddBehavioralFilterButton'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -21,8 +22,10 @@ import {
     quickFilterToPropertyFilters,
 } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover, TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getEventNamesForAction } from 'lib/utils/events'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -94,6 +97,7 @@ export function ActionFilterRow({
     hideDeleteBtn = false,
     showCombine = false,
     insightType,
+    allowBehavioralPropertyFilter = false,
     propertyFiltersPopover = false,
     onRenameClick = () => {},
     showSeriesIndicator,
@@ -142,6 +146,7 @@ export function ActionFilterRow({
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const mountedInsightDataLogic = insightDataLogic.findMounted({ dashboardItemId: typeKey })
     const query = mountedInsightDataLogic?.values?.query
@@ -355,6 +360,11 @@ export function ActionFilterRow({
         )
 
     const isDataWarehouseFilter = filter.type === EntityTypes.DATA_WAREHOUSE
+    // A behavioral filter compiles to a person_id subquery over the events table, which a warehouse series has no key for
+    const behavioralFiltersEnabled =
+        allowBehavioralPropertyFilter &&
+        !!featureFlags[FEATURE_FLAGS.BEHAVIORAL_PROPERTY_FILTER] &&
+        !isDataWarehouseFilter
     // CDP destination/workflow filters restrict the picker to the one warehouse table family their
     // trigger fires on, so each family gets its own typeKey.
     const dataWarehouseGroupType =
@@ -734,6 +744,18 @@ export function ActionFilterRow({
                         hogQLGlobals={hogQLGlobals}
                         operatorAllowlist={operatorAllowlist}
                         triggerVariant="input"
+                        framedRows={behavioralFiltersEnabled}
+                        addText={behavioralFiltersEnabled ? 'Filter' : undefined}
+                        addFilterSuffix={
+                            behavioralFiltersEnabled
+                                ? (addFilter) => (
+                                      <AddBehavioralFilterButton
+                                          data-attr={`${index}-${value}-${typeKey}-add-behavioral-filter`}
+                                          onAdd={addFilter}
+                                      />
+                                  )
+                                : null
+                        }
                     />
                     <SaveAsActionBanner filter={filter} />
                 </div>

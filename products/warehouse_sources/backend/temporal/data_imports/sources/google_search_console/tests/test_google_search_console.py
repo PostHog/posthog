@@ -880,6 +880,41 @@ def test_query_read_timeout_bubbles_after_max_retries(monkeypatch):
     assert session.post.call_count == QUOTA_MAX_RETRIES + 1
 
 
+def test_query_retries_truncated_body_then_succeeds(monkeypatch):
+    monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
+
+    truncated = _fake_response(200)
+    truncated.json.side_effect = requests.exceptions.ChunkedEncodingError("Connection broken: IncompleteRead(...)")
+    session = mock.MagicMock()
+    session.post.side_effect = [
+        truncated,
+        _fake_response(200, {"rows": [{"keys": ["2026-04-15"], "clicks": 1}]}),
+    ]
+
+    rows = _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0)
+
+    assert rows == [{"keys": ["2026-04-15"], "clicks": 1}]
+    assert session.post.call_count == 2
+
+
+def test_query_truncated_body_bubbles_after_max_retries(monkeypatch):
+    monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
+
+    truncated = _fake_response(200)
+    truncated.json.side_effect = requests.exceptions.ChunkedEncodingError("Connection broken: IncompleteRead(...)")
+    session = mock.MagicMock()
+    session.post.return_value = truncated
+
+    # A persistently truncated response body (chunked transfer cut off mid-read) exhausts the
+    # inline budget and surfaces the real ChunkedEncodingError (retryable at the activity level).
+    with pytest.raises(requests.exceptions.ChunkedEncodingError):
+        _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0)
+
+    assert session.post.call_count == QUOTA_MAX_RETRIES + 1
+
+
 def test_query_retries_transient_token_refresh_error_then_succeeds(monkeypatch):
     monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
     monkeypatch.setattr(gsc, "_throttle", lambda _site: None)

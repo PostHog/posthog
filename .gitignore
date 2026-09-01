@@ -46,6 +46,7 @@ common/hogvm/typescript/.parcel-cache
 common/hogvm/typescript/dist
 common/plugin_transpiler/dist
 common/replay-headless/dist
+common/storybook/.workers
 common/storybook/dist
 coverage-*.xml
 debug.log

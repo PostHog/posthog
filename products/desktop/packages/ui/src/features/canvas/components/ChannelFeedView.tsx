@@ -1480,7 +1480,7 @@ export function ChannelFeedView({
             <TabsTrigger
               key={value}
               value={value}
-              className="rounded-sm px-1 py-0.5 text-[13px]"
+              className="rounded-sm px-2 py-0.5 text-[13px]"
             >
               {label}
               {value === "reports" &&

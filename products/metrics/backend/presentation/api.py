@@ -6,13 +6,14 @@ recognizable.
 
 import datetime as dt
 from dataclasses import asdict
+from typing import cast
 
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import ParseError
+from rest_framework.exceptions import ParseError, PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -20,7 +21,8 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
-from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.models import User
+from posthog.permissions import PostHogFeatureFlagPermission, posthog_feature_flag_enabled
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 
 from products.metrics.backend.facade.api import (
@@ -29,6 +31,7 @@ from products.metrics.backend.facade.api import (
     get_metrics_overview,
     list_metric_attribute_keys,
     list_metric_attribute_values,
+    list_metric_error_spikes,
     list_metric_event_samples,
     list_metric_names,
     run_metric_query,
@@ -36,6 +39,7 @@ from products.metrics.backend.facade.api import (
 )
 from products.metrics.backend.facade.contracts import (
     MAX_CLAUSES_PER_QUERY,
+    METRICS_ERROR_OVERLAYS_FEATURE_FLAG,
     METRICS_FEATURE_FLAG,
     MetricFilter,
     MetricGroupBy,
@@ -528,8 +532,14 @@ class _MetricAttributeValuesResponseSerializer(serializers.Serializer):
 
 class _MetricSamplesBodySerializer(serializers.Serializer):
     metricName = serializers.CharField(
+        required=False,
+        allow_blank=True,
         max_length=255,
-        help_text="Exact metric name to list raw emissions for (e.g. 'http.server.duration').",
+        help_text=(
+            "Exact metric name to list raw emissions for (e.g. 'http.server.duration'). "
+            "Omit to list emissions across all metric names — allowed only with traceId "
+            "(the trace->metrics pivot)."
+        ),
     )
     dateFrom = serializers.DateTimeField(
         help_text="Lower bound (inclusive) for the sample window. ISO 8601.",
@@ -543,6 +553,12 @@ class _MetricSamplesBodySerializer(serializers.Serializer):
         allow_blank=True,
         max_length=255,
         help_text="Restrict to emissions on this trace (hex trace id, as the tracing product uses) — the reverse metric->trace pivot. Omit for all traces.",
+    )
+    spanId = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=255,
+        help_text="Restrict to emissions recorded on this span (hex span id). Requires traceId, since a span id is only unique within its trace.",
     )
     metricType = serializers.ChoiceField(
         choices=[t.value for t in MetricType],
@@ -563,6 +579,13 @@ class _MetricSamplesBodySerializer(serializers.Serializer):
         max_value=1000,
         help_text="Max emissions to return, newest first. Defaults to 100, capped at 1000.",
     )
+
+    def validate(self, attrs: dict) -> dict:
+        if not attrs.get("metricName") and not attrs.get("traceId"):
+            raise serializers.ValidationError("metricName or traceId is required.")
+        if attrs.get("spanId") and not attrs.get("traceId"):
+            raise serializers.ValidationError("spanId requires traceId.")
+        return attrs
 
 
 class _MetricSamplesRequestSerializer(serializers.Serializer):
@@ -605,6 +628,35 @@ class _MetricSamplesResponseSerializer(serializers.Serializer):
     results = _MetricEventSampleSerializer(
         many=True,
         help_text="Raw emissions ordered by timestamp descending.",
+    )
+
+
+class _MetricErrorSpikesParamsSerializer(serializers.Serializer):
+    dateFrom = serializers.DateTimeField(
+        help_text="Lower bound (inclusive) for the spike window. ISO 8601.",
+    )
+    dateTo = serializers.DateTimeField(
+        required=False,
+        help_text="Upper bound (exclusive) for the spike window. Defaults to now if omitted.",
+    )
+
+
+class _MetricErrorSpikeSerializer(serializers.Serializer):
+    detected_at = serializers.CharField(help_text="When the error spike was detected, ISO 8601.")
+    issue_id = serializers.CharField(help_text="Error Tracking issue that spiked.")
+    issue_name = serializers.CharField(
+        allow_null=True,
+        help_text="Issue name, if one is set.",
+    )
+
+
+class _MetricErrorSpikesResponseSerializer(serializers.Serializer):
+    results = _MetricErrorSpikeSerializer(
+        many=True,
+        help_text=(
+            "Error Tracking issue spikes detected in the window, newest first. Team-wide: not yet "
+            "scoped to a specific metric's service."
+        ),
     )
 
 
@@ -943,10 +995,11 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             samples = list_metric_event_samples(
                 team=self.team,
-                metric_name=query_data["metricName"],
+                metric_name=query_data.get("metricName") or None,
                 date_from=query_data["dateFrom"],
                 date_to=query_data.get("dateTo") or timezone.now(),
                 trace_id=query_data.get("traceId") or None,
+                span_id=query_data.get("spanId") or None,
                 filters=filters,
                 metric_type=MetricType(query_data["metricType"]) if query_data.get("metricType") else None,
                 limit=query_data.get("limit") or 100,
@@ -967,6 +1020,46 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
         return Response({"results": [asdict(s) for s in samples]}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        parameters=[_MetricErrorSpikesParamsSerializer], responses={200: _MetricErrorSpikesResponseSerializer}
+    )
+    # Both scopes: the response is Error Tracking data, so a token scoped to metrics
+    # alone must not reach it (scopes gate the token; the access-control check below
+    # gates the user).
+    @action(detail=False, methods=["GET"], required_scopes=["metrics:read", "error_tracking:read"])
+    def error_spikes(self, request: Request, *args, **kwargs) -> Response:
+        """Error Tracking issue spikes detected in a time window — backs the
+        metrics chart's error-spike overlay (PoC). Team-wide: not yet scoped
+        to the metric's own service."""
+        # Layered on top of the viewset's `metrics` gate: the overlay is a PoC
+        # kept to staff only, so it needs its own flag even once metrics is on.
+        if not posthog_feature_flag_enabled(
+            METRICS_ERROR_OVERLAYS_FEATURE_FLAG,
+            str(cast(User, request.user).distinct_id),
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+        ):
+            raise PermissionDenied("The metrics error-spike overlay is not enabled for this user.")
+
+        # This action serves Error Tracking data (issue ids and names), so the caller
+        # needs view access to that resource too — metrics access alone must not leak
+        # it. The frontend hides the overlay on the same condition.
+        if not self.user_access_control.check_access_level_for_resource("error_tracking", "viewer"):
+            raise PermissionDenied("You do not have access to error tracking.")
+
+        tag_queries(product=Product.METRICS, feature=Feature.QUERY)
+
+        params = _MetricErrorSpikesParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+
+        spikes = list_metric_error_spikes(
+            team=self.team,
+            date_from=params.validated_data["dateFrom"],
+            date_to=params.validated_data.get("dateTo") or timezone.now(),
+        )
+
+        return Response({"results": [asdict(s) for s in spikes]}, status=status.HTTP_200_OK)
 
     @extend_schema(request=_MetricExplainRequestSerializer, responses={200: _MetricExplainResponseSerializer})
     @action(

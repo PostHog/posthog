@@ -16,6 +16,7 @@ from rest_framework.views import APIView
 from rest_framework.viewsets import ViewSet
 
 from posthog.auth import (
+    ExportRendererAuthentication,
     IDJagAccessTokenAuthentication,
     JwtAuthentication,
     OAuthAccessTokenAuthentication,
@@ -25,6 +26,7 @@ from posthog.auth import (
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
     TeamSecretTokenAuthentication,
+    is_mcp_request,
 )
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
@@ -42,6 +44,7 @@ from posthog.scopes import (
 from posthog.session.reauth import sensitive_action_reference, step_up_required
 from posthog.utils import get_can_create_org
 
+from products.access_control.backend.facade.mcp_access import mcp_access_denial
 from products.access_control.backend.facade.user_access_control import (
     AccessControlLevel,
     UserAccessControl,
@@ -640,6 +643,8 @@ def get_authenticator_scopes(authenticator) -> list[str] | None:
         return list(authenticator.scopes or [])
     if isinstance(authenticator, ProjectSecretAPIKeyAuthentication):
         return list(authenticator.project_secret_api_key.scopes or [])
+    if isinstance(authenticator, ExportRendererAuthentication):
+        return list(authenticator.scopes)
     return None
 
 
@@ -673,6 +678,8 @@ def get_authenticator_scoped_team_ids(authenticator) -> list[int] | None:
     credential = get_authenticator_user_credential(authenticator)
     if credential is not None:
         return list(credential.scoped_teams or []) or None
+    if isinstance(authenticator, ExportRendererAuthentication):
+        return [authenticator.team_id]
     return None
 
 
@@ -798,7 +805,8 @@ class APIScopePermission(ScopeBasePermission):
             OAuthAccessTokenAuthentication
             | PersonalAPIKeyAuthentication
             | JwtAuthentication
-            | IDJagAccessTokenAuthentication,
+            | IDJagAccessTokenAuthentication
+            | ExportRendererAuthentication,
         ):
             raise ValueError("Unexpected authentication type")
 
@@ -860,6 +868,75 @@ class APIScopePermission(ScopeBasePermission):
                 )
         except OrganizationMembership.DoesNotExist:
             return
+
+
+class MCPAccessPermission(ScopeBasePermission):
+    """Denies write actions through the MCP server when the organization restricts it.
+
+    This class is an independent vote in the permission stack. DRF combines permission
+    classes with AND semantics, so a `*`-scoped token that passes `APIScopePermission`
+    is still capped here. The stack runs this class after the membership permissions,
+    so non-members get the generic denial. This class subclasses ScopeBasePermission
+    only for `_get_required_scopes`. It derives an action's read or write nature the
+    same way `APIScopePermission` does."""
+
+    def has_permission(self, request, view) -> bool:
+        # Cheap exit first. Almost every request is not MCP. The check is two isinstance
+        # checks and one header read, with no query.
+        if not is_mcp_request(request):
+            return True
+
+        # Root viewsets (organizations, projects, environments) carry no parent URL kwargs,
+        # and `get_organization_from_view` falls back to the user's current organization
+        # there, which is a UI preference, not the request's target. When an object exists,
+        # delegate to has_object_permission, which resolves the target organization from the
+        # fetched object and caps the write there — the same split OrganizationMemberPermissions
+        # uses. A create has no object and lands in the resolved organization (what the
+        # serializer's create uses), so the current-organization resolution is correct for it;
+        # a list is a read and passes _admits either way. Views deriving their target from the
+        # current team are also fine by construction.
+        target_in_url = bool(view.parent_query_kwargs) or bool(view.param_derived_from_user_current_team)
+        if not target_in_url and getattr(view, "action", None) not in ["list", "create"]:
+            return True
+
+        return self._admits(request, view, self._target_organization(view))
+
+    def has_object_permission(self, request, view, object) -> bool:
+        if not is_mcp_request(request):
+            return True
+        if isinstance(object, Organization):
+            return self._admits(request, view, object)
+        organization = getattr(object, "organization", None)
+        if isinstance(organization, Organization):
+            return self._admits(request, view, organization)
+        return True
+
+    @staticmethod
+    def _target_organization(view) -> Optional[Organization]:
+        if getattr(view, "scope_object", None) is None:
+            return None
+        try:
+            return get_organization_from_view(view)
+        except (ValueError, NotFound):
+            return None
+
+    def _admits(self, request, view, organization: Optional[Organization]) -> bool:
+        if organization is None:
+            return True
+        required_scopes = self._get_required_scopes(request, view)
+        if required_scopes is None:
+            # This action is unclassified: no required_scopes, or an INTERNAL scope object.
+            # On the default stack, APIScopePermission already rejects token auth for these.
+            # A dangerously_get_permissions chain can omit APIScopePermission. Fall back to
+            # the HTTP method there and treat every non-safe method as a write.
+            writes = request.method not in SAFE_METHODS
+        else:
+            writes = any(scope.endswith(":write") for scope in required_scopes)
+        denial = mcp_access_denial(organization, is_mcp=True, writes=writes)
+        if denial is not None:
+            self.message = denial
+            return False
+        return True
 
 
 class AccessControlPermission(ScopeBasePermission):

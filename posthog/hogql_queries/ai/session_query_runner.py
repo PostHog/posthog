@@ -30,7 +30,7 @@ from posthog.hogql_queries.ai.sentiment_evaluations import (
     load_generation_sentiment_evaluations_for_traces,
 )
 from posthog.hogql_queries.ai.utils import merge_heavy_properties
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.event.new_events_schema import use_new_events_schema

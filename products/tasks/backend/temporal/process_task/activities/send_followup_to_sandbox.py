@@ -1,4 +1,3 @@
-import json
 import time
 import threading
 import contextvars
@@ -17,6 +16,7 @@ from posthog.temporal.common.utils import close_db_connections
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.feature_flags import run_stream_presence_gated
 from products.tasks.backend.logic.services.agent_command import (
     FOLLOWUP_TIMEOUT_SECONDS,
     REFRESH_TIMEOUT_SECONDS,
@@ -30,10 +30,10 @@ from products.tasks.backend.logic.services.connection_token import create_sandbo
 from products.tasks.backend.logic.services.peer_messages import mark_peer_message_outcome, peer_message_id_from_context
 from products.tasks.backend.logic.services.run_actor import slack_actor_state_updates, user_has_current_team_access
 from products.tasks.backend.logic.services.staged_artifacts import get_task_run_artifacts_by_id
-from products.tasks.backend.logic.stream.redis_stream import get_task_run_stream_key
+from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_followup_denied_permission_stop, observe_followup_sandbox_stopped
 from products.tasks.backend.models import AgentPeerMessage, TaskRun
-from products.tasks.backend.redis import get_tasks_stream_redis_sync, run_uses_dedicated_stream
+from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_run
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
     apply_github_credentials_to_sandbox,
@@ -96,6 +96,8 @@ DENIAL_BRAKE_CONSUMED_REQUEST_ID_KEY = "followup_denial_brake_request_id"
 SEND_FOLLOWUP_MAX_ATTEMPTS = 3
 SEND_FOLLOWUP_HEARTBEAT_INTERVAL_SECONDS = 15
 STEER_DECLINED_OUTCOME = "steer_declined"
+STEER_DECLINE_REASON_UNREPORTED = "unreported"
+STEER_DECLINE_REASON_ACTOR_MISMATCH = "actor_mismatch"
 
 
 @dataclass
@@ -275,6 +277,16 @@ def _is_steer_declined(result_data: dict[str, Any] | None) -> bool:
     return isinstance(result, dict) and result.get("steered") is False
 
 
+def _steer_decline_reason(result_data: dict[str, Any] | None) -> str:
+    if not isinstance(result_data, dict):
+        return STEER_DECLINE_REASON_UNREPORTED
+    result = result_data.get("result")
+    if not isinstance(result, dict):
+        return STEER_DECLINE_REASON_UNREPORTED
+    reason = result.get("reason")
+    return reason if isinstance(reason, str) and reason else STEER_DECLINE_REASON_UNREPORTED
+
+
 def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
     peer_message_id = peer_message_id_from_context(input.context)
     try:
@@ -317,7 +329,13 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
             run_state_actor_user_id=(task_run.state or {}).get("slack_actor_user_id"),
             task_created_by_id=task_run.task.created_by_id,
         )
-        _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
+        _write_error_and_complete(
+            input.run_id,
+            error_msg,
+            run_uses_dedicated_stream(task_run.state),
+            run_stream_presence_gated(task_run.state),
+            task_run.task.origin_product,
+        )
         raise RuntimeError(f"send_followup failed: {error_msg}")
 
     if input.steer:
@@ -334,6 +352,11 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
                 actor_user_id=input.actor_user_id,
                 resolved_user_id=actor_user.id if actor_user is not None else None,
                 bound_user_id=bound_user_id,
+            )
+            logger.info(
+                "send_followup_steer_declined",
+                run_id=input.run_id,
+                reason=STEER_DECLINE_REASON_ACTOR_MISMATCH,
             )
             return STEER_DECLINED_OUTCOME
 
@@ -405,7 +428,13 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
         artifacts, missing_artifact_ids = get_task_run_artifacts_by_id(task_run, artifact_ids)
         if missing_artifact_ids:
             error_msg = f"Artifacts not found on this run: {', '.join(missing_artifact_ids)}"
-            _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
+            _write_error_and_complete(
+                input.run_id,
+                error_msg,
+                run_uses_dedicated_stream(task_run.state),
+                run_stream_presence_gated(task_run.state),
+                task_run.task.origin_product,
+            )
             raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
 
     if input.message_id and actor_slack_user_id:
@@ -439,9 +468,19 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
             logger.info("send_followup_steered", run_id=input.run_id)
             return None
         if input.steer and _is_steer_declined(result.data):
-            logger.info("send_followup_steer_declined", run_id=input.run_id)
+            logger.info(
+                "send_followup_steer_declined",
+                run_id=input.run_id,
+                reason=_steer_decline_reason(result.data),
+            )
             return STEER_DECLINED_OUTCOME
-        _write_turn_complete(input.run_id, _get_stop_reason(result.data), run_uses_dedicated_stream(task_run.state))
+        _write_turn_complete(
+            input.run_id,
+            _get_stop_reason(result.data),
+            run_uses_dedicated_stream(task_run.state),
+            run_stream_presence_gated(task_run.state),
+            task_run.task.origin_product,
+        )
         logger.info("send_followup_delivered", run_id=input.run_id)
     elif result.turn_in_flight:
         # A read timeout means the message reached the sandbox and the turn is
@@ -466,7 +505,11 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
                 error=result.error,
             )
             _write_error_and_complete(
-                input.run_id, DENIED_PERMISSION_STOP_MESSAGE, run_uses_dedicated_stream(task_run.state)
+                input.run_id,
+                DENIED_PERMISSION_STOP_MESSAGE,
+                run_uses_dedicated_stream(task_run.state),
+                run_stream_presence_gated(task_run.state),
+                task_run.task.origin_product,
             )
             raise ApplicationError(f"send_followup failed: {result.error}", non_retryable=True)
         # Retry transport failures and known transient agent errors. message_id
@@ -490,7 +533,13 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
             error=result.error,
             status_code=result.status_code,
         )
-        _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
+        _write_error_and_complete(
+            input.run_id,
+            error_msg,
+            run_uses_dedicated_stream(task_run.state),
+            run_stream_presence_gated(task_run.state),
+            task_run.task.origin_product,
+        )
         raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
     else:
         logger.warning(
@@ -500,7 +549,13 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
             status_code=result.status_code,
         )
         error_msg = user_facing_agent_error(result.error)
-        _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
+        _write_error_and_complete(
+            input.run_id,
+            error_msg,
+            run_uses_dedicated_stream(task_run.state),
+            run_stream_presence_gated(task_run.state),
+            task_run.task.origin_product,
+        )
         # Propagate failure to the workflow.
         raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
 
@@ -623,7 +678,13 @@ def _deliver_peer_message(input: SendFollowupToSandboxInput, task_run: TaskRun, 
             _mark_peer_delivery_outcome(peer_message_id, AgentPeerMessage.Outcome.DELIVERED)
             return None
         _mark_peer_delivery_outcome(peer_message_id, AgentPeerMessage.Outcome.DELIVERED)
-        _write_turn_complete(input.run_id, _get_stop_reason(result.data), run_uses_dedicated_stream(task_run.state))
+        _write_turn_complete(
+            input.run_id,
+            _get_stop_reason(result.data),
+            run_uses_dedicated_stream(task_run.state),
+            run_stream_presence_gated(task_run.state),
+            task_run.task.origin_product,
+        )
         return None
     if result.turn_in_flight:
         # The read timeout means the message reached the sandbox and the turn is
@@ -710,6 +771,7 @@ def _refresh_sandbox_mcp(
         scopes=scopes,
         interaction_origin=(state or {}).get("interaction_origin"),
         task_id=str(task_run.task_id),
+        origin_product=task_run.task.origin_product,
     )
     user_mcp_configs = get_user_mcp_server_configs(
         token=access_token,
@@ -990,9 +1052,14 @@ def _get_stop_reason(result_data: dict[str, Any] | None) -> str:
     return stop_reason if isinstance(stop_reason, str) and stop_reason else STOP_REASON_END_TURN
 
 
-def _write_turn_complete(run_id: str, stop_reason: str = STOP_REASON_END_TURN, use_dedicated: bool = False) -> None:
+def _write_turn_complete(
+    run_id: str,
+    stop_reason: str = STOP_REASON_END_TURN,
+    use_dedicated: bool = False,
+    presence_gated: bool = False,
+    origin_product: str | None = None,
+) -> None:
     """Write a synthetic turn_complete event to the Redis stream."""
-    stream_key = get_task_run_stream_key(run_id)
     event = {
         "type": "notification",
         "notification": {
@@ -1000,15 +1067,19 @@ def _write_turn_complete(run_id: str, stop_reason: str = STOP_REASON_END_TURN, u
             "params": {"source": "posthog", "stopReason": stop_reason},
         },
     }
-    conn = get_tasks_stream_redis_sync(use_dedicated)
-    conn.xadd(stream_key, {"data": json.dumps(event)}, maxlen=2000)
+    publish_task_run_stream_event(
+        run_id, event, use_dedicated, presence_gated=presence_gated, origin_product=origin_product
+    )
 
 
-def _write_error_and_complete(run_id: str, error_message: str, use_dedicated: bool = False) -> None:
+def _write_error_and_complete(
+    run_id: str,
+    error_message: str,
+    use_dedicated: bool = False,
+    presence_gated: bool = False,
+    origin_product: str | None = None,
+) -> None:
     """Write an error event followed by turn_complete to the Redis stream."""
-    stream_key = get_task_run_stream_key(run_id)
-    conn = get_tasks_stream_redis_sync(use_dedicated)
-
     error_event = {
         "type": "notification",
         "notification": {
@@ -1016,5 +1087,9 @@ def _write_error_and_complete(run_id: str, error_message: str, use_dedicated: bo
             "params": {"message": error_message},
         },
     }
-    conn.xadd(stream_key, {"data": json.dumps(error_event)}, maxlen=2000)
-    _write_turn_complete(run_id, use_dedicated=use_dedicated)
+    publish_task_run_stream_event(
+        run_id, error_event, use_dedicated, presence_gated=presence_gated, origin_product=origin_product
+    )
+    _write_turn_complete(
+        run_id, use_dedicated=use_dedicated, presence_gated=presence_gated, origin_product=origin_product
+    )

@@ -1,54 +1,49 @@
 import type { SignalReport } from "@posthog/shared/types";
 
 /**
- * The global reports inbox shows every live report in two sections. The
- * boundary is deliberately a server-countable dimension — report status —
- * because the section headers and nav badges are server-side count queries,
- * and a boundary the API can't filter on (actionability, PR-merged state)
- * produces headline numbers no query can verify.
+ * The Desktop reports inbox follows web's actionable report grouping. Both
+ * boundaries are server-countable: report status plus whether an
+ * implementation PR exists.
  */
 export interface InboxReportSections {
-  /** Ready: research done, a person decides — act, review the PR, or archive. */
-  decision: SignalReport[];
-  /** A responder cannot continue without input, or its latest run failed. */
-  attention: SignalReport[];
-  /** Work the responder is still processing or preparing. */
-  inProgress: SignalReport[];
+  /** Ready reports with an implementation PR waiting for review. */
+  reviewAndMerge: SignalReport[];
+  /** Actionable ready/pending-input reports without an implementation PR. */
+  needsPr: SignalReport[];
+}
+
+function hasImplementationPr(report: SignalReport): boolean {
+  return !!report.implementation_pr_url?.trim();
+}
+
+function isActionable(report: SignalReport): boolean {
+  return (
+    report.actionability === "immediately_actionable" ||
+    report.actionability === "requires_human_input"
+  );
 }
 
 /**
- * Whether a report is in the "Needs a decision" section: exactly the `ready`
- * status. Archiving an FYI is a decision too, so ready-but-not-actionable
- * reports stay here (a row-level hint conveys that) rather than defining a
- * section boundary counts can't reproduce.
- */
-export function reportNeedsDecision(report: SignalReport): boolean {
-  return report.status === "ready";
-}
-
-/**
- * Partition the loaded list into the two sections, preserving its order. The
- * list arrives sorted by the user's own sort (applied server-side by the
- * filter bar); section totals come from server count queries, not from this
- * partition — these arrays only feed the rendered rows.
+ * Partition the already actionability-filtered list, preserving its order.
+ * Pipeline and failed reports stay in Runs instead of appearing as a third
+ * report section.
  */
 export function partitionInboxReports(
   reports: SignalReport[],
 ): InboxReportSections {
-  const decision: SignalReport[] = [];
-  const attention: SignalReport[] = [];
-  const inProgress: SignalReport[] = [];
+  const reviewAndMerge: SignalReport[] = [];
+  const needsPr: SignalReport[] = [];
   for (const report of reports) {
-    if (reportNeedsDecision(report)) {
-      decision.push(report);
+    const hasPr = hasImplementationPr(report);
+    if (report.status === "ready" && hasPr) {
+      reviewAndMerge.push(report);
     } else if (
-      report.status === "pending_input" ||
-      report.status === "failed"
+      !hasPr &&
+      isActionable(report) &&
+      (report.status === "ready" || report.status === "pending_input")
     ) {
-      attention.push(report);
-    } else {
-      inProgress.push(report);
+      needsPr.push(report);
     }
   }
-  return { decision, attention, inProgress };
+  return { reviewAndMerge, needsPr };
 }

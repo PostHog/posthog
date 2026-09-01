@@ -74,7 +74,7 @@ export function BuildLogPane({ image }: BuildLogPaneProps) {
     <div
       ref={scrollRef}
       onScroll={handleScroll}
-      className="max-h-[280px] overflow-auto rounded-(--radius-3) border border-(--gray-5) bg-(--gray-2) p-2.5"
+      className="max-h-[280px] overflow-auto rounded-(--radius-3) border border-border bg-(--gray-2) p-2.5"
     >
       <pre className="m-0 whitespace-pre-wrap break-words font-mono text-(--gray-11) text-[11px] leading-relaxed">
         {buildLog}

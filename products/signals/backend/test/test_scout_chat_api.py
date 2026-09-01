@@ -6,7 +6,7 @@ from rest_framework import status
 
 from products.signals.backend.scout_chat import SCOUT_CHAT_TEMPLATES
 from products.tasks.backend.logic.services.code_usage_gate import CodeUsageStatus  # tach-ignore
-from products.tasks.backend.models import Task, TaskRun  # tach-ignore
+from products.tasks.backend.models import Task, TaskRun
 
 
 class TestScoutChatTaskAPI(APIBaseTest):

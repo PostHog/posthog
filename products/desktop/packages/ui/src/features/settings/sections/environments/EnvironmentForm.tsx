@@ -110,7 +110,7 @@ export function EnvironmentForm({
       <button
         type="button"
         onClick={onBack}
-        className="flex w-fit cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[12px] text-gray-11 hover:text-gray-12"
+        className="flex w-fit cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-[12px] text-muted-foreground hover:text-foreground"
       >
         <ArrowLeft size={10} />
         <span>Back to projects</span>

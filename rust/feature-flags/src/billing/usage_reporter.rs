@@ -6,6 +6,7 @@
 //! across flushes. A retry reuses the record it already built, which is what makes retrying safe:
 //! the service deduplicates on `record_id`, including when Kafka took only part of the batch.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -20,12 +21,12 @@ use usage_ingestion_proto::usage_ingestion::v1::{
 use uuid::Uuid;
 
 use crate::config::TeamIdCollection;
+use crate::flags::flag_request::FlagRequestType;
 use crate::metrics::consts::{FLAGS_USAGE_RECORDS_FAILED, FLAGS_USAGE_RECORDS_SENT};
 
 use super::AggregationKey;
 
 const PRODUCER_ID: &str = "feature-flags";
-const USAGE_KEY: &str = "feature_flag_requests";
 const UNIT: &str = "requests";
 const MAX_BATCH_SIZE: usize = 500;
 /// Queued sends waiting on the sender task. A full queue drops rather than growing
@@ -151,14 +152,30 @@ async fn run_sender(
 /// plus the nightly report stay authoritative for what a team owes.
 async fn send_chunk(client: &UsageIngestionClient<Channel>, chunk: &[BillingUsageRecord]) {
     let count = chunk.len() as u64;
-    let request = IngestBillingUsageRequest {
+    let message = IngestBillingUsageRequest {
         records: chunk.to_vec(),
     };
     for attempt in 1..=SEND_ATTEMPTS {
         let mut client = client.clone();
-        match client.ingest_billing_usage(request.clone()).await {
-            Ok(_) => {
-                inc(FLAGS_USAGE_RECORDS_SENT, &[], count);
+        match client.ingest_billing_usage(tagged(message.clone())).await {
+            Ok(response) => {
+                let accepted = response.into_inner().accepted_record_ids;
+                inc(FLAGS_USAGE_RECORDS_SENT, &[], accepted.len() as u64);
+                // The service drops records it cannot attribute rather than failing the
+                // batch, so a success can still leave some behind. Retrying them would fail
+                // the same way, and the teams are the only lead worth logging.
+                if accepted.len() < chunk.len() {
+                    inc(
+                        FLAGS_USAGE_RECORDS_FAILED,
+                        &[],
+                        count - accepted.len() as u64,
+                    );
+                    tracing::warn!(
+                        records = count - accepted.len() as u64,
+                        teams = ?rejected_teams(chunk, &accepted),
+                        "usage-ingestion rejected feature flag usage records"
+                    );
+                }
                 return;
             }
             Err(status) => {
@@ -169,6 +186,7 @@ async fn send_chunk(client: &UsageIngestionClient<Channel>, chunk: &[BillingUsag
                         records = count,
                         attempts = attempt,
                         code = %status.code(),
+                        teams = ?distinct_teams(chunk),
                         "failed to report feature flag usage records"
                     );
                     return;
@@ -176,6 +194,50 @@ async fn send_chunk(client: &UsageIngestionClient<Channel>, chunk: &[BillingUsag
                 tokio::time::sleep(RETRY_BACKOFF * attempt).await;
             }
         }
+    }
+}
+
+/// Names this producer in the service's own request metrics, which otherwise aggregate every
+/// caller into one series.
+fn tagged(message: IngestBillingUsageRequest) -> tonic::Request<IngestBillingUsageRequest> {
+    let mut request = tonic::Request::new(message);
+    request.metadata_mut().insert(
+        "x-client-name",
+        tonic::metadata::MetadataValue::from_static(PRODUCER_ID),
+    );
+    request
+}
+
+/// The teams behind the records the service did not accept, deduplicated so a chunk that
+/// repeats a team reads as one lead rather than many.
+fn rejected_teams(chunk: &[BillingUsageRecord], accepted: &[String]) -> Vec<i64> {
+    let accepted: HashSet<&str> = accepted.iter().map(String::as_str).collect();
+    dedup(
+        chunk
+            .iter()
+            .filter(|record| !accepted.contains(record.record_id.as_str()))
+            .map(|record| record.team_id),
+    )
+}
+
+fn distinct_teams(chunk: &[BillingUsageRecord]) -> Vec<i64> {
+    dedup(chunk.iter().map(|record| record.team_id))
+}
+
+fn dedup(teams: impl Iterator<Item = i64>) -> Vec<i64> {
+    let mut teams = teams.collect::<Vec<_>>();
+    teams.sort_unstable();
+    teams.dedup();
+    teams
+}
+
+/// The two billable request types are priced apart — the nightly report weighs one local
+/// evaluation as ten decide requests — so they cannot share a key. The weighting itself stays
+/// out of here: a producer reports what happened, and pricing is applied downstream.
+fn usage_key(request_type: FlagRequestType) -> &'static str {
+    match request_type {
+        FlagRequestType::Decide => "feature_flag_requests",
+        FlagRequestType::FlagDefinitions => "feature_flag_local_evaluation_requests",
     }
 }
 
@@ -191,7 +253,7 @@ fn build_records(
             record_id: Uuid::now_v7().to_string(),
             producer_id: PRODUCER_ID.to_string(),
             team_id: i64::from(key.team_id),
-            usage_key: USAGE_KEY.to_string(),
+            usage_key: usage_key(key.request_type).to_string(),
             unit: UNIT.to_string(),
             quantity: i64::try_from(*count).unwrap_or(i64::MAX),
             timestamp_ms,
@@ -203,7 +265,6 @@ fn build_records(
 mod tests {
     use super::*;
     use crate::billing::usage_test_support::{serve, RecordingIngestion};
-    use crate::flags::flag_request::FlagRequestType;
     use crate::handler::types::Library;
 
     fn key(team_id: i32, library: Option<Library>) -> AggregationKey {
@@ -213,6 +274,34 @@ mod tests {
             library,
             bucket: 7,
         }
+    }
+
+    #[test]
+    fn build_records_keys_the_two_billable_request_types_apart() {
+        // The report weighs one local evaluation as ten decide requests, so a shared key
+        // would price them the same.
+        let entries = vec![
+            (key(1, None), 3),
+            (
+                AggregationKey {
+                    request_type: FlagRequestType::FlagDefinitions,
+                    ..key(1, None)
+                },
+                4,
+            ),
+        ];
+        let records = build_records(&entries, &TeamIdCollection::All, 1);
+
+        assert_eq!(
+            records
+                .iter()
+                .map(|record| (record.usage_key.as_str(), record.quantity))
+                .collect::<Vec<_>>(),
+            vec![
+                ("feature_flag_requests", 3),
+                ("feature_flag_local_evaluation_requests", 4)
+            ]
+        );
     }
 
     #[test]
@@ -304,7 +393,19 @@ mod tests {
         assert_eq!(requests[0][0].team_id, 7);
         assert_eq!(requests[0][0].quantity, 4);
         assert_eq!(requests[0][0].producer_id, PRODUCER_ID);
-        assert_eq!(requests[0][0].usage_key, USAGE_KEY);
+        assert_eq!(requests[0][0].usage_key, usage_key(FlagRequestType::Decide));
+    }
+
+    #[tokio::test]
+    async fn every_request_names_this_producer_to_the_service() {
+        // Without the header the service's request metrics read client=unknown for everyone.
+        let service = RecordingIngestion::default();
+        let reporter = reporter_for(serve(service.clone()).await).await;
+
+        reporter.report(&[(key(7, None), 1)], 1_700_000_000_000);
+        reporter.shutdown(std::time::Duration::from_secs(5)).await;
+
+        assert_eq!(service.client_names(), vec![Some(PRODUCER_ID.to_string())]);
     }
 
     #[tokio::test]
@@ -321,6 +422,75 @@ mod tests {
         // Reusing the ID is what makes the retry safe: the service deduplicates on it, so a
         // batch Kafka took only part of does not bill twice.
         assert_eq!(requests[0][0].record_id, requests[1][0].record_id);
+    }
+
+    /// Counter totals by name, captured while the reporter ran. The recorder is
+    /// thread-scoped, so the sender task has to be driven on this thread.
+    fn counted(run: impl FnOnce(&tokio::runtime::Runtime)) -> Vec<(String, u64)> {
+        let recorder = metrics_util::debugging::DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        metrics::with_local_recorder(&recorder, || run(&runtime));
+
+        let mut totals = snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .filter_map(|(key, _, _, value)| match value {
+                metrics_util::debugging::DebugValue::Counter(count) => {
+                    Some((key.key().name().to_string(), count))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        totals.sort();
+        totals
+    }
+
+    #[test]
+    fn a_partially_accepted_batch_counts_only_what_the_service_took() {
+        let totals = counted(|runtime| {
+            runtime.block_on(async {
+                let service = RecordingIngestion::default();
+                service.reject_team(8);
+                let reporter = reporter_for(serve(service.clone()).await).await;
+
+                reporter.report(
+                    &[(key(7, None), 1), (key(8, None), 1), (key(9, None), 1)],
+                    1_700_000_000_000,
+                );
+                reporter.shutdown(std::time::Duration::from_secs(5)).await;
+
+                // The service already decided; re-sending would drop the same record again.
+                assert_eq!(service.requests().len(), 1);
+            });
+        });
+
+        assert_eq!(
+            totals,
+            vec![
+                (FLAGS_USAGE_RECORDS_FAILED.to_string(), 1),
+                (FLAGS_USAGE_RECORDS_SENT.to_string(), 2),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_fully_accepted_batch_counts_nothing_as_failed() {
+        let totals = counted(|runtime| {
+            runtime.block_on(async {
+                let reporter = reporter_for(serve(RecordingIngestion::default()).await).await;
+
+                reporter.report(&[(key(7, None), 1), (key(8, None), 1)], 1_700_000_000_000);
+                reporter.shutdown(std::time::Duration::from_secs(5)).await;
+            });
+        });
+
+        assert_eq!(totals, vec![(FLAGS_USAGE_RECORDS_SENT.to_string(), 2)]);
     }
 
     #[tokio::test]
