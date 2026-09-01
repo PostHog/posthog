@@ -6,7 +6,7 @@ import { InternalPerson, Person } from '~/types'
 
 import { PersonContext } from './person-context'
 import { PersonMergeService, mergeMoveLimitDroppedCounter } from './person-merge-service'
-import { PersonMergeLimitExceededError, PersonMergeUnknownOutcomeError } from './person-merge-types'
+import { PersonMergeLimitExceededError } from './person-merge-types'
 import { PersonPropertyService } from './person-property-service'
 
 /**
@@ -64,20 +64,6 @@ export class PersonEventProcessor {
 
     private handleMergeError(error: unknown, event: PluginEvent): PipelineResult<Person, AsyncOutput> {
         const mergeMode = this.context.mergeMode
-
-        if (error instanceof PersonMergeUnknownOutcomeError) {
-            // Every redelivery reaches this same build until the roll
-            // finishes, so the event waits in the DLQ where it stays
-            // replayable. The merge may or may not have happened; only a
-            // replay after the roll can tell.
-            logger.error('merge backend answered an outcome this build cannot name; routing the event to the DLQ', {
-                team_id: this.context.team.id,
-                distinct_id: this.context.distinctId,
-                event_uuid: event.uuid,
-                outcome: error.outcome,
-            })
-            return dlq('Merge outcome unknown to this build', error)
-        }
 
         if (error instanceof PersonMergeLimitExceededError) {
             logger.info('Merge limit exceeded', {

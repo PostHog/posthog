@@ -58,6 +58,11 @@ export type MergePersonsOutcome =
 export interface MergePersonsSourceResult {
     sourceDistinctId: string
     outcome: MergePersonsOutcome
+    /**
+     * The backend's durability statement: false means a retry under the
+     * same op id may change the answer. Personhog only; absent is settled.
+     */
+    settled?: boolean
     /** The source person the verdict speaks about. Postgres only; the saga reports ids. */
     sourcePersonUuid?: string
     /**

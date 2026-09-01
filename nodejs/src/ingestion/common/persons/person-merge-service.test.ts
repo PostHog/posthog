@@ -20,7 +20,7 @@ import {
     PersonMergeCallFailedError,
     PersonMergeLimitExceededError,
     PersonMergeResponseMismatchError,
-    PersonMergeUnknownOutcomeError,
+    PersonMergeUnsettledError,
     SourcePersonHasDistinctIdsError,
     SourcePersonNotFoundError,
     TargetPersonNotFoundError,
@@ -237,32 +237,29 @@ describe('PersonMergeService store-owned merges', () => {
         expect(warned).toContain('cannot_merge_with_illegal_distinct_id')
     })
 
-    it('a returned conflict verdict surfaces as the claim error without a retry', async () => {
-        // Both backends settle or throw conflicts themselves — the Postgres
-        // merge throws, the personhog store retries internally with salted
-        // op ids — so a returned conflict is contract-breaking input the
-        // backstop must refuse to ack as a merge.
-        store.mergePersons.mockResolvedValue(result('skipped_conflict'))
+    it('an unsettled verdict fails the batch without a client retry', async () => {
+        // The backend states a retry under the same op id can change the
+        // answer, so the merge is neither acked nor dropped: the batch
+        // fails and redelivery re-runs it fresh.
+        store.mergePersons.mockResolvedValue({
+            survivor: null,
+            results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict' as const, settled: false }],
+        })
         const service = makeService()
-        await expect(service.merge('anon-1', 'd1', 1, timestamp)).rejects.toBeInstanceOf(
-            PersonClaimedByLifecycleOpError
-        )
+        await expect(service.merge('anon-1', 'd1', 1, timestamp)).rejects.toBeInstanceOf(PersonMergeUnsettledError)
         expect(store.mergePersons).toHaveBeenCalledTimes(1)
     })
 
-    it('a verdict this build cannot name is neither acked nor treated as a transport failure', async () => {
-        // An unnamed verdict may mean the merge happened, and every
-        // redelivery reaches this same build until the roll finishes, so
-        // it can be neither acked nor retried. Its own class is what the
-        // processor DLQs.
+    it('a settled verdict this build cannot name acks as a settled loss', async () => {
+        // The settled bit is the durability contract; the outcome name only
+        // picks the warning. A newer backend's verdict therefore acks
+        // instead of wedging the partition or routing to the DLQ.
         store.mergePersons.mockResolvedValue(result('unknown'))
         const service = makeService()
 
         const mergeResult = await service.merge('anon-1', 'd1', 1, timestamp)
 
-        expect(!mergeResult.success && mergeResult.error).toBeInstanceOf(PersonMergeUnknownOutcomeError)
-        expect(!mergeResult.success && mergeResult.error).not.toBeInstanceOf(PersonMergeCallFailedError)
-        expect(outputs.queueMessages).not.toHaveBeenCalled()
+        expect(mergeResult.success).toBe(true)
     })
 
     it('an over-limit source returns the limit error result for the merge-mode policy', async () => {

@@ -8,11 +8,9 @@ import { grpcErrorType } from '~/common/personhog/metrics'
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
 import { PersonhogFencedError, PersonhogPropertiesSizeError } from '~/common/personhog/persons'
 import { PersonMessage } from '~/common/persons/person-message'
-import { PersonClaimedByLifecycleOpError } from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult } from '~/common/utils/db/db'
 import { logger } from '~/common/utils/logger'
-import { defaultRetryConfig } from '~/common/utils/retries'
 import { NoRowsUpdatedError } from '~/common/utils/utils'
 import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { Properties } from '~/plugin-scaffold'
@@ -847,128 +845,100 @@ export class PersonhogPersonsStore implements PersonsStore {
         batchId: number,
         beliefs: Map<string, string>
     ): Promise<MergePersonsResult> {
-        // Verdicts are recorded durably against the op id, so a
-        // skipped_conflict retry salts a counter suffix into the derivation
-        // for a fresh look; it cannot double-merge, because a conflict
-        // verdict proves the aborted op destroyed nothing and a fresh op
-        // against an already merged graph settles as noop_same_person.
-        // Retrying is for a single source only, because a fold's fresh op
-        // id would re-run the sources that did settle.
         const singleSource = request.sources.length === 1
-        let conflictRetries = 0
         let result
-        while (true) {
-            try {
-                result = await this.repository.mergePersons(
-                    {
-                        teamId: request.teamId,
-                        targetDistinctId: request.targetDistinctId,
-                        sources: request.sources,
-                        eventSet: request.eventOps.set,
-                        eventSetOnce: request.eventOps.setOnce,
-                        // Event uuids are client-supplied and the op keyspace is
-                        // global, so a raw uuid could collide with another team's
-                        // recorded op. The uuidv5 derivation scopes it per team,
-                        // and the source list keeps a fold and the single-source
-                        // merges it falls back to on separate keys.
-                        opId: mergeOpIdFromRequest(
-                            request.teamId,
-                            conflictRetries === 0
-                                ? request.eventUuid
-                                : `${request.eventUuid}#conflict${conflictRetries}`,
-                            request.sources.map((source) => source.distinctId),
-                            moveLimitFor(request.mergeMode, this.options.syncMergeMoveLimit)
-                        ),
-                        allowIdentifiedSources: request.allowIdentifiedSources,
-                        // ASYNC and LIMIT carry a limit the constructor never
-                        // sees, and it reaches BigInt() here, so
-                        // determineMergeMode holds it to the same contract at
-                        // startup.
-                        moveLimit: moveLimitFor(request.mergeMode, this.options.syncMergeMoveLimit),
-                        // The saga refuses a negative created_at, and events
-                        // stamped before 1970 exist, so the floor is applied
-                        // where that constraint lives rather than in the
-                        // shared request the Postgres backend also reads.
-                        createdAtMs: Math.max(0, request.createdAtMs),
-                        // The raw event uuid, which the op id only carries as a
-                        // one-way uuidv5 derivation. The saga stamps it on a
-                        // person it births, matching what the Postgres backend
-                        // writes at creation.
-                        creatorEventUuid: request.eventUuid,
-                    },
-                    CALLER_TAG
-                )
-            } catch (error) {
-                // A verdict, not an unknowable failure: redelivery meets the
-                // same validation forever, so wrapping it would wedge the
-                // partition on one malformed id, and it propagates raw to be
-                // acked loudly. It is not always pre-durable, though — the
-                // entrance commits attaches before the property push, whose
-                // size ceiling also answers InvalidArgument — so the acked
-                // loss can be the event's properties alone, with the attaches
-                // standing.
-                if (error instanceof ConnectError && error.code === Code.InvalidArgument) {
-                    personhogStoreMergeCallFailedCounter.inc({ error: 'InvalidArgumentSettled' })
-                    throw error
-                }
-                // The replay guard's refusal is deterministic (the op id
-                // names a different recorded merge) and pre-durable, so it
-                // propagates raw to be acked loudly rather than wedging
-                // the partition on one duplicated event uuid. Keyed on the
-                // refusal's reason slug rather than the status code,
-                // because a semantic refusal can also arrive from a later
-                // saga step, where skipping the invalidation below would
-                // be wrong.
-                if (
-                    error instanceof ConnectError &&
-                    error.metadata.get(SEMANTIC_REFUSAL_METADATA_KEY) === SEMANTIC_REFUSAL_OP_ID_REUSED
-                ) {
-                    personhogStoreMergeCallFailedCounter.inc({ error: 'OpIdReusedSettled' })
-                    throw error
-                }
-                // The saga is resumable, so a failed call may still have
-                // sealed sources or flipped their ids onto the survivor.
-                // How far it got is unknowable, so invalidate as if it had.
-                this.invalidateTeamAfterFailedMerge(request.teamId)
-                // No verdict arrived, so an ack could lose the merge; the
-                // typed wrapper makes the merge service fail the batch, and
-                // redelivery replays the saga idempotently. Only the call
-                // is wrapped, so a bug in post-verdict processing surfaces
-                // as itself.
-                personhogStoreMergeCallFailedCounter.inc({
-                    // gRPC codes are a closed set; naming them separates a
-                    // replay-guard bounce from transport trouble at a glance.
-                    error:
-                        error instanceof ConnectError
-                            ? `connect_${Code[error.code] ?? error.code}`
-                            : error instanceof Error
-                              ? error.constructor.name
-                              : 'unknown',
-                })
-                throw new PersonMergeCallFailedError(
-                    `personhog merge call failed with no verdict: ${error instanceof Error ? error.message : String(error)}`,
-                    error
-                )
+        try {
+            result = await this.repository.mergePersons(
+                {
+                    teamId: request.teamId,
+                    targetDistinctId: request.targetDistinctId,
+                    sources: request.sources,
+                    eventSet: request.eventOps.set,
+                    eventSetOnce: request.eventOps.setOnce,
+                    // Event uuids are client-supplied and the op keyspace is
+                    // global, so a raw uuid could collide with another team's
+                    // recorded op. The uuidv5 derivation scopes it per team,
+                    // and the source list keeps a fold and the single-source
+                    // merges it falls back to on separate keys.
+                    opId: mergeOpIdFromRequest(
+                        request.teamId,
+                        request.eventUuid,
+                        request.sources.map((source) => source.distinctId),
+                        moveLimitFor(request.mergeMode, this.options.syncMergeMoveLimit)
+                    ),
+                    allowIdentifiedSources: request.allowIdentifiedSources,
+                    // ASYNC and LIMIT carry a limit the constructor never
+                    // sees, and it reaches BigInt() here, so
+                    // determineMergeMode holds it to the same contract at
+                    // startup.
+                    moveLimit: moveLimitFor(request.mergeMode, this.options.syncMergeMoveLimit),
+                    // The saga refuses a negative created_at, and events
+                    // stamped before 1970 exist, so the floor is applied
+                    // where that constraint lives rather than in the
+                    // shared request the Postgres backend also reads.
+                    createdAtMs: Math.max(0, request.createdAtMs),
+                    // The raw event uuid, which the op id only carries as a
+                    // one-way uuidv5 derivation. The saga stamps it on a
+                    // person it births, matching what the Postgres backend
+                    // writes at creation.
+                    creatorEventUuid: request.eventUuid,
+                },
+                CALLER_TAG
+            )
+        } catch (error) {
+            // A verdict, not an unknowable failure: redelivery meets the
+            // same validation forever, so wrapping it would wedge the
+            // partition on one malformed id, and it propagates raw to be
+            // acked loudly. It is not always pre-durable, though — the
+            // entrance commits attaches before the property push, whose
+            // size ceiling also answers InvalidArgument — so the acked
+            // loss can be the event's properties alone, with the attaches
+            // standing.
+            if (error instanceof ConnectError && error.code === Code.InvalidArgument) {
+                personhogStoreMergeCallFailedCounter.inc({ error: 'InvalidArgumentSettled' })
+                throw error
             }
-            // Every attempt's verdicts count, or a conflicted attempt that
-            // never surfaces would be invisible.
-            for (const source of result.results) {
-                personhogStoreMergeOutcomeCounter.inc({ outcome: source.outcome })
+            // The replay guard's refusal is deterministic (the op id
+            // names a different recorded merge) and pre-durable, so it
+            // propagates raw to be acked loudly rather than wedging
+            // the partition on one duplicated event uuid. Keyed on the
+            // refusal's reason slug rather than the status code,
+            // because a semantic refusal can also arrive from a later
+            // saga step, where skipping the invalidation below would
+            // be wrong.
+            if (
+                error instanceof ConnectError &&
+                error.metadata.get(SEMANTIC_REFUSAL_METADATA_KEY) === SEMANTIC_REFUSAL_OP_ID_REUSED
+            ) {
+                personhogStoreMergeCallFailedCounter.inc({ error: 'OpIdReusedSettled' })
+                throw error
             }
-            if (singleSource && result.results[0]?.outcome === 'skipped_conflict') {
-                conflictRetries += 1
-                if (conflictRetries >= defaultRetryConfig.MAX_RETRIES_DEFAULT) {
-                    throw new PersonClaimedByLifecycleOpError(
-                        'merge saga: a live lifecycle operation holds a person in this merge',
-                        request.teamId
-                    )
-                }
-                await new Promise((resolve) =>
-                    setTimeout(resolve, defaultRetryConfig.RETRY_INTERVAL_DEFAULT * conflictRetries)
-                )
-                continue
-            }
-            break
+            // The saga is resumable, so a failed call may still have
+            // sealed sources or flipped their ids onto the survivor.
+            // How far it got is unknowable, so invalidate as if it had.
+            this.invalidateTeamAfterFailedMerge(request.teamId)
+            // No verdict arrived, so an ack could lose the merge; the
+            // typed wrapper makes the merge service fail the batch, and
+            // redelivery replays the saga idempotently. Only the call
+            // is wrapped, so a bug in post-verdict processing surfaces
+            // as itself.
+            personhogStoreMergeCallFailedCounter.inc({
+                // gRPC codes are a closed set; naming them separates a
+                // replay-guard bounce from transport trouble at a glance.
+                error:
+                    error instanceof ConnectError
+                        ? `connect_${Code[error.code] ?? error.code}`
+                        : error instanceof Error
+                          ? error.constructor.name
+                          : 'unknown',
+            })
+            throw new PersonMergeCallFailedError(
+                `personhog merge call failed with no verdict: ${error instanceof Error ? error.message : String(error)}`,
+                error
+            )
+        }
+        for (const source of result.results) {
+            personhogStoreMergeOutcomeCounter.inc({ outcome: source.outcome })
         }
         const touched = result.results
             .filter((source) => ['merged', 'attached', 'noop_same_person'].includes(source.outcome))

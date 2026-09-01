@@ -3,7 +3,6 @@ import { DateTime } from 'luxon'
 
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
 import { PersonhogFencedError, PersonhogPropertiesSizeError } from '~/common/personhog/persons'
-import { PersonClaimedByLifecycleOpError } from '~/common/persons/repositories/person-repository'
 import { NoRowsUpdatedError } from '~/common/utils/utils'
 import { InternalPerson } from '~/types'
 
@@ -450,41 +449,21 @@ describe('PersonhogPersonsStore', () => {
             expect((repository.mergePersons as jest.Mock).mock.calls[0][0].createdAtMs).toBe(0)
         })
 
-        it('a conflict gets the full salted retry budget before surfacing as the claim error', async () => {
+        it('a conflict verdict passes through in one call, unsalted', async () => {
+            // The saga no longer records claim conflicts, so a plain retry
+            // under the same op id re-runs fresh; the store neither salts
+            // nor retries, and the caller's settled gate redelivers.
             repository.mergePersons = jest.fn().mockResolvedValue({
                 survivor: null,
-                results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict' }],
+                results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict', settled: false }],
             })
-            const bound = store.forBatch(0)
-
-            await expect(bound.mergePersons(mergeRequest())).rejects.toBeInstanceOf(PersonClaimedByLifecycleOpError)
-
-            // An aborted conflict is recorded terminally and replays under
-            // its op id, so each retry salts a fresh identity. Safe because a
-            // conflict verdict proves nothing was destroyed.
-            const opIds = (repository.mergePersons as jest.Mock).mock.calls.map(([call]) => call.opId)
-            expect(opIds).toHaveLength(3)
-            expect(new Set(opIds).size).toBe(3)
-        })
-
-        it('a conflict that clears on a salted retry merges normally', async () => {
-            repository.mergePersons = jest
-                .fn()
-                .mockResolvedValueOnce({
-                    survivor: null,
-                    results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict' }],
-                })
-                .mockResolvedValueOnce({
-                    survivor: survivor(),
-                    results: [{ sourceDistinctId: 'anon-1', outcome: 'merged', sourcePersonId: '9' }],
-                })
             const bound = store.forBatch(0)
 
             const result = await bound.mergePersons(mergeRequest())
 
-            expect(result.survivor?.version).toBe(5)
-            const [first, second] = (repository.mergePersons as jest.Mock).mock.calls.map(([call]) => call.opId)
-            expect(second).not.toBe(first)
+            expect(result.results[0]?.outcome).toBe('skipped_conflict')
+            expect(result.results[0]?.settled).toBe(false)
+            expect(repository.mergePersons).toHaveBeenCalledTimes(1)
         })
 
         it('later fetches of the touched ids read the survivor without re-resolving', async () => {
@@ -2720,7 +2699,7 @@ describe('PersonhogPersonsStore', () => {
             expect((store as any).memo.viewOfPerson('1:8')?.properties.stamped).toBeUndefined()
         })
 
-        it('derives a valid op uuid from a salted op id', async () => {
+        it('derives a valid op uuid from any event uuid string', async () => {
             const bound = store.forBatch(0)
             repository.mergePersons = jest.fn().mockResolvedValue({
                 survivor: person,
@@ -2731,14 +2710,14 @@ describe('PersonhogPersonsStore', () => {
                 targetDistinctId: 'd1',
                 sources: [{ distinctId: 'anon-1', eventUuid: 'event-uuid' }],
                 eventOps: ops({}, '$identify'),
-                eventUuid: 'event-uuid#conflict1',
+                eventUuid: 'not-a-uuid-at-all',
                 allowIdentifiedSources: false,
                 mergeMode: createDefaultSyncMergeMode(),
                 createdAtMs: 3_600_000,
             })
 
-            // The salt lives in the derivation input; the wire always
-            // carries a well-formed UUID the saga can parse.
+            // Event uuids are client-supplied and not always UUIDs; the wire
+            // always carries a well-formed uuidv5 the saga can parse.
             expect(repository.mergePersons.mock.calls[0][0].opId).toMatch(
                 /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12}$/
             )

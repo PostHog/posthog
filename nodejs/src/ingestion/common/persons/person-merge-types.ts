@@ -52,20 +52,12 @@ export class PersonMergeCallFailedError extends PersonMergeError {
 }
 
 /**
- * A verdict this build has no name for, produced only by a backend a release
- * ahead. Neither settled nor transient: the merge may have happened and
- * redelivery reaches the same build until the roll finishes, so the event
- * goes to the DLQ where it stays replayable.
+ * The merge backend answered an unsettled verdict: a retry under the same
+ * op id may change the answer, so the batch fails and redelivery re-runs
+ * the merge rather than acking or dropping it.
  */
-export class PersonMergeUnknownOutcomeError extends PersonMergeError {
-    readonly type = 'UNKNOWN_OUTCOME' as const
-
-    constructor(
-        message: string,
-        public readonly outcome: string
-    ) {
-        super(message)
-    }
+export class PersonMergeUnsettledError extends PersonMergeError {
+    readonly type = 'UNSETTLED' as const
 }
 
 export class PersonMergeRaceConditionError extends PersonMergeError {

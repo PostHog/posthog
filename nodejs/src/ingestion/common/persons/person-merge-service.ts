@@ -19,7 +19,7 @@ import {
     PersonMergeLimitExceededError,
     PersonMergeResponseMismatchError,
     PersonMergeResult,
-    PersonMergeUnknownOutcomeError,
+    PersonMergeUnsettledError,
     SourcePersonHasDistinctIdsError,
     SourcePersonNotFoundError,
     TargetPersonNotFoundError,
@@ -54,9 +54,9 @@ export const mergeResponseMismatchCounter = new Counter({
     labelNames: ['call'],
 })
 
-export const mergeUnknownOutcomeCounter = new Counter({
-    name: 'person_merge_unknown_outcome_total',
-    help: 'Merges failed because the backend answered a verdict this build cannot name, which a deploy skew produces',
+export const mergeUnsettledCounter = new Counter({
+    name: 'person_merge_unsettled_total',
+    help: 'Merges answered with an unsettled verdict, failing the batch so redelivery re-runs them',
 })
 
 export const mergeSettledFailureCounter = new Counter({
@@ -170,12 +170,11 @@ export class PersonMergeService {
                 // ack a merge that never happened.
                 throw e
             }
-            if (e instanceof PersonMergeCallFailedError) {
-                // The personhog store could not get a verdict at all, so the
-                // remote outcome is unknowable. Acking would lose the merge
-                // whenever the saga did not commit; failing the batch lets
-                // redelivery replay it idempotently — the same loud-and-
-                // redeliver shape a failed Postgres merge transaction has.
+            if (e instanceof PersonMergeCallFailedError || e instanceof PersonMergeUnsettledError) {
+                // No verdict, or a verdict a retry can change. Acking would
+                // lose the merge; failing the batch lets redelivery replay
+                // it idempotently — the same loud-and-redeliver shape a
+                // failed Postgres merge transaction has.
                 throw e
             }
             mergeFinalFailuresCounter
@@ -417,7 +416,6 @@ export class PersonMergeService {
         // decides for itself.
         const unnamed = result.results.find((source) => source.outcome === 'unknown')
         if (unnamed !== undefined) {
-            mergeUnknownOutcomeCounter.inc()
             this.abandonFold(plan, 'error')
             logger.warn('🤔', 'fold settled a source on a verdict this build cannot name', {
                 team_id: this.context.team.id,
@@ -478,6 +476,15 @@ export class PersonMergeService {
             })
             throw new PersonMergeResponseMismatchError(
                 `merge response for team ${this.context.team.id} carried no verdict for its requested source`
+            )
+        }
+        if (sourceResult.settled === false) {
+            // The backend states a retry under the same op id can change
+            // this answer (claim contention whose record is discarded), so
+            // the batch fails and redelivery re-runs the merge fresh.
+            mergeUnsettledCounter.inc()
+            throw new PersonMergeUnsettledError(
+                `merge verdict for team ${this.context.team.id} is unsettled; failing the batch to retry`
             )
         }
         const outcome = sourceResult.outcome
@@ -554,14 +561,6 @@ export class PersonMergeService {
                     true
                 )
             }
-            case 'skipped_conflict':
-                // Normally converted into a throw inside the retry loop;
-                // this backstop keeps the claim-dropped semantics for any
-                // path that maps the outcome directly.
-                throw new PersonClaimedByLifecycleOpError(
-                    'merge saga: a live lifecycle operation holds a person in this merge',
-                    this.context.team.id
-                )
             case 'skipped_move_limit':
                 // The over-limit path: the caller's merge-mode policy
                 // (redirect, DLQ) decides what happens to the event.
@@ -576,20 +575,9 @@ export class PersonMergeService {
                         'Cannot delete source person due to concurrent distinct ID additions'
                     )
                 )
-            case 'unknown':
-                // Not a verdict, unlike 'error': the merge may have happened,
-                // so acking would record a loss that might not exist. Every
-                // redelivery reaches this same build until the roll finishes,
-                // so the event goes to the DLQ, replayable afterwards.
-                mergeUnknownOutcomeCounter.inc()
-                return mergeError(
-                    new PersonMergeUnknownOutcomeError(
-                        `merge backend answered an outcome this build cannot name for source ${otherPersonDistinctId}`,
-                        outcome
-                    )
-                )
             case 'skipped_refused':
             case 'error':
+            case 'unknown':
             default: {
                 // A verdict, not a transient fault: the merge backend records it
                 // against the op id and replays it for the retention window, so
