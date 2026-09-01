@@ -138,6 +138,57 @@ describe('notebookKernelInfoLogic', () => {
         expect(kernelStatusSpy).toHaveBeenCalledTimes(callsPerMount - 1)
     })
 
+    test('a failed options load blocks configuration instead of going quietly unpriced', async () => {
+        // The loader's null is also its initial value, so a swallowed failure used to leave the
+        // panel looking pre-pricing while Start stayed live.
+        jest.mocked(notebooksKernelComputeOptionsRetrieve).mockRejectedValue(new Error('boom'))
+        kernelStatusSpy.mockResolvedValue({ backend: 'modal', status: 'stopped', cpu_cores: 1, memory_gb: 2 })
+        logic = notebookKernelInfoLogic({ shortId: 'options-fail-01890abc', mode: 'notebook' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(logic.values.computeOptionsFailed).toBe(true)
+        expect(logic.values.computeBlockedReason).not.toBeNull()
+    })
+
+    test('Refresh retries the rates after they failed', async () => {
+        jest.mocked(notebooksKernelComputeOptionsRetrieve).mockRejectedValueOnce(new Error('boom'))
+        logic = notebookKernelInfoLogic({ shortId: 'options-retry-01890abc', mode: 'notebook' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+        expect(logic.values.computeOptions).toBeNull()
+
+        // Refresh reloads both, which is the panel's retry affordance.
+        jest.mocked(notebooksKernelComputeOptionsRetrieve).mockResolvedValue(COMPUTE_OPTIONS)
+        logic.actions.loadKernelInfo()
+        logic.actions.loadComputeOptions()
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(logic.values.computeOptions).not.toBeNull()
+        expect(logic.values.computeBlockedReason).toBeNull()
+    })
+
+    test('an unchanged shape keeps the price the status endpoint already quoted', async () => {
+        // Losing the rates should not blank a price we were already told.
+        jest.mocked(notebooksKernelComputeOptionsRetrieve).mockRejectedValue(new Error('boom'))
+        kernelStatusSpy.mockResolvedValue({
+            backend: 'modal',
+            status: 'running',
+            cpu_cores: 4,
+            memory_gb: 8,
+            hourly_price: 1,
+        })
+        logic = notebookKernelInfoLogic({ shortId: 'price-fallback-01890abc', mode: 'notebook' })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(0)
+
+        expect(logic.values.selectedHourlyPrice).toBe(1)
+
+        // Move it, and we can no longer honestly quote anything.
+        logic.actions.setMemoryGb(16)
+        expect(logic.values.selectedHourlyPrice).toBeNull()
+    })
+
     test('a shared notebook issues no team-scoped kernel requests', async () => {
         // A shared view renders from cachedNotebook so a logged-out viewer makes no team-scoped
         // call. Both kernel endpoints are team-scoped, so mounting here used to 401 twice.

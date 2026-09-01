@@ -58,10 +58,13 @@ export const NotebookKernelInfo = (): JSX.Element => {
         computePresets,
         selectedPresetKey,
         selectedHourlyPrice,
+        computeBlockedReason,
+        computeOptionsFailed,
     } = useValues(logic)
     const {
         clearExecution,
         executeKernel,
+        loadComputeOptions,
         loadKernelInfo,
         restartKernel,
         saveKernelConfig,
@@ -135,7 +138,10 @@ export const NotebookKernelInfo = (): JSX.Element => {
                 <LemonButton
                     size="xsmall"
                     type="secondary"
-                    onClick={() => loadKernelInfo()}
+                    onClick={() => {
+                        loadKernelInfo()
+                        loadComputeOptions()
+                    }}
                     loading={actionInFlight.refresh}
                     disabled={hasActionInFlight && !actionInFlight.refresh}
                 >
@@ -173,6 +179,12 @@ export const NotebookKernelInfo = (): JSX.Element => {
                             <Tooltip title={PRICE_TOOLTIP}>
                                 <span className="font-semibold">{formatHourlyPrice(selectedHourlyPrice)}</span>
                             </Tooltip>
+                        </div>
+                    ) : null}
+                    {computeOptionsFailed ? (
+                        <div className="text-xs text-danger">
+                            Couldn't load compute rates, so this sandbox can't be sized or started. Refresh to try
+                            again.
                         </div>
                     ) : null}
                     {kernelInfo.last_error ? (
@@ -275,6 +287,7 @@ export const NotebookKernelInfo = (): JSX.Element => {
                             onClick={startOrRestartKernel}
                             loading={startActionInFlight}
                             disabled={hasActionInFlight && !startActionInFlight}
+                            disabledReason={computeBlockedReason ?? undefined}
                         >
                             {startActionLabel}
                         </LemonButton>
