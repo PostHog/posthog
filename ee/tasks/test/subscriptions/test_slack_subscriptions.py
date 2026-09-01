@@ -303,6 +303,12 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
     integration: Integration
 
     def setUp(self) -> None:
+        self.gallery_feature_patch = patch(
+            "ee.tasks.subscriptions.slack_subscriptions._slack_gallery_feature_enabled",
+            return_value=True,
+        )
+        self.gallery_feature_patch.start()
+        self.addCleanup(self.gallery_feature_patch.stop)
         self.dashboard = Dashboard.objects.create(team=self.team, name="private dashboard", created_by=self.user)
         self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
         self.asset = ExportedAsset.objects.create(
@@ -746,21 +752,11 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         assert call_kwargs["text"] == "hi"
         assert result.main_message_sent is True
 
-    def test_async_send_routes_to_gallery_when_delivery_mode_is_frozen(self, MockSlackIntegration: MagicMock) -> None:
+    def test_async_send_routes_to_gallery_when_flag_set(self, MockSlackIntegration: MagicMock) -> None:
         mock_async = self._setup_async_mock(MockSlackIntegration)
         mock_async.files_upload_v2 = AsyncMock(return_value={"ok": True})
         self.subscription.delivery_config = {"post_all_insights_in_main_message": True}
         self.subscription.save()
-        delivery = SubscriptionDelivery.objects.create(
-            subscription=self.subscription,
-            team=self.team,
-            temporal_workflow_id="workflow-frozen-gallery",
-            idempotency_key="frozen-gallery",
-            trigger_type="scheduled",
-            target_type="slack",
-            target_value=self.subscription.target_value,
-            slack_delivery_mode=SubscriptionDelivery.SlackDeliveryMode.GALLERY,
-        )
         # Use inline content so _asset_image_bytes doesn't hit object storage in the test.
         asset_with_content = ExportedAsset.objects.create(
             team=self.team,
@@ -778,68 +774,34 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
             ExportedAsset.objects.filter(id__in=[asset_with_content.id, failed_asset.id]).select_related("insight")
         )
         result = asyncio.run(
-            send_slack_message_with_integration_async(
-                self.integration,
-                self.subscription,
-                assets,
-                total_asset_count=2,
-                delivery_id=delivery.id,
-            )
+            send_slack_message_with_integration_async(self.integration, self.subscription, assets, total_asset_count=2)
         )
         mock_async.files_upload_v2.assert_awaited_once()
         mock_async.chat_postMessage.assert_not_called()
         assert result.is_partial_failure
 
-    def test_async_send_without_delivery_record_stays_legacy(self, MockSlackIntegration: MagicMock) -> None:
-        mock_async = self._setup_async_mock(MockSlackIntegration)
-        mock_async.chat_postMessage.return_value = {"ts": "1.234"}
-        self.subscription.delivery_config = {"post_all_insights_in_main_message": True}
-        self.subscription.save()
-        assets = list(ExportedAsset.objects.filter(id=self.asset.id).select_related("insight"))
-
-        result = asyncio.run(
-            send_slack_message_with_integration_async(
-                self.integration,
-                self.subscription,
-                assets,
-                total_asset_count=1,
-            )
-        )
-
-        mock_async.files_upload_v2.assert_not_awaited()
-        mock_async.chat_postMessage.assert_awaited()
-        assert result.is_complete_success
-
-    def test_unversioned_delivery_stays_legacy_even_when_gallery_flag_is_enabled(
+    def test_async_send_uses_legacy_layout_until_gallery_rollout_flag_is_enabled(
         self, MockSlackIntegration: MagicMock
     ) -> None:
         mock_async = self._setup_async_mock(MockSlackIntegration)
         mock_async.chat_postMessage.return_value = {"ts": "1.234"}
         self.subscription.delivery_config = {"post_all_insights_in_main_message": True}
         self.subscription.save()
-        delivery = SubscriptionDelivery.objects.create(
-            subscription=self.subscription,
-            team=self.team,
-            temporal_workflow_id="workflow-legacy-mode",
-            idempotency_key="gallery-legacy-mode",
-            trigger_type="scheduled",
-            target_type="slack",
-            target_value=self.subscription.target_value,
-        )
         assets = list(ExportedAsset.objects.filter(id=self.asset.id).select_related("insight"))
 
-        with patch("ee.tasks.subscriptions.slack_subscriptions._slack_gallery_feature_enabled") as feature_enabled:
+        with patch(
+            "ee.tasks.subscriptions.slack_subscriptions._slack_gallery_feature_enabled",
+            return_value=False,
+        ):
             result = asyncio.run(
                 send_slack_message_with_integration_async(
                     self.integration,
                     self.subscription,
                     assets,
                     total_asset_count=1,
-                    delivery_id=delivery.id,
                 )
             )
 
-        feature_enabled.assert_not_called()
         mock_async.files_upload_v2.assert_not_awaited()
         mock_async.chat_postMessage.assert_awaited()
         assert result.is_complete_success
@@ -859,7 +821,6 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
             trigger_type="scheduled",
             target_type="slack",
             target_value=self.subscription.target_value,
-            slack_delivery_mode=SubscriptionDelivery.SlackDeliveryMode.GALLERY,
         )
         asset = ExportedAsset.objects.create(
             team=self.team,
@@ -882,23 +843,15 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
                     delivery_id=delivery.id,
                 )
             )
-            with patch(
-                "ee.tasks.subscriptions.slack_subscriptions._slack_gallery_feature_enabled",
-                return_value=False,
-            ) as disabled_feature:
-                retry_result = asyncio.run(
-                    send_slack_message_with_integration_async(
-                        self.integration,
-                        self.subscription,
-                        assets,
-                        total_asset_count=1,
-                        delivery_id=delivery.id,
-                    )
+            retry_result = asyncio.run(
+                send_slack_message_with_integration_async(
+                    self.integration,
+                    self.subscription,
+                    assets,
+                    total_asset_count=1,
+                    delivery_id=delivery.id,
                 )
-
-        disabled_feature.assert_not_called()
-        delivery.refresh_from_db()
-        assert delivery.slack_delivery_mode == SubscriptionDelivery.SlackDeliveryMode.GALLERY
+            )
 
         assert claim_delivery.call_count == 2
         mock_async.files_upload_v2.assert_awaited_once()
@@ -918,7 +871,6 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
             trigger_type="scheduled",
             target_type="slack",
             target_value=self.subscription.target_value,
-            slack_delivery_mode=SubscriptionDelivery.SlackDeliveryMode.GALLERY,
         )
         assets = list(ExportedAsset.objects.filter(id=self.asset.id).select_related("insight"))
 
@@ -952,7 +904,6 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
             trigger_type="scheduled",
             target_type="slack",
             target_value=self.subscription.target_value,
-            slack_delivery_mode=SubscriptionDelivery.SlackDeliveryMode.GALLERY,
         )
         assets = list(ExportedAsset.objects.filter(id=self.asset.id).select_related("insight"))
 

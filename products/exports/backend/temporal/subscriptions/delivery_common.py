@@ -3,8 +3,6 @@ import dataclasses
 from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
-from django.db import transaction
-
 from slack_sdk.errors import SlackApiError
 from structlog import get_logger
 from temporalio.exceptions import ApplicationError
@@ -25,13 +23,10 @@ from products.exports.backend.temporal.subscriptions.types import (
 from ee.tasks.subscriptions import SLACK_GALLERY_CONFIG_ERRORS, SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
 from ee.tasks.subscriptions.auto_disable import (
     SLACK_DISCONNECTED_DISABLE_REASON,
-    SLACK_FILE_UPLOAD_PERMISSION_REVOKED_DISABLE_REASON,
     SLACK_FILE_UPLOAD_UNAVAILABLE_DISABLE_REASON,
     SLACK_PERMISSION_REVOKED_DISABLE_REASON,
     DisableReason,
     disable_invalid_subscription,
-    mark_subscription_disabled,
-    notify_subscription_disabled,
 )
 from ee.tasks.subscriptions.slack_subscriptions import SlackDeliveryResult, get_slack_integration_for_team
 
@@ -43,19 +38,16 @@ LOGGER = get_logger(__name__)
 _MAX_ERROR_DETAIL_RESULTS = 50
 
 
-def persist_auto_disable_result_and_disable(
+def persist_auto_disable_result(
     delivery_id: uuid.UUID,
-    subscription: Subscription,
-    reason: DisableReason,
+    subscription_id: int,
     recipient_results: list[RecipientResult],
-) -> bool:
-    with transaction.atomic():
-        updated = SubscriptionDelivery.objects.filter(id=delivery_id, subscription_id=subscription.id).update(
-            recipient_results=[dataclasses.asdict(result) for result in recipient_results]
-        )
-        if updated != 1:
-            raise RuntimeError(f"Subscription delivery {delivery_id} was not found")
-        return mark_subscription_disabled(subscription, reason)
+) -> None:
+    updated = SubscriptionDelivery.objects.filter(id=delivery_id, subscription_id=subscription_id).update(
+        recipient_results=[dataclasses.asdict(result) for result in recipient_results]
+    )
+    if updated != 1:
+        raise RuntimeError(f"Subscription delivery {delivery_id} was not found")
 
 
 def load_persisted_recipient_results(delivery_id: uuid.UUID, subscription_id: int) -> list[RecipientResult]:
@@ -88,14 +80,6 @@ def load_persisted_recipient_results(delivery_id: uuid.UUID, subscription_id: in
             )
         )
     return results
-
-
-def _is_gallery_delivery(delivery_id: uuid.UUID, subscription_id: int) -> bool:
-    return SubscriptionDelivery.objects.filter(
-        id=delivery_id,
-        subscription_id=subscription_id,
-        slack_delivery_mode=SubscriptionDelivery.SlackDeliveryMode.GALLERY,
-    ).exists()
 
 
 def strip_null_bytes(value: Any) -> Any:
@@ -135,19 +119,15 @@ async def auto_disable_and_return(
         )
     )
     if delivery_id is not None:
-        just_disabled = await database_sync_to_async(persist_auto_disable_result_and_disable, thread_sensitive=False)(
+        await database_sync_to_async(persist_auto_disable_result, thread_sensitive=False)(
             delivery_id,
-            subscription,
-            reason,
+            subscription.id,
             recipient_results,
         )
-        if just_disabled:
-            await database_sync_to_async(notify_subscription_disabled, thread_sensitive=False)(subscription, reason)
-    else:
-        await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(subscription, reason)
     # `_capture_delivery_failed_event` only reads `str(e)` and `type(e).__name__`,
     # so a plain Exception conveys the same info without implying retry semantics.
     _capture_delivery_failed_event(subscription, Exception(reason.description))
+    await database_sync_to_async(disable_invalid_subscription, thread_sensitive=False)(subscription, reason)
     return DeliverSubscriptionResult(recipient_results=recipient_results)
 
 
@@ -274,15 +254,6 @@ async def deliver_slack(
             delivery_id,
         )
 
-    gallery_delivery = False
-    if delivery_id is not None:
-        # Resolve this before the first Slack side effect. If the database read fails,
-        # Temporal can retry safely without crossing the gallery claim boundary.
-        gallery_delivery = await database_sync_to_async(
-            _is_gallery_delivery,
-            thread_sensitive=False,
-        )(delivery_id, subscription.id)
-
     LOGGER.info("deliver_subscription.sending_slack_message", subscription_id=subscription.id)
     try:
         result = await send(integration)
@@ -300,21 +271,6 @@ async def deliver_slack(
             exc_info=True,
         )
         capture_exception(exc)
-        needed_scopes = (
-            {scope.strip() for scope in str(exc.response.get("needed") or "").split(",") if scope.strip()}
-            if isinstance(exc, SlackApiError)
-            else set()
-        )
-        file_upload_permission_missing = slack_error_code in {"missing_scope", "not_allowed_token_type"} and (
-            "files:write" in needed_scopes if needed_scopes else gallery_delivery
-        )
-        if file_upload_permission_missing:
-            return await auto_disable_and_return(
-                subscription,
-                SLACK_FILE_UPLOAD_PERMISSION_REVOKED_DISABLE_REASON,
-                recipient_results,
-                delivery_id,
-            )
         if slack_error_code in SLACK_USER_CONFIG_ERRORS:
             # Won't self-heal without user action — auto-disable so it stops re-firing.
             return await auto_disable_and_return(

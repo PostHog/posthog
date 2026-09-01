@@ -16,7 +16,7 @@ from posthog.temporal.exports.activities import export_asset_activity
 from posthog.temporal.exports.types import ExportAssetResult
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.exports.backend.models.subscription import SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.activities import (
     advance_next_delivery_date,
     create_delivery_record,
@@ -26,15 +26,10 @@ from products.exports.backend.temporal.subscriptions.activities import (
     update_delivery_record,
     validate_subscription_for_delivery,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.activities import (
-    _deliver_ai_subscription,
-    generate_ai_subscription_report,
-)
+from products.exports.backend.temporal.subscriptions.ai_subscription.activities import generate_ai_subscription_report
 from products.exports.backend.temporal.subscriptions.delivery_common import deliver_slack
 from products.exports.backend.temporal.subscriptions.snapshot_activities import snapshot_subscription_insights
 from products.exports.backend.temporal.subscriptions.types import (
-    AI_REPORT_SNAPSHOT_KEY,
-    CreateDeliveryRecordInputs,
     CreateExportAssetsResult,
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
@@ -113,111 +108,6 @@ async def test_claim_slack_gallery_delivery_is_atomic(team, user) -> None:
 
 
 @pytest.mark.parametrize(
-    ("flag_enabled", "expected_mode"),
-    [
-        (False, SubscriptionDelivery.SlackDeliveryMode.LEGACY),
-        (True, SubscriptionDelivery.SlackDeliveryMode.GALLERY),
-    ],
-)
-async def test_create_delivery_record_freezes_slack_delivery_mode(team, user, flag_enabled, expected_mode) -> None:
-    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="mode", name="Delivery mode")
-    subscription = await sync_to_async(create_subscription)(
-        team=team,
-        created_by=user,
-        insight=insight,
-        target_type="slack",
-        target_value="C123|#general",
-    )
-    subscription.delivery_config = {"post_all_insights_in_main_message": True}
-    await sync_to_async(subscription.save)(update_fields=["delivery_config"])
-    inputs = CreateDeliveryRecordInputs(
-        subscription_id=subscription.id,
-        team_id=team.id,
-        trigger_type="scheduled",
-        temporal_workflow_id=f"workflow-mode-{flag_enabled}",
-        idempotency_key=f"delivery-mode-{flag_enabled}",
-    )
-
-    with patch(
-        "products.exports.backend.temporal.subscriptions.activities._slack_gallery_feature_enabled",
-        return_value=flag_enabled,
-    ):
-        delivery_id = await ActivityEnvironment().run(create_delivery_record, inputs)
-
-    delivery = await sync_to_async(SubscriptionDelivery.objects.get)(id=delivery_id)
-    assert delivery.slack_delivery_mode == expected_mode
-
-
-async def test_create_delivery_record_freezes_legacy_when_flag_evaluation_fails(team, user) -> None:
-    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="fallback", name="Flag fallback")
-    subscription = await sync_to_async(create_subscription)(
-        team=team,
-        created_by=user,
-        insight=insight,
-        target_type="slack",
-        target_value="C123|#general",
-    )
-    subscription.delivery_config = {"post_all_insights_in_main_message": True}
-    await sync_to_async(subscription.save)(update_fields=["delivery_config"])
-    inputs = CreateDeliveryRecordInputs(
-        subscription_id=subscription.id,
-        team_id=team.id,
-        trigger_type="scheduled",
-        temporal_workflow_id="workflow-mode-retry",
-        idempotency_key="delivery-mode-retry",
-    )
-
-    with patch(
-        "products.exports.backend.temporal.subscriptions.activities._slack_gallery_feature_enabled",
-        side_effect=RuntimeError("feature flag unavailable"),
-    ):
-        delivery_id = await ActivityEnvironment().run(create_delivery_record, inputs)
-
-    delivery = await sync_to_async(SubscriptionDelivery.objects.get)(id=delivery_id)
-    assert delivery.slack_delivery_mode == SubscriptionDelivery.SlackDeliveryMode.LEGACY
-
-
-async def test_create_delivery_record_preserves_unversioned_retry_as_legacy(team, user) -> None:
-    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="unversioned", name="Legacy retry")
-    subscription = await sync_to_async(create_subscription)(
-        team=team,
-        created_by=user,
-        insight=insight,
-        target_type="slack",
-        target_value="C123|#general",
-    )
-    subscription.delivery_config = {"post_all_insights_in_main_message": True}
-    await sync_to_async(subscription.save)(update_fields=["delivery_config"])
-    existing = await sync_to_async(SubscriptionDelivery.objects.create)(
-        subscription=subscription,
-        team=team,
-        temporal_workflow_id="old-worker",
-        idempotency_key="old-worker-delivery",
-        trigger_type="scheduled",
-        target_type="slack",
-        target_value=subscription.target_value,
-        slack_delivery_mode=None,
-    )
-    inputs = CreateDeliveryRecordInputs(
-        subscription_id=subscription.id,
-        team_id=team.id,
-        trigger_type="scheduled",
-        temporal_workflow_id="new-worker-retry",
-        idempotency_key=existing.idempotency_key,
-    )
-
-    with patch(
-        "products.exports.backend.temporal.subscriptions.activities._slack_gallery_feature_enabled"
-    ) as feature_enabled:
-        delivery_id = await ActivityEnvironment().run(create_delivery_record, inputs)
-
-    assert delivery_id == existing.id
-    feature_enabled.assert_not_called()
-    await sync_to_async(existing.refresh_from_db)()
-    assert existing.slack_delivery_mode is None
-
-
-@pytest.mark.parametrize(
     "slack_error_code",
     [
         "file_uploads_disabled",
@@ -283,133 +173,6 @@ async def test_deliver_slack_auto_disables_permanent_gallery_errors(team, user, 
     ]
 
 
-@pytest.mark.parametrize(
-    ("response_data", "delivery_mode"),
-    [
-        ({"ok": False, "error": "missing_scope", "needed": "files:write"}, None),
-        ({"ok": False, "error": "missing_scope"}, SubscriptionDelivery.SlackDeliveryMode.GALLERY),
-    ],
-)
-async def test_deliver_slack_uses_file_permission_recovery_for_gallery_scope_errors(
-    team,
-    user,
-    response_data,
-    delivery_mode,
-) -> None:
-    integration = await sync_to_async(Integration.objects.create)(team=team, kind="slack", config={})
-    subscription = await sync_to_async(create_subscription)(
-        team=team,
-        created_by=user,
-        target_type="slack",
-        target_value="C123|#general",
-        integration=integration,
-    )
-    delivery = await sync_to_async(SubscriptionDelivery.objects.create)(
-        subscription=subscription,
-        team=team,
-        temporal_workflow_id="workflow-file-scope",
-        idempotency_key=f"file-scope-{delivery_mode}",
-        trigger_type="scheduled",
-        target_type="slack",
-        target_value=subscription.target_value,
-        slack_delivery_mode=delivery_mode,
-    )
-    response = AsyncSlackResponse(
-        client=None,
-        http_verb="POST",
-        api_url="https://slack.com/api/files.completeUploadExternal",
-        req_args={},
-        data=response_data,
-        headers={},
-        status_code=200,
-    )
-
-    with (
-        patch("products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"),
-        patch("ee.tasks.subscriptions.auto_disable.create_subscription_auto_disabled_notification"),
-        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
-    ):
-        result = await deliver_slack(
-            subscription,
-            [],
-            AsyncMock(side_effect=SlackApiError("Error", response)),
-            delivery_id=delivery.id,
-        )
-
-    assert result.recipient_results[0].error == {
-        "message": "PostHog can no longer upload files to Slack",
-        "type": "slack_file_upload_permission_revoked",
-    }
-
-
-async def test_deliver_slack_respects_explicit_non_file_missing_scope(team, user) -> None:
-    integration = await sync_to_async(Integration.objects.create)(team=team, kind="slack", config={})
-    subscription = await sync_to_async(create_subscription)(
-        team=team,
-        created_by=user,
-        target_type="slack",
-        target_value="C123|#general",
-        integration=integration,
-    )
-    delivery = await sync_to_async(SubscriptionDelivery.objects.create)(
-        subscription=subscription,
-        team=team,
-        temporal_workflow_id="workflow-chat-scope",
-        idempotency_key="chat-scope-gallery",
-        trigger_type="scheduled",
-        target_type="slack",
-        target_value=subscription.target_value,
-        slack_delivery_mode=SubscriptionDelivery.SlackDeliveryMode.GALLERY,
-    )
-    response = AsyncSlackResponse(
-        client=None,
-        http_verb="POST",
-        api_url="https://slack.com/api/chat.postMessage",
-        req_args={},
-        data={"ok": False, "error": "missing_scope", "needed": "chat:write"},
-        headers={},
-        status_code=200,
-    )
-
-    with (
-        patch("products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"),
-        patch("ee.tasks.subscriptions.auto_disable.create_subscription_auto_disabled_notification"),
-        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
-    ):
-        result = await deliver_slack(
-            subscription,
-            [],
-            AsyncMock(side_effect=SlackApiError("Error", response)),
-            delivery_id=delivery.id,
-        )
-
-    assert result.recipient_results[0].error == {
-        "message": "PostHog can no longer post to this Slack channel",
-        "type": "slack_permission_revoked",
-    }
-
-
-async def test_deliver_slack_resolves_gallery_mode_before_sending(team, user) -> None:
-    integration = await sync_to_async(Integration.objects.create)(team=team, kind="slack", config={})
-    subscription = await sync_to_async(create_subscription)(
-        team=team,
-        created_by=user,
-        target_type="slack",
-        target_value="C123|#general",
-        integration=integration,
-    )
-    send = AsyncMock()
-
-    with patch(
-        "products.exports.backend.temporal.subscriptions.delivery_common._is_gallery_delivery",
-        side_effect=RuntimeError("database unavailable"),
-    ):
-        with pytest.raises(RuntimeError, match="database unavailable"):
-            await deliver_slack(subscription, [], send, delivery_id=uuid.uuid4())
-
-    send.assert_not_awaited()
-
-
 async def test_disabled_activity_retry_returns_persisted_permanent_failure(team, user) -> None:
     integration = await sync_to_async(Integration.objects.create)(team=team, kind="slack", config={})
     subscription = await sync_to_async(create_subscription)(
@@ -466,101 +229,6 @@ async def test_disabled_activity_retry_returns_persisted_permanent_failure(team,
         "message": "Slack file uploads are unavailable for this workspace",
         "type": "slack_file_upload_unavailable",
     }
-
-
-async def test_auto_disable_commits_result_and_disable_before_post_commit_failure(team, user) -> None:
-    integration = await sync_to_async(Integration.objects.create)(team=team, kind="slack", config={})
-    subscription = await sync_to_async(create_subscription)(
-        team=team,
-        created_by=user,
-        target_type="slack",
-        target_value="C123|#general",
-        integration=integration,
-    )
-    delivery = await sync_to_async(SubscriptionDelivery.objects.create)(
-        subscription=subscription,
-        team=team,
-        temporal_workflow_id="workflow-atomic-disable",
-        idempotency_key="gallery-atomic-disable",
-        trigger_type="scheduled",
-        target_type="slack",
-        target_value=subscription.target_value,
-    )
-    response = AsyncSlackResponse(
-        client=None,
-        http_verb="POST",
-        api_url="https://slack.com/api/files.completeUploadExternal",
-        req_args={},
-        data={"ok": False, "error": "file_uploads_disabled"},
-        headers={},
-        status_code=200,
-    )
-
-    with (
-        patch(
-            "products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event",
-            side_effect=RuntimeError("crash after durable writes"),
-        ),
-        patch("ee.tasks.subscriptions.auto_disable.create_subscription_auto_disabled_notification"),
-        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
-    ):
-        with pytest.raises(RuntimeError, match="crash after durable writes"):
-            await deliver_slack(
-                subscription,
-                [],
-                AsyncMock(side_effect=SlackApiError("Error", response)),
-                delivery_id=delivery.id,
-            )
-
-    await sync_to_async(subscription.refresh_from_db)()
-    await sync_to_async(delivery.refresh_from_db)()
-    assert subscription.enabled is False
-    assert delivery.recipient_results[0]["status"] == "failed"
-
-    replay_result = await ActivityEnvironment().run(
-        deliver_subscription_v2,
-        DeliverSubscriptionInputs(
-            subscription_id=subscription.id,
-            exported_asset_ids=[],
-            total_insight_count=0,
-            delivery_id=delivery.id,
-        ),
-    )
-    assert replay_result.recipient_results[0].status == "failed"
-
-
-async def test_ai_slack_forwards_delivery_id_to_auto_disable_boundary() -> None:
-    delivery_id = uuid.uuid4()
-    subscription = MagicMock(
-        id=1,
-        team_id=1,
-        target_type=Subscription.SubscriptionTarget.SLACK,
-    )
-    inputs = DeliverSubscriptionInputs(
-        subscription_id=subscription.id,
-        exported_asset_ids=[],
-        total_insight_count=0,
-        delivery_id=delivery_id,
-    )
-
-    with (
-        patch(
-            "products.exports.backend.temporal.subscriptions.ai_subscription.activities._load_snapshot",
-            new=AsyncMock(return_value={AI_REPORT_SNAPSHOT_KEY: "Report"}),
-        ),
-        patch(
-            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.build_chart_image_urls",
-            return_value=[],
-        ),
-        patch(
-            "products.exports.backend.temporal.subscriptions.ai_subscription.activities.deliver_slack",
-            new=AsyncMock(return_value=DeliverSubscriptionResult()),
-        ) as mock_deliver_slack,
-    ):
-        await _deliver_ai_subscription(subscription, inputs, [])
-
-    assert mock_deliver_slack.await_args is not None
-    assert mock_deliver_slack.await_args.kwargs["delivery_id"] == delivery_id
 
 
 async def test_deliver_slack_records_omitted_gallery_attachments_as_partial(team, user) -> None:

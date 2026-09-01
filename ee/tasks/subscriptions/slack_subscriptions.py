@@ -153,40 +153,25 @@ def _claim_slack_gallery_delivery(delivery_id: uuid.UUID) -> bool:
 
 
 def _slack_gallery_feature_enabled(subscription: Subscription) -> bool:
-    enabled = posthoganalytics.feature_enabled(
-        SUBSCRIPTION_SLACK_GALLERY_FEATURE_FLAG_KEY,
-        f"team_{subscription.team_id}",
-        groups={"organization": str(subscription.team.organization_id)},
-        group_properties={
-            "organization": {"id": str(subscription.team.organization_id)},
-        },
-        only_evaluate_locally=False,
-        send_feature_flag_events=False,
-    )
-    if enabled is None:
-        raise RuntimeError("Slack gallery feature flag evaluation returned no decision")
-    return enabled
-
-
-def _resolve_slack_delivery_mode(
-    subscription: Subscription,
-    delivery_id: uuid.UUID | None,
-) -> SubscriptionDelivery.SlackDeliveryMode:
-    if delivery_id is None:
-        return SubscriptionDelivery.SlackDeliveryMode.LEGACY
-
-    persisted_mode = (
-        SubscriptionDelivery.objects.filter(id=delivery_id, subscription_id=subscription.id)
-        .values_list("slack_delivery_mode", flat=True)
-        .get()
-    )
-    # Rows created by pre-rollout workers have no mode. They must stay legacy forever:
-    # re-evaluating the flag here could switch layout after an old worker already sent.
-    return (
-        SubscriptionDelivery.SlackDeliveryMode(persisted_mode)
-        if persisted_mode is not None
-        else SubscriptionDelivery.SlackDeliveryMode.LEGACY
-    )
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                SUBSCRIPTION_SLACK_GALLERY_FEATURE_FLAG_KEY,
+                f"team_{subscription.team_id}",
+                groups={"organization": str(subscription.team.organization_id)},
+                group_properties={
+                    "organization": {"id": str(subscription.team.organization_id)},
+                },
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception(
+            "deliver_slack_gallery.feature_flag_evaluation_failed",
+            subscription_id=subscription.id,
+        )
+        return False
 
 
 def _insight_name(asset: ExportedAsset) -> str:
@@ -705,11 +690,12 @@ async def send_slack_message_with_integration_async(
     summary_skipped_over_budget: bool = False,
     delivery_id: uuid.UUID | None = None,
 ) -> SlackDeliveryResult:
-    delivery_mode = await database_sync_to_async(
-        _resolve_slack_delivery_mode,
+    gallery_requested = subscription.delivery_config.get("post_all_insights_in_main_message")
+    gallery_enabled = gallery_requested and await database_sync_to_async(
+        _slack_gallery_feature_enabled,
         thread_sensitive=False,
-    )(subscription, delivery_id)
-    if delivery_mode == SubscriptionDelivery.SlackDeliveryMode.GALLERY:
+    )(subscription)
+    if gallery_enabled:
         gallery = await database_sync_to_async(_prepare_slack_gallery, thread_sensitive=False)(
             subscription,
             assets,

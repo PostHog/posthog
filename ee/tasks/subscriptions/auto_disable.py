@@ -45,14 +45,6 @@ SLACK_PERMISSION_REVOKED_DISABLE_REASON = DisableReason(
     description="PostHog can no longer post to this Slack channel",
     user_message="Cannot re-enable {target_type} subscription: PostHog can't post to this Slack channel. Reconnect Slack or re-add the bot to the channel, then try again.",
 )
-SLACK_FILE_UPLOAD_PERMISSION_REVOKED_DISABLE_REASON = DisableReason(
-    key="slack_file_upload_permission_revoked",
-    description="PostHog can no longer upload files to Slack",
-    user_message=(
-        "Cannot re-enable {target_type} subscription: the Slack app needs the files:write permission. "
-        "Reconnect PostHog's Slack app, or add files:write to your custom app and reconnect it, then try again."
-    ),
-)
 SLACK_FILE_UPLOAD_UNAVAILABLE_DISABLE_REASON = DisableReason(
     key="slack_file_upload_unavailable",
     description="Slack file uploads are unavailable for this workspace",
@@ -101,7 +93,7 @@ def _get_notification_creator(subscription: Subscription) -> User | None:
     return creator
 
 
-def mark_subscription_disabled(subscription: Subscription, reason: DisableReason) -> bool:
+def disable_invalid_subscription(subscription: Subscription, reason: DisableReason) -> None:
     # Compare-and-swap so only one racing caller sends the disabled-notification
     # email (UUID4 campaign keys mean MessagingRecord can't dedup the duplicate).
     rowcount = Subscription.objects.filter(pk=subscription.pk, enabled=True).update(enabled=False)
@@ -116,7 +108,7 @@ def mark_subscription_disabled(subscription: Subscription, reason: DisableReason
             team_id=subscription.team_id,
             reason=reason.key,
         )
-        return False
+        return
 
     logger.warning(
         "subscription.auto_disabling",
@@ -128,10 +120,6 @@ def mark_subscription_disabled(subscription: Subscription, reason: DisableReason
     # SELECT — refresh_from_db() would also drop the eagerly-loaded created_by
     # relation (loaded via select_related at the activity site).
     subscription.enabled = False
-    return True
-
-
-def notify_subscription_disabled(subscription: Subscription, reason: DisableReason) -> None:
 
     try:
         create_subscription_auto_disabled_notification(subscription, reason)
@@ -160,11 +148,6 @@ def notify_subscription_disabled(subscription: Subscription, reason: DisableReas
                 error=str(e),
                 exc_info=True,
             )
-
-
-def disable_invalid_subscription(subscription: Subscription, reason: DisableReason) -> None:
-    if mark_subscription_disabled(subscription, reason):
-        notify_subscription_disabled(subscription, reason)
 
 
 def create_subscription_auto_disabled_notification(subscription: Subscription, reason: DisableReason) -> None:

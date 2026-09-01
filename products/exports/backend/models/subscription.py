@@ -579,10 +579,6 @@ class SubscriptionDelivery(UUIDModel):
         FAILED = "failed"
         SKIPPED = "skipped"
 
-    class SlackDeliveryMode(models.TextChoices):
-        LEGACY = "legacy"
-        GALLERY = "gallery"
-
     subscription = models.ForeignKey("Subscription", on_delete=models.CASCADE, related_name="deliveries")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
@@ -614,9 +610,6 @@ class SubscriptionDelivery(UUIDModel):
     # Claimed immediately before the first non-idempotent Slack gallery API call.
     # Activity retries may repeat all safe preparation, but never cross this boundary twice.
     slack_gallery_delivery_started_at = models.DateTimeField(null=True, blank=True)
-    # Frozen before any Slack side effect so feature-flag or config drift cannot switch
-    # an activity retry between the legacy and gallery delivery paths.
-    slack_delivery_mode = models.CharField(max_length=10, choices=SlackDeliveryMode, null=True, blank=True)
 
     # Overall status and error (null when no error)
     # Shape: {"message": str, "type": str, ...} — extensible for stack traces, codes, etc.
