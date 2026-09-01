@@ -6,12 +6,15 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 
 import { SubscriptionAIPromptMaxLength } from '~/queries/schema/schema-general'
 
-import type { AIWindowConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import type { AIWindowConfigApi, SubscriptionContextApi } from 'products/subscriptions/frontend/generated/api.schemas'
+
+import { SubscriptionContextPicker } from './SubscriptionContextPicker'
 
 export function AiPromptSubscriptionIntroduction(): JSX.Element {
     return (
@@ -81,9 +84,13 @@ const AI_WINDOW_MODE_OPTIONS = [
 
 interface AiPromptFieldsProps {
     compactAnalysisWindow?: boolean
+    contexts: SubscriptionContextApi[]
+    contextsEnabled: boolean
     prompt?: string | null
     windowMode?: AIWindowConfigApi['mode']
     consentBanner?: ReactNode
+    onAddContext: (context: SubscriptionContextApi) => void
+    onRemoveContext: (context: SubscriptionContextApi) => void
     onSelectAnalysisWindow: (mode: AIWindowConfigApi['mode']) => void
     onSelectExample: (prompt: string, label: string) => void
 }
@@ -94,9 +101,13 @@ function shouldShowAiPromptExamples(prompt?: string | null): boolean {
 
 export function AiPromptFields({
     compactAnalysisWindow = false,
+    contexts,
+    contextsEnabled,
     prompt,
     windowMode,
     consentBanner,
+    onAddContext,
+    onRemoveContext,
     onSelectAnalysisWindow,
     onSelectExample,
 }: AiPromptFieldsProps): JSX.Element {
@@ -109,6 +120,14 @@ export function AiPromptFields({
                 <LemonBanner type="warning" className="text-sm">
                     {consentBanner}
                 </LemonBanner>
+            ) : null}
+            {contextsEnabled ? (
+                <div className="flex flex-col gap-1 min-w-0">
+                    <LemonLabel info="Add up to three dashboards or insights to focus this report. Without context, the report chooses relevant project data based on your prompt.">
+                        Context
+                    </LemonLabel>
+                    <SubscriptionContextPicker contexts={contexts} onAdd={onAddContext} onRemove={onRemoveContext} />
+                </div>
             ) : null}
             <LemonField
                 name="prompt"

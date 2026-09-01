@@ -5412,6 +5412,18 @@ snapshots:
         hash: v1.k794b7964.9d825454b80602e3cca17fa872553832e01b929728eb3b554b98a7f0d63b01be.Amp7jiLWQltIcWNKpEimC7DjTEsQ4cc1mtxoGU_hEFs
     products-subscriptions-subscription-delivery-history--with-expanded-summary--light:
         hash: v1.k794b7964.e8ea5acdf82c72e927990f4672e1615f9b8269abc31a3feb639fa9b993babad0.5j1v9u_2-7CyIDaD0INwHMOAarvZot8UsqYDMVc0UAE
+    products-subscriptions-subscriptions-modal--ai-report-at-context-limit--dark:
+        hash: v1.k794b7964.df218c364e78c01fa6da0fb3466631a3fe0529adaf9e2c4762f1c2074ea2266c.DXull9Nl9AWBk4s3yW93WKpAI5wVKTrsfRaqUQJGMCo
+    products-subscriptions-subscriptions-modal--ai-report-at-context-limit--light:
+        hash: v1.k794b7964.8c9bc05aded46e05e364d8acdf694bb2f3144e207718dba5fd4d973038b70a88.WP7DdZW9qznzHZWh2-8lhWjHJyozVBEY8SymWX6OJ4k
+    products-subscriptions-subscriptions-modal--ai-report-with-mixed-context--dark:
+        hash: v1.k794b7964.685e7f494fc263aa5514cfe56cd16ae7a62a6783f01e735ec86644714fed26d5.6XpNCWYv3dVAuu6CDCd1vrKkDFcoo0XvNzMRefp6l_c
+    products-subscriptions-subscriptions-modal--ai-report-with-mixed-context--light:
+        hash: v1.k794b7964.c65313d24910698ac9ee02840594983872609f11defdc4a73864ab8e6f36da1c.GMuMLSbHQaVLE854x-QkHu1yq2e5sYLfTy_6GdOkCXs
+    products-subscriptions-subscriptions-modal--ai-report-with-no-context--dark:
+        hash: v1.k794b7964.fadf76c507253a7a37b742ef343287b46cf4fb3e0d63584a2209bb1d8cfc7138.EIvTLdE57Qhfz62lJ0EfrurlQ596cGrEWl44WoLI0p4
+    products-subscriptions-subscriptions-modal--ai-report-with-no-context--light:
+        hash: v1.k794b7964.702052ce7b09213b9320e66fa1617ac723f6f0f336e1b4eb7cf9f9e3955a8301.EmG3zmvtjRaaa8VvpRASwQzN1urIWpE2GAvJL1miTlM
     products-subscriptions-subscriptions-modal--dashboard-with-subscriptions--dark:
         hash: v1.k794b7964.34be5065c2a6641f0ad2a24e1dc57e6505d59ef2757dfe1e720d7d5de9ec33c5.50acEl5pVMJGUvu24toA5wvLdYXmqldRUH0gbdbdZgM
     products-subscriptions-subscriptions-modal--dashboard-with-subscriptions--light:

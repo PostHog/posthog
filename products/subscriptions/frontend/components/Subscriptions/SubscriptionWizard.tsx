@@ -37,7 +37,7 @@ import { AiPromptFields, AiPromptSubscriptionIntroduction } from './AiPromptFiel
 import { InsightSelector } from './InsightSelector'
 import { SubscriptionDayPicker } from './SubscriptionDayPicker'
 import { subscriptionLogic } from './subscriptionLogic'
-import type { SubscriptionLogicProps } from './subscriptionLogic'
+import type { SubscriptionFormType, SubscriptionLogicProps } from './subscriptionLogic'
 import {
     frequencyOptionsPlural,
     frequencyOptionsSingular,
@@ -118,6 +118,7 @@ export function SubscriptionWizard({
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
+    const aiContextsEnabled = useFeatureFlag('SUBSCRIPTION_AI_CONTEXTS')
 
     if (subscriptionLoading || !subscriptionInitialized) {
         return <SubscriptionFormSkeleton />
@@ -188,6 +189,7 @@ export function SubscriptionWizard({
                     insightName={insightName}
                     subscription={subscription}
                     aiSubscriptionBlocked={aiGate.submitBlocked}
+                    aiContextsEnabled={Boolean(aiContextsEnabled)}
                 />
             )
             break
@@ -345,7 +347,7 @@ function SubscriptionDeliveryStep({
     subscription,
     logicProps,
 }: {
-    subscription: SubscriptionType
+    subscription: SubscriptionFormType
     logicProps: SubscriptionLogicProps
 }): JSX.Element {
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
@@ -436,16 +438,17 @@ function SubscriptionContentStep({
     insightName,
     subscription,
     aiSubscriptionBlocked,
+    aiContextsEnabled,
 }: {
     logicProps: SubscriptionLogicProps
     dashboard?: DashboardType<any> | null
     insightName?: string
-    subscription: SubscriptionType
+    subscription: SubscriptionFormType
     aiSubscriptionBlocked: boolean
+    aiContextsEnabled: boolean
 }): JSX.Element {
-    const { applyDefaultSelectedInsights, selectAiAnalysisWindow, selectAiExamplePrompt } = useActions(
-        subscriptionLogic(logicProps)
-    )
+    const { addContext, applyDefaultSelectedInsights, removeContext, selectAiAnalysisWindow, selectAiExamplePrompt } =
+        useActions(subscriptionLogic(logicProps))
     const isAiPrompt = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
 
     return (
@@ -471,8 +474,12 @@ function SubscriptionContentStep({
             {isAiPrompt ? (
                 <AiPromptFields
                     compactAnalysisWindow
+                    contexts={subscription.contexts}
+                    contextsEnabled={aiContextsEnabled}
                     prompt={subscription.prompt}
                     windowMode={subscription.ai_prompt_config?.window?.mode}
+                    onAddContext={addContext}
+                    onRemoveContext={removeContext}
                     onSelectAnalysisWindow={selectAiAnalysisWindow}
                     onSelectExample={selectAiExamplePrompt}
                 />
