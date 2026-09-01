@@ -2,8 +2,7 @@
 name: signals-scout-ai-observability
 description: >
   Signals scout for PostHog AI observability. Watches LLM traces for cost, latency, error,
-  volume, and eval-performance regressions, sliced by the dimensions it discovers over time,
-  and files each validated regression as a report in the inbox.
+  volume, and eval-performance regressions.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes:
   read-only analytics plus signal_scout_internal:write (for scratchpad) +
