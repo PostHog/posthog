@@ -81,9 +81,14 @@ class TestRecordingsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "https://app.example.com/login",
             ),
             ("session_key", "https://app.example.com/?session=eyJ0b2tlbiI6ImFiYyJ9", "https://app.example.com/"),
+            (
+                "fragment_token",
+                "https://app.example.com/callback#access_token=eyJabc",
+                "https://app.example.com/callback",
+            ),
         ]
     )
-    def test_start_url_drops_query_string(self, _name: str, first_url: str, expected: str):
+    def test_start_url_drops_query_and_fragment(self, _name: str, first_url: str, expected: str):
         self._produce_replay("session-1", first_url=first_url)
 
         runner = RecordingsQueryRunner(query=RecordingsQuery(), team=self.team)
