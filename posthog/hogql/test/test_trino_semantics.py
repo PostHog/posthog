@@ -1,11 +1,15 @@
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase
+
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 
 from posthog.schema_enums import InCohortVia, InlineCohortCalculation, PersonsOnEventsMode
 
@@ -77,12 +81,71 @@ class TestTrinoSemantics(APIBaseTest):
         self.assertNotIn("COHORT", sql)
         self.assertIn('"ducklake"."analytics"."raw_cohort_people"', sql)
 
-    def test_lazy_person_join_expands_before_trino_printing(self) -> None:
-        modifiers = HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED)
-        context = self._semantic_context(
-            ["events", "raw_persons", "raw_person_distinct_ids", "raw_person_distinct_id_overrides"],
-            modifiers,
+
+class TestTrinoPersonsSemantics(SimpleTestCase):
+    def _context(self, modifiers: HogQLQueryModifiers | None = None) -> HogQLContext:
+        return HogQLContext(
+            database=Database(include_posthog_tables=True),
+            modifiers=modifiers or HogQLQueryModifiers(),
+            enable_select_queries=True,
+            trino_table_locators={
+                "events": ("ducklake", "analytics", "events_production"),
+                "persons": ("ducklake", "analytics", "persons_production"),
+            },
         )
+
+    def test_logical_persons_table_deduplicates_latest_person_versions(self) -> None:
+        context = self._context()
+
+        sql, _ = prepare_and_print_ast(
+            parse_select("SELECT id, properties.email FROM persons"),
+            context,
+            "trino",
+        )
+
+        self.assertIn('"ducklake"."analytics"."persons_production"', sql)
+        self.assertNotIn("raw_persons", sql)
+        self.assertIn("GROUP BY", sql)
+        self.assertIn("max_by", sql)
+        self.assertIn("person_version", sql)
+        self.assertIn("_inserted_at", sql)
+
+    def test_logical_persons_table_rejects_unexported_fields(self) -> None:
+        context = self._context()
+
+        with self.assertRaisesRegex(QueryError, "Last seen is not available for managed warehouse queries"):
+            prepare_and_print_ast(
+                parse_select("SELECT last_seen_at FROM persons"),
+                context,
+                "trino",
+            )
+
+    def test_logical_persons_pdi_uses_physical_persons_table(self) -> None:
+        context = self._context()
+
+        sql, _ = prepare_and_print_ast(
+            parse_select("SELECT pdi.distinct_id FROM persons"),
+            context,
+            "trino",
+        )
+
+        self.assertIn('"ducklake"."analytics"."persons_production"', sql)
+        self.assertNotIn("raw_person_distinct_ids", sql)
+        self.assertIn("person_distinct_id_version", sql)
+        self.assertIn("_inserted_at", sql)
+
+    def test_internal_persons_relation_cannot_bypass_logical_lowering(self) -> None:
+        context = self._context()
+
+        with self.assertRaisesRegex(TrinoLoweringError, "TRINO_INTERNAL_TABLE_UNAVAILABLE"):
+            prepare_and_print_ast(
+                parse_select("SELECT id FROM __trino_physical_persons"),
+                context,
+                "trino",
+            )
+
+    def test_lazy_person_join_uses_physical_persons_table(self) -> None:
+        context = self._context(HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED))
 
         sql, _ = prepare_and_print_ast(
             parse_select("SELECT person.properties.email FROM events"),
@@ -91,5 +154,13 @@ class TestTrinoSemantics(APIBaseTest):
         )
 
         self.assertNotIn("person.properties.email", sql)
-        self.assertIn('"ducklake"."analytics"."raw_persons"', sql)
+        self.assertIn('"ducklake"."analytics"."persons_production"', sql)
+        self.assertNotIn("raw_persons", sql)
+        self.assertNotIn("raw_person_distinct_ids", sql)
+        self.assertNotIn("raw_person_distinct_id_overrides", sql)
+        self.assertIn("GROUP BY", sql)
+        self.assertIn("max_by", sql)
+        self.assertIn("person_distinct_id_version", sql)
+        self.assertIn("person_version", sql)
+        self.assertIn("_inserted_at", sql)
         self.assertIn(" JOIN ", sql)

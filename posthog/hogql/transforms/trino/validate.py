@@ -10,6 +10,7 @@ from posthog.hogql.printer.trino_functions import (
     TRINO_PASSTHROUGH_FUNCTIONS,
 )
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
+from posthog.hogql.transforms.trino.persons import is_internal_trino_table
 from posthog.hogql.visitor import TraversingVisitor
 
 _SPECIAL_CALLS = frozenset(
@@ -101,6 +102,12 @@ _SUPPORTED_CALLS = frozenset(
 
 
 class TrinoSourceValidator(TraversingVisitor):
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        if isinstance(node.table, ast.Field):
+            if is_internal_trino_table(node.table.chain):
+                raise TrinoLoweringError("TRINO_INTERNAL_TABLE_UNAVAILABLE", "internal Trino table", node)
+        super().visit_join_expr(node)
+
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         if node.settings is not None:
             raise TrinoLoweringError("TRINO_SETTINGS_UNSUPPORTED", "SETTINGS", node)
