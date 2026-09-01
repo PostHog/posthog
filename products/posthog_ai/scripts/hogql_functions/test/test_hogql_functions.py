@@ -23,6 +23,14 @@ def test_excludes_udfs() -> None:
         assert udf_name not in result
 
 
+def test_excludes_python_only_functions() -> None:
+    from posthog.hogql.constants import HOGQL_PYTHON_ONLY_FUNCTIONS
+
+    result = set(hogql_functions())
+    for name in HOGQL_PYTHON_ONLY_FUNCTIONS:
+        assert name not in result
+
+
 def test_excludes_if_combinators() -> None:
     result = set(hogql_functions())
     assert "countIf" not in result
