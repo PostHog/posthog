@@ -1,4 +1,9 @@
-import { migrateKafkaCyclotronInvocation } from './job-queue-kafka'
+import { DateTime } from 'luxon'
+
+import { parseJSON } from '~/common/utils/json-parse'
+
+import { CyclotronJobInvocation } from '../../types'
+import { migrateKafkaCyclotronInvocation, serializeInvocation } from './job-queue-kafka'
 
 describe('CyclotronJobQueueKafka', () => {
     describe('migrateKafkaCyclotronInvocation', () => {
@@ -91,6 +96,27 @@ describe('CyclotronJobQueueKafka', () => {
                   "teamId": 1,
                 }
             `)
+        })
+
+        it('should revive queueScheduledAt as a DateTime after the kafka round-trip', () => {
+            const scheduledAt = DateTime.utc(2026, 8, 24, 10, 45, 4)
+            const invocation = {
+                id: '01971158-5dd2-0000-2dde-9d3478269401',
+                teamId: 1,
+                functionId: '0196a6b9-1104-0000-f099-9cf11985a307',
+                state: {},
+                queue: 'hog',
+                queuePriority: 0,
+                queueScheduledAt: scheduledAt,
+            } as CyclotronJobInvocation
+
+            // Reproduce the produce/consume round-trip: serialize, stringify, parse, migrate.
+            const roundTripped = parseJSON(JSON.stringify(serializeInvocation(invocation)))
+            const migrated = migrateKafkaCyclotronInvocation(roundTripped)
+
+            expect(DateTime.isDateTime(migrated.queueScheduledAt)).toBe(true)
+            // The failure mode: a string here throws when a caller runs `.toJSDate()`.
+            expect(migrated.queueScheduledAt?.toJSDate()).toEqual(scheduledAt.toJSDate())
         })
     })
 })

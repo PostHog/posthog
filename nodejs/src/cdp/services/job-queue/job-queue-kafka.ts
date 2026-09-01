@@ -3,6 +3,7 @@
  * To make this easier this class is designed to abstract the queue as much as possible from
  * the underlying implementation.
  */
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { compress, uncompress } from 'snappy'
 
@@ -208,6 +209,12 @@ export class CyclotronJobQueueKafka implements JobQueue {
 export function migrateKafkaCyclotronInvocation(invocation: CyclotronJobInvocation): CyclotronJobInvocation {
     // Type casting but keeping as a reference
     const unknownInvocation = invocation as Record<string, any>
+
+    // JSON serialization flattens the Luxon DateTime to an ISO string. Revive it so
+    // callers that expect a DateTime (e.g. `.toJSDate()`) keep working.
+    if (typeof unknownInvocation.queueScheduledAt === 'string') {
+        invocation.queueScheduledAt = DateTime.fromISO(unknownInvocation.queueScheduledAt, { zone: 'utc' })
+    }
 
     if ('hogFunctionId' in unknownInvocation) {
         // Must be the old format
