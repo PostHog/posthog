@@ -91,16 +91,10 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <ScopeBar repoSlot={<SourceScopeChip />} showDate={false} />
-            <div className="flex flex-col gap-0.5">
-                <h3 className="m-0 flex items-center gap-1.5 text-base font-semibold">
-                    <IconPeople className="text-lg" />
-                    Team CI health
-                </h3>
-                <p className="m-0 text-xs text-tertiary">
-                    Every team's test surface right now. Ownership comes from the repo's owners.yaml files, never from
-                    authorship. Open a team for trends, runs, and window comparisons.
-                </p>
-            </div>
+            <h3 className="m-0 flex items-center gap-1.5 text-base font-semibold">
+                <IconPeople className="text-lg" />
+                Team CI health
+            </h3>
             <LemonTable
                 data-attr="engineering-analytics-teams-table"
                 size="small"
