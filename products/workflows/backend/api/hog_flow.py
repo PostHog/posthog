@@ -2233,10 +2233,16 @@ def _isp_domains(team: Team, user_access_control: UserAccessControl, user_permis
     visible = set(
         visible_teams_for_user(team.organization, user_access_control, user_permissions).values_list("id", flat=True)
     )
-    readable = tuple(domain for domain in domains if sharers[domain] <= visible)
+    # Partitioned in one pass so the two lists stay complements. Set comparison is a partial order,
+    # not a total one, so a domain whose sharers are neither a subset nor a superset of the visible
+    # teams would fall through a pair of independent tests and be reported as neither.
+    readable: list[str] = []
+    withheld: list[str] = []
+    for domain in domains:
+        (readable if sharers[domain] <= visible else withheld).append(domain)
     return IspDomains(
-        readable=readable,
-        withheld=tuple(domain for domain in domains if sharers[domain] > visible),
+        readable=tuple(readable),
+        withheld=tuple(withheld),
         shared=tuple(domain for domain in readable if sharers[domain]),
     )
 
