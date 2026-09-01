@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { ApiError } from 'lib/api-error'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 
 import { initKeaTests } from '~/test/init'
@@ -739,10 +740,13 @@ describe('notebookNodeGeneratedWidgetLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
+        const toastError = jest.spyOn(lemonToast, 'error').mockReturnValue('toast-id')
         logic.actions.runDataDependencies()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.runtimeError).toContain('notebook data that is no longer available')
+        // The banner is unmounted when the widget is collapsed, so the failure must also toast.
+        expect(toastError).toHaveBeenCalledWith(expect.stringContaining('notebook data that is no longer available'))
         expect(logic.values.dataRefreshInFlight).toBe(false)
     })
 

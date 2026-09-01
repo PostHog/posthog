@@ -18,6 +18,7 @@ import { v4 as uuidv4 } from 'uuid'
 
 import { ApiError, isAbortError } from 'lib/api'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     buildNotebookDependencyGraph,
     collectDependencyNodeIds,
@@ -1135,13 +1136,18 @@ export const notebookNodeGeneratedWidgetLogic: LogicWrapper<notebookNodeGenerate
                     const content = props.getContent()
                     const { missingFrameNames, nodeIds } = getWidgetDataDependencies(content, values.activeFrameNames)
                     if (missingFrameNames.length) {
-                        actions.setRuntimeError(
+                        const message =
                             'The widget expects notebook data that is no longer available. Restore the missing SQL or Python cell, or update the widget source.'
-                        )
+                        actions.setRuntimeError(message)
+                        // The runtimeError banner only renders in the expanded preview, so a toast keeps
+                        // the failure visible when the widget is collapsed or still behind the trust gate.
+                        lemonToast.error(message)
                         return
                     }
                     if (!nodeIds.length) {
-                        actions.setRuntimeError('No matching notebook data cells were found. Check the widget source.')
+                        const message = 'No matching notebook data cells were found. Check the widget source.'
+                        actions.setRuntimeError(message)
+                        lemonToast.error(message)
                         return
                     }
                     actions.setRuntimeError(null)
