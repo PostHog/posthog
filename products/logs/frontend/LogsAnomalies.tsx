@@ -113,7 +113,7 @@ function SeriesBands(): JSX.Element {
     )
 }
 
-function learningBaselineLabel(bandReadyAt: string, windowEnd: string): string {
+export function learningBaselineLabel(bandReadyAt: string, windowEnd: string): string {
     // Round up: a wait of just over two days still needs a third day of data.
     const days = Math.max(1, Math.ceil(dayjs(bandReadyAt).diff(windowEnd, 'day', true)))
     return `Learning baseline · ${days} more ${days === 1 ? 'day' : 'days'}`
