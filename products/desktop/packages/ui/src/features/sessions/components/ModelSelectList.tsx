@@ -26,6 +26,21 @@ interface ModelSelectListProps {
   unavailableReason?: (modelId: string) => string | undefined;
 }
 
+const renderEntries = (
+  list: SessionConfigSelectOption[],
+  unavailableReason?: (modelId: string) => string | undefined,
+) =>
+  list
+    .toSorted((a, b) => compareModelsForPicker(a.value, b.value))
+    .map((model) => (
+      <ModelRadioItem
+        key={model.value}
+        model={model}
+        closeOnClick={false}
+        unavailableReason={unavailableReason?.(model.value)}
+      />
+    ));
+
 /**
  * The model radio list every picker shares: one identical catalog, grouped by
  * provider, so the menu looks the same whichever harness is active. The
@@ -40,17 +55,6 @@ export function ModelSelectList({
 }: ModelSelectListProps) {
   const entries = flattenSelectOptions(options);
   const groups = isSelectGroup(options) ? options : [];
-  const renderEntries = (list: SessionConfigSelectOption[]) =>
-    list
-      .toSorted((a, b) => compareModelsForPicker(a.value, b.value))
-      .map((model) => (
-        <ModelRadioItem
-          key={model.value}
-          model={model}
-          closeOnClick={false}
-          unavailableReason={unavailableReason?.(model.value)}
-        />
-      ));
 
   return (
     <>
@@ -75,11 +79,11 @@ export function ModelSelectList({
                   {groups.length > 1 && group.name && (
                     <DropdownMenuLabel>{group.name}</DropdownMenuLabel>
                   )}
-                  {renderEntries(group.options)}
+                  {renderEntries(group.options, unavailableReason)}
                 </DropdownMenuGroup>
               </Fragment>
             ))
-          : renderEntries(entries)}
+          : renderEntries(entries, unavailableReason)}
       </DropdownMenuRadioGroup>
       <ModelCostFooter />
     </>
