@@ -5,8 +5,7 @@ from typing import Literal
 
 from django.contrib.postgres.search import TrigramSimilarity
 from django.db import DatabaseError
-from django.db.models import BigIntegerField, F, QuerySet
-from django.db.models.functions import Coalesce
+from django.db.models import QuerySet
 
 from posthog.schema import HogQLNotice
 
@@ -15,6 +14,8 @@ from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_strin
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models import EventDefinition, PropertyDefinition, Team
+
+from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 logger = getLogger(__name__)
 
@@ -195,16 +196,10 @@ def _project_scoped(taxonomy: QuerySet, team: Team) -> QuerySet:
     Event definitions have `posthog_eventdef_team_name_idx` on `(team_id, name)`, so that lookup
     already seeked one name and the project scope only corrects the row set it reads.
 
-    `coalesce(project_id, team_id)` is the leading expression of `event_definition_proj_uniq` and
+    `effective_project_id_expr()` is the leading expression of `event_definition_proj_uniq` and
     `posthog_propdef_proj_uniq`, so scope and `name` are then seeked together in one index.
     """
-    # `output_field` is required because the two columns resolve to different Django field types
-    # (the project key is a BigIntegerField, the team key an AutoField). It only settles the
-    # Python-side type, so the emitted SQL stays the bare `COALESCE(project_id, team_id)` that the
-    # index expression is defined on.
-    return taxonomy.alias(project_scope=Coalesce(F("project_id"), F("team_id"), output_field=BigIntegerField())).filter(
-        project_scope=team.project_id
-    )
+    return taxonomy.alias(effective_project_id=effective_project_id_expr()).filter(effective_project_id=team.project_id)
 
 
 def _warnings_for_unknown_references(

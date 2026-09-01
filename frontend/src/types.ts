@@ -7310,6 +7310,7 @@ export type CyclotronJobInputSchemaType = {
         | 'task_model'
         | 'task_repository'
         | 'task_mcp_installations'
+        | 'signals_scout'
     key: string
     label: string
     choices?: { value: string; label: string }[]
@@ -7370,7 +7371,7 @@ export type CyclotronJobFilterPropertyFilter =
     | FlagPropertyFilter
 
 export interface CyclotronJobFiltersType {
-    source?: 'events' | 'person-updates' | 'data-warehouse-table' | 'data-warehouse-view'
+    source?: 'events' | 'internal-events' | 'person-updates' | 'data-warehouse-table' | 'data-warehouse-view'
     events?: CyclotronJobFilterEvents[]
     data_warehouse?: CyclotronJobFilterDataWarehouse[]
     actions?: CyclotronJobFilterActions[]
