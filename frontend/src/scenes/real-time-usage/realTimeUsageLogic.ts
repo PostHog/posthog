@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -8,17 +8,30 @@ import { dayjs } from 'lib/dayjs'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
+import { ConcurrencyController } from '~/lib/utils/concurrencyController'
 import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { OrganizationType } from '~/types'
 
 export type UsageGranularity = '5m' | 'hour' | 'day'
 export type UsageRange = '1d' | '7d' | '30d'
 
-export type RealTimeUsageRow = { producerId: string; usageKey: string; unit: string; quantity: number }
+export type RealTimeUsageRow = {
+    projectName?: string
+    producerId: string
+    usageKey: string
+    unit: string
+    quantity: number
+}
 
 type RealTimeUsageData = {
     rows: RealTimeUsageRow[]
     timeSeries: AppMetricsTimeSeriesResponse
+}
+
+type ProjectUsageData = {
+    project: { id: number; name: string }
+    rows: HogQLQueryResponse
+    timeSeries: HogQLQueryResponse
 }
 
 const RANGE_INTERVALS: Record<UsageRange, string> = {
@@ -32,6 +45,8 @@ const RANGE_SECONDS: Record<UsageRange, number> = {
     '7d': 7 * 24 * 60 * 60,
     '30d': 30 * 24 * 60 * 60,
 }
+
+const PROJECT_QUERY_CONCURRENCY = 5
 
 // Buckets are cut by integer arithmetic on the Unix timestamp rather than by dateTrunc, so a bucket
 // is the same absolute instant for every project and for the browser. dateTrunc cuts on the team's
@@ -48,7 +63,12 @@ export function isGranularityAvailable(granularity: UsageGranularity, range: Usa
     return granularity !== '5m' || range === '1d'
 }
 
-export type UsageFilters = { range: UsageRange; granularity: UsageGranularity }
+export type UsageFilters = {
+    range: UsageRange
+    granularity: UsageGranularity
+    projectIds: number[]
+    breakdownByProject: boolean
+}
 
 // A shared or reloaded URL can carry anything, so fall back rather than query on a bad value.
 export function filtersFromParams(searchParams: Record<string, any>): UsageFilters {
@@ -60,7 +80,15 @@ export function filtersFromParams(searchParams: Record<string, any>): UsageFilte
         searchParams.granularity === '5m' || searchParams.granularity === 'day' || searchParams.granularity === 'hour'
             ? searchParams.granularity
             : 'hour'
-    return { range, granularity }
+    // pinned: URL parameter names — bookmarks rely on them.
+    const projectIds = String(searchParams.project_ids ?? '')
+        .split(',')
+        .filter(Boolean)
+        .map(Number)
+        .filter(Number.isInteger)
+    const breakdownByProject =
+        searchParams.breakdown_by_project === true || searchParams.breakdown_by_project === 'true'
+    return { range, granularity, projectIds, breakdownByProject }
 }
 
 // Bucket starts as Unix seconds, matching what the query returns.
@@ -99,19 +127,21 @@ async function queryUsage(teamId: number, query: string): Promise<HogQLQueryResp
     })
 }
 
-function parseUsageData(
-    responses: { rows: HogQLQueryResponse; timeSeries: HogQLQueryResponse }[],
+export function parseUsageData(
+    responses: ProjectUsageData[],
     range: UsageRange,
-    granularity: UsageGranularity
+    granularity: UsageGranularity,
+    breakdownByProject: boolean
 ): RealTimeUsageData {
     const rows = new Map<string, RealTimeUsageRow>()
     const series = new Map<string, Map<number, number>>()
 
     for (const response of responses) {
         for (const [producerId, usageKey, unit, quantity] of response.rows.results ?? []) {
-            const key = `${producerId}:${usageKey}:${unit}`
+            const key = `${breakdownByProject ? `${response.project.id}:` : ''}${producerId}:${usageKey}:${unit}`
             const current = rows.get(key)
             rows.set(key, {
+                projectName: breakdownByProject ? response.project.name : undefined,
                 producerId: String(producerId),
                 usageKey: String(usageKey),
                 unit: String(unit),
@@ -121,9 +151,12 @@ function parseUsageData(
 
         for (const [bucket, seriesName, quantity] of response.timeSeries.results ?? []) {
             const bucketStart = Number(bucket)
-            const values = series.get(String(seriesName)) ?? new Map<number, number>()
+            const key = breakdownByProject
+                ? `${response.project.id}:${response.project.name}: ${seriesName}`
+                : String(seriesName)
+            const values = series.get(key) ?? new Map<number, number>()
             values.set(bucketStart, (values.get(bucketStart) ?? 0) + Number(quantity))
-            series.set(String(seriesName), values)
+            series.set(key, values)
         }
     }
 
@@ -135,8 +168,8 @@ function parseUsageData(
         timeSeries: {
             // Buckets are UTC-aligned, so label them in UTC rather than in the reader's timezone.
             labels: starts.map((start) => dayjs.unix(start).utc().format('YYYY-MM-DD HH:mm')),
-            series: Array.from(series.entries()).map(([name, values]) => ({
-                name,
+            series: Array.from(series.entries()).map(([key, values]) => ({
+                name: breakdownByProject ? key.replace(/^\d+:/, '') : key,
                 values: starts.map((start) => values.get(start) ?? 0),
             })),
         },
@@ -150,6 +183,10 @@ export interface realTimeUsageLogicValues {
     usageDataLoading: boolean
     usageGranularity: UsageGranularity
     usageRange: UsageRange
+    selectedProjectIds: number[]
+    breakdownByProject: boolean
+    projectOptions: { key: string; label: string }[]
+    hasMultipleProjects: boolean
 }
 export interface realTimeUsageLogicActions {
     loadUsageData: () => { value: true }
@@ -168,15 +205,24 @@ export type realTimeUsageLogicType = MakeLogicType<realTimeUsageLogicValues, rea
 export const realTimeUsageLogic = kea<realTimeUsageLogicType>([
     path(['scenes', 'real-time-usage', 'realTimeUsageLogic']),
     connect(() => ({ values: [organizationLogic, ['currentOrganization']] })),
-    actions({
+    actions(({ values }) => ({
         // Normalized here so every caller, including a hand-edited URL, lands on a valid pair.
-        setUsageFilters: (filters: UsageFilters) => ({
-            filters: {
-                ...filters,
-                granularity: isGranularityAvailable(filters.granularity, filters.range) ? filters.granularity : 'hour',
-            },
-        }),
-    }),
+        setUsageFilters: (filters: UsageFilters) => {
+            const teams = values.currentOrganization?.teams
+
+            return {
+                filters: {
+                    ...filters,
+                    granularity: isGranularityAvailable(filters.granularity, filters.range)
+                        ? filters.granularity
+                        : 'hour',
+                    projectIds: teams
+                        ? filters.projectIds.filter((projectId) => teams.some((team) => team.id === projectId))
+                        : filters.projectIds,
+                },
+            }
+        },
+    })),
     loaders(({ values }) => ({
         usageData: [
             null as RealTimeUsageData | null,
@@ -185,22 +231,36 @@ export const realTimeUsageLogic = kea<realTimeUsageLogicType>([
                     const rowsQuery = usageQuery(values.usageRange, values.usageGranularity, false)
                     const timeSeriesQuery = usageQuery(values.usageRange, values.usageGranularity, true)
                     const teams = values.currentOrganization?.teams ?? []
-                    // Only allowlisted projects resolve billing_usage_records, and the allowlist is
+                    const selectedTeams = values.selectedProjectIds.length
+                        ? teams.filter((team) => values.selectedProjectIds.includes(team.id))
+                        : teams
+                    // Only allowlisted organizations resolve billing_usage_records, and the allowlist is
                     // server-side, so a project that cannot read it is skipped rather than failing
                     // the whole organization's chart.
+                    const projectQueryConcurrency = new ConcurrencyController(PROJECT_QUERY_CONCURRENCY)
                     const settled = await Promise.allSettled(
-                        teams.map(async (team) => ({
-                            rows: await queryUsage(team.id, rowsQuery),
-                            timeSeries: await queryUsage(team.id, timeSeriesQuery),
-                        }))
+                        selectedTeams.map((team) =>
+                            projectQueryConcurrency.run({
+                                fn: async () => ({
+                                    project: { id: team.id, name: team.name },
+                                    rows: await queryUsage(team.id, rowsQuery),
+                                    timeSeries: await queryUsage(team.id, timeSeriesQuery),
+                                }),
+                            })
+                        )
                     )
                     const responses = settled
                         .filter((result) => result.status === 'fulfilled')
                         .map((result) => result.value)
-                    if (!responses.length && teams.length) {
+                    if (!responses.length && selectedTeams.length) {
                         throw settled[0].status === 'rejected' ? settled[0].reason : new Error('No usage data')
                     }
-                    return parseUsageData(responses, values.usageRange, values.usageGranularity)
+                    return parseUsageData(
+                        responses,
+                        values.usageRange,
+                        values.usageGranularity,
+                        values.breakdownByProject
+                    )
                 },
             },
         ],
@@ -215,6 +275,18 @@ export const realTimeUsageLogic = kea<realTimeUsageLogicType>([
         ],
         usageGranularity: ['hour' as UsageGranularity, { setUsageFilters: (_, { filters }) => filters.granularity }],
         usageRange: ['1d' as UsageRange, { setUsageFilters: (_, { filters }) => filters.range }],
+        selectedProjectIds: [[], { setUsageFilters: (_, { filters }) => filters.projectIds }],
+        breakdownByProject: [false, { setUsageFilters: (_, { filters }) => filters.breakdownByProject }],
+    }),
+    selectors({
+        projectOptions: [
+            (s) => [s.currentOrganization],
+            (currentOrganization: OrganizationType | null): { key: string; label: string }[] =>
+                [...(currentOrganization?.teams ?? [])]
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map((team) => ({ key: String(team.id), label: team.name })),
+        ],
+        hasMultipleProjects: [(s) => [s.projectOptions], (projectOptions): boolean => projectOptions.length > 1],
     }),
     listeners(({ actions }) => ({
         setUsageFilters: () => actions.loadUsageData(),
@@ -222,7 +294,12 @@ export const realTimeUsageLogic = kea<realTimeUsageLogicType>([
     actionToUrl(({ values }) => ({
         setUsageFilters: () => [
             router.values.location.pathname,
-            { range: values.usageRange, granularity: values.usageGranularity },
+            {
+                range: values.usageRange,
+                granularity: values.usageGranularity,
+                project_ids: values.selectedProjectIds.length ? values.selectedProjectIds.join(',') : undefined,
+                breakdown_by_project: values.breakdownByProject ? 'true' : undefined,
+            },
             router.values.hashParams,
             { replace: true },
         ],
@@ -230,7 +307,12 @@ export const realTimeUsageLogic = kea<realTimeUsageLogicType>([
     urlToAction(({ actions, values }) => ({
         [urls.organizationBillingRealTimeUsage()]: (_, searchParams) => {
             const filters = filtersFromParams(searchParams)
-            if (filters.range !== values.usageRange || filters.granularity !== values.usageGranularity) {
+            if (
+                filters.range !== values.usageRange ||
+                filters.granularity !== values.usageGranularity ||
+                filters.breakdownByProject !== values.breakdownByProject ||
+                filters.projectIds.join(',') !== values.selectedProjectIds.join(',')
+            ) {
                 actions.setUsageFilters(filters)
             }
         },
