@@ -49,7 +49,7 @@ describe('notebookNodeSQLV2Logic', () => {
             frames: [],
             cpu_cores: 1,
             memory_gb: 2,
-            next_hourly_price: 0.25,
+            hourly_price: 0.25,
         } as Awaited<ReturnType<typeof notebooksKernelStatusRetrieve>>)
     })
 
@@ -253,7 +253,7 @@ describe('notebookNodeSQLV2Logic', () => {
     })
 
     it('does not quote a rate for a free local docker kernel', async () => {
-        // The status endpoint returns next_hourly_price whatever the backend, but only a Modal
+        // The status endpoint returns hourly_price whatever the backend, but only a Modal
         // sandbox is charged. Quoting a docker kernel invents a bill nobody will be sent.
         jest.mocked(notebooksKernelStatusRetrieve).mockResolvedValue({
             backend: 'docker',
@@ -261,7 +261,7 @@ describe('notebookNodeSQLV2Logic', () => {
             frames: [],
             cpu_cores: 1,
             memory_gb: 2,
-            next_hourly_price: 0.25,
+            hourly_price: 0.25,
         } as Awaited<ReturnType<typeof notebooksKernelStatusRetrieve>>)
         const toastSpy = jest.spyOn(lemonToast, 'info')
         mount()
