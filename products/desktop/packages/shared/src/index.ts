@@ -214,6 +214,18 @@ export {
   OAUTH_SCOPES,
 } from "./oauth";
 export {
+  type AgentRunState,
+  agentRunStateSchema,
+  type PiSubagentToolCall,
+  type PiSubagentToolDetails,
+  type PiWorkflowToolDetails,
+  piSubagentToolCallSchema,
+  piSubagentToolDetailsSchema,
+  piWorkflowToolDetailsSchema,
+  type WorkflowAgentState,
+  workflowAgentStateSchema,
+} from "./orchestration";
+export {
   compactHomePath,
   expandTildePath,
   getFileExtension,
@@ -223,6 +235,14 @@ export {
   toRelativePath,
 } from "./path";
 export type { PiMessagingMode, PiRuntimeHealth } from "./pi-session";
+export {
+  createPiToolCallRecord,
+  isPiToolName,
+  PI_TOOL_KIND_BY_NAME,
+  type PiToolCallInput,
+  type PiToolCallRecord,
+  type PiToolName,
+} from "./pi-tool-call";
 export {
   buildPrOutput,
   mergePrUrls,
