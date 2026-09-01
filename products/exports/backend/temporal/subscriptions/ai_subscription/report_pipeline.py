@@ -43,6 +43,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.schemas imp
     MAX_CHART_TITLE_LENGTH,
     MAX_CHARTS_PER_REPORT,
     MAX_QUERY_PLAN_STEPS,
+    MIN_CHART_ROWS,
     EnrichedPromptSpec,
     HogQLFix,
     QueryPlan,
@@ -89,6 +90,12 @@ _MIN_STEP_RESULT_CHARS = _SYNTHESIS_RESULTS_CHAR_BUDGET // MAX_QUERY_PLAN_STEPS
 # same constant in `_synthesize`, so the rendered marker and the prompt instruction can't drift apart.
 QUERY_FAILED_PREFIX = "Query failed to run"
 
+# The marker a thin step renders, injected into the synthesis prompt as {{{sparse_marker}}} from this
+# same constant. The chart layer already refuses to draw a result below `MIN_CHART_ROWS`, but that
+# verdict stopped at the chart: synthesis saw the bare rows and could still narrate two of them as a
+# movement over time. A result too thin to plot is too thin to call a trend, so both read one bar.
+SPARSE_RESULT_PREFIX = "Sparse result"
+
 # Per-step query-fix budget: the planner occasionally emits HogQL that fails to parse, so we feed the
 # error back and ask for a rewrite rather than dropping the step. Worst case per step is one original
 # run plus _MAX_QUERY_FIX_RETRIES × (fix LLM + rerun); steps run concurrently, bounded by
@@ -131,6 +138,19 @@ def _validate_step_chart(
         return None, None
     title = sanitize_user_text(spec.title or fallback_title, MAX_CHART_TITLE_LENGTH)
     return validate_chart(spec, response, hogql=hogql, title=title, step_index=step_index)
+
+
+def _sparse_result_note(response: Any) -> str:
+    """A note for results with too few rows to read as a series, empty for everything else."""
+    rows = response.get("results") if isinstance(response, dict) else None
+    if not isinstance(rows, list) or len(rows) >= MIN_CHART_ROWS:
+        return ""
+    count = len(rows)
+    noun = "row" if count == 1 else "rows"
+    return (
+        f"\n\n_{SPARSE_RESULT_PREFIX}: {count} {noun}. Report the values as they are labelled. "
+        "There are too few periods here to call anything a rise, a drop, or a trend._"
+    )
 
 
 def _charts_truncated_footnote(shown: int, total: int) -> str:
@@ -464,7 +484,9 @@ async def _synthesize(
     )
     # Inject the failure marker from the same constant the placeholder renders, so the prompt's
     # "treat this as an error, not 'no data'" instruction can't drift from what _run_steps emits.
-    synthesis_prompt = render_prompt(synthesis_prompt, {"failure_marker": QUERY_FAILED_PREFIX})
+    synthesis_prompt = render_prompt(
+        synthesis_prompt, {"failure_marker": QUERY_FAILED_PREFIX, "sparse_marker": SPARSE_RESULT_PREFIX}
+    )
 
     try:
         # database_sync_to_async (not to_thread): MaxChatOpenAI reads billing/quota from the ORM
@@ -546,7 +568,7 @@ async def _run_steps(
                     logger.warning("ai_report.chart_validation_error", step_index=step_index, exc_info=True)
                     chart, chart_dropped_reason = None, ChartFailureReason.VALIDATION_ERROR
                 return StepOutcome(
-                    rendered=f"### {safe_description}\n\n{safe_formatted}",
+                    rendered=f"### {safe_description}\n\n{safe_formatted}{_sparse_result_note(query_result.response)}",
                     diagnostic=QueryStepDiagnostic(
                         description=safe_description,
                         hogql=executable_hogql,

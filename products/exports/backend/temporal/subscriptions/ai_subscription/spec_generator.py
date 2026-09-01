@@ -183,17 +183,26 @@ def compute_report_window(
     where the previous scheduled report's coverage ended (gap-free "since last report"), falling
     back to `end - window_days`; a day-based mode missing its values degrades to that same
     fallback, with a warning so the ignored config is diagnosable.
+
+    Every mode covers whole days in the project timezone: the window ends at the last midnight, so a
+    report never includes the partial day it runs in. SINCE_LAST_SENT stays gap-free across runs
+    because the next run starts from the snapped bound this one ended on.
     """
     tz = team.timezone_info
-    run_now = _in_tz(now, tz)
+    # Snap the bounds to midnight in the project timezone. Plans bucket by calendar period
+    # (`toStartOfDay`, `toStartOfWeek`, `toStartOfMonth`), so a wall-clock bound cut a period in half at
+    # each edge, and the bucket function then promoted that fragment to a row of its own — a few hours
+    # of a new month is indistinguishable from a whole one once it carries a month label. Snapping also
+    # keeps the final period whole instead of truncating it at the fire time.
+    day_end = _in_tz(now, tz).replace(hour=0, minute=0, second=0, microsecond=0)
 
     if mode == Subscription.AIWindowMode.LAST_N_DAYS and start_days_ago:
-        return ReportWindow(start=run_now - timedelta(days=start_days_ago), end=run_now)
+        return ReportWindow(start=day_end - timedelta(days=start_days_ago), end=day_end)
 
     if mode == Subscription.AIWindowMode.DAYS_AGO_RANGE and start_days_ago:
         return ReportWindow(
-            start=run_now - timedelta(days=start_days_ago),
-            end=run_now - timedelta(days=end_days_ago or 0),
+            start=day_end - timedelta(days=start_days_ago),
+            end=day_end - timedelta(days=end_days_ago or 0),
         )
 
     if mode != Subscription.AIWindowMode.SINCE_LAST_SENT:
@@ -205,8 +214,10 @@ def compute_report_window(
             end_days_ago=end_days_ago,
         )
 
-    end = run_now
+    end = day_end
     start = _in_tz(last_scheduled_cutoff, tz) if last_scheduled_cutoff is not None else None
+    # A cutoff at or past the snapped end means no whole day has closed since the last report — a
+    # same-day re-fire or test delivery. Fall back to the full window rather than report an empty one.
     if start is None or start >= end:
         start = end - timedelta(days=window_days)
 

@@ -20,6 +20,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.charts impo
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     _MAX_CONCURRENT_STEPS,
     QUERY_FAILED_PREFIX,
+    SPARSE_RESULT_PREFIX,
     AiReportStageError,
     PlanExecution,
     QueryStepDiagnostic,
@@ -374,6 +375,7 @@ async def test_synthesis_prompt_carries_the_failure_marker(
     (messages,) = mock_chat.return_value.invoke.call_args[0]
     system_message = messages[0][1]
     assert QUERY_FAILED_PREFIX in system_message  # {{{failure_marker}}} substituted from the constant
+    assert SPARSE_RESULT_PREFIX in system_message  # {{{sparse_marker}}} substituted from the constant
     assert "{{{" not in system_message  # no placeholder left unrendered
 
 
@@ -889,6 +891,37 @@ async def test_a_dropped_chart_records_its_reason_and_keeps_the_step(mock_execut
     assert execution.diagnostics[0].ok is True
     assert execution.diagnostics[0].chart_dropped_reason == "missing_columns"
     assert "formatted" in execution.rendered[0]
+
+
+@parameterized.expand(
+    [
+        ("one_row", [["2026-08-01", 1]], True),
+        ("two_rows", [["2026-08-01", 1], ["2026-09-01", 2]], True),
+        ("three_rows", [["2026-08-01", 1], ["2026-08-02", 2], ["2026-08-03", 3]], False),
+    ]
+)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_a_result_too_thin_to_chart_is_marked_sparse_for_synthesis(
+    _name: str, rows: list, expect_marker: bool, mock_executor_cls: MagicMock
+) -> None:
+    # The chart layer refuses to draw below MIN_CHART_ROWS, but that verdict used to stop at the chart:
+    # synthesis saw two bare rows and could narrate them as a movement between two periods. The marker
+    # is what carries the same bar into the report text.
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
+        return_value=FormattedQueryResult(
+            formatted="formatted",
+            fallback_used=False,
+            response={"results": rows, "columns": ["day", "signups"]},
+        )
+    )
+
+    execution = await _run_steps(
+        _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+    )
+
+    assert execution.diagnostics[0].ok is True
+    assert "formatted" in execution.rendered[0]
+    assert (SPARSE_RESULT_PREFIX in execution.rendered[0]) is expect_marker
 
 
 @patch(f"{_RP}.AssistantQueryExecutor")

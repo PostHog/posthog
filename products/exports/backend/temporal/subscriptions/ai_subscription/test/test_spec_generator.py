@@ -439,15 +439,50 @@ class TestAIWindowConfigProperties:
 
 class TestComputeReportWindow:
     """`compute_report_window` is the pure core of the timezone-aware window. It's the fix for the
-    UTC-anchored, send-time→midnight gap, so its three behaviours are pinned: since-last-delivery
-    anchoring, the no-prior-delivery fallback, and timezone correctness (a regression here is the
-    exact customer bug)."""
+    UTC-anchored, send-time→midnight gap, so its behaviours are pinned: since-last-delivery
+    anchoring, the no-prior-delivery fallback, timezone correctness (a regression here is the
+    exact customer bug), and whole-day bounds so calendar buckets never split at an edge."""
 
     @staticmethod
     def _team(timezone: str = "UTC") -> Team:
         # In-memory only — compute_report_window is pure and timezone_info just wraps ZoneInfo(tz),
         # so no DB row is needed and the test stays at the cheapest rung.
         return Team(timezone=timezone)
+
+    def test_ends_at_the_last_midnight_so_calendar_buckets_stay_whole(self) -> None:
+        # Plans bucket with toStartOfDay/Week/Month. A wall-clock end left a few hours of a fresh
+        # period in the range, and the bucket function gave that fragment a row of its own carrying a
+        # full period label — indistinguishable from a real period to whoever reads the report.
+        now = datetime(2026, 9, 1, 5, 55, 52, tzinfo=UTC)
+        last = datetime(2026, 8, 1, 5, 56, 3, tzinfo=UTC)
+
+        window = compute_report_window(
+            self._team(),
+            last_scheduled_cutoff=last,
+            now=now,
+            window_days=30,
+            mode=Subscription.AIWindowMode.SINCE_LAST_SENT,
+        )
+
+        assert window.end == datetime(2026, 9, 1, tzinfo=UTC)
+        assert window.end_literal == "2026-09-01 00:00:00"
+
+    def test_a_snapped_cutoff_chains_into_an_exact_calendar_period(self) -> None:
+        # The end this run snaps to becomes the next run's cutoff, so a monthly subscription settles
+        # onto exact month bounds after one run — and stays gap-free doing it.
+        now = datetime(2026, 10, 1, 5, 55, 52, tzinfo=UTC)
+        previous_end = datetime(2026, 9, 1, tzinfo=UTC)
+
+        window = compute_report_window(
+            self._team(),
+            last_scheduled_cutoff=previous_end,
+            now=now,
+            window_days=30,
+            mode=Subscription.AIWindowMode.SINCE_LAST_SENT,
+        )
+
+        assert window.start == datetime(2026, 9, 1, tzinfo=UTC)
+        assert window.end == datetime(2026, 10, 1, tzinfo=UTC)
 
     def test_anchors_start_to_last_scheduled_cutoff(self) -> None:
         now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
@@ -461,16 +496,16 @@ class TestComputeReportWindow:
             mode=Subscription.AIWindowMode.SINCE_LAST_SENT,
         )
 
-        # Gap-free: start is exactly the previous cutoff, not now - window_days (which would be identical
-        # here, but the next case proves they diverge when the prior send drifted).
+        # Gap-free: start is exactly the previous cutoff, even when that cutoff predates snapping and
+        # so does not sit on a midnight itself.
         assert window.start == last.astimezone(ZoneInfo("UTC"))
-        assert window.end == now.astimezone(ZoneInfo("UTC"))
+        assert window.end == datetime(2026, 6, 29, tzinfo=UTC)
 
     def test_since_last_delivery_can_exceed_window_days(self) -> None:
         # A weekly sub (window_days=7) whose prior delivery was 10 days ago must cover the whole gap,
         # not just the last 7 days — proving start follows the delivery, not the cadence default.
         now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
-        last = datetime(2026, 6, 19, 16, 0, tzinfo=UTC)
+        last = datetime(2026, 6, 19, tzinfo=UTC)
 
         window = compute_report_window(
             self._team(),
@@ -489,7 +524,7 @@ class TestComputeReportWindow:
         # against a 7-day cadence proves it tracks the real window, not the default; a sign/length
         # regression here silently compares growth against the wrong baseline.
         now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
-        last = datetime(2026, 6, 19, 16, 0, tzinfo=UTC)
+        last = datetime(2026, 6, 19, tzinfo=UTC)
 
         window = compute_report_window(
             self._team(),
@@ -500,8 +535,8 @@ class TestComputeReportWindow:
         )
 
         assert (window.start - window.compare_start) == (window.end - window.start)
-        assert window.compare_start == datetime(2026, 6, 9, 16, 0, tzinfo=UTC)
-        assert window.compare_start_literal == "2026-06-09 16:00:00"
+        assert window.compare_start == datetime(2026, 6, 9, tzinfo=UTC)
+        assert window.compare_start_literal == "2026-06-09 00:00:00"
 
     def test_falls_back_to_window_days_without_prior_delivery(self) -> None:
         now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
@@ -514,8 +549,8 @@ class TestComputeReportWindow:
             mode=Subscription.AIWindowMode.SINCE_LAST_SENT,
         )
 
-        assert window.end == now
-        assert window.start == now - timedelta(days=7)
+        assert window.end == datetime(2026, 6, 29, tzinfo=UTC)
+        assert window.start == datetime(2026, 6, 22, tzinfo=UTC)
 
     def test_last_n_days_is_a_fixed_trailing_window(self) -> None:
         # The day-based mode must ignore the delivery anchor entirely: a recent send must not shrink
@@ -532,8 +567,9 @@ class TestComputeReportWindow:
             start_days_ago=3,
         )
 
-        assert window.start == now - timedelta(days=3)
-        assert window.end == now
+        # Three whole days, so the partial day the report runs in stays out of the range.
+        assert window.start == datetime(2026, 6, 26, tzinfo=UTC)
+        assert window.end == datetime(2026, 6, 29, tzinfo=UTC)
 
     def test_days_ago_range_is_an_explicit_historical_range(self) -> None:
         now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
@@ -548,10 +584,10 @@ class TestComputeReportWindow:
             end_days_ago=3,
         )
 
-        assert window.start == now - timedelta(days=10)
-        assert window.end == now - timedelta(days=3)
+        assert window.start == datetime(2026, 6, 19, tzinfo=UTC)
+        assert window.end == datetime(2026, 6, 26, tzinfo=UTC)
         # compare_start stays the equal-length prior period, so period-over-period works here too.
-        assert window.compare_start == now - timedelta(days=17)
+        assert window.compare_start == datetime(2026, 6, 12, tzinfo=UTC)
 
     def test_range_missing_end_is_treated_as_ending_now(self) -> None:
         # Documented degrade: a DAYS_AGO_RANGE row missing end_days_ago ends at "now" (0 = now per
@@ -568,8 +604,8 @@ class TestComputeReportWindow:
             end_days_ago=None,
         )
 
-        assert window.start == now - timedelta(days=10)
-        assert window.end == now
+        assert window.start == datetime(2026, 6, 19, tzinfo=UTC)
+        assert window.end == datetime(2026, 6, 29, tzinfo=UTC)
 
     @parameterized.expand(
         [
@@ -595,8 +631,8 @@ class TestComputeReportWindow:
             end_days_ago=end_days_ago,
         )
 
-        assert window.start == now - timedelta(days=7)
-        assert window.end == now
+        assert window.start == datetime(2026, 6, 22, tzinfo=UTC)
+        assert window.end == datetime(2026, 6, 29, tzinfo=UTC)
 
     @parameterized.expand(
         [
@@ -609,13 +645,17 @@ class TestComputeReportWindow:
 
         window = compute_report_window(self._team(timezone), last_scheduled_cutoff=None, now=now, window_days=1)
 
-        # Same instant, rendered in the team's tz — utcoffset proves the bound carries the team's
-        # offset (the UTC-anchored bug had a zero offset regardless of team timezone).
+        # Midnight in the team's tz, not in UTC — utcoffset proves the bound carries the team's offset
+        # (the UTC-anchored bug had a zero offset regardless of team timezone). Sydney is already on
+        # 2026-06-30 at this instant while Los Angeles is still on 2026-06-29, so the two snap to
+        # different calendar days from the same input.
+        local_now = now.astimezone(ZoneInfo(timezone))
         assert window.end.tzinfo == ZoneInfo(timezone)
-        assert window.end.utcoffset() == now.astimezone(ZoneInfo(timezone)).utcoffset()
+        assert window.end.utcoffset() == local_now.utcoffset()
+        assert window.end == local_now.replace(hour=0, minute=0, second=0, microsecond=0)
         # The literal the planner sees is the project-tz wall clock (no offset), so the LLM never does
         # tz math — HogQL resolves a bare datetime against the project timezone.
-        assert window.end_literal == now.astimezone(ZoneInfo(timezone)).strftime("%Y-%m-%d %H:%M:%S")
+        assert window.end_literal == local_now.strftime("%Y-%m-%d 00:00:00")
 
     def test_clamps_inverted_range_to_fallback(self) -> None:
         # A stale finished_at in the future would invert the range; clamp to the fallback window.
@@ -630,8 +670,26 @@ class TestComputeReportWindow:
             mode=Subscription.AIWindowMode.SINCE_LAST_SENT,
         )
 
-        assert window.start == now - timedelta(days=1)
-        assert window.end == now
+        assert window.start == datetime(2026, 6, 28, tzinfo=UTC)
+        assert window.end == datetime(2026, 6, 29, tzinfo=UTC)
+
+    def test_a_same_day_refire_reports_the_last_whole_window(self) -> None:
+        # A test delivery, or a re-fire, hours after the scheduled run: the cutoff already sits on the
+        # midnight this run would snap to, so there is no whole day left to cover. Repeat the last
+        # window rather than send a report over an empty range.
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+        last = datetime(2026, 6, 29, tzinfo=UTC)
+
+        window = compute_report_window(
+            self._team(),
+            last_scheduled_cutoff=last,
+            now=now,
+            window_days=7,
+            mode=Subscription.AIWindowMode.SINCE_LAST_SENT,
+        )
+
+        assert window.start == datetime(2026, 6, 22, tzinfo=UTC)
+        assert window.end == datetime(2026, 6, 29, tzinfo=UTC)
 
     def test_naive_inputs_assumed_utc(self) -> None:
         now = datetime(2026, 6, 29, 16, 0)
@@ -640,7 +698,7 @@ class TestComputeReportWindow:
         window = compute_report_window(self._team("UTC"), last_scheduled_cutoff=last, now=now, window_days=1)
 
         assert window.start == datetime(2026, 6, 28, 16, 0, tzinfo=UTC)
-        assert window.end == datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+        assert window.end == datetime(2026, 6, 29, tzinfo=UTC)
 
 
 class TestContextBlob(APIBaseTest):

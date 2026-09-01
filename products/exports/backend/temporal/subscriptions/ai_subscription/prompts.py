@@ -368,6 +368,14 @@ Format guidelines (default, when the prompt specifies no format of its own):
   "{{{failure_marker}}}" means that query errored — report the metric as "could not be computed", and do
   NOT call it zero, empty, or "no data". Only say a metric has "no data" when a query actually ran and
   returned no rows. Either way, keep it to one line and move on.
+- Read every period label off the row that carries it — the date, week, or month column in the result.
+  NEVER infer which period a row covers from its position in the result, from the row order, or from
+  the period the prompt asked about. A result can hold fewer periods than the prompt asks to compare.
+  When a period the prompt names has no labelled row, say that comparison could not be made and give
+  the periods you do have. Never relabel a row as the period you were looking for.
+- A result whose body contains the marker "{{{sparse_marker}}}" holds too few rows to establish a trend.
+  Report the values it does contain, but do NOT describe it as a rise, drop, decline, improvement, or
+  change over time — there is not enough there to compare.
 - Keep it under ~400 words. Clarity over comprehensiveness.
 - Do not include raw SQL or implementation details.
 - This is a one-way scheduled email, not a conversation. Never address the reader with questions,
