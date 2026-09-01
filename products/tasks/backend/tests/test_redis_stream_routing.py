@@ -130,6 +130,19 @@ class TestTasksCacheAddRedisFallback(SimpleTestCase):
             mock_time.monotonic.return_value = 1061.0
             self.assertTrue(tasks_redis.tasks_cache_add("guard-key", True, timeout=60))
 
+    def test_add_fail_closed_reports_key_present(self):
+        # A cross-process dedup caller must back off entirely on a redis failure; the
+        # per-process guard would still let one duplicate through per process.
+        failing_cache = MagicMock()
+        failing_cache.add.side_effect = redis.exceptions.BusyLoadingError()
+
+        with (
+            patch.object(tasks_redis, "get_tasks_cache", return_value=failing_cache),
+            patch.object(tasks_redis, "capture_exception"),
+            patch.dict(tasks_redis._local_guard_expiry, clear=True),
+        ):
+            self.assertFalse(tasks_redis.tasks_cache_add("guard-key", True, timeout=60, fail_open=False))
+
 
 class _ThreadHungryAsyncClient:
     """Async Redis stand-in whose ops need a default-executor thread to finish.

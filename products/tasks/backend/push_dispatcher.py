@@ -289,7 +289,10 @@ def _enqueue_user(
         return
 
     cooldown_key = f"push_notification:{cooldown_subject}:{kind}"
-    if not tasks_cache_add(cooldown_key, True, timeout=_COOLDOWN_SECONDS[kind]):
+    # fail_open=False: this cooldown is the only dedup in the push chain and turn completion
+    # can enter from several processes, so a redis failure drops the push instead of letting
+    # each process's local guard send its own duplicate.
+    if not tasks_cache_add(cooldown_key, True, timeout=_COOLDOWN_SECONDS[kind], fail_open=False):
         PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="cooldown_deduped").inc()
         logger.debug("push_dispatcher.cooldown_hit", subject=cooldown_subject, kind=kind)
         return

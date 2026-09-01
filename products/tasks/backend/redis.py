@@ -147,7 +147,7 @@ def tasks_cache_get(key: str, default: Any = None) -> Any:
         return default
 
 
-def tasks_cache_set(key: str, value: Any, timeout: int | None = None) -> bool:
+def tasks_cache_set(key: str, value: Any, timeout: float | None = None) -> bool:
     """Best-effort ``cache.set``. Returns whether the write landed; a redis failure degrades to
     ``False`` instead of raising."""
     try:
@@ -158,11 +158,13 @@ def tasks_cache_set(key: str, value: Any, timeout: int | None = None) -> bool:
         return False
 
 
-def tasks_cache_add(key: str, value: Any, timeout: int) -> bool:
+def tasks_cache_add(key: str, value: Any, timeout: int, fail_open: bool = True) -> bool:
     """Best-effort ``cache.add`` used as a dedup/cooldown guard. Returns True when the key was
     newly added (the caller should proceed), False when it already existed. A redis failure
     degrades to a per-process guard with the same key and timeout, so an outage throttles per
-    process instead of not at all."""
+    process instead of not at all. Pass ``fail_open=False`` when the guard is the only dedup
+    across processes and a duplicate is worse than skipping the work: a failure then reports
+    the key as already present and the caller backs off."""
     # The guard is read before the redis write. A redis write that the guard then vetoes leaves a
     # key that outlives the guard entry, so a recovery inside a window suppresses for up to twice
     # the timeout. The 60 second heartbeat guard cannot afford that against the 120 second
@@ -173,6 +175,8 @@ def tasks_cache_add(key: str, value: Any, timeout: int) -> bool:
         redis_added = bool(get_tasks_cache().add(key, value, timeout=timeout))
     except _REDIS_ERRORS as e:
         _note_cache_failure("add", e)
+        if not fail_open:
+            return False
         return _local_guard_add(key, timeout)
     if redis_added:
         # Record the redis admission in the local guard too, so the fallback still suppresses a

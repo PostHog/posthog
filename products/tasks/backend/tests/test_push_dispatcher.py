@@ -1,6 +1,6 @@
 from uuid import uuid4
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.db import InterfaceError, OperationalError
@@ -8,6 +8,7 @@ from django.test import TestCase
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from redis.exceptions import ReadOnlyError
 
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.tasks.push_notifications import send_user_push
@@ -103,6 +104,18 @@ class TestPushDispatcher(TestCase):
         self.assertEqual(mock_delay.call_count, 1)
         after = REGISTRY.get_sample_value("posthog_tasks_push_dispatcher_outcomes_total", labels) or 0.0
         self.assertEqual(after, before + 2)
+
+    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    def test_cooldown_cache_failure_drops_push(self, mock_delay, _flag):
+        # The cooldown is the only dedup across the push entry points, so a redis
+        # failure must drop the push rather than send it with dedup bypassed.
+        failing_cache = MagicMock()
+        failing_cache.add.side_effect = ReadOnlyError("read only replica")
+        with patch("products.tasks.backend.redis.get_tasks_cache", return_value=failing_cache):
+            with self.captureOnCommitCallbacks(execute=True):
+                notify_task_run_completed(self.task_run)
+        mock_delay.assert_not_called()
 
     @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")

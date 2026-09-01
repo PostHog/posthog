@@ -41,7 +41,7 @@ from products.tasks.backend.logic.services.run_actor import (
     is_slack_interaction_state as is_slack_interaction_state,
     loop_owner_eligible_for_credentials,
 )
-from products.tasks.backend.redis import get_tasks_cache
+from products.tasks.backend.redis import get_tasks_cache, tasks_cache_set
 from products.tasks.backend.temporal.process_task.ai_gateway_token import (
     MINTABLE_PRODUCTS,
     mint_scoped_token,
@@ -496,8 +496,14 @@ def _sandbox_identity_cache_key(kind: str, scope: str) -> str:
     return f"tasks:sandbox-{kind}:{scope}"
 
 
-def _mark_sandbox_identity(kind: str, scope: str, user_id: int) -> None:
-    get_tasks_cache().set(_sandbox_identity_cache_key(kind, scope), user_id, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+def _mark_sandbox_identity(kind: str, scope: str, user_id: int, *, best_effort: bool = False) -> None:
+    key = _sandbox_identity_cache_key(kind, scope)
+    if best_effort:
+        tasks_cache_set(key, user_id, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
+    else:
+        # A dropped write must surface for security-relevant markers, so the caller retries
+        # rather than reading the absent entry as a state it never reached.
+        get_tasks_cache().set(key, user_id, timeout=MCP_TOKEN_REFRESH_INTERVAL_SECONDS)
 
 
 def _get_sandbox_identity_user(kind: str, scope: str) -> int | None:
@@ -508,9 +514,11 @@ def mark_sandbox_mcp_session(scope: str, user_id: int) -> None:
     """Record whose OAuth token the sandbox's live MCP session holds.
 
     Self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS, so an absent
-    entry always reads as "must refresh".
+    entry always reads as "must refresh". Best-effort: an absent entry is safe,
+    and this is written from the agent-server-launch activity, which must not
+    fail after the server is already running.
     """
-    _mark_sandbox_identity("mcp-session", scope, user_id)
+    _mark_sandbox_identity("mcp-session", scope, user_id, best_effort=True)
 
 
 def get_sandbox_mcp_session_user(scope: str) -> int | None:

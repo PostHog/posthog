@@ -3,6 +3,8 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from redis.exceptions import ReadOnlyError
+
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration
@@ -13,6 +15,8 @@ from products.tasks.backend.temporal.process_task.utils import (
     can_mint_readonly_github_token,
     get_readonly_github_token,
     get_sandbox_api_url,
+    mark_sandbox_github_identity,
+    mark_sandbox_mcp_session,
 )
 
 
@@ -150,3 +154,18 @@ def test_reauthorization_required_surfaces_as_credential_unavailable(
 
     with pytest.raises(CredentialUnavailableError):
         _resolve_sandbox_github_token(ctx, task=MagicMock(), actor_user=None, repository="acme/repo", has_repo=True)
+
+
+def test_sandbox_identity_marker_best_effort_boundary() -> None:
+    # The mcp-session marker is a refresh optimization, so a redis failure must not fail the
+    # agent-server-launch activity. The github-identity marker gates owner-token re-injection,
+    # so a dropped write must surface rather than read as "not rebound".
+    failing = MagicMock()
+    failing.set.side_effect = ReadOnlyError("read only replica")
+    with (
+        patch("products.tasks.backend.temporal.process_task.utils.get_tasks_cache", return_value=failing),
+        patch("products.tasks.backend.redis.get_tasks_cache", return_value=failing),
+    ):
+        mark_sandbox_mcp_session("sandbox-1", 42)
+        with pytest.raises(ReadOnlyError):
+            mark_sandbox_github_identity("sandbox-1", 42)
