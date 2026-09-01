@@ -1058,11 +1058,11 @@ export interface sessionRecordingPlayerLogicMeta {
         currentPlayerTime: (currentTimestamp: number | undefined, sessionPlayerData: SessionPlayerData) => number
         currentPlayerTimeSeconds: (currentPlayerTime: number) => number
         toRRWebPlayerTime: (
-            sessionPlayerData: SessionPlayerData,
+            playableSnapshotsByWindowId: Record<number, eventWithTime[]>,
             currentSegment: null | import('@posthog/replay-shared').RecordingSegment
         ) => (timestamp: number) => number | undefined
         fromRRWebPlayerTime: (
-            sessionPlayerData: SessionPlayerData,
+            playableSnapshotsByWindowId: Record<number, eventWithTime[]>,
             currentSegment: null | import('@posthog/replay-shared').RecordingSegment
         ) => (time?: number | undefined) => number | undefined
         jumpTimeMs: (speed: number) => number
@@ -1685,14 +1685,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         // The relative time for the player, i.e. the offset between the current timestamp, and the window start for the current segment
         toRRWebPlayerTime: [
-            (s) => [s.sessionPlayerData, s.currentSegment],
-            (sessionPlayerData: SessionPlayerData, currentSegment: RecordingSegment | null) => {
+            (s) => [s.playableSnapshotsByWindowId, s.currentSegment],
+            (playableSnapshotsByWindowId: Record<number, eventWithTime[]>, currentSegment: RecordingSegment | null) => {
                 return (timestamp: number): number | undefined => {
                     if (!currentSegment || !currentSegment.windowId) {
                         return
                     }
 
-                    const snapshots = sessionPlayerData.snapshotsByWindowId[currentSegment.windowId]
+                    // The replayer's time base is the first event it was fed, so use the filtered set
+                    const snapshots = playableSnapshotsByWindowId[currentSegment.windowId]
                     if (!snapshots?.length) {
                         return
                     }
@@ -1704,13 +1705,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         // The relative time for the player, i.e. the offset between the current timestamp, and the window start for the current segment
         fromRRWebPlayerTime: [
-            (s) => [s.sessionPlayerData, s.currentSegment],
-            (sessionPlayerData: SessionPlayerData, currentSegment: RecordingSegment | null) => {
+            (s) => [s.playableSnapshotsByWindowId, s.currentSegment],
+            (playableSnapshotsByWindowId: Record<number, eventWithTime[]>, currentSegment: RecordingSegment | null) => {
                 return (time?: number): number | undefined => {
                     if (time === undefined || !currentSegment?.windowId) {
                         return
                     }
-                    const snapshots = sessionPlayerData.snapshotsByWindowId[currentSegment.windowId]
+                    const snapshots = playableSnapshotsByWindowId[currentSegment.windowId]
                     if (!snapshots?.length) {
                         return
                     }
@@ -2356,8 +2357,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (!values.player || values.player.windowId !== segment.windowId) {
                 // Only reinitialize if we have valid data for this segment's window
                 const canReinit =
-                    segment.windowId !== undefined &&
-                    values.sessionPlayerData.snapshotsByWindowId[segment.windowId]?.length >= 2
+                    segment.windowId !== undefined && values.playableSnapshotsByWindowId[segment.windowId]?.length >= 2
 
                 if (canReinit) {
                     values.player?.replayer?.pause()
