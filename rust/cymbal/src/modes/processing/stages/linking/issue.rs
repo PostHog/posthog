@@ -28,11 +28,12 @@ use crate::{
 pub struct IssueLinker;
 
 /// A JS value thrown that is not an `Error` stringifies to a placeholder the SDK cannot improve
-/// on: `String({})` is `"[object Object]"` and `String(undefined)` is `"undefined"`. Neither names
-/// what broke, so drop it and let the issue fall back to an empty field the UI renders as unknown.
+/// on: `String({})` is `"[object Object]"`, `String(undefined)` is `"undefined"` and `String(null)`
+/// is `"null"`. None names what broke, so drop it and let the issue fall back to an empty field the
+/// UI renders as unknown.
 fn drop_non_descriptive(value: String) -> String {
     match value.trim() {
-        "[object Object]" | "undefined" => String::new(),
+        "[object Object]" | "undefined" | "null" => String::new(),
         _ => value,
     }
 }
@@ -469,6 +470,7 @@ mod tests {
     fn drops_non_descriptive_placeholders() {
         assert_eq!(drop_non_descriptive("[object Object]".to_string()), "");
         assert_eq!(drop_non_descriptive("undefined".to_string()), "");
+        assert_eq!(drop_non_descriptive("null".to_string()), "");
         assert_eq!(drop_non_descriptive("  undefined  ".to_string()), "");
     }
 

@@ -280,6 +280,7 @@ describe('Error Display', () => {
     it.each([
         ['[object Object]', undefined],
         ['undefined', undefined],
+        ['null', undefined],
         ['[Object object]', undefined],
         ['  undefined  ', undefined],
         ['', undefined],

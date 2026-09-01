@@ -60,9 +60,9 @@ export function getRuntimeFromLib(lib?: string | null): ErrorTrackingRuntime {
 }
 
 // A JS value thrown that is not an Error stringifies to a placeholder that tells a person
-// nothing about what broke: String({}) is '[object Object]' and String(undefined) is
-// 'undefined'. Ingest can store these as an issue name or description.
-const NON_DESCRIPTIVE_ISSUE_FIELDS = ['[object object]', 'undefined']
+// nothing about what broke: String({}) is '[object Object]', String(undefined) is 'undefined'
+// and String(null) is 'null'. Ingest can store these as an issue name or description.
+const NON_DESCRIPTIVE_ISSUE_FIELDS = ['[object object]', 'undefined', 'null']
 
 /** Return a readable issue name or description, or undefined when the stored value is a
  * blank or non-descriptive placeholder. Callers pick their own fallback for the undefined case. */
