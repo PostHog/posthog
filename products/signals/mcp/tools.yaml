@@ -1161,6 +1161,15 @@ tools:
         description:
             'DEPRECATED: renamed to scout-scratchpad-search. This alias forwards to the same endpoint and will be
             removed. Call scout-scratchpad-search directly with the same arguments.'
+    signals-scout-suggestions-dismiss:
+        operation: signals_scout_suggestions_dismiss
+        enabled: false
+    signals-scout-suggestions-list:
+        operation: signals_scout_suggestions_list
+        enabled: false
+    signals-scout-suggestions-refresh:
+        operation: signals_scout_suggestions_refresh
+        enabled: false
     users-signal-autonomy-create:
         operation: users_signal_autonomy_create
         enabled: false
