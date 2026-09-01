@@ -1,6 +1,14 @@
-import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
-import type { DatabaseSchemaTable } from '~/queries/schema/schema-general'
+import { expectLogic } from 'kea-test-utils'
 
+import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
+import { performQuery } from '~/queries/query'
+import type { DatabaseSchemaTable } from '~/queries/schema/schema-general'
+import { initKeaTests } from '~/test/init'
+
+import {
+    accountRelationshipDefinitionsList,
+    customPropertyDefinitionsList,
+} from 'products/customer_analytics/frontend/generated/api'
 import type {
     AccountRelationshipDefinitionApi,
     CustomPropertyDefinitionApi,
@@ -8,6 +16,7 @@ import type {
 
 import {
     AccountColumnGroup,
+    accountsColumnConfigLogic,
     applyColumnDisplayToSelect,
     buildAccountColumnGroups,
     customPropertyAlias,
@@ -16,6 +25,19 @@ import {
     roleKeyToDefinitionMap,
     translateSelectColumns,
 } from './accountsColumnConfigLogic'
+
+jest.mock('~/queries/query', () => ({
+    ...jest.requireActual('~/queries/query'),
+    performQuery: jest.fn(),
+}))
+
+jest.mock('products/customer_analytics/frontend/generated/api', () => ({
+    // Keep the real module for everything else — connected logics call other generated
+    // functions on mount, and an absent export makes their loaders throw on every test.
+    ...jest.requireActual('products/customer_analytics/frontend/generated/api'),
+    accountRelationshipDefinitionsList: jest.fn(),
+    customPropertyDefinitionsList: jest.fn(),
+}))
 
 function definition(
     id: string,
@@ -218,5 +240,51 @@ describe('accountsColumnConfigLogic column groups and translation', () => {
         expect(filterColumnOptions(pickerGroups, pickerGroups[1], '', []).map((option) => option.name)).toEqual([
             'plan_name',
         ])
+    })
+
+    describe('loadAccountsSchema', () => {
+        beforeEach(() => {
+            initKeaTests()
+            jest.mocked(performQuery).mockReset()
+            jest.mocked(customPropertyDefinitionsList).mockResolvedValue({
+                count: 0,
+                next: null,
+                previous: null,
+                results: [],
+            })
+            jest.mocked(accountRelationshipDefinitionsList).mockResolvedValue({
+                count: 0,
+                next: null,
+                previous: null,
+                results: [],
+            })
+        })
+
+        it('requests only the accounts table schema, never the full warehouse schema', async () => {
+            // Mirrors the real response: join fields carry their column names inline, and the
+            // joins' backing names are resolver tags, not top-level tables.
+            const accountsTable = {
+                name: 'accounts',
+                fields: {
+                    name: { name: 'name', type: 'string', hogql_value: 'name' },
+                    tags: { name: 'tags', type: 'lazy_table', table: 'account_tags', fields: ['names'] },
+                    notebooks: { name: 'notebooks', type: 'lazy_table', table: 'account_notebooks', fields: ['count'] },
+                },
+            } as unknown as DatabaseSchemaTable
+            jest.mocked(performQuery).mockResolvedValueOnce({ tables: { 'system.accounts': accountsTable } })
+
+            const logic = accountsColumnConfigLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const requestedTables = jest.mocked(performQuery).mock.calls.map(([query]) => (query as any).tables)
+            expect(requestedTables).toEqual([['system.accounts']])
+            expect(Object.keys(logic.values.columnSchemaTables)).toEqual(['system.accounts'])
+            const joinGroups = logic.values.accountsColumnGroups.filter((group) => group.key.startsWith('accounts.'))
+            expect(joinGroups.map((group) => group.options.map((option) => option.name))).toEqual([
+                ['names'],
+                ['count'],
+            ])
+        })
     })
 })
