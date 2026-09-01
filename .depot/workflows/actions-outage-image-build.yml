@@ -50,6 +50,10 @@ jobs:
                   platforms: linux/amd64,linux/arm64
                   build-args: COMMIT_HASH=${{ steps.commit.outputs.sha }}
                   push: true
+                  # Without a working upload the Dockerfile keeps ~2.8 GB of .map
+                  # files in the shipped image.
+                  secrets: |
+                      posthog_upload_sourcemaps_cli_api_key=${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
 
             # This branch never ran CI, so a fatal import must fail here rather than
             # crash-loop in production. Web alone is not enough: temporal and celery
