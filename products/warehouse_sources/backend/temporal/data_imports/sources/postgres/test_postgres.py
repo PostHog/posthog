@@ -1846,7 +1846,7 @@ class TestIsConnectionDroppedError:
                 "FATAL:  Failed to connect to database: {:error, :econnrefused}"
             ),
             # The generic GenServer-timeout sibling: Supavisor reports a pool checkout or internal
-            # backend-connect timeout as "{:error, :timeout}" — the Erlang GenServer call-timeout atom,
+            # backend-connect timeout as "{:error, :timeout}", the Erlang GenServer call-timeout atom,
             # distinct from the POSIX-level ":etimedout". Same transient pooler class; reconnect recovers.
             psycopg.errors.ConnectionFailure("Failed to connect to database: {:error, :timeout}"),
             # Neon's proxy reports a compute that didn't wake from scale-to-zero before the auth
@@ -4109,13 +4109,10 @@ class TestPostgresSchemaDiscovery:
         good_connection.close.assert_called_once()
 
     def test_get_schemas_retries_supavisor_generic_timeout_on_discovery_query(self):
-        # Supavisor reports a pool checkout or internal backend-connect timeout as a ConnectionFailure
-        # carrying "{:error, :timeout}" — the generic Erlang GenServer call-timeout atom, distinct from
-        # the POSIX-level ":etimedout" that was already handled. Without the fix, this error wasn't
-        # recognised as a connection drop: the SET-timeout except block fell through to
-        # connection.rollback() and the original ConnectionFailure propagated unrecognised, skipping
-        # the in-process retry. With the fix, discovery retries on a fresh connection and the failed
-        # connection is never rolled back.
+        # Supavisor reports a pool checkout or backend-connect timeout as a ConnectionFailure
+        # carrying "{:error, :timeout}", the generic Erlang GenServer call-timeout atom. Discovery
+        # must retry on a fresh connection; the failed connection must not be rolled back (rollback
+        # on a dead connection raises a misleading secondary exception that buries the real cause).
         drop = psycopg.errors.ConnectionFailure("Failed to connect to database: {:error, :timeout}")
         dropped_connection = self._drop_on_execute_connection(drop)
         good_connection = self._mock_connection(
