@@ -173,6 +173,7 @@ function SpanRow({
                         formatDate={TRACING_DATE_FORMAT}
                         formatTime={TRACING_TIME_FORMAT}
                         displayTimezone={TRACING_DISPLAY_TIMEZONE}
+                        showSeconds
                     />
                 </span>
             </TableCell>
