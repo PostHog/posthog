@@ -1,10 +1,13 @@
 import { Message } from 'node-rdkafka'
 
+import { BatchBudget } from './batch-budget'
 import { BatchingPipeline } from './batching-pipeline'
 import { newBatchingPipeline } from './builders/helpers'
 import { OkResultWithContext } from './chunk-pipeline.interface'
+import { batchBudgetExhaustedCounter } from './metrics'
+import { getBudgetsExhausted } from './metrics.test-utils'
 import { PipelineResultWithContext } from './pipeline.interface'
-import { ok } from './results'
+import { PipelineResultType, ok } from './results'
 
 type MsgCtx = { message: Message }
 function makeMessage(offset: number): Message {
@@ -73,6 +76,42 @@ describe('BatchingPipeline', () => {
         }
         return { allResults, allSideEffects }
     }
+
+    it('stamps the fed budget on every element of that batch', async () => {
+        const first = BatchBudget.softDeadline(Date.now() + 60_000)
+        const second = BatchBudget.softDeadline(Date.now() + 60_000)
+        const collector = createCollector()
+
+        await collector.feed(makeBatch([1, 2]), {}, first)
+        await collector.feed(makeBatch([3]), {}, second)
+        const { allResults } = await drainAll(collector)
+
+        expect(allResults.map((result) => result.context.budget)).toEqual([first, first, second])
+    })
+
+    it('leaves a batch unlimited when feed() is given no budget', async () => {
+        const collector = createCollector()
+
+        await collector.feed(makeBatch([1]), {})
+        const { allResults } = await drainAll(collector)
+
+        expect(allResults[0].context.budget).toBe(BatchBudget.unlimited())
+    })
+
+    it('counts a budget that expired before its batch completed', async () => {
+        batchBudgetExhaustedCounter.reset()
+        const collector = newBatchingPipeline<any, any, MsgCtx>(
+            (builder) => builder.pipe(beforeBatchStep),
+            (builder) => builder,
+            (builder) => builder.pipe(afterBatchStep),
+            { concurrentBatches: Infinity }
+        )
+
+        await collector.feed(makeBatch([1]), {}, BatchBudget.softDeadline(Date.now() - 10))
+        await drainAll(collector)
+
+        expect(await getBudgetsExhausted()).toBe(1)
+    })
 
     it('returns null when sub-pipeline is empty', async () => {
         const collector = createCollector()
@@ -188,6 +227,63 @@ describe('BatchingPipeline', () => {
         order.push('next-resolved')
 
         expect(order).toEqual(['next-called', 'callback-start', 'callback-end', 'next-resolved'])
+    })
+
+    it('runs afterBatch to completion with unchanged results when the budget expires mid-batch', async () => {
+        jest.useFakeTimers()
+        try {
+            const order: string[] = []
+            let releaseAfter!: () => void
+            const gate = new Promise<void>((resolve) => (releaseAfter = resolve))
+            afterBatchStep.mockImplementation(async (input: any) => {
+                order.push('after-start')
+                await gate
+                order.push('after-end')
+                return ok({ elements: input.elements, batchContext: input.batchContext })
+            })
+
+            const processed: string[] = []
+            function processStep(value: { value: string }) {
+                processed.push(value.value)
+                if (value.value === 'msg-2') {
+                    jest.advanceTimersByTime(10_000)
+                }
+                return Promise.resolve(ok(value))
+            }
+            const collector = newBatchingPipeline<any, any, MsgCtx>(
+                (builder) => builder.pipe(beforeBatchStep),
+                (builder) => builder.sequentially((b) => b.pipe(processStep)),
+                (builder) => builder.pipe(afterBatchStep),
+                { concurrentBatches: Infinity }
+            )
+
+            await collector.feed(makeBatch([1, 2, 3]), {}, BatchBudget.softDeadline(Date.now() + 5_000))
+            const pendingNext = collector.next().then((batch) => {
+                order.push('next-resolved')
+                return batch
+            })
+            for (let i = 0; i < 100 && !order.includes('after-start'); i++) {
+                await Promise.resolve()
+            }
+            expect(order).toContain('after-start')
+            expect(order).not.toContain('next-resolved')
+
+            releaseAfter()
+            const batch = await pendingNext
+
+            expect(order).toEqual(['after-start', 'after-end', 'next-resolved'])
+            // The step started for msg-2 before expiry and finished after it: its
+            // ok result stands. Only msg-3, never started, becomes a timeout.
+            expect(processed).toEqual(['msg-1', 'msg-2'])
+            expect(batch!.elements.map((element) => element.result.type)).toEqual([
+                PipelineResultType.OK,
+                PipelineResultType.OK,
+                PipelineResultType.TIMEOUT,
+            ])
+            expect(afterBatchStep).toHaveBeenCalledTimes(1)
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     describe('with streaming sub-pipeline', () => {

@@ -3,12 +3,13 @@ import { Message } from 'node-rdkafka'
 import { logger } from '~/common/utils/logger'
 import { createTestMessage } from '~/tests/helpers/kafka-message'
 
+import { BatchBudget } from './batch-budget'
 import { ChunkPipelineBuilder } from './builders'
 import { ChunkPipeline } from './chunk-pipeline.interface'
 import { FanOutFanInChunkPipeline, FanOutSubContext } from './fan-out-fan-in-chunk-pipeline'
 import { createKafkaDebugContext, createNewChunkPipeline, createOkContext } from './helpers'
-import { PipelineResultWithContext, PipelineWarning } from './pipeline.interface'
-import { PipelineResult, dlq, drop, isDlqResult, isOkResult, ok, redirect } from './results'
+import { PipelineContext, PipelineResultWithContext, PipelineWarning } from './pipeline.interface'
+import { PipelineResult, dlq, drop, isDlqResult, isOkResult, isTimeoutResult, ok, redirect, timeout } from './results'
 
 jest.mock('~/common/utils/logger', () => ({
     logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
@@ -163,6 +164,36 @@ describe('FanOutFanInChunkPipeline', () => {
         const second = await pipeline.next()
         expect(okValues(second!)).toEqual([{ id: 'a', total: 2 }])
         expect(await pipeline.next()).toBeNull()
+    })
+
+    it('copies the parent budget onto every sub-element context', async () => {
+        // Sub-elements spend the parent's time, so a sub-element that lost the
+        // budget would run its steps with no checkpoint at all.
+        const budget = BatchBudget.unlimited()
+        const subContexts: PipelineContext<FanOutSubContext>[] = []
+        let buffered: PipelineResultWithContext<SubItem, FanOutSubContext>[] = []
+        const sub: ChunkPipeline<SubItem, SubItem, FanOutSubContext> = {
+            feed: (elements) => {
+                subContexts.push(...elements.map((element) => element.context))
+                buffered = [...elements]
+            },
+            next: () => {
+                const chunk = buffered
+                buffered = []
+                return Promise.resolve(chunk.length > 0 ? chunk : null)
+            },
+        }
+        const pipeline = new FanOutFanInChunkPipeline(
+            createNewChunkPipeline<Parent, { message: Message; budget: BatchBudget }>().build(),
+            splitSubs,
+            sub,
+            sumSubs
+        )
+
+        pipeline.feed([createOkContext({ id: 'a', subs: [1, 2] }, { message: createTestMessage(), budget })])
+
+        expect(okValues((await pipeline.next())!)).toEqual([{ id: 'a', total: 3 }])
+        expect(subContexts.map((context) => context.budget)).toEqual([budget, budget])
     })
 
     it('emits parents unordered as they complete, keeping sub-results correlated', async () => {
@@ -359,6 +390,39 @@ describe('FanOutFanInChunkPipeline', () => {
 
         expect(results).toHaveLength(1)
         expect(isDlqResult(results[0].result) && results[0].result.reason).toBe(expectedReason)
+    })
+
+    it('times the parent out when a sub-result times out', async () => {
+        const fanInCalls: string[] = []
+        function trackingFanIn(parent: Parent, subs: SubItem[]): Merged {
+            fanInCalls.push(parent.id)
+            return sumSubs(parent, subs)
+        }
+        function cutOffFirstSubStep(items: SubItem[]): Promise<PipelineResult<SubItem>[]> {
+            return Promise.resolve(
+                items.map((item) => (item.value === 1 ? timeout<SubItem>('budget exceeded') : ok(item)))
+            )
+        }
+
+        const pipeline = createNewChunkPipeline<Parent>()
+            .fanOut(splitSubs)
+            .via((sub) => sub.pipeChunk(cutOffFirstSubStep))
+            .fanIn(trackingFanIn)
+            .build()
+
+        feedParents(pipeline, [
+            { id: 'cutoff', subs: [1, 2] },
+            { id: 'healthy', subs: [3] },
+        ])
+
+        const results = await drainAll(pipeline)
+
+        expect(results).toHaveLength(2)
+        const timedOut = results.find((r) => isTimeoutResult(r.result))!
+        expect((timedOut.result as { reason: string }).reason).toBe('fan-out sub-element timed out: budget exceeded')
+        expect(fanInCalls).toEqual(['healthy'])
+        expect(okValues(results)).toEqual([{ id: 'healthy', total: 3 }])
+        expect(mockLogger.warn).not.toHaveBeenCalled()
     })
 
     it('merges sub side effects and warnings into the parent context without double-counting', async () => {

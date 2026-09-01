@@ -54,6 +54,13 @@ message SubBatch {
   // rebalance legitimately replays uncommitted offsets, so the worker's
   // sentinel rebaselines on a new epoch instead of firing.
   uint64 assignment_epoch = 5;
+  // Time allowance for processing this sub-batch, milliseconds. The worker
+  // derives its budget from this field alone; it has no sizing config of its
+  // own. 0 = unlimited — which is also what a consumer predating the field
+  // sends, so compatibility is automatic. Soft: past it the worker stops
+  // starting new work but never interrupts a running step, so the consumer's
+  // ack watchdog stays the hard limit.
+  uint64 soft_budget_ms = 6;
 }
 
 // KafkaMessage mirrors `SerializedKafkaMessage` in
@@ -87,6 +94,9 @@ enum SubBatchStatus {
   // treats any status it does not recognize the same way, so future non-fatal
   // statuses stay backward compatible.
   SUB_BATCH_STATUS_BUSY = 3;
+  // Some messages were processed and acked; the rest timed out and must be
+  // redelivered. `SubBatchAck.timed_out` lists them.
+  SUB_BATCH_STATUS_PARTIAL = 4;
 }
 
 // IngestStreamResponse is one frame on the worker-to-consumer stream.
@@ -115,4 +125,6 @@ message SubBatchAck {
   uint32 accepted = 3;
   // Human-readable failure reason. Set only on SUB_BATCH_STATUS_FAILED.
   string error = 4;
+  // Indices into SubBatch.messages the budget cut off. Set only on PARTIAL.
+  repeated uint32 timed_out = 5;
 }

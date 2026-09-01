@@ -1,9 +1,9 @@
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 
-import { pipelineStepDurationHistogram } from './metrics'
+import { pipelineStepDurationHistogram, recordBudgetCheckpoint } from './metrics'
 import { OkResultWithContext, Pipeline, PipelineResultWithContext } from './pipeline.interface'
-import { PipelineResult, PipelineResultType, isOkResult } from './results'
+import { PipelineResult, PipelineResultType, isOkResult, timeout } from './results'
 import { ProcessingStep } from './steps'
 
 export class StepPipeline<TInput, TIntermediate, TOutput, C, RPrev extends string = never, RStep extends string = never>
@@ -33,6 +33,20 @@ export class StepPipeline<TInput, TIntermediate, TOutput, C, RPrev extends strin
         if (!isOkResult(previousResult)) {
             return {
                 result: previousResult,
+                context: previousResultWithContext.context,
+            }
+        }
+
+        // The soft-deadline checkpoint. It runs before every step of every
+        // per-element chain, so one check gives per-step granularity. Later
+        // steps skip on their own through the non-OK short-circuit above.
+        // lastStep keeps naming the step that ran, because that is the step
+        // that spent the time; the reason names the step that never started.
+        const budget = previousResultWithContext.context.budget
+        if (budget?.exhausted) {
+            recordBudgetCheckpoint('step', this.stepName)
+            return {
+                result: timeout(`budget exceeded before ${this.stepName}`),
                 context: previousResultWithContext.context,
             }
         }

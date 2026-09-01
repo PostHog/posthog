@@ -14,7 +14,7 @@ import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
 
 import { createContext } from './helpers'
 import { PipelineConfig, ResultHandlingPipeline } from './result-handling-pipeline'
-import { dlq, drop, ok, redirect } from './results'
+import { dlq, drop, ok, redirect, timeout } from './results'
 
 // Mock the pipeline helpers
 jest.mock('~/ingestion/framework/result-handling-helpers', () => ({
@@ -410,6 +410,31 @@ describe('ResultHandlingPipeline', () => {
                 expect.any(Error),
                 'unknown'
             )
+        })
+
+        it('counts a timeout result without producing anything', async () => {
+            const result = timeout('budget exceeded before slowStep')
+            const messages: Message[] = [
+                { value: Buffer.from('timed out'), topic: 'test', partition: 0, offset: 1 } as Message,
+            ]
+
+            const chunkResults = [createContext(result, { message: messages[0], lastStep: 'slowStep' })]
+
+            const mockPipeline = createMockPipeline(chunkResults)
+            const resultPipeline = new ResultHandlingPipeline(mockPipeline, config)
+            const results = await resultPipeline.next()
+
+            expect(results).toHaveLength(1)
+            expect(results![0].result).toEqual(result)
+            expect(results![0].context.sideEffects).toHaveLength(0)
+            expect(mockProduceMessageToDLQ).not.toHaveBeenCalled()
+            expect(mockRedirectMessageToOutput).not.toHaveBeenCalled()
+            expect(mockLogDroppedMessage).not.toHaveBeenCalled()
+            expect(mockIngestionPipelineResultCounter.labels).toHaveBeenCalledWith({
+                result: 'timeout',
+                last_step_name: 'slowStep',
+                details: 'budget exceeded before slowStep',
+            })
         })
     })
 
