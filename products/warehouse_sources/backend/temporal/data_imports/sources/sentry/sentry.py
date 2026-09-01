@@ -55,6 +55,9 @@ _MAX_PAGES_PER_PARENT = 100
 _REQUEST_TIMEOUT = 30
 _MAX_RETRIES = 3
 _RETRYABLE_STATUS_CODES = (429, 500, 502, 503, 504)
+# Upper bound on a server-provided 429 wait, so a misreported Retry-After or reset header cannot
+# park a worker. Matches the shared REST client's MAX_RETRY_AFTER_SECONDS.
+_MAX_RETRY_AFTER_SECONDS = 300.0
 # Safety bound for how many issues the issue_tag_values fan-out will skip while
 # fast-forwarding to a saved checkpoint issue. If the checkpoint issue was
 # deleted between runs, we'd otherwise skip every remaining issue and yield
@@ -292,30 +295,25 @@ def _is_retryable_response(response: Response) -> bool:
 def _rate_limit_wait_from_headers(response: Response) -> float | None:
     """Seconds to wait before a 429 retry, read from Sentry's rate-limit headers.
 
-    `X-Sentry-Rate-Limit-Reset` is an epoch second; `Retry-After` is a delta in seconds. Prefer
-    whichever the response carries, and return None when neither yields a positive wait so the
-    caller falls back to exponential backoff.
+    `Retry-After` is the HTTP-standard delta in seconds and takes priority, so a custom-iterator
+    endpoint waits the same as every other Sentry endpoint, which syncs through the shared REST
+    client's Retry-After-first parser. `X-Sentry-Rate-Limit-Reset` is a UNIX epoch second and is
+    the fallback. The wait is capped so a misreported header cannot park a worker. None means
+    neither header gives a positive wait, so the caller uses exponential backoff.
     """
+    retry_after = response.headers.get("Retry-After")
+    if retry_after and retry_after.strip().isdigit():
+        return min(float(retry_after.strip()), _MAX_RETRY_AFTER_SECONDS)
+
     reset_header = response.headers.get("X-Sentry-Rate-Limit-Reset")
     if reset_header:
         try:
             reset_epoch = int(reset_header)
         except ValueError:
-            pass
-        else:
-            wait_until_reset = reset_epoch - int(datetime.now(UTC).timestamp())
-            if wait_until_reset > 0:
-                return float(wait_until_reset)
-
-    retry_after = response.headers.get("Retry-After")
-    if retry_after:
-        try:
-            retry_after_seconds = int(retry_after)
-        except ValueError:
-            pass
-        else:
-            if retry_after_seconds > 0:
-                return float(retry_after_seconds)
+            return None
+        wait_until_reset = reset_epoch - int(datetime.now(UTC).timestamp())
+        if wait_until_reset > 0:
+            return min(float(wait_until_reset), _MAX_RETRY_AFTER_SECONDS)
 
     return None
 

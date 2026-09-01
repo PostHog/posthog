@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sentry import SentrySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry import (
+    _MAX_RETRY_AFTER_SECONDS,
     SentryPaginator,
     SentryRateLimitedError,
     SentryResumeConfig,
@@ -1355,6 +1356,24 @@ class TestHelpers:
         )
 
         assert _retry_wait_seconds(state) == 9.0
+
+    @parameterized.expand(
+        [
+            # Both headers present: Retry-After wins, matching the shared REST client's ordering for
+            # Sentry, so a custom-iterator endpoint waits the same as every other endpoint.
+            ("prefers_retry_after", {"Retry-After": "12", "X-Sentry-Rate-Limit-Reset": "9999999999"}, 12.0),
+            # A misreported delay is bounded so it cannot park the worker.
+            ("caps_delay", {"Retry-After": "100000"}, _MAX_RETRY_AFTER_SECONDS),
+        ]
+    )
+    def test_retry_wait_from_retry_after_header(self, _name, headers, expected) -> None:
+        state = Mock()
+        state.attempt_number = 1
+        state.outcome = Mock()
+        state.outcome.failed = False
+        state.outcome.result.return_value = Mock(status_code=429, headers=headers)
+
+        assert _retry_wait_seconds(state) == expected
 
     def test_retry_wait_uses_retry_after_header_when_reset_absent(self) -> None:
         # The exponential fallback tops out around 7 seconds across the whole budget, so a longer
