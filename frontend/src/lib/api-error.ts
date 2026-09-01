@@ -15,6 +15,18 @@ export function isApprovalRequiredError(error: { status?: number; data?: any } |
     return error?.status === 409 && Boolean(error?.data?.change_request_id)
 }
 
+/**
+ * The DRF `code` a feature flag save returns when another edit landed first
+ * (see products/feature_flags/backend/api/feature_flag.py). The body also carries the other
+ * editor in `data.extra.edited_by`.
+ */
+export const FLAG_EDIT_CONFLICT_CODE = 'flag_edit_conflict'
+
+/** A 409 from the feature flag concurrent-edit guard, which the editor recovers from with a refresh. */
+export function isEditConflictError(error: { status?: number; code?: string | null } | null | undefined): boolean {
+    return error?.status === 409 && error?.code === FLAG_EDIT_CONFLICT_CODE
+}
+
 /** Infrastructure-level failures where the gateway couldn't reach the backend. */
 const TRANSIENT_GATEWAY_STATUSES: ReadonlySet<number> = new Set([502, 503, 504])
 
@@ -53,6 +65,7 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
  * - 403 `permission_denied` — the sceneLogic gates render the AccessDenied scene.
  * - 403 auth gates — `apiStatusLogic` opens 2FA setup, re-verification, or a re-auth prompt.
  * - 409 carrying a `change_request_id` — the approvals UI shows the change request it created.
+ * - 409 with code `flag_edit_conflict` — the feature flag editor shows an inline refresh prompt.
  * - 502/503/504 — the gateway couldn't reach the backend, so application code is not at fault.
  *
  * Each of these still toasts wherever it did before, and `client_request_failure` still records
@@ -81,7 +94,7 @@ export function shouldReportApiFailure(error: unknown): boolean {
     if (status === 403 && failure.code != null && HANDLED_AUTH_GATE_CODES.has(failure.code)) {
         return false
     }
-    return !isApprovalRequiredError(failure)
+    return !isApprovalRequiredError(failure) && !isEditConflictError(failure)
 }
 
 export class ApiError extends Error {

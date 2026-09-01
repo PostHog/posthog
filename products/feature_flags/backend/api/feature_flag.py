@@ -2214,9 +2214,17 @@ class FeatureFlagSerializer(
                         original_flag,
                     )
                     if len(conflicting_changes) > 0:
-                        raise Conflict(
-                            f"The feature flag was updated by {locked_instance.last_modified_by.email if locked_instance.last_modified_by else 'another user'} since you started editing it. Please refresh and try again."
+                        # Keep the detail string constant so error tracking groups every conflict as
+                        # one issue, and carry the other editor in a structured field so their email
+                        # never reaches an issue title. The client reads `code` and `extra` to show
+                        # an inline refresh prompt.
+                        conflict = Conflict(
+                            "The feature flag was changed by another user since you started editing it. Please refresh and try again.",
+                            code="flag_edit_conflict",
                         )
+                        editor = locked_instance.last_modified_by
+                        conflict.extra = {"edited_by": (editor.get_full_name() or editor.email) if editor else None}  # type: ignore[attr-defined]
+                        raise conflict
                     validated_data = self._discard_unchanged_stale_fields(validated_data, original_flag)
 
                 # Continue with the update

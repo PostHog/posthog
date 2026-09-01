@@ -2010,11 +2010,16 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             )
 
             self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
-            self.assertEqual(response.json().get("type"), "server_error")
+            body = response.json()
+            self.assertEqual(body.get("code"), "flag_edit_conflict")
+            # The detail stays constant (no email) so error tracking groups conflicts as one issue.
             self.assertEqual(
-                response.json().get("detail"),
-                "The feature flag was updated by different_user@posthog.com since you started editing it. Please refresh and try again.",
+                body.get("detail"),
+                "The feature flag was changed by another user since you started editing it. Please refresh and try again.",
             )
+            self.assertNotIn("different_user@posthog.com", body.get("detail"))
+            # The editor travels in a structured field instead of the title.
+            self.assertEqual(body.get("extra"), {"edited_by": "different_user@posthog.com"})
 
             # Grab the feature flag and assert created_by is original user and last_modified_by is different user
             feature_flag = FeatureFlag.objects.get(id=flag_id)
