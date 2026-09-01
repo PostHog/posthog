@@ -39,6 +39,7 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     user_filter_expr,
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    WrongFamily,
     handle_stale_served,
     web_ensure_precomputed,
 )
@@ -118,6 +119,16 @@ SUPPORTED_BREAKDOWNS: set[WebStatsBreakdown] = {
     WebStatsBreakdown.EXIT_PAGE,
 }
 
+# Breakdowns another stats-table precompute family owns. This family declines them without
+# reporting a reason, so a fall-through keeps the verdict of the family that owns the shape
+# instead of this family's "not my shape". Keep in sync with the shape check in each module
+# named below.
+SPECIALIST_BREAKDOWNS: set[WebStatsBreakdown] = {
+    WebStatsBreakdown.PAGE,  # web_stats_paths_lazy_precompute
+    WebStatsBreakdown.INITIAL_PAGE,  # web_stats_paths_lazy_precompute
+    WebStatsBreakdown.FRUSTRATION_METRICS,  # web_stats_frustration_lazy_precompute
+}
+
 # Breakdowns whose value is a tuple — JSON-decoded as a list and converted back
 # to a tuple so the response matches the raw query exactly.
 TUPLE_BREAKDOWNS: set[WebStatsBreakdown] = {
@@ -140,6 +151,12 @@ class ScrollDepthUnsupported(LazyPrecomputeIneligible):
 
 
 class UnsupportedBreakdown(LazyPrecomputeIneligible):
+    def __init__(self, breakdown: object):
+        self.breakdown = breakdown
+        super().__init__(f"breakdown={breakdown!r}")
+
+
+class BreakdownOwnedByAnotherFamily(WrongFamily, LazyPrecomputeIneligible):
     def __init__(self, breakdown: object):
         self.breakdown = breakdown
         super().__init__(f"breakdown={breakdown!r}")
@@ -172,6 +189,13 @@ def _check_stats_eligible(runner: LazyPrecomputeRunner) -> None:
     query = runner.query
     assert isinstance(query, WebStatsTableQuery), "_check_stats_eligible called on non-stats runner"
 
+    # Shape before capability. A breakdown a sibling family owns says nothing about why the
+    # read fell through, so answering "not my shape" first keeps that family's reason.
+    if query.breakdownBy in SPECIALIST_BREAKDOWNS:
+        raise BreakdownOwnedByAnotherFamily(query.breakdownBy)
+    if query.breakdownBy not in SUPPORTED_BREAKDOWNS:
+        raise UnsupportedBreakdown(query.breakdownBy)
+
     # Bounce rate / avg time / scroll depth are extra metrics the precompute
     # table does not store. `includeScrollDepth` implicitly turns on bounce rate.
     if query.includeBounceRate:
@@ -180,9 +204,6 @@ def _check_stats_eligible(runner: LazyPrecomputeRunner) -> None:
         raise AvgTimeOnPageUnsupported()
     if query.includeScrollDepth:
         raise ScrollDepthUnsupported()
-
-    if query.breakdownBy not in SUPPORTED_BREAKDOWNS:
-        raise UnsupportedBreakdown(query.breakdownBy)
 
     # Reject orderBy fields we can't compute from the precompute schema. Falling
     # back to visitors would silently change row ordering vs. the raw path; let

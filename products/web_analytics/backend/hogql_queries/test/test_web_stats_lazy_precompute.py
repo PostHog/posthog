@@ -1,5 +1,5 @@
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
 from django.test import override_settings
@@ -30,7 +30,13 @@ from products.analytics_platform.backend.models.preaggregation_job import Preagg
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import SESSION_ID_SET_FEATURE_FLAG_KEY
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import ORG_FEATURE_FLAG_KEY
-from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import _breakdown_having_expr
+from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import (
+    BounceRateUnsupported,
+    BreakdownOwnedByAnotherFamily,
+    UnsupportedBreakdown,
+    _breakdown_having_expr,
+    _check_stats_eligible,
+)
 
 # Low-cardinality breakdowns with a generic seed that have data and are cheap to
 # assert parity on. VIEWPORT is exercised separately — the raw query compares
@@ -48,6 +54,34 @@ PARITY_BREAKDOWNS = [
     ("language", WebStatsBreakdown.LANGUAGE),
     ("exit_page", WebStatsBreakdown.EXIT_PAGE),
 ]
+
+
+class TestStatsEligibilityDeclines(BaseTest):
+    @parameterized.expand(
+        [
+            ("paths owns page reads with bounce rate", WebStatsBreakdown.PAGE, True, BreakdownOwnedByAnotherFamily),
+            (
+                "frustration owns its own breakdown",
+                WebStatsBreakdown.FRUSTRATION_METRICS,
+                False,
+                BreakdownOwnedByAnotherFamily,
+            ),
+            ("no family stores previous page", WebStatsBreakdown.PREVIOUS_PAGE, False, UnsupportedBreakdown),
+            ("this family owns device type", WebStatsBreakdown.DEVICE_TYPE, True, BounceRateUnsupported),
+        ]
+    )
+    def test_the_gate_answers_shape_before_capability(self, _name, breakdown, include_bounce_rate, expected) -> None:
+        # Answering "I cannot store bounce rate" before "another family owns this breakdown" is what
+        # made a page read report this family's limit instead of the paths family's verdict.
+        query = WebStatsTableQuery(
+            dateRange=DateRange(date_from="-7d"),
+            breakdownBy=breakdown,
+            properties=[],
+            includeBounceRate=include_bounce_rate,
+        )
+
+        with self.assertRaises(expected):
+            _check_stats_eligible(WebStatsTableQueryRunner(team=self.team, query=query))
 
 
 @override_settings(IN_UNIT_TESTING=True)
