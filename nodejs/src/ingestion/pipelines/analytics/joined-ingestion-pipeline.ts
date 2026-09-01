@@ -82,7 +82,7 @@ export interface JoinedIngestionPipelineConfig {
      * capacity (consumer under-limits) or stalled stream reads at capacity.
      */
     concurrentBatches: number
-    createEventUsageBatch?: () => UsageRecordBatch
+    createEventUsageBatch: () => UsageRecordBatch
 }
 
 export interface JoinedIngestionPipelineDeps {
@@ -131,7 +131,7 @@ export function createJoinedIngestionPipeline<
         outputs,
         perDistinctIdOptions,
         concurrentBatches,
-        createEventUsageBatch = () => new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => false }),
+        createEventUsageBatch,
     } = config
 
     const {

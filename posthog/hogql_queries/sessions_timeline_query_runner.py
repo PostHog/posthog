@@ -11,7 +11,6 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -205,11 +204,7 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
             query=self.to_query(),
             team=self.team,
             user=self.user,
-            context=HogQLContext(
-                team_id=self.team.pk,
-                user=self.user,
-                use_new_events_schema=self._use_new_events_schema,
-            ),
+            context=self.build_hogql_context(use_new_events_schema=self._use_new_events_schema),
             query_type="SessionsTimelineQuery",
             timings=self.timings,
             modifiers=self.modifiers,
