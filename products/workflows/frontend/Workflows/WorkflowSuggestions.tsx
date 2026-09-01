@@ -7,13 +7,31 @@ import { workflowProposalsLogic } from './workflowProposalsLogic'
 import { WorkflowSuggestionCard } from './WorkflowSuggestionCard'
 
 export function WorkflowSuggestions({ id }: { id: string }): JSX.Element {
-    const { pendingProposals, appliedProposals, outcomes, optimisationEnabled, optimisation, optimisationLoading } =
-        useValues(workflowProposalsLogic({ id }))
+    const {
+        pendingProposals,
+        appliedProposals,
+        outcomes,
+        optimisationEnabled,
+        optimisation,
+        optimisationLoading,
+        optimisationUnreadable,
+    } = useValues(workflowProposalsLogic({ id }))
 
     const measuredApplied = appliedProposals.filter((proposal) => outcomes[proposal.id]?.after)
 
     if (optimisation === null && optimisationLoading) {
         return <Spinner />
+    }
+
+    if (optimisationUnreadable) {
+        return (
+            <div className="flex flex-col gap-2">
+                <h3 className="mb-0">Could not read this workflow's suggestion setting</h3>
+                <p className="mb-0 text-secondary">
+                    Reload the page to try again. Nothing changed: whatever the setting was, it still is.
+                </p>
+            </div>
+        )
     }
 
     if (!optimisationEnabled) {

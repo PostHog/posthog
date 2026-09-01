@@ -10,7 +10,9 @@ import { workflowLogic } from './workflowLogic'
 import { workflowProposalsLogic } from './workflowProposalsLogic'
 
 export function WorkflowSuggestionsPanelToggle({ id }: { id: string }): JSX.Element {
-    const { optimisationEnabled, optimisationLoading } = useValues(workflowProposalsLogic({ id }))
+    const { optimisationEnabled, optimisationLoading, optimisationUnreadable } = useValues(
+        workflowProposalsLogic({ id })
+    )
     const { setOptimisationEnabled } = useActions(workflowProposalsLogic({ id }))
     const { workflowUserAccessLevel } = useValues(workflowLogic({ id }))
 
@@ -27,10 +29,14 @@ export function WorkflowSuggestionsPanelToggle({ id }: { id: string }): JSX.Elem
                     className="px-2 py-1"
                     checked={optimisationEnabled}
                     onChange={(checked) => setOptimisationEnabled(checked)}
-                    disabled={optimisationLoading || !!disabledReason}
+                    // A read that failed leaves this switch showing "off" for a workflow that may be
+                    // on, so it stays inert and says so until an answer arrives.
+                    disabled={optimisationLoading || optimisationUnreadable || !!disabledReason}
                     tooltip={
                         disabledReason ??
-                        'PostHog reads how this workflow performs and suggests changes for you to review. Nothing reaches anyone until you approve a suggestion and publish it.'
+                        (optimisationUnreadable
+                            ? 'Could not read whether suggestions are on for this workflow. Reload the page to try again.'
+                            : 'PostHog reads how this workflow performs and suggests changes for you to review. Nothing reaches anyone until you approve a suggestion and publish it.')
                     }
                     fullWidth
                     label="Suggest improvements"

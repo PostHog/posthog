@@ -5,13 +5,15 @@ import { SceneMenuBarCheckboxItem } from '~/layout/scenes/components/SceneMenuBa
 import { workflowProposalsLogic } from './workflowProposalsLogic'
 
 export function WorkflowSuggestionsMenuItem({ id }: { id: string }): JSX.Element {
-    const { optimisationEnabled, optimisationLoading } = useValues(workflowProposalsLogic({ id }))
+    const { optimisationEnabled, optimisationLoading, optimisationUnreadable } = useValues(
+        workflowProposalsLogic({ id })
+    )
     const { setOptimisationEnabled } = useActions(workflowProposalsLogic({ id }))
 
     return (
         <SceneMenuBarCheckboxItem
             checked={optimisationEnabled}
-            disabled={optimisationLoading}
+            disabled={optimisationLoading || optimisationUnreadable}
             onCheckedChange={(checked) => setOptimisationEnabled(checked)}
             data-attr="workflow-menubar-suggest-improvements"
         >
