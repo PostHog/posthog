@@ -29,9 +29,13 @@ def emit_test_ownership_census() -> None:
 @shared_task(ignore_result=True)
 def emit_team_test_census(team_id: int) -> None:
     team = Team.objects.get(id=team_id)
+    seen_repos: set[str] = set()
     for source in list_github_sources(team=team, user_access_control=None):
-        if not source.repo:
+        # Unsynced sources have no resolvable repository for the roster query, so their
+        # events would be unreadable; two sources on one repo would double the tarball fetch.
+        if not source.repo or not source.synced or source.repo in seen_repos:
             continue
+        seen_repos.add(source.repo)
         integration = GitHubIntegration.first_for_team_repository(
             team.id, source.repo, source="owners_census", priority=Priority.BATCH
         )

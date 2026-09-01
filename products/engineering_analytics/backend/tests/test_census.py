@@ -1,9 +1,10 @@
 import io
 import tarfile
 from types import SimpleNamespace
-from typing import Any
 
 from unittest.mock import patch
+
+from posthog_owners import TeamTestCensus
 
 from products.engineering_analytics.backend.logic.census import CENSUS_EVENT, collect_repo_census, emit_census_events
 
@@ -61,30 +62,23 @@ def test_collect_repo_census_strips_the_tarball_prefix_and_ignores_traversal_mem
 
 def test_emit_census_events_captures_the_contract_layer_4_reads() -> None:
     team = SimpleNamespace(api_token="phc_test")
-    rows_from_census: list[Any] = []
-    body = _tarball(
-        {
-            "r-x/owners.yaml": b"version: 1\nowners: [team-a]\n",
-            "r-x/test_one.py": b"",
-        }
-    )
-    with patch(
-        "products.engineering_analytics.backend.logic.census.github_request",
-        return_value=_FakeTarballResponse(body),
-    ):
-        rows_from_census = collect_repo_census("PostHog/posthog", "token")
+    rows = [TeamTestCensus(owner_team="team-a", pytest_file_count=1, jest_file_count=0)]
 
-    with patch("products.engineering_analytics.backend.logic.census.capture_internal") as capture:
-        emit_census_events(team, "PostHog/posthog", rows_from_census)  # type: ignore[arg-type]
+    with patch("products.engineering_analytics.backend.logic.census.capture_batch_internal") as capture:
+        emit_census_events(team, "PostHog/posthog", rows)  # type: ignore[arg-type]
 
-    assert capture.call_count == 1
     kwargs = capture.call_args.kwargs
     assert kwargs["token"] == "phc_test"
-    assert kwargs["event_name"] == CENSUS_EVENT
-    assert kwargs["properties"] == {
-        "repository": "PostHog/posthog",
-        "owner_team": "team-a",
-        "pytest_file_count": 1,
-        "jest_file_count": 0,
-        "test_file_count": 1,
-    }
+    assert kwargs["events"] == [
+        {
+            "event": CENSUS_EVENT,
+            "distinct_id": "eng_analytics_census:PostHog/posthog",
+            "properties": {
+                "repository": "PostHog/posthog",
+                "owner_team": "team-a",
+                "pytest_file_count": 1,
+                "jest_file_count": 0,
+                "test_file_count": 1,
+            },
+        }
+    ]

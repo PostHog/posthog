@@ -5,20 +5,19 @@ ownership files), captured as one ``eng_analytics_test_census`` event per owning
 into the team's own project.
 """
 
+import shutil
 import tarfile
 import tempfile
 import posixpath
-from collections.abc import Iterator
-from contextlib import closing, contextmanager
+from contextlib import closing
 from pathlib import Path
 
-from posthog_owners import TeamTestCensus, census
+from posthog_owners import TeamTestCensus, census, runner_for_path
 
-from posthog.api.capture import capture_internal
+from posthog.api.capture import capture_batch_internal
 from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
+from posthog.models.integration.github import _is_safe_github_repo_path
 from posthog.models.team import Team
-
-from products.engineering_analytics.backend.logic.job_logs.fetcher import _is_safe_github_repo_path
 
 CENSUS_EVENT = "eng_analytics_test_census"
 _GITHUB_API = "https://api.github.com"
@@ -27,16 +26,14 @@ _MAX_OWNERSHIP_FILE_BYTES = 512 * 1024
 _OWNERSHIP_BASENAMES = {"owners.yaml", "product.yaml"}
 
 
-@contextmanager
-def _repo_snapshot(repository: str, access_token: str, *, timeout: int = 300) -> Iterator[tuple[list[str], Path]]:
-    """Stream the repo tarball once, yielding every tracked path plus a temp dir holding
-    only the ownership files, laid out at their repo-relative locations."""
+def collect_repo_census(repository: str, access_token: str, *, timeout: int = 300) -> list[TeamTestCensus]:
+    """Stream the repo tarball once, keeping only test-file paths and the ownership files."""
     if not _is_safe_github_repo_path(repository):
         raise ValueError(f"Unsafe GitHub repo path: {repository!r}")
     url = f"{_GITHUB_API}/repos/{repository}/tarball"
     with tempfile.TemporaryDirectory(prefix="owners-census-") as tmp:
         root = Path(tmp)
-        paths: list[str] = []
+        test_paths: list[str] = []
         with closing(
             github_request(
                 "GET",
@@ -59,7 +56,8 @@ def _repo_snapshot(repository: str, access_token: str, *, timeout: int = 300) ->
                     rel = member.name.split("/", 1)[1] if "/" in member.name else ""
                     if not rel or rel != posixpath.normpath(rel) or rel.startswith(("../", "/")):
                         continue
-                    paths.append(rel)
+                    if runner_for_path(rel) is not None:
+                        test_paths.append(rel)
                     if posixpath.basename(rel) not in _OWNERSHIP_BASENAMES:
                         continue
                     if member.size > _MAX_OWNERSHIP_FILE_BYTES:
@@ -69,27 +67,23 @@ def _repo_snapshot(repository: str, access_token: str, *, timeout: int = 300) ->
                         continue
                     target = root / rel
                     target.parent.mkdir(parents=True, exist_ok=True)
-                    target.write_bytes(extracted.read())
-        yield paths, root
-
-
-def collect_repo_census(repository: str, access_token: str) -> list[TeamTestCensus]:
-    with _repo_snapshot(repository, access_token) as (paths, root):
-        return census(paths, root)
+                    with target.open("wb") as handle:
+                        shutil.copyfileobj(extracted, handle)
+        return census(test_paths, root)
 
 
 def emit_census_events(team: Team, repository: str, rows: list[TeamTestCensus]) -> None:
-    for row in rows:
-        capture_internal(
-            token=team.api_token,
-            event_name=CENSUS_EVENT,
-            event_source="engineering_analytics_census",
-            distinct_id=f"eng_analytics_census:{repository}",
-            properties={
-                "repository": repository,
-                "owner_team": row.owner_team,
-                "pytest_file_count": row.pytest_file_count,
-                "jest_file_count": row.jest_file_count,
-                "test_file_count": row.test_file_count,
-            },
-        )
+    result = capture_batch_internal(
+        events=[
+            {
+                "event": CENSUS_EVENT,
+                "distinct_id": f"eng_analytics_census:{repository}",
+                "properties": {"repository": repository, **row.as_payload()},
+            }
+            for row in rows
+        ],
+        token=team.api_token,
+        event_source="engineering_analytics_census",
+        process_person_profile=False,
+    )
+    result.raise_for_status()
