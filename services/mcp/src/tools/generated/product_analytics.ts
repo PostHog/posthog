@@ -36,6 +36,31 @@ const AssistantInsightVizNode = z.object({
         ),
 })
 
+const AssistantDataVisualizationBoxPlotSettings = z.object({
+    excludeOutliers: z.coerce
+        .boolean()
+        .describe('Clip whiskers to 1.5 times the interquartile range. Defaults to true.')
+        .optional(),
+    maxColumn: z.string().describe('Numeric column containing the maximum for each box.'),
+    meanColumn: z.string().describe('Numeric column containing the mean for each box.'),
+    medianColumn: z.string().describe('Numeric column containing the median for each box.'),
+    minColumn: z.string().describe('Numeric column containing the minimum for each box.'),
+    p25Column: z.string().describe('Numeric column containing the 25th percentile for each box.'),
+    p75Column: z.string().describe('Numeric column containing the 75th percentile for each box.'),
+    seriesColumn: z
+        .string()
+        .nullable()
+        .describe(
+            'Optional column that groups each X-axis value into separate colored series. Set to `null` for one series.'
+        )
+        .optional(),
+    xAxisColumn: z
+        .string()
+        .nullable()
+        .describe('X-axis category column. Set to `null` for one overall distribution or one box per series.')
+        .optional(),
+})
+
 const AssistantDataVisualizationGoalLine = z.object({
     label: z.string().describe('Label rendered next to the goal line.'),
     value: z.coerce.number().describe('Y-axis value at which the goal line is drawn.'),
@@ -105,6 +130,9 @@ const AssistantDataVisualizationAxis = z.object({
 })
 
 const AssistantDataVisualizationChartSettings = z.object({
+    boxPlot: AssistantDataVisualizationBoxPlotSettings.describe(
+        'Column mappings for `BoxPlot`. The SQL must return one pre-aggregated row per X-axis and series pair.'
+    ).optional(),
     goalLines: z
         .array(AssistantDataVisualizationGoalLine)
         .describe('Horizontal goal lines drawn across the chart.')
@@ -154,6 +182,7 @@ const AssistantDataVisualizationDisplayType = z.enum([
     'ActionsAreaGraph',
     'TwoDimensionalHeatmap',
     'ScatterPlot',
+    'BoxPlot',
 ])
 
 const AssistantDataVisualizationTableSettings = z.object({
@@ -170,7 +199,7 @@ const AssistantDataVisualizationNode = z.object({
         'Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`.'
     ).optional(),
     display: AssistantDataVisualizationDisplayType.describe(
-        'Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures, one point per row → `ScatterPlot`.\n- Otherwise → `ActionsTable`.'
+        'Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Relationship between two numeric measures, one point per row → `ScatterPlot`.\n- Distribution summaries from pre-aggregated SQL rows → `BoxPlot` with `chartSettings.boxPlot`.\n- Otherwise → `ActionsTable`.'
     ).optional(),
     kind: z.literal('DataVisualizationNode').default('DataVisualizationNode'),
     source: z.record(z.string(), z.unknown()).describe('HogQL query object that produces the rows to visualize.'),

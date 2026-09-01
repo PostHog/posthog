@@ -329,15 +329,15 @@ mod tests {
     #[tokio::test]
     async fn registry_publishes_to_its_output() {
         let leaf = MockSink::new();
-        let table = OutputRegistry::single(leaf.clone());
+        let registry = OutputRegistry::single(leaf.clone());
 
-        table.publish(vec![test_event()]).await.unwrap();
-        table
+        registry.publish(vec![test_event()]).await.unwrap();
+        registry
             .publish(vec![test_event(), test_event()])
             .await
             .unwrap();
 
         assert_eq!(leaf.get_events().len(), 3);
-        table.flush().unwrap();
+        registry.flush().unwrap();
     }
 }

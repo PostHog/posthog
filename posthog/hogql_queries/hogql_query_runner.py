@@ -85,6 +85,10 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         payload = super().get_cache_payload()
         if self._managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN:
             payload["managed_warehouse_sql_mode"] = self._managed_warehouse_sql_mode.value
+        if self._modifiers_override_provided and self.query.modifiers is not None:
+            # Old workers preferred query modifiers while new workers prefer the constructor override.
+            # Keep their cached results apart during a rolling deploy.
+            payload["hogql_modifier_precedence"] = "runner"
         return payload
 
     def query_status_labels(self) -> list[str] | None:
@@ -144,7 +148,11 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         finder = find_placeholders(parsed_select)
         with self.timings.measure("filters"):
             if self.query.filters and finder.has_filters:
-                parsed_select = replace_filters(parsed_select, self.query.filters, self.team)
+                # Resolve {filters} against the shared database so a filtered query builds the schema
+                # once, instead of replace_filters building a throwaway one. With a connection id the
+                # schema is the external connection's, so keep the per-call build there.
+                database = self.shared_database if self.query.connectionId is None else None
+                parsed_select = replace_filters(parsed_select, self.query.filters, self.team, database)
         if self.query.variables:
             with self.timings.measure("replace_variables"):
                 parsed_select = replace_variables(parsed_select, list(self.query.variables.values()), self.team)
@@ -209,11 +217,19 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             execute_hogql_query if paginator is None else paginator.execute_hogql_query,
         )
 
+        context_kwargs: dict[str, Any] = {}
+        if self.query.connectionId is None:
+            # With a connection id the executor builds its own connection-scoped database,
+            # so the shared one would be built for nothing.
+            context_kwargs["context"] = self.build_hogql_context()
         response = func(
             query_type="HogQLQuery",
             query=query,
             filters=self.query.filters,
-            modifiers=self.query.modifiers or self.modifiers,
+            # Print with the same modifiers the shared database was built from (self.modifiers).
+            # The shared database uses self.modifiers, so passing self.query.modifiers here would let
+            # a caller that sets both build the schema from one modifier set and print SQL for another.
+            modifiers=self.modifiers,
             team=self.team,
             user=self.user,
             user_access_control=self.user_access_control,
@@ -224,6 +240,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             workload=self.workload,
             ch_user=self.ch_user,
             settings=self.settings,
+            **context_kwargs,
         )
         if paginator:
             response = response.model_copy(update={**paginator.response_params(), "results": paginator.results})

@@ -4,20 +4,24 @@
 
 use chrono::Utc;
 use chrono_tz::Tz;
+use clickhouse::query::RowCursor;
 use cohort_core::clickhouse_timestamp_to_millis;
 use cohort_core::day_idx_in_tz;
 use cohort_core::events::CohortStreamEvent;
+use cohort_core::filters::TeamId;
 use cohort_core::hogvm::VmErrorClass;
 use metrics::{counter, histogram};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
+use super::log_comment::{ScanLogComment, LOG_COMMENT_OPTION};
 use super::row::{row_to_event, EventRow};
+use super::scan_volume::{self, ScanKind};
 use super::sql::{plan_scan, scan_sql, ScanPlan};
 use crate::domain::{
     conditions_active_on, ActiveConditions, AggregateError, CancelCause, ChunkAccumulator,
     ChunkDomainError, ClaimedChunk, DayIdx, EventNameSet, Halted, PinnedCondition, PinnedRun,
-    RecordOutcome, RecordStats, ScannedChunk, SeedDomain, SeedTile, UtcMillis,
+    RecordOutcome, RecordStats, ScanVolume, ScannedChunk, SeedDomain, SeedTile, UtcMillis,
 };
 use crate::observability::metrics::{
     MetricTimer, AGGREGATE_ENTRIES, CHUNKS_VACUOUS, CHUNK_SCAN_DURATION_SECONDS,
@@ -63,7 +67,7 @@ impl ChunkScanner {
             .scan_tiles(&chunk, run, now_ms, lease_cancel, shutdown)
             .await
         {
-            Ok(tiles) => Ok(chunk.into_scanned(tiles)),
+            Ok((tiles, volume)) => Ok(chunk.into_scanned(tiles, volume)),
             Err(ScanHalt::Cancelled(cause)) => Err(Halted::cancelled(chunk, cause)),
             Err(ScanHalt::Failed(source)) => Err(Halted::failed(chunk, source)),
         }
@@ -76,7 +80,7 @@ impl ChunkScanner {
         now_ms: i64,
         lease_cancel: &CancellationToken,
         shutdown: &CancellationToken,
-    ) -> Result<Vec<SeedTile>, ScanHalt> {
+    ) -> Result<(Vec<SeedTile>, ScanVolume), ScanHalt> {
         let _timer = MetricTimer::start(CHUNK_SCAN_DURATION_SECONDS);
         let spec = chunk.spec();
         let domain = run.domain_for(&spec).map_err(ScanError::from)?;
@@ -88,54 +92,94 @@ impl ChunkScanner {
                 "chunk skipped: every referencing window has slid past this day"
             );
             counter!(CHUNKS_VACUOUS, "reason" => "window_expired").increment(1);
-            return Ok(Vec::new());
+            return Ok((Vec::new(), ScanVolume::default()));
         }
         let event_names = active_event_names(run, &active);
         let scan_spec = match plan_scan(spec.team_id, &domain, &event_names, spec.band) {
             ScanPlan::Scan(scan_spec) => scan_spec,
             ScanPlan::Vacuous => {
                 counter!(CHUNKS_VACUOUS, "reason" => "empty_scan").increment(1);
-                return Ok(Vec::new());
+                return Ok((Vec::new(), ScanVolume::default()));
             }
         };
 
         let mut cursor = self
             .client
             .query(&scan_sql(&scan_spec))
+            .with_option(
+                LOG_COMMENT_OPTION,
+                ScanLogComment::BehavioralChunk {
+                    spec,
+                    cohort_id: run.sole_cohort_id(),
+                }
+                .to_string(),
+            )
             .fetch::<EventRow>()
             .map_err(ScanError::Query)?;
         let mut accumulator =
             ChunkAccumulator::new(run.team_id, &run.filters, &active).map_err(ScanError::from)?;
-        let mut saw_row = false;
 
-        loop {
-            let row = tokio::select! {
-                biased;
-                _ = shutdown.cancelled() => return Err(ScanHalt::Cancelled(CancelCause::Shutdown)),
-                _ = lease_cancel.cancelled() => return Err(ScanHalt::Cancelled(CancelCause::LeaseLost)),
-                row = cursor.next() => row.map_err(ScanError::Cursor)?,
-            };
-            let Some(row) = row else {
-                break;
-            };
-            saw_row = true;
-            counter!(ROWS_SCANNED).increment(1);
-            match fold_event(&domain, &mut accumulator, row_to_event(run.team_id, row))
-                .map_err(ScanError::from)?
-            {
-                ScanEventOutcome::Evaluated(stats) => record_evaluation(stats),
-                ScanEventOutcome::Skipped(reason) => {
-                    counter!(EVENTS_SKIPPED, "reason" => reason.as_str()).increment(1);
-                }
-            }
-        }
-        if !saw_row {
+        // Every way out of the fold funnels back here, so the volume is metered once whether the
+        // scan finished, was cancelled, or failed mid-stream.
+        let folded = fold_cursor(
+            &mut cursor,
+            &mut accumulator,
+            &domain,
+            run.team_id,
+            lease_cancel,
+            shutdown,
+        )
+        .await;
+        let volume = scan_volume::observe(ScanKind::Behavioral, &cursor);
+        if folded? == RowsSeen::None {
             counter!(CHUNKS_VACUOUS, "reason" => "no_rows").increment(1);
         }
 
         histogram!(AGGREGATE_ENTRIES).record(accumulator.entry_count() as f64);
         let tiles = accumulator.into_tiles(&domain, run.run_id, spec.lease.epoch());
-        Ok(tiles)
+        Ok((tiles, volume))
+    }
+}
+
+/// Whether the cursor yielded anything, which is what separates a chunk with no matching history
+/// from one that produced no tiles for another reason.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RowsSeen {
+    None,
+    Some,
+}
+
+/// Drive the cursor into the accumulator until it is exhausted, cancelled, or fails. Returns rather
+/// than metering, so the caller owns the single recording site.
+async fn fold_cursor(
+    cursor: &mut RowCursor<EventRow>,
+    accumulator: &mut ChunkAccumulator,
+    domain: &SeedDomain,
+    team_id: TeamId,
+    lease_cancel: &CancellationToken,
+    shutdown: &CancellationToken,
+) -> Result<RowsSeen, ScanHalt> {
+    let mut rows_seen = RowsSeen::None;
+    loop {
+        let row = tokio::select! {
+            biased;
+            _ = shutdown.cancelled() => return Err(ScanHalt::Cancelled(CancelCause::Shutdown)),
+            _ = lease_cancel.cancelled() => return Err(ScanHalt::Cancelled(CancelCause::LeaseLost)),
+            row = cursor.next() => row.map_err(ScanError::Cursor)?,
+        };
+        let Some(row) = row else {
+            return Ok(rows_seen);
+        };
+        rows_seen = RowsSeen::Some;
+        counter!(ROWS_SCANNED).increment(1);
+        match fold_event(domain, accumulator, row_to_event(team_id, row))
+            .map_err(ScanError::from)?
+        {
+            ScanEventOutcome::Evaluated(stats) => record_evaluation(stats),
+            ScanEventOutcome::Skipped(reason) => {
+                counter!(EVENTS_SKIPPED, "reason" => reason.as_str()).increment(1);
+            }
+        }
     }
 }
 
