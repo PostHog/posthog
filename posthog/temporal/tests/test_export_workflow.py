@@ -129,15 +129,20 @@ async def test_transient_error_retries_and_succeeds(
     mock_exporter: MagicMock,
     mock_analytics: MagicMock,
     team,
-):
+    ):
     asset = await sync_to_async(ExportedAsset.objects.create)(team=team, export_format=EXPORT_FORMAT)
 
     call_count = 0
+    record_failures: list[bool] = []
 
     def flaky_export(asset_obj, **kwargs):
         nonlocal call_count
         call_count += 1
+        record_failures.append(kwargs["record_failure"])
         if call_count <= 2:
+            if kwargs["record_failure"]:
+                asset_obj.exception = "S3 error"
+                asset_obj.save(update_fields=["exception"])
             raise CHQueryErrorS3Error("S3 error", code=499)
         _success_export(asset_obj, **kwargs)
 
@@ -148,6 +153,8 @@ async def test_transient_error_retries_and_succeeds(
 
     await sync_to_async(asset.refresh_from_db)()
     assert asset.has_content
+    assert asset.exception is None
+    assert record_failures == [False, False, False]
 
     props = _get_slo_completed_props(mock_analytics)
     assert props["outcome"] == SloOutcome.SUCCESS

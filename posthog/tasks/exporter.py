@@ -87,6 +87,7 @@ def export_asset_direct(
     limit: Optional[int] = None,  # For CSV/XLSX: max row count
     max_height_pixels: Optional[int] = None,  # For images: max screenshot height in pixels
     source: Optional[EventSource] = None,  # EventSource value to tag queries with (e.g. "subscription")
+    record_failure: bool = True,
 ) -> None:
     from products.exports.backend.tasks import csv_exporter, image_exporter
 
@@ -183,5 +184,6 @@ def export_asset_direct(
             groups=groups(team.organization, team),
         )
 
-        _record_export_failure(exported_asset, e)
+        if record_failure:
+            _record_export_failure(exported_asset, e)
         raise
