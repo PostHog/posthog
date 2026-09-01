@@ -172,7 +172,7 @@ impl OutputRegistry {
     }
 }
 
-/// Transitional facade serving the `Event` call sites from the table.
+/// Transitional facade serving the `Event` call sites from the registry.
 #[async_trait]
 impl Event for OutputRegistry {
     async fn send(&self, event: ProcessedEvent) -> Result<(), CaptureError> {
@@ -372,17 +372,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn table_facade_serves_event_call_sites() {
+    async fn registry_facade_serves_event_call_sites() {
         let leaf = MockSink::new();
-        let table = OutputRegistry::new(Output::single(leaf.clone()));
+        let registry = OutputRegistry::new(Output::single(leaf.clone()));
 
-        table.send(test_event()).await.unwrap();
-        table
+        registry.send(test_event()).await.unwrap();
+        registry
             .send_batch(vec![test_event(), test_event()])
             .await
             .unwrap();
 
         assert_eq!(leaf.get_events().len(), 3);
-        table.flush().unwrap();
+        registry.flush().unwrap();
     }
 }
