@@ -2077,7 +2077,11 @@ class InsightViewSet(
                 events_filter = request.GET["events"]
                 events = json.loads(events_filter) if events_filter else []
                 for event in events:
-                    queryset = queryset.filter(Q(query_metadata__events__contains=[event]))
+                    # Contain against the whole column so the `dashboarditem_query_metadata`
+                    # GIN index applies. A key-path form (`query_metadata__events__contains`)
+                    # renders `(query_metadata -> 'events') @> ...`, whose left side is an
+                    # expression the column index cannot serve.
+                    queryset = queryset.filter(Q(query_metadata__contains={"events": [event]}))
             elif key == "user":
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":
