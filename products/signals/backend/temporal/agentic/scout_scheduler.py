@@ -14,6 +14,7 @@ from asgiref.sync import async_to_sync
 from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -37,7 +38,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
-@dataclass
+@frozen
 class RunSignalsScoutInput:
     team_id: int
     skill_name: str
