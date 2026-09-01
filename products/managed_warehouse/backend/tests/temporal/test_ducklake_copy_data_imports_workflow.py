@@ -1205,6 +1205,41 @@ async def test_workflow_records_skipped_status_when_no_models_are_resolved(monke
     ]
 
 
+@pytest.mark.asyncio
+async def test_workflow_records_only_the_unresolved_schema_as_skipped(monkeypatch):
+    started_at = dt.datetime(2026, 7, 31, 12, 0, 0)
+    schema_finished_at = started_at + dt.timedelta(minutes=4)
+    workflow_finished_at = started_at + dt.timedelta(minutes=5)
+    unresolved_schema_id = uuid.UUID("019ef5df-e4c7-0000-b543-8ef7f13b5f16")
+    inputs = DataImportsDuckLakeCopyInputs(
+        team_id=1,
+        job_id="job-123",
+        schema_ids=[*_workflow_inputs().schema_ids, unresolved_schema_id],
+    )
+    verification_result = ducklake_module.DuckLakeCopyDataImportsVerificationResult(name="row_count", passed=True)
+    execute_activity = AsyncMock(side_effect=[True, None, [_workflow_model()], None, None, [verification_result], None])
+    _mock_copy_workflow_metrics(monkeypatch)
+    monkeypatch.setattr(ducklake_module.workflow, "execute_activity", execute_activity)
+    monkeypatch.setattr(
+        ducklake_module.workflow,
+        "now",
+        MagicMock(side_effect=[started_at, started_at, schema_finished_at, workflow_finished_at]),
+    )
+
+    await DuckLakeCopyDataImportsWorkflow().run(inputs)
+
+    assert _recorded_source_job_statuses(execute_activity) == [
+        ducklake_module.ManagedWarehouseSourceJobStatus.RUNNING,
+        ducklake_module.ManagedWarehouseSourceJobStatus.SKIPPED,
+        ducklake_module.ManagedWarehouseSourceJobStatus.COMPLETED,
+    ]
+    assert _recorded_source_job_schema_ids(execute_activity) == [
+        [*inputs.schema_ids],
+        [unresolved_schema_id],
+        [_workflow_inputs().schema_ids[0]],
+    ]
+
+
 def _mock_copy_workflow_metrics(monkeypatch):
     metrics = MagicMock()
     monkeypatch.setattr(ducklake_module.workflow, "patched", MagicMock(return_value=True))
@@ -1242,6 +1277,14 @@ def _workflow_model() -> DuckLakeCopyDataImportsMetadata:
 def _recorded_source_job_statuses(execute_activity: AsyncMock) -> list[ManagedWarehouseSourceJobStatus]:
     return [
         call.args[1].status
+        for call in execute_activity.await_args_list
+        if call.args[0] is ducklake_module.record_managed_warehouse_source_job_activity
+    ]
+
+
+def _recorded_source_job_schema_ids(execute_activity: AsyncMock) -> list[list[uuid.UUID]]:
+    return [
+        call.args[1].schema_ids
         for call in execute_activity.await_args_list
         if call.args[0] is ducklake_module.record_managed_warehouse_source_job_activity
     ]
