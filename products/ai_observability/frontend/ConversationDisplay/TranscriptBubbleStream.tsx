@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { IconChevronRight } from '@posthog/icons'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { identifierToHuman } from 'lib/utils/strings'
 
 import { MessageTemplate, parseSandboxQuestions } from 'products/posthog_ai/frontend/api/primitives'
 
@@ -156,19 +155,14 @@ function pillSideFor(labels: string[]): 'left' | 'right' {
     return labels.length > 0 && AGENT_SIDE_LABELS.has(labels[0]) ? 'left' : 'right'
 }
 
-// Only a tool named for asking the user (AskUserQuestion, ask_user_question) may render its
-// payload as speech, because routine trailing calls like git_commit(message=…) carry the same
-// argument keys. Match whole name segments so that "ask" does not match every "task" tool.
-const ASK_NAME_SEGMENTS = new Set(['ask', 'question', 'questions'])
+// Only a tool we know asks the user may render its payload as speech, because routine trailing
+// calls like git_commit(message=…) can carry text-like arguments too. Exact names, so nothing
+// over-fires; an unknown ask tool keeps the hidden pill until its name is added here. The
+// normalization makes one entry cover the camelCase, snake_case, and kebab-case spellings.
+const ASK_TOOL_NAMES = new Set(['askuserquestion', 'askfollowupquestion', 'askhuman', 'askuser'])
 
 function isAskLikeToolName(name: unknown): boolean {
-    return (
-        typeof name === 'string' &&
-        identifierToHuman(name)
-            .toLowerCase()
-            .split(' ')
-            .some((segment) => ASK_NAME_SEGMENTS.has(segment))
-    )
+    return typeof name === 'string' && ASK_TOOL_NAMES.has(name.toLowerCase().replace(/[^a-z0-9]/g, ''))
 }
 
 function hasAskLikeCall(message: CompatMessage): boolean {
