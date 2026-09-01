@@ -325,11 +325,17 @@ def metronome_source(
 
     window_ending_before: str | None = None
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if resume_config is not None:
+    if resume_config is not None and resumable_source_manager is not None:
         # A checkpoint written before the cutoff was stored carries none. Restart the walk rather
         # than replay its stale cursor against a freshly computed window.
         stale_pre_window_checkpoint = endpoint_config.window_body and resume_config.ending_before is None
-        if not stale_pre_window_checkpoint:
+        if stale_pre_window_checkpoint:
+            # The pipeline reads the resume key itself after this returns, so skipping the stale
+            # cursor here is not enough — a lingering key makes it treat the restarted walk as a
+            # resume and append onto the partial `replace` table. Drop the key so the restart is a
+            # clean full refresh.
+            resumable_source_manager.clear_state()
+        else:
             initial_paginator_state = {"cursor": resume_config.next_page}
             window_ending_before = resume_config.ending_before
     if endpoint_config.window_body and window_ending_before is None:

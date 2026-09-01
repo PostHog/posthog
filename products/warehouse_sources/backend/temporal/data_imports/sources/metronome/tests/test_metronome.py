@@ -192,21 +192,29 @@ class TestMetronomeSourceResponse:
 
     @parameterized.expand(
         [
-            # Stored a cutoff: replay that exact window and resume from its cursor.
+            # Stored a cutoff: replay that exact window and resume from its cursor, keeping the key.
             (
                 "with_stored_window",
                 MetronomeResumeConfig(next_page="cursor-9", ending_before="2020-06-01T00:00:00Z"),
                 "2020-06-01T00:00:00Z",
                 {"cursor": "cursor-9"},
+                False,
             ),
             # A checkpoint written before the cutoff was stored carries none, so the walk restarts
-            # with a fresh window and no seeded cursor rather than mixing two windows.
-            ("pre_window_checkpoint", MetronomeResumeConfig(next_page="cursor-9"), None, None),
+            # with a fresh window and no seeded cursor rather than mixing two windows. The stale key
+            # is cleared so the pipeline's own resume probe doesn't append onto the partial table.
+            ("pre_window_checkpoint", MetronomeResumeConfig(next_page="cursor-9"), None, None, True),
         ]
     )
     @patch(f"{TRANSPORT}.rest_api_resource")
     def test_resumed_usage_run_pins_the_window(
-        self, _name, resume_state, expected_window, expected_paginator_state, mock_rest_api_resource
+        self,
+        _name,
+        resume_state,
+        expected_window,
+        expected_paginator_state,
+        expect_state_cleared,
+        mock_rest_api_resource,
     ) -> None:
         manager = MagicMock()
         manager.can_resume.return_value = True
@@ -220,6 +228,7 @@ class TestMetronomeSourceResponse:
         else:
             assert body["ending_before"] > EPOCH_RFC_3339
         assert mock_rest_api_resource.call_args.kwargs["initial_paginator_state"] == expected_paginator_state
+        assert manager.clear_state.called == expect_state_cleared
 
     @patch(f"{TRANSPORT}.rest_api_resource")
     def test_usage_checkpoint_saves_the_window_it_synced_with(self, mock_rest_api_resource) -> None:
