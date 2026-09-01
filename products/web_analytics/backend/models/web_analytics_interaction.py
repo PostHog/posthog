@@ -14,7 +14,9 @@ class WebAnalyticsInteraction(TeamScopedRootMixin, UUIDModel):
     RECORDING = "recording"
     KIND_CHOICES = [(DATA, "data"), (RECORDING, "recording")]
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    # No index on team alone: every read filters the full (team, user, kind) triple, which the
+    # unique constraint below already serves.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_index=False)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE)
     kind = models.CharField(max_length=32, choices=KIND_CHOICES)
     count = models.BigIntegerField(default=0)
@@ -27,7 +29,4 @@ class WebAnalyticsInteraction(TeamScopedRootMixin, UUIDModel):
                 fields=["team", "user", "kind"],
                 name="unique_web_analytics_interaction_per_kind",
             ),
-        ]
-        indexes = [
-            models.Index(fields=["team", "user", "kind"], name="wa_interaction_team_user_idx"),
         ]
