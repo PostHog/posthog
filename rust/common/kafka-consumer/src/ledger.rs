@@ -21,6 +21,11 @@ pub struct TakenFrontier {
 /// commit. Observing the frontier never changes it; a commit point consumes
 /// it with `take_frontier`.
 ///
+/// Charge every record the poll delivers, including records the caller drops
+/// without processing: an omitted offset is indistinguishable from an offset
+/// Kafka never delivered, and the frontier commits past it as if it held no
+/// message.
+///
 /// A ledger lives for one partition assignment: create it on assign, drop it
 /// on revoke. Kafka replays a partition from its committed offset after a
 /// rebalance, so a ledger kept across assignments sees the replay as
