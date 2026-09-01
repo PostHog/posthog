@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { NEW_QUERY_STARTED_ERROR_MESSAGE } from 'lib/utils/kea-logic-builders'
 import { insightsApi } from 'scenes/insights/utils/api'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -22,7 +23,7 @@ import {
 } from 'products/metrics/frontend/generated/api'
 
 import { metricNamePickerLogic } from './metricNamePickerLogic'
-import { metricsViewerLogic, NEW_QUERY_STARTED_ERROR_MESSAGE } from './metricsViewerLogic'
+import { metricsViewerLogic } from './metricsViewerLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),

@@ -951,14 +951,14 @@ export interface HogInvocationResultsCountApi {
 }
 
 /**
- * Test trigger payload, typically {event, person, groups}.
+ * Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or for an internal-event trigger an event named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, text, ts) and no person.
  */
 export type HogFlowInvocationApiGlobals = { [key: string]: unknown }
 
 export interface HogFlowInvocationApi {
     /** Optional override; omit to use saved definition. */
     configuration?: HogFlowApi
-    /** Test trigger payload, typically {event, person, groups}. */
+    /** Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or for an internal-event trigger an event named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, text, ts) and no person. */
     globals?: HogFlowInvocationApiGlobals
     /** True (default) mocks HTTP/email/SMS. False fires real side effects. */
     mock_async_functions?: boolean

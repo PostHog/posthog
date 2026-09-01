@@ -192,6 +192,8 @@ but issues a token without that scope.
 `GET /api/projects/:id/desktop/access/` requires it (`required_scopes` on the desktop access endpoint),
 so the request returns 403 and the app shows "Couldn't check Desktop access".
 On older PostHog checkouts the same misconfiguration failed sign-in with `invalid_scope` instead.
+Once the token has this scope, authenticated users are allowed through the access policy while
+Django runs with `DEBUG=True`; local development does not depend on production billing or flag services.
 (A current `generate_demo_data` seeds a ceiling that already covers the scope.)
 
 Fix: seed the ceiling with the defaults plus that one privileged scope,
