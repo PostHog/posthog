@@ -29,10 +29,8 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.temporal.tests.conftest import activity_environment, setup_postgres_test_db  # noqa: F401
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
-from products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_workflow import (
+from products.managed_warehouse.backend.facade.temporal import (
     DuckLakeCopyDataImportsWorkflow,
-)
-from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_workflow import (
     DuckLakeRegisterDataImportsWorkflow,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataJob, get_latest_run_if_exists
