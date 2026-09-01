@@ -334,6 +334,7 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
             error_msg,
             run_uses_dedicated_stream(task_run.state),
             run_stream_presence_gated(task_run.state),
+            task_run.task.origin_product,
         )
         raise RuntimeError(f"send_followup failed: {error_msg}")
 
@@ -432,6 +433,7 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
                 error_msg,
                 run_uses_dedicated_stream(task_run.state),
                 run_stream_presence_gated(task_run.state),
+                task_run.task.origin_product,
             )
             raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
 
@@ -477,6 +479,7 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
             _get_stop_reason(result.data),
             run_uses_dedicated_stream(task_run.state),
             run_stream_presence_gated(task_run.state),
+            task_run.task.origin_product,
         )
         logger.info("send_followup_delivered", run_id=input.run_id)
     elif result.turn_in_flight:
@@ -506,6 +509,7 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
                 DENIED_PERMISSION_STOP_MESSAGE,
                 run_uses_dedicated_stream(task_run.state),
                 run_stream_presence_gated(task_run.state),
+                task_run.task.origin_product,
             )
             raise ApplicationError(f"send_followup failed: {result.error}", non_retryable=True)
         # Retry transport failures and known transient agent errors. message_id
@@ -534,6 +538,7 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
             error_msg,
             run_uses_dedicated_stream(task_run.state),
             run_stream_presence_gated(task_run.state),
+            task_run.task.origin_product,
         )
         raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
     else:
@@ -549,6 +554,7 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
             error_msg,
             run_uses_dedicated_stream(task_run.state),
             run_stream_presence_gated(task_run.state),
+            task_run.task.origin_product,
         )
         # Propagate failure to the workflow.
         raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
@@ -677,6 +683,7 @@ def _deliver_peer_message(input: SendFollowupToSandboxInput, task_run: TaskRun, 
             _get_stop_reason(result.data),
             run_uses_dedicated_stream(task_run.state),
             run_stream_presence_gated(task_run.state),
+            task_run.task.origin_product,
         )
         return None
     if result.turn_in_flight:
@@ -1050,6 +1057,7 @@ def _write_turn_complete(
     stop_reason: str = STOP_REASON_END_TURN,
     use_dedicated: bool = False,
     presence_gated: bool = False,
+    origin_product: str | None = None,
 ) -> None:
     """Write a synthetic turn_complete event to the Redis stream."""
     event = {
@@ -1059,11 +1067,17 @@ def _write_turn_complete(
             "params": {"source": "posthog", "stopReason": stop_reason},
         },
     }
-    publish_task_run_stream_event(run_id, event, use_dedicated, presence_gated=presence_gated)
+    publish_task_run_stream_event(
+        run_id, event, use_dedicated, presence_gated=presence_gated, origin_product=origin_product
+    )
 
 
 def _write_error_and_complete(
-    run_id: str, error_message: str, use_dedicated: bool = False, presence_gated: bool = False
+    run_id: str,
+    error_message: str,
+    use_dedicated: bool = False,
+    presence_gated: bool = False,
+    origin_product: str | None = None,
 ) -> None:
     """Write an error event followed by turn_complete to the Redis stream."""
     error_event = {
@@ -1073,5 +1087,9 @@ def _write_error_and_complete(
             "params": {"message": error_message},
         },
     }
-    publish_task_run_stream_event(run_id, error_event, use_dedicated, presence_gated=presence_gated)
-    _write_turn_complete(run_id, use_dedicated=use_dedicated, presence_gated=presence_gated)
+    publish_task_run_stream_event(
+        run_id, error_event, use_dedicated, presence_gated=presence_gated, origin_product=origin_product
+    )
+    _write_turn_complete(
+        run_id, use_dedicated=use_dedicated, presence_gated=presence_gated, origin_product=origin_product
+    )

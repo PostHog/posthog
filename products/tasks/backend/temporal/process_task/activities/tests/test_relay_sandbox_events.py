@@ -285,7 +285,14 @@ class TestRelaySandboxEventsCancellation:
         )
 
         class StubTaskRunRedisStream:
-            def __init__(self, stream_key: str, use_dedicated: bool = False, *, presence_gated: bool = False) -> None:
+            def __init__(
+                self,
+                stream_key: str,
+                use_dedicated: bool = False,
+                *,
+                presence_gated: bool = False,
+                origin_product: str | None = None,
+            ) -> None:
                 self.stream_key = stream_key
 
             async def initialize(self) -> None:
@@ -353,7 +360,14 @@ class TestRelaySandboxEventsPresenceGating:
         constructed: list[bool] = []
 
         class StubTaskRunRedisStream:
-            def __init__(self, stream_key: str, use_dedicated: bool = False, *, presence_gated: bool = False) -> None:
+            def __init__(
+                self,
+                stream_key: str,
+                use_dedicated: bool = False,
+                *,
+                presence_gated: bool = False,
+                origin_product: str | None = None,
+            ) -> None:
                 constructed.append(presence_gated)
 
             async def initialize(self) -> None:
@@ -414,7 +428,14 @@ class TestRelaySandboxEventsMissingActor:
         )
 
         class StubTaskRunRedisStream:
-            def __init__(self, stream_key: str, use_dedicated: bool = False, *, presence_gated: bool = False) -> None:
+            def __init__(
+                self,
+                stream_key: str,
+                use_dedicated: bool = False,
+                *,
+                presence_gated: bool = False,
+                origin_product: str | None = None,
+            ) -> None:
                 self.stream_key = stream_key
 
             async def initialize(self) -> None:
@@ -1014,7 +1035,14 @@ class TestRelaySandboxEventsErrorHandling:
         )
 
         class StubTaskRunRedisStream:
-            def __init__(self, stream_key: str, use_dedicated: bool = False, *, presence_gated: bool = False) -> None:
+            def __init__(
+                self,
+                stream_key: str,
+                use_dedicated: bool = False,
+                *,
+                presence_gated: bool = False,
+                origin_product: str | None = None,
+            ) -> None:
                 self.stream_key = stream_key
 
             async def initialize(self) -> None:
