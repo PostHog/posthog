@@ -249,7 +249,7 @@ Either way, the connection needs **full access** so the following resources can 
             # endpoint (which could be our bug) stays retryable and visible.
             "400 Client Error: Bad Request for url: https://api.resend.com/emails": (
                 "Resend rejected the request to sync your sent emails, which usually means the connected "
-                "account's API key can't list them. Grant the API key full access in Resend, or unselect the "
+                "API key can't list sent emails. Grant the API key full access in Resend, or unselect the "
                 "Emails table to keep syncing your other Resend data."
             ),
         }
