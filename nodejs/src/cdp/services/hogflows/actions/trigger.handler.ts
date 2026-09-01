@@ -61,11 +61,13 @@ export class TriggerHandler implements ActionHandler {
             }
         }
 
-        // Mirrors the warehouse-events consumer's eligibility check: a row-scoped trigger only
+        // Mirrors the warehouse-events consumer's eligibility check: a warehouse-row trigger only
         // fires on a row of its own kind (source table vs materialized view) from its own table.
-        // Without this, any event - a $pageview included - passes a row-scoped trigger whose
-        // filters are empty, which is the default for a freshly created one.
-        if (isRowScopedTrigger(trigger)) {
+        // Without this, any event - a $pageview included - passes a warehouse trigger whose
+        // filters are empty, which is the default for a freshly created one. isRowScopedTrigger
+        // also covers slack-message and github-event, which have no table_name to check here and
+        // are handled by their own eligibility checks instead.
+        if (trigger.type === 'data-warehouse-table' || trigger.type === 'data-warehouse-view') {
             const sourceTable = event?.properties?.[DWH_SOURCE_TABLE_PROPERTY]
             const rowTriggerType = rowScopedTriggerTypeForEvent(event?.event)
             if (rowTriggerType !== trigger.type || sourceTable !== trigger.table_name) {
