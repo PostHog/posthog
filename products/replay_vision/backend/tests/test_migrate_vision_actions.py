@@ -13,6 +13,7 @@ from products.replay_vision.backend.management.commands.migrate_vision_actions i
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import ActionMode, TriggerType, VisionAction
 from products.replay_vision.backend.models.vision_alert import VisionAlertConfiguration, VisionAlertKind
+from products.replay_vision.backend.scout_digest_body import compose_digest_scout_body
 
 _CMD = "products.replay_vision.backend.management.commands.migrate_vision_actions"
 
@@ -169,13 +170,30 @@ class TestMigrateVisionActions(APIBaseTest):
         kwargs = create_scout.call_args.kwargs
         assert kwargs["name"].startswith("signals-scout-weekly-checkout-roundup-")
         assert kwargs["source_id"] == str(self.scanner.id)
+        assert str(self.scanner.id) in kwargs["body"]
         assert "Focus on payment failures." in kwargs["body"]
-        assert "verdict in ['fail']" in kwargs["body"]
+        assert "the verdict is one of `fail`" in kwargs["body"]
+        assert "fall back to the last 7 days" in kwargs["body"]
         assert kwargs["config_options"]["run_cron_schedule"] == "0 9 * * 1"
         assert kwargs["config_options"]["output_destinations"]["slack"]["channel_id"] == "C123"
         action.refresh_from_db()
         assert action.enabled is False
         assert action.synthesis_config["migrated_to"] == kwargs["name"]
+
+    def test_digest_without_prompt_guide_gets_the_plain_template(self) -> None:
+        self._make_action(
+            name="Plain digest",
+            mode=ActionMode.GROUP_SUMMARY,
+            is_scanner_digest=False,
+            selection={},
+            synthesis_config={},
+        )
+        with patch("products.signals.backend.facade.api.create_scout_for_source") as create_scout:
+            self._run()
+        body = create_scout.call_args.kwargs["body"]
+        assert "What the digest's author asked for" not in body
+        assert "This digest covers only part of what the scanner sees" not in body
+        assert body == compose_digest_scout_body(str(self.scanner.id))
 
     def test_deliveryless_default_is_retired_not_migrated(self) -> None:
         action = self._make_action(
