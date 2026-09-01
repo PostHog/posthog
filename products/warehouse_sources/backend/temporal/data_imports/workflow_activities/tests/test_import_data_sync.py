@@ -695,11 +695,15 @@ async def test_pending_delta_revive_extracts_full_table_not_incremental_slice():
     source.source_for_pipeline.return_value = mock.MagicMock()
     schema = _incremental_schema(is_incremental=True, lookback_seconds=3600)
     schema.incremental_field_earliest_value = "2026-01-01T00:00:00"
-    schema.delta_revive_required = {
+    # The model reads this marker out of the persisted config through a property. Set both, because
+    # the mock cannot run the property, and the config carries the shape a real revive leaves behind.
+    revive_marker = {
         "reason": "missing_data_file",
         "missing_path": "part-0.parquet",
         "detected_at": "2026-06-15T00:00:00+00:00",
     }
+    schema.sync_type_config["delta_revive_required"] = revive_marker
+    schema.delta_revive_required = revive_marker
 
     with _patched_activity_reaching_run(source, schema):
         await import_data_activity_sync(_inputs_no_reset())
