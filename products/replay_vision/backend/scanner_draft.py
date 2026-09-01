@@ -967,8 +967,25 @@ def _events_for_goal(team: Team, goal: str) -> list[str]:
     return list(dict.fromkeys([*matched, *baseline]))
 
 
+def _scopes_allow_read(allowed_scopes: list[str] | None, resource: APIScopeObject) -> bool:
+    """Whether a credential's API scopes permit reading `resource`.
+
+    `None` means session or other non-token auth, which is not scope-gated (RBAC applies instead).
+    Mirrors APIScopePermission's matching: `*` grants everything, and a `:write` scope implies
+    `:read`. Without this, a scoped token carrying only `replay_scanner:write` and
+    `session_recording:read` could name a team's surveys and receive their IDs through the draft,
+    despite lacking `survey:read`.
+    """
+    if allowed_scopes is None:
+        return True
+    return "*" in allowed_scopes or f"{resource}:read" in allowed_scopes or f"{resource}:write" in allowed_scopes
+
+
 def _goal_entity_matches(
-    team: Team, goal: str, user_access_control: UserAccessControl
+    team: Team,
+    goal: str,
+    user_access_control: UserAccessControl,
+    allowed_scopes: list[str] | None = None,
 ) -> tuple[list[_MatchedSurvey], list[_MatchedAction]]:
     """Surveys and actions the caller can read whose names match the goal's words.
 
@@ -980,10 +997,13 @@ def _goal_entity_matches(
     available.
 
     Matching goes through `search_entities`, the ranked full-text search behind the app's search bar,
-    one bounded call per goal term because its query grammar ANDs every word of its input. Both kinds
-    are access-controlled: `search_entities` applies the queryset filter, but that filter passes
-    everything through when the caller has neither resource access nor object grants, and this helper
-    has no viewset permission check behind it, so each kind also needs the resource-level gate here.
+    one bounded call per goal term because its query grammar ANDs every word of its input.
+
+    Both kinds are gated two ways. RBAC: `search_entities` applies the queryset filter, but that
+    filter passes everything through when the caller has neither resource access nor object grants,
+    and this helper has no viewset permission check behind it, so each kind needs the resource-level
+    gate here. Scope: a scoped token must not receive a resource its scopes exclude, since this path
+    has no viewset to enforce `required_scopes`. A kind must clear both.
     """
     terms = _goal_terms(goal)
     if not terms:
@@ -995,7 +1015,7 @@ def _goal_entity_matches(
         ) or user_access_control.has_any_specific_access_for_resource(resource, required_level="viewer")
 
     searchable: tuple[APIScopeObject, ...] = ("survey", "action")
-    kinds: set[str] = {kind for kind in searchable if _readable(kind)}
+    kinds: set[str] = {kind for kind in searchable if _readable(kind) and _scopes_allow_read(allowed_scopes, kind)}
     if not kinds:
         return [], []
 
@@ -1281,6 +1301,7 @@ def draft_scanner_from_goal_v2(
     monthly_credit_budget: int,
     user_access_control: UserAccessControl,
     include_business_context: bool = True,
+    allowed_scopes: list[str] | None = None,
 ) -> ScannerDraft:
     """The goal-based flow: ground the goal in the team's real pages, draft the whole scanner in one
     model call, then solve the sampling dials from the stated monthly credit budget.
@@ -1300,7 +1321,7 @@ def draft_scanner_from_goal_v2(
         if include_business_context
         else ""
     )
-    surveys, matched_actions = _goal_entity_matches(team, goal, user_access_control)
+    surveys, matched_actions = _goal_entity_matches(team, goal, user_access_control, allowed_scopes)
     if surveys:
         # A goal can name a survey without using the word "survey" ("who answered XYZ Feedback"), so
         # the survey events may not have matched on their own. A property filter is useless without

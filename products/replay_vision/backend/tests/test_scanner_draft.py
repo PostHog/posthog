@@ -703,6 +703,36 @@ class TestGoalEntityMatches(_VisionAPITestCase):
 
         assert _goal_entity_matches(self.team, "the pricing feedback survey", denied) == ([], [])
 
+    def test_a_scoped_token_lacking_survey_read_gets_no_surveys(self):
+        # A token with scanner and recording scopes but not survey:read must not learn a survey's
+        # name or id through the draft. RBAC alone would allow it; the scope gate is what stops it.
+        self._survey("Pricing feedback")
+        Action.objects.create(team=self.team, name="Pricing feedback click")
+
+        surveys, actions = _goal_entity_matches(
+            self.team,
+            "the pricing feedback survey",
+            _access_control(allow=True),
+            allowed_scopes=["replay_scanner:write", "session_recording:read"],
+        )
+
+        assert surveys == []
+        # The action is also gated: no action:read scope either.
+        assert actions == []
+
+    def test_a_write_scope_implies_read_and_a_star_scope_grants_all(self):
+        survey = self._survey("Pricing feedback")
+
+        by_write, _ = _goal_entity_matches(
+            self.team, "the pricing feedback survey", _access_control(allow=True), allowed_scopes=["survey:write"]
+        )
+        by_star, _ = _goal_entity_matches(
+            self.team, "the pricing feedback survey", _access_control(allow=True), allowed_scopes=["*"]
+        )
+
+        assert [s.survey_id for s in by_write] == [str(survey.id)]
+        assert [s.survey_id for s in by_star] == [str(survey.id)]
+
 
 class TestV2Query:
     def test_pages_become_one_multi_value_property(self):
