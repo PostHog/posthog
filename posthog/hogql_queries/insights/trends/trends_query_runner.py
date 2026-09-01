@@ -55,6 +55,7 @@ from posthog.caching.insights_api import (
 )
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
 from posthog.hogql_queries.insights.trends.trend_validation_rules import (
@@ -72,6 +73,7 @@ from posthog.hogql_queries.insights.utils.breakdowns import (
     BREAKDOWN_OTHER_STRING_LABEL,
     has_breakdown_filter,
 )
+from posthog.hogql_queries.insights.utils.properties import collect_property_keys_of_type
 from posthog.hogql_queries.insights.utils.utils import get_response_hogql
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, resolve_series_custom_name
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
@@ -450,7 +452,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         # Raise any errors raised in a seperate thread
         if len(errors) > 0:
-            raise errors[0]
+            raise self._with_session_filter_oom_hint(errors[0])
 
         # Flatten res and timings
         returned_results: list[list[dict[str, Any]]] = []
@@ -887,9 +889,13 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         self.modifiers.dataWarehouseEventsModifiers = datawarehouse_modifiers
 
+        # A session-property filter on a high-volume event joins the sessions table and can
+        # exhaust memory, because the sessions subquery aggregates every session in the date
+        # range before the filter is applied. Pre-aggregation pushes the predicate into that
+        # subquery. A breakdown alone does not hit this; only a filter does.
         self.modifiers.sessionPropertyPreAggregation = (
-            self._has_session_breakdown() and self._team_flag_session_property_pre_aggregation()
-        )
+            self._has_session_breakdown() or bool(self._session_property_filter_keys())
+        ) and self._team_flag_session_property_pre_aggregation()
 
     def _has_session_breakdown(self) -> bool:
         filter = self.query.breakdownFilter
@@ -898,6 +904,30 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         if filter.breakdown_type == "session":
             return True
         return any(breakdown.type == "session" for breakdown in (filter.breakdowns or []))
+
+    def _session_property_filter_keys(self) -> list[str]:
+        keys = collect_property_keys_of_type(self.query.properties, "session")
+        for series in self.query.series:
+            keys.extend(collect_property_keys_of_type(getattr(series, "properties", None), "session"))
+        return keys
+
+    def _with_session_filter_oom_hint(self, error: Exception) -> Exception:
+        # A per-query out-of-memory failure gives no clue about the cost driver. When the query
+        # filters by a session property, that filter is the usual cause, so name it in the error.
+        if not isinstance(error, ClickHouseQueryMemoryLimitExceeded) or not error.is_per_query_limit:
+            return error
+        keys = self._session_property_filter_keys()
+        if not keys:
+            return error
+        quoted = ", ".join(f"'{key}'" for key in dict.fromkeys(keys))
+        hint = (
+            f" A session-property filter ({quoted}) is the likely cause: filtering events by a"
+            " session property scans every session in the date range, not just the matching rows."
+            " Try a shorter date range, or narrow the query with an event-level filter."
+        )
+        enriched = ClickHouseQueryMemoryLimitExceeded(detail=str(error.detail) + hint)
+        enriched.is_per_query_limit = True
+        return enriched
 
     def _team_flag_session_property_pre_aggregation(self) -> bool:
         return feature_enabled_or_false(

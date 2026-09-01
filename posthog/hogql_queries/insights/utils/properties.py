@@ -56,6 +56,38 @@ def has_cohort_property(properties: object) -> bool:
     return False
 
 
+def collect_property_keys_of_type(properties: object, property_type: str) -> list[str]:
+    """Recursively collect the `key` of every leaf property filter of the given type.
+
+    Handles the full shape union — None, a leaf filter, a flat list, and nested
+    ``PropertyGroupFilter`` / ``PropertyGroupFilterValue`` groups (AND of ORs) — as pydantic
+    objects or raw dicts, without raising on OR groups.
+    """
+    keys: list[str] = []
+
+    def visit(node: object) -> None:
+        if isinstance(node, list):
+            for item in node:
+                visit(item)
+        elif isinstance(node, dict):
+            if node.get("type") == property_type:
+                if node.get("key") is not None:
+                    keys.append(node["key"])
+            elif "values" in node:
+                visit(node["values"])
+        elif getattr(node, "type", None) == property_type:
+            key = getattr(node, "key", None)
+            if key is not None:
+                keys.append(key)
+        else:
+            nested = getattr(node, "values", None)
+            if nested is not None:
+                visit(nested)
+
+    visit(properties)
+    return keys
+
+
 class Properties:
     context: QueryContext
 
