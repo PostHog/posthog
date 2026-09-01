@@ -129,6 +129,7 @@ export interface TaskChannel {
   starred: boolean;
   github_integration?: number | null;
   repositories?: string[];
+  auto_archive_after_days?: number | null;
   created_at: string;
   created_by?: UserBasic | null;
   system_role?: "personal" | "general" | null;
