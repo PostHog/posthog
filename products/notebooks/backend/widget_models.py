@@ -6,3 +6,12 @@ WIDGET_MODEL_CHOICES = (
 )
 
 DEFAULT_WIDGET_MODEL = "claude-sonnet-4-6"
+
+WIDGET_LIFECYCLE_STATUS_CHOICES = (
+    "awaiting_generation",
+    "generating",
+    "building",
+    "ready",
+    "failed",
+    "incompatible",
+)

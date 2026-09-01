@@ -1,6 +1,10 @@
 from rest_framework import serializers
 
-from products.notebooks.backend.facade.widgets import DEFAULT_WIDGET_MODEL, WIDGET_MODEL_CHOICES
+from products.notebooks.backend.facade.widgets import (
+    DEFAULT_WIDGET_MODEL,
+    WIDGET_LIFECYCLE_STATUS_CHOICES,
+    WIDGET_MODEL_CHOICES,
+)
 
 
 class WidgetGenerateRequestSerializer(serializers.Serializer):
@@ -61,7 +65,7 @@ class WidgetSecurityReviewSerializer(serializers.Serializer):
 
 class WidgetStatusSerializer(serializers.Serializer):
     lifecycle_status = serializers.ChoiceField(
-        choices=["awaiting_generation", "generating", "building", "ready", "failed", "incompatible"],
+        choices=WIDGET_LIFECYCLE_STATUS_CHOICES,
         help_text="Current widget and preview state.",
     )
     error_detail = serializers.CharField(required=False, allow_null=True, help_text="Actionable failure detail.")

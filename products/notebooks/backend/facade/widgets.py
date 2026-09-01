@@ -1,4 +1,8 @@
-from products.notebooks.backend.widget_models import DEFAULT_WIDGET_MODEL, WIDGET_MODEL_CHOICES
+from products.notebooks.backend.widget_models import (
+    DEFAULT_WIDGET_MODEL,
+    WIDGET_LIFECYCLE_STATUS_CHOICES,
+    WIDGET_MODEL_CHOICES,
+)
 from products.notebooks.backend.widgets import (
     WidgetConflictError,
     WidgetError,
@@ -17,6 +21,7 @@ from products.notebooks.backend.widgets import (
 
 __all__ = [
     "DEFAULT_WIDGET_MODEL",
+    "WIDGET_LIFECYCLE_STATUS_CHOICES",
     "WIDGET_MODEL_CHOICES",
     "WidgetConflictError",
     "WidgetError",

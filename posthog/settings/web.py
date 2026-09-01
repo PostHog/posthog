@@ -640,11 +640,12 @@ SPECTACULAR_SETTINGS = {
             "products.ai_observability.backend.models.evaluation_reports.EvaluationReport.Frequency"
         ),
         "HogFlowStatusEnum": "products.workflows.backend.models.hog_flow.hog_flow.HogFlow.State",
-        # Shared by the proposal detail and list serializers. Named because notebook
-        # widgets also expose a "lifecycle_status" with different values.
+        # Two products expose a "lifecycle_status" with different values, so both are
+        # pinned to keep either from taking a component-prefixed name.
         "ContentAutopilotProposalStatusEnum": (
             "products.web_analytics.backend.models.content_autopilot.ContentAutopilotProposal.LifecycleStatus"
         ),
+        "LifecycleStatusEnum": "products.notebooks.backend.widget_models.WIDGET_LIFECYCLE_STATUS_CHOICES",
         "MCPAuthTypeEnum": "products.mcp_store.backend.models.AUTH_TYPE_CHOICES",
         "UtmIssueKindEnum": "products.marketing_analytics.backend.services.types.UTM_ISSUE_KIND_CHOICES",
         # Shared by ConversionGoalSummary.kind and GoalExplanation.kind (same choice set).
