@@ -3,8 +3,9 @@ import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { Scene } from 'scenes/sceneTypes'
 
-import { ActorsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { ActorsQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { AnyPersonScopeFilter, AnyPropertyFilter } from '~/types'
 
 import { BroadcastEmailValue, BroadcastWizardLogicProps, broadcastWizardLogic } from './broadcastWizardLogic'
@@ -47,6 +48,7 @@ export interface broadcastPreviewLogicValues {
     audienceProperties: AnyPropertyFilter[] // broadcastWizardLogic
     email: BroadcastEmailValue // broadcastWizardLogic
     persons: BroadcastPreviewPerson[]
+    personsFailed: boolean
     personsLoading: boolean
     previewHtml: string
     previewPerson: BroadcastPreviewPerson | null
@@ -122,6 +124,10 @@ export const broadcastPreviewLogic = kea<broadcastPreviewLogicType>([
                 loadPersons: async () => {
                     const query: ActorsQuery = {
                         kind: NodeKind.ActorsQuery,
+                        // Attributes the query in the ClickHouse query log. Without it the backend
+                        // rejects the query outright when DEBUG is on, so the picker stays empty
+                        // for anyone running locally.
+                        tags: { productKey: ProductKey.WORKFLOWS, scene: Scene.Broadcast },
                         // The recipients step only offers person-scoped filters, which is all an
                         // actors query accepts.
                         properties: values.audienceProperties as AnyPersonScopeFilter[],
@@ -142,6 +148,16 @@ export const broadcastPreviewLogic = kea<broadcastPreviewLogicType>([
                 selectPerson: (_, { personId }) => personId,
                 // The audience decides who is on offer, so a reload invalidates the old pick.
                 loadPersons: () => null,
+            },
+        ],
+        // An empty list and a failed lookup both leave the picker empty, but they mean
+        // different things to a sender, so keep them apart.
+        personsFailed: [
+            false,
+            {
+                loadPersons: () => false,
+                loadPersonsSuccess: () => false,
+                loadPersonsFailure: () => true,
             },
         ],
     }),

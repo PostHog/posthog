@@ -24,7 +24,7 @@ function PreviewRow({ label, children }: { label: string; children: React.ReactN
  */
 export function BroadcastEmailPreview(): JSX.Element {
     const { email } = useValues(broadcastWizardLogic)
-    const { persons, personsLoading, previewPerson, previewSubject, previewHtml, previewTo } =
+    const { persons, personsLoading, personsFailed, previewPerson, previewSubject, previewHtml, previewTo } =
         useValues(broadcastPreviewLogic)
     const { selectPerson } = useActions(broadcastPreviewLogic)
     const { setModalOpen } = useActions(broadcastTestSendLogic)
@@ -68,6 +68,10 @@ export function BroadcastEmailPreview(): JSX.Element {
                                 <span className="text-muted text-xs">{previewTo}</span>
                             )}
                         </div>
+                    ) : personsFailed ? (
+                        <span className="text-warning">
+                            Couldn't load anyone to preview against, so variables stay unfilled below.
+                        </span>
                     ) : (
                         <span className="text-muted">
                             No one matches this audience yet, so variables stay unfilled below.
