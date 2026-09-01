@@ -55,6 +55,14 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
                 required=False,
                 description="Maximum number of teams to return (1-200). Defaults to 100.",
             ),
+            OpenApiParameter(
+                name="owner_team",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Restrict the roster to one owning team slug (or 'unowned'). The cheap way to "
+                "read a single team's rollup.",
+            ),
             _SOURCE_ID,
         ],
         responses={
@@ -86,6 +94,7 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
                 date_to=request.query_params.get("date_to") or None,
                 min_failed_prs=_optional_int_param(request, "min_failed_prs"),
                 limit=_optional_int_param(request, "limit"),
+                owner_team=request.query_params.get("owner_team") or None,
                 source_id=request.query_params.get("source_id") or None,
                 user_access_control=self.user_access_control,
             )

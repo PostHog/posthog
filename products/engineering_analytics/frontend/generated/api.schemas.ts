@@ -2021,6 +2021,10 @@ export type EngineeringAnalyticsTeamCiHealthParams = {
      */
     min_failed_prs?: number
     /**
+     * Restrict the roster to one owning team slug (or 'unowned'). The cheap way to read a single team's rollup.
+     */
+    owner_team?: string
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string

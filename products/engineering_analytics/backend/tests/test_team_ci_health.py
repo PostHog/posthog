@@ -248,3 +248,7 @@ class TestTeamCIHealthAPI(ClickhouseTestMixin, APIBaseTest):
         quiet = rows["team-quiet-green"]
         assert (quiet["test_file_count"], quiet["flaky_test_count"], quiet["last_seen_at"]) == (40, 0, None)
         assert rows["unowned"]["merged_pr_count"] is None
+
+    def test_roster_filters_to_one_owner_team(self) -> None:
+        data = self._get("team_ci_health", owner_team="team-replay", limit="1")
+        assert [item["owner_team"] for item in data["items"]] == ["team-replay"]

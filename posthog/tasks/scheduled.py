@@ -993,7 +993,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="prune old streamlit app versions",
     )
 
-    # Engineering analytics daily test-ownership census fan-out.
     sender.add_periodic_task(
         TEST_CENSUS_CRONTAB,
         emit_test_ownership_census.s(),

@@ -14,3 +14,8 @@ export function githubRunUrl(repoOwner: string, repoName: string, runId: number)
 export function githubCommitUrl(repoOwner: string, repoName: string, sha: string): string {
     return `https://github.com/${repoOwner}/${repoName}/commit/${sha}`
 }
+
+/** `repository` is 'owner/name'. HEAD resolves the default branch, whatever it is named. */
+export function githubFileUrl(repository: string, file: string): string {
+    return `https://github.com/${repository}/blob/HEAD/${file}`
+}

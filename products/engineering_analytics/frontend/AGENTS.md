@@ -4,14 +4,14 @@ UI grammar for every scene in this product. `frontend/src/AGENTS.md` and the rep
 
 ## The scope panel bounds what the pickers govern
 
-- Content a window or repo picker modifies lives inside one outlined panel (`relative mt-4 rounded-lg border border-primary p-4`), with the controls docked on its rim (`absolute -top-4 right-3 ... bg-primary px-2`), plus a `Spinner` on the rim while any content inside reloads.
+- Content a window or repo picker modifies lives inside `ScopePanel` (`components/ScopePanel.tsx`): controls dock on its rim via the `controls` prop, and `busy` shows the rim spinner while anything inside reloads.
 - Current-state content (a backlog, a "now" signal list) sits outside the panel and must not refetch when a picker changes. If a section does not move with the picker, it does not belong inside the border, and the reverse.
 - Navigation (repo chip and crumbs via `ScopeBar`, `showDate={false}` when the page has its own picker) sits above the panel; it scopes identity, not time.
 
 ## One comparison vocabulary
 
 - Window-vs-window comparison renders as `WindowComparisonCard` ("This window / Previous window" bars plus a `DeltaBadge`). Nothing else: no invented forms (a muted "was N" companion value was tried and removed), no `MetricTile` delta pills for windowed metrics.
-- Table cells hold plain current values (`font-semibold tabular-nums`, right-aligned). Comparison never lives in a table cell.
+- Table cells hold plain current values via `CountCell` (`components/CountCell.tsx`). Comparison never lives in a table cell.
 
 ## Information altitude
 
@@ -20,7 +20,7 @@ UI grammar for every scene in this product. `frontend/src/AGENTS.md` and the rep
 
 ## Test tables
 
-- A test id cell is a truncating `font-mono text-xs` link with a leading `IconExternal` in a `w-full max-w-0` cell: to Trunk when the payload carries a `trunk_url`, else to the file on GitHub. See `TeamQuarantinedTestsTable.tsx`.
+- The test id cell is `TestIdCell` (`components/TestIdCell.tsx`) in a `w-full max-w-0` column: link to Trunk when the payload carries a `trunk_url`, else to the file on GitHub via `githubFileUrl` in `lib/github.ts`.
 - Include a `Runner` column; render times with `TZLabel`.
 
 ## Components and copy

@@ -233,6 +233,12 @@ export const EngineeringAnalyticsTeamCiHealthQueryParams = /* @__PURE__ */ zod.o
         .describe(
             'An unrecovered test counts toward regression_test_count once it failed on at least this many distinct pull requests in the window. Minimum 1. Defaults to 3. Does not affect flaky_test_count, which needs proof, not a threshold.'
         ),
+    owner_team: zod
+        .string()
+        .optional()
+        .describe(
+            "Restrict the roster to one owning team slug (or 'unowned'). The cheap way to read a single team's rollup."
+        ),
     source_id: zod
         .string()
         .optional()

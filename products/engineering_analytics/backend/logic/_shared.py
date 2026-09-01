@@ -32,6 +32,13 @@ def _parse_window(
     return parsed_from, parsed_to
 
 
+def _prior_window(date_from: datetime, date_to: datetime | None) -> tuple[datetime, datetime]:
+    """Resolve the window end and the start of the equal-length prior twin, in one place so
+    every *_prior figure on a row shares the same boundary."""
+    resolved_to = date_to or datetime.now(tz=date_from.tzinfo)
+    return date_from - (resolved_to - date_from), resolved_to
+
+
 def _require_repo(repo: str | None) -> tuple[str, str]:
     """`_split_repo` for builders whose repo argument is mandatory."""
     owner, name = _split_repo(repo)

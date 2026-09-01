@@ -37,11 +37,8 @@ export interface TeamCIHealthRow {
     flakyTestCountPrior: number
     /** Owned tests that failed with no such proof and still hit the blast-radius bar. */
     regressionTestCount: number
-    regressionTestCountPrior: number
     failedRunCount: number
     failedRunCountPrior: number
-    sameCommitRecoveryRunCount: number
-    sameCommitRecoveryRunCountPrior: number
     /** Owned test files per the daily owners.yaml census; null until a census ran. */
     testFileCount: number | null
     testFileCountPrior: number | null
@@ -62,11 +59,8 @@ export function toTeamCIHealthRow(it: TeamCIHealthItemApi): TeamCIHealthRow {
         flakyTestCount: it.flaky_test_count,
         flakyTestCountPrior: it.flaky_test_count_prior,
         regressionTestCount: it.regression_test_count,
-        regressionTestCountPrior: it.regression_test_count_prior,
         failedRunCount: it.failed_run_count,
         failedRunCountPrior: it.failed_run_count_prior,
-        sameCommitRecoveryRunCount: it.same_commit_recovery_run_count,
-        sameCommitRecoveryRunCountPrior: it.same_commit_recovery_run_count_prior,
         testFileCount: it.test_file_count ?? null,
         testFileCountPrior: it.test_file_count_prior ?? null,
         mergedPrCount: it.merged_pr_count ?? null,

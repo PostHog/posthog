@@ -25,7 +25,6 @@ export interface TeamTestSignalRow {
     nodeid: string
     selector: string
     signalCount: number
-    signalCountPrior: number
     lastSeenAt: string
 }
 
@@ -162,7 +161,6 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
                             nodeid: t.nodeid,
                             selector: t.selector,
                             signalCount: t.signal_count,
-                            signalCountPrior: t.signal_count_prior,
                             lastSeenAt: t.last_seen_at,
                         })),
                         truncatedTests: data.truncated_tests,
@@ -174,14 +172,13 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
             null as TeamCIHealthRow | null,
             {
                 loadHealthRow: async (): Promise<TeamCIHealthRow | null> => {
-                    // The roster endpoint already computes every per-team rollup this page needs;
-                    // fetching it and picking this team's row beats a second per-team endpoint.
                     const data = await engineeringAnalyticsTeamCiHealth(projectId(), {
                         date_from: values.window,
-                        limit: 200,
+                        owner_team: props.ownerTeam,
+                        limit: 1,
                         source_id: props.sourceId ?? undefined,
                     })
-                    const item = data.items.find((it) => it.owner_team === props.ownerTeam)
+                    const item = data.items[0]
                     return item ? toTeamCIHealthRow(item) : null
                 },
             },

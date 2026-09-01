@@ -4,23 +4,18 @@ import { combineUrl } from 'kea-router'
 import { IconPeople } from '@posthog/icons'
 import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
+import { CountCell } from '../components/CountCell'
 import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { rowNavigationProps } from '../lib/rowNavigation'
-import { TeamCIHealthRow, UNOWNED_TEAM, teamsLogic } from './teamsLogic'
+import { DEFAULT_TEAMS_WINDOW, TEAMS_WINDOW_LABELS, TeamCIHealthRow, UNOWNED_TEAM, teamsLogic } from './teamsLogic'
+
+const FIXED_WINDOW = TEAMS_WINDOW_LABELS[DEFAULT_TEAMS_WINDOW].current.toLowerCase()
 
 /** The team's detail page, carrying the active source so it opens scoped the same. */
 function detailUrlOf(ownerTeam: string, sourceId: string | null): string {
     return combineUrl(urls.engineeringAnalyticsTeam(ownerTeam), sourceId ? { source: sourceId } : {}).url
-}
-
-function countCell(value: number | null): JSX.Element {
-    if (value == null) {
-        return <div className="text-right text-sm text-tertiary">–</div>
-    }
-    return <div className="text-right text-sm font-semibold tabular-nums">{humanFriendlyNumber(value)}</div>
 }
 
 export function EngineeringAnalyticsTeams(): JSX.Element {
@@ -64,27 +59,25 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
             align: 'right',
             tooltip: 'Test files this team owns per the daily owners.yaml census.',
             sorter: (a, b) => (a.testFileCount ?? -1) - (b.testFileCount ?? -1),
-            render: (_, row) => countCell(row.testFileCount),
+            render: (_, row) => <CountCell value={row.testFileCount} />,
         },
         {
             title: 'Flaky tests',
             key: 'flakyTestCount',
             width: 120,
             align: 'right',
-            tooltip:
-                'Owned tests one commit was seen both failing and passing in the last 14 days. Only tests with that recovery proof count as flaky.',
+            tooltip: `Owned tests one commit was seen both failing and passing in the ${FIXED_WINDOW}. Only tests with that recovery proof count as flaky.`,
             sorter: (a, b) => a.flakyTestCount - b.flakyTestCount,
-            render: (_, row) => countCell(row.flakyTestCount),
+            render: (_, row) => <CountCell value={row.flakyTestCount} />,
         },
         {
             title: 'Regressions',
             key: 'regressionTestCount',
             width: 120,
             align: 'right',
-            tooltip:
-                'Owned tests that failed in the last 14 days with no recorded recovery and still hit several PRs or master. Treat as real breaks until a recovery proves otherwise.',
+            tooltip: `Owned tests that failed in the ${FIXED_WINDOW} with no recorded recovery and still hit several PRs or master. Treat as real breaks until a recovery proves otherwise.`,
             sorter: (a, b) => a.regressionTestCount - b.regressionTestCount,
-            render: (_, row) => countCell(row.regressionTestCount),
+            render: (_, row) => <CountCell value={row.regressionTestCount} />,
         },
     ]
 
