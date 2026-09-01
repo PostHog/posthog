@@ -48,6 +48,7 @@ class ExportSignalMessage:
     cumulative_row_count: int = 0
     cdc_write_mode: Optional[str] = None
     cdc_table_mode: Optional[str] = None
+    cdc_run_start_position: Optional[int] = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -83,4 +84,5 @@ class ExportSignalMessage:
             cumulative_row_count=data.get("cumulative_row_count", 0),
             cdc_write_mode=data.get("cdc_write_mode"),
             cdc_table_mode=data.get("cdc_table_mode"),
+            cdc_run_start_position=data.get("cdc_run_start_position"),
         )

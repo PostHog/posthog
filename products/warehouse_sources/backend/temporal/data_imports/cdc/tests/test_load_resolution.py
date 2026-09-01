@@ -271,14 +271,26 @@ class TestRequireResolutionForAppend:
         # Writing unresolved appends the replayed trailing file as new history and records no
         # position, so every later run replays it again — permanent, compounding duplicates.
         with pytest.raises(UnresolvedAppendError, match="users_cdc"):
-            require_resolution_for_append(SCD2_APPEND_MODE, resolution_enabled=False, resource_name="users_cdc")
+            require_resolution_for_append(
+                SCD2_APPEND_MODE, resolution_enabled=False, batch_carries_position=True, resource_name="users_cdc"
+            )
 
     @parameterized.expand(
-        [("append_resolved", SCD2_APPEND_MODE, True), ("merge_unresolved", "incremental_merge", False)]
+        [
+            ("append_resolved", SCD2_APPEND_MODE, True, True),
+            ("merge_unresolved", "incremental_merge", False, True),
+            # The legacy companion path strips the position column before dispatch and delivers each
+            # micro-batch once, so it has nothing to resolve and must not be failed here.
+            ("legacy_append_without_a_position", SCD2_APPEND_MODE, False, False),
+        ]
     )
-    def test_writes_that_can_proceed(self, _name, cdc_write_mode, resolution_enabled):
-        # The merge lane absorbs a replay as a no-op upsert, so it may write unresolved.
-        require_resolution_for_append(cdc_write_mode, resolution_enabled=resolution_enabled, resource_name="users")
+    def test_writes_that_can_proceed(self, _name, cdc_write_mode, resolution_enabled, batch_carries_position):
+        require_resolution_for_append(
+            cdc_write_mode,
+            resolution_enabled=resolution_enabled,
+            batch_carries_position=batch_carries_position,
+            resource_name="users",
+        )
 
 
 class TestVerifyDeleteEnrichment:

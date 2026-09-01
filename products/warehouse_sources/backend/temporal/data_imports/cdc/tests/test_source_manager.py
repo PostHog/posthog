@@ -328,6 +328,18 @@ class TestLaneSelection:
         )
         assert select_lane(schema).resource_name == expected
 
+    def test_a_retry_of_the_same_job_serves_the_lane_that_job_already_stamped(self):
+        # The failed attempt stamped its lane with this job id. Alternating off that stamp would
+        # give both lanes the same job id, so completing the retry would prove a deletion for
+        # files the first lane never committed.
+        schema = _schema(
+            cdc_table_mode="both",
+            sync_type_config={"cdc_buffer_listing": {"users": {"listed_at": _NOW.isoformat(), "job_id": "job-1"}}},
+        )
+
+        assert select_lane(schema, job_id="job-1").resource_name == "users"
+        assert select_lane(schema, job_id="job-2").resource_name == "users_cdc"
+
     def test_the_newest_stamp_decides_when_both_lanes_have_run(self):
         schema = _schema(
             cdc_table_mode="both",
@@ -394,8 +406,9 @@ class TestMultiLaneDeletionFloor:
     """
 
     async def _floor(self, positions: dict[str, int | None], lanes: list[str]) -> int | None:
-        manager = CDCSourceManager(inputs=MagicMock(team_id=_TEAM_ID, schema_id=_SCHEMA_ID), logger=AsyncMock())
-        manager._lane_resource_names = lanes
+        manager = CDCSourceManager(
+            inputs=MagicMock(team_id=_TEAM_ID, schema_id=_SCHEMA_ID), logger=AsyncMock(), lane_resource_names=lanes
+        )
         config = {"cdc_load_position": {name: pos for name, pos in positions.items() if pos is not None}}
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.database_sync_to_async_pool",

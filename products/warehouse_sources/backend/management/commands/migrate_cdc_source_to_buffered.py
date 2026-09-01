@@ -1,7 +1,7 @@
 """Flip one CDC source between legacy extraction and buffered ingress.
 
 In place: the slot, the tables, and `initial_sync_complete` are all preserved, so there is no
-re-snapshot and no WAL gap. Only consolidated schemas move — see `cdc/source_manager.py`.
+re-snapshot and no WAL gap. Which schemas move is `serves_buffered_lane` — see `cdc/source_manager.py`.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ EXPECTED_SYNC_INTERVAL = dt.timedelta(minutes=5)
 
 
 class Command(BaseCommand):
-    help = "Move a CDC source onto buffered ingress (or back). Consolidated schemas only."
+    help = "Move a CDC source onto buffered ingress (or back)."
 
     def add_arguments(self, parser: Any) -> None:
         parser.add_argument("--source-id", required=True, help="ExternalDataSource UUID")
@@ -109,7 +109,7 @@ class Command(BaseCommand):
         if rollback:
             self._roll_back(source, eligible, cdc_schemas, options["drain_timeout"])
         else:
-            self._flip_to_buffered(source, eligible, options["drain_timeout"])
+            self._flip_to_buffered(source, eligible, cdc_schemas, options["drain_timeout"])
 
     def _require_write_resolution(self, source: ExternalDataSource, eligible: list[ExternalDataSchema]) -> None:
         """Refuse to flip a team whose write resolution is off.
@@ -181,7 +181,11 @@ class Command(BaseCommand):
             )
 
     def _flip_to_buffered(
-        self, source: ExternalDataSource, eligible: list[ExternalDataSchema], drain_timeout: int
+        self,
+        source: ExternalDataSource,
+        eligible: list[ExternalDataSchema],
+        cdc_schemas: list[ExternalDataSchema],
+        drain_timeout: int,
     ) -> None:
         from products.data_warehouse.backend.facade.api import (
             pause_cdc_extraction_schedule,
@@ -211,9 +215,11 @@ class Command(BaseCommand):
         self._wait_for_sourcebatch_drain(source.team_id, [str(s.id) for s in eligible], drain_timeout)
 
         # Pre-flip files were already delivered by the legacy lane, and replaying them would
-        # re-apply rows against a position the guard has no watermark for yet.
+        # re-apply rows against a position the guard has no watermark for yet. Every CDC schema is
+        # purged, not just the eligible ones: a schema still snapshotting today becomes eligible on
+        # its first completed sync, and would otherwise inherit whatever the shadow lane left here.
         self.stdout.write("5/7 purging pre-flip buffer files")
-        for schema in eligible:
+        for schema in cdc_schemas:
             purge_buffer_prefix(source.team_id, str(schema.id), logger)
         self._verify_prefixes_empty(source.team_id, eligible)
 
@@ -314,7 +320,12 @@ class Command(BaseCommand):
             for schema in schemas:
                 schema.refresh_from_db(fields=["sync_type_config"])
                 # The slowest lane decides: a file the companion has not taken is not drained,
-                # however far ahead the consolidated lane is.
+                # however far ahead the consolidated lane is. A lane that never recorded a position
+                # has never consumed, so no file can sit below its floor — report that rather than
+                # blocking forever on a floor of zero.
+                # The slowest lane decides: a file the companion has not taken is not drained,
+                # however far ahead the consolidated lane is. A lane that never recorded a position
+                # floors at zero, so every file blocks — correct, since nothing proves it applied.
                 floor = min(
                     (
                         read_load_position(schema.sync_type_config, lane.resource_name) or 0
@@ -339,7 +350,9 @@ class Command(BaseCommand):
                     f"Buffered changes not yet proven applied for: {', '.join(sorted(behind))} after "
                     f"{timeout}s. Rolling back now could lose them — the slot already advanced past that "
                     "WAL, and the consumer deletes each file only once it proves it read it. Extraction "
-                    "is left paused; let the scheduled syncs catch up, then re-run."
+                    "is left paused; let the scheduled syncs catch up, then re-run. A lane that has "
+                    "never recorded a position blocks every file, so a schema that has not yet "
+                    "consumed once needs one successful sync before a rollback can prove anything."
                 )
             self.stdout.write(f"    waiting, buffer not drained for: {', '.join(sorted(behind))}")
             time.sleep(DRAIN_POLL_SECONDS)

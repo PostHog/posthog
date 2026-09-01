@@ -935,11 +935,12 @@ class CDCExtractActivity:
         # files under its own prefix, and the consumer would merge them the moment the schema
         # turns eligible — re-delivering rows the legacy lane already wrote, which an append lane
         # cannot absorb. The flip command purges the prefix once; nothing purges it again.
+        cdc_config = self.adapter.parse_cdc_config(self.source)
         self._shadow_enabled = is_shadow_write_enabled(self.inputs.team_id, self.log) and (
-            self.adapter.parse_cdc_config(self.source).ingest_mode != "buffered"
+            cdc_config.ingest_mode != "buffered"
         )
 
-        if self.adapter.parse_cdc_config(self.source).ingest_mode == "buffered":
+        if cdc_config.ingest_mode == "buffered":
             # A schema with deferred runs pending stays legacy this tick, so the flush and any new
             # events travel one lane. Deferred batches carry no position column, so nothing orders
             # them against buffered writes — mixing lanes lets an older deferred row land after a

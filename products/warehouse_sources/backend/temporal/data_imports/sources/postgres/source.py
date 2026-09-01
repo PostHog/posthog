@@ -1,5 +1,4 @@
 import logging
-from functools import partial
 from typing import TYPE_CHECKING, Optional, cast
 
 import structlog
@@ -1318,9 +1317,8 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         was never flipped — or a lane the buffer doesn't serve — behaves exactly as before.
         """
         from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-        from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import build_scd2_table
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import read_load_position
         from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
-            COMPANION_WRITE_MODE,
             CDCSourceManager,
             consumes_buffer,
             has_pending_legacy_backlog,
@@ -1357,7 +1355,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "'streaming'. Reset it to snapshot (cdc_mode='snapshot') so the re-snapshot path runs."
             )
 
-        lane = select_lane(schema)
+        lane = select_lane(schema, job_id=inputs.job_id)
         primary_keys = schema.primary_key_columns
 
         if has_pending_legacy_backlog(schema):
@@ -1372,24 +1370,19 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 cdc_write_mode=lane.write_mode,
             )
 
-        # The `_cdc` companion stores history rather than current state, so its rows carry the SCD2
-        # validity window the legacy extraction path stamps on them. Everything else about the lane
-        # is the loader's business: it appends instead of merging, and resolves replays by position
-        # without collapsing a key's history to one row.
-        table_transformer = (
-            partial(build_scd2_table, pk_columns=primary_keys or [])
-            if lane.write_mode == COMPANION_WRITE_MODE
-            else None
-        )
+        # Resolved once per run: the loader resolves every batch against it, so an earlier batch's
+        # writes cannot look like a replay to a later one.
+        run_start_position = read_load_position(schema.sync_type_config, lane.resource_name)
 
         manager = CDCSourceManager(
             inputs, inputs.logger, lane_resource_names=[served.resource_name for served in served_lanes(schema)]
         )
         return SourceResponse(
             name=lane.resource_name,
-            items=lambda: manager.get_items(lane.resource_name, table_transformer=table_transformer),
+            items=lambda: manager.get_items(lane.resource_name),
             primary_keys=primary_keys,
             cdc_write_mode=lane.write_mode,
+            cdc_run_start_position=run_start_position,
         )
 
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:

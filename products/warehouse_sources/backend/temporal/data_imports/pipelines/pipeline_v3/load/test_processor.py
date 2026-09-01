@@ -820,6 +820,26 @@ class TestEnrichCdcRows:
         assert result.column("id").to_pylist() == [2]
         assert position == 20
 
+    def test_the_append_lane_resolves_against_the_run_start_not_what_it_just_wrote(self):
+        # An earlier batch of this run already appended the transaction's head and advanced the
+        # stored position. Re-reading that position would make this batch treat its own rows —
+        # the transaction's tail — as a replay and drop them.
+        with tempfile.TemporaryDirectory() as path:
+            self._write_history(path, ids=[1, 2], seqs=[20, 20])
+
+            result, _ = _resolve_cdc_positions(
+                self._stamped([3, 4], ["U", "U"], [20, 20]),
+                sync_type_config={LOAD_POSITION_CONFIG_KEY: {"users": 20}},
+                resource_name="users",
+                primary_keys=["id"],
+                cdc_write_mode="scd2_append",
+                team_id="2",
+                existing_delta_table=DeltaTable(path),
+                run_start_position=10,
+            )
+
+        assert result.column("id").to_pylist() == [3, 4]
+
     def test_a_table_the_legacy_lane_wrote_counts_no_replays(self):
         # Legacy companion writes strip the seq column, so such a table can hold no buffered
         # rows — everything this run read is new ground.

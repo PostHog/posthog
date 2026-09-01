@@ -187,14 +187,23 @@ class UnresolvedAppendError(RuntimeError):
     """Raised rather than appending history that may already be in the table."""
 
 
-def require_resolution_for_append(cdc_write_mode: str | None, *, resolution_enabled: bool, resource_name: str) -> None:
+def require_resolution_for_append(
+    cdc_write_mode: str | None, *, resolution_enabled: bool, batch_carries_position: bool, resource_name: str
+) -> None:
     """Refuse to write an append-lane batch that cannot be resolved against the table.
 
     The merge lane tolerates writing unresolved: its upsert makes a replayed row a no-op. An
     append cannot — it writes the replay as new history, and the same run records no position, so
-    every later run replays it again. Failing the batch retries it once resolution is back.
+    every later run replays it again.
+
+    Only batches carrying our position column are at risk. The legacy extraction path strips it
+    before dispatching (see `_process_flush`), and delivers each micro-batch exactly once, so it
+    has nothing to resolve and must not be failed here.
+
+    Raising fails the run; the next scheduled sync retries it, since the flag lookup is cached for
+    the life of this one.
     """
-    if cdc_write_mode == SCD2_APPEND_MODE and not resolution_enabled:
+    if cdc_write_mode == SCD2_APPEND_MODE and batch_carries_position and not resolution_enabled:
         raise UnresolvedAppendError(
             f"Write resolution is unavailable, so append lane {resource_name} cannot skip rows it "
             "already holds. Refusing to write history that may duplicate."

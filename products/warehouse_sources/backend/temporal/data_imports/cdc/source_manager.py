@@ -106,6 +106,17 @@ def _listing_stamps(sync_type_config: dict | None, *, single_lane: str | None = 
     return {name: stamp for name, stamp in raw.items() if isinstance(stamp, dict)}
 
 
+def _parse_listed_at(raw: object) -> dt.datetime | None:
+    """A stamp's `listed_at` as a datetime — comparing the raw ISO strings assumes one offset."""
+    if not isinstance(raw, str):
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
 def serves_buffered_lane(schema: ExternalDataSchema) -> bool:
     """Schema-side conditions for buffered ingress; the source's `ingest_mode` is the other half.
 
@@ -147,7 +158,7 @@ def served_lanes(schema: ExternalDataSchema) -> list[CDCLane]:
     ]
 
 
-def select_lane(schema: ExternalDataSchema) -> CDCLane:
+def select_lane(schema: ExternalDataSchema, *, job_id: str | None = None) -> CDCLane:
     """The lane this run serves, alternating across runs when the schema feeds more than one.
 
     A pipeline run writes one table: its batches share a run id, a batch-index sequence, an S3
@@ -165,10 +176,18 @@ def select_lane(schema: ExternalDataSchema) -> CDCLane:
         return lanes[0]
 
     stamps = _listing_stamps(schema.sync_type_config)
+
+    # A retry runs under the same job, and the failed attempt already stamped its lane. Alternating
+    # off that stamp would serve the other lane under a job id the first lane also carries, so
+    # completing the retry would mature a deletion proof for files the first lane never committed.
+    for lane in lanes:
+        if job_id is not None and (stamps.get(lane.resource_name) or {}).get("job_id") == str(job_id):
+            return lane
+
     last_served, newest = None, None
     for lane in lanes:
-        listed_at = (stamps.get(lane.resource_name) or {}).get("listed_at")
-        if isinstance(listed_at, str) and (newest is None or listed_at > newest):
+        listed_at = _parse_listed_at((stamps.get(lane.resource_name) or {}).get("listed_at"))
+        if listed_at is not None and (newest is None or listed_at > newest):
             last_served, newest = lane.resource_name, listed_at
 
     for lane in lanes:

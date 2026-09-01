@@ -240,14 +240,16 @@ class TestMigrateCDCSourceToBuffered(BaseTest):
     def test_a_hybrid_source_leaves_its_ineligible_schemas_on_legacy(self):
         source = self._source()
         eligible = self._schema(source, "users")
-        self._schema(source, "events", cdc_mode="snapshot")
+        snapshotting = self._schema(source, "events", cdc_mode="snapshot")
 
         with _mocked_side_effects() as mocks:
             output = self._run(source)
 
         assert "staying on legacy" in output
+        # Every CDC prefix is purged, not just the eligible ones: a schema still snapshotting
+        # becomes eligible on its first completed sync and would inherit whatever it left behind.
         purged = [call.args[1] for call in mocks["purge"].call_args_list]
-        assert purged == [str(eligible.id)]
+        assert sorted(purged) == sorted([str(eligible.id), str(snapshotting.id)])
         mocks["unpause_schema"].assert_called_once_with(str(eligible.id))
 
     def test_a_still_snapshotting_schema_is_not_eligible(self):

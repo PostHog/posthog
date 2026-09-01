@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     SCD2_VALID_FROM_COLUMN,
     SCD2_VALID_TO_COLUMN,
     TOAST_OMITTED_COLUMN,
+    build_scd2_table,
     enrich_delete_rows,
     enrich_toast_omitted_rows,
 )
@@ -262,16 +263,24 @@ def _resolve_cdc_positions(
     cdc_write_mode: str | None,
     team_id: str,
     existing_delta_table: deltalake.DeltaTable | None = None,
+    run_start_position: int | None = None,
 ) -> tuple[pa.Table, int | None]:
     """Drop rows this lane's table has already applied.
 
     Returns the batch and the position to record, which the caller persists only once the write
     commits — a position ahead of the table would skip rows that never landed.
+
+    The append lane resolves against the position as of the run's start, not the stored one. Its
+    replay guard counts the destination's rows at the watermark, and earlier batches of this run
+    have already added to that count: re-reading the stored position would let a batch treat a
+    transaction's own rows, written moments ago by its predecessor, as a replay to skip.
     """
     if not has_engine_seq(pa_table):
         return pa_table, None
 
     watermark = read_load_position(sync_type_config, resource_name)
+    if cdc_write_mode == SCD2_APPEND_MODE and run_start_position is not None:
+        watermark = run_start_position
 
     existing_at_watermark = 0
     if cdc_write_mode == SCD2_APPEND_MODE and watermark is not None:
@@ -909,6 +918,7 @@ def _process_message_reported(
         require_resolution_for_append(
             cdc_write_mode,
             resolution_enabled=resolution_enabled,
+            batch_carries_position=has_engine_seq(pa_table),
             resource_name=export_signal.resource_name,
         )
 
@@ -932,7 +942,15 @@ def _process_message_reported(
                 cdc_write_mode=cdc_write_mode,
                 team_id=team_id_str,
                 existing_delta_table=existing_delta_table,
+                run_start_position=export_signal.cdc_run_start_position,
             )
+
+        if cdc_write_mode == SCD2_APPEND_MODE and SCD2_VALID_FROM_COLUMN not in pa_table.column_names:
+            # Derived here rather than in the source: `valid_to` points at the next event for the
+            # same key, and the pipeline coalesces the source's yields into this batch. Deriving it
+            # per yield would leave a key changed in two coalesced windows with two rows open,
+            # because the writer only closes rows already in the target.
+            pa_table = build_scd2_table(pa_table, primary_keys or [])
 
         if existing_delta_table is not None:
             try:
