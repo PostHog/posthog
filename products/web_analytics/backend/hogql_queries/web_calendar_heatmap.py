@@ -33,6 +33,7 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     handle_stale_served,
     is_precompute_enabled_for_team,
+    is_team_above_volume_floor,
 )
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
@@ -254,9 +255,12 @@ class WebCalendarHeatmapTrendsQueryRunner(CalendarHeatmapTrendsQueryRunner):
         # Rollout state in the cache key = immediate kill switch: disabling a
         # flag must not keep serving cached precompute-derived results until
         # they stale out (same mechanism as WebTrendsQueryRunner).
-        payload["web_trends_precompute"] = is_trends_precompute_enabled_for_team(
-            self.team
-        ) and is_precompute_enabled_for_team(self.team)
+        precompute = is_trends_precompute_enabled_for_team(self.team) and is_precompute_enabled_for_team(self.team)
+        payload["web_trends_precompute"] = precompute
+        # The volume floor also flips the serving path (precompute <-> live), so
+        # it must vary the key too: a team crossing below the floor keeps serving
+        # a stale precompute result otherwise. Read it only when precompute is on.
+        payload["web_trends_above_floor"] = precompute and is_team_above_volume_floor(self.team.pk)
         return payload
 
     def _calculate(self) -> TrendsQueryResponse:

@@ -1507,6 +1507,14 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS: list[int] = [
     for team_id in get_list(get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS))
 ]
 
+# Weekly (7-day) event-volume floor below which a team gets neither precompute
+# reads nor warming — their live path is sub-second and always fresh, while
+# bucket builds cost more than they save. 0 disables the floor. Enforced
+# fail-open: reads fall back to precompute when the volume set is unpublished.
+WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS: int = get_from_env(
+    "WEB_ANALYTICS_PRECOMPUTE_MIN_WEEKLY_EVENTS", 100_000, type_cast=int
+)
+
 # Dogfooding list for the precompute-backed web analytics trends path — teams
 # here take it regardless of the `web-analytics-trends-precompute` rollout flag.
 # The shared precompute enrollment gate still applies underneath.
