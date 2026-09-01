@@ -63,6 +63,9 @@ from products.warehouse_sources.backend.facade.types import (
 from ee.billing.billing_manager import BillingManager
 
 logger = structlog.get_logger(__name__)
+
+# Upper bound for the activity endpoints' `cutoff_days` query parameter.
+MAX_CUTOFF_DAYS = 90
 tracer = trace.get_tracer(__name__)
 
 
@@ -331,7 +334,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             limit = min(int(request.GET.get("limit", DEFAULT_LIMIT)), MAX_LIMIT)
             offset = max(int(request.GET.get("offset", 0)), 0)
-            cutoff_days = int(request.GET.get("cutoff_days", DEFAULT_CUTOFF_DAYS))
+            # Clamped like limit above: the window drives how much of posthog_externaldatajob
+            # this reads, and the table holds years of runs for a busy team.
+            cutoff_days = min(max(int(request.GET.get("cutoff_days", DEFAULT_CUTOFF_DAYS)), 1), MAX_CUTOFF_DAYS)
         except (ValueError, TypeError):
             return Response(
                 {"error": "Invalid limit, offset, or cutoff_days parameter"}, status=status.HTTP_400_BAD_REQUEST
@@ -409,7 +414,9 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             limit = min(int(request.GET.get("limit", DEFAULT_LIMIT)), MAX_LIMIT)
             offset = max(int(request.GET.get("offset", 0)), 0)
-            cutoff_days = int(request.GET.get("cutoff_days", DEFAULT_CUTOFF_DAYS))
+            # Clamped like limit above: the window drives how much of posthog_externaldatajob
+            # this reads, and the table holds years of runs for a busy team.
+            cutoff_days = min(max(int(request.GET.get("cutoff_days", DEFAULT_CUTOFF_DAYS)), 1), MAX_CUTOFF_DAYS)
         except (ValueError, TypeError):
             return Response(
                 {"error": "Invalid limit, offset, or cutoff_days parameter"}, status=status.HTTP_400_BAD_REQUEST

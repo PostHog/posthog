@@ -3,7 +3,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import models
-from django.db.models import OuterRef, Prefetch, Subquery
+from django.db.models import OuterRef, Prefetch, Q, Subquery
 
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
@@ -63,6 +63,15 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
             models.Index(
                 fields=["pipeline", "status", "finished_at"],
                 name="idx_extdatajob_pipe_stat_fin",
+            ),
+            # Serves the sweeps that look for live runs (sweep_stopped_schema_syncs, the CDC
+            # orphan sweep, teardown, repair): status equality with a created_at range and no
+            # team or pipeline to narrow on first. Running is a fraction of a percent of the
+            # table, so the partial index holds only live rows instead of the whole history.
+            models.Index(
+                fields=["created_at"],
+                condition=Q(status=ExternalDataJobStatus.RUNNING),
+                name="idx_extdatajob_running",
             ),
         ]
 
