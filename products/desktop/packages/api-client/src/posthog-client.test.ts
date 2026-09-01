@@ -138,6 +138,43 @@ describe("PostHogAPIClient", () => {
   });
 
   describe("getEvidencePreview", () => {
+    it("retrieves an Inbox report from the signals endpoint", async () => {
+      const fetch = vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: "rep-1",
+            title: "Checkout latency increased",
+            summary: "Requests became slower after the latest release.",
+            status: "ready",
+            priority: "P1",
+            signal_count: 3,
+            total_weight: 3,
+            artefact_count: 1,
+            created_at: "2026-01-02T10:00:00Z",
+            updated_at: "2026-01-03T10:00:00Z",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      const client = new PostHogAPIClient(
+        "https://app.posthog.test",
+        async () => "token",
+        async () => "token",
+        42,
+        { fetch },
+      );
+
+      await expect(
+        client.getEvidencePreview("report", "rep-1"),
+      ).resolves.toMatchObject({
+        title: "Checkout latency increased",
+        status: { label: "Ready", tone: "positive" },
+      });
+      expect((fetch.mock.calls[0][0] as URL).pathname).toBe(
+        "/api/projects/42/signals/reports/rep-1/",
+      );
+    });
+
     it("builds experiment presentation data from metric and exposure query responses", async () => {
       const metricResponse = {
         kind: "ExperimentQuery",
