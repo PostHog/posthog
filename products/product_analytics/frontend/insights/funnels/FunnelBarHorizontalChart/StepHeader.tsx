@@ -23,7 +23,8 @@ export function StepHeader({ step, stepIndex, previousStep, isUnordered, isOptio
     return (
         <div className={clsx('flex flex-wrap items-center justify-between leading-5', isOptional && 'opacity-60')}>
             <div className="flex items-center max-w-full grow">
-                <div className="overflow-hidden font-bold break-words whitespace-normal">
+                {/* `wrap-anywhere`, so an event name with no spaces wraps instead of getting cut off. */}
+                <div className="overflow-hidden font-bold wrap-anywhere whitespace-normal">
                     {isUnordered ? (
                         <span>Completed {step.order + 1} steps</span>
                     ) : (

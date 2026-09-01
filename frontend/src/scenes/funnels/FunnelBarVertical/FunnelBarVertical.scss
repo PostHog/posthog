@@ -184,7 +184,11 @@
         font-weight: 500;
 
         &:first-child {
+            // `fit-content` keeps the row hugging a short name, but it cannot go below the
+            // longest unbreakable word. Cap it, and let a long event name break anywhere, so it
+            // stays inside its step column instead of running over the next step's name.
             width: fit-content;
+            max-width: 100%;
             margin-top: 0;
             font-weight: 600;
             white-space: normal;
@@ -194,7 +198,7 @@
                 -webkit-line-clamp: 5;
                 -webkit-box-orient: vertical;
                 overflow: hidden;
-                overflow-wrap: break-word;
+                overflow-wrap: anywhere;
             }
         }
 
