@@ -1341,8 +1341,17 @@ class TestHelpers:
 
         assert _retry_wait_seconds(state) == 4.0
 
+    @parameterized.expand(
+        [
+            # A positive reset delta becomes the wait.
+            ("uses_reset_delta", 9, 9.0),
+            # The reset header is an absolute epoch, so clock skew or a proxy can inflate it into the
+            # far future. Bound it so it cannot park the shared source-iterator thread.
+            ("caps_far_future_reset", 100000, _MAX_RETRY_AFTER_SECONDS),
+        ]
+    )
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.datetime")
-    def test_retry_wait_uses_rate_limit_reset_header_for_429(self, mock_datetime) -> None:
+    def test_retry_wait_uses_rate_limit_reset_header_for_429(self, _name, reset_delta, expected, mock_datetime) -> None:
         now = datetime(2026, 3, 6, 12, 0, 0, tzinfo=UTC)
         mock_datetime.now.return_value = now
 
@@ -1352,10 +1361,10 @@ class TestHelpers:
         state.outcome.failed = False
         state.outcome.result.return_value = Mock(
             status_code=429,
-            headers={"X-Sentry-Rate-Limit-Reset": str(int(now.timestamp()) + 9)},
+            headers={"X-Sentry-Rate-Limit-Reset": str(int(now.timestamp()) + reset_delta)},
         )
 
-        assert _retry_wait_seconds(state) == 9.0
+        assert _retry_wait_seconds(state) == expected
 
     @parameterized.expand(
         [
