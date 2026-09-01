@@ -170,7 +170,6 @@ export class ConnectivityPortAdapter implements IAuthConnectivity {
     @inject(WORKSPACE_SERVER_SERVICE)
     private readonly workspaceServer: WorkspaceServerService,
   ) {
-    this.subscribe();
     // The workspace-server child respawns on a new port after a crash; the
     // old SSE subscription keeps retrying the dead port forever, so re-
     // establish it against the current connection once the server is healthy.
@@ -178,6 +177,9 @@ export class ConnectivityPortAdapter implements IAuthConnectivity {
       WorkspaceServerEvent.StatusChanged,
       this.onServerStatusChanged,
     );
+    if (this.workspaceServer.getStatus() === WorkspaceServerStatus.Ready) {
+      this.subscribe();
+    }
   }
 
   dispose(): void {
