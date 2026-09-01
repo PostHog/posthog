@@ -152,17 +152,23 @@ def _normalized_condition(condition: object) -> str | None:
     return normalized
 
 
-def _uses_only_not_cancelled(condition: object) -> bool:
+def _condition_matches(condition: object, pattern: re.Pattern[str]) -> bool:
     normalized = _normalized_condition(condition)
-    return normalized is not None and NOT_CANCELLED.fullmatch(normalized) is not None
+    return normalized is not None and pattern.fullmatch(normalized) is not None
+
+
+def _uses_only_not_cancelled(condition: object) -> bool:
+    return _condition_matches(condition, NOT_CANCELLED)
 
 
 def _step_runs_whenever_gate_runs(condition: object) -> bool:
-    """Guards only count in steps that execute on every path the gate takes."""
-    normalized = _normalized_condition(condition)
-    if normalized is None:
-        return False
-    return ALWAYS.fullmatch(normalized) is not None
+    """Guards only count in steps that execute on every path the gate takes.
+
+    A step condition of ``always()`` or ``!cancelled()`` both qualify: either
+    runs the step whenever the enclosing job runs, so a guard placed there is
+    as trustworthy as one with no ``if`` at all.
+    """
+    return _condition_matches(condition, ALWAYS) or _uses_only_not_cancelled(condition)
 
 
 def _without_heredocs(bash: str) -> str:

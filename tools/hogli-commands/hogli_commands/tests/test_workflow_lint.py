@@ -1430,6 +1430,9 @@ class TestRequiredGateCheck:
             _gate(COMMENTED_CALL_BODY),
             _gate(PAREN_LABEL_CALL_BODY),
             ENV_LOOP_GATE,
+            # A step may repeat the job's own `!cancelled()` condition; its guard
+            # still runs whenever the gate does, so it must still count.
+            _gate(SAFE_BODY, step_condition="${{ !cancelled() }}"),
         ],
         ids=[
             "inline-allowlist",
@@ -1440,6 +1443,7 @@ class TestRequiredGateCheck:
             "helper-call-with-trailing-comment",
             "helper-call-with-parens-in-label",
             "env-block-loop",
+            "step-level-not-cancelled",
         ],
     )
     def test_passes_when_every_dependency_is_allowlisted(self, tmp_path: Path, content: str) -> None:
@@ -1460,8 +1464,8 @@ class TestRequiredGateCheck:
 
     @pytest.mark.parametrize(
         "condition",
-        ["always()", "${{ always() }}", "${{ !cancelled() && false }}", "${{ cancelled() }}"],
-        ids=["bare-always", "wrapped-always", "conditional-not-cancelled", "unnegated-cancelled"],
+        ["always()", "${{ !cancelled() && false }}", "${{ cancelled() }}"],
+        ids=["bare-always", "conditional-not-cancelled", "unnegated-cancelled"],
     )
     def test_flags_gate_condition_other_than_not_cancelled(self, tmp_path: Path, condition: str) -> None:
         _write(tmp_path, "ci-thing.yml", _gate(SAFE_BODY, condition=condition))
