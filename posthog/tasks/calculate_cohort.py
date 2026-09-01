@@ -547,15 +547,27 @@ def calculate_cohort_ch(
                 )
             raise
 
-        cohort.calculate_people_ch(
-            pending_version,
-            initiating_user_id=initiating_user_id,
-            # calculate_people_ch charges errors_calculating in its own except block and cannot see
-            # the retry machinery above it. Without this it would charge one increment per attempt,
-            # so a single fully-failed run would push a cohort most of the way to the
-            # MAX_ERRORS_CALCULATING cutoff that permanently drops it from recalculation.
-            will_retry=lambda err: not _is_final_attempt(self, err, COHORT_RECALCULATION_TRANSIENT_ERRORS),
-        )
+        try:
+            cohort.calculate_people_ch(
+                pending_version,
+                initiating_user_id=initiating_user_id,
+                # calculate_people_ch charges errors_calculating in its own except block and cannot see
+                # the retry machinery above it. Without this it would charge one increment per attempt,
+                # so a single fully-failed run would push a cohort most of the way to the
+                # MAX_ERRORS_CALCULATING cutoff that permanently drops it from recalculation.
+                will_retry=lambda err: not _is_final_attempt(self, err, COHORT_RECALCULATION_TRANSIENT_ERRORS),
+            )
+        except ExposedHogQLError as err:
+            # The saved criteria compile to an invalid query — e.g. a data warehouse join the filter
+            # points at was deleted. That's a user-fixable definition problem, not a system bug, so
+            # don't let it propagate out of the context and reach error tracking. calculate_people_ch
+            # already recorded the failure and its user-facing message. Same treatment as
+            # insert_cohort_from_query.
+            logger.warning(
+                "cohort_calculation_invalid_query",
+                cohort_id=cohort_id,
+                error=str(err),
+            )
 
 
 def _is_final_attempt(task: Task, err: Exception, retryable_errors: tuple[type[BaseException], ...]) -> bool:

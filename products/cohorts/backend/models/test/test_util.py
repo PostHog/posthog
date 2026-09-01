@@ -14,6 +14,7 @@ from pydantic import (
 )
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from posthog.hogql.errors import QueryError
 from posthog.hogql.hogql import HogQLContext
 
 from posthog.clickhouse.client import sync_execute
@@ -1245,6 +1246,7 @@ class TestParseErrorCode(BaseTest):
             ("clickhouse_memory", "ClickHouseMemoryError", CohortErrorCode.MEMORY_LIMIT),
             ("clickhouse_timeout", "ClickHouseTimeoutError", CohortErrorCode.TIMEOUT),
             ("clickhouse_type", "ClickHouseTypeError", CohortErrorCode.INCOMPATIBLE_TYPES),
+            ("exposed_hogql", "HogQLQueryError", CohortErrorCode.INVALID_QUERY),
             ("generic_exception", "Exception", CohortErrorCode.UNKNOWN),
         ]
     )
@@ -1270,6 +1272,9 @@ class TestParseErrorCode(BaseTest):
 
         if exception_type == "EstimatedQueryExecutionTimeTooLong":
             return ClickHouseEstimatedQueryExecutionTimeTooLong()
+
+        if exception_type == "HogQLQueryError":
+            return QueryError("Field not found: <join field>")
 
         if exception_type == "PydanticValidationError":
             try:
@@ -1309,6 +1314,7 @@ class TestGetFriendlyErrorMessage(BaseTest):
             (CohortErrorCode.INVALID_REGEX, "invalid regular expression"),
             (CohortErrorCode.INCOMPATIBLE_TYPES, "an error occurred"),
             (CohortErrorCode.NO_PROPERTIES, "no matching criteria"),
+            (CohortErrorCode.INVALID_QUERY, "review your matching criteria"),
             (CohortErrorCode.UNKNOWN, "an error occurred"),
         ]
     )
@@ -1316,6 +1322,20 @@ class TestGetFriendlyErrorMessage(BaseTest):
         message = get_friendly_error_message(error_code)
         assert message is not None
         self.assertIn(expected_substring, message.lower())
+
+    def test_invalid_query_surfaces_raw_error_message(self):
+        # An ExposedHogQLError message is safe to show and names the real problem, so it replaces
+        # the generic fallback. Other codes keep their canned message even when a raw error exists.
+        self.assertEqual(
+            get_friendly_error_message(CohortErrorCode.INVALID_QUERY, "Field not found: <join field>"),
+            "Field not found: <join field>",
+        )
+        invalid_query_fallback = get_friendly_error_message(CohortErrorCode.INVALID_QUERY, None)
+        assert invalid_query_fallback is not None
+        self.assertIn("review your matching criteria", invalid_query_fallback.lower())
+        unknown_message = get_friendly_error_message(CohortErrorCode.UNKNOWN, "Field not found: <join field>")
+        assert unknown_message is not None
+        self.assertIn("an error occurred", unknown_message.lower())
 
     def test_get_friendly_error_message_none(self):
         self.assertIsNone(get_friendly_error_message(None))
