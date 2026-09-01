@@ -58,6 +58,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError, ResolutionError
 
+from posthog.clickhouse.client.execute_async import QueryRetrievalError
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
@@ -626,6 +627,18 @@ class TestQueryRunner(BaseTest):
             self.assertEqual(response.is_cached, True)
             self.assertEqual(response.last_refresh.isoformat(), "2023-02-04T13:37:42+00:00")
             mock_on_commit.assert_called_once()
+
+    def test_get_async_query_status_returns_none_on_redis_read_failure(self):
+        # A Redis read failure means the async status is unknown, not that the request failed. The
+        # caller already holds a valid cached response, so the status resolves to None, not an error.
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with mock.patch(
+            "posthog.hogql_queries.query_runner.get_query_status",
+            side_effect=QueryRetrievalError("Timeout reading from socket"),
+        ):
+            assert runner.get_async_query_status(cache_key="some_cache_key") is None
 
     @parameterized.expand(
         [

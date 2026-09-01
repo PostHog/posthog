@@ -115,7 +115,12 @@ from posthog import settings
 from posthog.api_queries_quota import API_QUERIES_QUOTA_ERRORS_COUNTER, get_api_queries_bytes, next_counter_reset
 from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
+from posthog.clickhouse.client.execute_async import (
+    QueryNotFoundError,
+    QueryRetrievalError,
+    enqueue_process_query_task,
+    get_query_status,
+)
 from posthog.clickhouse.client.limit import (
     get_api_team_rate_limiter,
     get_app_dashboard_queries_rate_limiter,
@@ -1886,6 +1891,17 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             return query_status
 
         except QueryNotFoundError:
+            return None
+        except QueryRetrievalError:
+            # A Redis read failure here means the async status is unknown, not that the request failed.
+            # The cached response is already valid, so return it with no status rather than raising.
+            # Log the failure so a Redis outage behind these reads stays measurable instead of silent.
+            logger.warning(
+                "get_async_query_status_redis_read_failed",
+                team_id=self.team.pk,
+                query_id=self.query_id or cache_key,
+                exc_info=True,
+            )
             return None
 
     def handle_cache_and_async_logic(
