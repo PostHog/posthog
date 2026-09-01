@@ -2,6 +2,8 @@
 //! evaluator into tiles, and emits the scan metrics. Depends on `domain`, `config`, and the sibling
 //! `sql`/`row` modules; never on `store` or `kafka`.
 
+use std::sync::Arc;
+
 use chrono::Utc;
 use chrono_tz::Tz;
 use clickhouse::query::RowCursor;
@@ -10,6 +12,7 @@ use cohort_core::day_idx_in_tz;
 use cohort_core::events::CohortStreamEvent;
 use cohort_core::filters::TeamId;
 use cohort_core::hogvm::VmErrorClass;
+use common_types::cohort::TeamAllowlist;
 use metrics::{counter, histogram};
 use tokio_util::sync::CancellationToken;
 use tracing::info;
@@ -19,35 +22,46 @@ use super::row::{row_to_event, EventRow};
 use super::scan_volume::{self, ScanKind};
 use super::sql::{plan_scan, scan_sql, ScanPlan};
 use crate::domain::{
-    conditions_active_on, ActiveConditions, AggregateError, CancelCause, ChunkAccumulator,
-    ChunkDomainError, ClaimedChunk, DayIdx, EventNameSet, Halted, PinnedCondition, PinnedRun,
-    RecordOutcome, RecordStats, ScanVolume, ScannedChunk, SeedDomain, SeedTile, UtcMillis,
+    conditions_active_on, ActiveConditions, AggregateError, BlobSource, CancelCause,
+    ChunkAccumulator, ChunkDomainError, ChunkProjection, ClaimedChunk, ConditionAnalyses, DayIdx,
+    EventNameSet, Halted, PinnedCondition, PinnedRun, RecordOutcome, RecordStats, ScanVolume,
+    ScannedChunk, SeedDomain, SeedTile, UtcMillis,
 };
 use crate::observability::metrics::{
-    MetricTimer, AGGREGATE_ENTRIES, CHUNKS_VACUOUS, CHUNK_SCAN_DURATION_SECONDS,
-    CONDITIONS_EVALUATED, EVENTS_SKIPPED, HOGVM_ERRORS, ROWS_SCANNED,
+    team_label, MetricTimer, AGGREGATE_ENTRIES, CHUNKS_PROJECTED, CHUNKS_VACUOUS,
+    CHUNK_SCAN_DURATION_SECONDS, CONDITIONS_EVALUATED, EVENTS_SKIPPED, HOGVM_ERRORS,
+    PROJECTION_KEYS, ROWS_SCANNED,
 };
 
 #[derive(Clone)]
 pub struct ChunkScanner {
     client: clickhouse::Client,
+    /// Only what bounds the `team_id` label on the projection metrics. The scanner makes no
+    /// admission decision from it — discovery already did, and re-deciding here would give one
+    /// chunk a second, quieter place to be dropped.
+    allowlist: TeamAllowlist,
 }
 
 impl ChunkScanner {
-    pub fn new(client: clickhouse::Client) -> Self {
-        Self { client }
+    pub fn new(client: clickhouse::Client, allowlist: TeamAllowlist) -> Self {
+        Self { client, allowlist }
     }
 
+    /// `analyses` is the run's, not the chunk's: it is a pure function of the pinned bytecode, so
+    /// every chunk of a run — and every retry of one, on any replica — narrows from the same answer.
+    /// Only [`ConditionAnalyses::projection`] is per chunk, over the conditions active on its day.
     pub async fn scan(
         &self,
         chunk: ClaimedChunk,
         run: &PinnedRun,
+        analyses: &ConditionAnalyses,
         lease_cancel: &CancellationToken,
         shutdown: &CancellationToken,
     ) -> Result<ScannedChunk, Halted<ClaimedChunk, ScanError>> {
         self.scan_at(
             chunk,
             run,
+            analyses,
             Utc::now().timestamp_millis(),
             lease_cancel,
             shutdown,
@@ -59,12 +73,13 @@ impl ChunkScanner {
         &self,
         chunk: ClaimedChunk,
         run: &PinnedRun,
+        analyses: &ConditionAnalyses,
         now_ms: i64,
         lease_cancel: &CancellationToken,
         shutdown: &CancellationToken,
     ) -> Result<ScannedChunk, Halted<ClaimedChunk, ScanError>> {
         match self
-            .scan_tiles(&chunk, run, now_ms, lease_cancel, shutdown)
+            .scan_tiles(&chunk, run, analyses, now_ms, lease_cancel, shutdown)
             .await
         {
             Ok((tiles, volume)) => Ok(chunk.into_scanned(tiles, volume)),
@@ -77,6 +92,7 @@ impl ChunkScanner {
         &self,
         chunk: &ClaimedChunk,
         run: &PinnedRun,
+        analyses: &ConditionAnalyses,
         now_ms: i64,
         lease_cancel: &CancellationToken,
         shutdown: &CancellationToken,
@@ -102,10 +118,12 @@ impl ChunkScanner {
                 return Ok((Vec::new(), ScanVolume::default()));
             }
         };
+        let projection = analyses.projection(&active);
+        self.record_projection(run.team_id, &projection);
 
         let mut cursor = self
             .client
-            .query(&scan_sql(&scan_spec))
+            .query(&scan_sql(&scan_spec, &projection))
             .with_option(
                 LOG_COMMENT_OPTION,
                 ScanLogComment::BehavioralChunk {
@@ -139,6 +157,38 @@ impl ChunkScanner {
         let tiles = accumulator.into_tiles(&domain, run.run_id, spec.lease.epoch());
         Ok((tiles, volume))
     }
+
+    /// Publish what this chunk's scan narrowed to, so a team that stops projecting is visible
+    /// before its scan cost is.
+    fn record_projection(&self, team_id: TeamId, projection: &ChunkProjection) {
+        let team = team_label(&self.allowlist, team_id);
+        counter!(
+            CHUNKS_PROJECTED,
+            "outcome" => projection.outcome(),
+            "team_id" => team.clone(),
+        )
+        .increment(1);
+        let ChunkProjection::Projected(plan) = projection else {
+            return;
+        };
+        for (blob, source) in [
+            ("properties", &plan.properties),
+            ("person_properties", &plan.person_properties),
+        ] {
+            record_projected_keys(blob, source, team.clone());
+        }
+    }
+}
+
+/// A blob's kept-key count, where there is one. [`BlobSource::Full`] has none — see
+/// [`PROJECTION_KEYS`].
+fn record_projected_keys(blob: &'static str, source: &BlobSource, team: Arc<str>) {
+    let keys = match source {
+        BlobSource::Full => return,
+        BlobSource::Empty => 0,
+        BlobSource::Keys(keys) => keys.count(),
+    };
+    histogram!(PROJECTION_KEYS, "blob" => blob, "team_id" => team).record(keys as f64);
 }
 
 /// Whether the cursor yielded anything, which is what separates a chunk with no matching history
@@ -315,7 +365,8 @@ mod tests {
 
     use super::*;
     use crate::domain::{
-        plan_days, Boundary, ClaimEpoch, ConditionHash, Lookback, PlanCaps, RunId, SChunkMs,
+        plan_days, Boundary, ClaimEpoch, ColumnPlan, ConditionHash, Lookback, PlanCaps,
+        ProjectedKeys, RunId, SChunkMs, ScalarColumn,
     };
 
     const HASH: &str = "aaaaaaaaaaaaaaaa";
@@ -418,6 +469,75 @@ mod tests {
         let tiles = accumulator.into_tiles(&domain, RunId(Uuid::nil()), ClaimEpoch(1));
         assert_eq!(tiles.len(), 1);
         assert_eq!(tiles[0].count(), 1);
+    }
+
+    /// The projection metrics are the only report of what a chunk narrowed to, and a dashboard
+    /// reads them by label. This pins the three sampling rules the recorder applies, which no test
+    /// over the projection types themselves can see: a full blob takes no key sample at all, an
+    /// unread one takes a `0`, and the outcome label follows the arm.
+    ///
+    /// The recorder here is a plain one, not the configured one — which ladder
+    /// [`PROJECTION_KEYS`] renders under is `observability::metrics`'s question, and answering it
+    /// twice would let the two answers drift.
+    #[test]
+    fn the_projection_metrics_report_each_blob_by_its_own_rule() {
+        let scanner = ChunkScanner::new(
+            clickhouse::Client::default(),
+            TeamAllowlist::Only(std::collections::HashSet::from([2])),
+        );
+        let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
+        let handle = recorder.handle();
+        metrics::with_local_recorder(&recorder, || {
+            scanner.record_projection(
+                TeamId(2),
+                &ChunkProjection::Projected(ColumnPlan {
+                    uuid: ScalarColumn::Empty,
+                    elements_chain: ScalarColumn::Empty,
+                    properties: BlobSource::Keys(
+                        ProjectedKeys::new(BTreeSet::from([
+                            "plan".to_string(),
+                            "utm_source".to_string(),
+                        ]))
+                        .expect("two keys are not empty"),
+                    ),
+                    person_properties: BlobSource::Empty,
+                }),
+            );
+            scanner.record_projection(TeamId(2), &ChunkProjection::FullColumns);
+        });
+        let rendered = handle.render();
+
+        for outcome in ["projected", "full_columns"] {
+            assert!(
+                rendered.contains(&format!(
+                    "{CHUNKS_PROJECTED}{{outcome=\"{outcome}\",team_id=\"2\"}} 1"
+                )),
+                "{outcome} chunk was not counted under its own label:\n{rendered}"
+            );
+        }
+        // Two keys read, and one blob read at nothing — the reading the whole change exists for.
+        assert!(
+            rendered.contains(&format!(
+                "{PROJECTION_KEYS}_sum{{blob=\"properties\",team_id=\"2\"}} 2"
+            )),
+            "the kept-key count is not the number of keys:\n{rendered}"
+        );
+        assert!(
+            rendered.contains(&format!(
+                "{PROJECTION_KEYS}_sum{{blob=\"person_properties\",team_id=\"2\"}} 0"
+            )),
+            "an unread blob did not record a zero:\n{rendered}"
+        );
+        // The wide chunk's blobs take no sample, so the two series hold one reading each rather
+        // than a sentinel that a dashboard would average in as a real key count.
+        for blob in ["properties", "person_properties"] {
+            assert!(
+                rendered.contains(&format!(
+                    "{PROJECTION_KEYS}_count{{blob=\"{blob}\",team_id=\"2\"}} 1"
+                )),
+                "{blob} took a sample from the full-columns chunk:\n{rendered}"
+            );
+        }
     }
 
     #[test]

@@ -2845,6 +2845,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-grpc"
+version = "0.1.0"
+dependencies = [
+ "http 1.4.0",
+ "metrics",
+ "metrics-util",
+ "pin-project",
+ "tokio",
+ "tonic 0.12.3",
+ "tower 0.4.13",
+]
+
+[[package]]
 name = "common-hypercache"
 version = "0.1.0"
 dependencies = [
@@ -13864,6 +13877,7 @@ dependencies = [
  "axum 0.7.9",
  "chrono",
  "common-database",
+ "common-grpc",
  "common-kafka",
  "common-liveness",
  "envconfig",
