@@ -64,15 +64,16 @@ class Command(BaseCommand):
             QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
             use_cache=False,
         )
+        active_export_team_ids = BatchExport.objects.filter(deleted=False, paused=False).values_list(
+            "team_id", flat=True
+        )
+        non_billable_team_ids = BatchExport.objects.filter(destination__type__in=NON_BILLABLE_DESTINATIONS).values_list(
+            "team_id", flat=True
+        )
         return list(
             Team.objects.select_related("organization")
-            .filter(
-                api_token__in=limited_tokens,
-                batchexport__deleted=False,
-                batchexport__paused=False,
-            )
-            .exclude(batchexport__destination__type__in=NON_BILLABLE_DESTINATIONS)
-            .distinct()
+            .filter(api_token__in=limited_tokens, id__in=active_export_team_ids)
+            .exclude(id__in=non_billable_team_ids)
         )
 
     def _report_team(self, team: Team, as_json: bool, checked: bool) -> None:
