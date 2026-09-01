@@ -542,6 +542,7 @@ export interface sessionRecordingPlayerLogicValues {
     customRRWebEvents: customEvent[] // sessionRecordingDataCoordinatorLogic
     fullyLoaded: boolean // sessionRecordingDataCoordinatorLogic
     hasOversizedMutations: boolean // sessionRecordingDataCoordinatorLogic
+    playableSnapshotsByWindowId: Record<number, eventWithTime[]> // sessionRecordingDataCoordinatorLogic
     recordingTooLargeToPlay: boolean // sessionRecordingDataCoordinatorLogic
     sessionPlayerData: SessionPlayerData // sessionRecordingDataCoordinatorLogic
     sessionPlayerMetaData: SessionRecordingType | null // sessionRecordingDataCoordinatorLogic
@@ -1165,6 +1166,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'trackedWindow',
                 'recordingTooLargeToPlay',
                 'hasOversizedMutations',
+                'playableSnapshotsByWindowId',
             ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting', 'showMetadataFooter', 'playerControlsOverlay'],
@@ -2112,10 +2114,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.tryInitReplayer()
         },
         tryInitReplayer: () => {
-            if (values.hasOversizedMutations) {
-                actions.setPlayer(null)
-                return
-            }
             // Tries to initialize a new player
             const windowId = values.segmentForTimestamp(values.currentTimestamp)?.windowId
 
@@ -2128,8 +2126,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (
                 !values.rootFrame ||
                 windowId === undefined ||
-                !values.sessionPlayerData.snapshotsByWindowId[windowId] ||
-                values.sessionPlayerData.snapshotsByWindowId[windowId].length < 2
+                !values.playableSnapshotsByWindowId[windowId] ||
+                values.playableSnapshotsByWindowId[windowId].length < 2
             ) {
                 actions.setPlayer(null)
                 return
@@ -2143,7 +2141,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 plugins.push(CorsPlugin)
             }
 
-            const canvasPlugin = CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId], (error) =>
+            const canvasPlugin = CanvasReplayerPlugin(values.playableSnapshotsByWindowId[windowId], (error) =>
                 posthog.captureException(error)
             )
             plugins.push(canvasPlugin)
@@ -2209,7 +2207,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     // the config.onError callback only covers its async internal errors. Without this
                     // catch the throw escapes the listener and the player buffers forever.
                     try {
-                        const replayer = new Replayer(values.sessionPlayerData.snapshotsByWindowId[windowId], config)
+                        const replayer = new Replayer(values.playableSnapshotsByWindowId[windowId], config)
                         const iframeCleanups: (() => void)[] = []
 
                         replayer.on('fullsnapshot-rebuilded', () => {
@@ -2496,10 +2494,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         syncSnapshotsWithPlayer: async (_, breakpoint) => {
-            // Never feed the replayer events it cannot survive applying
-            if (values.hasOversizedMutations) {
-                return
-            }
             // On loading more of the recording, trigger some state changes
             const currentEvents = values.player?.replayer?.service.state.context.events ?? []
             const eventsToAdd: eventWithTime[] = []
@@ -2515,7 +2509,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             if (values.currentSegment?.windowId !== undefined) {
-                const allSnapshots = values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []
+                const allSnapshots = values.playableSnapshotsByWindowId[values.currentSegment?.windowId] ?? []
                 // NOTE: not `push(...array)` — spreading an unbounded snapshot array into a call
                 // blows the argument stack (RangeError) on very large recordings
                 for (const event of findNewEvents(allSnapshots, currentEvents)) {
@@ -2624,7 +2618,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.retrySnapshotLoading()
         },
         setPlay: () => {
-            if (values.recordingTooLargeToPlay || values.hasOversizedMutations) {
+            if (values.recordingTooLargeToPlay) {
                 return
             }
             if (!values.snapshotsLoaded) {
@@ -3292,8 +3286,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     subscriptions(({ actions, values }) => ({
         hasOversizedMutations: (detected: boolean) => {
             if (detected) {
-                actions.setPause()
-                actions.setPlayerError('recordingTooLarge')
+                posthog.capture('recording player skipped oversized mutations', {
+                    watchedSessionId: values.sessionRecordingId,
+                })
             }
         },
         sessionPlayerData: (value, oldValue) => {

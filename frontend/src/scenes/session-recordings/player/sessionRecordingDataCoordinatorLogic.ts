@@ -66,6 +66,59 @@ export const OVERSIZED_RECORDING_AVG_EVENT_BYTES = 100 * 1024
 export const OVERSIZED_MUTATION_WINDOW_MS = 1000
 export const OVERSIZED_MUTATION_WINDOW_ADDED_NODES = 15000
 
+export interface OversizedMutationRange {
+    start: number
+    // Exclusive: the timestamp of the full snapshot that recovers the DOM, or Infinity when none follows
+    end: number
+}
+
+// Finds the stretches of one window's events that the replayer cannot survive applying: from the
+// first mutation of an oversized burst up to the next full snapshot, which rebuilds the DOM from
+// scratch and so makes the dropped mutations unnecessary.
+export function findOversizedMutationRanges(events: eventWithTime[]): OversizedMutationRange[] {
+    const ranges: OversizedMutationRange[] = []
+    const windowMutations: { timestamp: number; adds: number }[] = []
+    let windowAdds = 0
+    for (let i = 0; i < events.length; i++) {
+        const event = events[i]
+        if (
+            event.type !== EventType.IncrementalSnapshot ||
+            event.data?.source !== IncrementalSource.Mutation ||
+            !Array.isArray(event.data.adds) ||
+            event.data.adds.length === 0
+        ) {
+            continue
+        }
+        windowMutations.push({ timestamp: event.timestamp, adds: event.data.adds.length })
+        windowAdds += event.data.adds.length
+        while (event.timestamp - windowMutations[0].timestamp > OVERSIZED_MUTATION_WINDOW_MS) {
+            windowAdds -= windowMutations.shift()!.adds
+        }
+        if (windowAdds < OVERSIZED_MUTATION_WINDOW_ADDED_NODES) {
+            continue
+        }
+        const start = windowMutations[0].timestamp
+        let end = Infinity
+        for (let j = i + 1; j < events.length; j++) {
+            if (events[j].type === EventType.FullSnapshot && events[j].timestamp > event.timestamp) {
+                end = events[j].timestamp
+                break
+            }
+        }
+        ranges.push({ start, end })
+        if (end === Infinity) {
+            break
+        }
+        // Resume scanning at the recovering full snapshot; everything before it is inside the range
+        while (i + 1 < events.length && events[i + 1].timestamp < end) {
+            i++
+        }
+        windowMutations.length = 0
+        windowAdds = 0
+    }
+    return ranges
+}
+
 export interface SessionRecordingDataCoordinatorLogicProps {
     sessionRecordingId: SessionRecordingId
     // allows disabling polling for new sources in tests
@@ -128,6 +181,8 @@ export interface sessionRecordingDataCoordinatorLogicValues {
     hasOversizedMutations: boolean
     isOldAndInvalid: boolean
     isRecentAndInvalid: boolean
+    oversizedMutationRanges: Record<number, OversizedMutationRange[]>
+    playableSnapshotsByWindowId: Record<number, eventWithTime[]>
     processedSnapshots: RecordingSnapshot[]
     recordingTooLargeToPlay: boolean
     reportedLoaded: boolean
@@ -331,10 +386,15 @@ export interface sessionRecordingDataCoordinatorLogicMeta {
             sessionPlayerMetaData: SessionRecordingType | null,
             featureFlags: FeatureFlagsSet
         ) => boolean
-        hasOversizedMutations: (
-            snapshots: import('@posthog/replay-shared').RecordingSnapshot[],
+        oversizedMutationRanges: (
+            snapshotsByWindowId: Record<number, eventWithTime[]>,
             featureFlags: FeatureFlagsSet
-        ) => boolean
+        ) => Record<number, OversizedMutationRange[]>
+        hasOversizedMutations: (oversizedMutationRanges: Record<number, OversizedMutationRange[]>) => boolean
+        playableSnapshotsByWindowId: (
+            snapshotsByWindowId: Record<number, eventWithTime[]>,
+            oversizedMutationRanges: Record<number, OversizedMutationRange[]>
+        ) => Record<number, eventWithTime[]>
         snapshots: (processedSnapshots: import('@posthog/replay-shared').RecordingSnapshot[]) => RecordingSnapshot[]
         start: (
             snapshots: import('@posthog/replay-shared').RecordingSnapshot[],
@@ -702,37 +762,53 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             },
         ],
 
-        hasOversizedMutations: [
-            (s) => [s.snapshots, s.featureFlags],
-            (snapshots: RecordingSnapshot[], featureFlags: FeatureFlagsSet): boolean => {
+        oversizedMutationRanges: [
+            (s) => [s.snapshotsByWindowId, s.featureFlags],
+            (
+                snapshotsByWindowId: Record<number, eventWithTime[]>,
+                featureFlags: FeatureFlagsSet
+            ): Record<number, OversizedMutationRange[]> => {
                 if (!featureFlags[FEATURE_FLAGS.REPLAY_OVERSIZED_RECORDING_GATE]) {
-                    return false
+                    return {}
                 }
-                const mutations: { timestamp: number; adds: number }[] = []
-                for (const snapshot of snapshots) {
-                    if (
-                        snapshot.type === EventType.IncrementalSnapshot &&
-                        snapshot.data?.source === IncrementalSource.Mutation &&
-                        Array.isArray(snapshot.data.adds) &&
-                        snapshot.data.adds.length > 0
-                    ) {
-                        mutations.push({ timestamp: snapshot.timestamp, adds: snapshot.data.adds.length })
+                const rangesByWindowId: Record<number, OversizedMutationRange[]> = {}
+                for (const [windowId, events] of Object.entries(snapshotsByWindowId)) {
+                    const ranges = findOversizedMutationRanges(events)
+                    if (ranges.length > 0) {
+                        rangesByWindowId[windowId as unknown as number] = ranges
                     }
                 }
-                // processedSnapshots are sorted by timestamp
-                let lo = 0
-                let windowAdds = 0
-                for (const mutation of mutations) {
-                    windowAdds += mutation.adds
-                    while (mutation.timestamp - mutations[lo].timestamp > OVERSIZED_MUTATION_WINDOW_MS) {
-                        windowAdds -= mutations[lo].adds
-                        lo += 1
-                    }
-                    if (windowAdds >= OVERSIZED_MUTATION_WINDOW_ADDED_NODES) {
-                        return true
-                    }
+                return rangesByWindowId
+            },
+        ],
+
+        hasOversizedMutations: [
+            (s) => [s.oversizedMutationRanges],
+            (oversizedMutationRanges: Record<number, OversizedMutationRange[]>): boolean => {
+                return Object.keys(oversizedMutationRanges).length > 0
+            },
+        ],
+
+        // What the replayer ingests: snapshotsByWindowId minus the incremental events inside
+        // oversized ranges. Everything else (export, segments, the inspector) keeps the raw data.
+        playableSnapshotsByWindowId: [
+            (s) => [s.snapshotsByWindowId, s.oversizedMutationRanges],
+            (
+                snapshotsByWindowId: Record<number, eventWithTime[]>,
+                oversizedMutationRanges: Record<number, OversizedMutationRange[]>
+            ): Record<number, eventWithTime[]> => {
+                if (Object.keys(oversizedMutationRanges).length === 0) {
+                    return snapshotsByWindowId
                 }
-                return false
+                const result = { ...snapshotsByWindowId }
+                for (const [windowId, ranges] of Object.entries(oversizedMutationRanges)) {
+                    result[windowId as unknown as number] = snapshotsByWindowId[windowId as unknown as number].filter(
+                        (event) =>
+                            event.type !== EventType.IncrementalSnapshot ||
+                            !ranges.some((range) => event.timestamp >= range.start && event.timestamp < range.end)
+                    )
+                }
+                return result
             },
         ],
 
