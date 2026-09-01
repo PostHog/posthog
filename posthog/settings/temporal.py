@@ -275,6 +275,13 @@ LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
 MCPA_TASK_QUEUE = _set_temporal_task_queue(os.getenv("MCPA_TASK_QUEUE", "general-purpose-task-queue"))
 ERROR_TRACKING_TASK_QUEUE = _set_temporal_task_queue("error-tracking-task-queue")
 ERROR_TRACKING_LIFECYCLE_TASK_QUEUE = _set_temporal_task_queue("error-tracking-lifecycle-task-queue")
+# Alert delivery is outbound-I/O bound (Slack calls, long retries) and must not share
+# slots with the lifecycle fleet, which carries issue-state work such as auto-merge.
+# Defaults to the general-purpose fleet so dispatch always has a live worker; set the
+# env to "error-tracking-alerts-task-queue" once a dedicated worker is deployed.
+ERROR_TRACKING_ALERTS_TASK_QUEUE = _set_temporal_task_queue(
+    os.getenv("ERROR_TRACKING_ALERTS_TASK_QUEUE", "general-purpose-task-queue")
+)
 EVENT_SCREENSHOTS_TASK_QUEUE = _set_temporal_task_queue("event-screenshots-task-queue")
 LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
 # Dedicated queue: the tick becomes the scan-heavy rollup writer, and it must not
