@@ -3,6 +3,7 @@ import { lazyLoaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { shouldReportApiFailure } from 'lib/api-error'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -198,7 +199,9 @@ export const personLogic = kea<personLogicType>([
                         const [sessionCount, eventCount] = row
                         return { sessionCount, eventCount }
                     } catch (error: any) {
-                        posthog.captureException(error)
+                        if (shouldReportApiFailure(error)) {
+                            posthog.captureException(error)
+                        }
                         return {
                             sessionCount: 0,
                             eventCount: 0,
@@ -233,7 +236,9 @@ export const personLogic = kea<personLogicType>([
                             lifetimeValue: row[1] ?? null,
                         }
                     } catch (error) {
-                        posthog.captureException(error, { tag: 'person_revenue_analytics_data_query_failed' })
+                        if (shouldReportApiFailure(error)) {
+                            posthog.captureException(error, { tag: 'person_revenue_analytics_data_query_failed' })
+                        }
                         return null
                     }
                 },
