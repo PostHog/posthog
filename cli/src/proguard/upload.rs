@@ -1,12 +1,11 @@
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
-use tracing::warn;
 
 use crate::{
     api::{self, releases::ReleaseBuilder, symbol_sets::SymbolSetUpload},
     proguard::ProguardFile,
-    sourcemaps::args::{pack_version, ReleaseArgs, ReleaseMode, UploadConflictArgs},
+    sourcemaps::args::{pack_version, ReleaseArgs, UploadConflictArgs},
     utils::git::get_git_info,
 };
 
@@ -30,20 +29,6 @@ pub struct Args {
 
     #[clap(flatten)]
     pub conflict: UploadConflictArgs,
-
-    /// How the release is associated with exceptions. `symbol-set`, the default, stamps the
-    /// release id onto the uploaded mapping, and an exception takes the release of the mappings
-    /// its frames resolved against. EXPERIMENTAL `event` leaves the mapping
-    /// release-independent, and each event resolves its own release from the app version and
-    /// namespace the SDK already sends, so the release coordinates have to match the app's. The
-    /// release is created either way. Also settable via `POSTHOG_RELEASE_MODE`.
-    #[arg(
-        long,
-        env = "POSTHOG_RELEASE_MODE",
-        value_enum,
-        default_value = "symbol-set"
-    )]
-    pub release_mode: ReleaseMode,
 }
 
 pub fn upload(args: &Args) -> Result<()> {
@@ -53,7 +38,6 @@ pub fn upload(args: &Args) -> Result<()> {
         batch_size,
         release,
         conflict,
-        release_mode,
     } = args;
 
     let resolved_release = release.resolve_info_plist()?;
@@ -64,18 +48,6 @@ pub fn upload(args: &Args) -> Result<()> {
         info_plist: _,
         skip_release_on_fail,
     } = &resolved_release;
-
-    // Event mode leaves nothing on the symbol set for the server to fall back to, so an
-    // exception resolves its release only from the app metadata on the event itself. Coordinates
-    // derived from git rather than passed explicitly will not match that metadata, and the
-    // exception then reports no release at all, silently.
-    if *release_mode == ReleaseMode::Event && (name.is_none() || version.is_none()) {
-        warn!(
-            "--release-mode=event resolves each exception's release from the app's namespace and \
-             version. Pass --release-name, --release-version and --build matching the app's \
-             applicationId, versionName and versionCode, or exceptions will report no release."
-        );
-    }
 
     let path = path
         .canonicalize()
@@ -105,18 +77,9 @@ pub fn upload(args: &Args) -> Result<()> {
 
     // The release is created in both modes, so the server has a row to resolve an event's
     // `$app_namespace` / `$app_version` / `$app_build` onto. Event mode only skips binding it to
-    // the mapping: a map id is derived from the mapping's own content, so the same mapping keeps
-    // one symbol set across releases instead of colliding with the release the first upload
-    // stamped on it.
-    //
-    // Unlike sourcemaps, event mode does not imply `--force` here. The uploaded bytes are the
-    // mapping itself, with no injected release id, so a rebuild of unchanged code produces
-    // identical content under the same id and never conflicts. A conflict means the caller reused
-    // a `--map-id` for a different mapping, which is worth reporting in either mode.
-    file.release_id = match release_mode {
-        ReleaseMode::Event => None,
-        ReleaseMode::SymbolSet => release.map(|r| r.id.to_string()),
-    };
+    // The mapping keeps the release the upload creates, so an exception takes the release of the
+    // mappings its frames resolved against.
+    file.release_id = release.map(|r| r.id.to_string());
 
     let to_upload: SymbolSetUpload = file.try_into()?;
 
@@ -156,20 +119,5 @@ mod tests {
         let crate::proguard::ProguardSubcommand::Upload(args) =
             ProguardCli::parse_from(argv).command;
         args
-    }
-
-    #[test]
-    fn defaults_to_binding_the_release_to_the_mapping() {
-        // Every existing caller omits the flag, and they must keep uploading mappings stamped with
-        // their release.
-        assert_eq!(parse(&[]).release_mode, ReleaseMode::SymbolSet);
-    }
-
-    #[test]
-    fn accepts_event_release_mode() {
-        assert_eq!(
-            parse(&["--release-mode", "event"]).release_mode,
-            ReleaseMode::Event
-        );
     }
 }
