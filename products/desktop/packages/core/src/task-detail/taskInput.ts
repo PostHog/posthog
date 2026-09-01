@@ -5,6 +5,7 @@ import type {
   CloudMcpServerRelayDesignation,
   CodexModelAccess,
   McpServerConnection,
+  ModelAccess,
   TaskCreationInput,
   WorkspaceMode,
 } from "@posthog/shared";
@@ -23,6 +24,7 @@ export interface PrepareTaskInputOptions {
   executionMode?: ExecutionMode;
   adapter?: Adapter;
   codexModelAccess?: CodexModelAccess;
+  claudeModelAccess?: ModelAccess;
   runtime?: AgentRuntime;
   model?: string;
   reasoningLevel?: string;
@@ -73,6 +75,7 @@ export function prepareTaskInput(
     executionMode: options.executionMode,
     adapter: options.adapter,
     codexModelAccess: options.codexModelAccess,
+    claudeModelAccess: options.claudeModelAccess,
     runtime,
     model: options.model,
     reasoningLevel: options.reasoningLevel,

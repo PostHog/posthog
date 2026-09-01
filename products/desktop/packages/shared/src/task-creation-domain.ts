@@ -1,4 +1,4 @@
-import type { Adapter, CodexModelAccess } from "./adapter";
+import type { Adapter, CodexModelAccess, ModelAccess } from "./adapter";
 import type { AgentRuntime } from "./agent-runtime";
 import type { CloudRunSource, PrAuthorshipMode } from "./cloud";
 import type { Task } from "./domain-types";
@@ -38,6 +38,7 @@ export interface TaskCreationInput {
   executionMode?: ExecutionMode;
   adapter?: Adapter;
   codexModelAccess?: CodexModelAccess;
+  claudeModelAccess?: ModelAccess;
   runtime?: AgentRuntime;
   model?: string;
   reasoningLevel?: string;

@@ -342,6 +342,8 @@ export interface ClaudeAcpAgentOptions {
   posthogApiConfig?: PostHogAPIConfig;
   /** Explicit gateway config — avoids global process.env mutation across concurrent sessions. */
   gatewayEnv?: GatewayEnv;
+  /** Authenticate with the machine's Claude Code login; strips gateway/ambient ANTHROPIC_* credentials. */
+  useMachineAuth?: boolean;
   /** Per-session context wiki mount — avoids global process.env mutation across concurrent sessions. */
   contextWiki?: ContextWikiEnv;
 }
@@ -2781,6 +2783,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       taskState,
       getCurrentModelId: () => this.session?.modelId,
       gatewayEnv: this.options?.gatewayEnv,
+      useMachineAuth: this.options?.useMachineAuth,
       bedrockGatewayVariant,
       contextWiki: this.options?.contextWiki,
       onTaskStateChange: async () => {

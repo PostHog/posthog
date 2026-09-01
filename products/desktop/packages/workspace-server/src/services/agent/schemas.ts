@@ -39,6 +39,7 @@ export const startSessionInput = z.object({
   runMode: z.enum(["local", "cloud"]).optional(),
   adapter: z.enum(["claude", "codex"]).optional(),
   codexModelAccess: codexModelAccessSchema.optional(),
+  claudeModelAccess: codexModelAccessSchema.optional(),
   additionalDirectories: z.array(z.string()).optional(),
   customInstructions: customInstructionsField,
   /**
@@ -222,6 +223,7 @@ export const reconnectSessionInput = z.object({
   sessionId: z.string().optional(),
   adapter: z.enum(["claude", "codex"]).optional(),
   codexModelAccess: codexModelAccessSchema.optional(),
+  claudeModelAccess: codexModelAccessSchema.optional(),
   /** Additional directories Claude can access beyond cwd (for worktree support) */
   additionalDirectories: z.array(z.string()).optional(),
   permissionMode: z.string().optional(),
@@ -255,6 +257,14 @@ export const codexSubscriptionStatusOutput = z.object({
 
 export type CodexSubscriptionStatus = z.infer<
   typeof codexSubscriptionStatusOutput
+>;
+
+export const claudeSubscriptionStatusOutput = z.object({
+  loggedIn: z.boolean(),
+});
+
+export type ClaudeSubscriptionStatus = z.infer<
+  typeof claudeSubscriptionStatusOutput
 >;
 
 export const codexSubscriptionLoginOutput = z.object({

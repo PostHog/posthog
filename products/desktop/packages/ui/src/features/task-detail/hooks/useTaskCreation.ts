@@ -17,6 +17,7 @@ import {
   type AgentRuntime,
   ANALYTICS_EVENTS,
   type CodexModelAccess,
+  type ModelAccess,
   PROJECT_BLUEBIRD_FLAG,
   type TaskCreationInput,
   type WorkspaceMode,
@@ -29,6 +30,10 @@ import {
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useTaskRepositoryDraftStore } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import {
+  effectiveClaudeModelAccess,
+  useClaudeSubscription,
+} from "@posthog/ui/features/settings/useClaudeSubscription";
 import {
   effectiveCodexModelAccess,
   useCodexSubscription,
@@ -141,6 +146,7 @@ async function trackTaskCreated(
   selectedDirectory: string,
   hostClient: HostTrpcClient,
   codexModelAccess?: CodexModelAccess,
+  claudeModelAccess?: ModelAccess,
 ): Promise<void> {
   try {
     const workspaceMode = input.workspaceMode ?? "local";
@@ -182,6 +188,7 @@ async function trackTaskCreated(
       uses_worktree_include: usesWorktreeInclude,
       adapter: input.adapter,
       codex_model_access: codexModelAccess,
+      claude_model_access: claudeModelAccess,
     });
   } catch (error) {
     log.warn("Failed to track Task created event", { error });
@@ -224,6 +231,7 @@ export function useTaskCreation({
   const [isExitingComposer, setIsExitingComposer] = useState(false);
   const hostClient = useHostTRPCClient();
   const codexSubscription = useCodexSubscription();
+  const claudeSubscription = useClaudeSubscription();
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
   const defaultAdditionalDirectoriesQuery = useQuery(
@@ -418,6 +426,15 @@ export function useTaskCreation({
                   workspaceMode,
                 })
               : undefined;
+          const claudeModelAccess =
+            runtime !== "pi" && adapter === "claude"
+              ? effectiveClaudeModelAccess({
+                  flagEnabled: claudeSubscription.flagEnabled,
+                  subscriptionOn: claudeSubscription.subscriptionOn,
+                  loggedIn: claudeSubscription.loggedIn,
+                  workspaceMode,
+                })
+              : undefined;
           const input = prepareTaskInput(serializedContent, filePaths, {
             // Repo-optional surfaces may still supply an explicit task folder or
             // repository selection; otherwise creation falls back to scratch.
@@ -433,6 +450,7 @@ export function useTaskCreation({
             executionMode,
             adapter,
             codexModelAccess,
+            claudeModelAccess,
             runtime,
             model,
             reasoningLevel,
@@ -570,6 +588,7 @@ export function useTaskCreation({
               selectedDirectory,
               hostClient,
               input.codexModelAccess,
+              input.claudeModelAccess,
             );
             // Repo-less channel tasks create no workspace row (the agent runs in
             // a scratch dir surfaced as a synthetic workspace), so the normal
@@ -708,6 +727,9 @@ export function useTaskCreation({
       codexSubscription.flagEnabled,
       codexSubscription.loggedIn,
       codexSubscription.subscriptionOn,
+      claudeSubscription.flagEnabled,
+      claudeSubscription.loggedIn,
+      claudeSubscription.subscriptionOn,
     ],
   );
 

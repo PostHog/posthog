@@ -115,6 +115,14 @@ export interface BuildOptionsParams {
   getCurrentModelId?: () => string | undefined;
   /** Explicit gateway config — prevents global process.env mutation. */
   gatewayEnv?: GatewayEnv;
+  /**
+   * Authenticate with the machine's own Claude Code login. Strips every
+   * credential variable that outranks the login in Claude Code's auth
+   * precedence (including ambient shell values) and skips PostHog headers.
+   * Explicit opt-in — cloud sessions share this chokepoint and must keep
+   * gateway auth.
+   */
+  useMachineAuth?: boolean;
   /** Matched `bedrock-llm-gateway` variant; `test` serves this session from Bedrock. */
   bedrockGatewayVariant?: BedrockGatewayVariant;
   /** Per-session context wiki mount — prevents global process.env mutation. */
@@ -175,7 +183,50 @@ function buildEnvironment(
   sessionId?: string,
   bedrockGatewayVariant?: BedrockGatewayVariant,
   contextWiki?: ContextWikiEnv,
+  useMachineAuth?: boolean,
 ): Record<string, string> {
+  // SDK 0.3.142 made MCP servers connect in the background by default. That
+  // default is what we want: a slow or unreachable user MCP server (PostHog
+  // MCP, custom stdio servers) would otherwise stall turn 1 by up to ~5s per
+  // server. We honor an explicit override from the caller's environment for
+  // sessions that genuinely need MCP tools available on turn 1.
+  const mcpNonblocking = process.env.MCP_CONNECTION_NONBLOCKING;
+
+  if (useMachineAuth) {
+    // Own-subscription mode: model calls go to api.anthropic.com with the
+    // machine's Claude Code login. Delete every credential variable that
+    // outranks the login in Claude Code's auth precedence — both our gateway
+    // values and ambient shell exports, which the agent's shells can read.
+    // ANTHROPIC_CUSTOM_HEADERS must go too: no x-posthog-* header may reach
+    // Anthropic. CLAUDE_CODE_OAUTH_TOKEN stays — it is itself a subscription
+    // credential. Telemetry stays off: it only enables with a gateway base
+    // URL, and spans carry no task attribution here.
+    const env: Record<string, string> = {
+      ...process.env,
+      ...((process.versions.electron || process.env.ELECTRON_RUN_AS_NODE) && {
+        ELECTRON_RUN_AS_NODE: "1",
+      }),
+      CLAUDE_CODE_ENABLE_ASK_USER_QUESTION_TOOL: "true",
+      // Offload all MCP tools by default
+      ENABLE_TOOL_SEARCH: "auto:0",
+      // Enable idle state as end-of-turn signal (required for SDK 0.2.114+)
+      CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1",
+      ...(mcpNonblocking !== undefined && {
+        MCP_CONNECTION_NONBLOCKING: mcpNonblocking,
+      }),
+    };
+    delete env.ANTHROPIC_BASE_URL;
+    delete env.ANTHROPIC_AUTH_TOKEN;
+    delete env.ANTHROPIC_API_KEY;
+    delete env.ANTHROPIC_CUSTOM_HEADERS;
+    // The gateway also sets these for OpenAI-compatible tools; in machine-auth
+    // mode only ambient values could survive, and they must not either.
+    delete env.OPENAI_BASE_URL;
+    delete env.OPENAI_API_KEY;
+    applyContextWikiEnv(env, contextWiki);
+    return env;
+  }
+
   // Custom HTTP headers reach the model only through the Claude CLI subprocess,
   // which reads them from this env var (newline-delimited `name: value` lines)
   // — the SDK has no direct header option. We finalize them here, the single
@@ -219,13 +270,6 @@ function buildEnvironment(
     );
   }
   const customHeaders = headerLines.join("\n");
-
-  // SDK 0.3.142 made MCP servers connect in the background by default. That
-  // default is what we want: a slow or unreachable user MCP server (PostHog
-  // MCP, custom stdio servers) would otherwise stall turn 1 by up to ~5s per
-  // server. We honor an explicit override from the caller's environment for
-  // sessions that genuinely need MCP tools available on turn 1.
-  const mcpNonblocking = process.env.MCP_CONNECTION_NONBLOCKING;
 
   // Every var is load-bearing (ablation-tested): the CLI stamps the per-turn
   // traceparent only once its OTel tracer initializes, and the dead endpoint
@@ -552,6 +596,7 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
       params.sessionId,
       params.bedrockGatewayVariant,
       params.contextWiki,
+      params.useMachineAuth,
     ),
     hooks: buildHooks(
       params.userProvidedOptions?.hooks,
@@ -599,7 +644,9 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     options.model = DEFAULT_MODEL;
   }
 
-  if (!options.fallbackModel) {
+  if (!options.fallbackModel && !params.useMachineAuth) {
+    // The pinned fallback is a gateway-era model version the user's Claude
+    // plan may not have, so machine-auth sessions run without a fallback.
     options.fallbackModel = resolveFallbackModel(
       options.model ?? DEFAULT_MODEL,
     );

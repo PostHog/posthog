@@ -21,6 +21,7 @@ import {
 } from "@posthog/agent";
 import type { McpToolApprovals } from "@posthog/agent/adapters/claude/mcp/tool-metadata";
 import { hydrateSessionJsonl } from "@posthog/agent/adapters/claude/session/jsonl-hydration";
+import { hasClaudeLogin } from "@posthog/agent/adapters/claude/subscription-login";
 import {
   type CodexLoginSession,
   hasCodexChatgptLogin,
@@ -119,6 +120,7 @@ import type {
 import {
   AgentServiceEvent,
   type AgentServiceEvents,
+  type ClaudeSubscriptionStatus,
   type CodexSubscriptionStatus,
   type Credentials,
   type EffortLevel,
@@ -287,6 +289,8 @@ interface SessionConfig {
   sessionId?: string;
   adapter?: Adapter;
   codexModelAccess?: CodexModelAccess;
+  /** Claude adapter: run on the machine's own Claude Code login. */
+  claudeModelAccess?: CodexModelAccess;
   /** Permission mode to use for the session */
   permissionMode?: string;
   /** Custom instructions injected into the system prompt */
@@ -529,6 +533,14 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     return {
       appLoggedIn: await hasCodexChatgptLogin({
         binaryPath: this.getCodexBinaryPath(),
+      }),
+    };
+  }
+
+  async getClaudeSubscriptionStatus(): Promise<ClaudeSubscriptionStatus> {
+    return {
+      loggedIn: await hasClaudeLogin({
+        claudeCliPath: this.getClaudeCliPath(),
       }),
     };
   }
@@ -947,6 +959,8 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       );
       const codexSubscription =
         adapter === "codex" && config.codexModelAccess === "own-subscription";
+      const claudeSubscription =
+        adapter === "claude" && config.claudeModelAccess === "own-subscription";
       const codexAuthGeneration = this.codexAuthGeneration;
 
       let codexHome: string | undefined;
@@ -967,6 +981,7 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       const acpConnection = await agent.run(taskId, taskRunId, {
         adapter,
         codexModelAccess: codexSubscription ? "own-subscription" : undefined,
+        claudeModelAccess: claudeSubscription ? "own-subscription" : undefined,
         gatewayUrl: proxyUrl,
         contextWiki: contextWiki ?? undefined,
         codexBinaryPath:
@@ -2238,6 +2253,8 @@ For git operations while detached:
       adapter: "adapter" in params ? params.adapter : undefined,
       codexModelAccess:
         "codexModelAccess" in params ? params.codexModelAccess : undefined,
+      claudeModelAccess:
+        "claudeModelAccess" in params ? params.claudeModelAccess : undefined,
       permissionMode:
         "permissionMode" in params ? params.permissionMode : undefined,
       customInstructions:

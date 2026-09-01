@@ -40,6 +40,7 @@ import {
   isRateLimitError,
   isTransientUpstreamError,
   leadingSlashCommand,
+  type ModelAccess,
   mergeConfigOptions,
   type OptimisticItem,
   type PermissionRequest,
@@ -500,6 +501,7 @@ export interface SessionServiceDeps {
     spokenNarrationEnabled?: boolean;
     bedrockGatewayVariant?: BedrockGatewayVariant;
     codexModelAccess?: CodexModelAccess;
+    claudeModelAccess?: ModelAccess;
   };
   usageLimit: { show: (...args: any[]) => any };
   readonly addDirectoryDialog: { open: boolean };
@@ -539,6 +541,7 @@ export interface ConnectParams {
   executionMode?: ExecutionMode;
   adapter?: Adapter;
   codexModelAccess?: CodexModelAccess;
+  claudeModelAccess?: ModelAccess;
   model?: string;
   reasoningLevel?: string;
   contextWindow?: "200k" | "1m";
@@ -1928,6 +1931,7 @@ export class SessionService {
   private stampRunConfig(session: AgentSession, params: ConnectParams): void {
     session.adapter = params.adapter;
     session.codexModelAccess = params.codexModelAccess;
+    session.claudeModelAccess = params.claudeModelAccess;
     session.model = params.model;
     session.executionMode = params.executionMode;
     session.reasoningLevel = params.reasoningLevel;
@@ -1946,6 +1950,7 @@ export class SessionService {
       executionMode,
       adapter,
       codexModelAccess,
+      claudeModelAccess,
       model,
       reasoningLevel,
       contextWindow,
@@ -2066,6 +2071,7 @@ export class SessionService {
           contextWindow,
           fastMode,
           codexModelAccess,
+          claudeModelAccess,
         );
       }
     } catch (error) {
@@ -2286,6 +2292,7 @@ export class SessionService {
         spokenNarrationEnabled,
         bedrockGatewayVariant,
         codexModelAccess,
+        claudeModelAccess: settingsClaudeModelAccess,
       } = this.d.settings;
       const result = await this.d.trpc.agent.reconnect.mutate({
         taskId,
@@ -2293,6 +2300,7 @@ export class SessionService {
         repoPath,
         rtkEnabled: rtkEnabledLocal,
         codexModelAccess,
+        claudeModelAccess: settingsClaudeModelAccess,
         spokenNarration: spokenNarrationEnabled === true,
         bedrockGatewayVariant,
         apiHost: auth.apiHost,
@@ -2629,6 +2637,7 @@ export class SessionService {
     contextWindow?: "200k" | "1m",
     fastMode?: boolean,
     codexModelAccess?: CodexModelAccess,
+    claudeModelAccess?: ModelAccess,
   ): Promise<void> {
     const { client } = auth;
     if (!client) {
@@ -2646,9 +2655,12 @@ export class SessionService {
       spokenNarrationEnabled,
       bedrockGatewayVariant,
       codexModelAccess: settingsCodexModelAccess,
+      claudeModelAccess: settingsClaudeModelAccess,
     } = this.d.settings;
     const resolvedCodexModelAccess =
       codexModelAccess ?? settingsCodexModelAccess;
+    const resolvedClaudeModelAccess =
+      claudeModelAccess ?? settingsClaudeModelAccess;
     const preferredModel = model ?? this.d.DEFAULT_GATEWAY_MODEL;
     const result = await this.d.trpc.agent.start.mutate({
       taskId,
@@ -2659,6 +2671,7 @@ export class SessionService {
       permissionMode: executionMode,
       adapter,
       codexModelAccess: resolvedCodexModelAccess,
+      claudeModelAccess: resolvedClaudeModelAccess,
       customInstructions: startCustomInstructions || undefined,
       rtkEnabled: rtkEnabledLocal,
       spokenNarration: spokenNarrationEnabled === true,
@@ -2677,6 +2690,7 @@ export class SessionService {
     session.status = "connected";
     session.adapter = adapter;
     session.codexModelAccess = resolvedCodexModelAccess;
+    session.claudeModelAccess = resolvedClaudeModelAccess;
     session.model = model;
     session.executionMode = executionMode;
     session.reasoningLevel = reasoningLevel;
@@ -6083,6 +6097,7 @@ export class SessionService {
         contextWindow,
         fastMode,
         codexModelAccess,
+        claudeModelAccess,
       } = session;
       await this.teardownSession(session.taskRunId);
       const authStatus = await this.getAuthCredentialsStatus();
@@ -6108,6 +6123,7 @@ export class SessionService {
         contextWindow,
         fastMode,
         codexModelAccess,
+        claudeModelAccess,
       );
       return;
     }

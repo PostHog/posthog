@@ -1,6 +1,7 @@
 import type {
   Adapter,
   CodexModelAccess,
+  ModelAccess,
   PostHogAPIConfig,
 } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
@@ -70,6 +71,8 @@ export interface TaskExecutionOptions {
   model?: string;
   gatewayUrl?: string;
   codexModelAccess?: CodexModelAccess;
+  /** Claude adapter: run on the machine's own Claude Code login instead of the PostHog gateway. */
+  claudeModelAccess?: ModelAccess;
   codexBinaryPath?: string;
   codexHome?: string;
   reasoningEffort?: EffortLevel;
