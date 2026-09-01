@@ -4030,6 +4030,59 @@ export interface BulkUpdateTagsResponseApi {
     skipped: BulkUpdateTagsErrorApi[]
 }
 
+export interface UploadedMediaApi {
+    readonly id: string
+    /** The file's original name. */
+    readonly name: string
+    /** @nullable */
+    readonly purpose: string | null
+    /** @nullable */
+    readonly content_type: string | null
+    /** @nullable */
+    readonly size_bytes: number | null
+    /** Permanent, public URL of the image. For emails, put this in an image block's values.src.url. */
+    readonly url: string
+    readonly created_at: string
+}
+
+export interface PaginatedUploadedMediaListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: UploadedMediaApi[]
+}
+
+export interface UploadedMediaStartUploadApi {
+    /**
+     * The file's display name, e.g. 'logo.png'.
+     * @maxLength 1000
+     */
+    name: string
+    /**
+     * Library to add this image to once uploaded, e.g. 'email'.
+     * @maxLength 100
+     */
+    purpose: string
+}
+
+/**
+ * Extra form fields to send alongside the file in the same POST.
+ */
+export type UploadedMediaUploadStartedApiFormFields = { [key: string]: string }
+
+export interface UploadedMediaUploadStartedApi {
+    /** Id of the pending upload — pass this to complete_upload. */
+    readonly id: string
+    /** POST the image file here as multipart/form-data. */
+    readonly upload_url: string
+    /** Extra form fields to send alongside the file in the same POST. */
+    readonly form_fields: UploadedMediaUploadStartedApiFormFields
+    /** Seconds before upload_url expires. */
+    readonly expires_in: number
+}
+
 export interface LeakedKeyReportApi {
     /**
      * The leaked PostHog personal API key, project secret API key, or OAuth access/refresh token to revoke.
@@ -5122,6 +5175,46 @@ export const PropertyDefinitionsListType = {
     Group: 'group',
     Session: 'session',
 } as const
+
+export type UploadedMediaListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * The library to list.
+     */
+    purpose: UploadedMediaListPurpose
+}
+
+export type UploadedMediaListPurpose = (typeof UploadedMediaListPurpose)[keyof typeof UploadedMediaListPurpose]
+
+export const UploadedMediaListPurpose = {
+    Email: 'email',
+} as const
+
+/**
+ * Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do).
+ */
+export type UploadedMediaCreateBodyPurpose =
+    (typeof UploadedMediaCreateBodyPurpose)[keyof typeof UploadedMediaCreateBodyPurpose]
+
+export const UploadedMediaCreateBodyPurpose = {
+    Email: 'email',
+} as const
+
+export type UploadedMediaCreateBody = {
+    /** Image file. Must be under 4MB and a real, decodable image. */
+    image: Blob
+    /** Library to add this image to. Omit to upload without joining a library (as dashboard text cards and notebooks do). */
+    purpose?: UploadedMediaCreateBodyPurpose
+}
+
+export type UploadedMediaCreate201 = { [key: string]: unknown }
 
 export type UsersListParams = {
     email?: string
