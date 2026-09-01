@@ -1330,14 +1330,12 @@ class TestGetFriendlyErrorMessage(BaseTest):
             get_friendly_error_message(CohortErrorCode.INVALID_QUERY, "Field not found: <join field>"),
             "Field not found: <join field>",
         )
-        self.assertIn(
-            "review your matching criteria",
-            get_friendly_error_message(CohortErrorCode.INVALID_QUERY, None).lower(),
-        )
-        self.assertIn(
-            "an error occurred",
-            get_friendly_error_message(CohortErrorCode.UNKNOWN, "Field not found: <join field>").lower(),
-        )
+        invalid_query_fallback = get_friendly_error_message(CohortErrorCode.INVALID_QUERY, None)
+        assert invalid_query_fallback is not None
+        self.assertIn("review your matching criteria", invalid_query_fallback.lower())
+        unknown_message = get_friendly_error_message(CohortErrorCode.UNKNOWN, "Field not found: <join field>")
+        assert unknown_message is not None
+        self.assertIn("an error occurred", unknown_message.lower())
 
     def test_get_friendly_error_message_none(self):
         self.assertIsNone(get_friendly_error_message(None))
