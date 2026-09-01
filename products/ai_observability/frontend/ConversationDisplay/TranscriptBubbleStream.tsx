@@ -156,29 +156,35 @@ function pillSideFor(labels: string[]): 'left' | 'right' {
     return labels.length > 0 && AGENT_SIDE_LABELS.has(labels[0]) ? 'left' : 'right'
 }
 
-// The gate is the tool's NAME: only a tool whose purpose is to put a question to the user
-// (Desktop's AskUserQuestion, ask_user_question, ask_followup_question, request_user_input)
-// may render its payload as assistant speech. Gating on argument shape instead would bubble
-// routine trailing calls — git_commit(message=…), create_file(text=…), a subagent prompt=… —
-// whenever a trace ends on one, which is normal for errored or truncated traces.
-const ASK_TOOL_NAME_REGEX = /ask|question|user_input/i
+// Only a tool named for asking the user (AskUserQuestion, ask_user_question) may render its
+// payload as speech, because routine trailing calls like git_commit(message=…) carry the same
+// argument keys. Match whole name segments so that "ask" does not match every "task" tool.
+const ASK_NAME_SEGMENTS = new Set(['ask', 'question', 'questions'])
 
-// Keys that carry the user-facing text inside an ask tool's arguments, in priority order.
+// Argument keys that carry the user-facing text, in priority order.
 const ASK_ARG_TEXT_KEYS = ['question', 'prompt', 'message', 'text']
 
-function hasAskLikeCall(message: CompatMessage): boolean {
-    return (message.tool_calls ?? []).some(
-        (call) => typeof call.function?.name === 'string' && ASK_TOOL_NAME_REGEX.test(call.function.name)
+function isAskLikeToolName(name: unknown): boolean {
+    return (
+        typeof name === 'string' &&
+        name
+            .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+            .toLowerCase()
+            .split(/[^a-z0-9]+/)
+            .some((segment) => ASK_NAME_SEGMENTS.has(segment))
     )
+}
+
+function hasAskLikeCall(message: CompatMessage): boolean {
+    return (message.tool_calls ?? []).some((call) => isAskLikeToolName(call.function?.name))
 }
 
 function askQuestionText(message: CompatMessage): string {
     const argObjects = (message.tool_calls ?? [])
-        .filter((call) => typeof call.function?.name === 'string' && ASK_TOOL_NAME_REGEX.test(call.function.name))
+        .filter((call) => isAskLikeToolName(call.function?.name))
         .map((call) => parseToolArgumentsForDisplay(call.function?.arguments))
         .flatMap((parsed) => (parsed.kind === 'parsed' && isObject(parsed.value) ? [parsed.value] : []))
-    // Desktop's AskUserQuestion nests the text one level down ({ questions: [{ question: … }] }),
-    // so scan the top level of every ask call first, then one level into object and array children.
+    // Desktop's AskUserQuestion nests the text one level down: { questions: [{ question: … }] }.
     const nested = argObjects.flatMap((args) =>
         Object.values(args).flatMap((child) =>
             Array.isArray(child) ? child.filter(isObject) : isObject(child) ? [child] : []
@@ -196,9 +202,8 @@ function isPlainAssistant(message: CompatMessage): boolean {
     return message.role === 'assistant' && getInternalLabel(message) === undefined
 }
 
-// Messages that do not end the assistant's turn when they trail it: hidden roles, thinking,
-// tag wrappers, and messages that render nothing. A tool result is NOT skippable — a result
-// arriving after a call means the call was answered and the turn moved on.
+// Trailing messages that do not end the turn. A tool result does end it, because it means the
+// call was answered and the turn moved on.
 function isTailSkippable(message: CompatMessage): boolean {
     if (isToolResultEntry(message)) {
         return false
@@ -215,12 +220,9 @@ interface TrailingAsk {
     consumedIndices: Set<number>
 }
 
-// A turn that ends on an ask-like tool call is the assistant handing the turn to the user, so
-// it is the turn's content rather than an intermediate step. Providers split one turn
-// differently — OpenAI keeps text and tool calls on one message, Anthropic splits them into
-// sibling messages, and parallel calls arrive as siblings too — so the unit of analysis is the
-// whole trailing run of assistant-side messages, not a single message. The assistant's own
-// words win; the question from the ask call's arguments is the fallback.
+// A turn that ends on an ask-like call is the assistant handing the turn to the user, which
+// makes it the turn's content. Providers split one turn into different message shapes, so the
+// unit is the whole trailing run: spoken words win, the ask call's arguments are the fallback.
 function findTrailingAsk(messages: CompatMessage[]): TrailingAsk | null {
     const tailStart = messages.findLastIndex((message) => !isPlainAssistant(message) && !isTailSkippable(message)) + 1
     const assistantEntries = messages
@@ -263,8 +265,7 @@ function classifyMessages(messages: CompatMessage[]): SessionEntry[] {
             continue
         }
         if (trailingAsk !== null && i === trailingAsk.anchorIndex) {
-            // nonText stays false: the ask is rendered, so the attachments caption and the
-            // unrenderable capture would misreport a message we just displayed.
+            // nonText stays false: the ask is rendered, so the unrenderable capture would misfire.
             result.push({ kind: 'bubble', message, text: trailingAsk.text, nonText: false })
             continue
         }
@@ -364,9 +365,7 @@ export function TranscriptBubbleStream({
                         boxClassName={item.message.role === 'user' ? 'bg-fill-tertiary' : undefined}
                     >
                         {item.text && (
-                            // Bubble text is customer trace content, and the ask path lifts it
-                            // straight from tool arguments — untrusted either way, so external
-                            // images must not auto-load a request against the viewer's browser.
+                            // Trace content is untrusted, so external images must not auto-load.
                             <LemonMarkdown className="whitespace-pre-wrap break-words" disableImages>
                                 {item.text}
                             </LemonMarkdown>

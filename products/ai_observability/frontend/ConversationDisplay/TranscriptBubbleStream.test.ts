@@ -553,11 +553,12 @@ describe('buildStreamItems — assistant tool activity: narration collapses, a t
         expect(items[1]).toMatchObject({ text: 'Which region should I deploy to?' })
     })
 
-    it("never renders a routine trailing tool call's payload as assistant speech", () => {
-        const items = buildStreamItems([
-            userText('Fix the bug'),
-            toolCall('git_commit', { message: 'fix: adjust the gate' }),
-        ])
+    it.each([
+        ['git_commit', { message: 'fix: adjust the gate' }],
+        // "Task" contains "ask": a substring gate would bubble the subagent prompt as speech.
+        ['Task', { prompt: 'You are a subagent. Find the flaky test.' }],
+    ])("never renders a routine trailing %s call's payload as assistant speech", (name, args) => {
+        const items = buildStreamItems([userText('Fix the bug'), toolCall(name, args)])
         expect(items.map((i) => i.kind)).toEqual(['bubble'])
     })
 
