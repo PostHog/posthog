@@ -10,6 +10,7 @@ import {
   Terminal,
   X,
 } from "@phosphor-icons/react";
+import { getAuthIdentity } from "@posthog/core/auth/authIdentity";
 import { isBrainrotCell } from "@posthog/core/command-center/grid";
 import {
   Empty,
@@ -35,12 +36,16 @@ import { secureRandomString } from "@posthog/ui/utils/random";
 import { Flex, Text } from "@radix-ui/themes";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useAuthStateValue } from "../../auth/store";
+import { useCurrentUser } from "../../auth/useCurrentUser";
 import { useFolders } from "../../folders/useFolders";
 import { useCloudPrUrl } from "../../git-interaction/useCloudPrUrl";
+import { useDraftStore } from "../../message-editor/draftStore";
 import { EmbeddedSessionView } from "../../sessions/components/EmbeddedSessionView";
 import { TaskIcon } from "../../sidebar/components/items/TaskIcon";
 import { useTaskPrStatus } from "../../sidebar/useTaskPrStatus";
-import { useCommandCenterStore } from "../commandCenterStore";
+import { TaskInput } from "../../task-detail/components/TaskInput";
+import { getCellSessionId, useCommandCenterStore } from "../commandCenterStore";
 import type {
   CellStatus,
   CommandCenterCellData,
@@ -124,11 +129,27 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
   const [selectorOpen, setSelectorOpen] = useState(false);
   // The command-center terminal is unavailable on cloud-only hosts.
   const { localWorkspaces } = useHostCapabilities();
+  const composer = useCommandCenterStore((s) => s.composer);
+  const finishCreating = useCommandCenterStore((s) => s.finishCreating);
   const setBrainrotCell = useCommandCenterStore((s) => s.setBrainrotCell);
   const setTerminalCell = useCommandCenterStore((s) => s.setTerminalCell);
+  const startCreating = useCommandCenterStore((s) => s.startCreating);
+  const stopCreating = useCommandCenterStore((s) => s.stopCreating);
   const layout = useCommandCenterStore((s) => s.layout);
   const cells = useCommandCenterStore((s) => s.cells);
   const brainrotMode = useSettingsStore((s) => s.brainrotMode);
+  const setDraft = useDraftStore((s) => s.actions.setDraft);
+  const authIdentity = useAuthStateValue(getAuthIdentity);
+  const { data: currentUser } = useCurrentUser();
+  const authScope =
+    authIdentity && currentUser?.uuid
+      ? `${authIdentity}:${currentUser.uuid}`
+      : null;
+  const sessionId = authScope ? getCellSessionId(authScope, cellIndex) : null;
+  const isCreating =
+    sessionId !== null &&
+    composer?.cellIndex === cellIndex &&
+    composer.sessionId === sessionId;
 
   const handleBrainrot = useCallback(() => {
     track(ANALYTICS_EVENTS.BRAINROT_ACTIVATED, {
@@ -145,13 +166,70 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
     [setTerminalCell, cellIndex],
   );
 
+  const handleNewTask = useCallback(() => {
+    if (sessionId) startCreating(cellIndex, sessionId);
+  }, [startCreating, cellIndex, sessionId]);
+
+  // Claiming the tile is what keeps the run in the grid: without it the task
+  // exists but its session has nowhere to render.
+  const handleTaskCreated = useCallback(
+    (task: Task) => {
+      if (!sessionId) {
+        void openTask(task);
+        return;
+      }
+      const assigned = finishCreating(sessionId, task.id);
+      setDraft(sessionId, null);
+      // Creation may finish after the user replaced or removed the tile. The
+      // task still exists, so open it instead of overwriting newer grid state.
+      if (!assigned) void openTask(task);
+    },
+    [finishCreating, setDraft, sessionId],
+  );
+
+  const handleCancel = useCallback(() => {
+    if (sessionId) stopCreating(sessionId);
+  }, [stopCreating, sessionId]);
+
+  // Cancelling here and clearing the tile elsewhere (Clear, a layout change)
+  // both end composition, so the draft is dropped on the transition rather
+  // than in each caller.
+  useEffect(() => {
+    if (!isCreating || !sessionId) return;
+    return () => setDraft(sessionId, null);
+  }, [isCreating, setDraft, sessionId]);
+
+  if (isCreating) {
+    return (
+      <div className="flex h-full flex-col">
+        <div className="flex shrink-0 items-center justify-between border-gray-6 border-b px-2 py-1">
+          <QuillText className="font-medium font-mono text-[11px] text-gray-11">
+            New task
+          </QuillText>
+          <button
+            type="button"
+            onClick={handleCancel}
+            className="flex h-5 w-5 items-center justify-center rounded text-gray-10 transition-colors hover:bg-gray-4 hover:text-gray-12"
+            title="Cancel"
+          >
+            <X size={12} />
+          </button>
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col">
+          <TaskInput sessionId={sessionId} onTaskCreated={handleTaskCreated} />
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <Flex align="center" justify="center" height="100%">
-      <Flex direction="column" align="center" gap="2" className="select-none">
+    <div className="flex h-full items-center justify-center">
+      <div className="flex select-none flex-col items-center gap-2">
         <TaskSelector
           cellIndex={cellIndex}
           open={selectorOpen}
           onOpenChange={setSelectorOpen}
+          onNewTask={handleNewTask}
           onNewTerminal={localWorkspaces ? handleNewTerminal : undefined}
           onBrainrot={brainrotMode ? handleBrainrot : undefined}
         >
@@ -164,11 +242,11 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
             Add task
           </button>
         </TaskSelector>
-        <Text className="text-[11px] text-gray-9">
+        <QuillText className="text-[11px] text-gray-9">
           or drag a task from the sidebar
-        </Text>
-      </Flex>
-    </Flex>
+        </QuillText>
+      </div>
+    </div>
   );
 }
 
