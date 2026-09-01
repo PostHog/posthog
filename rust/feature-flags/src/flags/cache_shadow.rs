@@ -39,11 +39,11 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use common_redis::{Client, CustomRedisError};
 use common_types::TeamId;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::cohorts::cohort_models::Cohort;
@@ -473,6 +473,52 @@ const STORE_TIMEOUT: Duration = Duration::from_millis(500);
 /// some builds and not others.
 const MAX_STORED_FINGERPRINTS: usize = 256;
 
+/// The tracker's stored state for one team: the fingerprints of the team's last
+/// shadow build, and when that build observed them.
+///
+/// `observed_at` is unix seconds and not an `Instant`, because the value is
+/// written to Redis and read by a later process on another pod. An `Instant` is
+/// process-local and cannot be serialized.
+#[derive(Serialize, Deserialize)]
+struct PendingObservation {
+    observed_at: u64,
+    fingerprints: Vec<u64>,
+}
+
+/// The shapes a stored value can have. `Legacy` is the bare fingerprint array
+/// written before the confirmation window had a lower bound, and reading it stops
+/// a deploy from counting every pre-deploy key as a parse failure on
+/// `flags_cache_shadow_tracker_store_errors_total{op="read"}`, which would report
+/// a TTL's worth of read errors that are really a shape change. The variant can
+/// go once a full TTL has elapsed past that deploy.
+///
+/// `Current` is first because an untagged enum takes the first variant that
+/// matches, and a bare array cannot deserialize into `PendingObservation`.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum StoredPending {
+    Current(PendingObservation),
+    Legacy(Vec<u64>),
+}
+
+/// The team's previous observation, as `observe` reads it.
+#[derive(Default)]
+struct PriorObservation {
+    fingerprints: HashSet<u64>,
+    /// `None` when the stored value carried no timestamp, so this build can prove
+    /// no elapsed time. Such a value must not confirm: treating it as time zero
+    /// would make it infinitely old and confirm on the next build, which is the
+    /// race the interval exists to filter.
+    observed_at: Option<u64>,
+}
+
+/// Wall-clock seconds since the unix epoch. A clock reading before the epoch
+/// resolves to zero, which makes the elapsed check see no time passed and
+/// resolves to first sight, the direction every other tracker failure takes.
+fn unix_seconds(now: SystemTime) -> u64 {
+    now.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
+}
+
 /// Bound one tracker call and report an elapsed timer as the client's own timeout
 /// error, so callers have a single error type to handle.
 async fn with_timeout<T>(
@@ -485,10 +531,20 @@ async fn with_timeout<T>(
 }
 
 /// Repeat-offender suppression: a mismatch counts only when the same fingerprint
-/// shows up on two consecutive shadow builds of the team within `ttl`. A shadow
-/// build races Python's own rebuild of the same team, so a single-shot mismatch
-/// is expected noise; Python repairs the entry and the next shadow build of the
-/// team comes back clean, clearing the pending state.
+/// shows up on two shadow builds of the team that are at least
+/// `min_confirm_interval` and at most `ttl` apart. A shadow build races Python's
+/// own rebuild of the same team, so a single-shot mismatch is expected noise;
+/// Python repairs the entry and the next shadow build of the team comes back
+/// clean, clearing the pending state.
+///
+/// The window needs both bounds. Without the lower bound, "consecutive" means
+/// only "the build before this one", and the builder coalesces a team's
+/// invalidations over a window of a few hundred milliseconds, so two
+/// invalidations just outside it become two builds a fraction of a second apart.
+/// A row that is being written between those two Postgres reads then confirms as
+/// a parity defect: cohort recalculation state and a referencing flag's `version`
+/// both move on their own schedule. Without the upper bound, a disagreement
+/// Python has since repaired stays eligible to confirm forever.
 ///
 /// The pending state lives in the flags Redis tier rather than in the process,
 /// because builder pods roll and Kafka partitions move between them far more
@@ -502,17 +558,31 @@ pub struct MismatchTracker {
     /// The same client the hypercache writer and reader use.
     redis: Arc<dyn Client + Send + Sync>,
     ttl: Duration,
+    min_confirm_interval: Duration,
 }
 
 impl MismatchTracker {
-    pub fn new(redis: Arc<dyn Client + Send + Sync>, ttl: Duration) -> Self {
-        Self { redis, ttl }
+    pub fn new(
+        redis: Arc<dyn Client + Send + Sync>,
+        ttl: Duration,
+        min_confirm_interval: Duration,
+    ) -> Self {
+        Self {
+            redis,
+            ttl,
+            min_confirm_interval,
+        }
     }
 
-    /// Fold one shadow build's diffs into the store and split them into
-    /// confirmed (fingerprint also present in the team's previous, unexpired
-    /// observation) and first-sight. An empty `diffs` clears the team's pending
+    /// Fold one shadow build's diffs into the store and split them into confirmed
+    /// and first-sight. A diff confirms when its fingerprint was also in the
+    /// team's previous, unexpired observation *and* that observation is at least
+    /// `min_confirm_interval` old. An empty `diffs` clears the team's pending
     /// state.
+    ///
+    /// `now` comes from the caller rather than from a clock read here, so the
+    /// elapsed comparison is stated at the call site and tests can pass literal
+    /// instants.
     ///
     /// Store failures resolve towards first sight and none of them fail the shadow
     /// build: a mismatch we cannot prove is a repeat is reported as a first
@@ -525,7 +595,12 @@ impl MismatchTracker {
     /// fingerprints stand until the TTL. A disagreement that then returns byte for
     /// byte can confirm one build early. The counter shows it: `op="clear"` alone,
     /// or `op="write"` together with `op="clear"`.
-    pub async fn observe(&self, team_id: TeamId, diffs: Vec<ShadowDiff>) -> ShadowObservation {
+    pub async fn observe(
+        &self,
+        team_id: TeamId,
+        diffs: Vec<ShadowDiff>,
+        now: SystemTime,
+    ) -> ShadowObservation {
         let key = pending_key(team_id);
 
         if diffs.is_empty() {
@@ -535,17 +610,40 @@ impl MismatchTracker {
             };
         }
 
+        let now_secs = unix_seconds(now);
         let mut store_errors = Vec::new();
         let prior = match self.read_pending(key.clone()).await {
             Ok(prior) => prior,
             Err(e) => {
                 tracing::warn!(team_id, error = %e, "Shadow mismatch tracker read failed; counting this build as a first sighting");
                 store_errors.push(TrackerStoreOp::Read);
-                HashSet::new()
+                PriorObservation::default()
             }
         };
 
-        if let Err(e) = self.write_pending(key.clone(), &diffs).await {
+        let fingerprints: Vec<u64> = diffs
+            .iter()
+            .take(MAX_STORED_FINGERPRINTS)
+            .map(|d| d.fingerprint)
+            .collect();
+
+        // An unchanged disagreement keeps the timestamp it was first stored with,
+        // so a team that invalidates faster than the interval still accumulates
+        // elapsed time and can eventually confirm. Restarting the window on every
+        // build would hold such a team permanently below the bound and it could
+        // never confirm anything. Different content is a different disagreement,
+        // so its window starts now.
+        let current: HashSet<u64> = fingerprints.iter().copied().collect();
+        let observed_at = if current == prior.fingerprints {
+            prior.observed_at.unwrap_or(now_secs)
+        } else {
+            now_secs
+        };
+
+        if let Err(e) = self
+            .write_pending(key.clone(), observed_at, &fingerprints)
+            .await
+        {
             tracing::warn!(team_id, error = %e, "Shadow mismatch tracker write failed; clearing the team's pending state instead");
             store_errors.push(TrackerStoreOp::Write);
             // A failed SETEX leaves the previous build's fingerprints in place with
@@ -557,9 +655,15 @@ impl MismatchTracker {
             store_errors.extend(self.clear_pending(team_id, key).await);
         }
 
+        // `saturating_sub` covers a stored timestamp ahead of this pod's clock,
+        // which resolves to no elapsed time and therefore to first sight.
+        let window_open = prior
+            .observed_at
+            .is_some_and(|at| now_secs.saturating_sub(at) >= self.min_confirm_interval.as_secs());
+
         let (confirmed, first_sight) = diffs
             .into_iter()
-            .partition(|d| prior.contains(&d.fingerprint));
+            .partition(|d| window_open && prior.fingerprints.contains(&d.fingerprint));
         ShadowObservation {
             confirmed,
             first_sight,
@@ -567,16 +671,28 @@ impl MismatchTracker {
         }
     }
 
-    /// Fingerprints from the team's previous shadow build. An absent key is how
-    /// the TTL expires the window, so it reads as "no previous build" and not as
-    /// an error. A value that does not parse is an error, because a stored shape
-    /// this build cannot read is worth seeing on the failure counter.
-    async fn read_pending(&self, key: String) -> Result<HashSet<u64>, CustomRedisError> {
+    /// The team's previous shadow build, as fingerprints and the time they were
+    /// observed. An absent key is how the TTL expires the window, so it reads as
+    /// "no previous build" and not as an error. A value that does not parse is an
+    /// error, because a stored shape this build cannot read is worth seeing on the
+    /// failure counter.
+    async fn read_pending(&self, key: String) -> Result<PriorObservation, CustomRedisError> {
         match with_timeout(self.redis.get(key)).await {
             Ok(raw) => {
-                serde_json::from_str(&raw).map_err(|e| CustomRedisError::ParseError(e.to_string()))
+                let stored: StoredPending = serde_json::from_str(&raw)
+                    .map_err(|e| CustomRedisError::ParseError(e.to_string()))?;
+                Ok(match stored {
+                    StoredPending::Current(pending) => PriorObservation {
+                        fingerprints: pending.fingerprints.into_iter().collect(),
+                        observed_at: Some(pending.observed_at),
+                    },
+                    StoredPending::Legacy(fingerprints) => PriorObservation {
+                        fingerprints: fingerprints.into_iter().collect(),
+                        observed_at: None,
+                    },
+                })
             }
-            Err(CustomRedisError::NotFound) => Ok(HashSet::new()),
+            Err(CustomRedisError::NotFound) => Ok(PriorObservation::default()),
             Err(e) => Err(e),
         }
     }
@@ -584,15 +700,14 @@ impl MismatchTracker {
     async fn write_pending(
         &self,
         key: String,
-        diffs: &[ShadowDiff],
+        observed_at: u64,
+        fingerprints: &[u64],
     ) -> Result<(), CustomRedisError> {
-        let fingerprints: Vec<u64> = diffs
-            .iter()
-            .take(MAX_STORED_FINGERPRINTS)
-            .map(|d| d.fingerprint)
-            .collect();
-        let payload = serde_json::to_string(&fingerprints)
-            .map_err(|e| CustomRedisError::ParseError(e.to_string()))?;
+        let payload = serde_json::to_string(&PendingObservation {
+            observed_at,
+            fingerprints: fingerprints.to_vec(),
+        })
+        .map_err(|e| CustomRedisError::ParseError(e.to_string()))?;
         with_timeout(self.redis.setex(key, payload, self.ttl.as_secs())).await
     }
 
@@ -1028,7 +1143,28 @@ mod tests {
     }
 
     const TRACKER_TTL: Duration = Duration::from_secs(3600);
+    const MIN_CONFIRM_INTERVAL: Duration = Duration::from_secs(60);
     const PENDING_KEY_TEAM_7: &str = "posthog:1:feature_flags/shadow_mismatch/7";
+
+    /// A wall clock reading `secs` after the epoch. The tracker compares the
+    /// stored timestamp against the one the caller passes, so a test states both
+    /// instead of reading a real clock.
+    fn at(secs: u64) -> SystemTime {
+        SystemTime::UNIX_EPOCH + Duration::from_secs(secs)
+    }
+
+    /// The first build in a test. Not the epoch itself, so a test that subtracts
+    /// from it stays a valid instant.
+    fn first_build() -> SystemTime {
+        at(1_000)
+    }
+
+    /// A later build, far enough past `first_build` that the confirmation window
+    /// is open. Tests that are not about timing use this for their second build so
+    /// the interval never masks what they do assert.
+    fn window_open() -> SystemTime {
+        first_build() + MIN_CONFIRM_INTERVAL
+    }
 
     /// One disagreement per flag, for a flag count the caller picks. Used to cross
     /// the store cap.
@@ -1052,7 +1188,7 @@ mod tests {
     }
 
     fn tracker(redis: &MockRedisClient) -> MismatchTracker {
-        MismatchTracker::new(Arc::new(redis.clone()), TRACKER_TTL)
+        MismatchTracker::new(Arc::new(redis.clone()), TRACKER_TTL, MIN_CONFIRM_INTERVAL)
     }
 
     /// The store as the team's next shadow build finds it, in a new process.
@@ -1095,26 +1231,136 @@ mod tests {
     #[tokio::test]
     async fn tracker_suppresses_first_sight_and_confirms_repeat_across_a_restart() {
         let first_pod = MockRedisClient::new();
-        let first = tracker(&first_pod).observe(7, mismatch_diffs()).await;
+        let first = tracker(&first_pod)
+            .observe(7, mismatch_diffs(), first_build())
+            .await;
         assert!(first.confirmed.is_empty());
         assert_eq!(first.first_sight.len(), 1);
         assert!(first.store_errors.is_empty());
 
         let second_pod = next_build(&first_pod);
-        let second = tracker(&second_pod).observe(7, mismatch_diffs()).await;
+        let second = tracker(&second_pod)
+            .observe(7, mismatch_diffs(), window_open())
+            .await;
         assert_eq!(second.confirmed.len(), 1);
         assert!(second.first_sight.is_empty());
     }
 
     #[tokio::test]
+    async fn tracker_does_not_confirm_inside_the_minimum_interval() {
+        // Two of a team's invalidations that fall either side of the coalesce
+        // window become two builds a fraction of a second apart. A row that is
+        // written between their two Postgres reads disagrees on both, and with no
+        // lower bound on the window that counted as a confirmed parity defect.
+        let first_pod = MockRedisClient::new();
+        tracker(&first_pod)
+            .observe(7, mismatch_diffs(), first_build())
+            .await;
+
+        let second_pod = next_build(&first_pod);
+        let second = tracker(&second_pod)
+            .observe(
+                7,
+                mismatch_diffs(),
+                first_build() + Duration::from_millis(600),
+            )
+            .await;
+        assert!(second.confirmed.is_empty());
+        assert_eq!(second.first_sight.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn tracker_keeps_the_window_open_across_builds_inside_the_interval() {
+        // The middle build must not restart the window. A team that invalidates
+        // faster than the interval would otherwise never accumulate elapsed time
+        // and could never confirm anything, however wrong its cache entry was.
+        let first_pod = MockRedisClient::new();
+        tracker(&first_pod)
+            .observe(7, mismatch_diffs(), at(1_000))
+            .await;
+
+        let second_pod = next_build(&first_pod);
+        let second = tracker(&second_pod)
+            .observe(7, mismatch_diffs(), at(1_030))
+            .await;
+        assert!(second.confirmed.is_empty());
+
+        let third_pod = next_build(&second_pod);
+        let third = tracker(&third_pod)
+            .observe(7, mismatch_diffs(), at(1_061))
+            .await;
+        assert_eq!(third.confirmed.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn tracker_restarts_the_window_when_the_disagreement_changes() {
+        // Different content is a different disagreement, so its window starts at
+        // the build that first saw that content and not at the build before it.
+        let first_pod = MockRedisClient::new();
+        tracker(&first_pod)
+            .observe(7, mismatch_diffs(), at(1_000))
+            .await;
+
+        let second_pod = next_build(&first_pod);
+        tracker(&second_pod)
+            .observe(7, other_mismatch_diffs(), at(1_030))
+            .await;
+
+        // 70 seconds past the first build, but only 40 past the build that first
+        // saw this content.
+        let third_pod = next_build(&second_pod);
+        let third = tracker(&third_pod)
+            .observe(7, other_mismatch_diffs(), at(1_070))
+            .await;
+        assert!(third.confirmed.is_empty());
+
+        let fourth_pod = next_build(&third_pod);
+        let fourth = tracker(&fourth_pod)
+            .observe(7, other_mismatch_diffs(), at(1_100))
+            .await;
+        assert_eq!(fourth.confirmed.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn tracker_reads_a_stored_value_written_before_the_window_existed() {
+        // The bare fingerprint array is the shape written before `observed_at`
+        // existed. It has to parse, or every key that predates the deploy reports
+        // as a read failure for a whole TTL. It also has to not confirm, because
+        // it carries no timestamp, and treating an absent one as time zero would
+        // make it infinitely old and confirm on this very build.
+        let legacy =
+            serde_json::to_string(&vec![mismatch_diffs()[0].fingerprint]).expect("must serialize");
+        let mut legacy_pod = MockRedisClient::new();
+        legacy_pod.get_ret(PENDING_KEY_TEAM_7, Ok(legacy));
+
+        let first = tracker(&legacy_pod)
+            .observe(7, mismatch_diffs(), at(1_000))
+            .await;
+        assert!(first.store_errors.is_empty());
+        assert!(first.confirmed.is_empty());
+        assert_eq!(first.first_sight.len(), 1);
+
+        // The rewrite carries a timestamp, so the window opens from this build.
+        let next_pod = next_build(&legacy_pod);
+        let later = tracker(&next_pod)
+            .observe(7, mismatch_diffs(), at(1_000) + MIN_CONFIRM_INTERVAL)
+            .await;
+        assert_eq!(later.confirmed.len(), 1);
+    }
+
+    #[tokio::test]
     async fn tracker_clears_pending_state_on_match() {
         let first_pod = MockRedisClient::new();
-        tracker(&first_pod).observe(7, mismatch_diffs()).await;
+        tracker(&first_pod)
+            .observe(7, mismatch_diffs(), first_build())
+            .await;
 
         let mut second_pod = next_build(&first_pod);
         second_pod.del_ret(PENDING_KEY_TEAM_7, Ok(()));
 
-        let clean = tracker(&second_pod).observe(7, Vec::new()).await;
+        let clean = tracker(&second_pod)
+            .observe(7, Vec::new(), window_open())
+            .await;
         assert!(clean.is_match());
         assert!(clean.store_errors.is_empty());
 
@@ -1129,9 +1375,13 @@ mod tests {
             vec![PENDING_KEY_TEAM_7]
         );
 
-        // The earlier sighting no longer counts — mismatch starts over.
+        // The earlier sighting no longer counts — mismatch starts over. Observed
+        // well past the interval, so the window being closed cannot be what makes
+        // this a first sighting.
         let third_pod = next_build(&second_pod);
-        let after = tracker(&third_pod).observe(7, mismatch_diffs()).await;
+        let after = tracker(&third_pod)
+            .observe(7, mismatch_diffs(), window_open() + MIN_CONFIRM_INTERVAL)
+            .await;
         assert!(after.confirmed.is_empty());
         assert_eq!(after.first_sight.len(), 1);
     }
@@ -1139,11 +1389,13 @@ mod tests {
     #[tokio::test]
     async fn tracker_expires_pending_state_after_ttl() {
         let first_pod = MockRedisClient::new();
-        tracker(&first_pod).observe(7, mismatch_diffs()).await;
+        tracker(&first_pod)
+            .observe(7, mismatch_diffs(), first_build())
+            .await;
 
-        // The TTL on this write is the only thing that bounds the confirmation
-        // window, and the key is pinned because a tracker write must never land
-        // on a cache entry the serve path reads.
+        // The TTL on this write is what bounds the confirmation window above, and
+        // the key is pinned because a tracker write must never land on a cache
+        // entry the serve path reads.
         let writes = calls_with_op(&first_pod, "setex");
         assert_eq!(writes.len(), 1);
         assert_eq!(writes[0].key, PENDING_KEY_TEAM_7);
@@ -1158,7 +1410,9 @@ mod tests {
         let mut expired = next_build(&first_pod);
         expired.get_ret(PENDING_KEY_TEAM_7, Err(CustomRedisError::NotFound));
 
-        let late = tracker(&expired).observe(7, mismatch_diffs()).await;
+        let late = tracker(&expired)
+            .observe(7, mismatch_diffs(), window_open())
+            .await;
         assert!(late.confirmed.is_empty());
         assert_eq!(late.first_sight.len(), 1);
         assert!(late.store_errors.is_empty());
@@ -1169,11 +1423,13 @@ mod tests {
         // An edit session produces a different disagreement each save — the
         // fingerprint hashes the content, so those never confirm.
         let first_pod = MockRedisClient::new();
-        tracker(&first_pod).observe(7, mismatch_diffs()).await;
+        tracker(&first_pod)
+            .observe(7, mismatch_diffs(), first_build())
+            .await;
 
         let second_pod = next_build(&first_pod);
         let second = tracker(&second_pod)
-            .observe(7, other_mismatch_diffs())
+            .observe(7, other_mismatch_diffs(), window_open())
             .await;
         assert!(second.confirmed.is_empty());
         assert_eq!(second.first_sight.len(), 1);
@@ -1182,10 +1438,14 @@ mod tests {
     #[tokio::test]
     async fn tracker_is_per_team() {
         let first_pod = MockRedisClient::new();
-        tracker(&first_pod).observe(7, mismatch_diffs()).await;
+        tracker(&first_pod)
+            .observe(7, mismatch_diffs(), first_build())
+            .await;
 
         let second_pod = next_build(&first_pod);
-        let other_team = tracker(&second_pod).observe(8, mismatch_diffs()).await;
+        let other_team = tracker(&second_pod)
+            .observe(8, mismatch_diffs(), window_open())
+            .await;
         assert!(other_team.confirmed.is_empty());
         assert_eq!(other_team.first_sight.len(), 1);
     }
@@ -1193,12 +1453,16 @@ mod tests {
     #[tokio::test]
     async fn tracker_read_failure_falls_back_to_first_sight() {
         let first_pod = MockRedisClient::new();
-        tracker(&first_pod).observe(7, mismatch_diffs()).await;
+        tracker(&first_pod)
+            .observe(7, mismatch_diffs(), first_build())
+            .await;
 
         let mut second_pod = next_build(&first_pod);
         second_pod.get_ret(PENDING_KEY_TEAM_7, Err(CustomRedisError::Timeout));
 
-        let second = tracker(&second_pod).observe(7, mismatch_diffs()).await;
+        let second = tracker(&second_pod)
+            .observe(7, mismatch_diffs(), window_open())
+            .await;
         assert!(second.confirmed.is_empty());
         assert_eq!(second.first_sight.len(), 1);
         assert_eq!(second.store_errors, vec![TrackerStoreOp::Read]);
@@ -1212,14 +1476,16 @@ mod tests {
         // disagreement the build in between did not see.
         let mut second_pod = next_build(&{
             let first_pod = MockRedisClient::new();
-            tracker(&first_pod).observe(7, mismatch_diffs()).await;
+            tracker(&first_pod)
+                .observe(7, mismatch_diffs(), first_build())
+                .await;
             first_pod
         });
         second_pod.set_ret(PENDING_KEY_TEAM_7, Err(CustomRedisError::Timeout));
         second_pod.del_ret(PENDING_KEY_TEAM_7, Ok(()));
 
         let second = tracker(&second_pod)
-            .observe(7, other_mismatch_diffs())
+            .observe(7, other_mismatch_diffs(), window_open())
             .await;
         assert_eq!(second.store_errors, vec![TrackerStoreOp::Write]);
         assert_eq!(
@@ -1238,14 +1504,16 @@ mod tests {
         // byte can confirm one build early. The counter pair is the only signal.
         let mut second_pod = next_build(&{
             let first_pod = MockRedisClient::new();
-            tracker(&first_pod).observe(7, mismatch_diffs()).await;
+            tracker(&first_pod)
+                .observe(7, mismatch_diffs(), first_build())
+                .await;
             first_pod
         });
         second_pod.set_ret(PENDING_KEY_TEAM_7, Err(CustomRedisError::Timeout));
         second_pod.del_ret(PENDING_KEY_TEAM_7, Err(CustomRedisError::Timeout));
 
         let second = tracker(&second_pod)
-            .observe(7, other_mismatch_diffs())
+            .observe(7, other_mismatch_diffs(), window_open())
             .await;
         assert_eq!(
             second.store_errors,
@@ -1262,7 +1530,9 @@ mod tests {
         let mut redis = MockRedisClient::new();
         redis.get_ret(PENDING_KEY_TEAM_7, Ok("not json".to_string()));
 
-        let observation = tracker(&redis).observe(7, mismatch_diffs()).await;
+        let observation = tracker(&redis)
+            .observe(7, mismatch_diffs(), first_build())
+            .await;
         assert!(observation.confirmed.is_empty());
         assert_eq!(observation.first_sight.len(), 1);
         assert_eq!(observation.store_errors, vec![TrackerStoreOp::Read]);
@@ -1273,13 +1543,13 @@ mod tests {
         let over_cap = MAX_STORED_FINGERPRINTS as i32 + 20;
         let first_pod = MockRedisClient::new();
         let first = tracker(&first_pod)
-            .observe(7, many_mismatch_diffs(over_cap))
+            .observe(7, many_mismatch_diffs(over_cap), first_build())
             .await;
         assert_eq!(first.first_sight.len(), over_cap as usize);
 
         let second_pod = next_build(&first_pod);
         let second = tracker(&second_pod)
-            .observe(7, many_mismatch_diffs(over_cap))
+            .observe(7, many_mismatch_diffs(over_cap), window_open())
             .await;
 
         // Pins the cap, and that a diff inside it confirms. It does not pin which
@@ -1296,7 +1566,7 @@ mod tests {
         let mut redis = MockRedisClient::new();
         redis.del_ret(PENDING_KEY_TEAM_7, Err(CustomRedisError::Timeout));
 
-        let clean = tracker(&redis).observe(7, Vec::new()).await;
+        let clean = tracker(&redis).observe(7, Vec::new(), first_build()).await;
         assert!(clean.is_match());
         assert_eq!(clean.store_errors, vec![TrackerStoreOp::Clear]);
     }
