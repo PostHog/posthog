@@ -67,6 +67,26 @@
                         flex-basis: 100%;
                     }
                 }
+
+                @container editor-panel (max-width: 400px) {
+                    .ActionFilterRow-filters .TaxonomicPropertyFilter__row {
+                        flex-wrap: wrap;
+                    }
+
+                    .ActionFilterRow-filters .TaxonomicPropertyFilter__row-items {
+                        flex-basis: 100%;
+                    }
+
+                    .ActionFilterRow-filters .TaxonomicPropertyFilter__row-operator {
+                        justify-content: flex-start;
+                        width: auto;
+                        height: auto;
+                    }
+
+                    .ActionFilterRow-filters .TaxonomicPropertyFilter__row-operator--empty {
+                        display: none;
+                    }
+                }
             }
 
             &:not(.EditorFiltersWrapper--panels) {

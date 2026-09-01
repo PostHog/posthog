@@ -61,6 +61,7 @@ jobs:
                     && (steps.exclude.outputs.outside_node_product_workspaces || 'true') == 'true' }}
             replay_shared: >-
                 ${{ (steps.filter.outputs.replay_shared || 'true') == 'true' }}
+            complexity_files: ${{ steps.filter.outputs.complexity_files }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
@@ -76,14 +77,24 @@ jobs:
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  list-files: 'escape'
                   filters: |
+                      # Consumed as a file list (complexity_files) by the changed-file
+                      # complexity check — the PR files API, not a hand-rolled git diff.
+                      complexity:
+                          - 'frontend/**/*.ts'
+                          - 'frontend/**/*.tsx'
+                          - 'ee/**/*.ts'
+                          - 'ee/**/*.tsx'
+                          - 'products/**/*.ts'
+                          - 'products/**/*.tsx'
                       frontend:
                         # Avoid running frontend tests for irrelevant changes
                         # NOTE: we are at risk of missing a dependency here.
@@ -345,7 +356,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -372,6 +383,36 @@ jobs:
 
             - name: Lint with Oxlint
               run: pnpm exec oxlint --quiet
+
+            # Oxlint has no cyclomatic complexity rule. Warn-only while the backlog
+            # settles: findings annotate the diff and land in the shared CI report
+            # comment, never a job failure. Scoped to the PR's own diff, no repo-wide
+            # baseline. Skip on unrebased branches: bin/lint-complexity.mjs may not
+            # exist yet.
+            - name: Check cyclomatic complexity of changed files
+              if: github.event_name == 'pull_request' && needs.changes.outputs.complexity_files != ''
+              env:
+                  # Space-separated, from paths-filter (list-files: escape) — the PR
+                  # files API, so no git-diff plumbing to drift from what the PR changed.
+                  CHANGED_FILES: ${{ needs.changes.outputs.complexity_files }}
+              run: |
+                  if [ ! -f bin/lint-complexity.mjs ]; then
+                      echo "bin/lint-complexity.mjs not present on this branch yet — skipping (rebase to pick it up)"
+                      exit 0
+                  fi
+                  # xargs re-parses the escape format, keeping escaped paths whole.
+                  printf '%s' "$CHANGED_FILES" | xargs -r node bin/lint-complexity.mjs --report complexity-findings-ts.json
+
+            - name: Post CI report — complexity
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f .github/scripts/post-complexity-section.mjs ] && [ -f complexity-findings-ts.json ]; then
+                      node .github/scripts/post-complexity-section.mjs typescript complexity-findings-ts.json
+                  else
+                      echo "Skipping the complexity report section: script or findings not on this branch"
+                  fi
 
             - name: Check markdown formatting with oxfmt
               run: pnpm exec oxfmt --check "**/*.{md,mdx}"
@@ -410,7 +451,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -660,7 +701,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -757,7 +798,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -862,7 +903,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 

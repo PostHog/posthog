@@ -16,6 +16,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
+from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
@@ -42,6 +43,7 @@ from products.customer_analytics.backend.models import (
     CustomerProfileConfig,
     CustomPropertyDefinition,
     CustomPropertySource,
+    CustomPropertyValue,
     DisplayType,
     Meeting,
     MeetingParticipant,
@@ -1652,6 +1654,7 @@ class TestCustomPropertyDefinitionViewSet(APIBaseTest):
     @parameterized.expand(
         [
             ("text", "text", status.HTTP_201_CREATED),
+            ("link", "link", status.HTTP_201_CREATED),
             ("number", "number", status.HTTP_201_CREATED),
             ("currency", "currency", status.HTTP_201_CREATED),
             ("percent", "percent", status.HTTP_201_CREATED),
@@ -1761,15 +1764,28 @@ class TestCustomPropertyDefinitionViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
         self.assertEqual(response.json()["display_type"], "text")
 
-    def test_delete_removes_definition_only(self):
+    def test_delete_removes_definition_and_values(self):
         keep = self._create(name="Keep", display_type="text").json()
         remove = self._create(name="Remove", display_type="text").json()
+        remove_definition = CustomPropertyDefinition.objects.unscoped().get(id=remove["id"])
+        account = create_account(team_id=self.team.id, external_id="account-with-value")
+        CustomPropertyValue.objects.unscoped().create(
+            team_id=self.team.id,
+            definition=remove_definition,
+            account=account,
+            value_str="stored value",
+        )
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
 
         response = self.client.delete(f"{self.endpoint_base}{remove['id']}/")
 
         self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
         # nosemgrep: idor-lookup-without-team (test assertion)
         self.assertFalse(CustomPropertyDefinition.objects.unscoped().filter(id=remove["id"]).exists())
+        # nosemgrep: idor-lookup-without-team (test assertion)
+        self.assertFalse(CustomPropertyValue.objects.unscoped().filter(definition_id=remove["id"]).exists())
         # nosemgrep: idor-lookup-without-team (test assertion)
         self.assertTrue(CustomPropertyDefinition.objects.unscoped().filter(id=keep["id"]).exists())
 
@@ -1786,6 +1802,9 @@ class TestCustomPropertyDefinitionViewSet(APIBaseTest):
 
     def test_activity_log_on_create_and_delete(self):
         created = self._create(name="ARR").json()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
         self.client.delete(f"{self.endpoint_base}{created['id']}/")
 
         logs = ActivityLog.objects.filter(
@@ -1800,7 +1819,8 @@ class TestCustomPropertyDefinitionAccessControl(APIBaseTest):
     Definitions are a team-wide ``account``-resource config (no per-object ownership), so they are
     gated at the resource level by the default ``AccessControlPermission`` (keyed on
     ``scope_object="account"``) — the same gate as accounts and journeys, including inheritance from
-    the ``customer_analytics`` parent resource. Reads need ``viewer``, writes need ``editor``.
+    the ``customer_analytics`` parent resource. Reads need ``viewer``, writes need ``editor``,
+    and deletion needs a project admin.
     """
 
     def setUp(self):
@@ -1821,12 +1841,18 @@ class TestCustomPropertyDefinitionAccessControl(APIBaseTest):
         )
         self.endpoint_base = f"/api/environments/{self.team.id}/custom_property_definitions/"
 
-    def _set_access_level(self, user: User, resource: str = "customer_analytics", access_level: str = "viewer") -> None:
+    def _set_access_level(
+        self,
+        user: User,
+        resource: str = "customer_analytics",
+        access_level: str = "viewer",
+        resource_id: str | None = None,
+    ) -> None:
         membership = OrganizationMembership.objects.get(user=user, organization=self.organization)
         AccessControl.objects.create(
             team=self.team,
             resource=resource,
-            resource_id=None,
+            resource_id=resource_id,
             access_level=access_level,
             organization_member=membership,
         )
@@ -1866,8 +1892,19 @@ class TestCustomPropertyDefinitionAccessControl(APIBaseTest):
         response = self.client.post(self.endpoint_base, {"name": "Editor Prop", "display_type": "text"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    def test_editor_can_delete(self):
+    def test_editor_cannot_delete(self):
         self._set_access_level(self.editor_user, access_level="editor")
+        self._set_access_level(
+            self.editor_user, resource="project", access_level="member", resource_id=str(self.team.id)
+        )
+        self.client.force_login(self.editor_user)
+        response = self.client.delete(f"{self.endpoint_base}{self.definition.id}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_can_delete(self):
+        membership = OrganizationMembership.objects.get(user=self.editor_user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
         self.client.force_login(self.editor_user)
         response = self.client.delete(f"{self.endpoint_base}{self.definition.id}/")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
@@ -2740,6 +2777,73 @@ class TestAccountRelationshipViewSet(APIBaseTest):
 
         self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
 
+    @parameterized.expand([("active", False), ("ended", True)])
+    def test_admin_hard_deletes_relationship(self, _case, ended):
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
+        definition = self._create_relationship_definition()
+        relationship = relationships_logic.assign(
+            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
+        )
+        if ended:
+            relationships_logic.end_relationship(
+                team_id=self.team.id, account_id=self.account.id, relationship_id=str(relationship.id)
+            )
+
+        response = self.client.delete(f"{self.endpoint}{relationship.id}/")
+
+        self.assertEqual(status.HTTP_204_NO_CONTENT, response.status_code)
+        self.assertFalse(AccountRelationship.objects.for_team(self.team.id).filter(id=relationship.id).exists())
+
+    def test_non_admin_cannot_hard_delete_relationship(self):
+        definition = self._create_relationship_definition()
+        relationship = relationships_logic.assign(
+            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
+        )
+        member = User.objects.create_and_join(self.organization, "relationship-member@posthog.com", "testtest")
+        self.client.force_login(member)
+
+        response = self.client.delete(f"{self.endpoint}{relationship.id}/")
+
+        self.assertEqual(status.HTTP_403_FORBIDDEN, response.status_code)
+        self.assertTrue(AccountRelationship.objects.for_team(self.team.id).filter(id=relationship.id).exists())
+
+    def test_account_viewer_cannot_hard_delete_relationship_as_customer_analytics_editor(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        definition = self._create_relationship_definition()
+        relationship = relationships_logic.assign(
+            team_id=self.team.id, account=self.account, definition=definition, user=self.user, created_by=self.user
+        )
+        account_viewer = User.objects.create_and_join(
+            self.organization, "account-viewer-relationship-editor@example.com", "testtest"
+        )
+        membership = OrganizationMembership.objects.get(user=account_viewer, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="customer_analytics",
+            resource_id=None,
+            access_level="editor",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(self.account.id),
+            access_level="viewer",
+            organization_member=membership,
+        )
+        self.client.force_login(account_viewer)
+
+        response = self.client.delete(f"{self.endpoint}{relationship.id}/")
+
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+        self.assertTrue(AccountRelationship.objects.for_team(self.team.id).filter(id=relationship.id).exists())
+
 
 class TestAccountSupportTicketViewSet(APIBaseTest):
     def setUp(self):
@@ -3026,8 +3130,6 @@ class TestCalendarSyncViewSet(APIBaseTest):
         self.organization_membership.save()
 
     def test_sync_now_starts_the_workflow_for_a_team_owned_integration(self):
-        from posthog.models.integration import Integration
-
         self._become_admin()
         integration = Integration.objects.create(team=self.team, kind="google-calendar", integration_id="sub-1")
         with patch("posthog.temporal.common.client.sync_connect") as mock_connect:
@@ -3042,14 +3144,25 @@ class TestCalendarSyncViewSet(APIBaseTest):
         workflow_kwargs = mock_connect.return_value.start_workflow.call_args.kwargs
         self.assertEqual(workflow_kwargs["id"], f"google-calendar-sync-{integration.id}")
 
+    def test_sync_now_allows_the_connection_creator(self) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
+            integration_id="sub-owned",
+            created_by=self.user,
+        )
+        with patch("posthog.temporal.common.client.sync_connect") as mock_connect:
+            mock_connect.return_value.start_workflow.return_value = _immediate_future()
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/calendar_sync/sync_now/",
+                {"integration_id": integration.id},
+            )
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.json())
+        self.assertEqual(response.json(), {"status": "started"})
+
     def test_list_reports_last_synced_and_in_flight_runs(self):
-        from datetime import timedelta
-
-        from django.utils import timezone as dj_timezone
-
-        from posthog.models.integration import Integration
-
-        now = dj_timezone.now()
+        now = timezone.now()
         synced = Integration.objects.create(
             team=self.team,
             kind="google-calendar",
@@ -3082,8 +3195,6 @@ class TestCalendarSyncViewSet(APIBaseTest):
         self.assertFalse(by_id[stale.id]["is_syncing"])
 
     def test_sync_now_404s_for_another_teams_integration(self):
-        from posthog.models.integration import Integration
-
         self._become_admin()
         other_team = Team.objects.create(organization=self.organization, name="other")
         integration = Integration.objects.create(team=other_team, kind="google-calendar", integration_id="sub-2")
@@ -3093,10 +3204,26 @@ class TestCalendarSyncViewSet(APIBaseTest):
         )
         self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
 
-    def test_sync_now_requires_project_admin(self):
-        from posthog.models.integration import Integration
-
-        integration = Integration.objects.create(team=self.team, kind="google-calendar", integration_id="sub-3")
+    @parameterized.expand(
+        [
+            ("ownerless", False),
+            ("another_member", True),
+        ]
+    )
+    def test_sync_now_rejects_members_who_do_not_own_the_connection(
+        self, _name: str, create_another_owner: bool
+    ) -> None:
+        creator = (
+            User.objects.create_and_join(self.organization, "calendar-owner@example.com", "test")
+            if create_another_owner
+            else None
+        )
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
+            integration_id=f"sub-{_name}",
+            created_by=creator,
+        )
         response = self.client.post(
             f"/api/environments/{self.team.id}/calendar_sync/sync_now/",
             {"integration_id": integration.id},

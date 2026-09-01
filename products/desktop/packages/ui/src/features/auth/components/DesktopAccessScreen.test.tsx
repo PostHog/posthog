@@ -28,7 +28,6 @@ function renderScreen(
 ) {
   const onSelectOrganization = vi.fn();
   const onSelectProject = vi.fn();
-  const onRedeemInviteCode = vi.fn();
   const onRetry = vi.fn();
   const onLogout = vi.fn();
   const onOpenSupport = vi.fn();
@@ -40,13 +39,10 @@ function renderScreen(
       currentProjectId={1}
       isSwitching={false}
       isRetrying={false}
-      isRedeemingInviteCode={false}
       isLoggingOut={false}
       switchError={null}
-      redemptionError={null}
       onSelectOrganization={onSelectOrganization}
       onSelectProject={onSelectProject}
-      onRedeemInviteCode={onRedeemInviteCode}
       onRetry={onRetry}
       onLogout={onLogout}
       onOpenSupport={onOpenSupport}
@@ -56,7 +52,6 @@ function renderScreen(
     ...result,
     onSelectOrganization,
     onSelectProject,
-    onRedeemInviteCode,
     onRetry,
     onLogout,
     onOpenSupport,
@@ -73,21 +68,6 @@ describe("DesktopAccessScreen", () => {
     expect(screen.getByText(new RegExp(expectedCopy))).toBeInTheDocument();
     expect(screen.getByText("First organization")).toBeInTheDocument();
     expect(screen.getByText("Website")).toBeInTheDocument();
-  });
-
-  it("preserves invite-code redemption for a legacy denial", async () => {
-    const user = userEvent.setup();
-    const { onRedeemInviteCode } = renderScreen({
-      projectId: 1,
-      status: "blocked",
-      reason: null,
-    });
-
-    expect(screen.getByText("Enter your invite code")).toBeInTheDocument();
-    await user.type(screen.getByLabelText("Invite code"), "INVITE");
-    await user.click(screen.getByText("Redeem invite code"));
-
-    expect(onRedeemInviteCode).toHaveBeenCalledWith("INVITE");
   });
 
   it.each([

@@ -14,6 +14,7 @@ import {
 import { useMemo } from "react";
 import { useContextWikiHealthReport } from "../hooks/useContextWiki";
 
+/** Not wired to a caller yet. The @public tag stops knip from reporting it. */
 export function ContextWikiHealthPane({
   onOpenPage,
 }: {

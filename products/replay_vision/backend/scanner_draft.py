@@ -16,6 +16,7 @@ from dataclasses import dataclass, replace
 from typing import Any, Literal, cast
 
 from django.conf import settings
+from django.db.models import Q
 
 import structlog
 import posthoganalytics
@@ -26,11 +27,13 @@ from pydantic import BaseModel, Field
 from posthog.schema import RecordingsQuery
 
 from posthog.llm.semantic_enrichment import get_team_business_context
+from posthog.models import EventDefinition
 from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, SamplingMode, ScannerType
+from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, SamplingMode, ScannerModel, ScannerType
 from products.replay_vision.backend.queries.scanner_candidate_query import MIN_SAMPLING_RATE, SAMPLE_RATE_PRECISION
 from products.replay_vision.backend.queries.scanner_volume_estimate import (
     PREVIEW_ESTIMATE_BUDGET,
@@ -80,6 +83,92 @@ _MIN_SCREEN_FILTER_CHARS = 3
 # v2 filter pages become ONE multi-value visited_page property, which ORs its values, so several are
 # safe. More than this and the filter stops describing one flow.
 _MAX_FILTER_PAGES = 5
+# Replaces a collapsed ":id" run when building the page regex. Matches one path segment, so the
+# literal segments on both sides of the id stay anchored to the real URL structure.
+_ID_WILDCARD = "[^/]+"
+# The goal-based briefing lists this many of the team's events as general context. A large product
+# has thousands of custom events, so this is a sample, not the catalogue.
+_MAX_BASELINE_EVENTS = 100
+# Events whose names match the goal's own words, added on top of the baseline. Ranking cannot
+# surface a rare-but-relevant event: on a large product "survey sent" is the 591st busiest event,
+# so no baseline length reaches it, while matching the word "survey" finds it at once.
+_MAX_GOAL_MATCHED_EVENTS = 30
+# Goal words shorter than this match too much of the catalogue to be a useful lookup.
+_MIN_GOAL_TERM_CHARS = 4
+# Only the first terms are looked up, so a long goal stays one bounded query.
+_MAX_GOAL_TERMS = 8
+# Words common to almost any goal. Matching them returns arbitrary events rather than the ones the
+# user means, and crowds out the terms that carry the intent.
+_GOAL_STOPWORDS = frozenset(
+    {
+        "about",
+        "after",
+        "also",
+        "before",
+        "being",
+        "does",
+        "doing",
+        "done",
+        "during",
+        "each",
+        "every",
+        "find",
+        "from",
+        "have",
+        "having",
+        "into",
+        "just",
+        "know",
+        "like",
+        "look",
+        "made",
+        "make",
+        "many",
+        "more",
+        "most",
+        "onto",
+        "over",
+        "page",
+        "pages",
+        "people",
+        "person",
+        "product",
+        "recording",
+        "recordings",
+        "scanner",
+        "scanners",
+        "session",
+        "sessions",
+        "show",
+        "site",
+        "some",
+        "someone",
+        "than",
+        "that",
+        "their",
+        "them",
+        "then",
+        "there",
+        "these",
+        "they",
+        "this",
+        "those",
+        "through",
+        "user",
+        "users",
+        "want",
+        "wants",
+        "watch",
+        "watching",
+        "what",
+        "when",
+        "where",
+        "which",
+        "will",
+        "with",
+        "would",
+    }
+)
 
 
 class DraftError(Exception):
@@ -146,6 +235,10 @@ class ScannerDraft:
     sampling_mode: str | None = None
     sampling_rate: float | None = None
     estimated_monthly_observations: int | None = None
+    # The observation model the goal-based flow chose, and the monthly credit cap set to the stated
+    # budget so a mis-estimate cannot overspend it. None on the legacy path.
+    model: str | None = None
+    credit_limit: int | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -574,6 +667,14 @@ class _LlmDraftV2(BaseModel):
         default="comprehensive",
         description="Which sessions deserve the budget when it cannot cover everything; see the drafting rules.",
     )
+    model: Literal["gemini-3.5-flash-lite", "gemini-3-flash-preview", "gemini-3.7-flash"] = Field(
+        default="gemini-3-flash-preview",
+        description="The model that watches each recording. Pick by how much judgment the goal needs: "
+        "'gemini-3.5-flash-lite' (cheapest, 2 credits) for a simple yes/no check, 'gemini-3-flash-preview' "
+        "(balanced, 5 credits) for an everyday scanner, 'gemini-3.7-flash' (most capable, 15 credits) for "
+        "nuanced scoring, summarizing, or subtle judgment. A pricier model watches fewer recordings for the "
+        "same budget, so only step up when the goal truly needs the extra judgment.",
+    )
 
 
 _SYSTEM_PROMPT_V2 = """
@@ -630,9 +731,17 @@ Pick the single type that best fits the goal, then draft the scanner:
   - balanced: drops only the least eventful sessions. For general questions tilted toward engaged usage.
   - focused: keeps only clearly eventful sessions. Only when the goal explicitly hunts intense moments:
     rage, frustration, heavy usage, power users.
-- rationale: one or two sentences, addressed to the user, explaining why the chosen type and settings fit
-  their goal (e.g. why a classifier rather than a scorer, or which pages the filter covers and why). It is
-  shown next to the draft; plain language, and don't restate the config itself.
+- model: which model watches each recording, chosen by how much judgment the goal needs, NOT by budget
+  (the budget is spent by watching fewer recordings, never by dropping to a weaker model):
+  - gemini-3.5-flash-lite (cheapest): a simple, unambiguous yes/no monitor where the answer is obvious
+    from the recording ("did the user reach the confirmation page?").
+  - gemini-3-flash-preview (balanced): the default. Most everyday monitors and classifiers, where the
+    judgment is moderate.
+  - gemini-3.7-flash (most capable): scoring intensity, summarizing, or any goal needing subtle reading
+    of intent, emotion, or a hard multi-step judgment.
+- rationale: one or two sentences, addressed to the user, explaining why the chosen type, model, and
+  settings fit their goal (e.g. why a scorer on the capable model, or which pages the filter covers and
+  why). It is shown next to the draft; plain language, and don't restate the config itself.
 
 The briefing may include the company's name, its business context, and the team's existing scanners:
 - Use the business context to make the name, description, and prompt specific to THIS company's product,
@@ -699,19 +808,78 @@ def _build_user_content_v2(
     return "\n".join(lines)
 
 
-def _page_filter_value(pathname: str) -> str | None:
-    """The `icontains` filter value for a grounded page, or None when the page cannot filter.
+def _goal_terms(goal: str) -> list[str]:
+    """The words in a goal worth looking up as event names, longest first.
 
-    The grounding list collapses identifier segments to ":id", but real URLs contain the real IDs, so
-    a value holding ":id" matches nothing. The prefix up to the first ":id" still matches every such
-    URL — broader than the exact page, and under OR semantics broader only adds sessions.
+    Longest first because a specific word ("checkout") is a better lookup than a vague one
+    ("flow"), and only the first few terms are searched.
     """
-    value = pathname.split(":id")[0] if ":id" in pathname else pathname
-    if len(value.strip().replace("/", "")) < _MIN_SCREEN_FILTER_CHARS:
-        # `icontains` on "/" or a two-letter prefix matches nearly every URL: it would render as a
-        # narrowing filter while narrowing nothing.
+    words = {w for w in re.findall(r"[a-z0-9]+", goal.lower()) if len(w) >= _MIN_GOAL_TERM_CHARS}
+    ranked = sorted(words - _GOAL_STOPWORDS, key=lambda w: (-len(w), w))
+    return ranked[:_MAX_GOAL_TERMS]
+
+
+def _events_for_goal(team: Team, goal: str) -> list[str]:
+    """Custom event names to show the model: a baseline sample, widened by the goal's own words.
+
+    The baseline alone cannot cover a large product. Ranking does not rescue it either, because the
+    event a goal needs is often rare: "survey sent" is the 591st busiest event on a product with
+    2,332 of them, so it sits outside any baseline worth putting in a prompt, while its name matches
+    the word "survey" immediately.
+
+    Matching only widens what the model can see. The model still chooses, and `_grounded` still
+    drops anything it invents, so a term that matches the wrong events costs prompt space rather
+    than correctness.
+    """
+    base_qs = EventDefinition.objects.filter(team_id=team.id, last_seen_at__isnull=False).exclude(name__startswith="$")
+    baseline: list[str] = []
+    try:
+        baseline = list(base_qs.order_by("-last_seen_at").values_list("name", flat=True)[:_MAX_BASELINE_EVENTS])
+    except Exception:
+        logger.warning("replay_vision.scanner_draft.baseline_events_failed", team_id=team.id, exc_info=True)
+
+    terms = _goal_terms(goal)
+    if not terms:
+        return baseline
+
+    matched: list[str] = []
+    try:
+        name_matches = Q()
+        for term in terms:
+            name_matches |= Q(name__icontains=term)
+        matched = list(
+            base_qs.filter(name_matches)
+            .order_by("-last_seen_at")
+            .values_list("name", flat=True)[:_MAX_GOAL_MATCHED_EVENTS]
+        )
+    except Exception:
+        # A failed lookup costs the goal-matched events, not the draft.
+        logger.warning("replay_vision.scanner_draft.goal_events_failed", team_id=team.id, exc_info=True)
+
+    # Matched first: they are the ones the goal actually points at, and the briefing is read in order.
+    return list(dict.fromkeys([*matched, *baseline]))
+
+
+def _page_filter_regex(pathname: str) -> str | None:
+    """A ClickHouse regex matching real URLs for a collapsed grounding path, or None when the path
+    cannot narrow.
+
+    The grounding list collapses identifier segments to ":id", but real URLs hold real IDs. Replacing
+    each ":id" with a single-segment wildcard keeps the WHOLE path specific: the collapsed page
+    "/project/:id/replay-vision/scanners" becomes a regex matching "/project/<id>/replay-vision/
+    scanners" and nothing broader. Matching a single static substring instead would lose the segments
+    around the id and could collapse to a bare prefix that matches every page.
+    """
+    # The literal segments, ignoring the ":id" runs, are the only real content to match on. A path
+    # with too little (e.g. "/", "/:id", or "/ab") would match nearly every URL, so draft no filter
+    # rather than one that narrows nothing. Any other shape is kept: the scanner watches the
+    # customer's product, so we don't assume their URL structure.
+    static_chars = len(pathname.replace(":id", "").replace("/", ""))
+    if static_chars < _MIN_SCREEN_FILTER_CHARS:
         return None
-    return value
+    # Escape the literal parts so a path character like "." or "-" cannot act as a regex
+    # metacharacter, then rejoin with the id wildcard.
+    return _ID_WILDCARD.join(re.escape(part) for part in pathname.split(":id"))
 
 
 def _strip_page_count(page: str) -> str:
@@ -722,15 +890,16 @@ def _strip_page_count(page: str) -> str:
 def _v2_query(pathnames: Sequence[str], events: Sequence[str]) -> dict[str, Any] | None:
     """The scanner's recording filter from the grounded pages and events.
 
-    Pages become ONE multi-value `visited_page` property (its values OR). Events go in the `events`
-    list, where each event ANDs, with the other events and with the page property. The estimate the
-    caller runs, and the review page's Save-at-zero gate, catch an over-constrained AND before it
-    ever becomes a scanner.
+    Pages become ONE multi-value `visited_page` property (its values OR). Each value is a regex that
+    matches the collapsed page against real URLs, with ":id" runs wildcarded. Events go in the
+    `events` list, where each event ANDs, with the other events and with the page property. The
+    estimate the caller runs, and the review page's Save-at-zero gate, catch an over-constrained AND
+    before it ever becomes a scanner.
     """
     query: dict[str, Any] = {"kind": "RecordingsQuery"}
-    values = list(dict.fromkeys(v for p in pathnames if (v := _page_filter_value(p)) is not None))
+    values = list(dict.fromkeys(v for p in pathnames if (v := _page_filter_regex(p)) is not None))
     if values:
-        query["properties"] = [{"type": "recording", "key": "visited_page", "value": values, "operator": "icontains"}]
+        query["properties"] = [{"type": "recording", "key": "visited_page", "value": values, "operator": "regex"}]
     if events:
         # The shape the replay filter UI produces for an event condition.
         query["events"] = [{"id": event, "name": event, "type": "events", "order": 0} for event in events]
@@ -756,10 +925,14 @@ def _solve_budget(
     team: Team,
     user: User,
     query: dict[str, Any] | None,
-    monthly_scan_budget: int,
+    monthly_credit_budget: int,
+    credits_per_observation: int,
     model_mode: str,
 ) -> _BudgetSolution:
-    """Set the two dials from the stated budget.
+    """Set the two dials from the stated credit budget.
+
+    The budget is credits, so the number of recordings it buys depends on the chosen model's price:
+    a pricier model buys fewer recordings. Convert to an observation budget first, then solve.
 
     Budget covers everything: watch everything. No quality filter, no sampling — a filter would only
     hide sessions the budget could have paid for.
@@ -770,6 +943,7 @@ def _solve_budget(
 
     Raises on estimate failure; the caller degrades to an uncosted draft.
     """
+    monthly_scan_budget = monthly_credit_budget // max(1, credits_per_observation)
     recordings_query = RecordingsQuery.model_validate(query or {"kind": "RecordingsQuery"})
     comprehensive = estimate_scanner_session_volume(
         team=team,
@@ -861,6 +1035,7 @@ def _finalize_v2(
         rationale=parsed.rationale.strip()[:_MAX_RATIONALE_LENGTH],
         query=query,
         sampling_mode=parsed.sampling_mode,
+        model=parsed.model,
     )
 
 
@@ -869,12 +1044,12 @@ def draft_scanner_from_goal_v2(
     team: Team,
     user: User,
     goal: str,
-    monthly_scan_budget: int,
+    monthly_credit_budget: int,
     user_access_control: UserAccessControl,
     include_business_context: bool = True,
 ) -> ScannerDraft:
     """The goal-based flow: ground the goal in the team's real pages, draft the whole scanner in one
-    model call, then solve the sampling dials from the stated monthly budget.
+    model call, then solve the sampling dials from the stated monthly credit budget.
 
     Raises DraftError on model failure. A costing failure does not fail the draft: the sampling
     fields come back None and the wizard keeps its defaults.
@@ -885,7 +1060,7 @@ def draft_scanner_from_goal_v2(
         # A draft grounded only in events still beats no draft; the filter just cannot name pages.
         logger.warning("replay_vision.scanner_draft.visited_paths_failed", team_id=team.id, exc_info=True)
         pages = ()
-    events = _product_taxonomy(team).events
+    events = _events_for_goal(team, goal)
     company = (
         " / ".join(part for part in [team.organization.name, team.project.name if team.project else ""] if part)
         if include_business_context
@@ -913,13 +1088,17 @@ def draft_scanner_from_goal_v2(
         allowed_events=events,
         team_id=team.id,
     )
+    # The cap is the stated budget, so a mis-estimate stops the scanner at the credits the user
+    # agreed to rather than overspending. Kept even when costing fails, so the guardrail survives.
+    draft = replace(draft, credit_limit=monthly_credit_budget)
 
     try:
         solution = _solve_budget(
             team=team,
             user=user,
             query=draft.query,
-            monthly_scan_budget=monthly_scan_budget,
+            monthly_credit_budget=monthly_credit_budget,
+            credits_per_observation=observation_credits_for_model(draft.model or ScannerModel.GEMINI_3_FLASH_PREVIEW),
             model_mode=draft.sampling_mode or SamplingMode.COMPREHENSIVE,
         )
     except Exception:

@@ -353,6 +353,31 @@ describe('replayScannerLogic', () => {
         })
     })
 
+    describe('clearClassifierTags', () => {
+        it('empties the categories of a classifier scanner', async () => {
+            logic.actions.setScannerType('classifier')
+            logic.actions.setScannerValues({
+                scanner_config: {
+                    prompt: 'Categorize intent',
+                    tags: ['checkout', 'pricing'],
+                    multi_label: true,
+                } as ClassifierScanner['scanner_config'],
+            })
+            await expectLogic(logic, () => logic.actions.clearClassifierTags()).toMatchValues({
+                scanner: expect.objectContaining({
+                    scanner_config: expect.objectContaining({ tags: [] }),
+                }),
+            })
+        })
+
+        it('is a no-op for non-classifier scanners', async () => {
+            // Default scanner is a monitor, so clearing must not add a tags field to its config.
+            await expectLogic(logic, () => logic.actions.clearClassifierTags()).toMatchValues({
+                scanner: expect.objectContaining({ scanner_type: 'monitor', scanner_config: { prompt: '' } }),
+            })
+        })
+    })
+
     describe('tag suggestions', () => {
         const setupClassifier = (): void => {
             logic.actions.setScannerType('classifier')

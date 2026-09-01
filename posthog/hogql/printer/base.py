@@ -204,6 +204,38 @@ class BasePrinter(Visitor[str]):
             raise QueryError(f"LIMIT percent is not allowed in {self.DIALECT_NAME} dialect")
         return f"LIMIT {self.visit(limit)}"
 
+    def _append_select_limit_and_offset(
+        self, clauses: list[str | None], node: ast.SelectQuery, limit: ast.Expr | None
+    ) -> None:
+        if limit is not None:
+            if node.limit_with_ties:
+                self._assert_with_ties_supported()
+            clauses.append(self._render_select_query_limit_clause(limit, bool(node.limit_percent)))
+            if node.limit_with_ties:
+                clauses.append("WITH TIES")
+
+        if node.offset is not None:
+            clauses.append(f"OFFSET {self.visit(node.offset)}")
+
+    def _append_set_limit_and_offset(self, sql: str, node: ast.SelectSetQuery) -> str:
+        if node.limit is not None:
+            limit_str = self.visit(node.limit)
+            if node.limit_percent:
+                limit_str = self._render_set_query_limit_percent(node.limit, limit_str)
+            if node.limit_with_ties:
+                limit_str += " WITH TIES"
+            if self.pretty:
+                sql = sql.rstrip() + f"\n{self.indent(1)}LIMIT {limit_str}"
+            else:
+                sql += f" LIMIT {limit_str}"
+        if node.offset is not None:
+            offset_str = self.visit(node.offset)
+            if self.pretty:
+                sql = sql.rstrip() + f"\n{self.indent(1)}OFFSET {offset_str}"
+            else:
+                sql += f" OFFSET {offset_str}"
+        return sql
+
     def _validate_within_group_for_aggregation(self, node: "ast.Call", func_meta) -> None:
         """Validate that this dialect accepts the WITHIN GROUP clause for `node`.
 
@@ -280,23 +312,7 @@ class BasePrinter(Visitor[str]):
                     ret += f" {expr.set_operator} "
             ret += query
         self._indent += 1
-        if node.limit is not None:
-            limit_str = self.visit(node.limit)
-            if node.limit_percent:
-                limit_str = self._render_set_query_limit_percent(node.limit, limit_str)
-
-            if node.limit_with_ties:
-                limit_str += " WITH TIES"
-            if self.pretty:
-                ret = ret.rstrip() + f"\n{self.indent(1)}LIMIT {limit_str}"
-            else:
-                ret += f" LIMIT {limit_str}"
-        if node.offset is not None:
-            offset_str = self.visit(node.offset)
-            if self.pretty:
-                ret = ret.rstrip() + f"\n{self.indent(1)}OFFSET {offset_str}"
-            else:
-                ret += f" OFFSET {offset_str}"
+        ret = self._append_set_limit_and_offset(ret, node)
         if len(self.stack) > 1:
             return f"({ret.strip()})"
         return ret
@@ -310,6 +326,9 @@ class BasePrinter(Visitor[str]):
 
     def _print_select_columns(self, columns: Iterable[ast.Expr]) -> list[str]:
         return [self.visit(column) for column in columns]
+
+    def _render_group_by_all_clause(self) -> str:
+        return "GROUP BY ALL"
 
     def visit_select_query(self, node: ast.SelectQuery):
         # if we are the first parsed node in the tree, or a child of a SelectSetQuery, mark us as a top level query
@@ -405,7 +424,7 @@ class BasePrinter(Visitor[str]):
             f"PREWHERE{space}" + prewhere if prewhere else None,
             f"WHERE{space}" + where if where else None,
             (
-                f"GROUP BY ALL"
+                self._render_group_by_all_clause()
                 if node.group_by_mode == "all"
                 else f"GROUP BY{space}GROUPING SETS ({comma.join(group_by or [])})"
                 if node.group_by_mode == "grouping_sets"
@@ -450,16 +469,7 @@ class BasePrinter(Visitor[str]):
                 f"LIMIT {self.visit(node.limit_by.n)} {f'OFFSET {self.visit(node.limit_by.offset_value)}' if node.limit_by.offset_value else ''} BY {', '.join([self.visit(expr) for expr in node.limit_by.exprs])}"
             )
 
-        if limit is not None:
-            if node.limit_with_ties:
-                self._assert_with_ties_supported()
-            limit_str = self._render_select_query_limit_clause(limit, bool(node.limit_percent))
-            clauses.append(limit_str)
-            if node.limit_with_ties:
-                clauses.append("WITH TIES")
-
-        if node.offset is not None:
-            clauses.append(f"OFFSET {self.visit(node.offset)}")
+        self._append_select_limit_and_offset(clauses, node, limit)
 
         clauses.extend(
             self._get_extra_select_clauses(
@@ -510,7 +520,7 @@ class BasePrinter(Visitor[str]):
         node_type: ast.TableOrSelectType | None,
     ) -> list[ast.Expr]:
         """Return predicate expressions from the table definition, resolved against the table's type."""
-        predicates = table_type.table.get_predicates()
+        predicates = table_type.table.get_predicates(self.context)
         if not predicates or node_type is None:
             return []
 
@@ -534,6 +544,15 @@ class BasePrinter(Visitor[str]):
     ) -> ast.Expr | None:
         """Floor events-table scans to the team's retention window. Overridden by the ClickHouse dialect;
         default no-op — the HogQL and warehouse dialects don't enforce events retention."""
+        return None
+
+    def _postgres_retention_floor(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ) -> ast.Expr | None:
+        """Floor a federated table declaring a `retention_field` to its entitlement window. Overridden
+        by the ClickHouse dialect; default no-op — only that dialect reads these tables."""
         return None
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
@@ -607,6 +626,9 @@ class BasePrinter(Visitor[str]):
             retention_floor = self._events_retention_floor(table_type, node.type)
             if retention_floor is not None:
                 predicate_exprs = [*predicate_exprs, retention_floor]
+            postgres_floor = self._postgres_retention_floor(table_type, node.type)
+            if postgres_floor is not None:
+                predicate_exprs = [*predicate_exprs, postgres_floor]
             for pred in predicate_exprs:
                 if is_left_join and node.constraint is not None:
                     if on_clause_guard is None:

@@ -98,9 +98,6 @@ tools:
     code-invites-check-access-retrieve:
         operation: code_invites_check_access_retrieve
         enabled: false
-    code-invites-redeem-create:
-        operation: code_invites_redeem_create
-        enabled: false
     code-sandbox-pricing-list:
         operation: code_sandbox_pricing_list
         enabled: false
@@ -613,6 +610,9 @@ tools:
         enabled: false
     tasks-runs-peers-retrieve:
         operation: tasks_runs_peers_retrieve
+        enabled: false
+    tasks-runs-preview-retrieve:
+        operation: tasks_runs_preview_retrieve
         enabled: false
     tasks-runs-relay-message-create:
         operation: tasks_runs_relay_message_create

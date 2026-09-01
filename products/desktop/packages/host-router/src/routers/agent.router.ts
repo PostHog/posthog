@@ -9,6 +9,8 @@ import {
   cancelPermissionInput,
   cancelPromptInput,
   cancelSessionInput,
+  codexSubscriptionLoginOutput,
+  codexSubscriptionStatusOutput,
   getPiModelCatalogInput,
   getPiModelCatalogOutput,
   getPreviewConfigOptionsInput,
@@ -83,6 +85,26 @@ export const agentRouter = router({
     .query(({ ctx }) =>
       ctx.container.get<AgentService>(AGENT_SERVICE).getRtkStatus(),
     ),
+
+  codexSubscriptionStatus: publicProcedure
+    .output(codexSubscriptionStatusOutput)
+    .query(({ ctx }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .getCodexSubscriptionStatus(),
+    ),
+
+  codexSubscriptionLoginStart: publicProcedure
+    .output(codexSubscriptionLoginOutput)
+    .mutation(({ ctx }) =>
+      ctx.container
+        .get<AgentService>(AGENT_SERVICE)
+        .startCodexSubscriptionLogin(),
+    ),
+
+  codexSubscriptionSignOut: publicProcedure.mutation(({ ctx }) =>
+    ctx.container.get<AgentService>(AGENT_SERVICE).signOutCodexSubscription(),
+  ),
 
   reconnect: publicProcedure
     .input(reconnectSessionInput)
