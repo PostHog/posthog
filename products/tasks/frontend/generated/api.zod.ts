@@ -2682,7 +2682,11 @@ export const TasksRunsArtifactsCreateBody = /* @__PURE__ */ zod.object({
                     .max(tasksRunsArtifactsCreateBodyArtifactsItemSourceMax)
                     .default(tasksRunsArtifactsCreateBodyArtifactsItemSourceDefault)
                     .describe('Optional source label for the artifact, such as agent_output or user_attachment'),
-                content: zod.string().describe('Artifact contents encoded according to content_encoding'),
+                content: zod
+                    .string()
+                    .describe(
+                        'Artifact contents encoded according to content_encoding. Artifacts above 14 MB must use prepare_upload instead.'
+                    ),
                 content_encoding: zod
                     .enum(['utf-8', 'base64'])
                     .describe('\* `utf-8` - utf-8\n\* `base64` - base64')
