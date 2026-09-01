@@ -128,6 +128,40 @@ describe("registerAppVersion", () => {
   });
 });
 
+describe("registerAdapterSubscription", () => {
+  it("reports the saved access when connected", async () => {
+    const { initializePostHog, registerAdapterSubscription } =
+      await loadAnalytics();
+    initializePostHog();
+
+    registerAdapterSubscription("claude", {
+      access: "own-subscription",
+      connected: true,
+    });
+
+    expect(mockPosthog.register).toHaveBeenCalledWith({
+      claude_model_access: "own-subscription",
+      claude_subscription_connected: true,
+    });
+  });
+
+  it("reports the gateway as effective access when disconnected", async () => {
+    const { initializePostHog, registerAdapterSubscription } =
+      await loadAnalytics();
+    initializePostHog();
+
+    registerAdapterSubscription("claude", {
+      access: "own-subscription",
+      connected: false,
+    });
+
+    expect(mockPosthog.register).toHaveBeenCalledWith({
+      claude_model_access: "posthog-gateway",
+      claude_subscription_connected: false,
+    });
+  });
+});
+
 describe("track", () => {
   it("stamps inbox_client on inbox events", async () => {
     const { initializePostHog, track } = await loadAnalytics();

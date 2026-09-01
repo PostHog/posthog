@@ -163,6 +163,7 @@ async def enrich_signup_organization_activity(
                         "icp_fit_status": fit.status if fit else None,
                         "icp_fit_evaluated_at": dt.datetime.now(dt.UTC).isoformat() if fit else None,
                         "icp_fit_evaluation_kind": FIT_EVALUATION_KIND_RECHECK if fit else None,
+                        "harmonic_enrichment_status": outcome.enrichment_status,
                     },
                     groups={"organization": inputs.organization_id},
                 )
