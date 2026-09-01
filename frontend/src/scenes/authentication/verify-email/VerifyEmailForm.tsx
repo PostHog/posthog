@@ -7,10 +7,11 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { ExplorerHog, SleepingHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
+import { getPendingVerificationEmail, isValidVerificationCode } from 'scenes/authentication/shared/verificationCode'
+import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 import { urls } from 'scenes/urls'
 
 import { verifyEmailLogic } from './verifyEmailLogic'
@@ -113,6 +114,9 @@ function VerificationCodeEntry(): JSX.Element {
     return (
         <form
             className="flex w-full flex-col gap-2.5"
+            // The code input renders a hidden input with a \d{6} pattern. Without noValidate,
+            // the browser blocks an Enter-key submit on a partial code and shows no feedback.
+            noValidate
             onSubmit={(e) => {
                 e.preventDefault()
                 if (!validatedEmailTokenLoading) {
@@ -120,16 +124,15 @@ function VerificationCodeEntry(): JSX.Element {
                 }
             }}
         >
-            <LemonInput
-                autoFocus
+            <VerificationCodeInput
                 value={verificationCode}
                 onChange={setVerificationCode}
-                placeholder="123456"
-                aria-label="Email verification code"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                size="large"
-                className="text-center ph-replay-block"
+                onComplete={() => {
+                    if (!validatedEmailTokenLoading) {
+                        submitVerificationCode()
+                    }
+                }}
+                disabled={validatedEmailTokenLoading}
                 data-attr="verify-email-code"
                 status={verificationCodeError ? 'danger' : 'default'}
             />
@@ -145,7 +148,9 @@ function VerificationCodeEntry(): JSX.Element {
                 fullWidth
                 htmlType="submit"
                 loading={validatedEmailTokenLoading}
-                disabledReason={verificationCode ? undefined : 'Enter the code from your email'}
+                disabledReason={
+                    isValidVerificationCode(verificationCode) ? undefined : 'Enter the 6-digit code from your email'
+                }
                 data-attr="verify-email-code-submit"
             >
                 Verify email
@@ -155,11 +160,15 @@ function VerificationCodeEntry(): JSX.Element {
 }
 
 export function VerifyEmailForm(): JSX.Element {
-    const { view, uuid, newlyRequestedVerificationLinkLoading } = useValues(verifyEmailLogic)
+    const { view, uuid, newlyRequestedVerificationLinkLoading, user } = useValues(verifyEmailLogic)
     const { requestVerificationLink } = useActions(verifyEmailLogic)
     const { openSupportForm } = useActions(supportLogic)
 
     const notes = NOTES[view ?? 'pending'] ?? NOTES.pending
+    // The address that received the code. This is the new address if an email change is pending,
+    // else the account address. Without a session, for example on a fresh signup, the page uses the
+    // address the signup or login form stored in this browser. It stays unset in a different browser.
+    const verificationEmail = user?.pending_email ?? user?.email ?? getPendingVerificationEmail(uuid) ?? undefined
 
     if (view === 'success') {
         return (
@@ -277,8 +286,15 @@ export function VerifyEmailForm(): JSX.Element {
                         Check your inbox
                     </h1>
                     <p className="AuthScene__sub mt-2 mb-4 text-sm text-secondary text-center text-pretty">
-                        We emailed you a 6-digit code. Enter it below to verify your email address. The code is valid
-                        for 30 minutes.
+                        {verificationEmail ? (
+                            <>
+                                We sent a 6-digit code to <strong>{verificationEmail}</strong>.
+                                <br />
+                                It's valid for 30 minutes.
+                            </>
+                        ) : (
+                            <>We sent you a 6-digit code. It's valid for 30 minutes.</>
+                        )}
                     </p>
                     <VerificationCodeEntry />
                     <div className="mt-3">

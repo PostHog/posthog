@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
     changes:
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         if: github.event_name != 'merge_group'
         permissions:
@@ -65,7 +65,7 @@ jobs:
         needs: changes
         # Fail closed: if change detection itself failed, run instead of skipping.
         if: ${{ !cancelled() && github.event_name != 'merge_group' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true') }}
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         permissions:
             contents: read
@@ -120,7 +120,7 @@ jobs:
     desktop-typecheck-pass:
         needs: [changes, typecheck]
         name: Desktop Typecheck Pass
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         if: always()
         steps:

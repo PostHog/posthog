@@ -84,11 +84,16 @@ class EmailVerificationCodeVerifier:
             # Signup verification always proves the account address. Only a verified user's
             # email change targets the staged address; an unverified user's staged change must
             # not let a code sent to the unverified new address verify the account.
+            # is_email_verified None marks an account from before verification existed. The login
+            # flow trusts those accounts as verified, so the email change flow does too.
             target: str | None = target_email
-            if target is None and user.is_email_verified:
+            if target is None and user.is_email_verified is not False:
                 target = user.pending_email
             issued_at = int(time.time())
-            code = code_based_verification_token_generator.make_code(user, issued_at)
+            # Bind the code to the address it is mailed to. Without this, two email changes in the
+            # same second derive the same code. A code sent to an address the user owns could then
+            # verify a different staged address.
+            code = code_based_verification_token_generator.make_code(user, issued_at, target or "")
             # Write the state before the send, so a delivered code can always verify.
             get_client().set(self._state_key(user.pk), f"{issued_at}:{target or ''}", ex=CODE_TTL_SECONDS)
             send_email_verification_code(user.pk, code, target)
@@ -133,10 +138,12 @@ class EmailVerificationCodeVerifier:
             return False
         issued_at, target = state
         # A code verifies only the address it was issued for. Signup codes store '' as the target.
-        expected_target = (user.pending_email or "") if user.is_email_verified else ""
+        # None counts as verified here, like in send_code, or a legacy account's change code
+        # (bound to the staged address) could never match and the change could never complete.
+        expected_target = (user.pending_email or "") if user.is_email_verified is not False else ""
         if target != expected_target:
             return False
-        return code_based_verification_token_generator.check_code(user, code, issued_at)
+        return code_based_verification_token_generator.check_code(user, code, issued_at, target)
 
     def invalidate(self, user: User) -> None:
         try:

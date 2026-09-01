@@ -165,6 +165,13 @@ WIZARD_CLOUD_RUN_RUNTIME_ADAPTER = "claude"
 WIZARD_CLOUD_RUN_MODEL = "claude-sonnet-5"
 WIZARD_CLOUD_RUN_AI_STAGE = "wizard_pr_agent"
 
+
+class _AutoArchiveUnchanged:
+    pass
+
+
+_AUTO_ARCHIVE_UNCHANGED = _AutoArchiveUnchanged()
+
 __all__ = [
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
@@ -207,6 +214,7 @@ __all__ = [
     "finalize_task_run_artifact_uploads",
     "finalize_task_staged_artifacts",
     "get_active_wizard_cloud_run",
+    "get_latest_active_internal_task_run_for_organization",
     "get_conversation_task_dtos",
     "get_latest_pr_url_by_task",
     "get_merged_pr_task_ids",
@@ -430,7 +438,9 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
 # first message; without them it silently falls back to `task.description`. Withheld from
 # human readers: a workflow task is team-readable, and its boot prompt embeds the triggering
 # event wholesale, which for a Slack trigger can be a private channel's message content.
-_TASK_RUN_AGENT_STATE_KEYS = frozenset({"initial_prompt_override"})
+# `end_run_when_done` gates the sandbox's `finish` tool for workflow runs; a key this
+# filter drops never reaches the agent server, so the gate would silently do nothing.
+_TASK_RUN_AGENT_STATE_KEYS = frozenset({"end_run_when_done", "initial_prompt_override"})
 
 
 def _public_task_run_state(state: dict | None, *, include_agent_keys: bool = False) -> dict:
@@ -629,6 +639,7 @@ def _task_detail_to_dto(
         latest_run_id=latest_run_id,
         channel=task.channel_id,
         slack_thread_references=_task_slack_thread_references(task),
+        origin_key=task.origin_key,
     )
 
 
@@ -802,6 +813,33 @@ def task_exists(task_id: str | UUID, team_id: int) -> bool:
 def task_channel_id(task_id: str | UUID, team_id: int) -> UUID | None:
     """The channel a (non-deleted) task is filed in, or None."""
     return Task.objects.filter(id=task_id, team_id=team_id, deleted=False).values_list("channel_id", flat=True).first()
+
+
+def signal_report_pipeline_stage(task_id: str | UUID, team_id: int) -> str | None:
+    """The ``ai_stage`` the Signals report pipeline stamped on this task's runs, or ``None``.
+
+    Callers use it to attribute a sandbox agent's writes to the stage that started it. Only
+    ``SIGNAL_REPORT``-origin tasks qualify, and ``ai_stage`` is written server-side once at run
+    creation (see ``Task.create_and_run``), so the sandbox whose token names the task cannot set
+    or change it — which is what makes it safe to treat as an identity rather than a claim.
+
+    A task's runs all carry the stage the pipeline started it for, so the newest run answers for
+    the task. ``None`` covers everything else: a scout run, a user-created task, a legacy row
+    predating the stamp.
+    """
+    state = (
+        TaskRun.objects.filter(
+            task_id=task_id,
+            team_id=team_id,
+            task__deleted=False,
+            task__origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        .order_by("-created_at")
+        .values_list("state", flat=True)
+        .first()
+    )
+    stage = (state or {}).get("ai_stage")
+    return stage if isinstance(stage, str) and stage else None
 
 
 def task_owned_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
@@ -1035,6 +1073,30 @@ def get_active_wizard_cloud_run(team_id: int) -> contracts.WizardCloudRunDTO | N
             started_at=run.created_at,
         )
     return None
+
+
+def get_latest_active_internal_task_run_for_organization(
+    organization_id: str | UUID, *, ai_stage: str
+) -> contracts.TaskRunDTO | None:
+    """Return the newest active cloud run for a server-owned organization flow."""
+    run = (
+        TaskRun.objects.filter(
+            team__organization_id=organization_id,
+            task__team__organization_id=organization_id,
+            task__internal=True,
+            environment=TaskRun.Environment.CLOUD,
+            state__ai_stage=ai_stage,
+            status__in=[
+                TaskRun.Status.NOT_STARTED,
+                TaskRun.Status.QUEUED,
+                TaskRun.Status.IN_PROGRESS,
+            ],
+        )
+        .select_related("task", "task__created_by")
+        .order_by("-created_at", "-id")
+        .first()
+    )
+    return _task_run_to_dto(run) if run is not None else None
 
 
 def get_stale_queued_task_run_ids(
@@ -1492,6 +1554,24 @@ def update_task_run_state(
 ) -> dict:
     """Atomically merge state updates into a run's ``state`` and return the new state."""
     return TaskRun.update_state_atomic(run_id, updates=updates, remove_keys=remove_keys)
+
+
+def promote_run_to_user_authorship(run_id: str | UUID, actor_user_id: int) -> bool:
+    """Promote a bot-authored run to user authorship when the actor now has a usable GitHub install.
+
+    Delegates to ``upgrade_run_to_user_authorship``, which persists the change and leaves
+    runs that are bot-authored by design (signal reports, caller-token runs) untouched.
+    Returns True when the run was promoted.
+    """
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep tasks internals off the api import path
+        upgrade_run_to_user_authorship,
+    )
+
+    run = TaskRun.objects.select_related("task").filter(id=run_id).first()
+    actor_user = User.objects.filter(id=actor_user_id).first()
+    if run is None or actor_user is None:
+        return False
+    return upgrade_run_to_user_authorship(run, actor_user, run.state) is not None
 
 
 def signal_task_run_client_activity(run_id: str | UUID, task_id: str | UUID, team_id: int) -> None:
@@ -5195,6 +5275,10 @@ def _list_tasks_queryset(
     if channel:
         qs = qs.filter(channel_id=channel)
 
+    hog_flow_id = filters.get("hog_flow_id")
+    if hog_flow_id:
+        qs = qs.filter(hog_flow_id=hog_flow_id)
+
     if search:
         search_term = search.strip()
         if search_term:
@@ -6339,7 +6423,8 @@ def warm_task_sandbox(
     (``Throttled``). The caller treats ``None`` as "no warm run; fall through to a cold create+run".
 
     When present, ``github_integration_id`` must already be re-scoped to ``team_id`` by the caller
-    (see :func:`resolve_team_github_integration_id`). Repository-less warms omit it.
+    (see :func:`resolve_team_github_integration_id`). A repository requires it; a repository-less warm
+    may carry it so the Run boots with the same GitHub credentials a repo-less create would get.
     """
     from rest_framework.exceptions import (  # noqa: PLC0415 — keep DRF exception types off the api import path
         PermissionDenied,
@@ -6365,7 +6450,12 @@ def warm_task_sandbox(
         github_integration = Integration.objects.filter(
             id=github_integration_id, team_id=team_id, kind="github"
         ).first()
-    if bool(normalized_repositories) != bool(github_integration):
+    # An integration id that does not resolve to this team's GitHub integration is never warmed on, and
+    # a repository cannot be cloned without one. An integration without a repository is fine: the
+    # create path stores that pair too, and reuse matches on the integration id.
+    if github_integration_id is not None and github_integration is None:
+        return None
+    if normalized_repositories and github_integration is None:
         return None
     sandbox_environment = None
     if sandbox_environment_id is not None:
@@ -7356,6 +7446,7 @@ def _channel_to_dto(channel: Channel, *, starred: bool = False) -> contracts.Cha
         system_role=channel.system_role,
         github_integration=channel.github_integration_id,
         repositories=channel.repositories,
+        auto_archive_after_days=channel.auto_archive_after_days,
         created_at=channel.created_at,
         created_by=_user_basic_info(channel.created_by if channel.created_by_id else None),
         starred=starred,
@@ -7584,9 +7675,11 @@ def update_channel(
     team_id: int,
     user_id: int | None,
     *,
+    can_manage_shared_auto_archive: bool,
     name: str | None = None,
     github_integration: Integration | None = None,
     repositories: list[str] | None = None,
+    auto_archive_after_days: int | None | _AutoArchiveUnchanged = _AUTO_ARCHIVE_UNCHANGED,
 ) -> contracts.ChannelDTO | str:
     """Update a visible channel."""
     channel = Channel.objects.filter(id=channel_id, team_id=team_id, deleted=False).first()
@@ -7597,6 +7690,8 @@ def update_channel(
             return "not_found"
         if name is not None:
             return "personal"
+    elif not isinstance(auto_archive_after_days, _AutoArchiveUnchanged) and not can_manage_shared_auto_archive:
+        return "auto_archive_forbidden"
     if name is not None and _is_general_channel(channel):
         return "general"
     update_fields: list[str] = []
@@ -7610,6 +7705,9 @@ def update_channel(
         channel.repositories = repositories
         channel.github_integration = github_integration if repositories else None
         update_fields.extend(["repositories", "github_integration"])
+    if not isinstance(auto_archive_after_days, _AutoArchiveUnchanged):
+        channel.auto_archive_after_days = auto_archive_after_days
+        update_fields.append("auto_archive_after_days")
     if not update_fields:
         return _channel_to_dto(channel)
     try:

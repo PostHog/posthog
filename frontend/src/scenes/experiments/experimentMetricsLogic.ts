@@ -5,7 +5,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { isLaunched } from 'scenes/experiments/experimentStatus'
 import { projectLogic } from 'scenes/projectLogic'
 
 import type { FeatureFlagsSet } from '~/lib/logic/featureFlagLogic'
@@ -13,6 +12,7 @@ import type { Breakdown, CachedNewExperimentQueryResponse, ExperimentMetric } fr
 import { Experiment } from '~/types'
 import type { ExperimentIdType } from '~/types'
 
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 import {
     experimentsMetricsRecalculationCreate,
     experimentsMetricsRecalculationLatestRetrieve,
@@ -199,10 +199,12 @@ export interface experimentMetricsLogicActions {
                 | 'auto_refresh'
                 | 'cold_run'
                 | 'config_change'
+                | 'experiment_config_change'
                 | 'experiment_launch'
                 | 'experiment_stop'
                 | 'experiment_update'
                 | 'manual'
+                | 'metric_config_change'
                 | 'stale_refresh'
         }
     ) => {
@@ -220,10 +222,12 @@ export interface experimentMetricsLogicActions {
                 | 'auto_refresh'
                 | 'cold_run'
                 | 'config_change'
+                | 'experiment_config_change'
                 | 'experiment_launch'
                 | 'experiment_stop'
                 | 'experiment_update'
                 | 'manual'
+                | 'metric_config_change'
                 | 'stale_refresh'
                 | undefined
         }
@@ -654,13 +658,15 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
 
                     /**
                      * We have no per-metric staleness signal, so a results + failures count short of the total
-                     * means a shared metric diverged: re-run to heal it.
+                     * means the run diverged: re-run to heal it. This recovery is generic (it also fires after a
+                     * reset and relaunch), so advance the window with experiment_config_change rather than reuse a
+                     * cutoff that may predate the new start_date.
                      */
                     if (
                         recalculation.status === RECALCULATION_STATUSES.completed &&
                         recalculation.completed_metrics + recalculation.failed_metrics < recalculation.total_metrics
                     ) {
-                        actions.triggerRecalculation('config_change')
+                        actions.triggerRecalculation('experiment_config_change')
                         return
                     }
                 } catch (error: any) {

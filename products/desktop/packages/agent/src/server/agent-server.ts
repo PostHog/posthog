@@ -18,6 +18,7 @@ import { execGh } from "@posthog/git/gh";
 import { getCurrentBranch, getRemoteUrl } from "@posthog/git/queries";
 import { ghTokenEnv } from "@posthog/git/signed-commit";
 import {
+  type AcpMcpServer,
   type Adapter,
   buildPrOutput,
   getErrorMessage,
@@ -29,6 +30,7 @@ import {
   readMcpToolDescriptor,
   readPrUrls,
   sleepWithBackoff,
+  toAcpMcpServers,
 } from "@posthog/shared";
 import {
   buildPosthogPropertiesHeaderLines,
@@ -42,11 +44,20 @@ import { unzipSync } from "fflate";
 import { Hono } from "hono";
 import { z } from "zod";
 import packageJson from "../../package.json" with { type: "json" };
-import { POSTHOG_METHODS, POSTHOG_NOTIFICATIONS } from "../acp-extensions";
+import {
+  POSTHOG_METHODS,
+  POSTHOG_NOTIFICATIONS,
+  type SteerDeclineCause,
+} from "../acp-extensions";
 import {
   createAcpConnection,
   type InProcessAcpConnection,
 } from "../adapters/acp-connection";
+import { BENJAMIN_UPSTREAM_COMMIT } from "../adapters/benjamin/instruction";
+import {
+  appendBenjaminGuidance,
+  isBenjaminEnabled,
+} from "../adapters/benjamin-guidance";
 import { setAlwaysAskMcpServers } from "../adapters/claude/mcp/tool-metadata";
 import {
   getSessionJsonlPath,
@@ -386,7 +397,8 @@ function getTaskRunStateString(
 type SteerDeclineReason =
   | "startup_turn"
   | "no_active_turn"
-  | "adapter_rejected";
+  | "adapter_rejected"
+  | `adapter_${SteerDeclineCause}`;
 
 /** Which delivery routes a Slack run has, as resolved by the backend from flags and Slack scopes. */
 type SlackArtifactDelivery = "none" | "message" | "canvas_file";
@@ -501,6 +513,8 @@ export class AgentServer {
   private config: AgentServerConfig;
   private sessionReadyBootMs?: number;
   private sessionInitMs?: number;
+  private httpReadyBootMs?: number;
+  private commandDispatchedRunId?: string;
   private barrierReleasedAtMs?: number;
   private bootTracker: AgentBootTracker;
   private logger: Logger;
@@ -952,9 +966,11 @@ export class AgentServer {
           port: this.config.port,
         },
         () => {
+          this.httpReadyBootMs = Math.round(process.uptime() * 1000);
+          this.bootTracker.markHttpReady(this.httpReadyBootMs);
           this.logger.debug(
             `HTTP server listening on port ${this.config.port}`,
-            { bootMs: Math.round(process.uptime() * 1000) },
+            { bootMs: this.httpReadyBootMs },
           );
           resolve();
         },
@@ -1318,7 +1334,13 @@ export class AgentServer {
                 resolveDelivery(outcome);
                 return outcome;
               }
-              declineReason = "adapter_rejected";
+              const cause = (
+                result._meta as { steerDeclineCause?: unknown } | undefined
+              )?.steerDeclineCause;
+              declineReason =
+                typeof cause === "string"
+                  ? (`adapter_${cause}` as SteerDeclineReason)
+                  : "adapter_rejected";
             }
             const outcome = {
               stopReason: "steer_declined",
@@ -1367,6 +1389,7 @@ export class AgentServer {
               }
             } else {
               const runPrompt = () => {
+                this.emitFirstCommandDispatched();
                 const promptResult = commandSession.clientConnection.prompt({
                   sessionId: commandSession.acpSessionId,
                   prompt,
@@ -1590,7 +1613,7 @@ export class AgentServer {
 
         return await this.session.clientConnection.extMethod(
           POSTHOG_METHODS.REFRESH_SESSION,
-          { mcpServers: refreshedMcpServers },
+          { mcpServers: toAcpMcpServers(refreshedMcpServers) },
         );
       }
 
@@ -1689,7 +1712,10 @@ export class AgentServer {
       return;
     }
 
-    this.bootTracker = new AgentBootTracker(payload.run_id);
+    this.bootTracker = new AgentBootTracker(
+      payload.run_id,
+      this.httpReadyBootMs,
+    );
     this.initializationPromise = this._doInitializeSession(
       payload,
       sseController,
@@ -1821,6 +1847,7 @@ export class AgentServer {
       taskRunId: payload.run_id,
       taskUserId: payload.user_id || preTask?.created_by?.id || null,
       taskTitle: preTask?.title,
+      taskOriginKey: preTask?.origin_key,
       repositories: this.taskRepositories,
       runtimeAdapter,
       sandboxEnvironmentId: getTaskRunStateString(
@@ -2015,6 +2042,7 @@ export class AgentServer {
       ...(preTask?.origin_product && {
         taskOriginProduct: preTask.origin_product,
       }),
+      ...(runState?.end_run_when_done === true && { endRunWhenDone: true }),
       ...(this.config.baseBranch && { baseBranch: this.config.baseBranch }),
       ...(runtimeAdapter === "claude" &&
         this.config.contextWindow && {
@@ -2065,10 +2093,10 @@ export class AgentServer {
             sessionCwd,
             initialPermissionMode,
           );
-          const preparedMcpServers: McpServerConnection[] = [
+          const preparedMcpServers: AcpMcpServer[] = toAcpMcpServers([
             ...(this.config.mcpServers ?? []),
             ...(await this.startMcpRelayServer()),
-          ];
+          ]);
           return [preparedNativeResume, preparedMcpServers] as const;
         } finally {
           if (existingPrCheckoutPromise) {
@@ -2132,7 +2160,6 @@ export class AgentServer {
         return sessionId;
       },
     );
-
     this.evaluatedPrUrls.clear();
     this.prAttributionChain = Promise.resolve();
 
@@ -2229,6 +2256,9 @@ export class AgentServer {
     this.posthogAPI
       .updateTaskRun(payload.task_id, payload.run_id, {
         status: "in_progress",
+        ...(isBenjaminEnabled() && {
+          state: { benjamin_version: BENJAMIN_UPSTREAM_COMMIT },
+        }),
       })
       .catch((err) =>
         this.logger.debug("Failed to set task run to in_progress", err),
@@ -2304,6 +2334,7 @@ export class AgentServer {
       if (!session) {
         throw new Error("Agent session ended before the turn could be sent");
       }
+      this.emitFirstCommandDispatched();
       const attempt = continueInterruptedTurn
         ? {
             sessionId: session.acpSessionId,
@@ -2876,7 +2907,7 @@ export class AgentServer {
     try {
       const response = await this.session.clientConnection.newSession({
         cwd: this.config.repositoryPath ?? "/tmp/workspace",
-        mcpServers: this.config.mcpServers ?? [],
+        mcpServers: toAcpMcpServers(this.config.mcpServers ?? []),
         _meta: this.session.sessionMeta,
       });
       this.session.acpSessionId = response.sessionId;
@@ -3827,7 +3858,7 @@ export class AgentServer {
       typeof systemPrompt === "string" ? systemPrompt : systemPrompt.append;
     // Codex has no command-rewrite hook (see rtk-guidance.ts), so RTK is
     // adopted through the developer instructions instead.
-    return appendRtkGuidanceForCodex(instructions);
+    return appendBenjaminGuidance(appendRtkGuidanceForCodex(instructions));
   }
 
   /**
@@ -4597,6 +4628,7 @@ ${commonInstructions}
     taskRunId,
     taskUserId,
     taskTitle,
+    taskOriginKey,
     repositories,
     runtimeAdapter,
     sandboxEnvironmentId,
@@ -4612,6 +4644,7 @@ ${commonInstructions}
     taskRunId?: string | null;
     taskUserId?: number | null;
     taskTitle?: string | null;
+    taskOriginKey?: string | null;
     repositories?: string[];
     runtimeAdapter?: string | null;
     sandboxEnvironmentId?: string | null;
@@ -4661,6 +4694,7 @@ ${commonInstructions}
       task_run_id: taskRunId,
       task_user_id: taskUserId,
       task_title: taskTitle,
+      task_origin_key: taskOriginKey,
       task_repositories: repositories?.length
         ? JSON.stringify(repositories)
         : null,
@@ -5496,6 +5530,24 @@ ${commonInstructions}
       // `this.session` assignment) or before its SSE controller attaches.
       this.pendingEvents.push(event);
     }
+  }
+
+  private emitFirstCommandDispatched(): void {
+    if (!this.session) return;
+    const runId = this.session.payload.run_id;
+    if (this.commandDispatchedRunId === runId) return;
+    this.commandDispatchedRunId = runId;
+    const notification = {
+      jsonrpc: "2.0" as const,
+      method: POSTHOG_NOTIFICATIONS.COMMAND_DISPATCHED,
+      params: {},
+    };
+    this.broadcastEvent({
+      type: "notification",
+      timestamp: new Date().toISOString(),
+      notification,
+    });
+    this.session.logWriter.appendRawLine(runId, JSON.stringify(notification));
   }
 
   private flushPreSessionEvents(): void {

@@ -132,8 +132,12 @@ export class PostHogAPIClient {
     return host;
   }
 
-  private isAuthFailure(status: number): boolean {
-    return status === 401 || status === 403;
+  private isTokenRejection(status: number): boolean {
+    // 401 means the token is invalid or expired, which a forced refresh
+    // fixes. 403 means the credential lacks permission; a refresh from the
+    // same grant cannot gain any, and forcing one on every 403 rotates the
+    // refresh token and rebuilds the whole desktop session.
+    return status === 401;
   }
 
   private async resolveApiKey(forceRefresh = false): Promise<string> {
@@ -179,7 +183,7 @@ export class PostHogAPIClient {
   ): Promise<Response> {
     let response = await this.performRequest(endpoint, options);
 
-    if (!response.ok && this.isAuthFailure(response.status)) {
+    if (!response.ok && this.isTokenRejection(response.status)) {
       response = await this.performRequest(endpoint, options, true);
     }
 

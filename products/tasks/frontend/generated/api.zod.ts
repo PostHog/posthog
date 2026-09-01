@@ -953,6 +953,8 @@ export const taskChannelsPartialUpdateBodyRepositoriesItemMax = 255
 
 export const taskChannelsPartialUpdateBodyRepositoriesMax = 10
 
+export const taskChannelsPartialUpdateBodyAutoArchiveAfterDaysMax = 365
+
 export const TaskChannelsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -968,6 +970,14 @@ export const TaskChannelsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(taskChannelsPartialUpdateBodyRepositoriesMax)
         .optional()
         .describe('GitHub repositories inherited by new tasks in this channel.'),
+    auto_archive_after_days: zod
+        .number()
+        .min(1)
+        .max(taskChannelsPartialUpdateBodyAutoArchiveAfterDaysMax)
+        .nullish()
+        .describe(
+            'Days of inactivity before tasks in this channel are archived. Accepts 1 through 365. Null disables automatic archiving.'
+        ),
 })
 
 /**
@@ -3401,7 +3411,9 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
         github_integration: zod
             .number()
             .nullish()
-            .describe("Primary key of the team's GitHub integration to clone with when a repository is selected."),
+            .describe(
+                "Primary key of the team's GitHub integration. Required when a repository is selected (it is what the sandbox clones with). Accepted without a repository too: the warm Run then boots with that integration's GitHub credentials, matching a repo-less create that carries it."
+            ),
         branch: zod
             .string()
             .max(tasksWarmCreateBodyBranchMax)
