@@ -495,10 +495,13 @@ async def _run(
         )
         produce_calls = mock_app_metrics_producer_cls.return_value.produce.call_args_list
         emitted_payloads = [call.kwargs["data"] for call in produce_calls]
-        status_rows = [
-            p for p in emitted_payloads if p["app_source_id"] == str(source.pk) and p["metric_kind"] == "success"
+        # A run also repeats its metrics under each destination, so scope these to the schema's
+        # own rows. The destination-scoped ones are checked below.
+        schema_scoped = [
+            p for p in emitted_payloads if p["app_source_id"] == str(source.pk) and p["instance_id"] == str(schema.id)
         ]
-        rows_rows = [p for p in emitted_payloads if p["app_source_id"] == str(source.pk) and p["metric_kind"] == "rows"]
+        status_rows = [p for p in schema_scoped if p["metric_kind"] == "success"]
+        rows_rows = [p for p in schema_scoped if p["metric_kind"] == "rows"]
         assert len(status_rows) == 1, f"expected one success row, got {emitted_payloads}"
         assert status_rows[0]["app_source"] == "warehouse_source_sync"
         assert status_rows[0]["metric_name"] == "succeeded"
@@ -518,6 +521,15 @@ async def _run(
         assert rows_rows[0]["team_id"] == team.pk
         assert rows_rows[0]["instance_id"] == str(schema.id)
         assert rows_rows[0]["timestamp"] == status_rows[0]["timestamp"]
+
+        # Each destination the run delivered to gets the same pair, keyed by "<schema>/<destination>"
+        # and by the destination alone, so a source-level view can ask for one destination directly.
+        for destination_id in run.destination_ids or []:
+            for instance_id in (f"{schema.id}/{destination_id}", str(destination_id)):
+                scoped = [p for p in emitted_payloads if p["instance_id"] == instance_id]
+                assert {p["metric_name"] for p in scoped} == {"succeeded", "rows_synced"}, (
+                    f"expected a success and a rows row for {instance_id}, got {scoped}"
+                )
 
         await sync_to_async(schema.refresh_from_db)()
 
