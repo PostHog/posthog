@@ -1149,7 +1149,6 @@ export interface MCPServerTemplateApi {
     name: string
     /** @maxLength 2048 */
     url: string
-    /** @maxLength 2048 */
     docs_url?: string
     description?: string
     auth_type?: MCPAuthTypeEnumApi
