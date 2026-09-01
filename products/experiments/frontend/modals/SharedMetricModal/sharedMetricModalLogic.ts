@@ -4,17 +4,16 @@ import { loaders } from 'kea-loaders'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { toParams } from 'lib/utils/url'
+import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { NodeKind } from '~/queries/schema/schema-general'
+import type { ExperimentIdType } from '~/types'
 
 import {
     METRIC_CONTEXTS,
     type MetricContext,
 } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
-
-import type { ExperimentIdType } from '../../../types'
-import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
 
 export const MODAL_PAGE_SIZE = 20
 
@@ -257,6 +256,7 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
                         offset: 0,
                         search: values.searchTerm || undefined,
                     })
+                    // nosemgrep: prefer-codegen-api
                     const response = (await api.get(
                         `api/projects/${values.currentProjectId}/experiment_saved_metrics?${params}`
                     )) as CountedPaginatedResponse<SharedMetric>
@@ -274,6 +274,7 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
                             offset: 0,
                             search: values.searchTerm || undefined,
                         })
+                        // nosemgrep: prefer-codegen-api
                         response = (await api.get(
                             `api/projects/${values.currentProjectId}/experiment_saved_metrics?${params}`
                         )) as CountedPaginatedResponse<SharedMetric>
@@ -282,6 +283,7 @@ export const sharedMetricModalLogic = kea<sharedMetricModalLogicType>([
                     const results = [...(response.results ?? [])]
                     let next = response.next
                     while (next) {
+                        // nosemgrep: prefer-codegen-api
                         const page: CountedPaginatedResponse<SharedMetric> = await api.get(next)
                         // Abort if a concurrent loadSharedMetrics (e.g. a new search) superseded this load.
                         breakpoint()
