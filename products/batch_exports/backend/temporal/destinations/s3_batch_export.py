@@ -26,6 +26,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import (
     AWSS3Integration,
     AWSS3RoleBasedIntegration,
@@ -72,7 +73,9 @@ from products.batch_exports.backend.temporal.pipeline.types import BatchExportRe
 from products.batch_exports.backend.temporal.queue import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
-NON_RETRYABLE_ERROR_TYPES = (
+# Errors that any write to S3 can raise, whichever bucket it targets. The file download
+# export shares these, since it runs the same write against a PostHog-owned bucket.
+S3_WRITE_NON_RETRYABLE_ERROR_TYPES = (
     # S3 parameter validation failed.
     "ParamValidationError",
     # This error usually indicates credentials are incorrect or permissions are missing.
@@ -93,6 +96,11 @@ NON_RETRYABLE_ERROR_TYPES = (
     "UnsupportedCompressionError",
     # Invalid S3 credentials
     "InvalidCredentialsError",
+)
+
+# Only a customer's S3 export authenticates through an Integration, so only it can fail this way.
+NON_RETRYABLE_ERROR_TYPES = (
+    *S3_WRITE_NON_RETRYABLE_ERROR_TYPES,
     # The export has no linked Integration to authenticate with
     "MissingIntegrationError",
     # The linked Integration was deleted or doesn't belong to the team
@@ -120,6 +128,20 @@ TRACER = trace.get_tracer(__name__)
 SESSION = aioboto3.Session()
 
 RefreshCoroutine = typing.Callable[[], typing.Awaitable[AWSCredentials]]
+
+
+@frozen
+class ResolvedS3Credentials:
+    """Everything a write needs to reach and authenticate against its target S3 endpoint.
+
+    Resolved before the write starts, as each caller obtains credentials differently. Only an
+    S3-compatible provider needs an `endpoint_url`; AWS and PostHog's own bucket use the default.
+    `refresh_using` mints new credentials when temporary ones expire during a long upload.
+    """
+
+    credentials: AWSCredentials
+    endpoint_url: str | None = None
+    refresh_using: RefreshCoroutine | None = None
 
 
 class UnsupportedFileFormatError(Exception):
@@ -186,15 +208,15 @@ async def _get_s3_integration(
 class S3InsertInputs(BatchExportInsertInputs):
     """Inputs for S3 exports.
 
-    No credentials are carried here. Customer exports resolve them from the Integration named by
-    `integration_id`; the internal file download export passes a `refresh_credentials` coroutine.
+    No credentials are carried here. An export resolves them from the Integration named by
+    `integration_id`.
     """
 
     bucket_name: str
     region: str
     prefix: str
-    # Optional only so payloads written before it still deserialize. The activity requires either
-    # this or `refresh_credentials`, and fails without retrying when it has neither.
+    # Optional only so payloads written before it still deserialize. The activity fails without
+    # retrying when it has no integration to authenticate with.
     integration_id: int | None = None
     compression: str | None = None
     encryption: str | None = None
@@ -203,8 +225,6 @@ class S3InsertInputs(BatchExportInsertInputs):
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
     use_virtual_style_addressing: bool = False
-    # Only usable when calling the activity as a function, Temporal cannot serialize this.
-    refresh_credentials: RefreshCoroutine | None = None
 
 
 def get_s3_key_from_inputs(inputs: S3InsertInputs, file_number: int = 0) -> str:
@@ -584,6 +604,86 @@ async def s3_client(
         raise
 
 
+async def _resolve_credentials_from_integration(inputs: S3InsertInputs) -> ResolvedS3Credentials:
+    """Resolve an export's S3 credentials from the Integration it links to."""
+    if inputs.integration_id is None:
+        raise MissingIntegrationError(inputs.batch_export_id)
+
+    integration = await _get_s3_integration(inputs.integration_id, inputs.team_id)
+
+    if isinstance(integration, AWSS3Integration):
+        return ResolvedS3Credentials(
+            credentials=AWSCredentials(
+                aws_access_key_id=integration.aws_access_key_id,
+                aws_secret_access_key=integration.aws_secret_access_key,
+            )
+        )
+
+    if isinstance(integration, S3CompatibleIntegration):
+        return ResolvedS3Credentials(
+            credentials=AWSCredentials(
+                aws_access_key_id=integration.aws_access_key_id,
+                aws_secret_access_key=integration.aws_secret_access_key,
+            ),
+            endpoint_url=integration.endpoint_url,
+        )
+
+    team = await Team.objects.aget(id=inputs.team_id)
+    external_id = f"posthog-{team.organization_id}"
+
+    bucket_name = inputs.bucket_name
+    key_prefix = get_absolute_key_prefix(
+        inputs.prefix, inputs.data_interval_start, inputs.data_interval_end, inputs.batch_export_model
+    )
+
+    policy_statements = [
+        PolicyStatement(
+            Effect="Allow",
+            Action=["s3:PutObject", "s3:AbortMultipartUpload"],
+            Resource=f"arn:aws:s3:::{bucket_name}{key_prefix}*",
+        )
+    ]
+
+    # TODO: We should be more explicit about this parameter being
+    # an ARN or an ID
+    if inputs.kms_key_id is not None:
+        # KMS key could be in a different acount, in which case
+        # a customer would have provided the full ARN here.
+        if inputs.kms_key_id.startswith("arn:"):
+            resource = inputs.kms_key_id
+
+        else:
+            # If not, assume that the KMS key is in the same account as the role
+            # we are assuming. This is the same assumption S3 makes when passing
+            # just a key ID.
+            parts = integration.aws_role_arn.split(":")
+            if len(parts) < 6 or not parts[4]:
+                raise ValueError(f"Malformed role ARN: {integration.aws_role_arn!r}")
+            account_id = parts[4]
+
+            # I am aware KMS key aliases are a thing, but we explicitly ask for
+            # KMS key "ID". It's a user error if they pass an alias (and we can)
+            # just tell them to use the full ARN then.
+            resource = f"arn:aws:kms:{inputs.region}:{account_id}:key/{inputs.kms_key_id}"
+
+        policy_statements.append(
+            PolicyStatement(
+                Effect="Allow",
+                Action=["kms:GenerateDataKey", "kms:Decrypt"],
+                Resource=resource,
+            )
+        )
+
+    refresh_using = functools.partial(
+        get_credentials_using_user_aws_role,
+        integration.aws_role_arn,
+        external_id,
+        session_name=f"PostHog-batch-exports-{inputs.batch_export_id}",
+        policy_statements=policy_statements,
+    )
+    return ResolvedS3Credentials(credentials=await refresh_using(), refresh_using=refresh_using)
+
+
 @activity.defn
 @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchExportResult:
@@ -600,6 +700,17 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
     Our S3 batch exports also support customising the max S3 file size, different file formats,
     compression, etc, which ClickHouse's S3 functions may not support.
     """
+    return await insert_into_s3_from_stage(inputs, await _resolve_credentials_from_integration(inputs))
+
+
+async def insert_into_s3_from_stage(
+    inputs: S3InsertInputs, resolved_credentials: ResolvedS3Credentials
+) -> S3BatchExportResult:
+    """Write data staged in our internal S3 stage to a target S3 bucket.
+
+    The caller resolves credentials first, because an export takes them from its Integration
+    while the file download export mints temporary ones for a PostHog-owned bucket.
+    """
     bind_contextvars(
         team_id=inputs.team_id,
         destination="S3",
@@ -613,89 +724,9 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
         raise UnsupportedCompressionError(inputs.compression)
 
     async with Heartbeater():
-        # Customer exports resolve credentials from their linked integration. The internal
-        # file-download export instead passes a `refresh_credentials` coroutine that mints
-        # scoped credentials for PostHog's own bucket. One of the two must be present.
-        # Only S3-compatible providers need an endpoint; AWS and our own bucket use the default.
-        endpoint_url = None
-        refresh_credentials = inputs.refresh_credentials
-
-        if inputs.integration_id is not None:
-            integration = await _get_s3_integration(inputs.integration_id, inputs.team_id)
-
-            if isinstance(integration, AWSS3Integration):
-                credentials = AWSCredentials(
-                    aws_access_key_id=integration.aws_access_key_id,
-                    aws_secret_access_key=integration.aws_secret_access_key,
-                )
-
-            if isinstance(integration, AWSS3RoleBasedIntegration):
-                team = await Team.objects.aget(id=inputs.team_id)
-                external_id = f"posthog-{team.organization_id}"
-
-                bucket_name = inputs.bucket_name
-                key_prefix = get_absolute_key_prefix(
-                    inputs.prefix, inputs.data_interval_start, inputs.data_interval_end, inputs.batch_export_model
-                )
-
-                policy_statements = [
-                    PolicyStatement(
-                        Effect="Allow",
-                        Action=["s3:PutObject", "s3:AbortMultipartUpload"],
-                        Resource=f"arn:aws:s3:::{bucket_name}{key_prefix}*",
-                    )
-                ]
-
-                # TODO: We should be more explicit about this parameter being
-                # an ARN or an ID
-                if inputs.kms_key_id is not None:
-                    # KMS key could be in a different acount, in which case
-                    # a customer would have provided the full ARN here.
-                    if inputs.kms_key_id.startswith("arn:"):
-                        resource = inputs.kms_key_id
-
-                    else:
-                        # If not, assume that the KMS key is in the same account as the role
-                        # we are assuming. This is the same assumption S3 makes when passing
-                        # just a key ID.
-                        parts = integration.aws_role_arn.split(":")
-                        if len(parts) < 6 or not parts[4]:
-                            raise ValueError(f"Malformed role ARN: {integration.aws_role_arn!r}")
-                        account_id = parts[4]
-
-                        # I am aware KMS key aliases are a thing, but we explicitly ask for
-                        # KMS key "ID". It's a user error if they pass an alias (and we can)
-                        # just tell them to use the full ARN then.
-                        resource = f"arn:aws:kms:{inputs.region}:{account_id}:key/{inputs.kms_key_id}"
-
-                    policy_statements.append(
-                        PolicyStatement(
-                            Effect="Allow",
-                            Action=["kms:GenerateDataKey", "kms:Decrypt"],
-                            Resource=resource,
-                        )
-                    )
-
-                refresh_credentials = functools.partial(
-                    get_credentials_using_user_aws_role,
-                    integration.aws_role_arn,
-                    external_id,
-                    session_name=f"PostHog-batch-exports-{inputs.batch_export_id}",
-                    policy_statements=policy_statements,
-                )
-                credentials = await refresh_credentials()
-
-            if isinstance(integration, S3CompatibleIntegration):
-                credentials = AWSCredentials(
-                    aws_access_key_id=integration.aws_access_key_id,
-                    aws_secret_access_key=integration.aws_secret_access_key,
-                )
-                endpoint_url = integration.endpoint_url
-
-        elif refresh_credentials is not None:
-            credentials = await refresh_credentials()
-        else:
-            raise MissingIntegrationError(inputs.batch_export_id)
+        credentials = resolved_credentials.credentials
+        endpoint_url = resolved_credentials.endpoint_url
+        refresh_credentials = resolved_credentials.refresh_using
 
         external_logger = EXTERNAL_LOGGER.bind()
         external_logger.info(
