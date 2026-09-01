@@ -502,6 +502,23 @@ describe('TaxonomicFilter', () => {
                 })
                 expect(screen.queryByTestId('taxonomic-hidden-event')).not.toBeInTheDocument()
             })
+
+            // A picker on a live-event surface (the survey and product-tour event triggers, live
+            // events, ingestion triggers) opts in with `includeHiddenEvents`, so the flag must not
+            // hide the event or explain an absence there.
+            it('keeps offering the event when the picker opts in', async () => {
+                renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.Events], includeHiddenEvents: true })
+
+                await activateGroupWithResults('taxonomic-tab-events')
+                await withoutDebounceDelay((user) =>
+                    user.type(screen.getByTestId('taxonomic-filter-searchfield'), '$feature_flag_called')
+                )
+
+                await waitFor(() => {
+                    expect(inVisibleTab(screen.getAllByText(/No results for/))).toBeTruthy()
+                })
+                expect(screen.queryByTestId('taxonomic-hidden-event')).not.toBeInTheDocument()
+            })
         })
     })
 
