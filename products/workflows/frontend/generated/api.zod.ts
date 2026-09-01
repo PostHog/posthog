@@ -2344,6 +2344,8 @@ export const HogFlowsInvocationsCancelCreateBody = /* @__PURE__ */ zod
  */
 export const hogFlowsProposalsCreateBodyTitleMax = 200
 
+export const hogFlowsProposalsCreateBodyStepIdMax = 200
+
 export const hogFlowsProposalsCreateBodySourceIdMax = 200
 
 export const HogFlowsProposalsCreateBody = /* @__PURE__ */ zod.object({
@@ -2362,6 +2364,13 @@ export const HogFlowsProposalsCreateBody = /* @__PURE__ */ zod.object({
         .number()
         .optional()
         .describe('Workflow version this was authored against. Defaults to the current live version.'),
+    step_id: zod
+        .string()
+        .max(hogFlowsProposalsCreateBodyStepIdMax)
+        .nullish()
+        .describe(
+            "The step this is about, when it is about one. Both the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest."
+        ),
     source_type: zod
         .enum(['scout', 'responder', 'human', 'stub'])
         .describe('\* `scout` - Scout\n\* `responder` - Responder\n\* `human` - Human\n\* `stub` - Stub generator')
