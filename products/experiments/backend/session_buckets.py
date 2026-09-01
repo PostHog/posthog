@@ -63,7 +63,9 @@ from posthog.models.user import User
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.utils import get_safe_cache, safe_cache_set
 
-from products.access_control.backend.property_access_control import get_restricted_properties_for_team
+from products.access_control.backend.property_access_control import (
+    get_restricted_properties_with_group_type_index_for_team,
+)
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_test_accounts_filter,
     normalize_to_exposure_criteria,
@@ -353,7 +355,21 @@ def _cache_key(
             default_exposure_event,
             # Property restrictions are compiled into the SQL, so unlike recording access they
             # can't be re-filtered on read; a restriction change has to miss the cache instead.
-            sorted(get_restricted_properties_for_team(user=user, team=team)),
+            [
+                {
+                    "name": restriction.name,
+                    "property_type": restriction.property_type,
+                    "group_type_index": restriction.group_type_index,
+                }
+                for restriction in sorted(
+                    get_restricted_properties_with_group_type_index_for_team(user=user, team=team),
+                    key=lambda restriction: (
+                        restriction.name,
+                        restriction.property_type,
+                        restriction.group_type_index if restriction.group_type_index is not None else -1,
+                    ),
+                )
+            ],
         ]
     )
     digest = hashlib.sha256(spec.encode()).hexdigest()[:16]

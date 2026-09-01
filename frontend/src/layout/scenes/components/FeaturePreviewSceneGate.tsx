@@ -3,6 +3,7 @@ import { useEffect } from 'react'
 
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
+import { featurePreviewsLogic } from 'lib/components/FeaturePreviews/featurePreviewsLogic'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import {
@@ -15,7 +16,6 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
-import { featurePreviewsLogic } from '~/layout/FeaturePreviews/featurePreviewsLogic'
 import { FeaturePreviewGateConfig } from '~/types'
 
 import { SceneContent } from './SceneContent'

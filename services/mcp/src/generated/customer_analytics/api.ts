@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 64 enabled ops
+ * PostHog API - MCP 65 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -237,7 +237,7 @@ export const AccountsCustomPropertyValuesCreateBody = /* @__PURE__ */ zod.object
     value: zod
         .union([zod.string(), zod.number(), zod.boolean()])
         .describe(
-            "Value to store, matching the definition's type: a number for number\/currency\/percent, a boolean for boolean, an ISO-8601 string for date\/datetime, or text for text properties."
+            "Value to store, matching the definition's type: a number for number\/currency\/percent, a boolean for boolean, an ISO-8601 string for date\/datetime, an HTTP or HTTPS URL for link properties, or text for text properties."
         ),
 })
 
@@ -436,6 +436,21 @@ export const AccountsDestroyParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const AccountsMeetingsListParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this account.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const AccountsMeetingsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    search: zod.string().optional().describe('Filter meetings by title or attendee email\/name.'),
+})
+
 export const AccountsSummariesListParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this account.'),
     project_id: zod
@@ -538,12 +553,12 @@ export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
             .describe('Human-readable name of the custom property. Unique within the team.'),
         description: zod.string().nullish().describe('Optional description of what the property represents.'),
         display_type: zod
-            .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', 'select'])
+            .enum(['text', 'link', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', 'select'])
             .describe(
-                '\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select'
+                '\* `text` - text\n\* `link` - link\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select'
             )
             .describe(
-                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
+                "How the property is interpreted and rendered: 'text', 'link', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'. Links require an HTTP or HTTPS URL.\n\n\* `text` - text\n\* `link` - link\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
             ),
         target_type: zod
             .enum(['account', 'person', 'group'])
@@ -643,13 +658,13 @@ export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('Human-readable name of the custom property. Unique within the team.'),
         description: zod.string().nullish().describe('Optional description of what the property represents.'),
         display_type: zod
-            .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', 'select'])
+            .enum(['text', 'link', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', 'select'])
             .describe(
-                '\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select'
+                '\* `text` - text\n\* `link` - link\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select'
             )
             .optional()
             .describe(
-                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
+                "How the property is interpreted and rendered: 'text', 'link', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean', or 'select'. Links require an HTTP or HTTPS URL.\n\n\* `text` - text\n\* `link` - link\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean\n\* `select` - select"
             ),
         target_type: zod
             .enum(['account', 'person', 'group'])
@@ -869,9 +884,8 @@ export const CustomPropertySourcesBackfillParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Person and group sources only: the source's sync/backfill run history, newest first. Gated
- * on the caller's warehouse-source viewer access, since the runs expose its row counts and sync
- * errors.
+ * The source's sync history, newest first. Person and group runs require viewer access to
+ * their warehouse source because the response includes row counts and sync errors.
  */
 export const CustomPropertySourcesRunsListParams = /* @__PURE__ */ zod.object({
     id: zod.string(),
@@ -885,6 +899,10 @@ export const CustomPropertySourcesRunsListParams = /* @__PURE__ */ zod.object({
 export const CustomPropertySourcesRunsListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    search: zod
+        .string()
+        .optional()
+        .describe('Match run IDs, workflow IDs, job IDs, statuses, segments, triggers, or errors.'),
 })
 
 /**
@@ -1217,7 +1235,7 @@ export const FeatureRequestsListQueryParams = /* @__PURE__ */ zod.object({
         .min(1)
         .default(featureRequestsListQueryRequestOrderingDefault)
         .describe(
-            'Stable ordering for the result list.\n\n\* `-updated_at` - Last updated: newest\n\* `updated_at` - Last updated: oldest\n\* `-created_at` - Date created: newest\n\* `created_at` - Date created: oldest\n\* `-priority` - Priority: high to low\n\* `priority` - Priority: low to high\n\* `title` - Title: A to Z\n\* `-title` - Title: Z to A'
+            'Stable ordering for the result list.\n\n\* `-updated_at` - Last updated: newest\n\* `updated_at` - Last updated: oldest\n\* `-created_at` - Date created: newest\n\* `created_at` - Date created: oldest\n\* `-priority` - Priority: high to low\n\* `priority` - Priority: low to high\n\* `title` - Title: A to Z\n\* `-title` - Title: Z to A\n\* `account` - Accounts: A to Z\n\* `-account` - Accounts: Z to A\n\* `product_area` - Product areas: A to Z\n\* `-product_area` - Product areas: Z to A\n\* `status` - Status: A to Z\n\* `-status` - Status: Z to A\n\* `created_by` - Created by: A to Z\n\* `-created_by` - Created by: Z to A\n\* `evidence_count` - Evidence: low to high\n\* `-evidence_count` - Evidence: high to low'
         ),
     search: zod.string().optional().describe('Case-insensitive text to find in request titles and descriptions.'),
     statuses: zod
@@ -1247,8 +1265,10 @@ export const featureRequestsCreateBodyEvidenceOneSummaryDefault = ``
 export const featureRequestsCreateBodyEvidenceOneCustomerQuoteDefault = ``
 export const featureRequestsCreateBodyEvidenceOneEvidenceSourceMax = 200
 
-export const featureRequestsCreateBodyEvidenceOneSourceUrlDefault = ``
-export const featureRequestsCreateBodyEvidenceOneSourceUrlMax = 2000
+export const featureRequestsCreateBodyEvidenceOneSourceUrlOneDefault = ``
+export const featureRequestsCreateBodyEvidenceOneSourceUrlOneMax = 2000
+
+export const featureRequestsCreateBodyEvidenceOneSourceUrlTwoMax = 0
 
 export const FeatureRequestsCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(featureRequestsCreateBodyTitleMax).describe('Required customer-facing request title.'),
@@ -1281,9 +1301,14 @@ export const FeatureRequestsCreateBody = /* @__PURE__ */ zod.object({
                     .max(featureRequestsCreateBodyEvidenceOneEvidenceSourceMax)
                     .describe('Free-form name of the source where this evidence was recorded.'),
                 source_url: zod
-                    .url()
-                    .max(featureRequestsCreateBodyEvidenceOneSourceUrlMax)
-                    .default(featureRequestsCreateBodyEvidenceOneSourceUrlDefault)
+                    .union([
+                        zod
+                            .url()
+                            .max(featureRequestsCreateBodyEvidenceOneSourceUrlOneMax)
+                            .default(featureRequestsCreateBodyEvidenceOneSourceUrlOneDefault),
+                        zod.string().max(featureRequestsCreateBodyEvidenceOneSourceUrlTwoMax),
+                    ])
+                    .optional()
                     .describe('Optional HTTP or HTTPS link to the source.'),
                 requested_on: zod.iso
                     .date()
@@ -1374,8 +1399,10 @@ export const featureRequestsAddAccountCreateBodyEvidenceOneSummaryDefault = ``
 export const featureRequestsAddAccountCreateBodyEvidenceOneCustomerQuoteDefault = ``
 export const featureRequestsAddAccountCreateBodyEvidenceOneEvidenceSourceMax = 200
 
-export const featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlDefault = ``
-export const featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlMax = 2000
+export const featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlOneDefault = ``
+export const featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlOneMax = 2000
+
+export const featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlTwoMax = 0
 
 export const FeatureRequestsAddAccountCreateBody = /* @__PURE__ */ zod.object({
     expected_version: zod
@@ -1399,9 +1426,14 @@ export const FeatureRequestsAddAccountCreateBody = /* @__PURE__ */ zod.object({
                     .max(featureRequestsAddAccountCreateBodyEvidenceOneEvidenceSourceMax)
                     .describe('Free-form name of the source where this evidence was recorded.'),
                 source_url: zod
-                    .url()
-                    .max(featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlMax)
-                    .default(featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlDefault)
+                    .union([
+                        zod
+                            .url()
+                            .max(featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlOneMax)
+                            .default(featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlOneDefault),
+                        zod.string().max(featureRequestsAddAccountCreateBodyEvidenceOneSourceUrlTwoMax),
+                    ])
+                    .optional()
                     .describe('Optional HTTP or HTTPS link to the source.'),
                 requested_on: zod.iso
                     .date()
@@ -1431,8 +1463,10 @@ export const featureRequestsAddEvidenceCreateBodySummaryDefault = ``
 export const featureRequestsAddEvidenceCreateBodyCustomerQuoteDefault = ``
 export const featureRequestsAddEvidenceCreateBodyEvidenceSourceMax = 200
 
-export const featureRequestsAddEvidenceCreateBodySourceUrlDefault = ``
-export const featureRequestsAddEvidenceCreateBodySourceUrlMax = 2000
+export const featureRequestsAddEvidenceCreateBodySourceUrlOneDefault = ``
+export const featureRequestsAddEvidenceCreateBodySourceUrlOneMax = 2000
+
+export const featureRequestsAddEvidenceCreateBodySourceUrlTwoMax = 0
 
 export const FeatureRequestsAddEvidenceCreateBody = /* @__PURE__ */ zod.object({
     summary: zod
@@ -1448,9 +1482,14 @@ export const FeatureRequestsAddEvidenceCreateBody = /* @__PURE__ */ zod.object({
         .max(featureRequestsAddEvidenceCreateBodyEvidenceSourceMax)
         .describe('Free-form name of the source where this evidence was recorded.'),
     source_url: zod
-        .url()
-        .max(featureRequestsAddEvidenceCreateBodySourceUrlMax)
-        .default(featureRequestsAddEvidenceCreateBodySourceUrlDefault)
+        .union([
+            zod
+                .url()
+                .max(featureRequestsAddEvidenceCreateBodySourceUrlOneMax)
+                .default(featureRequestsAddEvidenceCreateBodySourceUrlOneDefault),
+            zod.string().max(featureRequestsAddEvidenceCreateBodySourceUrlTwoMax),
+        ])
+        .optional()
         .describe('Optional HTTP or HTTPS link to the source.'),
     requested_on: zod.iso.date().nullish().describe('Date the account made the request, or null when unknown.'),
     image_ids: zod
@@ -1544,8 +1583,10 @@ export const featureRequestsUpdateEvidenceCreateBodySummaryDefault = ``
 export const featureRequestsUpdateEvidenceCreateBodyCustomerQuoteDefault = ``
 export const featureRequestsUpdateEvidenceCreateBodyEvidenceSourceMax = 200
 
-export const featureRequestsUpdateEvidenceCreateBodySourceUrlDefault = ``
-export const featureRequestsUpdateEvidenceCreateBodySourceUrlMax = 2000
+export const featureRequestsUpdateEvidenceCreateBodySourceUrlOneDefault = ``
+export const featureRequestsUpdateEvidenceCreateBodySourceUrlOneMax = 2000
+
+export const featureRequestsUpdateEvidenceCreateBodySourceUrlTwoMax = 0
 
 export const FeatureRequestsUpdateEvidenceCreateBody = /* @__PURE__ */ zod.object({
     summary: zod
@@ -1561,9 +1602,14 @@ export const FeatureRequestsUpdateEvidenceCreateBody = /* @__PURE__ */ zod.objec
         .max(featureRequestsUpdateEvidenceCreateBodyEvidenceSourceMax)
         .describe('Free-form name of the source where this evidence was recorded.'),
     source_url: zod
-        .url()
-        .max(featureRequestsUpdateEvidenceCreateBodySourceUrlMax)
-        .default(featureRequestsUpdateEvidenceCreateBodySourceUrlDefault)
+        .union([
+            zod
+                .url()
+                .max(featureRequestsUpdateEvidenceCreateBodySourceUrlOneMax)
+                .default(featureRequestsUpdateEvidenceCreateBodySourceUrlOneDefault),
+            zod.string().max(featureRequestsUpdateEvidenceCreateBodySourceUrlTwoMax),
+        ])
+        .optional()
         .describe('Optional HTTP or HTTPS link to the source.'),
     requested_on: zod.iso.date().nullish().describe('Date the account made the request, or null when unknown.'),
     image_ids: zod

@@ -14,6 +14,7 @@ from posthog.api.shared import UserBasicSerializer
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.approvals.backend.models import ChangeRequest, ChangeRequestState
 from products.approvals.backend.scheduled_changes import gate_scheduled_change
+from products.approvals.backend.serializers import ChangeRequestSummarySerializer
 from products.feature_flags.backend.api.feature_flag import CanEditFeatureFlag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
@@ -45,6 +46,14 @@ def _gate_scheduled_change_at_creation(
 class ScheduledChangeSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     failure_reason = serializers.SerializerMethodField()
+    change_request = ChangeRequestSummarySerializer(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Summary of the approval change request gating this scheduled change. Null when no approval "
+            "policy applies. The change only applies at its scheduled time if the request is approved by then."
+        ),
+    )
 
     record_id = serializers.CharField(
         max_length=200,
@@ -101,6 +110,7 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
             "last_executed_at",
             "end_date",
             "timezone",
+            "change_request",
         ]
         read_only_fields = [
             "id",
@@ -110,6 +120,7 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
             "last_executed_at",
             "executed_at",
             "timezone",
+            "change_request",
         ]
 
     def get_failure_reason(self, obj: ScheduledChange) -> str | None:
@@ -359,7 +370,8 @@ class ScheduledChangeViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, view
 
     scope_object = "feature_flag"
     serializer_class = ScheduledChangeSerializer
-    queryset = ScheduledChange.objects.all()
+    # select_related keeps the serializer's nested change_request and created_by from N+1-ing list responses.
+    queryset = ScheduledChange.objects.select_related("change_request", "created_by").all()
 
     @extend_schema(
         parameters=[

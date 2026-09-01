@@ -92,7 +92,7 @@ async fn async_main(config: Config) -> Result<()> {
     let pool = get_pool_with_config(&config.database_url, config.pool_config())
         .context("creating cohort-seeder PostgreSQL pool")?;
     let clickhouse_client = build_client(&config).context("building ClickHouse client")?;
-    let scanner = ChunkScanner::new(clickhouse_client.clone());
+    let scanner = ChunkScanner::new(clickhouse_client.clone(), config.team_allowlist.clone());
     let producer = SeedTileProducer::new(
         &config.build_kafka_config(),
         config.seed_events_topic.clone(),
@@ -307,6 +307,9 @@ fn log_startup(config: &Config) {
         team_allowlist = ?config.team_allowlist,
         run_poll_secs = config.seeder_run_poll_secs,
         max_concurrent_chunks = config.seeder_max_concurrent_chunks,
+        max_chunk_attempts = config.seeder_max_chunk_attempts,
+        retry_backoff_base_secs = config.seeder_retry_backoff_base_secs,
+        retry_backoff_cap_secs = config.seeder_retry_backoff_cap_secs,
         max_lookback_days = config.seeder_max_lookback_days,
         bands_per_day = config.seeder_bands_per_day,
         tiles_per_second = config.seeder_tiles_per_sec,

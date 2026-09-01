@@ -7,7 +7,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest import mock
 
-from django.db import InterfaceError, OperationalError
+from django.db import InterfaceError, InternalError, OperationalError
 
 from jsonpath_ng.exceptions import JsonPathParserError
 from parameterized import parameterized
@@ -72,6 +72,7 @@ def _patched_activity(source_mock):
     schema = mock.MagicMock()
     schema.should_use_incremental_field = False
     schema.row_filters = None
+    schema.delta_revive_required = None
 
     with (
         mock.patch.object(module, "tag_queries"),
@@ -206,15 +207,24 @@ async def test_schema_deleted_mid_sync_routes_through_handler():
     source.parse_config.assert_not_called()
 
 
+@parameterized.expand(
+    [
+        ("pooler_cooldown", OperationalError, "server login has been failing, cached error: (server_login_retry)"),
+        ("failover_read_only", InternalError, "cannot execute INSERT in a read-only transaction"),
+    ]
+)
 @pytest.mark.asyncio
-async def test_transient_app_db_error_in_setup_is_retryable_not_raw():
+async def test_transient_app_db_error_in_setup_is_retryable_not_raw(
+    _name: str, error_cls: type[Exception], message: str
+):
     # The setup phase resolves this run's job/schema/source rows over the Django ORM (our own app
-    # DB). A transient connection-pool blip there — e.g. a PgBouncer server_login_retry cooldown —
-    # raises a Django OperationalError before the source's error handling runs. It's our infra, not
-    # the customer's source, so it must be re-raised as NonReportableError (Temporal retries the
-    # whole activity and it self-heals) rather than escaping raw and being stored verbatim as
-    # latest_error while minting error-tracking noise.
-    error = OperationalError("server login has been failing, cached error: (server_login_retry)")
+    # DB). A transient blip there — a PgBouncer server_login_retry cooldown, or a pooled connection
+    # left on a demoted standby after a failover — raises before the source's error handling runs.
+    # It's our infra, not the customer's source, so it must be re-raised as NonReportableError
+    # (Temporal retries the whole activity and it self-heals) rather than escaping raw and being
+    # stored verbatim as latest_error while minting error-tracking noise. Both driver strings are
+    # wording the Postgres source's non-retryable map matches, so the message must not survive.
+    error = error_cls(message)
     source = mock.MagicMock(spec=SimpleSource)
 
     with (
@@ -225,8 +235,28 @@ async def test_transient_app_db_error_in_setup_is_retryable_not_raw():
             await import_data_activity_sync(_inputs())
 
     assert exc_info.value.__cause__ is error
+    assert str(exc_info.value) == module.POSTHOG_DATABASE_UNAVAILABLE_MESSAGE
     handle_mock.assert_not_awaited()
     source.source_for_pipeline.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_non_failover_internal_error_in_setup_is_not_hidden_as_a_platform_outage():
+    # InternalError is the Django class for the failover case above, but also for corrupted data or
+    # indexes and failed-transaction states. Those are deterministic defects: wrapping them as
+    # NonReportableError would spend the retry budget on an error no retry fixes, and keep it out of
+    # error tracking behind a message telling the customer nothing is wrong.
+    error = InternalError('index "posthog_team_pkey" contains unexpected zero page at block 0')
+    source = mock.MagicMock(spec=SimpleSource)
+
+    with (
+        _patched_activity(source),
+        mock.patch.object(module, "_get_external_data_job", new=mock.AsyncMock(side_effect=error)),
+    ):
+        with pytest.raises(InternalError) as exc_info:
+            await import_data_activity_sync(_inputs())
+
+    assert exc_info.value is error
 
 
 @pytest.mark.asyncio
@@ -383,6 +413,12 @@ async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_
         # misconfigured source host would produce, so it must get the same NonReportableError
         # treatment as the Django exception types above, not fall through to the default branch.
         ("posthog_internal_database_error", PostHogInternalDatabaseError, "Failed to check hog function triggers"),
+        # A pooled connection that outlived a primary failover now talks to a demoted standby, so
+        # our own writes fail with SQLSTATE 25006. Django surfaces psycopg's ReadOnlySqlTransaction
+        # as InternalError, a different DB-API class from the two above, so it needs its own arm
+        # here. Without one it falls through to the source's non-retryable map, whose Postgres entry
+        # matches the identical wording a customer's write-on-read view produces.
+        ("read_only_transaction", InternalError, "cannot execute UPDATE in a read-only transaction"),
     ]
 )
 @pytest.mark.asyncio
@@ -408,8 +444,34 @@ async def test_app_db_connection_error_reraised_as_non_reportable(_name: str, er
             await module._handle_import_error(mock.MagicMock(), logger, error)
 
     assert exc_info.value.__cause__ is error
+    # The raw driver string is wording the source non-retryable maps match on, and the workflow
+    # hands whatever escapes here to the finalization activity as the customer's latest_error.
+    # Carry the platform message instead so neither can mistake our outage for their source.
+    assert str(exc_info.value) == module.POSTHOG_DATABASE_UNAVAILABLE_MESSAGE
     logger.awarning.assert_awaited_once()
     logger.aexception.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_non_failover_internal_error_falls_through_to_the_default_branch():
+    # Same narrowing as the setup phase, at the mid-run handler: only the failover read-only case is
+    # ours to retry silently. A corrupted index has to keep escaping so error tracking sees it.
+    error = InternalError('index "posthog_team_pkey" contains unexpected zero page at block 0')
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = set()
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(InternalError) as exc_info:
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    assert exc_info.value is error
+    logger.aexception.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -553,9 +615,13 @@ def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -
     schema.incremental_field_earliest_value = None
     schema.row_filters = None
     schema.api_version = None
+    schema.delta_revive_required = None
+    # The model reads this marker out of the persisted config through a property. Set both, because
+    # the mock cannot run the property, and the config carries the shape a real revive leaves behind.
     schema.sync_type_config = {
         "incremental_field_last_value": "2026-06-14T15:33:31.802833",
         "incremental_field_type": "timestamp",
+        "delta_revive_required": None,
     }
     return schema
 
@@ -623,6 +689,35 @@ async def test_incremental_lookback_shifts_query_value_not_stored_watermark(
     # from new ground, and capturing it after the shift would make them equal and silently disarm
     # that rule with every test still passing.
     assert source_inputs.db_incremental_field_last_value_before_lookback == expected_before_lookback
+
+
+@pytest.mark.asyncio
+async def test_pending_delta_revive_extracts_full_table_not_incremental_slice():
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    schema = _incremental_schema(is_incremental=True, lookback_seconds=3600)
+    schema.incremental_field_earliest_value = "2026-01-01T00:00:00"
+    # The model reads this marker out of the persisted config through a property. Set both, because
+    # the mock cannot run the property, and the config carries the shape a real revive leaves behind.
+    revive_marker = {
+        "reason": "missing_data_file",
+        "missing_path": "part-0.parquet",
+        "detected_at": "2026-06-15T00:00:00+00:00",
+    }
+    schema.sync_type_config["delta_revive_required"] = revive_marker
+    schema.delta_revive_required = revive_marker
+
+    with _patched_activity_reaching_run(source, schema):
+        await import_data_activity_sync(_inputs_no_reset())
+
+    _, source_inputs = source.source_for_pipeline.call_args.args
+    # The revive resets the table and the loader overwrites it from batch 0, so any bound cursor
+    # replaces the whole table with the rows after the watermark.
+    assert source_inputs.db_incremental_field_last_value is None
+    assert source_inputs.db_incremental_field_earliest_value is None
+    # The stored watermark stays put, so a completed rebuild advances it from the rows it read.
+    assert schema.sync_type_config["incremental_field_last_value"] == "2026-06-14T15:33:31.802833"
 
 
 @pytest.mark.asyncio
@@ -879,7 +974,13 @@ async def test_integration_failure_is_classified_before_the_bare_404_rule():
 # So the message is not free text: no pattern may be a substring of it. This sweeps every
 # registered source rather than the shared dict alone, because a source-specific pattern
 # (a bare word like "unavailable") would do it just as well.
-def test_the_customer_facing_message_matches_no_non_retryable_pattern():
+@parameterized.expand(
+    [
+        ("integration_credential", "INTEGRATION_CREDENTIAL_UNAVAILABLE_MESSAGE"),
+        ("posthog_database", "POSTHOG_DATABASE_UNAVAILABLE_MESSAGE"),
+    ]
+)
+def test_the_customer_facing_message_matches_no_non_retryable_pattern(_name: str, message_attr: str):
     from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
     from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
@@ -892,8 +993,40 @@ def test_the_customer_facing_message_matches_no_non_retryable_pattern():
     # test pass while checking nothing.
     assert len(patterns) > 20, f"expected the source registry to contribute patterns, got {len(patterns)}"
 
-    offenders = [p for p in patterns if error_message_matches(module.INTEGRATION_CREDENTIAL_UNAVAILABLE_MESSAGE, [p])]
+    message = getattr(module, message_attr)
+    offenders = [p for p in patterns if error_message_matches(message, [p])]
     assert offenders == [], (
-        f"These non-retryable patterns match the integration-credential message, so an exhausted "
+        f"These non-retryable patterns match {message_attr}, so an exhausted "
         f"retry budget would disable the customer's schema: {offenders}"
     )
+
+
+@parameterized.expand(
+    [
+        ("swap_staged", {"state": "ready", "temp_uri": "s3://bucket/t__repartitioned"}, True),
+        ("no_swap_staged", None, False),
+    ]
+)
+def test_a_staged_repartition_swap_holds_the_import_whatever_the_rollout_flag_says(
+    _name: str, swap: dict | None, expected: bool
+) -> None:
+    # While a swap is staged the table's data may already be re-bucketed under the new scheme while
+    # the schema row still holds the old one. The merge derives each row's partition key from that
+    # row and scopes its predicate to it, so merging across the gap matches nothing and inserts every
+    # fetched row instead of upserting it. Unlike the converging-rewrite hold, this one is not behind
+    # the rollout flag: releasing it corrupts the table rather than merely restarting a rewrite.
+    schema = mock.MagicMock()
+    schema.id = uuid.uuid4()
+    schema.team_id = 1
+    schema.name = "public.usages"
+    schema.repartition_swap = swap
+    schema.repartition_holds_import = False
+
+    with (
+        mock.patch.object(module, "capture_repartition_event"),
+        mock.patch.object(module, "is_repartition_hold_enabled", return_value=False) as flag,
+    ):
+        held = module._import_held_for_repartition(schema, mock.MagicMock())
+
+    assert held is expected
+    flag.assert_not_called()

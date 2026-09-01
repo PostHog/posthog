@@ -237,7 +237,11 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
     # org that revokes AI-data-processing approval later. Auto-disable so it stops re-firing.
     if not subscription.team.organization.is_ai_data_processing_approved:
         LOGGER.warning("generate_ai_subscription_report.consent_revoked", subscription_id=subscription.id)
-        aborted = await auto_disable_and_return(subscription, AI_CONSENT_REVOKED_DISABLE_REASON, [])
+        aborted = await auto_disable_and_return(
+            subscription,
+            AI_CONSENT_REVOKED_DISABLE_REASON,
+            [],
+        )
         return GenerateAIReportResult(
             aborted=True, recipient_results=aborted.recipient_results, target_type=subscription.target_type
         )
@@ -302,7 +306,11 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
                 human_readable_error=str(exc),
             )
         ]
-        aborted = await auto_disable_and_return(subscription, AI_PROMPT_INVALID_DISABLE_REASON, recipient_results)
+        aborted = await auto_disable_and_return(
+            subscription,
+            AI_PROMPT_INVALID_DISABLE_REASON,
+            recipient_results,
+        )
         return GenerateAIReportResult(
             aborted=True, recipient_results=aborted.recipient_results, target_type=subscription.target_type
         )

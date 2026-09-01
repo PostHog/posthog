@@ -143,9 +143,11 @@ export interface stepWaitUntilTimeWindowLogicActions {
               }
             | {
                   filters: {
+                      events: any[]
                       properties?: any[] | undefined
+                      source: 'internal-events'
                   }
-                  type: 'slack-message'
+                  type: 'internal-event'
               }
             | {
                   condition: {
@@ -255,6 +257,7 @@ export interface stepWaitUntilTimeWindowLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'signals_scout'
                                           | 'string'
                                           | 'task_mcp_installations'
                                           | 'task_model'
@@ -417,9 +420,11 @@ export interface stepWaitUntilTimeWindowLogicActions {
               }
             | {
                   filters: {
+                      events: any[]
                       properties?: any[] | undefined
+                      source: 'internal-events'
                   }
-                  type: 'slack-message'
+                  type: 'internal-event'
               }
             | {
                   filters: {
@@ -564,6 +569,7 @@ export interface stepWaitUntilTimeWindowLogicActions {
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
                                           | 'posthog_ticket_tags'
+                                          | 'signals_scout'
                                           | 'string'
                                           | 'task_mcp_installations'
                                           | 'task_model'

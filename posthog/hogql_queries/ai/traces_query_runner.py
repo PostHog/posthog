@@ -217,9 +217,9 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
 
         columns: list[str] = query_result.columns or []
         sentiment_lookup = EMPTY_SENTIMENT_EVALUATION_LOOKUP
-        if self.query.includeSentiment and query_result.results and columns:
+        if self.query.includeSentiment and self.paginator.results and columns:
             id_index = columns.index("id") if "id" in columns else -1
-            result_trace_ids = [str(row[id_index]) for row in query_result.results if id_index >= 0 and row[id_index]]
+            result_trace_ids = [str(row[id_index]) for row in self.paginator.results if id_index >= 0 and row[id_index]]
             sentiment_lookup = SentimentEvaluationLookup(
                 by_trace_id=load_trace_sentiment_evaluations(
                     team=self.team,
@@ -232,7 +232,9 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 by_generation_id={},
             )
 
-        results = self._map_results(columns, query_result.results, sentiment_lookup)
+        # `paginator.results` drops the extra row the paginator fetches to compute `hasMore`,
+        # so the response never carries more traces than the caller asked for.
+        results = self._map_results(columns, self.paginator.results, sentiment_lookup)
 
         return TracesQueryResponse(
             columns=columns,

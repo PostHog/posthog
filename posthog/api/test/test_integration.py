@@ -127,6 +127,72 @@ class TestSlackIntegration:
         assert channels[3]["name"] == "d_private_channel"
 
     @patch("posthog.models.integration.slack.WebClient")
+    def test_list_users_excludes_ineligible_members(self, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+
+        mock_client.users_list.return_value = {
+            "members": [
+                {"id": "U1", "name": "member", "team_id": "T_HOME"},
+                {"id": "U2", "name": "deleted", "deleted": True},
+                {"id": "U3", "name": "bot", "is_bot": True},
+                {"id": "USLACKBOT", "name": "slackbot"},
+                # Guests are often external people; scout output must not be DM-able to them.
+                {"id": "U4", "name": "guest", "is_restricted": True},
+                {"id": "U5", "name": "single-channel-guest", "is_ultra_restricted": True},
+                # Members outside the connected workspace would be saveable in the picker but
+                # rejected by the delivery-time get_user_by_id recheck, so filter them here too.
+                {"id": "U6", "name": "connect-external", "team_id": "T_OTHER"},
+                {"id": "U7", "name": "stranger", "team_id": "T_HOME", "is_stranger": True},
+            ],
+            "response_metadata": {"next_cursor": ""},
+        }
+        self.integration.integration_id = "T_HOME"
+
+        slack = SlackIntegration(self.integration)
+
+        assert [member["id"] for member in slack.list_users()] == ["U1"]
+
+    @parameterized.expand(
+        [
+            ("workspace_member", {"id": "U1", "team_id": "T_HOME"}, True),
+            # Slack Connect externals resolve through users.info once the bot shares a channel with
+            # them; their home workspace differs so they must not become DM recipients.
+            ("external_workspace", {"id": "U2", "team_id": "T_OTHER"}, False),
+            ("stranger", {"id": "U3", "team_id": "T_HOME", "is_stranger": True}, False),
+            (
+                "grid_member_of_this_workspace",
+                {"id": "U4", "team_id": "T_OTHER", "enterprise_user": {"teams": ["T_HOME", "T_OTHER"]}},
+                True,
+            ),
+        ]
+    )
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_get_user_by_id_workspace_membership(self, _name, member, expected_found, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.users_info.return_value = {"user": member}
+        self.integration.integration_id = "T_HOME"
+
+        slack = SlackIntegration(self.integration)
+
+        result = slack.get_user_by_id(member["id"])
+        assert (result is not None) is expected_found
+
+    # user_not_visible must resolve to "no such recipient" like user_not_found — raising instead
+    # would make scout delivery retry a lookup that can never succeed.
+    @parameterized.expand([("user_not_found",), ("user_not_visible",)])
+    @patch("posthog.models.integration.slack.WebClient")
+    def test_get_user_by_id_terminal_lookup_errors_return_none(self, error_code, mock_webclient_class):
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.users_info.side_effect = SlackApiError("lookup failed", {"error": error_code})
+
+        slack = SlackIntegration(self.integration)
+
+        assert slack.get_user_by_id("U123") is None
+
+    @patch("posthog.models.integration.slack.WebClient")
     def test_list_channels_without_access(self, mock_webclient_class):
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
@@ -636,6 +702,11 @@ class TestAWSIntegration:
             self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
         )
         self.integration_kind = aws_integration_kind
+        # Redshift integrations also carry the database user to obtain temporary credentials for.
+        if aws_integration_kind == Integration.IntegrationKind.AWS_REDSHIFT:
+            self.extra_config = {"user": "awsuser"}
+        else:
+            self.extra_config = {}
 
     @patch("posthog.models.integration.aws.validate_aws_credentials", return_value="123456789012")
     def test_create_with_valid_config(self, mock_validate, client: HttpClient):
@@ -649,6 +720,7 @@ class TestAWSIntegration:
                     "name": "prod-aws",
                     "aws_access_key_id": "AKIAEXAMPLE",
                     "aws_secret_access_key": "secret",
+                    **self.extra_config,
                 },
             },
             content_type="application/json",
@@ -661,7 +733,7 @@ class TestAWSIntegration:
         assert integration.kind == self.integration_kind
         assert integration.team == self.team
         assert integration.integration_id == "prod-aws"
-        assert integration.config == {"name": "prod-aws", "aws_account_id": "123456789012"}
+        assert integration.config == {"name": "prod-aws", "aws_account_id": "123456789012", **self.extra_config}
         assert integration.sensitive_config == {
             "aws_access_key_id": "AKIAEXAMPLE",
             "aws_secret_access_key": "secret",
@@ -701,7 +773,12 @@ class TestAWSIntegration:
         client.force_login(self.user)
         payload = {
             "kind": self.integration_kind,
-            "config": {"name": "prod-aws", "aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "secret"},
+            "config": {
+                "name": "prod-aws",
+                "aws_access_key_id": "AKIAEXAMPLE",
+                "aws_secret_access_key": "secret",
+                **self.extra_config,
+            },
         }
 
         first = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
@@ -771,8 +848,14 @@ class TestAWSRoleBasedIntegration:
         )
 
         self.integration_kind = aws_integration_kind
+        # Redshift integrations also carry the database user to obtain temporary credentials for.
+        if aws_integration_kind == Integration.IntegrationKind.AWS_REDSHIFT:
+            self.extra_config = {"user": "awsuser"}
+        else:
+            self.extra_config = {}
 
-    def test_create_with_valid_config(self, client: HttpClient):
+    @patch("posthog.models.integration.aws.validate_aws_role_arn")
+    def test_create_with_valid_config(self, mock_validate, client: HttpClient):
         client.force_login(self.user)
 
         role = "arn:aws:iam::123456789012:role/my-role"
@@ -783,6 +866,7 @@ class TestAWSRoleBasedIntegration:
                 "config": {
                     "name": "prod-aws",
                     "aws_role_arn": role,
+                    **self.extra_config,
                 },
             },
             content_type="application/json",
@@ -795,10 +879,35 @@ class TestAWSRoleBasedIntegration:
         assert integration.kind == self.integration_kind
         assert integration.team == self.team
         assert integration.integration_id == "prod-aws"
-        assert integration.config == {"name": "prod-aws", "aws_role_arn": role}
+        assert integration.config == {"name": "prod-aws", "aws_role_arn": role, **self.extra_config}
         assert integration.sensitive_config == {}
 
-    def test_create_rejects_duplicate_role_in_different_org(self, client: HttpClient):
+    @patch("posthog.models.integration.aws.validate_aws_role_arn")
+    def test_create_rejects_invalid_role_arn(self, mock_validate, client: HttpClient):
+        from posthog.models.integration import IntegrationError
+
+        mock_validate.side_effect = IntegrationError("AWS role ARN is not valid")
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": self.integration_kind,
+                "config": {
+                    "name": "prod-aws",
+                    "aws_role_arn": "arn:aws:iam::123456789012:role/not-assumable",
+                    **self.extra_config,
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "AWS role ARN is not valid" in response.json()["detail"]
+        assert not Integration.objects.filter(team=self.team, kind=self.integration_kind).exists()
+
+    @patch("posthog.models.integration.aws.validate_aws_role_arn")
+    def test_create_rejects_duplicate_role_in_different_org(self, mock_validate, client: HttpClient):
         another_org = Organization.objects.create(name="Test Org 2")
         another_team = Team.objects.create(organization=another_org, name="Test Team")
         another_user = User.objects.create_and_join(
@@ -807,7 +916,11 @@ class TestAWSRoleBasedIntegration:
         client.force_login(another_user)
         payload = {
             "kind": self.integration_kind,
-            "config": {"name": "prod-aws", "aws_role_arn": "something"},
+            "config": {
+                "name": "prod-aws",
+                "aws_role_arn": "arn:aws:iam::123456789012:role/my-role",
+                **self.extra_config,
+            },
         }
 
         first = client.post(
@@ -820,11 +933,16 @@ class TestAWSRoleBasedIntegration:
         assert second.status_code == status.HTTP_400_BAD_REQUEST
         assert "Cannot create AWS integration: Invalid role" in second.json()["detail"]
 
-    def test_create_rejects_duplicate_name(self, client: HttpClient):
+    @patch("posthog.models.integration.aws.validate_aws_role_arn")
+    def test_create_rejects_duplicate_name(self, mock_validate, client: HttpClient):
         client.force_login(self.user)
         payload = {
             "kind": self.integration_kind,
-            "config": {"name": "prod-aws", "aws_role_arn": "something"},
+            "config": {
+                "name": "prod-aws",
+                "aws_role_arn": "arn:aws:iam::123456789012:role/my-role",
+                **self.extra_config,
+            },
         }
 
         first = client.post(f"/api/environments/{self.team.pk}/integrations", payload, content_type="application/json")
@@ -2003,6 +2121,249 @@ class TestIntegrationAPIKeyAccess:
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert [channel["id"] for channel in data["channels"]] == expected_ids
+
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_users_action_lists_sorted_searched_and_paginated(self, mock_slack_class, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_USERS",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.list_users.return_value = [
+            {"id": "U2", "name": "robbie", "real_name": "Robbie C", "profile": {"display_name": "robbie"}},
+            # Empty display name falls back to real_name, which also sorts this member first.
+            {"id": "U1", "name": "andy.m", "real_name": "Andy Maguire", "profile": {"display_name": ""}},
+        ]
+        mock_slack_class.return_value = mock_slack_instance
+
+        key_value = "test_key_slack_users"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+        base_url = f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/users/"
+
+        response = client.get(base_url, HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["users"] == [
+            {"id": "U1", "name": "andy.m", "display_name": "Andy Maguire"},
+            {"id": "U2", "name": "robbie", "display_name": "robbie"},
+        ]
+        assert data["has_more"] is False
+
+        response = client.get(f"{base_url}?search=rob", HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        assert response.status_code == status.HTTP_200_OK
+        assert [member["id"] for member in response.json()["users"]] == ["U2"]
+
+        response = client.get(f"{base_url}?limit=1", HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert [member["id"] for member in data["users"]] == ["U1"]
+        assert data["has_more"] is True
+
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_users_action_direct_lookup_and_kind_guard(self, mock_slack_class, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_USERS_LOOKUP",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.get_user_by_id.return_value = {
+            "id": "U42",
+            "name": "andy.m",
+            "real_name": "Andy Maguire",
+            "profile": {"display_name": "andy"},
+        }
+        mock_slack_class.return_value = mock_slack_instance
+
+        key_value = "test_key_slack_users_lookup"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/users/?user_id=U42",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["users"] == [{"id": "U42", "name": "andy.m", "display_name": "andy"}]
+        mock_slack_instance.get_user_by_id.assert_called_once_with("U42")
+
+        # Lookups are cached per id — hits and misses alike — so repeated probes can't spend the
+        # workspace's Slack API quota one users.info call at a time.
+        mock_slack_instance.get_user_by_id.reset_mock()
+        mock_slack_instance.get_user_by_id.return_value = None
+        for _ in range(2):
+            response = client.get(
+                f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/users/?user_id=UMISSING",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            )
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json()["users"] == []
+        mock_slack_instance.get_user_by_id.assert_called_once_with("UMISSING")
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.github_integration.id}/users/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Slack" in response.json()["detail"]
+
+    @patch("posthog.api.integration.SLACK_USERS_INFO_LOOKUPS_PER_MINUTE", 2)
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_users_action_throttles_distinct_uncached_lookups(self, mock_slack_class, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_USERS_BUDGET",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.get_user_by_id.return_value = None
+        mock_slack_class.return_value = mock_slack_instance
+
+        key_value = "test_key_slack_users_budget"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        # Distinct ids each miss the per-id cache; the per-integration budget is what stops them.
+        for index, expected_status in enumerate(
+            [status.HTTP_200_OK, status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS]
+        ):
+            response = client.get(
+                f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/users/?user_id=UPROBE{index}",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            )
+            assert response.status_code == expected_status
+        assert mock_slack_instance.get_user_by_id.call_count == 2
+
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_users_action_maps_missing_scope_to_reconnect(self, mock_slack_class, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_USERS_SCOPE",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+        mock_slack_instance = MagicMock()
+        # An install predating the `users:read` scope never granted it.
+        mock_slack_instance.list_users.side_effect = SlackApiError(
+            "Slack request failed", {"ok": False, "error": "missing_scope"}
+        )
+        mock_slack_class.return_value = mock_slack_instance
+
+        key_value = "test_key_slack_users_scope"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/users/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        assert body["code"] == "slack_integration_inactive"
+        assert "reconnect slack" in body["detail"].lower()
+
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_users_action_serves_cached_list_while_a_refresh_is_in_flight(self, mock_slack_class, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_USERS_INFLIGHT",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_class.return_value = mock_slack_instance
+
+        key = f"slack/{slack_integration.id}/users"
+        cache.set(
+            key,
+            {
+                "users": [{"id": "U1", "name": "andy.m", "display_name": "Andy Maguire"}],
+                # Older than the refresh floor, so only the in-flight sentinel can hold this back.
+                "lastRefreshedAt": (timezone.now() - timedelta(minutes=5)).isoformat(),
+            },
+            3600,
+        )
+        cache.add(f"{key}/filling", 1, 60)
+
+        client.force_login(self.user)
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/users/?force_refresh=true"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [user["id"] for user in response.json()["users"]] == ["U1"]
+        mock_slack_instance.list_users.assert_not_called()
+
+    @patch("posthog.api.integration.SLACK_USERS_FILL_WAIT_SECONDS", 0.05)
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_users_action_fills_when_a_cold_cache_fill_never_lands(self, mock_slack_class, client: HttpClient):
+        slack_integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_USERS_COLD",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token-123"},
+            created_by=self.user,
+        )
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.list_users.return_value = [
+            {"id": "U1", "name": "andy.m", "real_name": "Andy Maguire", "profile": {"display_name": "Andy Maguire"}},
+        ]
+        mock_slack_class.return_value = mock_slack_instance
+
+        key_value = "test_key_slack_users_cold"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        # Someone else holds the fill sentinel but never publishes a list — the loser has to fall
+        # through and enumerate rather than answer from the empty cache it waited on.
+        cache.delete(f"slack/{slack_integration.id}/users")
+        cache.add(f"slack/{slack_integration.id}/users/filling", 1, 60)
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{slack_integration.id}/users/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [user["id"] for user in response.json()["users"]] == ["U1"]
+        mock_slack_instance.list_users.assert_called_once()
 
     def test_channels_action_with_missing_authed_user_returns_400(self, client: HttpClient):
         slack_integration = Integration.objects.create(
@@ -6073,7 +6434,7 @@ class TestPushIdentityVerificationAPI(APIBaseTest):
 class TestIntegrationMembershipPermissions(APIBaseTest):
     def setUp(self):
         super().setUp()
-        # A plain project member: allowed to add integrations, but not edit or remove them.
+        # A plain project member can add integrations and manage only Google accounts they connected.
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
@@ -6098,6 +6459,79 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert Integration.objects.filter(id=integration.id).exists()
+
+    def test_member_can_delete_own_google_calendar_integration(self) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
+            integration_id="google-user-1",
+            created_by=self.user,
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+        assert not Integration.objects.filter(id=integration.id).exists()
+
+    def test_member_cannot_delete_another_members_google_calendar_integration(self) -> None:
+        creator = User.objects.create_and_join(self.organization, "calendar-owner@example.com", "test")
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
+            integration_id="google-user-2",
+            created_by=creator,
+        )
+
+        response = self.client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert Integration.objects.filter(id=integration.id).exists()
+
+    @override_settings(
+        GOOGLE_CALENDAR_APP_CLIENT_ID="google-calendar-client-id",
+        GOOGLE_CALENDAR_APP_CLIENT_SECRET="google-calendar-client-secret",
+    )
+    @patch("posthog.api.integration.OauthIntegration.integration_from_oauth_response")
+    def test_member_can_reconnect_own_google_calendar_integration(self, mock_oauth_response: MagicMock) -> None:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
+            integration_id="google-user-3",
+            created_by=self.user,
+        )
+        mock_oauth_response.return_value = integration
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations/",
+            {"kind": Integration.IntegrationKind.GOOGLE_CALENDAR, "config": {"state": "state", "code": "code"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert response.json()["id"] == integration.id
+
+    @patch("posthog.api.integration.OauthIntegration.integration_from_oauth_response")
+    def test_member_cannot_reconnect_another_members_google_calendar_integration(
+        self, mock_oauth_response: MagicMock
+    ) -> None:
+        creator = User.objects.create_and_join(self.organization, "other-calendar-owner@example.com", "test")
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
+            integration_id="google-user-4",
+            created_by=creator,
+        )
+        mock_oauth_response.return_value = integration
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations/",
+            {"kind": Integration.IntegrationKind.GOOGLE_CALENDAR, "config": {"state": "state", "code": "code"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        integration.refresh_from_db()
+        assert integration.created_by_id == creator.id
 
     @parameterized.expand(["required", "disabled"])
     def test_member_cannot_set_push_identity_verification(self, mode):
@@ -6269,3 +6703,31 @@ class TestPosthogConnectionListScoping:
     def test_creator_still_sees_their_connection(self, client: HttpClient):
         client.force_login(self.owner)
         assert self.connection.id in self._list_ids(client)
+
+
+class TestIntegrationSerializerFilesWriteRequestable(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("slack_requests_files_write", "slack", "chat:write,files:write", True),
+            ("slack_does_not_request_files_write", "slack", "chat:write", False),
+            ("non_slack_is_never_requestable", "github", "chat:write,files:write", False),
+        ]
+    )
+    def test_files_write_requestable(self, _name, kind, requested_scope, expected):
+        config = {"team": {"name": "Test Workspace"}} if kind == "slack" else {"installation_id": "12345"}
+        integration = Integration.objects.create(team=self.team, kind=kind, config=config)
+        with (
+            patch(
+                "posthog.models.integration.oauth.get_instance_settings",
+                return_value={
+                    "SLACK_APP_CLIENT_ID": "test-client-id",
+                    "SLACK_APP_CLIENT_SECRET": "test-client-secret",
+                    "SLACK_APP_SIGNING_SECRET": "test-signing-secret",
+                },
+            ),
+            patch("posthog.api.integration.POSTHOG_SLACK_SCOPE", requested_scope),
+        ):
+            response = self.client.get(f"/api/environments/{self.team.id}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["files_write_requestable"] is expected

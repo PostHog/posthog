@@ -1,0 +1,817 @@
+[
+    {
+        "cluster": 1,
+        "issue": "find_signal_implementation_run rejects internal=True tasks but production self-driving implementation tasks are always internal=True, so the webhook carve-out leg is dead",
+        "members": ["Y5", "P12", "Q5", "T10", "O6", "W11"],
+        "n_verified": 2,
+        "n_real": 1,
+        "severities": ["should_fix"],
+        "files": [
+            "auto_start.py:244",
+            "frontend/src/scenes/inbox/inboxTaskKickoffLogic.ts:80",
+            "products/tasks/backend/facade/api.py:491",
+            "products/tasks/backend/facade/api.py:508"
+        ]
+    },
+    {
+        "cluster": 2,
+        "issue": "Receiver leg (process_inbox_pr_review) stamps inbox_review/self_driving with no positive PR-to-run linkage or bot-author verification, unlike the webhook leg",
+        "members": [
+            "X20",
+            "P10",
+            "Q18",
+            "R3",
+            "T7",
+            "U2",
+            "V3",
+            "M9",
+            "J2",
+            "K11",
+            "L4",
+            "L6",
+            "N10",
+            "O9",
+            "S4",
+            "W6",
+            "Z8"
+        ],
+        "n_verified": 10,
+        "n_real": 6,
+        "severities": ["must_fix", "should_fix"],
+        "files": ["AGENTS.md:110", "activities.py:175", "activities.py:431", "activities.py:451"]
+    },
+    {
+        "cluster": 3,
+        "issue": "self_driving_review read from context JSON with truthy bool() coercion instead of a strict `is True` check",
+        "members": ["X10", "Y12", "P3", "Q9", "R6", "T2", "U11", "V5", "M3", "K12", "N1", "O2", "S1", "W5", "Z2"],
+        "n_verified": 7,
+        "n_real": 0,
+        "severities": [],
+        "files": [
+            "activities.py:451",
+            "pr75215_tree/tools/pr-approval-agent/review_local.py:321",
+            "products/stamphog/backend/logic/reviewer.py:101",
+            "products/stamphog/backend/temporal/activities.py:451"
+        ]
+    },
+    {
+        "cluster": 4,
+        "issue": "Engine does not gate familiarity computation/rendering on self_driving, relying on the server omitting author_pr_numbers",
+        "members": [
+            "X14",
+            "Y17",
+            "P5",
+            "P14",
+            "Q2",
+            "R7",
+            "T9",
+            "U6",
+            "V10",
+            "M4",
+            "J3",
+            "K5",
+            "L2",
+            "O16",
+            "S3",
+            "W2",
+            "W9",
+            "Z5"
+        ],
+        "n_verified": 9,
+        "n_real": 0,
+        "severities": [],
+        "files": ["activities.py:237", "activities.py:246", "activities.py:402", "activities.py:451"]
+    },
+    {
+        "cluster": 5,
+        "issue": "_format_self_driving renders TRUSTED provenance claims (machine author / verified-by-task-linkage) solely off the self_driving flag with no engine-side verification",
+        "members": ["X3", "Y3", "O11"],
+        "n_verified": 1,
+        "n_real": 0,
+        "severities": [],
+        "files": [
+            "activities.py:451",
+            "products/stamphog/backend/tasks/tasks.py:169",
+            "review_local.py:321",
+            "review_pr.py:202"
+        ]
+    },
+    {
+        "cluster": 6,
+        "issue": "Draft/bot gate relaxations in Pipeline are keyed only on self_driving, not coupled to pr.author_is_bot",
+        "members": ["X9", "P15", "T6", "U12", "V8", "K1", "N12", "O10"],
+        "n_verified": 3,
+        "n_real": 1,
+        "severities": ["should_fix"],
+        "files": ["activities.py:434", "activities.py:451", "api.py:1773", "api.py:1940"]
+    },
+    {
+        "cluster": 7,
+        "issue": "stamphog_connected SerializerMethodField does an uncached cross-product-DB read on every settings serialization (GET and PATCH)",
+        "members": ["X15", "Y6", "P6", "Q13", "U7", "V11", "N4", "O3"],
+        "n_verified": 2,
+        "n_real": 0,
+        "severities": [],
+        "files": [
+            "facade/api.py:112",
+            "posthog/db_backends/failopen/base.py:19",
+            "posthog/db_circuit_breaker.py:145",
+            "reviewHogSettingsLogic.ts:954"
+        ]
+    },
+    {
+        "cluster": 8,
+        "issue": "stamphog_connected is a project-wide any-repo check, so the toggle can appear active for inbox PRs whose specific repo has no Stamphog config",
+        "members": ["X12", "Q10", "V9"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 9,
+        "issue": "process_inbox_pr_review performs a live GitHub get_pr on every receiver refire before any dedupe",
+        "members": ["X16", "P19", "Q16", "U8", "U9", "V6", "V7", "M12", "K13", "L10", "N19", "O20"],
+        "n_verified": 5,
+        "n_real": 0,
+        "severities": [],
+        "files": ["facade/api.py:2043", "facade/api.py:2154", "facade/api.py:2163", "models.py:1635"]
+    },
+    {
+        "cluster": 10,
+        "issue": "Carve-out path resolves the same StamphogRepoConfig twice (or thrice) per delivery",
+        "members": ["Y14", "P7", "Q11", "U13", "V13", "N18", "O21"],
+        "n_verified": 2,
+        "n_real": 2,
+        "severities": ["consider"],
+        "files": ["tasks.py:179", "tasks.py:289", "tasks.py:876", "tasks.py:891"]
+    },
+    {
+        "cluster": 11,
+        "issue": "Webhook-leg resolver re-runs the full acting-reviewer resolution (latest suggested_reviewers artefact + org-login mapping) on every push, so the gating identity can drift from the leg-1 reviewer",
+        "members": ["X11", "Q8", "T3"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 12,
+        "issue": "Webhook-leg toggle re-check repeats the multi-query reviewer-resolution chain on every synchronize/reopen push (performance)",
+        "members": ["P18", "Q17", "N15", "O17"],
+        "n_verified": 2,
+        "n_real": 0,
+        "severities": [],
+        "files": ["receivers.py:144", "receivers.py:145", "receivers.py:147", "receivers.py:156"]
+    },
+    {
+        "cluster": 13,
+        "issue": "_parse_pr_url regex is not host-anchored, so lookalike domains/embedded github.com substrings parse as valid GitHub PR URLs",
+        "members": ["Y10", "P1", "M2", "O1", "Z1"],
+        "n_verified": 3,
+        "n_real": 0,
+        "severities": [],
+        "files": ["receivers.py:126", "receivers.py:225", "tasks.py:113", "tasks.py:1130"]
+    },
+    {
+        "cluster": 14,
+        "issue": "inbox_review provenance is an implicit, untyped ad-hoc dict contract (bare truthiness read, hand-built shape duplicated across both trigger legs)",
+        "members": ["Y2", "P2"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 15,
+        "issue": "find_signal_implementation_run's underlying find_task_run read is not pinned to the writer DB despite gating the carve-out side effect",
+        "members": ["X4", "P23", "W10"],
+        "n_verified": 1,
+        "n_real": 0,
+        "severities": [],
+        "files": [
+            "posthog/dbrouter.py:22",
+            "posthog/settings/data_stores.py:271",
+            "products/stamphog/backend/tasks/tasks.py:49",
+            "products/tasks/backend/facade/api.py:504"
+        ]
+    },
+    {
+        "cluster": 16,
+        "issue": "Exception-safety of _start_stamphog_review's deferred facade import relative to its try/except (import-failure handling of the stamphog on_commit leg)",
+        "members": ["X13", "Q3"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 17,
+        "issue": "queue_inbox_pr_review facade trusts caller-supplied acting_user_id with no team-membership ownership check",
+        "members": ["X1"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 18,
+        "issue": "has_reviewable_repo_config omits the provider=\"github\" filter used by sibling repo-config lookups",
+        "members": ["X2", "U3", "V1", "M7"],
+        "n_verified": 1,
+        "n_real": 0,
+        "severities": [],
+        "files": [
+            "facade/api.py:120",
+            "presentation/serializers.py:98",
+            "review_hog/backend/api/settings.py:72",
+            "tasks/tasks.py:301"
+        ]
+    },
+    {
+        "cluster": 19,
+        "issue": "AGENTS.md Engine parity section lacks a cross-reference to the new self_driving runtime divergence",
+        "members": ["X5"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 20,
+        "issue": "signal_report_id typed loosely (str vs Any/UUID) across the cross-product resolver hook boundary",
+        "members": ["X6"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 21,
+        "issue": "find_signal_implementation_run still matches cancelled/failed runs and soft-deleted tasks, extending the carve-out past the automation's lifetime",
+        "members": ["X7", "V4", "M14", "O5"],
+        "n_verified": 2,
+        "n_real": 2,
+        "severities": ["consider", "should_fix"],
+        "files": ["api.py:508", "auto_start.py:253", "facade/api.py:501", "facade/api.py:504"]
+    },
+    {
+        "cluster": 22,
+        "issue": "Self-driving identification relies solely on the deprecated Task.signal_report field without origin_product corroboration",
+        "members": ["X8"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 23,
+        "issue": "Unindexed TaskRun.branch fallback leg causes sequential scans for non-matching bot PR webhooks",
+        "members": ["X17", "S9"],
+        "n_verified": 1,
+        "n_real": 1,
+        "severities": ["consider"],
+        "files": [
+            "models.py:1147",
+            "products/stamphog/backend/tasks/tasks.py:191",
+            "products/tasks/backend/facade/api.py:504",
+            "products/tasks/backend/models.py:1081"
+        ]
+    },
+    {
+        "cluster": 24,
+        "issue": "Relaxed gates leave no trace in logs/gate messages/posted review comment that the self-driving carve-out fired",
+        "members": ["X18", "V16", "N13"],
+        "n_verified": 1,
+        "n_real": 0,
+        "severities": [],
+        "files": [
+            "gateway.py:25",
+            "products/stamphog/backend/temporal/activities.py:175",
+            "products/stamphog/backend/tests/test_integration.py:1419",
+            "review_pr.py:590"
+        ]
+    },
+    {
+        "cluster": 25,
+        "issue": "Two on_commit hooks registered with robust=False, so an exception in the first silently cancels the stamphog hook",
+        "members": ["X19", "T4", "M13", "S7"],
+        "n_verified": 2,
+        "n_real": 2,
+        "severities": ["consider"],
+        "files": ["receivers.py:116", "receivers.py:254"]
+    },
+    {
+        "cluster": 26,
+        "issue": "stamphog_review_inbox_prs is PATCH-writable without a server-side stamphog_connected precondition validator",
+        "members": ["Y1", "U1"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 27,
+        "issue": "Fail-soft stamphog_connected=False is indistinguishable from genuinely-disconnected, producing misleading disabled-state copy in the UI",
+        "members": ["Y4"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 28,
+        "issue": "Second synchronous Celery broker publish on the on_commit path with no bounded publish timeout against a hung broker",
+        "members": ["Y7"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 29,
+        "issue": "Carve-out exception retry path can block the stale-approval safety dismissal for head-changing bot PRs",
+        "members": ["Y8", "U14", "V14"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 30,
+        "issue": "AGENTS.md carve-out section conflicts with the file's 'every invariant earned through a real review finding' preamble framing",
+        "members": ["Y9"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 31,
+        "issue": "Receiver leg does not re-validate the acting reviewer's toggle at task execution time (queue-time trust)",
+        "members": ["Y11", "L7", "N11", "O14", "S11", "W12", "Z10"],
+        "n_verified": 6,
+        "n_real": 0,
+        "severities": [],
+        "files": [
+            "facade/api.py:138",
+            "products/review_hog/backend/receivers.py:126",
+            "products/stamphog/backend/tasks/tasks.py:1109",
+            "receivers.py:126"
+        ]
+    },
+    {
+        "cluster": 32,
+        "issue": "Claimed stranding of QUEUED runs because on_commit workflow restart supposedly runs after the Celery task returns (disproven Django semantics)",
+        "members": ["Y13"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 33,
+        "issue": "Claimed per-event cost of running the tasks-facade lookup plus review_hog resolver on every bot-authored head-changing webhook",
+        "members": ["Y15", "N17", "O19"],
+        "n_verified": 2,
+        "n_real": 1,
+        "severities": ["consider"],
+        "files": [
+            "facade/api.py:504",
+            "models.py:1147",
+            "products/tasks/backend/models.py:1147",
+            "products/tasks/backend/webhooks.py:29"
+        ]
+    },
+    {
+        "cluster": 34,
+        "issue": "Alleged \\s character-class typo in _parse_pr_url making repos containing 's' unparseable (fabricated/misquoted regex)",
+        "members": ["Y16"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 35,
+        "issue": "Hard-coded 'It is a draft on purpose' provenance sentence renders even when the self-driving PR is no longer a draft",
+        "members": ["P4", "N3", "O24", "Z6"],
+        "n_verified": 3,
+        "n_real": 3,
+        "severities": ["consider"],
+        "files": [
+            "products/stamphog/backend/tasks/tasks.py:144",
+            "products/stamphog/backend/tasks/tasks.py:218",
+            "review_local.py:321",
+            "review_pr.py:587"
+        ]
+    },
+    {
+        "cluster": 36,
+        "issue": "Webhook leg's supersede+create path has no head-based dedupe against receiver-leg runs, double-reviewing the same head",
+        "members": ["P8"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 37,
+        "issue": "AGENTS.md carve-out bypass enumeration omits the untrusted_author_association branch of _review_skip_reason",
+        "members": ["P9"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 38,
+        "issue": "Redundant stamphog_pr_url local alias before the on_commit lambda",
+        "members": ["P11"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 39,
+        "issue": "find_task_run queries TaskRun unscoped and enforces the tenant boundary only via post-hoc run.team_id recheck",
+        "members": ["P13", "R4", "T8", "U4", "M11", "J6", "K4", "S5", "W8", "Z4"],
+        "n_verified": 6,
+        "n_real": 1,
+        "severities": ["consider"],
+        "files": ["api.py:492", "api.py:494", "api.py:504", "api.py:505"]
+    },
+    {
+        "cluster": 40,
+        "issue": "resolve_stamphog_acting_reviewer has no try/except guard despite being invoked from another product's webhook path",
+        "members": ["P16", "U10", "V2", "N22"],
+        "n_verified": 1,
+        "n_real": 0,
+        "severities": [],
+        "files": ["receivers.py:144", "tasks.py:201", "tasks.py:809", "tasks.py:873"]
+    },
+    {
+        "cluster": 41,
+        "issue": "Receiver-leg dedupe excludes FAILED runs, so a persistently failing head is retried on every refire with no cooldown",
+        "members": ["P17", "E4"],
+        "n_verified": 1,
+        "n_real": 1,
+        "severities": ["should_fix"],
+        "files": ["activities.py:820", "receivers.py:5", "receivers.py:85", "tasks.py:1124"]
+    },
+    {
+        "cluster": 42,
+        "issue": "Alleged check-then-act race in process_inbox_pr_review's dedupe allowing duplicate runs under concurrent refires (serialized by PR row lock)",
+        "members": ["P20", "K14", "L8", "O13", "O15", "S8", "Z9"],
+        "n_verified": 6,
+        "n_real": 1,
+        "severities": ["consider"],
+        "files": ["models.py:118", "models.py:119", "models.py:120", "models.py:140"]
+    },
+    {
+        "cluster": 43,
+        "issue": "repository__iexact lookup cannot use StamphogRepoConfig's case-sensitive indexes",
+        "members": ["P21", "N20"],
+        "n_verified": 1,
+        "n_real": 0,
+        "severities": [],
+        "files": ["models.py:58", "tasks.py:1136", "tasks.py:1140"]
+    },
+    {
+        "cluster": 44,
+        "issue": "stamphog_inbox_pr_create_run_failed log omits the error=str(e) structured field its siblings include",
+        "members": ["P22", "N21", "O22"],
+        "n_verified": 2,
+        "n_real": 1,
+        "severities": ["consider"],
+        "files": ["products/stamphog/backend/tasks/tasks.py:1236", "tasks.py:1149", "tasks.py:1164", "tasks.py:1236"]
+    },
+    {
+        "cluster": 45,
+        "issue": "Meta-finding: PR diff absent from the checked-out tree, declaring the review context untrustworthy",
+        "members": ["P24"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 46,
+        "issue": "Claim that max_migration.txt was not bumped to the new 0019 migration (false against PR head)",
+        "members": ["Q1", "R2"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 47,
+        "issue": "Engine's stamphog_review_completed analytics event lacks a self-driving marker property",
+        "members": ["Q4", "R1"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 48,
+        "issue": "AGENTS.md provenance key name (inbox_review vs trigger/stamphog_self_driving_review) suspected of not matching the implementation",
+        "members": ["Q6", "K8"],
+        "n_verified": 1,
+        "n_real": 0,
+        "severities": [],
+        "files": ["products/review_hog/backend/models.py:294", "products/stamphog/AGENTS.md:87", "receivers.py:126"]
+    },
+    {
+        "cluster": 49,
+        "issue": "AGENTS.md carve-out section placement splits the egress-to-trust-boundaries document flow",
+        "members": ["Q7"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 50,
+        "issue": "Opt-out dismissal copy/log mismatch on a base-retarget delivery (retarget message posted while log says inbox_opt_out)",
+        "members": ["Q12"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 51,
+        "issue": "Broad except in get_stamphog_connected collapses transient circuit-breaker failures and real bugs into one error-level log",
+        "members": ["Q14", "T5", "V12"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 52,
+        "issue": "Carve-out pays repo-config and tasks-DB lookups before the cheap resolver-is-None short-circuit",
+        "members": ["Q15"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 53,
+        "issue": "Opt-out dismissal message claims 'New commits were pushed' on a reopened PR where no commits were pushed",
+        "members": ["Q19"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 54,
+        "issue": "queue_inbox_pr_review facade does not guard the Celery .delay publish, so broker/serialization errors can raise into the caller's save path",
+        "members": ["R5", "W1"],
+        "n_verified": 1,
+        "n_real": 0,
+        "severities": [],
+        "files": ["receivers.py:210"]
+    },
+    {
+        "cluster": 55,
+        "issue": "Claim that tach.toml does not declare the new review_hog -> stamphog dependency (false against PR head, which adds it)",
+        "members": ["T1"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 56,
+        "issue": "Relaxing the draft gate leaves mergeable_state == \"dirty\" as the only conflict check, which GitHub never reports for drafts, so the merge-conflict gate is inert for self-driving draft PRs",
+        "members": ["U5", "V15"],
+        "n_verified": 0,
+        "n_real": 0,
+        "severities": [],
+        "files": []
+    },
+    {
+        "cluster": 57,
+        "issue": "Stamphog gate keys on a single canonical acting reviewer's toggle, so an opted-in non-canonical assigned reviewer is ignored, contradicting the PR's 'any assigned reviewer opted in' contract",
+        "members": ["M1", "M10", "J4", "K2", "K10", "L1", "N14", "O12", "S6", "W7", "Z3"],
+        "n_verified": 11,
+        "n_real": 2,
+        "severities": ["should_fix"],
+        "files": ["receivers.py:111", "receivers.py:114", "receivers.py:126", "receivers.py:144"]
+    },
+    {
+        "cluster": 58,
+        "issue": "Initial inbox review dispatch is fire-and-forget with no durable pending record or reconciliation, so a broker enqueue failure or exhaustion of the task's three retries silently drops the review",
+        "members": ["M5", "M6", "K3", "L9", "W3", "Z7"],
+        "n_verified": 6,
+        "n_real": 1,
+        "severities": ["consider"],
+        "files": [
+            "facade/api.py:128",
+            "facade/api.py:149",
+            "products/stamphog/backend/tasks/tasks.py:144",
+            "products/tasks/backend/facade/api.py:2149"
+        ]
+    },
+    {
+        "cluster": 59,
+        "issue": "Claim that the documented carve-out contracts (queue_inbox_pr_review facade, inbox_hooks resolver, engine flag) do not exist in the code \u2014 stale-checkout false positive validating PR docs against a tree without the PR's changes",
+        "members": ["M8", "K9", "L5", "N7", "N8"],
+        "n_verified": 5,
+        "n_real": 0,
+        "severities": [],
+        "files": [
+            "products/review_hog/backend/models.py:294",
+            "products/review_hog/backend/receivers.py:222",
+            "products/review_hog/backend/receivers.py:225",
+            "products/stamphog/README.md:14"
+        ]
+    },
+    {
+        "cluster": 60,
+        "issue": "Em dash in the new README copy violates the repository's documentation writing style guidance",
+        "members": ["J1"],
+        "n_verified": 1,
+        "n_real": 0,
+        "severities": [],
+        "files": ["pr75215_tree/products/stamphog/README.md:14"]
+    },
+    {
+        "cluster": 61,
+        "issue": "New review_hog migration numbered 0019 conflicts with master's existing 0019_reviewreport_author_login_and_more leaf (both depend on 0018), producing two migration leaves and a max_migration.txt conflict that break migration checks on merge",
+        "members": ["J5", "K6", "L3", "N9", "O7", "S2", "W4", "E2"],
+        "n_verified": 8,
+        "n_real": 8,
+        "severities": ["must_fix"],
+        "files": [
+            "0019_reviewusersettings_stamphog_review_inbox_prs.py:7",
+            "migrations/0019_reviewusersettings_stamphog_review_inbox_prs.py:7",
+            "posthog/settings/web.py:207",
+            "pr75215_tree/products/review_hog/backend/migrations/0019_reviewusersettings_stamphog_review_inbox_prs.py:7"
+        ]
+    },
+    {
+        "cluster": 62,
+        "issue": "Claim that no inbox acting-reviewer resolver is ever registered so the webhook carve-out always fails closed (false \u2014 receivers.connect() registers resolve_stamphog_acting_reviewer at app ready)",
+        "members": ["K7"],
+        "n_verified": 1,
+        "n_real": 0,
+        "severities": [],
+        "files": [
+            "posthog/settings/web.py:76",
+            "products/review_hog/backend/apps.py:13",
+            "products/review_hog/backend/receivers.py:69",
+            "products/stamphog/backend/tasks/tasks.py:201"
+        ]
+    },
+    {
+        "cluster": 63,
+        "issue": "find_signal_implementation_run facade leaves fork-safety (head-repo == base-repo) as a documentation-only caller precondition instead of enforcing it inside the facade",
+        "members": ["N2"],
+        "n_verified": 1,
+        "n_real": 0,
+        "severities": [],
+        "files": ["api.py:484", "tasks.py:176", "webhooks.py:29"]
+    },
+    {
+        "cluster": 64,
+        "issue": "queue_inbox_pr_review dispatches its Celery task immediately instead of via transaction.on_commit, risking a phantom task if the caller's transaction rolls back",
+        "members": ["N5", "O4"],
+        "n_verified": 2,
+        "n_real": 0,
+        "severities": [],
+        "files": [
+            "inbox_hooks.py:4",
+            "pr75215_tree/products/review_hog/backend/receivers.py:131",
+            "pr75215_tree/products/stamphog/backend/facade/api.py:149",
+            "products/review_hog/backend/receivers.py:225"
+        ]
+    },
+    {
+        "cluster": 65,
+        "issue": "Frontend loads stamphog_connected once on mount and never revalidates, so connecting Stamphog elsewhere leaves the switch stuck showing not-connected until reload",
+        "members": ["N6"],
+        "n_verified": 1,
+        "n_real": 0,
+        "severities": [],
+        "files": ["generated/api.schemas.ts:465", "pr75215_tree/products/review_hog/frontend/CodeReviewScene.tsx:1066"]
+    },
+    {
+        "cluster": 66,
+        "issue": "Inbox-hook resolver registration in connect() has no duplicate-registration guard equivalent to the sibling post_save dispatch_uid",
+        "members": ["N16"],
+        "n_verified": 1,
+        "n_real": 0,
+        "severities": [],
+        "files": [
+            "products/review_hog/backend/receivers.py:69",
+            "products/stamphog/backend/facade/inbox_hooks.py:24",
+            "products/stamphog/backend/tasks/tasks.py:201"
+        ]
+    },
+    {
+        "cluster": 67,
+        "issue": "review_local.py never populates pipeline.provenance, so the self-driving path's commit-trailer audit/analytics fields are always empty",
+        "members": ["N23"],
+        "n_verified": 1,
+        "n_real": 1,
+        "severities": ["consider"],
+        "files": [
+            "github.py:546",
+            "products/stamphog/backend/logic/reviewer.py:172",
+            "review_local.py:321",
+            "review_pr.py:202"
+        ]
+    },
+    {
+        "cluster": 68,
+        "issue": "resolve_stamphog_acting_reviewer hook trusts caller-supplied team_id/signal_report_id with no verification tying them to the PR being re-reviewed",
+        "members": ["O8"],
+        "n_verified": 1,
+        "n_real": 0,
+        "severities": [],
+        "files": ["facade/api.py:492", "facade/api.py:504", "receivers.py:151", "tasks.py:153"]
+    },
+    {
+        "cluster": 69,
+        "issue": "Receiver dispatches the Stamphog Celery task unconditionally even for teams with no Stamphog installation, paying a guaranteed no-op broker round trip",
+        "members": ["O18"],
+        "n_verified": 1,
+        "n_real": 0,
+        "severities": [],
+        "files": ["facade/api.py:145", "receivers.py:126", "receivers.py:213", "settings.py:50"]
+    },
+    {
+        "cluster": 70,
+        "issue": "Self-driving TRUSTED prompt block contradicts the review-guidance.md system prompt's categorical 'bot author always needs human review' showstopper, which the PR never carves out",
+        "members": ["O23"],
+        "n_verified": 1,
+        "n_real": 1,
+        "severities": ["should_fix"],
+        "files": [".stamphog/review-guidance.md:23", "review_pr.py:225", "reviewer.py:271", "reviewer.py:577"]
+    },
+    {
+        "cluster": 71,
+        "issue": "AGENTS.md's 'relaxes exactly two gates' claim reads as contradicted by the review-mode and author-write-permission bypasses documented two bullets later",
+        "members": ["O25"],
+        "n_verified": 1,
+        "n_real": 0,
+        "severities": [],
+        "files": ["activities.py:451", "reviewer.py:101", "tasks.py:237", "tasks.py:264"]
+    },
+    {
+        "cluster": 72,
+        "issue": "AGENTS.md carve-out section never states whether StamphogRepoConfig.enabled (per-repo opt-in) still gates self-driving inbox reviews",
+        "members": ["O26"],
+        "n_verified": 1,
+        "n_real": 0,
+        "severities": [],
+        "files": ["AGENTS.md:87", "tasks.py:1140", "tasks.py:179"]
+    },
+    {
+        "cluster": 73,
+        "issue": "find_task_run's branch fallback can bind an unrelated or stale run (whose output.pr_url names a different PR) to the incoming PR, authorizing it as self-driving",
+        "members": ["S10"],
+        "n_verified": 1,
+        "n_real": 1,
+        "severities": ["consider"],
+        "files": ["facade/api.py:504", "models.py:1146", "tasks.py:167", "tasks.py:191"]
+    },
+    {
+        "cluster": 74,
+        "issue": "Ownership block still renders 'Author is NOT on the owning team' for self-driving machine authors, contradicting the adjacent provenance block's no-signal directive",
+        "members": ["W13"],
+        "n_verified": 1,
+        "n_real": 0,
+        "severities": [],
+        "files": ["review_local.py:227", "review_local.py:242", "review_local.py:321", "review_local.py:330"]
+    },
+    {
+        "cluster": 75,
+        "issue": "Webhook carve-out accepts any GitHub bot as the self-driving author (_is_bot_authored any-Bot floor) instead of requiring the expected PostHog Code App bot login, so another installed bot with write access can inherit the gate bypass",
+        "members": ["E1"],
+        "n_verified": 1,
+        "n_real": 1,
+        "severities": ["must_fix"],
+        "files": ["AGENTS.md:33", "facade/api.py:510", "github_client.py:53", "tasks.py:1062"]
+    },
+    {
+        "cluster": 76,
+        "issue": "Claim that ReviewUserSettings toggle gates read from a lagging replica and need writer-DB pinning (false \u2014 the model is main-DB and load() already reads the primary)",
+        "members": ["E3"],
+        "n_verified": 1,
+        "n_real": 0,
+        "severities": [],
+        "files": [
+            "models.py:309",
+            "posthog/dbrouter.py:22",
+            "posthog/settings/data_stores.py:271",
+            "product_db_router.py:27"
+        ]
+    }
+]

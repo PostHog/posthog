@@ -3,6 +3,7 @@
 import json
 import asyncio
 from datetime import timedelta
+from itertools import batched
 
 from django.conf import settings
 
@@ -162,7 +163,7 @@ async def _check_count_triggered_eval_report_candidates(report_ids: list[str]) -
         "not_deliverable": 0,
     }
 
-    for batch in _batch_report_ids(report_ids, COUNT_TRIGGER_CHECK_BATCH_SIZE):
+    for batch in batched(report_ids, COUNT_TRIGGER_CHECK_BATCH_SIZE, strict=False):
         tasks = [
             temporalio.workflow.execute_activity(
                 check_count_triggered_eval_report_activity,
@@ -257,10 +258,6 @@ async def _check_count_triggered_eval_report_candidates_batched(report_id_groups
     )
     record_coordinator_reports_found(len(due_report_ids), "count_triggered")
     return due_report_ids
-
-
-def _batch_report_ids(report_ids: list[str], batch_size: int) -> list[list[str]]:
-    return [report_ids[index : index + batch_size] for index in range(0, len(report_ids), batch_size)]
 
 
 def _log_fan_out_failures(kind: str, report_ids: list[str], results: list) -> None:

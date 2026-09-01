@@ -3,14 +3,12 @@ import { router } from 'kea-router'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconArrowRight, IconClock, IconInfo, IconLock, IconMicrophone, IconPin, IconStar } from '@posthog/icons'
+import { IconArrowRight, IconClock, IconInfo, IconMicrophone, IconPin, IconStar } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { Search } from 'lib/components/Search/Search'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
 import { TextareaPrimitive } from 'lib/ui/TextareaPrimitive/TextareaPrimitive'
@@ -25,9 +23,11 @@ import { FillInHint } from 'scenes/max/components/FillInHint'
 import { SidebarQuestionInput } from 'scenes/max/components/SidebarQuestionInput'
 import { handsFreeLogic } from 'scenes/max/handsFreeLogic'
 import { Intro } from 'scenes/max/Intro'
+import { HOMEPAGE_CAPABILITIES } from 'scenes/max/maxCapabilities'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
+import { AIAccessRequest } from 'scenes/settings/organization/AIAccessRequest'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -209,8 +209,9 @@ export function HomepageAiInput(): JSX.Element {
         return (
             <div className="border border-primary rounded-lg bg-surface-primary p-4 flex flex-col gap-2">
                 <p className="font-medium text-pretty m-0">
-                    PostHog AI needs your approval to potentially process identifying user data with external AI
-                    providers.
+                    {isAdmin
+                        ? 'PostHog AI needs your approval to potentially process identifying user data with external AI providers.'
+                        : 'PostHog AI needs an organization admin to approve processing identifying user data with external AI providers.'}
                 </p>
                 <p className="text-muted text-xs m-0">Your data won't be used for training third-party models.</p>
                 {isAdmin ? (
@@ -229,9 +230,9 @@ export function HomepageAiInput(): JSX.Element {
                         I allow AI analysis in this organization
                     </LemonButton>
                 ) : (
-                    <LemonButton type="secondary" size="small" disabled sideIcon={<IconLock />}>
-                        {dataProcessingApprovalDisabledReason}
-                    </LemonButton>
+                    <div className="flex">
+                        <AIAccessRequest size="small" />
+                    </div>
                 )}
             </div>
         )
@@ -301,17 +302,12 @@ function getStoredSkeletonCounts(): Record<string, number> | null {
 function IdleGrid(): JSX.Element {
     const { gridItems, query, dashboardsLoading, recentItemsLoading, starredItemsLoading } =
         useValues(aiFirstHomepageLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     // [col, row] position of the highlighted item, null = nothing highlighted
     const [highlight, setHighlight] = useState<[number, number] | null>(null)
     const gridRef = useRef<HTMLDivElement>(null)
 
     const [skeletonCounts, setSkeletonCounts] = useState(getStoredSkeletonCounts)
-
-    const hasExtraMarginTop =
-        !!featureFlags[FEATURE_FLAGS.MAX_HOMEPAGE_CAPABILITIES] ||
-        featureFlags[FEATURE_FLAGS.MAX_HOMEPAGE_CAPABILITIES] === 'control'
 
     const columns = useMemo(() => {
         return GRID_COLUMNS.map((col) => ({
@@ -460,10 +456,7 @@ function IdleGrid(): JSX.Element {
             role="grid"
             data-attr="homepage-grid"
             // Only shown at @xl+ where the homepage columns sit in a row.
-            className={cn(
-                'flex flex-col @xl/main-content:flex-row gap-8 @xl/main-content:gap-2 w-full px-3 outline-none',
-                hasExtraMarginTop && 'mt-8'
-            )}
+            className="flex flex-col @xl/main-content:flex-row gap-8 @xl/main-content:gap-2 w-full px-3 outline-none mt-8"
             tabIndex={-1}
             onFocus={(e) => {
                 // Only auto-highlight when focused via keyboard (ArrowDown from input)
@@ -541,11 +534,12 @@ function IdleGrid(): JSX.Element {
 }
 
 export function HomepageInput(): JSX.Element {
-    const { mode, query, capabilities, selectedCapability } = useValues(aiFirstHomepageLogic)
+    const { mode, query, selectedCapability } = useValues(aiFirstHomepageLogic)
     const { setQuery, submitQuery, setSelectedCapability, setFillInHint } = useActions(aiFirstHomepageLogic)
     const { user } = useValues(userLogic)
 
-    const selectedCapabilityData = capabilities.find((capability) => capability.key === selectedCapability) ?? null
+    const selectedCapabilityData =
+        HOMEPAGE_CAPABILITIES.find((capability) => capability.key === selectedCapability) ?? null
 
     return (
         <div className="w-full max-w-180 mx-auto py-2 ">
@@ -568,7 +562,7 @@ export function HomepageInput(): JSX.Element {
                         <div className="overflow-hidden flex flex-col items-center gap-6">
                             <CapabilityBadges
                                 className="shrink-0"
-                                capabilities={capabilities}
+                                capabilities={HOMEPAGE_CAPABILITIES}
                                 selectedKey={selectedCapability}
                                 onSelect={setSelectedCapability}
                             />

@@ -8,7 +8,6 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
-import { isManagedAlertInternalEvent } from '../managed-alert-events'
 import { CdpInternalEventSchema } from '../schema'
 import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
@@ -19,9 +18,49 @@ import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { counterParseError } from './metrics'
 
 const SLACK_MESSAGE_RECEIVED_EVENT = '$slack_message_received'
+const GITHUB_EVENT_RECEIVED_EVENT = '$github_event_received'
 
-// The event that starts each trigger type. Type alone would match every other signal on this topic.
-const INTERNAL_EVENT_TRIGGER_EVENTS = new Map([['slack-message', SLACK_MESSAGE_RECEIVED_EVENT]])
+function getInternalEventFilterEventIds(filters: unknown): string[] | null {
+    if (!filters || typeof filters !== 'object') {
+        return null
+    }
+
+    const { source, events, actions, data_warehouse } = filters as {
+        source?: unknown
+        events?: unknown
+        actions?: unknown
+        data_warehouse?: unknown
+    }
+    const hasUnsupportedFilters =
+        (actions !== undefined && (!Array.isArray(actions) || actions.length > 0)) ||
+        (data_warehouse !== undefined && (!Array.isArray(data_warehouse) || data_warehouse.length > 0))
+    if (source !== 'internal-events' || !Array.isArray(events) || !events.length || hasUnsupportedFilters) {
+        return null
+    }
+
+    const eventIds = events.map((event) => (event && typeof event === 'object' ? (event as { id?: unknown }).id : null))
+    return eventIds.every((eventId): eventId is string => typeof eventId === 'string' && eventId.trim().length > 0)
+        ? eventIds
+        : null
+}
+
+function hasMatchingInternalEventFilter(filters: unknown, eventName: string): boolean {
+    return getInternalEventFilterEventIds(filters)?.includes(eventName) ?? false
+}
+
+/**
+ * Whether a GitHub delivery is a write PostHog's own GitHub App made, resolved from the `own_app`
+ * property the emit stamps on the event.
+ *
+ * A workflow that comments back on an issue sees its own comment arrive on this topic, so without
+ * this it retriggers itself forever. Checked at eligibility rather than a trigger's stored filters,
+ * which a workflow created through the API or MCP would not carry. Unlike Slack's equivalent, this
+ * needs no integration lookup: one GitHub App per environment posts for every installation, so the
+ * emit can resolve "is this us" from its own instance setting before the event ever reaches Kafka.
+ */
+function isOwnGithubEvent(globals: HogFunctionInvocationGlobals): boolean {
+    return globals.event.event === GITHUB_EVENT_RECEIVED_EVENT && globals.event.properties.own_app === true
+}
 
 export class CdpInternalEventsConsumer extends CdpConsumerBase {
     protected name = 'CdpInternalEventsConsumer'
@@ -84,29 +123,15 @@ export class CdpInternalEventsConsumer extends CdpConsumerBase {
         const [hogInvocations, hogflowInvocations] = await Promise.all([
             this.hogFunctionPipeline.buildInvocations(invocationGlobals, {
                 hogTypes: this.hogTypes,
-                filterFn: () => true,
-                invocationFilterFn: (fn, globals) => {
-                    if (!isManagedAlertInternalEvent(globals.event.event)) {
-                        return true
-                    }
-                    const alertId = globals.event.properties?.alert_id
-                    return Boolean(
-                        typeof alertId === 'string' &&
-                            fn.filters?.events?.some((event) => event.id === globals.event.event) &&
-                            fn.filters?.properties?.some(
-                                (property) =>
-                                    property.type === 'event' &&
-                                    property.key === 'alert_id' &&
-                                    property.operator === 'exact' &&
-                                    property.value === alertId
-                            )
-                    )
-                },
+                filterFn: (fn) => getInternalEventFilterEventIds(fn.filters) !== null,
+                invocationFilterFn: (fn, globals) => hasMatchingInternalEventFilter(fn.filters, globals.event.event),
             }),
             this.hogFlowPipeline.buildInvocations(invocationGlobals, {
                 eligibilityFn: (flow, globals) =>
-                    INTERNAL_EVENT_TRIGGER_EVENTS.get(flow.trigger.type) === globals.event.event &&
-                    !ownSlackMessages.has(globals),
+                    flow.trigger.type === 'internal-event' &&
+                    hasMatchingInternalEventFilter(flow.trigger.filters, globals.event.event) &&
+                    !ownSlackMessages.has(globals) &&
+                    !isOwnGithubEvent(globals),
             }),
         ])
 

@@ -273,6 +273,29 @@ class TestGetRows:
         assert "updated_at.gt" not in snapshots[0]["params"]
         assert snapshots[0]["params"]["limit"] == 50
 
+    @pytest.mark.parametrize("endpoint", ["salary_bands", "cost_centers"])
+    @mock.patch(AUTH_SESSION_PATCH)
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_dimension_endpoint_never_sends_timestamp_filter(self, MockSession, MockAuth, endpoint):
+        # salary-bands and cost-centers have no updated_at field, so incremental_param is None. Even
+        # if incremental is requested, the request must go out as a full refresh with no timestamp
+        # param — sending one the API ignores would silently claim a filtered sync.
+        session = MockSession.return_value
+        MockAuth.return_value.post.return_value = _token_response()
+        snapshots = _wire(session, [_response(_page([]))])
+
+        _rows(
+            _source(
+                endpoint,
+                _make_manager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
+            )
+        )
+
+        assert not any(key.startswith("updated_at") for key in snapshots[0]["params"])
+        assert snapshots[0]["params"]["limit"] == 100
+
     @mock.patch(AUTH_SESSION_PATCH)
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_state(self, MockSession, MockAuth):

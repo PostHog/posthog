@@ -5,6 +5,8 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.template.loader import render_to_string
+
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
@@ -78,6 +80,14 @@ class TestRenderAIEmailHtml:
         html = render_ai_email_html("**bold** and *italic*")
         assert "<strong>bold</strong>" in html
         assert "<em>italic</em>" in html
+
+    def test_chart_title_only_appears_in_the_image_alt_text(self) -> None:
+        html = render_to_string(
+            "email/ai_subscription_report.html",
+            {"title": "Report", "rendered_html": "", "charts": [_CHART]},
+        )
+
+        assert html.count(_CHART["title"]) == 1
 
 
 class TestExternalUrlExfilGuard:

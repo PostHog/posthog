@@ -1,21 +1,21 @@
 ---
 name: review-hog-authoring
 description: >
-  How to author custom ReviewHog skills — the review perspectives, blind-spot checks, validation
-  criteria, and resolution criteria that drive ReviewHog's automated PR reviews. Use when a user
+  How to author custom PostHog Review skills: the review perspectives, blind-spot checks, validation
+  criteria, and resolution criteria that drive PostHog Review's automated PR reviews. Use when a user
   wants a new review perspective (a specialist lens on their PRs), a custom blind-spot sweep,
   their own validation bar for which findings get published, or their own bar for which review
-  comments get implemented. Trigger on "create a ReviewHog perspective", "custom review
+  comments get implemented. Trigger on "create a PostHog Review perspective", "custom review
   perspective", "my own blind-spot check", "custom validation criteria", "custom resolution
-  criteria", "tune what ReviewHog publishes", "tune what ReviewHog implements".
+  criteria", "tune what PostHog Review publishes", "tune what PostHog Review implements".
 metadata:
   owner_team: review_hog
   skill_type: authoring
 ---
 
-# Authoring ReviewHog skills
+# Authoring PostHog Review skills
 
-**ReviewHog** is PostHog's automated PR reviewer. A review splits the PR into chunks, then for each
+**PostHog Review** is PostHog's automated PR reviewer. A review splits the PR into chunks, then for each
 chunk runs every enabled **perspective** in parallel (independent specialist lenses), a single
 **blind-spot check** afterwards (a final sweep conditioned on what the perspectives found), and
 finally judges every surviving candidate finding against one **validation criteria** skill — only

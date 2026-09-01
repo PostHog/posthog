@@ -68,7 +68,7 @@ import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outpu
  *   model. Creates multiple in-flight batches WITHOUT concurrent next() calls,
  *   isolating pure ordering semantics deterministically.
  * - Concurrent drivers: N "handlers" each doing feed → drain-until-null →
- *   waitForAll (a copy of ingestion-api-server's handleIngestRequest), guarded
+ *   waitForAll (a copy of the ingestion API server's stream driver), guarded
  *   by a Semaphore(concurrentBatches) playing the Rust consumer's per-worker
  *   semaphore. This is the INGESTION_WORKER_CONCURRENT_BATCHES > 1 rollout model.
  *
@@ -420,7 +420,7 @@ class Harness {
         }
     }
 
-    /** Mirrors ingestion-api-server's handleIngestRequest: feed a batch, then drain. */
+    /** Mirrors the ingestion API server's stream driver: feed a batch, then drain. */
     async run(events: EventSpec[]): Promise<void> {
         const feedResult = await this.feed(events)
         if (!feedResult.ok) {
