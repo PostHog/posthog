@@ -67,7 +67,11 @@ describe('HomepageAiInput', () => {
     })
 
     it('lets a member ask an admin to approve, instead of dead-ending on the disabled reason', async () => {
-        setUpOrganization(OrganizationMembershipLevel.Member)
+        organizationLogic.actions.loadCurrentOrganizationSuccess({
+            ...MOCK_DEFAULT_ORGANIZATION,
+            is_ai_data_processing_approved: false,
+            membership_level: OrganizationMembershipLevel.Member,
+        })
         renderInput()
 
         expect(screen.queryByText(APPROVE_LABEL)).toBeNull()
