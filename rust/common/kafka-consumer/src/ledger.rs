@@ -16,17 +16,19 @@ pub struct TakenFrontier {
     pub charge: Charge,
 }
 
-/// Per-partition delivered-offset ledger, stored as a dense ring over one
-/// contiguous offset range so that completion is an index lookup instead of a
-/// scan. Completion only marks slots; commit paths explicitly consume the
-/// contiguous prefix after observing it.
+/// Per-partition delivered-offset ledger. Completion only marks slots; commit
+/// paths explicitly consume the contiguous prefix after observing it.
 #[derive(Debug, Default)]
 pub struct OffsetLedger {
     /// The offset of `slots[0]`; `None` until the first delivery.
     base: Option<i64>,
-    /// Number of completed slots at the front of the ring, kept current on
+    /// Number of completed slots at the front of the window, kept current on
     /// every completion so `frontier` stays O(1).
     prefix: usize,
+    /// A dense sliding window over one contiguous offset range: `charge`
+    /// appends at the back, `take_frontier` pops the front, and `complete`
+    /// indexes by offset minus `base`. Every operation is amortized constant
+    /// time per offset.
     slots: VecDeque<Slot>,
 }
 
@@ -37,7 +39,7 @@ impl OffsetLedger {
 
     /// Record offsets in delivery order and return their total charge. An
     /// offset gap (transaction control records) gets pre-completed zero-charge
-    /// filler slots, so the ring stays dense and the frontier walks over the
+    /// filler slots, so the window stays dense and the frontier walks over the
     /// gap.
     pub fn charge(&mut self, offsets: impl IntoIterator<Item = (Offset, Charge)>) -> Charge {
         let mut total = Charge::ZERO;
@@ -67,7 +69,7 @@ impl OffsetLedger {
     pub fn complete(&mut self, offsets: &[Offset]) {
         let base = self.base.expect("completion before any delivery");
         for offset in offsets {
-            let index = usize::try_from(offset.0 - base).expect("completion below the ring base");
+            let index = usize::try_from(offset.0 - base).expect("completion below the window base");
             let slot = self
                 .slots
                 .get_mut(index)
@@ -172,7 +174,7 @@ mod tests {
     }
 
     #[test]
-    fn the_ring_continues_across_take_frontier() {
+    fn the_window_slides_across_take_frontier() {
         let mut ledger = OffsetLedger::new();
         ledger.charge([charge(0), charge(1)]);
         ledger.complete(&[Offset(0), Offset(1)]);
