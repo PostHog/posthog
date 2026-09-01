@@ -95,15 +95,27 @@ const UNSUPPORTED_CONSTRUCTS: { pattern: RegExp; label: string }[] = [
 //
 // Only i, m and s are recognized: they are the flags JavaScript supports, and unlike re2 the
 // server's re.compile rejects (?U)/(?L), so recognizing those here would accept a rule the API then
-// refuses. A rarer server-valid flag like (?x) still gets refused in the editor, but the server
-// stays the authority, so that only affects the inline hint, not what saves. Compare compileForPreview
-// in lib/components/PathCleanFilters/pathCleaningUtils.ts.
+// refuses. A rarer server-valid flag like (?x) is still refused in the editor, and a validation
+// error disables Save — such a rule can only be written through the API directly. Compare
+// compileForPreview in lib/components/PathCleanFilters/pathCleaningUtils.ts.
 const LEADING_INLINE_FLAGS = /^\(\?([ims]+)\)/
 
 function compileCustomBotRegex(pattern: string): RegExp {
-    const match = pattern.match(LEADING_INLINE_FLAGS)
-    const flags = match ? match[1]! : ''
-    const body = match ? pattern.slice(match[0].length) : pattern
+    // Consume every leading flag group and dedupe the letters: Python accepts stacked or repeated
+    // groups like (?i)(?s)x and (?ii)x, while RegExp rejects both a leftover (?s) group in the body
+    // and a repeated letter in the flags argument.
+    let flags = ''
+    let body = pattern
+    let match = body.match(LEADING_INLINE_FLAGS)
+    while (match) {
+        for (const flag of match[1]!) {
+            if (!flags.includes(flag)) {
+                flags += flag
+            }
+        }
+        body = body.slice(match[0].length)
+        match = body.match(LEADING_INLINE_FLAGS)
+    }
     return new RegExp(body, flags)
 }
 

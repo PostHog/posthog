@@ -53,6 +53,14 @@ def _custom_groups(modifiers: Optional["HogQLQueryModifiers"]) -> list[CustomBot
     return compile_definitions(modifiers.customBotDefinitions)
 
 
+def has_user_agent_rule(modifiers: Optional["HogQLQueryModifiers"]) -> bool:
+    """Whether the project has a rule on the user agent — the only rule kind that makes the one-arg
+    isLikelyBot expansion reference its argument twice (see the resolver's re-entrancy guard)."""
+    if modifiers is None or not modifiers.customBotDefinitions:
+        return False
+    return any(definition.key == USER_AGENT_FIELD for definition in modifiers.customBotDefinitions)
+
+
 def _string_array(values: list[str]) -> ast.Array:
     return ast.Array(exprs=[ast.Constant(value=value) for value in values])
 
@@ -111,7 +119,15 @@ def _custom_group_branch(group: CustomBotGroup, args: list[ast.Expr], attr: str)
         index_call: ast.Expr = ast.Call(name="multiIf", args=multi_if_args)
     else:
         safe_property = ast.Call(name="ifNull", args=[property_expr, ast.Constant(value="")])
-        index_call = ast.Call(name="multiMatchAnyIndex", args=[safe_property, _string_array(group.patterns)])
+        # arrayMin over ALL matching patterns, not multiMatchAnyIndex: when two of a project's own
+        # rules match the same value, the one listed first wins. multiMatchAnyIndex would report
+        # whichever pattern matches earliest in the string, so a specific rule listed above a broad
+        # one could never take the label. Still a single hyperscan pass; an empty match list
+        # arrayMins to 0, the same no-match sentinel.
+        index_call = ast.Call(
+            name="arrayMin",
+            args=[ast.Call(name="multiMatchAllIndices", args=[safe_property, _string_array(group.patterns)])],
+        )
 
     labels = _string_array([getattr(definition, attr) for definition in group.definitions])
     return CustomRuleBranch(

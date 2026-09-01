@@ -41,6 +41,7 @@ from posthog.hogql.functions.traffic_type import (
     get_bot_type,
     get_traffic_category,
     get_traffic_type,
+    has_user_agent_rule,
     is_bot,
 )
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
@@ -1898,12 +1899,13 @@ class Resolver(CloningVisitor):
                 )
             if node.name in ("isLikelyBot", "__preview_isBot"):
                 # The two-arg form duplicates its IP argument across the per-prefix-length range
-                # checks, and a project's own user-agent rules duplicate the user-agent argument the
-                # same way, so guard the expansion whenever either can happen. A plain one-arg call
-                # with no custom rules embeds its argument once and stays unguarded, so it can still
-                # be reached inside another macro's expansion.
+                # checks, and a project's user-agent rules duplicate the user-agent argument the
+                # same way, so guard the expansion whenever either can happen. A one-arg call with
+                # no user-agent rule embeds its argument once — rules on other properties read a
+                # sibling field, not the argument — so it stays unguarded and can still be reached
+                # inside another macro's expansion.
                 modifiers = self.context.modifiers
-                duplicates_argument = len(node.args) > 1 or bool(modifiers and modifiers.customBotDefinitions)
+                duplicates_argument = len(node.args) > 1 or has_user_agent_rule(modifiers)
                 if duplicates_argument:
                     return self._expand_duplicating_macro(
                         node, lambda: is_bot(node=node, args=node.args, modifiers=modifiers)

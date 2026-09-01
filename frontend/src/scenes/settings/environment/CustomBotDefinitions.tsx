@@ -61,7 +61,9 @@ export function CustomBotDefinitions(): JSX.Element {
     const canEdit = !restrictedReason
 
     const firstError = definitions.map(validateCustomBotDefinition).find(Boolean)
-    const isUnchanged = equal(sanitizeCustomBotDefinitions(definitions), savedDefinitions)
+    // Sanitize both sides: a rule written through the API can lack the optional category or carry
+    // unpadded whitespace, and a pristine editor must not read as dirty for normalization alone.
+    const isUnchanged = equal(sanitizeCustomBotDefinitions(definitions), sanitizeCustomBotDefinitions(savedDefinitions))
     const testedFields = CUSTOM_BOT_FIELD_OPTIONS.filter((option) =>
         definitions.some((definition) => definition.key === option.value)
     )

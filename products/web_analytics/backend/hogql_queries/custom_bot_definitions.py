@@ -14,7 +14,7 @@ The definitions are stored on `team.modifiers` and reach HogQL through
 `$virt_bot_operator`, `$virt_traffic_type` and `$virt_traffic_category` everywhere HogQL runs,
 not only in web analytics.
 
-Substring and regex rules end up inside a ClickHouse `multiMatchAnyIndex` call, which compiles them
+Substring and regex rules end up inside a ClickHouse `multiMatchAllIndices` call, which compiles them
 with hyperscan. Hyperscan supports less than PCRE, and a pattern it rejects fails every query that
 reads one of those fields for the project. Two guards keep that from happening:
 
@@ -103,7 +103,7 @@ _REGEX_METACHARACTERS = re.compile(r"([.^$*+?()\[\]{}|\\])")
 
 @frozen
 class PatternGroup:
-    """Rules on one property, matched by a single multiMatchAnyIndex over their patterns.
+    """Rules on one property, matched by a single multiMatchAllIndices pass over their patterns.
 
     `patterns[i]` names `definitions[i]`, so the 1-based match index reads straight off
     `definitions`.
@@ -135,7 +135,7 @@ def _escape_literal(value: str) -> str:
 
 
 def compile_pattern(pattern: str, matcher: str) -> str:
-    """Turn a substring or regex rule into the regex handed to multiMatchAnyIndex."""
+    """Turn a substring or regex rule into the regex handed to multiMatchAllIndices."""
     if matcher == "regex":
         return pattern
     # Substring matching is case-insensitive so people do not have to think about how an SDK cases
@@ -230,7 +230,8 @@ def assert_patterns_compile(patterns: list[str]) -> None:
     from posthog.clickhouse.client import sync_execute  # noqa: PLC0415 — keeps the heavy dep off the import path
 
     try:
-        sync_execute("SELECT multiMatchAnyIndex(%(probe)s, %(patterns)s)", {"probe": "", "patterns": patterns})
+        # Probe with the same function the query uses, so a pattern the probe accepts compiles there too.
+        sync_execute("SELECT multiMatchAllIndices(%(probe)s, %(patterns)s)", {"probe": "", "patterns": patterns})
     except ServerException as error:
         if error.code not in _BAD_PATTERN_CH_CODES:
             # ClickHouse is unreachable or unhappy for an unrelated reason; don't block the save,

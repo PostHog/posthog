@@ -629,28 +629,39 @@ class TestMacroExpansionGuard(BaseTest):
         printed = self._print("SELECT __preview_getTrafficType(toString(__preview_isBot(properties.x))) FROM events")
         assert "multiMatchAnyIndex" in printed
 
-    def test_one_arg_is_bot_with_custom_ua_rule_is_guarded(self):
-        # A project user-agent rule makes even the one-arg form duplicate the user-agent argument,
-        # so nesting it becomes the same exponential vector and must be rejected. Without a rule the
-        # same nesting is allowed (test_non_duplicating_macro_inside_duplicating_macro_is_allowed).
+    @parameterized.expand(
+        [
+            # A user-agent rule makes the one-arg form duplicate the user-agent argument, so
+            # nesting it becomes the same exponential vector and must be rejected.
+            (
+                "a user agent rule guards",
+                CustomBotField.FIELD_RAW_USER_AGENT,
+                CustomBotMatcher.CONTAINS,
+                "AcmeBot",
+                True,
+            ),
+            # A rule on another property reads a sibling field, not the argument, so a one-arg call
+            # embeds its argument once and the previously valid nesting has to keep resolving.
+            ("an ip rule does not guard", CustomBotField.FIELD_IP, CustomBotMatcher.CIDR, "192.0.2.0/24", False),
+        ]
+    )
+    def test_one_arg_is_bot_nesting_guard_tracks_user_agent_rules(
+        self, _name: str, key: CustomBotField, matcher: CustomBotMatcher, pattern: str, guarded: bool
+    ):
+        # Without any rule the same nesting is allowed
+        # (test_non_duplicating_macro_inside_duplicating_macro_is_allowed).
         modifiers = HogQLQueryModifiers(
-            customBotDefinitions=[
-                CustomBotDefinition(
-                    id="1",
-                    name="Acme",
-                    key=CustomBotField.FIELD_RAW_USER_AGENT,
-                    pattern="AcmeBot",
-                    matcher=CustomBotMatcher.CONTAINS,
-                )
-            ]
+            customBotDefinitions=[CustomBotDefinition(id="1", name="Acme", key=key, pattern=pattern, matcher=matcher)]
         )
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
-        with pytest.raises(QueryError, match="cannot be nested inside another expanded function call"):
-            prepare_and_print_ast(
-                parse_select("SELECT __preview_isBot(toString(__preview_isBot(properties.x))) FROM events"),
-                context,
-                "clickhouse",
-            )
+        query = parse_select("SELECT __preview_isBot(toString(__preview_isBot(properties.x))) FROM events")
+
+        if guarded:
+            with pytest.raises(QueryError, match="cannot be nested inside another expanded function call"):
+                prepare_and_print_ast(query, context, "clickhouse")
+        else:
+            printed = prepare_and_print_ast(query, context, "clickhouse")[0]
+            assert "multiMatchAnyIndex" in printed
 
     def test_two_arg_is_bot_expands_ip_ranges(self):
         printed = self._print(
@@ -799,6 +810,26 @@ class TestCustomBotDefinitions(ClickhouseTestMixin, BaseTest):
         )
 
         assert (name, category) == expected
+
+    @parameterized.expand(
+        [
+            ("specific rule listed first", ["AcmeBot-Image", "Acme"], "AcmeBot-Image"),
+            ("broad rule listed first", ["Acme", "AcmeBot-Image"], "Acme"),
+        ]
+    )
+    def test_the_first_listed_rule_wins_when_two_rules_overlap(
+        self, _name: str, patterns: list[str], expected_name: str
+    ):
+        # Rules on one property share a single hyperscan pass, and hyperscan reports whichever
+        # pattern matches earliest in the string — here "Acme" always ends first, so an
+        # any-match index would name it in both orders. Taking the minimum of all matching
+        # pattern indices makes the settings page's list order decide instead.
+        _is_bot, name, _category = self._classify(
+            [_custom_bot(id=str(i), name=pattern, pattern=pattern) for i, pattern in enumerate(patterns)],
+            {"$raw_user_agent": "AcmeBot-Image/2.1 (+https://acme.example)"},
+        )
+
+        assert name == expected_name
 
     def test_a_project_rule_beats_the_no_user_agent_bucket(self):
         # Server logs arrive without a user agent. A project that named the IP wants its own name

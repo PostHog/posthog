@@ -15,8 +15,8 @@ const ipRule = (pattern: string): CustomBotDefinition =>
     definition({ key: CustomBotField.IP, matcher: CustomBotMatcher.Cidr, pattern })
 
 describe('customBotDefinitionsUtils', () => {
-    // These rules mirror the ones the API enforces. When they drift, saving returns a 400 with no
-    // indication of which row caused it.
+    // These rules mirror the ones the API enforces. When they drift, a rule the editor calls valid
+    // comes back as a 400 on save instead of an inline error next to the row.
     describe('validateCustomBotDefinition', () => {
         test.each([
             ['empty name', { name: '' }, 'Give this bot a name.'],
@@ -75,6 +75,10 @@ describe('customBotDefinitionsUtils', () => {
             // not, so these would wrongly block Save without the flag translation.
             ['a leading case-insensitive flag', { pattern: '(?i)(acme|globex)bot', matcher: CustomBotMatcher.Regex }],
             ['leading multiline and dotall flags', { pattern: '(?ms)^Acme.Bot', matcher: CustomBotMatcher.Regex }],
+            // Python also accepts stacked and repeated flag groups; RegExp rejects both a leftover
+            // (?s) group in the body and a doubled letter in the flags argument.
+            ['stacked leading flag groups', { pattern: '(?i)(?s)acme.bot', matcher: CustomBotMatcher.Regex }],
+            ['a repeated flag letter', { pattern: '(?ii)acmebot', matcher: CustomBotMatcher.Regex }],
         ])('accepts %s', (_name, overrides) => {
             expect(validateCustomBotDefinition(definition(overrides))).toBeNull()
         })
@@ -103,6 +107,13 @@ describe('customBotDefinitionsUtils', () => {
 
             expect(matchesValue(regex, 'AcmeBot/12')).toBe(true)
             expect(matchesValue(regex, 'AcmeBot/vNext')).toBe(false)
+        })
+
+        it('applies stacked leading flag groups when matching', () => {
+            const regex = definition({ pattern: '(?i)(?s)acme.bot', matcher: CustomBotMatcher.Regex })
+
+            expect(matchesValue(regex, 'ACME\nBOT')).toBe(true)
+            expect(matchesValue(regex, 'GlobexBot')).toBe(false)
         })
 
         it('applies a leading (?i) flag so a case-insensitive rule matches', () => {
