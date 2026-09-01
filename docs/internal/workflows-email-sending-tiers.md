@@ -24,7 +24,6 @@ Django (`posthog/settings/web.py`):
 - `WORKFLOWS_EMAIL_TIER_MODE`: `off` (default), `shadow`, or `enforce`. Unrecognized values read as `off`.
 - `WORKFLOWS_EMAIL_TIER_HOURLY_CAPS`, `WORKFLOWS_EMAIL_TIER_DAILY_CAPS`, `WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS`: comma-separated tables indexed by tier. The shortest table decides the tier count.
 - `WORKFLOWS_EMAIL_TIER_MIN_DAYS_AT_TIER`: per-tier dwell before promotion, comma-separated, clamped to the last entry.
-- `WORKFLOWS_EMAIL_TIER_ENFORCE_TEAMS_CREATED_AFTER`: ISO date. Empty enforces every team; a valid date enforces only teams created on or after it; an unparseable value enforces nobody, so a typo narrows instead of widening.
 - Promotion and demotion knobs: `WORKFLOWS_EMAIL_TIER_RATE_WINDOW_DAYS` (promotion window), `WORKFLOWS_EMAIL_TIER_DEMOTION_WINDOW_DAYS`, `WORKFLOWS_EMAIL_TIER_DEMOTION_COOLDOWN_DAYS` (keep at least as long as the demotion window), `WORKFLOWS_EMAIL_TIER_INACTIVITY_DECAY_DAYS` (0 disables decay), `WORKFLOWS_EMAIL_TIER_MIN_ACTIVE_DAYS`, `WORKFLOWS_EMAIL_TIER_MIN_DAILY_USE_RATIO`, `WORKFLOWS_EMAIL_TIER_MAX_COMPLAINT_RATE`, `WORKFLOWS_EMAIL_TIER_MAX_BOUNCE_RATE`, `WORKFLOWS_EMAIL_TIER_COMPLAINT_RATE_MIN_SENDS`, `WORKFLOWS_EMAIL_TIER_COMPLAINT_COUNT_BACKSTOP`, `WORKFLOWS_EMAIL_TIER_BOUNCE_RATE_MIN_SENDS`.
 - `HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS`: the pre-tier allowlist. It overrides the tier entirely, so a saved tier does nothing for a listed team.
 
@@ -32,7 +31,6 @@ Worker (`nodejs/src/cdp/config.ts`):
 
 - `EMAIL_TEAM_SENDING_CAP_MODE`: `off` (default), `shadow`, or `enforce`.
 - `EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER`, `EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER`: must mirror the Django tables. An unusable table turns the cap off rather than applying a wrong number.
-- `EMAIL_TEAM_SENDING_CAP_TEAMS_CREATED_AFTER`: same three-state semantics as the Django cutoff, except that empty caps every team and an unparseable value caps nobody.
 
 All of these reach production as environment variables through `posthog/charts` (with any secret values via `posthog/secrets`).
 None of them are wired there yet; the charts change is part of turning the rollout mode on, not part of merging the code.
@@ -48,7 +46,7 @@ Pinned teams never move automatically.
 1. Merge and deploy with both modes `off`. The daily sweep starts computing and storing tiers immediately.
 2. Run `python manage.py backfill_workflows_email_sending_tiers` per region, read the printed distribution, then re-run with `--apply`. This lands established senders on their earned tier in one step.
 3. Set both modes to `shadow` via charts. Nothing is delayed; would-be delays log and count in `cdp_team_email_cap_delayed_total{mode="shadow"}`. Watch that against real traffic.
-4. Set both modes to `enforce`, optionally with the created-after cutoffs so only new projects are enforced first. The Reputation tab's allowance card appears for enforced teams at this point.
+4. Set both modes to `enforce`. Enforcement applies to every team at once; the Reputation tab's allowance card appears at this point.
    Never set the Django mode to `enforce` on a deployment whose email worker does not carry the send-time caps: the batch audience cap alone can be sidestepped by editing a workflow while a batch is queued, and the send-time buckets are what bound that.
 5. To back out, set the modes back to `off`; the tiers keep computing and nothing else changes.
 
