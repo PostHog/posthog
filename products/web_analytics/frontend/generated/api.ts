@@ -761,7 +761,7 @@ export const getWebAnalyticsContentAutopilotProposalsEditUrl = (projectId: strin
 }
 
 /**
- * Saves reviewed Markdown and its canonical delivery package without publishing it.
+ * Saves reviewed Markdown and its structured package without publishing it.
  * @summary Edit a content proposal
  */
 export const webAnalyticsContentAutopilotProposalsEdit = async (
@@ -827,7 +827,7 @@ export const getWebAnalyticsContentAutopilotProposalsRejectUrl = (projectId: str
 }
 
 /**
- * Rejects a proposal without changing the public site or repository.
+ * Rejects a proposal without changing the public site.
  * @summary Reject a content proposal
  */
 export const webAnalyticsContentAutopilotProposalsReject = async (

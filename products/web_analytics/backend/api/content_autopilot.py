@@ -21,7 +21,7 @@ from posthog.rate_limit import (
     ContentAutopilotDiscoverySustainedRateThrottle,
 )
 
-from products.web_analytics.backend.content_autopilot.delivery import ContentAutopilotDeliveryError, export_proposal
+from products.web_analytics.backend.content_autopilot.export import ContentAutopilotExportError, export_proposal
 from products.web_analytics.backend.content_autopilot.lifecycle import (
     MAX_PROPOSAL_MARKDOWN_CHARS,
     ContentAutopilotLifecycleError,
@@ -142,7 +142,7 @@ class ContentAutopilotValidationCheckSerializer(serializers.Serializer):
     )
     passed = serializers.BooleanField(help_text="Whether the proposal passed this validation.")
     message = serializers.CharField(help_text="Validation result and any action needed.")
-    blocking = serializers.BooleanField(help_text="Whether failure prevents delivery.")
+    blocking = serializers.BooleanField(help_text="Whether failure prevents export.")
 
 
 class ContentAutopilotValidationReportSerializer(serializers.Serializer):
@@ -163,7 +163,6 @@ class ContentAutopilotPackageSerializer(serializers.Serializer):
     title = serializers.CharField(help_text="Content title.")
     description = serializers.CharField(help_text="Search description or summary.")
     slug = serializers.CharField(help_text="URL slug.")
-    markdown = serializers.CharField(max_length=MAX_PROPOSAL_MARKDOWN_CHARS, help_text="Validated Markdown body.")
     frontmatter = ContentAutopilotFrontmatterEntrySerializer(
         many=True,
         help_text="Ordered frontmatter entries.",
@@ -345,7 +344,6 @@ class ContentAutopilotRunSerializer(serializers.ModelSerializer):
             "run_status",
             "input_snapshot",
             "errors",
-            "workflow_id",
             "triggered_by_id",
             "created_at",
             "updated_at",
@@ -355,7 +353,6 @@ class ContentAutopilotRunSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "profile_id": {"help_text": "Site profile used by this run."},
             "run_status": {"help_text": "Current durable workflow status."},
-            "workflow_id": {"help_text": "Temporal workflow identifier for this run."},
             "triggered_by_id": {"help_text": "User who explicitly started this run."},
         }
 
@@ -365,7 +362,9 @@ class ContentAutopilotProposalSerializer(serializers.ModelSerializer):
     validation_report = ContentAutopilotValidationReportSerializer(
         help_text="Blocking and advisory validation results."
     )
-    content_package = ContentAutopilotPackageSerializer(help_text="Canonical package used by every delivery adapter.")
+    content_package = ContentAutopilotPackageSerializer(
+        help_text="Structured package that accompanies the exported Markdown."
+    )
 
     class Meta:
         model = ContentAutopilotProposal
@@ -382,9 +381,6 @@ class ContentAutopilotProposalSerializer(serializers.ModelSerializer):
             "content_package",
             "original_markdown",
             "proposed_markdown",
-            "delivery_state",
-            "delivery_reference",
-            "delivery_error",
             "created_at",
             "updated_at",
         ]
@@ -392,15 +388,12 @@ class ContentAutopilotProposalSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "run_id": {"help_text": "Run that generated this proposal."},
             "proposal_type": {"help_text": "New article or bounded page improvement."},
-            "lifecycle_status": {"help_text": "Review and delivery lifecycle status."},
+            "lifecycle_status": {"help_text": "Review and export lifecycle status."},
             "title": {"help_text": "Review title for this proposal."},
             "target_query": {"help_text": "Primary query or topic targeted by this proposal."},
             "target_url": {"help_text": "Existing or intended public URL."},
             "original_markdown": {"help_text": "Existing content for page-improvement diffs."},
             "proposed_markdown": {"help_text": "Full proposed Markdown after edits."},
-            "delivery_state": {"help_text": "Current export or pull-request delivery state."},
-            "delivery_reference": {"help_text": "Exported filename."},
-            "delivery_error": {"help_text": "Why the last delivery attempt failed."},
         }
 
 
@@ -409,7 +402,7 @@ class ContentAutopilotProposalListSerializer(serializers.ModelSerializer):
     validation_report = ContentAutopilotValidationReportSerializer(
         help_text="Blocking and advisory validation results."
     )
-    file_path = serializers.SerializerMethodField(help_text="Repository-relative delivery path.")
+    file_path = serializers.SerializerMethodField(help_text="Repository-relative export path.")
 
     class Meta:
         model = ContentAutopilotProposal
@@ -423,7 +416,6 @@ class ContentAutopilotProposalListSerializer(serializers.ModelSerializer):
             "evidence",
             "validation_report",
             "file_path",
-            "delivery_state",
             "created_at",
             "updated_at",
         ]
@@ -443,7 +435,9 @@ class ContentAutopilotProposalEditRequestSerializer(serializers.Serializer):
     proposed_markdown = serializers.CharField(
         max_length=MAX_PROPOSAL_MARKDOWN_CHARS, help_text="Edited Markdown to save for review."
     )
-    content_package = ContentAutopilotPackageSerializer(help_text="Updated canonical delivery package.")
+    content_package = ContentAutopilotPackageSerializer(
+        help_text="Updated structured package to save with the proposal."
+    )
 
 
 class ContentAutopilotExportResponseSerializer(serializers.Serializer):
@@ -532,7 +526,7 @@ class ContentAutopilotRunViewSet(ContentAutopilotViewSetMixin, viewsets.ReadOnly
     @action(detail=True, methods=["post"], required_scopes=["web_analytics:write"])
     def cancel(self, request: Request, **kwargs: Any) -> Response:
         try:
-            run = cancel_run(run=self.get_object())
+            run = cancel_run(team=self.team, run_id=str(self.get_object().id))
         except ContentAutopilotLifecycleError as error:
             raise ValidationError(str(error)) from error
         return Response(self.get_serializer(run).data)
@@ -570,8 +564,9 @@ class ContentAutopilotProposalViewSet(ContentAutopilotViewSetMixin, viewsets.Rea
                 "proposal_type",
                 "lifecycle_status",
                 "title",
+                "target_query",
+                "evidence",
                 "validation_report",
-                "delivery_state",
                 "created_at",
                 "updated_at",
             )
@@ -581,14 +576,14 @@ class ContentAutopilotProposalViewSet(ContentAutopilotViewSetMixin, viewsets.Rea
         request_serializer=ContentAutopilotProposalEditRequestSerializer,
         operation_id="web_analytics_content_autopilot_proposals_edit",
         summary="Edit a content proposal",
-        description="Saves reviewed Markdown and its canonical delivery package without publishing it.",
+        description="Saves reviewed Markdown and its structured package without publishing it.",
         responses={200: OpenApiResponse(response=ContentAutopilotProposalSerializer)},
         tags=["web_analytics"],
     )
     @action(detail=True, methods=["post"], required_scopes=["web_analytics:write"])
     def edit(self, request: ValidatedRequest, **kwargs: Any) -> Response:
         try:
-            proposal = edit_proposal(proposal=self.get_object(), **request.validated_data)
+            proposal = edit_proposal(team=self.team, proposal_id=str(self.get_object().id), **request.validated_data)
         except ContentAutopilotLifecycleError as error:
             raise ValidationError(str(error)) from error
         return Response(self.get_serializer(proposal).data)
@@ -596,14 +591,14 @@ class ContentAutopilotProposalViewSet(ContentAutopilotViewSetMixin, viewsets.Rea
     @validated_request(
         operation_id="web_analytics_content_autopilot_proposals_reject",
         summary="Reject a content proposal",
-        description="Rejects a proposal without changing the public site or repository.",
+        description="Rejects a proposal without changing the public site.",
         responses={200: OpenApiResponse(response=ContentAutopilotProposalSerializer)},
         tags=["web_analytics"],
     )
     @action(detail=True, methods=["post"], required_scopes=["web_analytics:write"])
     def reject(self, request: Request, **kwargs: Any) -> Response:
         try:
-            proposal = reject_proposal(proposal=self.get_object())
+            proposal = reject_proposal(team=self.team, proposal_id=str(self.get_object().id))
         except ContentAutopilotLifecycleError as error:
             raise ValidationError(str(error)) from error
         return Response(self.get_serializer(proposal).data)
@@ -618,7 +613,7 @@ class ContentAutopilotProposalViewSet(ContentAutopilotViewSetMixin, viewsets.Rea
     @action(detail=True, methods=["post"], required_scopes=["web_analytics:write"])
     def regenerate(self, request: Request, **kwargs: Any) -> Response:
         try:
-            proposal = regenerate_proposal(proposal=self.get_object())
+            proposal = regenerate_proposal(team=self.team, proposal_id=str(self.get_object().id))
         except ContentAutopilotLifecycleError as error:
             raise ValidationError(str(error)) from error
         return Response(self.get_serializer(proposal).data, status=status.HTTP_202_ACCEPTED)
@@ -633,7 +628,7 @@ class ContentAutopilotProposalViewSet(ContentAutopilotViewSetMixin, viewsets.Rea
     @action(detail=True, methods=["post"], required_scopes=["web_analytics:write"])
     def export(self, request: Request, **kwargs: Any) -> Response:
         try:
-            filename, markdown, content_package = export_proposal(proposal=self.get_object())
-        except (ContentAutopilotDeliveryError, ContentAutopilotLifecycleError) as error:
+            exported = export_proposal(team=self.team, proposal_id=str(self.get_object().id))
+        except ContentAutopilotExportError as error:
             raise ValidationError(str(error)) from error
-        return Response({"filename": filename, "markdown": markdown, "content_package": content_package})
+        return Response(ContentAutopilotExportResponseSerializer(instance=exported).data)

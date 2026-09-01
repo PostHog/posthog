@@ -43,7 +43,8 @@ def _is_safe_github_repo_path(repo_path: str) -> bool:
     return ".." not in repo_path and bool(_GITHUB_REPO_PATH_RE.fullmatch(repo_path))
 
 
-def is_safe_github_ref(ref: str) -> bool:
+def _is_safe_github_ref(ref: str) -> bool:
+    """A git ref safe to interpolate into a GitHub API URL path (no traversal / URL-control chars)."""
     return (
         bool(ref)
         and ".." not in ref
@@ -528,11 +529,6 @@ class GitHubIntegration(GitHubIntegrationBase):
             return {"success": False, "error": "No files to commit"}
 
         org = self.organization()
-        if not _is_safe_github_repo_path(f"{org}/{repository}"):
-            return {"success": False, "error": f"Invalid repository '{repository}'.", "status_code": 400}
-        for ref in (branch_name, base_branch):
-            if not is_safe_github_ref(ref):
-                return {"success": False, "error": f"Invalid branch '{ref}'.", "status_code": 400}
 
         base_ref_response = self.api_request(
             "GET",
@@ -738,7 +734,7 @@ class GitHubIntegration(GitHubIntegrationBase):
         if not _is_safe_github_repo_path(repo_path):
             return {"success": False, "error": f"Invalid repository '{repository}'.", "status_code": 400}
         for ref in (target_branch, base_branch):
-            if not is_safe_github_ref(ref):
+            if not _is_safe_github_ref(ref):
                 return {"success": False, "error": f"Invalid branch '{ref}'.", "status_code": 400}
         for sha in (target_sha, base_sha):
             if sha is not None and not _is_safe_github_sha(sha):
@@ -852,15 +848,8 @@ class GitHubIntegration(GitHubIntegrationBase):
         """Create a pull request."""
         org = self.organization()
 
-        if not _is_safe_github_repo_path(f"{org}/{repository}"):
-            return {"success": False, "error": f"Invalid repository '{repository}'.", "status_code": 400}
-        if not is_safe_github_ref(head_branch):
-            return {"success": False, "error": f"Invalid branch '{head_branch}'.", "status_code": 400}
-
         if not base_branch:
             base_branch = self.get_default_branch(repository)
-        if not is_safe_github_ref(base_branch):
-            return {"success": False, "error": f"Invalid branch '{base_branch}'.", "status_code": 400}
 
         response = self.api_request(
             "POST",

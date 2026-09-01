@@ -18839,11 +18839,6 @@ export namespace Schemas {
       description: string;
       /** URL slug. */
       slug: string;
-      /**
-         * Validated Markdown body.
-         * @maxLength 500000
-         */
-      markdown: string;
       /** Ordered frontmatter entries. */
       frontmatter: ContentAutopilotFrontmatterEntry[];
       /** Validated same-origin internal links included in the content. */
@@ -18900,7 +18895,7 @@ export namespace Schemas {
       passed: boolean;
       /** Validation result and any action needed. */
       message: string;
-      /** Whether failure prevents delivery. */
+      /** Whether failure prevents export. */
       blocking: boolean;
     }
 
@@ -18911,22 +18906,6 @@ export namespace Schemas {
       checks: ContentAutopilotValidationCheck[];
     }
 
-    /**
-     * * `not_delivered` - Not delivered
-     * * `delivering` - Delivering
-     * * `delivered` - Delivered
-     * * `failed` - Failed
-     */
-    export type DeliveryStateEnum = typeof DeliveryStateEnum[keyof typeof DeliveryStateEnum];
-
-
-    export const DeliveryStateEnum = {
-      NotDelivered: 'not_delivered',
-      Delivering: 'delivering',
-      Delivered: 'delivered',
-      Failed: 'failed',
-    } as const;
-
     export interface ContentAutopilotProposal {
       readonly id: string;
       /** Run that generated this proposal. */
@@ -18936,7 +18915,7 @@ export namespace Schemas {
        * * `new_content` - New content
        * * `page_improvement` - Page improvement */
       readonly proposal_type: ProposalTypeEnum;
-      /** Review and delivery lifecycle status.
+      /** Review and export lifecycle status.
        *
        * * `generating` - Generating
        * * `ready_for_review` - Ready for review
@@ -18954,23 +18933,12 @@ export namespace Schemas {
       evidence: ContentAutopilotEvidence[];
       /** Blocking and advisory validation results. */
       validation_report: ContentAutopilotValidationReport;
-      /** Canonical package used by every delivery adapter. */
+      /** Structured package that accompanies the exported Markdown. */
       content_package: ContentAutopilotPackage;
       /** Existing content for page-improvement diffs. */
       readonly original_markdown: string;
       /** Full proposed Markdown after edits. */
       readonly proposed_markdown: string;
-      /** Current export or pull-request delivery state.
-       *
-       * * `not_delivered` - Not delivered
-       * * `delivering` - Delivering
-       * * `delivered` - Delivered
-       * * `failed` - Failed */
-      readonly delivery_state: DeliveryStateEnum;
-      /** Exported filename. */
-      readonly delivery_reference: string;
-      /** Why the last delivery attempt failed. */
-      readonly delivery_error: string;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -18981,7 +18949,7 @@ export namespace Schemas {
          * @maxLength 500000
          */
       proposed_markdown: string;
-      /** Updated canonical delivery package. */
+      /** Updated structured package to save with the proposal. */
       content_package: ContentAutopilotPackage;
     }
 
@@ -18996,9 +18964,8 @@ export namespace Schemas {
       evidence: ContentAutopilotEvidence[];
       /** Blocking and advisory validation results. */
       validation_report: ContentAutopilotValidationReport;
-      /** Repository-relative delivery path. */
+      /** Repository-relative export path. */
       readonly file_path: string;
-      readonly delivery_state: DeliveryStateEnum;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -19060,8 +19027,6 @@ export namespace Schemas {
       input_snapshot: ContentAutopilotSnapshot;
       /** Inspectable workflow errors and retryability. */
       errors: ContentAutopilotError[];
-      /** Temporal workflow identifier for this run. */
-      readonly workflow_id: string;
       /**
          * User who explicitly started this run.
          * @nullable

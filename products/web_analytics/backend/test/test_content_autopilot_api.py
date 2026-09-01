@@ -242,7 +242,7 @@ class TestContentAutopilotAPI(APIBaseTest):
         edited_proposal = create_content_autopilot_proposal(self.team, run)
         rejected_proposal = create_content_autopilot_proposal(self.team, run)
         regenerated_proposal = create_content_autopilot_proposal(self.team, run)
-        edited_package = {**edited_proposal.content_package, "markdown": "# Stale draft"}
+        edited_package = {**edited_proposal.content_package, "title": "Reviewed guide", "markdown": "# Stale draft"}
 
         edited = self.client.post(
             self._proposals_url(f"{edited_proposal.id}/edit/"),
@@ -257,10 +257,13 @@ class TestContentAutopilotAPI(APIBaseTest):
 
         self.assertEqual(edited.status_code, status.HTTP_200_OK, edited.json())
         self.assertFalse(edited.json()["validation_report"]["passed"])
+        self.assertEqual(edited.json()["proposed_markdown"], "# Reviewed draft")
+        self.assertEqual(edited.json()["content_package"]["title"], "Reviewed guide")
+        self.assertNotIn("markdown", edited.json()["content_package"])
         self.assertEqual(rejected.json()["lifecycle_status"], ContentAutopilotProposal.LifecycleStatus.REJECTED)
         self.assertEqual(regenerated.json()["lifecycle_status"], ContentAutopilotProposal.LifecycleStatus.GENERATING)
 
-    def test_export_returns_markdown_and_updates_delivery_state(self) -> None:
+    def test_export_returns_markdown_and_marks_the_proposal_exported(self) -> None:
         profile = create_content_autopilot_profile(self.team)
         proposal = create_content_autopilot_proposal(
             self.team,
@@ -271,9 +274,24 @@ class TestContentAutopilotAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json()["filename"], "example.md")
+        self.assertEqual(response.json()["markdown"], proposal.proposed_markdown)
+        self.assertNotIn("markdown", response.json()["content_package"])
         proposal.refresh_from_db()
         self.assertEqual(proposal.lifecycle_status, ContentAutopilotProposal.LifecycleStatus.EXPORTED)
-        self.assertEqual(proposal.delivery_state, ContentAutopilotProposal.DeliveryState.DELIVERED)
+
+    def test_export_refuses_a_proposal_that_failed_validation(self) -> None:
+        profile = create_content_autopilot_profile(self.team)
+        proposal = create_content_autopilot_proposal(
+            self.team,
+            create_content_autopilot_run(self.team, profile),
+            validation_passed=False,
+        )
+
+        response = self.client.post(self._proposals_url(f"{proposal.id}/export/"), format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        proposal.refresh_from_db()
+        self.assertEqual(proposal.lifecycle_status, ContentAutopilotProposal.LifecycleStatus.READY_FOR_REVIEW)
 
     def test_other_team_records_are_not_exposed(self) -> None:
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other"))

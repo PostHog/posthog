@@ -869,7 +869,7 @@ export interface ContentAutopilotValidationCheckApi {
     passed: boolean
     /** Validation result and any action needed. */
     message: string
-    /** Whether failure prevents delivery. */
+    /** Whether failure prevents export. */
     blocking: boolean
 }
 
@@ -879,21 +879,6 @@ export interface ContentAutopilotValidationReportApi {
     /** Factual, brand, intent, originality, linking, crawlability, and schema checks. */
     checks: ContentAutopilotValidationCheckApi[]
 }
-
-/**
- * * `not_delivered` - Not delivered
- * * `delivering` - Delivering
- * * `delivered` - Delivered
- * * `failed` - Failed
- */
-export type DeliveryStateEnumApi = (typeof DeliveryStateEnumApi)[keyof typeof DeliveryStateEnumApi]
-
-export const DeliveryStateEnumApi = {
-    NotDelivered: 'not_delivered',
-    Delivering: 'delivering',
-    Delivered: 'delivered',
-    Failed: 'failed',
-} as const
 
 export interface ContentAutopilotProposalListApi {
     readonly id: string
@@ -906,9 +891,8 @@ export interface ContentAutopilotProposalListApi {
     evidence: ContentAutopilotEvidenceApi[]
     /** Blocking and advisory validation results. */
     validation_report: ContentAutopilotValidationReportApi
-    /** Repository-relative delivery path. */
+    /** Repository-relative export path. */
     readonly file_path: string
-    readonly delivery_state: DeliveryStateEnumApi
     readonly created_at: string
     readonly updated_at: string
 }
@@ -938,11 +922,6 @@ export interface ContentAutopilotPackageApi {
     description: string
     /** URL slug. */
     slug: string
-    /**
-     * Validated Markdown body.
-     * @maxLength 500000
-     */
-    markdown: string
     /** Ordered frontmatter entries. */
     frontmatter: ContentAutopilotFrontmatterEntryApi[]
     /** Validated same-origin internal links included in the content. */
@@ -960,7 +939,7 @@ export interface ContentAutopilotProposalApi {
      * * `new_content` - New content
      * * `page_improvement` - Page improvement */
     readonly proposal_type: ProposalTypeEnumApi
-    /** Review and delivery lifecycle status.
+    /** Review and export lifecycle status.
      *
      * * `generating` - Generating
      * * `ready_for_review` - Ready for review
@@ -978,23 +957,12 @@ export interface ContentAutopilotProposalApi {
     evidence: ContentAutopilotEvidenceApi[]
     /** Blocking and advisory validation results. */
     validation_report: ContentAutopilotValidationReportApi
-    /** Canonical package used by every delivery adapter. */
+    /** Structured package that accompanies the exported Markdown. */
     content_package: ContentAutopilotPackageApi
     /** Existing content for page-improvement diffs. */
     readonly original_markdown: string
     /** Full proposed Markdown after edits. */
     readonly proposed_markdown: string
-    /** Current export or pull-request delivery state.
-     *
-     * * `not_delivered` - Not delivered
-     * * `delivering` - Delivering
-     * * `delivered` - Delivered
-     * * `failed` - Failed */
-    readonly delivery_state: DeliveryStateEnumApi
-    /** Exported filename. */
-    readonly delivery_reference: string
-    /** Why the last delivery attempt failed. */
-    readonly delivery_error: string
     readonly created_at: string
     readonly updated_at: string
 }
@@ -1005,7 +973,7 @@ export interface ContentAutopilotProposalEditRequestApi {
      * @maxLength 500000
      */
     proposed_markdown: string
-    /** Updated canonical delivery package. */
+    /** Updated structured package to save with the proposal. */
     content_package: ContentAutopilotPackageApi
 }
 
@@ -1095,8 +1063,6 @@ export interface ContentAutopilotRunApi {
     input_snapshot: ContentAutopilotSnapshotApi
     /** Inspectable workflow errors and retryability. */
     errors: ContentAutopilotErrorApi[]
-    /** Temporal workflow identifier for this run. */
-    readonly workflow_id: string
     /**
      * User who explicitly started this run.
      * @nullable

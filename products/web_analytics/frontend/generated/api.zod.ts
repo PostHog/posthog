@@ -334,12 +334,10 @@ export const WebAnalyticsContentAutopilotProfilesDiscoverBody = /* @__PURE__ */ 
 })
 
 /**
- * Saves reviewed Markdown and its canonical delivery package without publishing it.
+ * Saves reviewed Markdown and its structured package without publishing it.
  * @summary Edit a content proposal
  */
 export const webAnalyticsContentAutopilotProposalsEditBodyProposedMarkdownMax = 500000
-
-export const webAnalyticsContentAutopilotProposalsEditBodyContentPackageOneMarkdownMax = 500000
 
 export const WebAnalyticsContentAutopilotProposalsEditBody = /* @__PURE__ */ zod.object({
     proposed_markdown: zod
@@ -352,10 +350,6 @@ export const WebAnalyticsContentAutopilotProposalsEditBody = /* @__PURE__ */ zod
             title: zod.string().describe('Content title.'),
             description: zod.string().describe('Search description or summary.'),
             slug: zod.string().describe('URL slug.'),
-            markdown: zod
-                .string()
-                .max(webAnalyticsContentAutopilotProposalsEditBodyContentPackageOneMarkdownMax)
-                .describe('Validated Markdown body.'),
             frontmatter: zod
                 .array(
                     zod.object({
@@ -369,7 +363,7 @@ export const WebAnalyticsContentAutopilotProposalsEditBody = /* @__PURE__ */ zod
                 .describe('Validated same-origin internal links included in the content.'),
             source_notes: zod.array(zod.string()).describe('Portable source notes included with the export.'),
         })
-        .describe('Updated canonical delivery package.'),
+        .describe('Updated structured package to save with the proposal.'),
 })
 
 /**

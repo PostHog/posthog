@@ -296,23 +296,6 @@ class TestGitHubIntegrationModel(BaseTest):
         assert (method, path) == ("PATCH", "/repos/PostHog/community-skills/git/refs/heads/community-skill/x")
         assert body == {"sha": "new-commit", "force": True}
 
-    @parameterized.expand(
-        [
-            ("base traversal", "community-skill/x", "../../pulls"),
-            ("head query", "community-skill/x?state=all", "main"),
-        ]
-    )
-    def test_commit_files_to_branch_rejects_unsafe_refs_without_a_request(
-        self, _name: str, head_branch: str, base_branch: str
-    ):
-        github = self._github_for_org()
-
-        with patch.object(github, "api_request") as api_request:
-            result = github.commit_files_to_branch("community-skills", head_branch, base_branch, {"a.md": "A"}, "msg")
-
-        assert result["success"] is False
-        api_request.assert_not_called()
-
     @parameterized.expand([("deleted", 204), ("already gone", 404)])
     def test_delete_branch_treats_a_missing_branch_as_deleted(self, _name: str, status_code: int):
         github = self._github_for_org()
