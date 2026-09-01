@@ -43,11 +43,13 @@ _SCAN_CAP = 500
 _MAX_TITLE_CHARS = 120
 _MAX_NOTE_CHARS = 200
 
-# Rendered repository names must look like 'owner/repo'. The state API validates its input the
-# same way, but dismissal and repo_selection artefacts are also writable through the artefacts
-# POST API with no format constraint, and these values land in a prompt where a newline could
-# fake extra list entries. Anything else renders as "unrecorded".
-_REPO_SHAPE_RE = re.compile(r"^[^/\s]+/[^/\s]+$")
+# Rendered repository names must look like 'owner/repo' and use only a conservative GitHub-style
+# character set (letters, digits, '.', '-', '_'). The state API validates the shape too, but
+# dismissal and repo_selection artefacts are also writable through the artefacts POST API with no
+# format constraint, and these values land inside a markdown code span in a prompt, so a backtick,
+# newline, or other punctuation could close the span and fake extra list entries or a section.
+# Anything outside the set renders as "unrecorded".
+_REPO_SHAPE_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
 _MAX_REPO_CHARS = 140
 
 # `content` is compact JSON written by pydantic's model_dump_json, so a wrong_repo dismissal
