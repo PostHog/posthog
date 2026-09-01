@@ -28,7 +28,7 @@ import type { AIWindowConfigApi, SubscriptionDeliveryApi } from 'products/subscr
 import type { SubscriptionResourceType, UserBasicType, WeekdayType } from '../../../../../frontend/src/types'
 import type { OrganizationType, UserType } from '../../../../../frontend/src/types'
 import type { AIPromptConfigApi } from '../../generated/api.schemas'
-import type { AIWindowConfigModeEnumApi } from '../../generated/api.schemas'
+import type { SubscriptionAIWindowModeEnumApi } from '../../generated/api.schemas'
 import { runSubscriptionTestDelivery } from './runSubscriptionTestDelivery'
 import { SUBSCRIPTION_PREFILL_PARAMS } from './subscriptionNudge'
 import { subscriptionsLogic } from './subscriptionsLogic'
@@ -341,7 +341,7 @@ export interface subscriptionLogicActions {
         values?: SubscriptionType
     }
     selectAiAnalysisWindow: (mode: AIWindowConfigApi['mode']) => {
-        mode: AIWindowConfigModeEnumApi | undefined
+        mode: SubscriptionAIWindowModeEnumApi | undefined
     }
     selectAiExamplePrompt: (
         prompt: string,

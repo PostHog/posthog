@@ -11,9 +11,9 @@ import {
     visionActionsPartialUpdate,
 } from '../generated/api'
 import {
-    AlertConfigFrequencyEnumApi,
+    AlertFrequencyEnumApi,
     DeliveryTargetTypeEnumApi,
-    VisionActionModeEnumApi,
+    ActionModeEnumApi,
     VisionAlertDirectionEnumApi,
     VisionAlertMetricEnumApi,
     WindowDaysEnumApi,
@@ -42,8 +42,8 @@ export interface VisionActionForm {
     min_score: number | null
     max_score: number | null
     // What the action produces; alerts carry a condition instead of synthesizing a summary.
-    mode: VisionActionModeEnumApi
-    alert_frequency: AlertConfigFrequencyEnumApi
+    mode: ActionModeEnumApi
+    alert_frequency: AlertFrequencyEnumApi
     alert_metric: VisionAlertMetricEnumApi
     alert_threshold: number | null
     alert_direction: VisionAlertDirectionEnumApi
@@ -65,9 +65,9 @@ export const NEW_ACTION_FORM = (): VisionActionForm => ({
     tags: [],
     min_score: null,
     max_score: null,
-    mode: VisionActionModeEnumApi.GroupSummary,
+    mode: ActionModeEnumApi.GroupSummary,
     // Default alert flavor: notify about every new match ("every time the result is X, tell me").
-    alert_frequency: AlertConfigFrequencyEnumApi.EveryMatch,
+    alert_frequency: AlertFrequencyEnumApi.EveryMatch,
     alert_metric: VisionAlertMetricEnumApi.Count,
     alert_threshold: 1,
     alert_direction: VisionAlertDirectionEnumApi.Above,
@@ -94,7 +94,7 @@ export function buildActionBody(form: VisionActionForm, scannerId: string): Para
     if (form.max_score != null) {
         selection.max_score = form.max_score
     }
-    const isAlert = form.mode === VisionActionModeEnumApi.Alert
+    const isAlert = form.mode === ActionModeEnumApi.Alert
     return {
         name: form.name.trim(),
         scanner: scannerId,
@@ -109,7 +109,7 @@ export function buildActionBody(form: VisionActionForm, scannerId: string): Para
         ...(isAlert
             ? {
                   alert_config:
-                      form.alert_frequency === AlertConfigFrequencyEnumApi.EveryMatch
+                      form.alert_frequency === AlertFrequencyEnumApi.EveryMatch
                           ? {
                                 frequency: form.alert_frequency,
                                 metric: VisionAlertMetricEnumApi.Count,
@@ -288,7 +288,7 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
                 actions.toggleActionEnabledDone(id)
             } catch (error: any) {
                 const verb = action.enabled ? 'enable' : 'disable'
-                const noun = action.mode === VisionActionModeEnumApi.Alert ? 'alert' : 'digest'
+                const noun = action.mode === ActionModeEnumApi.Alert ? 'alert' : 'digest'
                 lemonToast.error(`Failed to ${verb} ${noun}${error.detail ? `: ${error.detail}` : ''}`)
                 actions.revertActionEnabled(id)
             }
@@ -300,9 +300,7 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
                 return
             }
             const noun =
-                values.visionActions.find((a) => a.id === id)?.mode === VisionActionModeEnumApi.Alert
-                    ? 'alert'
-                    : 'digest'
+                values.visionActions.find((a) => a.id === id)?.mode === ActionModeEnumApi.Alert ? 'alert' : 'digest'
             try {
                 await visionActionsDestroy(String(teamId), id)
                 actions.deleteActionSuccess(id)

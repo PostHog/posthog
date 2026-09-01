@@ -30,9 +30,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { VisionDocsLink } from '../components/DocsLink'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import {
-    AlertConfigFrequencyEnumApi,
+    AlertFrequencyEnumApi,
     DeliveryTargetTypeEnumApi,
-    VisionActionModeEnumApi,
+    ActionModeEnumApi,
     VisionAlertDirectionEnumApi,
     VisionAlertMetricEnumApi,
 } from '../generated/api.schemas'
@@ -414,7 +414,7 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
     const { setActionFormValue } = useActions(actionEditorSceneLogic)
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
 
-    const everyMatch = actionForm.alert_frequency === AlertConfigFrequencyEnumApi.EveryMatch
+    const everyMatch = actionForm.alert_frequency === AlertFrequencyEnumApi.EveryMatch
     const isScorer = scanner?.scanner_type === 'scorer'
     // Direction is only offered for the average score ("below a floor" is the natural quality alarm).
     // A count threshold is always "at least" — "at most N matches" reads backwards from intent and is
@@ -445,14 +445,14 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
                 value={actionForm.alert_frequency}
                 onChange={(value) => {
                     setActionFormValue('alert_frequency', value)
-                    if (value === AlertConfigFrequencyEnumApi.EveryMatch) {
+                    if (value === AlertFrequencyEnumApi.EveryMatch) {
                         // every_match counts new matches; an average makes no sense there.
                         setActionFormValue('alert_metric', VisionAlertMetricEnumApi.Count)
                     }
                 }}
                 options={[
-                    { value: AlertConfigFrequencyEnumApi.EveryMatch, label: 'Notify me on every match' },
-                    { value: AlertConfigFrequencyEnumApi.OnBreach, label: 'Notify me on a threshold' },
+                    { value: AlertFrequencyEnumApi.EveryMatch, label: 'Notify me on every match' },
+                    { value: AlertFrequencyEnumApi.OnBreach, label: 'Notify me on a threshold' },
                 ]}
                 data-attr="vision-action-alert-frequency"
             />
@@ -547,7 +547,7 @@ function ConditionSection({ scannerId }: { scannerId: string }): JSX.Element {
 function DeliverySection(): JSX.Element {
     const { actionForm } = useValues(actionEditorSceneLogic)
     const { setActionFormValue } = useActions(actionEditorSceneLogic)
-    const noun = actionForm.mode === VisionActionModeEnumApi.Alert ? 'alert' : 'digest'
+    const noun = actionForm.mode === ActionModeEnumApi.Alert ? 'alert' : 'digest'
 
     return (
         <div className="flex flex-col gap-2">
@@ -672,7 +672,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
         )
     }
 
-    const isAlert = actionForm.mode === VisionActionModeEnumApi.Alert
+    const isAlert = actionForm.mode === ActionModeEnumApi.Alert
     const noun = isAlert ? 'alert' : 'digest'
     const title = isNew
         ? scannerName

@@ -8196,10 +8196,9 @@ export const RestrictionLevelEnumApi = {
  * * `21` - Can view dashboard
  * * `37` - Can edit dashboard
  */
-export type EffectivePrivilegeLevelEnumApi =
-    (typeof EffectivePrivilegeLevelEnumApi)[keyof typeof EffectivePrivilegeLevelEnumApi]
+export type PrivilegeLevelEnumApi = (typeof PrivilegeLevelEnumApi)[keyof typeof PrivilegeLevelEnumApi]
 
-export const EffectivePrivilegeLevelEnumApi = {
+export const PrivilegeLevelEnumApi = {
     Number21: 21,
     Number37: 37,
 } as const
@@ -8388,7 +8387,7 @@ export interface InsightApi {
     readonly last_modified_by: UserBasicApi
     readonly is_sample: boolean
     readonly effective_restriction_level: RestrictionLevelEnumApi
-    readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
+    readonly effective_privilege_level: PrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -8516,7 +8515,7 @@ export interface PatchedInsightApi {
     readonly last_modified_by?: UserBasicApi
     readonly is_sample?: boolean
     readonly effective_restriction_level?: RestrictionLevelEnumApi
-    readonly effective_privilege_level?: EffectivePrivilegeLevelEnumApi
+    readonly effective_privilege_level?: PrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
      * @nullable

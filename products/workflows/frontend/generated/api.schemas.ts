@@ -226,9 +226,9 @@ export interface PatchedHogFlowTemplateApi {
  * * `active` - Active
  * * `archived` - Archived
  */
-export type HogFlowStatusEnumApi = (typeof HogFlowStatusEnumApi)[keyof typeof HogFlowStatusEnumApi]
+export type HogFlowStateEnumApi = (typeof HogFlowStateEnumApi)[keyof typeof HogFlowStateEnumApi]
 
-export const HogFlowStatusEnumApi = {
+export const HogFlowStateEnumApi = {
     Draft: 'draft',
     Active: 'active',
     Archived: 'archived',
@@ -300,7 +300,7 @@ export interface HogFlowMinimalApi {
     readonly name: string | null
     readonly description: string
     readonly version: number
-    readonly status: HogFlowStatusEnumApi
+    readonly status: HogFlowStateEnumApi
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly updated_at: string
@@ -571,7 +571,7 @@ export interface HogFlowApi {
      * * `draft` - Draft
      * * `active` - Active
      * * `archived` - Archived */
-    status?: HogFlowStatusEnumApi
+    status?: HogFlowStateEnumApi
     readonly created_at: string
     readonly created_by: UserBasicApi
     readonly updated_at: string
@@ -649,7 +649,7 @@ export interface PatchedHogFlowApi {
      * * `draft` - Draft
      * * `active` - Active
      * * `archived` - Archived */
-    status?: HogFlowStatusEnumApi
+    status?: HogFlowStateEnumApi
     readonly created_at?: string
     readonly created_by?: UserBasicApi
     readonly updated_at?: string
@@ -794,10 +794,9 @@ export interface MessageAssetApi {
  * * `cancelled` - Cancelled
  * * `failed` - Failed
  */
-export type HogFlowBatchJobStatusEnumApi =
-    (typeof HogFlowBatchJobStatusEnumApi)[keyof typeof HogFlowBatchJobStatusEnumApi]
+export type HogFlowBatchJobStateEnumApi = (typeof HogFlowBatchJobStateEnumApi)[keyof typeof HogFlowBatchJobStateEnumApi]
 
-export const HogFlowBatchJobStatusEnumApi = {
+export const HogFlowBatchJobStateEnumApi = {
     Waiting: 'waiting',
     Queued: 'queued',
     Active: 'active',
@@ -816,7 +815,7 @@ export interface HogFlowBatchJobApi {
      * * `completed` - Completed
      * * `cancelled` - Cancelled
      * * `failed` - Failed */
-    status?: HogFlowBatchJobStatusEnumApi
+    status?: HogFlowBatchJobStateEnumApi
     /** ID of the workflow this batch run belongs to. */
     hog_flow: string
     /** Audience snapshot the run fanned out to, taken from the workflow's batch trigger filters. */
@@ -842,7 +841,7 @@ export interface HogFlowBatchJobCancelResponseApi {
      * * `completed` - Completed
      * * `cancelled` - Cancelled
      * * `failed` - Failed */
-    status: HogFlowBatchJobStatusEnumApi
+    status: HogFlowBatchJobStateEnumApi
     /** In-flight runs newly flagged for cancellation by this request. */
     marked: number
     /** In-flight runs of this batch not yet flagged. Non-zero on very large runs; call again. */
