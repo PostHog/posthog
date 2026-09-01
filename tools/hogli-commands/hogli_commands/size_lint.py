@@ -103,35 +103,28 @@ def _rename_map(*diff_args: str) -> dict[str, str]:
     return sources
 
 
-def _renamed_from(base: str) -> dict[str, str]:
-    """Map each renamed path to the path it came from.
+def _rename_maps(base: str) -> tuple[dict[str, str], dict[str, str]]:
+    """Rename sources for the two hops between the merge base and the index.
 
-    Nearly half of all threshold crossings are file moves. Without this, relocating a
+    Nearly half of all threshold crossings are file moves. Without them, relocating a
     large file reads as creating one, and every product migration gets nudged for
-    tidying up.
+    tidying up. The index is read as well as the committed range, because a staged
+    `git mv` has no committed rename to find yet. A move that is neither committed nor
+    staged stays undetectable, because git has no rename to report until one side is
+    recorded.
 
-    The index is read as well as the committed range, because the standalone command
-    also reports on uncommitted work, where a staged `git mv` has no committed rename
-    to find yet. A move that is neither committed nor staged stays undetectable,
-    because git has no rename to report until one side is recorded.
+    The two maps stay separate because they describe different namespaces: one takes an
+    index path to its name at HEAD, the other takes a HEAD path to its name at the base.
+    Merging them would join two unrelated files whenever a rename reuses a pathname
+    another rename just vacated.
     """
-    return _rename_map(f"{base}...HEAD") | _rename_map("--cached", "HEAD")
+    return _rename_map("--cached", "HEAD"), _rename_map(f"{base}...HEAD")
 
 
-def _path_at_base(sources: dict[str, str], path: str) -> str:
-    """Follow a rename chain back to the name the file had at the merge base.
-
-    A file renamed in a commit and again in the index produces two separate records,
-    so one lookup lands on the intermediate name, which does not exist at the base.
-    That reads as a new file and reports a crossing the move did not cause.
-    """
-    seen = {path}
-    while path in sources:
-        path = sources[path]
-        if path in seen:  # a rename cycle would otherwise loop forever
-            break
-        seen.add(path)
-    return path
+def _path_at_base(staged: dict[str, str], committed: dict[str, str], path: str) -> str:
+    """The name *path* had at the merge base, one rename per hop."""
+    at_head = staged.get(path, path)
+    return committed.get(at_head, at_head)
 
 
 def _lines_at(rev: str, path: str) -> int:
@@ -157,7 +150,7 @@ def _line_count(path: str, rev: str | None) -> int:
 
 def _findings(files: list[str], base: str | None, rev: str | None = None) -> list[Finding]:
     """Every crossing, plus at most one note for the largest already-oversized file."""
-    sources = _renamed_from(base) if base is not None else {}
+    staged, committed = _rename_maps(base) if base is not None else ({}, {})
     crossings: list[Finding] = []
     already_large: list[Finding] = []
     for path in files:
@@ -165,7 +158,7 @@ def _findings(files: list[str], base: str | None, rev: str | None = None) -> lis
         # CROSSED_AT is the lower of the two thresholds, so nothing under it is reportable.
         if lines <= CROSSED_AT:
             continue
-        was = _lines_at(base, _path_at_base(sources, path)) if base is not None else 0
+        was = _lines_at(base, _path_at_base(staged, committed, path)) if base is not None else 0
         # Without a base there is no "before" size, so nothing can be called a crossing.
         if base is not None and was <= CROSSED_AT:
             crossings.append(Finding(file=path, lines=lines, was=was, crossed=True))

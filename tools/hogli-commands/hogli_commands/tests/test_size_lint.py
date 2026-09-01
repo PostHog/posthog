@@ -117,6 +117,22 @@ class TestSizeLint:
 
         assert findings == []
 
+    def test_a_reused_pathname_does_not_join_two_files(self, repo: Path) -> None:
+        # One rename frees a pathname and another takes it. The two records describe
+        # different files, so resolving through the shared name would compare the large
+        # file against the small one's baseline and invent a crossing.
+        _write(repo, "posthog/big.py", CROSSED_AT + 100)
+        _write(repo, "posthog/small.py", 1)
+        _commit_on_branch(repo)
+        _git(repo, "checkout", "-qb", "feature")
+        _git(repo, "mv", "posthog/big.py", "posthog/final.py")
+        _commit_on_branch(repo)
+        _git(repo, "mv", "posthog/small.py", "posthog/big.py")
+
+        findings = _findings(["posthog/final.py"], _merge_base(None))
+
+        assert findings == []
+
     def test_at_most_one_note_for_files_that_were_already_huge(self, repo: Path) -> None:
         # Reporting every oversized file fires on most commits. One note keeps the
         # reading cost visible without burning context on a list.
