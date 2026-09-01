@@ -14,6 +14,7 @@ from products.canvas.backend.artifacts import (
     create_canvas_artifact_token,
     create_canvas_artifact_url,
 )
+from products.canvas.backend.checks import check_artifact_delivery_settings
 
 
 def _claims(**overrides):
@@ -113,9 +114,49 @@ class TestCanvasArtifactTokens(SimpleTestCase):
         with self.assertRaises(Http404):
             canvas_artifact(RequestFactory().get("/"), token or "", "index.html")
 
-    @override_settings(CANVAS_ARTIFACT_SIGNING_KEYS=[])
-    def test_artifact_urls_fail_closed_without_signing_keys(self) -> None:
-        self.assertIsNone(create_canvas_artifact_token(MagicMock()))
+    @override_settings(
+        DEBUG=False,
+        TEST=False,
+        CANVAS_ARTIFACT_ORIGIN="https://usercontent.example",
+        CANVAS_ARTIFACT_SIGNING_KEYS=[],
+        SECRET_KEY="new-django-signing-key-at-least-32-bytes-long",
+        SECRET_KEY_FALLBACKS=["old-django-signing-key-at-least-32-bytes-long"],
+    )
+    def test_artifact_urls_default_to_rotating_django_signing_keys(self) -> None:
+        build = MagicMock(
+            team_id=1,
+            canvas_id="00000000-0000-0000-0000-000000000001",
+            id="00000000-0000-0000-0000-000000000002",
+        )
+
+        token = create_canvas_artifact_token(build)
+
+        self.assertIsNotNone(token)
+        self.assertEqual(_read_token(token or "")["team_id"], 1)
+        previous_token = signing.Signer(
+            key="old-django-signing-key-at-least-32-bytes-long", salt=ARTIFACT_TOKEN_SALT
+        ).sign_object(_claims(bucket=int(time.time() // 3600)), compress=True)
+        self.assertEqual(_read_token(previous_token)["team_id"], 1)
+
+    @override_settings(
+        DEBUG=False,
+        TEST=False,
+        CANVAS_ARTIFACT_ORIGIN="https://usercontent.example",
+        CANVAS_ARTIFACT_SIGNING_KEYS=[],
+        SECRET_KEY="django-signing-key-at-least-32-bytes-long",
+        SECRET_KEY_FALLBACKS=[],
+    )
+    def test_production_check_accepts_django_signing_key_fallback(self) -> None:
+        self.assertEqual(check_artifact_delivery_settings(None), [])
+
+    @override_settings(
+        DEBUG=False,
+        TEST=False,
+        CANVAS_ARTIFACT_ORIGIN="",
+        CANVAS_ARTIFACT_SIGNING_KEYS=["dedicated-signing-key-at-least-32-bytes-long"],
+    )
+    def test_production_check_rejects_a_signing_key_without_an_origin(self) -> None:
+        self.assertIn("canvas.E001", [error.id for error in check_artifact_delivery_settings(None)])
 
     @override_settings(
         DEBUG=False,
