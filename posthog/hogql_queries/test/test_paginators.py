@@ -17,7 +17,7 @@ from posthog.hogql.constants import (
 from posthog.hogql.parser import parse_select
 
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
 from posthog.models.utils import UUIDT
 
 
@@ -207,7 +207,7 @@ class TestHogQLHasMorePaginator(ClickhouseTestMixin, APIBaseTest):
                 self.assertEqual(paginator.limit, case["expected_limit"])
                 self.assertEqual(paginator.offset, case["expected_offset"])
 
-    @patch("posthog.hogql_queries.insights.paginators.execute_hogql_query")
+    @patch("posthog.hogql_queries.paginators.execute_hogql_query")
     def test_passes_limit_context(self, mock_execute_hogql_query: MagicMock):
         limit_context = LimitContext.EXPORT
         paginator = HogQLHasMorePaginator.from_limit_context(limit_context=limit_context, limit=5, offset=10)

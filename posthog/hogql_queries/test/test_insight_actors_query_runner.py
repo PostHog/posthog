@@ -27,7 +27,7 @@ from posthog.schema import (
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
+from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.models.group.util import create_group
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 

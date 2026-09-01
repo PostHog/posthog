@@ -10,7 +10,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
 from posthog.api.utils import ServerTimingsGathered
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.models import Team, User
 from posthog.utils import get_instance_region
 
