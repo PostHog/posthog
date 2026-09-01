@@ -2340,6 +2340,17 @@
             "description": "The response the MCP server returned. Large strings and sensitive keys are redacted before capture.",
             "label": "MCP response"
         },
+        "$mcp_scope_preset": {
+            "description": "Which kind of caller minted the token behind an MCP request, worked out from its scope set. 'scout' is a Signals scout run, 'research' is a read-only report-research run, 'implementation' is a write-capable implementation run, 'sandbox' is any other server-minted run (a task started from the desktop app or the pipeline before the scratchpad scopes tell research and implementation apart), and 'user' is a person's own token. Stamped on every event by PostHog's own MCP server. Use it to split scratchpad and notes usage by caller, for example to measure scout scratchpad adoption apart from ordinary users.",
+            "examples": [
+                "scout",
+                "research",
+                "implementation",
+                "sandbox",
+                "user"
+            ],
+            "label": "MCP scope preset"
+        },
         "$mcp_server_name": {
             "description": "The advertised name of the MCP server that handled the request.",
             "examples": [
@@ -3909,7 +3920,7 @@
             "label": "AI feedback (LLM)"
         },
         "$ai_generation": {
-            "description": "A call to an LLM model. Contains the input prompt, output, model used and costs.",
+            "description": "A call to an LLM model. The events table has the model used and costs, but not the input prompt or output. To read those, query the input, output, and output_choices columns of the posthog.ai_events table in HogQL. That content is only available within its retention window.",
             "label": "AI generation (LLM)",
             "primary_property": "$ai_model"
         },
@@ -4560,6 +4571,17 @@
         "$mcp_response": {
             "description": "The response the MCP server returned. Large strings and sensitive keys are redacted before capture.",
             "label": "MCP response"
+        },
+        "$mcp_scope_preset": {
+            "description": "Which kind of caller minted the token behind an MCP request, worked out from its scope set. 'scout' is a Signals scout run, 'research' is a read-only report-research run, 'implementation' is a write-capable implementation run, 'sandbox' is any other server-minted run (a task started from the desktop app or the pipeline before the scratchpad scopes tell research and implementation apart), and 'user' is a person's own token. Stamped on every event by PostHog's own MCP server. Use it to split scratchpad and notes usage by caller, for example to measure scout scratchpad adoption apart from ordinary users.",
+            "examples": [
+                "scout",
+                "research",
+                "implementation",
+                "sandbox",
+                "user"
+            ],
+            "label": "MCP scope preset"
         },
         "$mcp_server_name": {
             "description": "The advertised name of the MCP server that handled the request.",
@@ -7354,6 +7376,17 @@
         "$mcp_response": {
             "description": "The response the MCP server returned. Large strings and sensitive keys are redacted before capture.",
             "label": "MCP response"
+        },
+        "$mcp_scope_preset": {
+            "description": "Which kind of caller minted the token behind an MCP request, worked out from its scope set. 'scout' is a Signals scout run, 'research' is a read-only report-research run, 'implementation' is a write-capable implementation run, 'sandbox' is any other server-minted run (a task started from the desktop app or the pipeline before the scratchpad scopes tell research and implementation apart), and 'user' is a person's own token. Stamped on every event by PostHog's own MCP server. Use it to split scratchpad and notes usage by caller, for example to measure scout scratchpad adoption apart from ordinary users.",
+            "examples": [
+                "scout",
+                "research",
+                "implementation",
+                "sandbox",
+                "user"
+            ],
+            "label": "MCP scope preset"
         },
         "$mcp_server_name": {
             "description": "The advertised name of the MCP server that handled the request.",

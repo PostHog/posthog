@@ -134,6 +134,13 @@ export interface Player {
     windowId: number
 }
 
+// WebKit can leave the replay iframe document without a <head> while rrweb rebuilds a full
+// snapshot. rrweb then throws synchronously ("null is not an object") when it sets an attribute
+// on the missing head. Detect that state so a seek can re-init the replayer instead of failing.
+function isReplayerDocumentUnavailable(replayer: Replayer | undefined): boolean {
+    return !!replayer && !replayer.iframe?.contentDocument?.head
+}
+
 export enum SessionRecordingPlayerMode {
     Standard = 'standard',
     Sharing = 'sharing',
@@ -2435,6 +2442,27 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             // endBuffer first, so the pause/play decision below reads the user's play intent rather than the buffering state that outranks it.
             actions.endBuffer()
             actions.stopAnimation()
+
+            // WebKit can leave the replay iframe without a <head>, so rrweb throws synchronously while
+            // rebuilding a full snapshot. Re-init the replayer once so it rebuilds against a fresh
+            // document, rather than a hard playback failure. The re-init seeks back here via setPlayer.
+            const recoverStaleReplayer = (): boolean => {
+                if (
+                    !isReplayerDocumentUnavailable(values.player?.replayer) ||
+                    (cache.replayerRecoveryAttempts ?? 0) >= 1
+                ) {
+                    return false
+                }
+                cache.replayerRecoveryAttempts = (cache.replayerRecoveryAttempts ?? 0) + 1
+                actions.tryInitReplayer()
+                return true
+            }
+
+            // Guard before the seek, so rrweb never reaches the throw on a known-broken document.
+            if (recoverStaleReplayer()) {
+                return
+            }
+
             // rrweb throws synchronously on malformed events it replays through — surface an error
             // state rather than letting the throw escape the listener and wedge the state machine.
             try {
@@ -2443,13 +2471,17 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     // in very large recordings this call to pause
                     // can consume 100% CPU and freeze the entire page
                     values.player?.replayer?.pause(values.toRRWebPlayerTime(timestamp))
-                    actions.clearPlayerError()
                 } else {
                     values.player?.replayer?.play(values.toRRWebPlayerTime(timestamp))
                     actions.updateAnimation()
-                    actions.clearPlayerError()
                 }
+                cache.replayerRecoveryAttempts = 0
+                actions.clearPlayerError()
             } catch (error) {
+                // The same failure can still slip through mid-play — recover rather than report it.
+                if (recoverStaleReplayer()) {
+                    return
+                }
                 posthog.captureException(error, {
                     feature: 'session-recording-replayer-playback',
                     sessionRecordingId: props.sessionRecordingId,
