@@ -20436,8 +20436,10 @@ export namespace Schemas {
       readonly created_by: number | null;
       /** @nullable */
       readonly updated_at: string | null;
-      /** Workflows that use this property, resolved by definition id. */
+      /** Workflows that use this property, resolved by definition id when the caller can view workflows. */
       readonly references: readonly CustomPropertyReference[];
+      /** Whether a workflow updates this property. Always returned, even when workflow details are hidden. */
+      readonly has_workflow_reference: boolean;
     }
 
     /**
@@ -60690,8 +60692,10 @@ export namespace Schemas {
       readonly created_by?: number | null;
       /** @nullable */
       readonly updated_at?: string | null;
-      /** Workflows that use this property, resolved by definition id. */
+      /** Workflows that use this property, resolved by definition id when the caller can view workflows. */
       readonly references?: readonly CustomPropertyReference[];
+      /** Whether a workflow updates this property. Always returned, even when workflow details are hidden. */
+      readonly has_workflow_reference?: boolean;
     }
 
     /**
