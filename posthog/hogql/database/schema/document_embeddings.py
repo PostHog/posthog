@@ -114,9 +114,10 @@ def extract_model_name_from_where(node: Optional[ast.Expr]) -> Optional[str]:
 
 
 def _resolve_model_name(node: Optional[ast.SelectQuery], context: HogQLContext) -> Optional[str]:
-    # The `model_name` filter routes to the model-specific table. It can sit on the query that holds
-    # the table, or on an outer query when the table is wrapped in a subquery, so scan the ancestors too.
-    candidate_queries = [*(context.lazy_table_ancestors or []), node]
+    # The `model_name` filter routes to the model-specific table. The query that holds the table wins,
+    # so check it first; only fall back to the ancestors when the table is wrapped in an unfiltered
+    # subquery. Checking ancestors first would let an outer filter override an explicit inner one.
+    candidate_queries = [node, *(context.lazy_table_ancestors or [])]
     for query in candidate_queries:
         model_name = extract_model_name_from_where(query.where if query else None)
         if model_name is not None:

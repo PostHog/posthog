@@ -6,9 +6,10 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_ast_for_printing
+from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing
 
 VALID_MODEL_NAME = "text-embedding-3-large-3072"
+OTHER_MODEL_NAME = "text-embedding-3-small-1536"
 
 
 class TestDocumentEmbeddingsOrderByPushdown(BaseTest):
@@ -151,3 +152,20 @@ class TestDocumentEmbeddingsOrderByPushdown(BaseTest):
             """
         )
         assert isinstance(inner, ast.SelectQuery)
+
+    def test_inner_model_name_filter_wins_over_outer(self):
+        # An inner select filters on one model and the outer query names another. The select that holds
+        # the table must win, so the nested scan routes to the inner model's table, not the outer's.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        query = parse_select(
+            f"""
+            SELECT count() FROM document_embeddings
+            WHERE model_name = '{VALID_MODEL_NAME}'
+              AND document_id IN (
+                SELECT document_id FROM document_embeddings WHERE model_name = '{OTHER_MODEL_NAME}'
+              )
+            """
+        )
+        sql, _ = prepare_and_print_ast(query, context, dialect="clickhouse")
+        assert "text_embedding_3_small_1536" in sql, "inner scope must route to its own model's table"
+        assert "text_embedding_3_large_3072" in sql, "outer scope still routes to its own model's table"
