@@ -2,10 +2,10 @@
 
 PostHog-authored. Not part of the vendored upstream skill.
 
-Depot sells two different things and they are easy to confuse:
+Two engines report on the same commit in this repo, and they are easy to confuse:
 
-- **Depot runners** run GitHub Actions jobs. GitHub is still the engine. Checks come from the `github-actions` app. This is what the rest of the skill covers.
-- **Depot CI** is its own engine. It parses workflows under `.depot/workflows/`, which GitHub Actions ignores, and reports its own check runs from the `depot-code-access` app.
+- **Depot runners** run GitHub Actions jobs from `.github/workflows/`. GitHub is still the engine, and checks come from the `github-actions` app. See the `depot-github-runners` skill.
+- **Depot CI** is its own engine. It parses workflows under `.depot/workflows/`, which GitHub Actions ignores, and reports its own check runs from the `depot-code-access` app. That is what this skill covers.
 
 Everything below was measured, not read from docs. Two twin workflows ran an identical job graph on both engines against the same commit ([probe PR](https://github.com/PostHog/posthog/pull/92542)).
 
