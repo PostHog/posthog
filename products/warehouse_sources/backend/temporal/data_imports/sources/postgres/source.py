@@ -519,10 +519,14 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # ("column ... does not exist"). The stored schema/query is fixed until the customer
             # changes it, so every retry replays the same statement. Already non-retryable through
             # this bucket; the actionable message replaces the raw psycopg text, which echoes the
-            # relation name and a SQL fragment back into `latest_error`.
+            # relation name and a SQL fragment back into `latest_error`. This key is a broad
+            # substring match (case-insensitive `does not exist` anywhere in the driver text), so it
+            # can also catch other dropped Postgres objects (e.g. a type or role); the message is
+            # worded to not overclaim it's always a table or column.
             "does not exist": (
-                "A table or column this sync reads no longer exists in your source database. Remove it "
-                "from the source's selected tables, or reset and re-sync this table, then re-enable the sync."
+                "Something this sync depends on (a table, column, or other object) no longer exists in "
+                "your source database. Remove it from the source's selected tables, or reset and re-sync "
+                "this table, then re-enable the sync."
             ),
             "timestamp too small": None,
             "QueryTimeoutException": None,
