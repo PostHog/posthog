@@ -288,7 +288,7 @@ class UploadedMediaCreateSerializer(serializers.Serializer):
 @extend_schema(extensions={"x-product": "core"})
 class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "uploaded_media"
-    scope_object_write_actions = ["create", "start_upload", "complete_upload", "destroy"]
+    scope_object_write_actions = ["create", "start_upload", "complete_upload"]
     queryset = UploadedMedia.objects.all()
     serializer_class = _FallbackSerializer
     parser_classes = (MultiPartParser, FormParser)
@@ -442,24 +442,6 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             tags={"team_id": self.team.pk, "content_type": sniffed_content_type},
         )
         return Response(UploadedMediaSerializer(uploaded_media).data)
-
-    @extend_schema(
-        description="Delete an image and the file behind it. The URL stops working straight away, so anything "
-        "already pointing at it — a sent email, a saved design — shows a broken image from then on.",
-        responses={
-            204: OpenApiResponse(description="Deleted."),
-            404: OpenApiResponse(description="No matching image for this team."),
-        },
-    )
-    def destroy(self, request, *args, **kwargs) -> Response:
-        uploaded_media = self.get_object()
-        # The file goes first: a storage failure then leaves the row, so the caller sees the
-        # delete fail and can retry. Removing the row first would strand the file with
-        # nothing referencing it, still served to anyone holding the URL.
-        if uploaded_media.media_location:
-            object_storage.delete(uploaded_media.media_location)
-        uploaded_media.delete()
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @extend_schema(
         description="""

@@ -2426,20 +2426,6 @@ export const uploadedMediaCreate = async (
     })
 }
 
-export const getUploadedMediaDestroyUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/uploaded_media/${id}/`
-}
-
-/**
- * Delete an image and the file behind it. The URL stops working straight away, so anything already pointing at it — a sent email, a saved design — shows a broken image from then on.
- */
-export const uploadedMediaDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getUploadedMediaDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
 export const getUploadedMediaCompleteUploadCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/uploaded_media/${id}/complete_upload/`
 }

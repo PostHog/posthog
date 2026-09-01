@@ -54,7 +54,6 @@ To add a new image, upload it with the presigned flow rather than embedding byte
 Put that `url` in the image block's `values.src.url` (see [references/unlayer-design-json.md](references/unlayer-design-json.md)). The block also takes `values.src.width`/`height`; the media tools don't return dimensions, so if you have shell access to the local file, measure it yourself rather than guessing.
 
 Images must be under 4MB and decode as PNG, JPEG, GIF, WebP, AVIF or BMP.
-To remove one, call `DELETE /api/projects/:project_id/uploaded_media/:media_id/` — its URL stops working straight away, so don't delete an image an already-sent email points at.
 
 ## Creating a template
 
