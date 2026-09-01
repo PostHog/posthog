@@ -345,6 +345,11 @@ function TeamRatesCard({
                         <div className="text-lg font-semibold">{humanFriendlyNumber(reputation.emails_sent)}</div>
                     </div>
                 </div>
+            ) : isps.length > 0 ? (
+                <div className="text-secondary mt-3">
+                    No workflow email in the last 30 days. The breakdown below covers all email sent from your verified
+                    domains.
+                </div>
             ) : (
                 <div className="text-secondary mt-3">
                     No email sending data yet. Rates appear here once your workflows send email.
@@ -435,7 +440,7 @@ export function WorkflowsReputation(): JSX.Element {
                 We judge and enforce reputation per project.
             </LemonBanner>
             {sendingAllowance?.enforced && <SendingAllowanceCard allowance={sendingAllowance} />}
-            {teamReputation || awsReputation ? (
+            {teamReputation || awsReputation || ispSendingHealth.length > 0 ? (
                 <TeamRatesCard
                     reputation={teamReputation}
                     aws={awsReputation}

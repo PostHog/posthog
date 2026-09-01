@@ -119,3 +119,15 @@ export const NoProviderData: StoryFn = () => {
     useStorybookMocks(mockReputation({ ...baseResponse, isps: [] }))
     return <WorkflowsReputation />
 }
+
+export const ProviderDataWithoutWorkflowRates: StoryFn = () => {
+    // Domain-level sends with nothing from a workflow in the window: the card has to stay on screen
+    // and say what the table below counts, rather than claiming there is no data.
+    useStorybookMocks(mockReputation({ ...baseResponse, reputation: null, aws: null }))
+    return <WorkflowsReputation />
+}
+
+export const SharedSendingDomain: StoryFn = () => {
+    useStorybookMocks(mockReputation({ ...baseResponse, isp_shared_domains: ['mail.example.com'] }))
+    return <WorkflowsReputation />
+}
