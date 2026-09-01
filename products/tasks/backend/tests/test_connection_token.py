@@ -153,22 +153,27 @@ class TestSandboxJwtRotation(SimpleTestCase):
         self.assertEqual(payload.run_id, str(run.id))
         self.assertIsNone(payload.sandbox_id)
         self.assertIs(payload.presence_gated, False)
+        self.assertIsNone(payload.origin_product)
 
     @parameterized.expand([(True,), (False,)])
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_A, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None)
     def test_ingest_token_carries_pinned_presence_gating(self, gated: bool) -> None:
         reset_sandbox_jwt_key_cache()
-        token = create_sandbox_event_ingest_token(_fake_run({"stream_presence_gated": gated}))
+        token = create_sandbox_event_ingest_token(_fake_run({"stream_presence_gated": gated}, "signals_scout"))
 
-        self.assertIs(validate_sandbox_event_ingest_token(token).presence_gated, gated)
+        payload = validate_sandbox_event_ingest_token(token)
+        self.assertIs(payload.presence_gated, gated)
+        self.assertEqual(payload.origin_product, "signals_scout")
 
     @parameterized.expand([(True,), (False,)])
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_A, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None)
     def test_stream_read_token_carries_pinned_presence_gating(self, gated: bool) -> None:
         reset_sandbox_jwt_key_cache()
-        token = create_stream_read_token(_fake_run({"stream_presence_gated": gated}))
+        token = create_stream_read_token(_fake_run({"stream_presence_gated": gated}, "signals_scout"))
 
-        self.assertIs(validate_stream_read_token(token).presence_gated, gated)
+        payload = validate_stream_read_token(token)
+        self.assertIs(payload.presence_gated, gated)
+        self.assertEqual(payload.origin_product, "signals_scout")
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_A, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None)
     def test_legacy_stream_read_token_without_presence_claim_remains_valid(self) -> None:
@@ -193,6 +198,7 @@ class TestSandboxJwtRotation(SimpleTestCase):
 
         self.assertEqual(payload.run_id, str(run.id))
         self.assertIs(payload.presence_gated, False)
+        self.assertIsNone(payload.origin_product)
 
     def test_ingest_token_validates_after_primary_rotation(self) -> None:
         # Ingest is rotation-safe: a token signed under the old primary keeps validating after the

@@ -126,7 +126,11 @@ async def handle_task_run_event_ingest(scope: ASGIMessage, receive: ASGIReceive,
         await _send_json(send, error.status_code, error.payload)
         return True
 
-    redis_stream = TaskRunRedisStream(get_task_run_stream_key(claims.run_id), presence_gated=claims.presence_gated)
+    redis_stream = TaskRunRedisStream(
+        get_task_run_stream_key(claims.run_id),
+        presence_gated=claims.presence_gated,
+        origin_product=claims.origin_product,
+    )
 
     try:
         result = await _ingest_event_lines(
@@ -207,7 +211,7 @@ async def _ingest_event_lines(
                 result.last_accepted_seq = max(result.last_accepted_seq, await redis_stream.get_last_sequence())
                 continue
             if write.skipped:
-                observe_stream_write_skipped("ingest")
+                observe_stream_write_skipped("ingest", claims.origin_product)
 
             result.accepted += 1
             result.last_accepted_seq = sequence

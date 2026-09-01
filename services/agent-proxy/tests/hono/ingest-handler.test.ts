@@ -18,6 +18,7 @@
 import type { Redis } from 'ioredis'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+import { observeStreamWriteSkipped } from '@/hono/metrics.js'
 import type { Config } from '@/lib/config.js'
 import {
     MAX_EVENT_LINE_BYTES,
@@ -304,6 +305,7 @@ function makeClaims(overrides?: Partial<SandboxEventIngestTokenPayload>): Sandbo
         taskId: 'task-abc',
         teamId: 42,
         presenceGated: false,
+        originProduct: 'unknown',
         ...overrides,
     }
 }
@@ -471,7 +473,7 @@ describe('ingest-handler', () => {
         { name: 'skips the mirror when no reader is attached', watched: false, expectedEntries: 0 },
         { name: 'mirrors when a reader is attached', watched: true, expectedEntries: 1 },
     ])('presence-gated ingest $name', async ({ watched, expectedEntries }) => {
-        mockValidate.mockResolvedValue(makeClaims({ presenceGated: true }))
+        mockValidate.mockResolvedValue(makeClaims({ presenceGated: true, originProduct: 'signals_scout' }))
         if (watched) {
             await fakeRedis.set(getWatchedKey(getStreamKey(RUN_ID)), '1', 'EX', 300)
         }
@@ -485,6 +487,11 @@ describe('ingest-handler', () => {
         expect(await decodeJson(res)).toMatchObject({ accepted: 1, duplicate: 0, last_accepted_seq: 1 })
         expect(await redisStream.getLastSequence()).toBe(1)
         expect(await fakeRedis.xrange(getStreamKey(RUN_ID))).toHaveLength(expectedEntries)
+        if (watched) {
+            expect(observeStreamWriteSkipped).not.toHaveBeenCalled()
+        } else {
+            expect(observeStreamWriteSkipped).toHaveBeenCalledWith('ingest', 'signals_scout')
+        }
     })
 
     it('still writes the completion sentinel for a presence-gated run with no reader', async () => {

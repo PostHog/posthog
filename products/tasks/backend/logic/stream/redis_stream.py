@@ -168,6 +168,7 @@ class TaskRunRedisStream:
         max_length: int = TASK_RUN_STREAM_MAX_LENGTH,
         *,
         presence_gated: bool = False,
+        origin_product: str | None = None,
     ):
         self._stream_key = stream_key
         self._redis_client = get_tasks_stream_redis_async(use_dedicated)
@@ -176,6 +177,7 @@ class TaskRunRedisStream:
         self._completed_timeout = min(timeout, TASK_RUN_STREAM_COMPLETED_TIMEOUT)
         self._max_length = max_length
         self._presence_gated = presence_gated
+        self._origin_product = origin_product
         self._watched_cached_until = 0.0
         self._last_watched_refresh_at: float | None = None
 
@@ -364,7 +366,7 @@ class TaskRunRedisStream:
         Terminal sentinels bypass this gate.
         """
         if self._presence_gated and not await self._is_watched():
-            observe_stream_write_skipped("relay")
+            observe_stream_write_skipped("relay", self._origin_product)
             return None
         return await self._xadd_event(event, ttl=ttl)
 
@@ -727,7 +729,12 @@ def reset_task_run_stream(run_id: str, use_dedicated: bool = False) -> bool:
 
 
 def publish_task_run_stream_event(
-    run_id: str, event: dict, use_dedicated: bool = False, *, presence_gated: bool = False
+    run_id: str,
+    event: dict,
+    use_dedicated: bool = False,
+    *,
+    presence_gated: bool = False,
+    origin_product: str | None = None,
 ) -> str | None:
     """Synchronously publish a task-run event to Redis.
 
@@ -745,7 +752,7 @@ def publish_task_run_stream_event(
     client = get_tasks_stream_redis_sync(use_dedicated)
     try:
         if presence_gated and not client.exists(get_task_run_stream_watched_key(stream_key)):
-            observe_stream_write_skipped("mirror")
+            observe_stream_write_skipped("mirror", origin_product)
             return None
         raw = json.dumps(event)
         stream_id = client.xadd(stream_key, {DATA_KEY: raw}, maxlen=TASK_RUN_STREAM_MAX_LENGTH, approximate=True)

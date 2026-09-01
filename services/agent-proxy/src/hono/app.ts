@@ -119,7 +119,7 @@ export function createApp(redis: Redis, config: Config, publicKeys: CryptoKey[])
             const openedAt = Date.now()
             // Wire disconnect: when the client drops, abort the SSE generator.
             const generator = streamTaskRunEvents(streamKey, redis, {
-                originProduct: 'unknown',
+                originProduct: claims.originProduct,
                 lastEventId,
                 startLatest,
                 presenceGated: claims.presenceGated,

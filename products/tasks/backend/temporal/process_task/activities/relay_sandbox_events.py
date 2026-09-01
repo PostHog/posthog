@@ -149,6 +149,7 @@ async def _relay_sandbox_events(input: RelaySandboxEventsInput, *, finalize_stre
         stream_key,
         run_uses_dedicated_stream(task_run.state),
         presence_gated=run_stream_presence_gated(task_run.state),
+        origin_product=origin_product,
     )
     await redis_stream.initialize()
 

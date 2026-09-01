@@ -102,6 +102,7 @@ export interface StreamReadTokenPayload {
     taskId: string
     teamId: number
     presenceGated: boolean
+    originProduct: string
 }
 
 // Claims extracted from a posthog:sandbox_event_ingest JWT (POST /v1/runs/:run/ingest leg)
@@ -110,6 +111,7 @@ export interface SandboxEventIngestTokenPayload {
     taskId: string
     teamId: number
     presenceGated: boolean
+    originProduct: string
 }
 
 // ---------------------------------------------------------------------------

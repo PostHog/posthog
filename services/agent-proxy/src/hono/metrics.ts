@@ -86,7 +86,7 @@ export const streamIngestEventsTotal = new Counter({
 export const taskRunStreamWriteSkippedTotal = new Counter({
     name: 'posthog_tasks_task_run_stream_write_skipped_total',
     help: 'Task-run events not mirrored into Redis because presence gating found no attached reader',
-    labelNames: ['path'],
+    labelNames: ['path', 'origin_product'],
     registers: [register],
 })
 
@@ -196,8 +196,8 @@ export function observeStreamIngestEvents(opts: { accepted: number; duplicate: n
     }
 }
 
-export function observeStreamWriteSkipped(path: StreamWriteSkippedPath): void {
-    taskRunStreamWriteSkippedTotal.labels({ path }).inc()
+export function observeStreamWriteSkipped(path: StreamWriteSkippedPath, originProduct: string): void {
+    taskRunStreamWriteSkippedTotal.labels({ path, origin_product: originProduct }).inc()
 }
 
 export function observeIngestClientDisconnect(classification: DisconnectClassification): void {

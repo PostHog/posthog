@@ -58,6 +58,7 @@ interface TokenOptions {
     omitExp?: boolean
     signingKey?: CryptoKey
     presenceGated?: unknown
+    originProduct?: unknown
 }
 
 async function signToken(opts: TokenOptions = {}): Promise<string> {
@@ -70,11 +71,15 @@ async function signToken(opts: TokenOptions = {}): Promise<string> {
         omitExp = false,
         signingKey,
         presenceGated,
+        originProduct,
     } = opts
 
     const claims: Record<string, unknown> = { run_id: runId, task_id: taskId, team_id: teamId }
     if (presenceGated !== undefined) {
         claims['presence_gated'] = presenceGated
+    }
+    if (originProduct !== undefined) {
+        claims['origin_product'] = originProduct
     }
 
     const builder = new SignJWT(claims).setProtectedHeader({
@@ -124,6 +129,27 @@ describe('jwt', () => {
 
                 await expect(validateStreamReadToken(token, keys.publicKeys)).rejects.toThrow(
                     'presence_gated must be a boolean'
+                )
+            }
+        )
+
+        it.each([
+            { name: 'a string claim', claim: 'signals_scout', expected: 'signals_scout' },
+            { name: 'an absent claim as unknown', claim: undefined, expected: 'unknown' },
+        ])('carries $name for origin_product', async ({ claim, expected }) => {
+            const token = await signToken({ audience: STREAM_READ_AUDIENCE, originProduct: claim })
+            const payload = await validateStreamReadToken(token, keys.publicKeys)
+
+            expect(payload.originProduct).toBe(expected)
+        })
+
+        it.each([{ claim: 1 }, { claim: null }, { claim: true }])(
+            'rejects a non-string origin_product claim ($claim)',
+            async ({ claim }) => {
+                const token = await signToken({ audience: STREAM_READ_AUDIENCE, originProduct: claim })
+
+                await expect(validateStreamReadToken(token, keys.publicKeys)).rejects.toThrow(
+                    'origin_product must be a string'
                 )
             }
         )

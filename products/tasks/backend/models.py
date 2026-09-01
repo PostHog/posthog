@@ -2764,6 +2764,7 @@ class TaskRun(models.Model):
             event,
             run_uses_dedicated_stream(self.state),
             presence_gated=run_stream_presence_gated(self.state),
+            origin_product=self.task.origin_product,
         )
 
     def publish_stream_state_event(self) -> None:

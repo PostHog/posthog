@@ -254,7 +254,7 @@ async function ingestEventLines(
             }
 
             if (write.streamId === null) {
-                observeStreamWriteSkipped('ingest')
+                observeStreamWriteSkipped('ingest', claims.originProduct)
             }
 
             result.accepted++
