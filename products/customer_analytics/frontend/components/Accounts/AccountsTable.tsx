@@ -27,6 +27,7 @@ import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { percentage } from 'lib/utils/numbers'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { urls } from 'scenes/urls'
@@ -36,6 +37,7 @@ import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/data
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn, QueryContextColumnComponent } from '~/queries/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type {
     AccountRelationshipDefinitionApi,
@@ -99,7 +101,7 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
     )
 }
 
-function TagsCell({ record }: { record: unknown }): JSX.Element {
+function TagsCell({ record, isEditable }: { record: unknown; isEditable: boolean }): JSX.Element {
     const { isTagsSaving, tagOverrides } = useValues(accountsLogic)
     const { updateAccountTags, addTagToFilter } = useActions(accountsLogic)
     const { tags: tagsAvailable } = useValues(tagsModel)
@@ -111,6 +113,9 @@ function TagsCell({ record }: { record: unknown }): JSX.Element {
         return cellTags.length > 0 ? <ObjectTags tags={cellTags} staticOnly /> : <span className="text-muted">—</span>
     }
     const tags = tagOverrides[accountId] ?? cellTags
+    if (!isEditable) {
+        return <ObjectTags tags={tags} staticOnly onTagClick={addTagToFilter} data-attr="accounts-tags-cell" />
+    }
     return (
         <ObjectTags
             tags={tags}
@@ -133,11 +138,13 @@ function RelationshipCell({
     record,
     column,
     definition,
+    canEdit,
     canUnassign,
 }: {
     record: unknown
     column: string
     definition: AccountRelationshipDefinitionApi
+    canEdit: boolean
     canUnassign: boolean
 }): JSX.Element {
     const { isRoleSaving, relationshipOverrides } = useValues(accountsLogic)
@@ -169,6 +176,15 @@ function RelationshipCell({
     }
 
     const saving = accountId ? isRoleSaving(accountId, column) : false
+    const assignee = meFirstMembers.find((member) => member.user.id === userIds[0])?.user
+    if (!canEdit || (userIds.length > 0 && !canUnassign)) {
+        return (
+            <div data-attr={`accounts-${column}-cell`} className="inline-flex items-center gap-1 text-sm">
+                {assignee ? <ProfilePicture user={assignee} size="sm" /> : null}
+                {assignee?.email ?? (userIds.length > 0 ? 'Unknown user' : 'Unassigned')}
+            </div>
+        )
+    }
     return (
         <div data-attr={`accounts-${column}-cell`}>
             <MemberSelect
@@ -708,11 +724,6 @@ const KNOWN_COLUMN_TEMPLATES: Record<string, KnownColumnTemplate> = {
         width: COLUMN_WIDTHS.name,
         render: ({ record }) => <NameCell record={record} />,
     },
-    tag_names: {
-        label: 'Tags',
-        width: COLUMN_WIDTHS.tag_names,
-        render: ({ record }) => <TagsCell record={record} />,
-    },
     notebook_count: {
         label: 'Notes',
         width: COLUMN_WIDTHS.notebook_count,
@@ -727,9 +738,21 @@ function useContextColumns(): Record<string, QueryContextColumn> {
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const accountEditorRestrictionReason = getAccessControlDisabledReason(
+        AccessControlResourceType.CustomerAnalytics,
+        AccessControlLevel.Editor
+    )
     return useMemo(() => {
         const columns: Record<string, QueryContextColumn> = {}
         for (const key of visibleColumnNames) {
+            if (key === 'tag_names') {
+                columns[key] = {
+                    renderTitle: () => <SortableColumnHeader column={key} label="Tags" />,
+                    width: COLUMN_WIDTHS.tag_names,
+                    render: ({ record }) => <TagsCell record={record} isEditable={!accountEditorRestrictionReason} />,
+                }
+                continue
+            }
             const definition = aliasToDefinition[key]
             if (definition) {
                 const display = displayByAlias[key]
@@ -741,7 +764,7 @@ function useContextColumns(): Record<string, QueryContextColumn> {
                             column={key}
                             definition={definition}
                             display={display}
-                            isEditable={isCustomPropertyEditable(definition)}
+                            isEditable={isCustomPropertyEditable(definition) && !accountEditorRestrictionReason}
                         />
                     ),
                 }
@@ -757,6 +780,7 @@ function useContextColumns(): Record<string, QueryContextColumn> {
                             record={record}
                             column={key}
                             definition={relationshipDefinition}
+                            canEdit={!accountEditorRestrictionReason}
                             canUnassign={!relationshipUnassignRestrictionReason}
                         />
                     ),
@@ -778,6 +802,7 @@ function useContextColumns(): Record<string, QueryContextColumn> {
         aliasToRelationshipDefinition,
         displayByAlias,
         relationshipUnassignRestrictionReason,
+        accountEditorRestrictionReason,
     ])
 }
 

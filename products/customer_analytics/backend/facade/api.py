@@ -3544,12 +3544,7 @@ def get_readable_account_id(team_id: int, account_id: str) -> str | None:
 
 
 def get_writable_account_id(team_id: int, account_id: str, user_access_control: "UserAccessControl") -> str | None:
-    queryset = user_access_control.filter_queryset_by_access_level(Account.objects.unscoped().filter(team_id=team_id))
-    try:
-        account = queryset.filter(id=account_id).first()
-    except (ValidationError, ValueError):
-        return None
-    return str(account.id) if account is not None else None
+    return get_editable_account_id(team_id, account_id, user_access_control)
 
 
 def get_editable_account_id(team_id: int, account_id: str, user_access_control: "UserAccessControl") -> str | None:
@@ -4374,8 +4369,18 @@ class AccountRelationshipAssigneeNotInOrganization(Exception):
     pass
 
 
+class AccountRelationshipReplacementForbidden(Exception):
+    pass
+
+
 def assign_account_relationship(
-    *, team_id: int, account_id: str | UUID, definition_id: str | UUID, user_id: int, created_by: "User"
+    *,
+    team_id: int,
+    account_id: str | UUID,
+    definition_id: str | UUID,
+    user_id: int,
+    created_by: "User",
+    allow_single_holder_replacement: bool = True,
 ) -> contracts.AccountRelationship:
     """Assign a user to an account relationship. Single-holder definitions hand off — the
     previous active assignment is ended in the same transaction. Idempotent when the user
@@ -4395,9 +4400,17 @@ def assign_account_relationship(
     )
     if membership is None:
         raise AccountRelationshipAssigneeNotInOrganization(str(user_id))
-    relationship = _relationships_logic.assign(
-        team_id=team_id, account=account, definition=definition, user=membership.user, created_by=created_by
-    )
+    try:
+        relationship = _relationships_logic.assign(
+            team_id=team_id,
+            account=account,
+            definition=definition,
+            user=membership.user,
+            created_by=created_by,
+            allow_single_holder_replacement=allow_single_holder_replacement,
+        )
+    except _relationships_logic.AccountRelationshipReplacementForbidden as error:
+        raise AccountRelationshipReplacementForbidden from error
     return _to_account_relationship(relationship)
 
 

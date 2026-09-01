@@ -3,7 +3,10 @@ import { useActions, useValues } from 'kea'
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { eventStreamLogic } from './eventStreamLogic'
 
@@ -21,6 +24,10 @@ export function AccountEventStreamToggle({
 
     const included = isAccountInStream(accountId)
     const updating = membershipUpdatingIds.includes(accountId)
+    const accountEditorRestrictionReason = getAccessControlDisabledReason(
+        AccessControlResourceType.CustomerAnalytics,
+        AccessControlLevel.Editor
+    )
 
     return (
         <div className="flex flex-col gap-2 items-start">
@@ -40,11 +47,12 @@ export function AccountEventStreamToggle({
                 checked={included}
                 onChange={(checked) => setAccountMembership(accountId, checked)}
                 disabledReason={
-                    !eventStream && !eventStreamLoading
+                    accountEditorRestrictionReason ??
+                    (!eventStream && !eventStreamLoading
                         ? 'Set up your event stream in settings first'
                         : eventStreamLoading || updating
                           ? 'Updating…'
-                          : undefined
+                          : undefined)
                 }
                 label="Include in my event stream"
                 size="small"

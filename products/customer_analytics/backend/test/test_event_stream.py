@@ -221,6 +221,47 @@ class TestEventStreamViewSet(APIBaseTest):
         self.assertEqual(response.json()["account_ids"], [])
         self.assertFalse(EventStreamMember.objects.unscoped().filter(stream_id=stream["id"]).exists())
 
+    def test_viewer_account_is_rejected_when_another_account_is_editable(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        stream = self._create_stream()
+        editable = create_account(team_id=self.team.id, name="Editable", external_id="org-editable")
+        viewer = create_account(team_id=self.team.id, name="Viewer", external_id="org-viewer")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(editable.id),
+            access_level="editor",
+            organization_member=self.organization_membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(viewer.id),
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+
+        editable_response = self.client.post(
+            f"{self.base_url}{stream['id']}/add_account/", {"account_id": str(editable.id)}, format="json"
+        )
+        viewer_response = self.client.post(
+            f"{self.base_url}{stream['id']}/add_account/", {"account_id": str(viewer.id)}, format="json"
+        )
+
+        self.assertEqual(editable_response.status_code, status.HTTP_200_OK, editable_response.json())
+        self.assertEqual(viewer_response.status_code, status.HTTP_400_BAD_REQUEST, viewer_response.json())
+        self.assertTrue(EventStreamMember.objects.unscoped().filter(stream_id=stream["id"], account=editable).exists())
+        self.assertFalse(EventStreamMember.objects.unscoped().filter(stream_id=stream["id"], account=viewer).exists())
+
     def test_update_resyncs_destination_and_normalizes_event_names(self):
         stream = self._create_stream()
         account = create_account(team_id=self.team.id, name="Acme", external_id="org-acme")

@@ -28,10 +28,13 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { fullName } from 'lib/utils/strings'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { urls } from 'scenes/urls'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { AccountNotebookApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
@@ -190,6 +193,10 @@ export function AccountNotebooksExpansion({
     const { activeTabFor } = useValues(accountsExpansionLogic)
     const { setActiveTab } = useActions(accountsExpansionLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
+    const accountEditorRestrictionReason = getAccessControlDisabledReason(
+        AccessControlResourceType.CustomerAnalytics,
+        AccessControlLevel.Editor
+    )
     const activeTab = activeTabFor(accountId)
 
     const columns: LemonTableColumns<AccountNotebookApi> = [
@@ -289,6 +296,7 @@ export function AccountNotebooksExpansion({
                                                 icon={<IconPencil />}
                                                 onClick={createNote}
                                                 loading={createdNoteLoading}
+                                                disabledReason={accountEditorRestrictionReason}
                                             >
                                                 New note
                                             </LemonButton>

@@ -2814,6 +2814,38 @@ class TestAccountRelationshipViewSet(APIBaseTest):
 
         self.assertEqual(status.HTTP_403_FORBIDDEN, response.status_code)
 
+    def test_project_member_cannot_replace_single_holder_relationship(self):
+        definition = self._create_relationship_definition()
+        relationship = relationships_logic.assign(
+            team_id=self.team.id,
+            account=self.account,
+            definition=definition,
+            user=self.user,
+            created_by=self.user,
+        )
+        successor = User.objects.create_and_join(self.organization, "successor@posthog.com", "testtest")
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="member",
+            organization_member=self.organization_membership,
+        )
+
+        response = self.client.post(self.endpoint, {"definition": str(definition.id), "user": successor.id})
+
+        self.assertEqual(status.HTTP_403_FORBIDDEN, response.status_code)
+        relationship.refresh_from_db()
+        self.assertIsNone(relationship.ended_at)
+        self.assertEqual(
+            1,
+            AccountRelationship.objects.for_team(self.team.id)
+            .filter(account=self.account, definition=definition, ended_at__isnull=True)
+            .count(),
+        )
+
     def test_end_already_ended_relationship_returns_404(self):
         definition = self._create_relationship_definition()
         rel = relationships_logic.assign(

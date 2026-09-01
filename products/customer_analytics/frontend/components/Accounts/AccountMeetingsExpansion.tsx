@@ -16,7 +16,10 @@ import {
 
 import { BigLeaguesHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { urls } from 'scenes/urls'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import gongIcon from 'public/services/gong.png'
 
@@ -161,6 +164,10 @@ export function AccountMeetingsExpansion({ accountId }: { accountId: string }): 
     const logic = accountMeetingsLogic({ accountId })
     const { canEditMeetingMatching, meetingsResult, meetingsResultLoading, searchTerm, page, matchingEditorOpen } =
         useValues(logic)
+    const accountEditorRestrictionReason = getAccessControlDisabledReason(
+        AccessControlResourceType.CustomerAnalytics,
+        AccessControlLevel.Editor
+    )
     const { setSearchTerm, setPage, openMatchingEditor } = useActions(logic)
 
     if (meetingsResult === NOT_LOADED) {
@@ -277,7 +284,8 @@ export function AccountMeetingsExpansion({ accountId }: { accountId: string }): 
                     icon={<IconPencil />}
                     active={matchingEditorOpen}
                     disabledReason={
-                        canEditMeetingMatching ? undefined : 'Only project admins can edit meeting matching.'
+                        accountEditorRestrictionReason ??
+                        (canEditMeetingMatching ? undefined : 'Only project admins can edit meeting matching.')
                     }
                     data-attr="edit-meeting-matching"
                     onClick={openMatchingEditor}

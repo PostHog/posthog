@@ -19,6 +19,10 @@ class AccountRelationshipNotFound(Exception):
     pass
 
 
+class AccountRelationshipReplacementForbidden(Exception):
+    pass
+
+
 def assign(
     *,
     team_id: int,
@@ -28,31 +32,35 @@ def assign(
     created_by: User | None,
     workflow_id: str | None = None,
     emit_event: bool = True,
+    allow_single_holder_replacement: bool = True,
 ) -> AccountRelationship:
     with transaction.atomic():
-        # Serializes concurrent assigns for this definition; prevents double-insert races.
-        AccountRelationshipDefinition.objects.for_team(team_id).select_for_update().get(id=definition.id)
+        locked_definition = (
+            AccountRelationshipDefinition.objects.for_team(team_id).select_for_update().get(id=definition.id)
+        )
         active = list(
             AccountRelationship.objects.for_team(team_id)
-            .filter(account=account, definition=definition, ended_at__isnull=True)
+            .filter(account=account, definition=locked_definition, ended_at__isnull=True)
             .select_related("user")
         )
         existing = next((rel for rel in active if rel.user_id == user.id), None)
         if existing is not None:
             return existing
+        if locked_definition.is_single_holder and active and not allow_single_holder_replacement:
+            raise AccountRelationshipReplacementForbidden
 
-        previous_user = active[0].user if definition.is_single_holder and active else None
-        if definition.is_single_holder:
+        previous_user = active[0].user if locked_definition.is_single_holder and active else None
+        if locked_definition.is_single_holder:
             for relationship in active:
                 relationship.ended_at = timezone.now()
                 relationship.save(update_fields=["ended_at"])
         relationship = AccountRelationship.objects.for_team(team_id).create(
-            team_id=team_id, account=account, definition=definition, user=user, created_by=created_by
+            team_id=team_id, account=account, definition=locked_definition, user=user, created_by=created_by
         )
         if emit_event:
             _schedule_relationship_changed_event(
                 account=account,
-                definition=definition,
+                definition=locked_definition,
                 previous_user=previous_user,
                 current_user=user,
                 actor=created_by,

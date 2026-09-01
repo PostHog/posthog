@@ -15,6 +15,9 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TeamMembershipLevel } from 'lib/constants'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { AccountRelationshipApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
@@ -49,6 +52,17 @@ export function AccountRelationshipsExpansion({ accountId }: { accountId: string
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
+    const accountEditorRestrictionReason = getAccessControlDisabledReason(
+        AccessControlResourceType.CustomerAnalytics,
+        AccessControlLevel.Editor
+    )
+    const assigningWouldReplace =
+        !!assignDefinition?.is_single_holder &&
+        relationships?.some(
+            (relationship) => relationship.definition.id === assignDefinition.id && relationship.ended_at === null
+        )
+    const assignmentRestrictionReason =
+        accountEditorRestrictionReason ?? (assigningWouldReplace ? destructiveActionRestrictionReason : null)
 
     const columns: LemonTableColumns<AccountRelationshipApi> = [
         {
@@ -98,7 +112,9 @@ export function AccountRelationshipsExpansion({ accountId }: { accountId: string
                                 size="xsmall"
                                 tooltip={`End this ${relationship.definition.name} assignment`}
                                 disabledReason={
-                                    destructiveActionRestrictionReason ?? (relationshipSaving ? 'Saving…' : undefined)
+                                    accountEditorRestrictionReason ??
+                                    destructiveActionRestrictionReason ??
+                                    (relationshipSaving ? 'Saving…' : undefined)
                                 }
                                 data-attr="account-relationships-unassign-button"
                                 onClick={() => endRelationship(relationship)}
@@ -106,7 +122,7 @@ export function AccountRelationshipsExpansion({ accountId }: { accountId: string
                                 Unassign
                             </LemonButton>
                         )}
-                        {canDeleteRelationships && (
+                        {canDeleteRelationships && !accountEditorRestrictionReason && (
                             <LemonButton
                                 size="xsmall"
                                 status="danger"
@@ -144,35 +160,47 @@ export function AccountRelationshipsExpansion({ accountId }: { accountId: string
                         allowClear
                         value={assignDefinitionId}
                         onChange={(value) => setAssignDefinitionId(value ?? null)}
+                        disabledReason={accountEditorRestrictionReason}
                         options={relationshipDefinitions.map((definition) => ({
                             value: definition.id,
                             label: definition.name,
                         }))}
                         data-attr="account-relationships-assign-definition"
                     />
-                    <MemberSelect
-                        value={null}
-                        allowNone={false}
-                        onChange={(user) => user && assignDefinition && assignRelationship(assignDefinition, user)}
-                    >
-                        {() => (
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                loading={relationshipSaving}
-                                disabledReason={
-                                    !assignDefinition
-                                        ? 'Pick a relationship to assign first'
-                                        : relationshipSaving
-                                          ? 'Saving…'
-                                          : undefined
-                                }
-                                data-attr="account-relationships-assign-button"
-                            >
-                                Assign
-                            </LemonButton>
-                        )}
-                    </MemberSelect>
+                    {assignmentRestrictionReason ? (
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            disabledReason={assignmentRestrictionReason}
+                            data-attr="account-relationships-assign-button"
+                        >
+                            Assign
+                        </LemonButton>
+                    ) : (
+                        <MemberSelect
+                            value={null}
+                            allowNone={false}
+                            onChange={(user) => user && assignDefinition && assignRelationship(assignDefinition, user)}
+                        >
+                            {() => (
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    loading={relationshipSaving}
+                                    disabledReason={
+                                        !assignDefinition
+                                            ? 'Pick a relationship to assign first'
+                                            : relationshipSaving
+                                              ? 'Saving…'
+                                              : undefined
+                                    }
+                                    data-attr="account-relationships-assign-button"
+                                >
+                                    Assign
+                                </LemonButton>
+                            )}
+                        </MemberSelect>
+                    )}
                 </div>
             </div>
             <LemonTable<AccountRelationshipApi>

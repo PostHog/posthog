@@ -2086,6 +2086,16 @@ class TestSharingPublishGate(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
 
+    def test_account_query_with_feature_request_lazy_join_cannot_be_shared(self):
+        self.insight.query = {"kind": "AccountsQuery", "select": ["feature_requests.count"]}
+        self.insight.save()
+
+        response = self._enable_sharing("insight")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "system.feature_request_account_links" in str(response.json())
+        assert not SharingConfiguration.objects.filter(team=self.team, enabled=True).exists()
+
     def test_already_enabled_share_is_not_regated(self):
         config = SharingConfiguration.objects.create(team=self.team, insight=self.insight, enabled=True)
         self._deny_warehouse()

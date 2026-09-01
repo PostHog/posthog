@@ -7,7 +7,7 @@ escalation channel - save a query over a restricted table, publish, read it thro
 public link.
 """
 
-from typing import Any
+from typing import Any, cast
 
 from django.db.models import Q
 
@@ -22,6 +22,7 @@ from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models import Team, User
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.shared_link_user import SharedLinkUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -58,16 +59,17 @@ def check_can_add_insight_to_shared_dashboard(
 
 
 def blocked_access_for_publisher(user: User, team: Team, config: SharingConfiguration) -> list[str]:
-    """
-    Tables and runner-level resources that stop the publisher from running the shared
-    artifact's queries. Each query is compiled (resolved, not executed) as the publisher,
-    the same resolution the read path uses. Non-access compile errors don't gate.
-    Empty list = safe to publish.
-    """
-    return blocked_access_for_user(user, team, _queries_exposed_by(config))
+    """Return protected resources the publisher or shared viewer cannot read."""
+    queries = _queries_exposed_by(config)
+    blocked = set(blocked_access_for_user(user, team, queries))
+    shared_viewer = cast(User, SharedLinkUser(SharingConfiguration(team=team, enabled=True)))
+    blocked.update(blocked_access_for_user(shared_viewer, team, queries, check_runner_access=False))
+    return sorted(blocked)
 
 
-def blocked_access_for_user(user: User, team: Team, queries: list[dict[str, Any]]) -> list[str]:
+def blocked_access_for_user(
+    user: User, team: Team, queries: list[dict[str, Any]], *, check_runner_access: bool = True
+) -> list[str]:
     """Tables (and runner-level resources) the user can't access among everything the given
     queries read - the compile core shared by the publish gate and the save-time block on
     already-shared artifacts."""
@@ -89,8 +91,8 @@ def blocked_access_for_user(user: User, team: Team, queries: list[dict[str, Any]
             runner = get_query_runner_or_none(query, team, user=user)
             if runner is None:
                 continue
-            # Resource-level check first for product runners (logs, metrics, customer analytics, ...)
-            runner.validate_query_runner_access(user)
+            if check_runner_access:
+                runner.validate_query_runner_access(user)
             prepare_ast_for_printing(runner.to_query(), context=context, dialect="clickhouse")
         except UserAccessControlError as e:
             blocked.add(e.resource)

@@ -158,7 +158,9 @@ export function AccountFeatureRequestsExpansion({ accountId }: { accountId: stri
                             type="primary"
                             onClick={linkSelectedRequest}
                             loading={linkingRequest}
-                            disabledReason={selectedRequestId ? undefined : 'Select a feature request'}
+                            disabledReason={
+                                editorDisabledReason ?? (selectedRequestId ? undefined : 'Select a feature request')
+                            }
                         >
                             Link request
                         </LemonButton>
@@ -175,6 +177,7 @@ export function AccountFeatureRequestsExpansion({ accountId }: { accountId: stri
                         mode="single"
                         value={selectedRequestId ? [selectedRequestId] : []}
                         onChange={(values) => setSelectedRequestId(values[0] ?? null)}
+                        disabled={!!editorDisabledReason}
                         onInputChange={setRequestSearch}
                         options={candidateOptions}
                         loading={availableRequestsLoading}

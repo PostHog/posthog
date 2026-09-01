@@ -119,6 +119,11 @@ _OBJECT_WRITE_LEVEL = "editor"
 _ICON_DOMAIN_VALIDATOR = DomainNameValidator(accept_idna=False)
 
 
+def _has_project_admin_access(view: Any) -> bool:
+    membership_level = view.user_permissions.current_team.effective_membership_level
+    return membership_level is not None and membership_level >= OrganizationMembership.Level.ADMIN
+
+
 class _AccountDestructiveActionPermission(BasePermission):
     message = "You don't have sufficient permissions in the project."
 
@@ -126,10 +131,7 @@ class _AccountDestructiveActionPermission(BasePermission):
         destructive_actions: frozenset[str] = getattr(view, "account_destructive_actions", frozenset())
         if request.method != "DELETE" and view.action not in destructive_actions:
             return True
-        if not isinstance(request.user, User):
-            return False
-        membership_level = view.user_permissions.current_team.effective_membership_level
-        return membership_level is not None and membership_level >= OrganizationMembership.Level.ADMIN
+        return isinstance(request.user, User) and _has_project_admin_access(view)
 
 
 # The warehouse resources a person/group-property source can bind to: the import source behind a
@@ -2283,6 +2285,7 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
                 definition_id=write.validated_data["definition"],
                 user_id=write.validated_data["user"],
                 created_by=cast(User, request.user),
+                allow_single_holder_replacement=_has_project_admin_access(self),
             )
         except api.Account_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -2290,6 +2293,8 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             raise ValidationError({"definition": "Relationship definition not found."})
         except api.AccountRelationshipAssigneeNotInOrganization:
             raise ValidationError({"user": "User is not a member of this organization."})
+        except api.AccountRelationshipReplacementForbidden:
+            raise PermissionDenied
         return Response(AccountRelationshipSerializer(relationship).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(request=None, responses={200: AccountRelationshipSerializer})

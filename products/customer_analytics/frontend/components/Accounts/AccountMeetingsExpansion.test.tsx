@@ -5,6 +5,7 @@ import { Provider } from 'kea'
 import posthog from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel } from '~/types'
 
 import { accountsMeetingsList, accountsRetrieve } from 'products/customer_analytics/frontend/generated/api'
 import type { AccountApi, MeetingApi } from 'products/customer_analytics/frontend/generated/api.schemas'
@@ -71,4 +72,27 @@ describe('AccountMeetingsExpansion', () => {
         fireEvent.click(button)
         expect(posthog.capture).toHaveBeenCalledWith(AccountsEvents.GongCallOpened)
     })
+
+    it.each([AccessControlLevel.None, AccessControlLevel.Viewer])(
+        'disables meeting matching with customer analytics access %s',
+        async (accessLevel) => {
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT,
+                resource_access_control: {
+                    ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                    customer_analytics: accessLevel,
+                },
+            }
+            render(
+                <Provider>
+                    <AccountMeetingsExpansion accountId="account-1" />
+                </Provider>
+            )
+
+            expect((await screen.findByText('Edit matching')).closest('button')).toHaveAttribute(
+                'aria-disabled',
+                'true'
+            )
+        }
+    )
 })

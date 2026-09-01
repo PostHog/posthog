@@ -2,6 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 import { SlackSummaryCadenceEnumApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { accountSummariesLogic } from './accountSummariesLogic'
@@ -17,6 +21,10 @@ export function AccountSummaryCadencePicker({ accountId }: { accountId: string }
     const logic = accountSummariesLogic({ accountId })
     const { summariesResult, cadenceSaving } = useValues(logic)
     const { setCadence } = useActions(logic)
+    const accountEditorRestrictionReason = getAccessControlDisabledReason(
+        AccessControlResourceType.CustomerAnalytics,
+        AccessControlLevel.Editor
+    )
 
     return (
         <LemonSelect<SlackSummaryCadenceEnumApi | null>
@@ -24,7 +32,7 @@ export function AccountSummaryCadencePicker({ accountId }: { accountId: string }
             value={summariesResult.cadence}
             options={CADENCE_OPTIONS}
             onChange={setCadence}
-            disabledReason={cadenceSaving ? 'Saving…' : undefined}
+            disabledReason={accountEditorRestrictionReason ?? (cadenceSaving ? 'Saving…' : undefined)}
             data-attr="account-summary-cadence-picker"
         />
     )
