@@ -1,3 +1,4 @@
+import { MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { useService } from "@posthog/di/react";
 import {
   closeTab as closeTabLocal,
@@ -22,7 +23,9 @@ import {
   useDashboard,
   useDashboards,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { useProjectTaskFeeds } from "@posthog/ui/features/canvas/hooks/useProjectTaskFeeds";
 import { useRailPane } from "@posthog/ui/features/canvas/hooks/useRailSurface";
+import { isRestorableVisitHref } from "@posthog/ui/features/canvas/railPane";
 import {
   activityReportIdFromHref,
   useActivitySelection,
@@ -32,11 +35,12 @@ import {
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
+import { feedIdFromHref } from "@posthog/ui/features/canvas/stores/taskFeedSelectionStore";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useInboxReportById } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
-import { useActiveSession } from "@posthog/ui/features/navigation/useActiveSession";
+import { useTabSession } from "@posthog/ui/features/navigation/useActiveSession";
 import { usePanelLayoutStore } from "@posthog/ui/features/panels/panelLayoutStore";
 import { getLeafPanel } from "@posthog/ui/features/panels/panelStoreHelpers";
 import { getTaskInputSessionId } from "@posthog/ui/features/task-detail/taskInputSession";
@@ -137,7 +141,9 @@ function BrowserTabStripImpl() {
     channelId?: string;
     dashboardId?: string;
     taskId?: string;
+    feedId?: string;
   };
+  const routeFeedId = params.feedId ?? null;
   // The in-flight tag: flips the instant you navigate, so the strip's highlight
   // and the active tab's name don't lag a navigation behind. Rendering only —
   // the effect below must not write from it (see settledLocation).
@@ -162,9 +168,7 @@ function BrowserTabStripImpl() {
   // Which rail destination this location belongs to, so the tab can remember
   // where that destination was when it left.
   const railPane = useRailPane();
-  // Which session the content pane is about, wherever it came from: a path
-  // param, Activity's picked item, or a feed's.
-  const activeSession = useActiveSession();
+  const activeSession = useTabSession();
   // Top-level app pages are tab targets too. Their typed metadata keeps route
   // classification, persisted labels, and rendered labels in one vocabulary.
   const view = useAppView();
@@ -229,6 +233,12 @@ function BrowserTabStripImpl() {
     !!historyTabId && snapshot.tabs.some((t) => t.id === historyTabId);
   const activeTabId =
     (historyTabIsLive ? historyTabId : null) ?? win?.activeTabId ?? null;
+
+  const feeds = useProjectTaskFeeds();
+  const feedName = useMemo(() => {
+    const map = new Map(feeds.map((f) => [f.id, f.name]));
+    return (id: string | null) => (id ? (map.get(id) ?? null) : null);
+  }, [feeds]);
 
   const channelName = useMemo(() => {
     const map = new Map(channels.map((c) => [c.id, c.name]));
@@ -304,6 +314,7 @@ function BrowserTabStripImpl() {
   ]);
 
   const routeTitle = useMemo(() => {
+    if (routeFeedId) return feedName(routeFeedId);
     if (activeTitle) return activeTitle;
     const currentChannelId =
       params.channelId ?? activeSession.channelId ?? null;
@@ -318,6 +329,8 @@ function BrowserTabStripImpl() {
     return null;
   }, [
     activeTitle,
+    routeFeedId,
+    feedName,
     params.channelId,
     activeSession.channelId,
     activeActivityReportId,
@@ -388,15 +401,9 @@ function BrowserTabStripImpl() {
       title: routeTitle ?? mirrorActive?.viewState?.title,
       listOpen,
       spaceId: stampedSpaceId,
-      // Settings is a full-window overlay that classifies as the spaces pane, so
-      // recording its href here would overwrite the tab's real last spaces
-      // location and a later Spaces rail click would reopen Settings. Keep the
-      // existing map on the settings route, as the strip did before settings
-      // stayed mounted.
-      lastByPane:
-        routeAppView === "settings"
-          ? previousLastByPane
-          : { ...previousLastByPane, [railPane]: visit },
+      lastByPane: isRestorableVisitHref(railPane, locationHref)
+        ? { ...previousLastByPane, [railPane]: visit }
+        : previousLastByPane,
     };
     const decision = decideTabNavigation({
       // The SETTLED tag, not the in-flight one. Pairing the in-flight tag with
@@ -556,6 +563,16 @@ function BrowserTabStripImpl() {
         const section = isActive ? routeChannelSection : t.channelSection;
         const appView = isActive ? routeAppView : t.appView;
         const channel = channelName(channelId);
+        const feedId = isActive ? routeFeedId : feedIdFromHref(t.href);
+        if (feedId) {
+          return {
+            id: t.id,
+            label: feedName(feedId) ?? t.viewState?.title ?? "Saved search",
+            icon: <MagnifyingGlassIcon size={14} />,
+            channelName: null,
+            pinned,
+          };
+        }
         if (taskId) {
           const task = findTask(taskId);
           return {
@@ -655,6 +672,8 @@ function BrowserTabStripImpl() {
     activeTitle,
     routeChannelSection,
     routeAppView,
+    routeFeedId,
+    feedName,
     spacesLayout,
   ]);
 

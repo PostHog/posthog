@@ -119,12 +119,12 @@ function SamplesTab(): JSX.Element {
 
 function AggregatesTab(): JSX.Element {
     const { aggregateRows } = useValues(metricsSamplesLogic)
-    const { queryResultsLoading, hasMetricName } = useValues(metricsViewerLogic)
+    const { queryLoading, hasMetricName } = useValues(metricsViewerLogic)
 
     return (
         <LemonTable
             dataSource={aggregateRows}
-            loading={queryResultsLoading}
+            loading={queryLoading}
             size="small"
             rowKey={(row: MetricsAggregateRow) => row.name}
             emptyState={
