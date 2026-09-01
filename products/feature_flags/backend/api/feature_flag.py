@@ -2609,7 +2609,9 @@ class WholeNumberFloatField(serializers.FloatField):
     write side for the same reason.
     """
 
-    def to_representation(self, value: Any) -> int | float:
+    # DRF stubs type the base `Field.to_representation` as `-> str`, so a numeric return trips
+    # `[override]`. FloatField itself returns a float at runtime, so the narrower type is correct.
+    def to_representation(self, value: Any) -> int | float:  # type: ignore[override]
         number = float(value)
         return int(number) if number.is_integer() else number
 
