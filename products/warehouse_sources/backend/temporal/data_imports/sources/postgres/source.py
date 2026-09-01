@@ -1539,6 +1539,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 is_xmin=schema.is_xmin,
                 xmin_last_value=schema.xmin_last_value,
                 xmin_num_wraparound=schema.xmin_num_wraparound,
+                byte_bounded_extraction=inputs.byte_bounded_extraction,
             )
         except SqlclientUnableToEstablishSqlconnection as e:
             # A setup query (e.g. the duplicate-PK probe) touched a postgres_fdw foreign table and the
