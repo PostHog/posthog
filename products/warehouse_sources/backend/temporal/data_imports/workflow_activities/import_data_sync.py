@@ -45,6 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     SchemaColumnTypeChangedException,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    DeltaRebuildDeferredError,
     is_transient_object_store_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_controller import (
@@ -706,6 +707,16 @@ async def _handle_import_error(
     if isinstance(error, RESTClientRetryableError):
         await logger.awarning(error_msg)
         await logger.adebug("REST client exhausted its retries - re-raising for Temporal retry")
+        raise error
+
+    # The revive found a corrupt table that this run's cursor-bound query can't rebuild, so it
+    # latched reset_pipeline and stopped before writing anything. The retry re-enters this activity
+    # from the top, reads the latch, and builds its query with no cursor, which is what makes the
+    # rebuild whole. Classified by type so the message-matching below can't read it as a source
+    # failure and disable the schema over a self-healing condition.
+    if isinstance(error, DeltaRebuildDeferredError):
+        await logger.awarning(error_msg)
+        await logger.adebug("Delta rebuild deferred to the next run - re-raising for Temporal retry")
         raise error
 
     # A transient S3/object-store hiccup talking to our own data-warehouse bucket (IMDS/STS

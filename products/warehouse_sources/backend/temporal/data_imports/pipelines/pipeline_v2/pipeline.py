@@ -198,7 +198,9 @@ class PipelineNonDLT(Generic[ResumableData]):
 
             # Revive a corrupt-`_delta_log` table (from an interrupted repartition swap or OOM-crashed
             # merge) before extraction so it self-heals in this run instead of looping forever.
-            await handle_corrupted_delta_log(self._schema, self._job, self._delta_table_ref, self._logger)
+            await handle_corrupted_delta_log(
+                self._schema, self._job, self._delta_table_ref, self._logger, self._reset_pipeline
+            )
 
             await handle_reset_or_full_refresh(
                 self._reset_pipeline,
