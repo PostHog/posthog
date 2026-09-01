@@ -380,7 +380,7 @@ describe('pydantic-ai middleware', () => {
             ['nothing when no message names one', [{ role: 'assistant', content: 'only' }], undefined],
             [
                 'nothing when the only named reason is longer than any real value',
-                [{ role: 'assistant', content: 'only', finish_reason: 'x'.repeat(65) }],
+                [{ role: 'assistant', content: 'only', finish_reason: 'x'.repeat(129) }],
                 undefined,
             ],
         ])('reads %s', (_label, outputChoices, expected) => {

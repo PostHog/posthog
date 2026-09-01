@@ -4,7 +4,7 @@
 
 // Real finish reasons are short enum-like strings. The cap keeps a malformed or hostile attribute
 // from landing a blob in $ai_stop_reason, matching the size guards on other parsed OTel payloads.
-const MAX_STOP_REASON_LENGTH = 64
+const MAX_STOP_REASON_LENGTH = 128
 
 export function usableStopReason(value: unknown): string | undefined {
     return typeof value === 'string' && value !== '' && value.length <= MAX_STOP_REASON_LENGTH ? value : undefined

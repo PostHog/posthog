@@ -343,7 +343,7 @@ describe('mapOtelAttributes', () => {
                 {
                     role: 'assistant',
                     content: 'oversized',
-                    finish_reason: 'x'.repeat(65),
+                    finish_reason: 'x'.repeat(129),
                     'event.name': 'gen_ai.choice',
                 },
             ]
