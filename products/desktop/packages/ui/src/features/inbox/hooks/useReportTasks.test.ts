@@ -1,6 +1,7 @@
 import type { Task, TaskRun, TaskRunStatus } from "@posthog/shared/types";
 import { describe, expect, it } from "vitest";
 import {
+  derivePurpose,
   findContinuableImplementationTask,
   findLatestDiscussionTask,
   findPendingStartedTaskId,
@@ -59,6 +60,33 @@ function entry(
 ): ReportTaskData {
   return { task, purpose, purposeLabel: purpose, startedAt: task.created_at };
 }
+
+describe("derivePurpose", () => {
+  it.each([
+    ["research", "Research"],
+    ["implementation", "Implementation"],
+    ["discussion", "Discussion"],
+    ["scout", "Scout"],
+    ["a_future_run_type", "A future run type"],
+  ])("keeps the signals %s run in the list", (type, purposeLabel) => {
+    expect(derivePurpose({ product: "signals", type })?.purposeLabel).toBe(
+      purposeLabel,
+    );
+  });
+
+  it("drops repo selection plumbing", () => {
+    expect(
+      derivePurpose({ product: "signals", type: "repo_selection" }),
+    ).toBeNull();
+  });
+
+  it("labels a custom agent run with its product and type", () => {
+    expect(derivePurpose({ product: "my_agent", type: "sweep" })).toEqual({
+      purpose: "other",
+      purposeLabel: "My agent — Sweep",
+    });
+  });
+});
 
 describe("findContinuableImplementationTask", () => {
   it("returns null when there are no report tasks", () => {

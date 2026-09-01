@@ -24,7 +24,7 @@ export interface ReportTaskData {
   startedAt: string;
 }
 
-function derivePurpose(taskRun: {
+export function derivePurpose(taskRun: {
   product: string;
   type: string;
 }): { purpose: ReportTaskPurpose; purposeLabel: string } | null {
@@ -38,9 +38,13 @@ function derivePurpose(taskRun: {
     if (taskRun.type === "discussion") {
       return { purpose: "discussion", purposeLabel: "Discussion" };
     }
-    // repo_selection runs are plumbing, not report work — never displayed (matches the
-    // pre-derivation behavior of only showing research/implementation).
-    return null;
+    if (taskRun.type === "repo_selection") {
+      // Pipeline plumbing, not report work — never displayed.
+      return null;
+    }
+    // Every other run type (scout today, whatever ships next) is real work on the
+    // report, so humanize it rather than drop it.
+    return { purpose: "other", purposeLabel: humanizeIdentifier(taskRun.type) };
   }
   return {
     purpose: "other",
