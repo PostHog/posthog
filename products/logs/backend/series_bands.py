@@ -26,7 +26,7 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.utils import ensure_utc, relative_date_parse_with_delta_mapping
 
-WINDOW_DAYS = 7
+DEFAULT_WINDOW_DAYS = 7
 MAX_WINDOW_DAYS = 7
 VOLUME_BUCKETS_TTL_DAYS = 42  # TTL on logs_volume_buckets, see posthog/clickhouse/hcl/sql/*/logs.sql
 # The whole window has to sit inside that retention, or the observed line itself
@@ -280,12 +280,17 @@ _UTC_ZONE = ZoneInfo("UTC")
 
 
 def _parse_bound(value: str, *, now: dt.datetime, week_start_day: int | None) -> dt.datetime:
-    parsed, delta_mapping, position = relative_date_parse_with_delta_mapping(
-        value,
-        _UTC_ZONE,
-        now=now,
-        team_week_start_day=week_start_day,
-    )
+    try:
+        parsed, delta_mapping, position = relative_date_parse_with_delta_mapping(
+            value,
+            _UTC_ZONE,
+            now=now,
+            team_week_start_day=week_start_day,
+        )
+    except (OverflowError, ValueError) as err:
+        # An offset far outside the representable date range overflows inside the
+        # shared parser rather than returning a date the range checks could reject.
+        raise SeriesBandsWindowInvalid("The window bounds are not dates this endpoint understands.") from err
     # A week-commencing bound such as -1wStart has to land on a boundary, but
     # truncating a plain -7d would push the span past its own length limit, so
     # only the inputs that matched a Start/End position get snapped.
@@ -305,7 +310,7 @@ def resolve_window(
     interval_minutes: int = 60,
     now: dt.datetime | None = None,
 ) -> tuple[dt.datetime, dt.datetime]:
-    """Turn a request date range into the snapped window to chart, defaulting to the last WINDOW_DAYS."""
+    """Turn a request date range into the snapped window to chart, defaulting to the last DEFAULT_WINDOW_DAYS."""
     # Wall clock, never max(time_bucket): prod carries future buckets from
     # device clock skew (ingest clamps at +24h), and the exclusive window_end
     # bound is what keeps them out of the observed line.
@@ -316,7 +321,7 @@ def resolve_window(
     window_start = (
         _parse_bound(date_from, now=now, week_start_day=week_start_day)
         if date_from
-        else window_end - dt.timedelta(days=WINDOW_DAYS)
+        else window_end - dt.timedelta(days=DEFAULT_WINDOW_DAYS)
     )
     # Snapping can move either bound by up to one interval, so every check runs
     # on the snapped values the query will actually see.

@@ -205,6 +205,7 @@ class TestResolveWindow(SimpleTestCase):
             ("inverted", "2026-06-10T00:00:00Z", "2026-06-09T00:00:00Z"),
             ("too_long", "-14d", None),
             ("start_beyond_retention", "-40d", "-34d"),
+            ("offset_overflows_the_calendar", "99999999999999d", None),
         ]
     )
     def test_rejects_invalid_windows(self, _name, date_from, date_to):
