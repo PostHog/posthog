@@ -352,6 +352,18 @@ class TestWorkflowProposals(APIBaseTest):
         # An archived workflow drops out even though someone opted it in: its metrics are history.
         assert [row["id"] for row in listed.json()["results"]] == [opted_in]
 
+    def test_metrics_can_be_read_for_one_version(self, _mock_flag):
+        # The evidence behind a suggestion is per version, and a producer reads it over the API. The
+        # unversioned read is every version at once, which cannot answer "did this change help".
+        flow_id = self._create_active_flow()
+
+        whole_history = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/metrics/totals")
+        one_version = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/metrics/totals?version=1")
+
+        assert whole_history.status_code == 200, whole_history.json()
+        assert one_version.status_code == 200, one_version.json()
+        assert "totals" in one_version.json()
+
     def test_provenance_comes_from_the_transport_not_the_payload(self, _mock_flag):
         flow_id = self._create_active_flow()
         response = self.client.post(
