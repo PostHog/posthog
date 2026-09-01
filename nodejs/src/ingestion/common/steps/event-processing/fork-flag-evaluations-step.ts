@@ -129,12 +129,14 @@ export function createForkFlagEvaluationsStep<T extends ForkFlagEvaluationsStepI
             const settled = ack.then(
                 () => {
                     flagEvaluationsPendingAcks.dec(messages.length)
+                    // Observe latency only on a real ack. A failed produce, especially a
+                    // local reject like MessageSizeTooLarge, settles before any broker
+                    // round trip, so timing it would pull the ack-latency signal down.
                     stopAckTimer()
                     flagEvaluationsEventsTotal.labels('dual_written').inc(messages.length)
                 },
                 (error: unknown) => {
                     flagEvaluationsPendingAcks.dec(messages.length)
-                    stopAckTimer()
                     if (error instanceof MessageSizeTooLarge) {
                         // An oversized row is a property of the row, not of the broker, so
                         // it gets its own outcome and no warning: retrying or alerting on
