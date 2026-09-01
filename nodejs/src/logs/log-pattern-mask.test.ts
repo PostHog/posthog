@@ -1,9 +1,17 @@
 import { createHash } from 'node:crypto'
 import RE2 from 're2'
 
-import { JSON_ARRAY, MASK_RULES, PATTERN_VERSION, computeLogPattern, maskString } from './log-pattern-mask'
+import {
+    JSON_ARRAY,
+    MASK_RULES,
+    PATTERN_CAPS,
+    PATTERN_VERSION,
+    type PatternCaps,
+    computeLogPattern,
+    maskString,
+} from './log-pattern-mask'
 
-const NO_CAP = 100_000
+const caps = (overrides: Partial<PatternCaps>): PatternCaps => ({ ...PATTERN_CAPS, ...overrides })
 
 describe('log-pattern-mask', () => {
     describe('maskString', () => {
@@ -116,26 +124,26 @@ describe('log-pattern-mask', () => {
     describe('computeLogPattern', () => {
         it('masks before truncating, so a UUID straddling the cut point still yields its placeholder', () => {
             const body = 'abcdefghij 0f2d6faf-07e3-4cff-bf47-7efa1024aee2'
-            const result = computeLogPattern(body, NO_CAP, 20)
+            const result = computeLogPattern(body, caps({ maxOutputChars: 20 }))
             expect(result.pattern).toEqual('abcdefghij <UUID>')
             expect(result.maskedLength).toEqual('abcdefghij <UUID>'.length)
         })
 
         it('reports the pre-truncation masked length and truncates the pattern', () => {
-            const result = computeLogPattern('x'.repeat(50), NO_CAP, 10)
+            const result = computeLogPattern('x'.repeat(50), caps({ maxOutputChars: 10 }))
             expect(result.pattern).toEqual('x'.repeat(10))
             expect(result.maskedLength).toEqual(50)
         })
 
         it('caps the input before masking and reports it', () => {
-            const result = computeLogPattern('abc 12345678', 6, NO_CAP)
+            const result = computeLogPattern('abc 12345678', caps({ maxInputChars: 6 }))
             expect(result.inputCapped).toEqual(true)
             expect(result.pattern).toEqual('abc <N>')
         })
 
         it('caps the raw body before the JSON parse, so an oversized JSON body is treated as truncated prose', () => {
             const body = JSON.stringify({ message: 'x'.repeat(100) })
-            const result = computeLogPattern(body, 20, NO_CAP)
+            const result = computeLogPattern(body, caps({ maxInputChars: 20 }))
             expect(result.inputCapped).toEqual(true)
             expect(result.bodyKind).toEqual('plaintext')
             expect(result.pattern).toEqual(body.slice(0, 20))
@@ -159,13 +167,13 @@ describe('log-pattern-mask', () => {
             ['json number primitive', '42', 'primitive', '<N>'],
             ['prose body', 'plain text 3', 'plaintext', 'plain text <N>'],
         ])('body kind %s', (_name, body, expectedKind, expectedPattern) => {
-            const result = computeLogPattern(body, NO_CAP, NO_CAP)
+            const result = computeLogPattern(body)
             expect(result.bodyKind).toEqual(expectedKind)
             expect(result.pattern).toEqual(expectedPattern)
         })
 
         describe('key-set identity for message-less JSON objects', () => {
-            const patternOf = (body: string): string => computeLogPattern(body, NO_CAP, NO_CAP).pattern
+            const patternOf = (body: string): string => computeLogPattern(body).pattern
 
             it('is independent of source key order', () => {
                 expect(patternOf('{"b":1,"a":2}')).toEqual('<JSON:a,b>')
@@ -179,13 +187,13 @@ describe('log-pattern-mask', () => {
                 const expected = `<JSON:${keys.slice(0, 32).join(',')},+8>`
                 expect(patternOf(forward)).toEqual(expected)
                 expect(patternOf(reversed)).toEqual(expected)
-                expect(computeLogPattern(forward, NO_CAP, NO_CAP).jsonKeyCount).toEqual(40)
+                expect(computeLogPattern(forward).jsonKeyCount).toEqual(40)
             })
 
             it('reports the key count only for key-set patterns', () => {
-                expect(computeLogPattern('{"a":1}', NO_CAP, NO_CAP).jsonKeyCount).toEqual(1)
-                expect(computeLogPattern('[1,2]', NO_CAP, NO_CAP).jsonKeyCount).toBeUndefined()
-                expect(computeLogPattern('{"message":"hi"}', NO_CAP, NO_CAP).jsonKeyCount).toBeUndefined()
+                expect(computeLogPattern('{"a":1}').jsonKeyCount).toEqual(1)
+                expect(computeLogPattern('[1,2]').jsonKeyCount).toBeUndefined()
+                expect(computeLogPattern('{"message":"hi"}').jsonKeyCount).toBeUndefined()
             })
 
             it('renders an empty object as an empty key set', () => {
@@ -205,12 +213,63 @@ describe('log-pattern-mask', () => {
     })
 
     describe('PATTERN_VERSION ratchet', () => {
-        it('moves whenever MASK_RULES changes', () => {
-            const digest = createHash('sha256')
-                .update(MASK_RULES.map((rule) => `${rule.name}\0${rule.pattern}\0${rule.replacement}`).join('\x01'))
+        /**
+         * Bodies chosen to reach every branch that decides a pattern's shape: each mask rule, the
+         * message keys, the key-set and array forms, both caps, and the order of parse and cap.
+         */
+        const CORPUS: (string | null)[] = [
+            null,
+            '',
+            'started at 2026-08-24T10:20:45.123Z ok',
+            'I0827 11:39:40.307946 1 proxier.go:1484] reloading',
+            'request 0f2d6faf-07e3-4cff-bf47-7efa1024aee2 took 7141ms',
+            'mail ops@example.com via api.example.com at 10.0.0.7 slot 0xdeadbeef',
+            '{"message":"user 5 logged in","level":"info"}',
+            '{"msg":"served 3 requests"}',
+            '{"level":"info","count":3}',
+            '[1,2,3]',
+            '"a bare json string with 4 words"',
+            'true',
+            'x'.repeat(PATTERN_CAPS.maxInputChars + 10),
+            JSON.stringify({ msg: 'discovered 3 peers', pad: 'y'.repeat(PATTERN_CAPS.maxInputChars) }),
+            `head ${'z'.repeat(PATTERN_CAPS.maxOutputChars)} tail`,
+        ]
+
+        /**
+         * One frozen digest per version, never edited in place. Editing an entry rewrites the shape of
+         * rows already in ClickHouse under that version, so the only correct fix for a red digest is a
+         * new entry under a new `PATTERN_VERSION`.
+         *
+         * Versions before 3 predate this ratchet, so no digest was recorded for them.
+         */
+        const SHAPE_DIGESTS: Record<number, string> = {
+            3: '1dfc6aa769551bae',
+        }
+
+        const shapeDigest = (): string =>
+            createHash('sha256')
+                .update(CORPUS.map((body) => computeLogPattern(body).pattern).join('\x01'))
                 .digest('hex')
                 .slice(0, 16)
-            expect({ version: PATTERN_VERSION, digest }).toEqual({ version: 3, digest: '599889a916d04e14' })
+
+        it('pins the emitted patterns to the current version', () => {
+            // Hashing emitted patterns rather than the rules that make them is what makes this a gate:
+            // MASK_RULES, PATTERN_CAPS, MESSAGE_KEYS, the key-set form, and the order of parse and cap
+            // all move the digest. Do not edit the entry for the current version to make this pass.
+            expect({ [PATTERN_VERSION]: shapeDigest() }).toEqual({ [PATTERN_VERSION]: SHAPE_DIGESTS[PATTERN_VERSION] })
+        })
+
+        it('carries a digest for every version since the ratchet, so a bump cannot drop its predecessor', () => {
+            const recorded = Object.keys(SHAPE_DIGESTS)
+                .map(Number)
+                .sort((left, right) => left - right)
+            const expected = Array.from({ length: PATTERN_VERSION - 2 }, (_unused, index) => index + 3)
+            expect(recorded).toEqual(expected)
+        })
+
+        it('never reuses a digest across versions, so a bump without a shape change is caught', () => {
+            const digests = Object.values(SHAPE_DIGESTS)
+            expect(new Set(digests).size).toEqual(digests.length)
         })
     })
 

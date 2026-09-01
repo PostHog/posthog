@@ -4,6 +4,26 @@ import { parseLogBodyForIngestion } from './log-body-parse'
 
 export const PATTERN_VERSION = 3
 
+/**
+ * Everything here shapes the emitted pattern, so it sits inside `PATTERN_VERSION`: two records may
+ * only be grouped by `pattern` when they carry the same version.
+ *
+ * These are constants rather than config for that reason. A per-pod override would let two pods stamp
+ * one version onto differently shaped patterns, which no consumer could detect. The shape-safe
+ * operational lever is `LOGS_PATTERN_MASKING_ENABLED_TEAMS`, which stops masking instead of changing it.
+ */
+export type PatternCaps = {
+    /** Ceiling on the body chars fed to the masker; longer bodies are cut first (CPU guard). */
+    maxInputChars: number
+    /** Truncation applied to the masked pattern, after masking, so more real content survives the cut. */
+    maxOutputChars: number
+}
+
+export const PATTERN_CAPS: PatternCaps = {
+    maxInputChars: 8192,
+    maxOutputChars: 1024,
+}
+
 export type MaskRuleName = 'timestamp' | 'klogtime' | 'uuid' | 'email' | 'host' | 'hex0x' | 'hex' | 'ipv4' | 'num'
 
 export type MaskRule = {
@@ -124,17 +144,13 @@ function jsonKeySetPattern(value: object): string {
     return `<JSON:${kept.join(',')}${overflow > 0 ? `,+${overflow}` : ''}>`
 }
 
-export function computeLogPattern(
-    body: string | null | undefined,
-    maxInputChars: number,
-    maxOutputChars: number
-): LogPatternResult {
+export function computeLogPattern(body: string | null | undefined, caps: PatternCaps = PATTERN_CAPS): LogPatternResult {
     if (body === null || body === undefined || body === '') {
         return { pattern: '', bodyKind: 'empty', inputCapped: false, maskedLength: 0, ruleFires: [] }
     }
 
-    const inputCapped = body.length > maxInputChars
-    const cappedBody = inputCapped ? body.slice(0, maxInputChars) : body
+    const inputCapped = body.length > caps.maxInputChars
+    const cappedBody = inputCapped ? body.slice(0, caps.maxInputChars) : body
     const parsed = parseLogBodyForIngestion(cappedBody)
     const bodyKind: PatternBodyKind =
         parsed.kind === 'json_primitive' ? 'primitive' : parsed.kind === 'invalid_json' ? 'plaintext' : parsed.kind
@@ -150,7 +166,7 @@ export function computeLogPattern(
                 const isArray = Array.isArray(parsed.value)
                 const pattern = isArray ? JSON_ARRAY : jsonKeySetPattern(parsed.value)
                 return {
-                    pattern: pattern.length > maxOutputChars ? pattern.slice(0, maxOutputChars) : pattern,
+                    pattern: pattern.length > caps.maxOutputChars ? pattern.slice(0, caps.maxOutputChars) : pattern,
                     bodyKind,
                     inputCapped,
                     maskedLength: pattern.length,
@@ -174,7 +190,7 @@ export function computeLogPattern(
 
     const { masked, ruleFires } = maskString(maskInput)
     return {
-        pattern: masked.length > maxOutputChars ? masked.slice(0, maxOutputChars) : masked,
+        pattern: masked.length > caps.maxOutputChars ? masked.slice(0, caps.maxOutputChars) : masked,
         bodyKind,
         inputCapped,
         maskedLength: masked.length,
