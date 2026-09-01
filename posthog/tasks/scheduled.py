@@ -101,6 +101,7 @@ from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.tasks import (
     pause_inactive_signal_scouts,
+    prune_expired_scratchpad_entries_task,
     refresh_signal_repository_activity,
     sync_pending_signals_refund_credits,
 )
@@ -346,6 +347,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="6", minute="15"),
         pause_inactive_signal_scouts.s(),
         name="pause inactive signals scouts",
+    )
+
+    # Hard-delete signals scratchpad entries long past their expiry - daily at 6:45 AM
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="6", minute="45"),
+        prune_expired_scratchpad_entries_task.s(),
+        name="prune expired signals scratchpad entries",
     )
 
     # Keep the signals repository area-activity cache warm - weekly, Monday early morning
