@@ -1205,6 +1205,14 @@ class DashboardCustomizationSerializer(serializers.Serializer):
     )
 
 
+class BreakdownColorsField(serializers.ListField):
+    # Writes still require a list of objects; reads tolerate legacy rows that stored a non-list value.
+    def to_representation(self, data: Any) -> list[Any]:
+        if not isinstance(data, list):
+            return []
+        return super().to_representation(data)
+
+
 class DashboardMetadataSerializer(DashboardBasicSerializer):
     filters = serializers.SerializerMethodField()
     variables = serializers.SerializerMethodField()
@@ -1213,7 +1221,7 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     effective_restriction_level = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
-    breakdown_colors = serializers.ListField(
+    breakdown_colors = BreakdownColorsField(
         child=serializers.DictField(),
         required=False,
         help_text="Custom color mapping for breakdown values, as a list of breakdown color config objects.",
