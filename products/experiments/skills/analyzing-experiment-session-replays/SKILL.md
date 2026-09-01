@@ -162,7 +162,7 @@ worth checking with the people who produced it. Once per conversation at most; d
 Default to asking every exposed user rather than one variant: a popover shown to only one arm is itself a
 difference between the arms, and the response event carries the variant anyway, so the split survives.
 
-→ See `references/qualitative-feedback.md` in [[diagnosing-experiment-results]]
+→ See [`references/qualitative-feedback.md`](../diagnosing-experiment-results/references/qualitative-feedback.md) in [[diagnosing-experiment-results]]
 
 ## Example interaction
 
