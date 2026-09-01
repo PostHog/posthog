@@ -220,6 +220,43 @@ class TestComputeOptionsEndpoint(APIBaseTest):
         mock_runtime.return_value.restart.assert_not_called()
         assert response.json()["restarted"] is False
 
+    @patch(
+        "products.notebooks.backend.presentation.views.notebook.NotebookViewSet._sandbox_is_running",
+        return_value=True,
+    )
+    @patch("products.notebooks.backend.presentation.views.notebook.get_kernel_runtime")
+    def test_a_failed_restart_keeps_the_shape_that_is_running(self, mock_runtime: MagicMock, _alive: MagicMock) -> None:
+        # The write has to precede the restart because the restart reads it. When the restart does
+        # not happen, the old sandbox is still running, so the row has to go back or every later
+        # status prices a shape nobody is on.
+        mock_runtime.return_value.restart.side_effect = RuntimeError("lock timeout")
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, kernel_cpu_cores=1, kernel_memory_gb=2)
+        self._live_kernel(notebook)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/kernel/config/",
+            {"cpu_cores": 8, "memory_gb": 16},
+        )
+
+        assert response.status_code == 200, response.json()
+        payload = response.json()
+        assert payload["restarted"] is False
+        assert payload["restart_required"] is True
+        # Quoted against the running shape, not the one that failed to apply.
+        assert payload["cpu_cores"] == 1
+        assert payload["memory_gb"] == 2
+        assert payload["hourly_price"] == get_compute_rates().hourly_price(cpu_cores=1, memory_gb=2)
+
+        notebook.refresh_from_db()
+        assert notebook.kernel_cpu_cores == 1
+        assert notebook.kernel_memory_gb == 2
+
+        # And the next status poll, which is where the old bug became permanent.
+        status_payload = self.client.get(
+            f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/kernel/status/"
+        ).json()
+        assert status_payload["hourly_price"] == get_compute_rates().hourly_price(cpu_cores=1, memory_gb=2)
+
     def test_a_new_sandbox_gets_the_default_preset_shape(self) -> None:
         notebook = Notebook.objects.create(team=self.team, created_by=self.user)
         default_preset = get_default_compute_preset()
