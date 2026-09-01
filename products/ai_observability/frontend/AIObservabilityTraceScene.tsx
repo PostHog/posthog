@@ -1736,14 +1736,22 @@ const EventContent = React.memo(
                                         <>
                                             {isTopLevelTraceWithoutContent ? (
                                                 <InsightEmptyState
-                                                    heading="No top-level trace event"
+                                                    heading="This trace doesn't have its own input and output"
                                                     detail={
                                                         <>
-                                                            This trace doesn't have an associated <code>$ai_trace</code>{' '}
-                                                            event.
+                                                            This trace groups the events in the tree, and the content is
+                                                            on those events. Select an event to view its input and
+                                                            output.
                                                             <br />
-                                                            Click on individual generations in the tree to view their
-                                                            content.
+                                                            To record an input and output for the whole trace, capture a{' '}
+                                                            <Link
+                                                                to="https://posthog.com/docs/ai-observability/installation/manual-capture"
+                                                                target="_blank"
+                                                            >
+                                                                <code>$ai_trace</code> event
+                                                            </Link>{' '}
+                                                            with <code>$ai_input_state</code> and{' '}
+                                                            <code>$ai_output_state</code> properties.
                                                         </>
                                                     }
                                                 />
