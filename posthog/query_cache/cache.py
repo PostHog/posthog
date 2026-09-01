@@ -7,6 +7,7 @@ from django.conf import settings
 import structlog
 
 from posthog.cache_utils import OrjsonJsonSerializer
+from posthog.clickhouse.query_tagging import AccessMethod
 from posthog.query_cache.failures import Budget, FailureKind, QueryFailureCache, QueryFailureRecord
 from posthog.query_cache.freshness_index import remove_last_refresh, update_target_age
 from posthog.query_cache.metrics import count_cache_write_data
@@ -33,11 +34,9 @@ class CacheLookup:
     failure: Optional[QueryFailureRecord] = None
 
 
-# Writers that are code rather than a person in the app: API keys and OAuth/JWT clients.
-# sharing_token is absent on purpose: shared links render for people in a browser.
-PROGRAMMATIC_ACCESS_METHODS = frozenset(
-    {"personal_api_key", "project_secret_api_key", "team_secret_token", "oauth", "id_jag"}
-)
+# Every tagged access method is code calling the API (API keys, OAuth and JWT clients), except
+# sharing tokens, which render shared links for people in a browser. Session logins carry no tag.
+PROGRAMMATIC_ACCESS_METHODS: frozenset[AccessMethod] = frozenset(AccessMethod) - {AccessMethod.SHARING_TOKEN}
 
 
 def retention_ttl(*, insight_id: Optional[int], dashboard_id: Optional[int], access_method: Optional[str]) -> int:
