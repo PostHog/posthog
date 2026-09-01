@@ -172,6 +172,15 @@ def persisted_repo_selection(report_id: str) -> "RepoSelectionResult | None":
     return persisted_repo_selection_impl(report_id)
 
 
+def wrong_repo_corrections_block(team_id: int) -> str | None:
+    """Facade entrypoint for the team's rendered wrong-repo corrections. See repo_corrections.wrong_repo_corrections_block."""
+    from products.signals.backend.repo_corrections import (
+        wrong_repo_corrections_block as wrong_repo_corrections_block_impl,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    return wrong_repo_corrections_block_impl(team_id)
+
+
 def autostart_base_branch_for_repository(team_id: int, repository: str | None) -> str | None:
     """Team's configured base branch for ``repository``, for callers outside the signals product."""
     if not repository:

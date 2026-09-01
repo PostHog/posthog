@@ -3,13 +3,9 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 
-import { DISMISSAL_REASON_OPTIONS, DismissalReasonValue } from '../../utils/dismissalReasons'
+import { DISMISSAL_REASON_OPTIONS, DismissalFeedback, DismissalReasonValue } from '../../utils/dismissalReasons'
+import { DismissCorrectedRepoField } from './DismissCorrectedRepoField'
 import { HotkeyRadio } from './HotkeyRadio'
-
-export interface DismissReportDialogResult {
-    reason: DismissalReasonValue
-    note: string
-}
 
 interface OpenDismissReportDialogParams {
     /** Report title for single-report copy. Ignored when `selectedCount > 1`. */
@@ -18,8 +14,8 @@ interface OpenDismissReportDialogParams {
     selectedCount?: number
     /** Show a digit keycap on each reason and let 1..9 pick it. On for triage mode, where the whole flow is keyboard-driven. */
     hotkeys?: boolean
-    /** Called with the chosen reason + note once the user confirms. */
-    onConfirm: (result: DismissReportDialogResult) => void | Promise<void>
+    /** Called with the chosen reason, note and optional repo correction once the user confirms. */
+    onConfirm: (result: DismissalFeedback) => void | Promise<void>
 }
 
 const REASON_RADIO_OPTIONS: LemonRadioOption<DismissalReasonValue>[] = DISMISSAL_REASON_OPTIONS.map((option) => ({
@@ -53,17 +49,24 @@ export function openDismissReportDialog({
         description,
         maxWidth: '36rem',
         overlayClassName: '!items-center',
-        initialValues: { reason: null as DismissalReasonValue | null, note: '' },
+        initialValues: {
+            reason: null as DismissalReasonValue | null,
+            note: '',
+            correctedRepository: null as string | null,
+        },
         content: (
             <div className="flex flex-col gap-3">
                 <LemonField name="reason" label="Reason">
-                    {({ value, onChange }) =>
-                        hotkeys ? (
-                            <HotkeyRadio value={value} onChange={onChange} options={DISMISSAL_REASON_OPTIONS} />
-                        ) : (
-                            <LemonRadio value={value} onChange={onChange} options={REASON_RADIO_OPTIONS} />
-                        )
-                    }
+                    {({ value, onChange }) => (
+                        <div className="flex flex-col gap-3">
+                            {hotkeys ? (
+                                <HotkeyRadio value={value} onChange={onChange} options={DISMISSAL_REASON_OPTIONS} />
+                            ) : (
+                                <LemonRadio value={value} onChange={onChange} options={REASON_RADIO_OPTIONS} />
+                            )}
+                            {value === 'wrong_repo' && <DismissCorrectedRepoField />}
+                        </div>
+                    )}
                 </LemonField>
                 <LemonField name="note" label="Note" info="Optional. The agent reads it on its next run.">
                     <LemonTextArea
@@ -80,11 +83,16 @@ export function openDismissReportDialog({
         },
         primaryButtonProps: { children: 'Dismiss & teach the agent' },
         shouldAwaitSubmit: true,
-        onSubmit: async ({ reason, note }) => {
+        onSubmit: async ({ reason, note, correctedRepository }) => {
             if (!reason) {
                 return
             }
-            await onConfirm({ reason, note: (note ?? '').trim() })
+            await onConfirm({
+                reason,
+                note: (note ?? '').trim(),
+                // A correction picked and then abandoned for another reason must not ride along.
+                correctedRepository: reason === 'wrong_repo' ? (correctedRepository ?? null) : null,
+            })
         },
     })
 }
