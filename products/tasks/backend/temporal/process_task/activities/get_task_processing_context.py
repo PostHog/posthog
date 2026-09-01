@@ -1,3 +1,5 @@
+import json
+import hashlib
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -15,6 +17,7 @@ from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
+    BENJAMIN_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     DEV_STACK_IMAGE_NAME,
@@ -134,6 +137,7 @@ class TaskProcessingContext:
     # The kill-switch flag wins over everything; otherwise a per-run state override
     # (the user's toggle) applies. Captured at workflow start so it's stable across retries.
     rtk_enabled: bool = True
+    benjamin_enabled: bool = False
     # Captured at workflow start so the continue_as_new trigger is deterministic across replay.
     continue_as_new_enabled: bool = False
     continue_as_new_history_threshold: int = 0
@@ -436,6 +440,66 @@ def _is_rtk_enabled(
         return state_override
 
     return True
+
+
+def _is_benjamin_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+    origin_product: str | None = None,
+    state: dict | None = None,
+) -> bool:
+    run_state = state or {}
+    launched_value = run_state.get("benjamin_effective")
+    if isinstance(launched_value, bool):
+        return launched_value
+
+    state_override = run_state.get("benjamin_enabled")
+    if isinstance(state_override, bool):
+        return state_override
+
+    try:
+        payload = posthoganalytics.get_feature_flag_payload(
+            BENJAMIN_FEATURE_FLAG,
+            distinct_id=distinct_id,
+            groups={"organization": organization_id},
+            group_properties={"organization": {"id": organization_id}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+        fraction = _benjamin_rollout_fraction(payload, origin_product)
+    except Exception as e:
+        log_with_activity_context("benjamin_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    if fraction <= 0:
+        return False
+    if fraction >= 1:
+        return True
+    bucket = int(hashlib.sha256(f"{BENJAMIN_FEATURE_FLAG}:{run_id}".encode()).hexdigest()[:16], 16) / 2**64
+    return bucket < fraction
+
+
+def _benjamin_rollout_fraction(payload: object, origin_product: str | None) -> float:
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            return 0.0
+    if not isinstance(payload, dict):
+        return 0.0
+
+    origins = payload.get("origins")
+    if isinstance(origins, dict) and origin_product in origins:
+        return _benjamin_fraction_value(origins[origin_product])
+    return _benjamin_fraction_value(payload.get("default"))
+
+
+def _benjamin_fraction_value(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return 0.0
+    return float(value)
 
 
 def _is_sandbox_event_ingest_enabled(
@@ -1258,10 +1322,17 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id=run_id,
         state=state,
     )
+    benjamin_enabled = _is_benjamin_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        origin_product=task.origin_product,
+        state=state,
+    )
     emit_agent_log(
         run_id,
         "debug",
-        f"rtk_enabled: {rtk_enabled} for this task run",
+        f"rtk_enabled: {rtk_enabled}, benjamin_enabled: {benjamin_enabled} for this task run",
     )
     # The same test that mints the token's interactive-run marker: user-started signals runs get
     # a finite wall-clock ceiling because their inference is unbilled and the generic interactive
@@ -1378,6 +1449,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         agent_proxy_keep_stream_open=agent_proxy_keep_stream_open,
         custom_image_name=custom_image_name,
         rtk_enabled=rtk_enabled,
+        benjamin_enabled=benjamin_enabled,
         continue_as_new_enabled=_is_continue_as_new_enabled(
             distinct_id=distinct_id,
             organization_id=organization_id,
