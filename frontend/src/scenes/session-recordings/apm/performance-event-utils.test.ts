@@ -334,6 +334,19 @@ describe('performance-event-utils', () => {
         }
     })
 
+    it.each([
+        // the detail view prefers formattedDecodedBodySize; an unknown 0 must not become "0 bytes",
+        // or it contradicts the "size not available" row
+        [
+            'an unknown (0) body size is not formatted',
+            { transfer_size: 0, encoded_body_size: 0, decoded_body_size: 0 },
+            null,
+        ],
+        ['a measured body size is formatted', { transfer_size: 0, decoded_body_size: 5120 }, '5.00 kB'],
+    ])('itemSizeInfo formattedDecodedBodySize: %s', (_name, item, expected) => {
+        expect(itemSizeInfo(item as PerformanceEvent).formattedDecodedBodySize).toEqual(expected)
+    })
+
     it('skips malformed entries in rrweb/network@1 requests instead of crashing', () => {
         const snapshot = {
             windowId: '018d5247-079c-7126-8e43-464605576a62',

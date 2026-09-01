@@ -369,12 +369,15 @@ export interface PerformanceEventSizeInfo {
 export function itemSizeInfo(item: PerformanceEvent): PerformanceEventSizeInfo {
     const bytes = bytesFrom(item)
     const formattedBytes = humanizeBytes(bytes)
-    const decodedBodySize = isPositiveNumber(item.decoded_body_size) ? item.decoded_body_size : null
-    const formattedDecodedBodySize = isPositiveNumber(decodedBodySize) ? humanizeBytes(decodedBodySize) : null
-    const encodedBodySize = isPositiveNumber(item.encoded_body_size) ? item.encoded_body_size : null
-    const formattedEncodedBodySize = isPositiveNumber(encodedBodySize) ? humanizeBytes(encodedBodySize) : null
+    // A body size of 0 means "unknown", not "empty" (cross-origin, opaque, blocked), the same
+    // as in bytesFrom. Treat it as unknown so the detail view does not say "to load 0 bytes of
+    // data" where the row shows "size not available".
+    const decodedBodySize = hasMeasuredSize(item.decoded_body_size) ? item.decoded_body_size : null
+    const formattedDecodedBodySize = hasMeasuredSize(decodedBodySize) ? humanizeBytes(decodedBodySize) : null
+    const encodedBodySize = hasMeasuredSize(item.encoded_body_size) ? item.encoded_body_size : null
+    const formattedEncodedBodySize = hasMeasuredSize(encodedBodySize) ? humanizeBytes(encodedBodySize) : null
     const compressionPercentage =
-        isPositiveNumber(item.decoded_body_size) && isPositiveNumber(item.encoded_body_size)
+        hasMeasuredSize(item.decoded_body_size) && hasMeasuredSize(item.encoded_body_size)
             ? ((item.decoded_body_size - item.encoded_body_size) / item.decoded_body_size) * 100
             : null
     const formattedCompressionPercentage = isPositiveNumber(compressionPercentage)
