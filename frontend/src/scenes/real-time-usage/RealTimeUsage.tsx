@@ -65,6 +65,7 @@ function RealTimeUsageBody(): JSX.Element {
         usageRange,
     } = useValues(realTimeUsageLogic)
     const { loadUsageData, setUsageFilters } = useActions(realTimeUsageLogic)
+    const projectCount = selectedProjectIds.length || projectOptions.length
 
     return (
         <SceneContent>
@@ -185,11 +186,21 @@ function RealTimeUsageBody(): JSX.Element {
                                 Each line represents one {breakdownByProject ? 'project, ' : ''}product area, usage
                                 type, and unit.
                             </p>
-                            <div className="h-100 rounded border bg-surface-primary p-2">
-                                {usageDataLoading || !usageData ? (
+                            <div className="relative h-100 rounded border bg-surface-primary p-2">
+                                {!usageData ? (
                                     <LemonSkeleton className="size-full" />
                                 ) : (
                                     <AppMetricsTimeSeriesChart timeSeries={usageData.timeSeries} showLegend />
+                                )}
+                                {usageDataLoading && projectCount > 0 && (
+                                    <div
+                                        className="absolute inset-0 flex items-center justify-center bg-surface-primary/80"
+                                        aria-live="polite"
+                                    >
+                                        <span className="rounded border bg-surface-primary px-3 py-2 text-sm text-secondary shadow-sm">
+                                            Loading usage for {projectCount} project{projectCount === 1 ? '' : 's'}…
+                                        </span>
+                                    </div>
                                 )}
                             </div>
                         </section>

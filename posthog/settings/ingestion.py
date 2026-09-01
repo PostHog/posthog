@@ -149,4 +149,5 @@ BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS: set[UUID | Literal["*"]] = {
     for organization_id in get_set(
         os.getenv("BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS", _BILLING_USAGE_RECORDS_DEFAULT_ORGANIZATION_IDS)
     )
+    if organization_id
 }

@@ -1,6 +1,9 @@
-import { HogQLQueryResponse } from '~/queries/schema/schema-general'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { filtersFromParams, parseUsageData } from './realTimeUsageLogic'
+import { HogQLQueryResponse } from '~/queries/schema/schema-general'
+import { initKeaTests } from '~/test/init'
+
+import { filtersFromParams, parseUsageData, realTimeUsageLogic } from './realTimeUsageLogic'
 
 const response = (results: unknown[][]): HogQLQueryResponse => ({ results }) as HogQLQueryResponse
 
@@ -11,6 +14,21 @@ describe('real-time usage logic', () => {
             breakdownByProject: true,
         })
         expect(filtersFromParams({ project_ids: '' }).projectIds).toEqual([])
+    })
+
+    it('drops project filters that are not in the organization', () => {
+        initKeaTests(true, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_PROJECT, { ...MOCK_DEFAULT_ORGANIZATION, teams: [] })
+        const logic = realTimeUsageLogic()
+        logic.mount()
+
+        logic.actions.setUsageFilters({
+            range: '1d',
+            granularity: 'hour',
+            projectIds: [999],
+            breakdownByProject: false,
+        })
+
+        expect(logic.values.selectedProjectIds).toEqual([])
     })
 
     it('keeps projects separate when the project breakdown is enabled', () => {

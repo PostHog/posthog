@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
+import { ConcurrencyController } from '~/lib/utils/concurrencyController'
 import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { OrganizationType } from '~/types'
 
@@ -44,6 +45,8 @@ const RANGE_SECONDS: Record<UsageRange, number> = {
     '7d': 7 * 24 * 60 * 60,
     '30d': 30 * 24 * 60 * 60,
 }
+
+const PROJECT_QUERY_CONCURRENCY = 5
 
 // Buckets are cut by integer arithmetic on the Unix timestamp rather than by dateTrunc, so a bucket
 // is the same absolute instant for every project and for the browser. dateTrunc cuts on the team's
@@ -202,15 +205,24 @@ export type realTimeUsageLogicType = MakeLogicType<realTimeUsageLogicValues, rea
 export const realTimeUsageLogic = kea<realTimeUsageLogicType>([
     path(['scenes', 'real-time-usage', 'realTimeUsageLogic']),
     connect(() => ({ values: [organizationLogic, ['currentOrganization']] })),
-    actions({
+    actions(({ values }) => ({
         // Normalized here so every caller, including a hand-edited URL, lands on a valid pair.
-        setUsageFilters: (filters: UsageFilters) => ({
-            filters: {
-                ...filters,
-                granularity: isGranularityAvailable(filters.granularity, filters.range) ? filters.granularity : 'hour',
-            },
-        }),
-    }),
+        setUsageFilters: (filters: UsageFilters) => {
+            const teams = values.currentOrganization?.teams
+
+            return {
+                filters: {
+                    ...filters,
+                    granularity: isGranularityAvailable(filters.granularity, filters.range)
+                        ? filters.granularity
+                        : 'hour',
+                    projectIds: teams
+                        ? filters.projectIds.filter((projectId) => teams.some((team) => team.id === projectId))
+                        : filters.projectIds,
+                },
+            }
+        },
+    })),
     loaders(({ values }) => ({
         usageData: [
             null as RealTimeUsageData | null,
@@ -225,12 +237,17 @@ export const realTimeUsageLogic = kea<realTimeUsageLogicType>([
                     // Only allowlisted organizations resolve billing_usage_records, and the allowlist is
                     // server-side, so a project that cannot read it is skipped rather than failing
                     // the whole organization's chart.
+                    const projectQueryConcurrency = new ConcurrencyController(PROJECT_QUERY_CONCURRENCY)
                     const settled = await Promise.allSettled(
-                        selectedTeams.map(async (team) => ({
-                            project: { id: team.id, name: team.name },
-                            rows: await queryUsage(team.id, rowsQuery),
-                            timeSeries: await queryUsage(team.id, timeSeriesQuery),
-                        }))
+                        selectedTeams.map((team) =>
+                            projectQueryConcurrency.run({
+                                fn: async () => ({
+                                    project: { id: team.id, name: team.name },
+                                    rows: await queryUsage(team.id, rowsQuery),
+                                    timeSeries: await queryUsage(team.id, timeSeriesQuery),
+                                }),
+                            })
+                        )
                     )
                     const responses = settled
                         .filter((result) => result.status === 'fulfilled')
