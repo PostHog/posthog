@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
+import { cleanIssueField } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -20,13 +21,14 @@ import { QueryContext, QueryContextColumnComponent } from '~/queries/types'
 
 export const CustomGroupTitleColumn: QueryContextColumnComponent = (props) => {
     const record = props.record as ErrorTrackingIssue
+    const description = cleanIssueField(record.description)
 
     return (
         <div className="flex items-start gap-x-1.5 group">
             <LemonTableLink
                 target="_blank"
-                title={record.name || 'Unknown Type'}
-                description={<div className="line-clamp-1">{record.description}</div>}
+                title={cleanIssueField(record.name) ?? 'Unknown Type'}
+                description={description ? <div className="line-clamp-1">{description}</div> : undefined}
                 className="flex"
                 to={urls.errorTrackingIssue(record.id)}
             />

@@ -5,7 +5,7 @@ import { IconMinus } from '@posthog/icons'
 import { LemonCheckbox, Link } from '@posthog/lemon-ui'
 
 import { ErrorTrackingRuntime } from 'lib/components/Errors/types'
-import { getRuntimeFromLib } from 'lib/components/Errors/utils'
+import { cleanIssueField, getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { Button, ButtonGroup, SelectTriggerIcon } from 'lib/ui/quill'
 import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -157,7 +157,7 @@ const IssueTitle = ({
     >
         <div className="flex items-center gap-2 h-(--line-height)">
             <RuntimeIcon className="shrink-0" runtime={runtime} fontSize="0.7rem" />
-            <span className="font-semibold line-clamp-1">{record.name || 'Unknown Type'}</span>
+            <span className="font-semibold line-clamp-1">{cleanIssueField(record.name) ?? 'Unknown Type'}</span>
         </div>
     </Link>
 )

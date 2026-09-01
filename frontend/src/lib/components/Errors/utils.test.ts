@@ -1,5 +1,6 @@
 import { ErrorEventProperties, ErrorTrackingStackFrame, ExceptionAttributes } from './types'
 import {
+    cleanIssueField,
     getExceptionAttributes,
     getExceptionList,
     getExceptionRelease,
@@ -274,5 +275,20 @@ describe('Error Display', () => {
         ['a padded address', { raw_frame: { instruction_addr: '  0x00000001010444e4 ' } }, '0x00000001010444e4'],
     ])('reads the instruction address from %s', (_name, junk_drawer, expected) => {
         expect(getInstructionAddress({ junk_drawer } as ErrorTrackingStackFrame)).toEqual(expected)
+    })
+
+    it.each([
+        ['[object Object]', undefined],
+        ['undefined', undefined],
+        ['[Object object]', undefined],
+        ['  undefined  ', undefined],
+        ['', undefined],
+        ['   ', undefined],
+        [null, undefined],
+        [undefined, undefined],
+        ['TypeError', 'TypeError'],
+        ["Cannot read property 'x' of undefined", "Cannot read property 'x' of undefined"],
+    ])('cleanIssueField(%p) drops non-descriptive placeholders', (value, expected) => {
+        expect(cleanIssueField(value)).toBe(expected)
     })
 })

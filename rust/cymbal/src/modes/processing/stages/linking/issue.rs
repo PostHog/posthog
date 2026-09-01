@@ -27,6 +27,16 @@ use crate::{
 #[derive(Clone)]
 pub struct IssueLinker;
 
+/// A JS value thrown that is not an `Error` stringifies to a placeholder the SDK cannot improve
+/// on: `String({})` is `"[object Object]"` and `String(undefined)` is `"undefined"`. Neither names
+/// what broke, so drop it and let the issue fall back to an empty field the UI renders as unknown.
+fn drop_non_descriptive(value: String) -> String {
+    match value.trim() {
+        "[object Object]" | "undefined" => String::new(),
+        _ => value,
+    }
+}
+
 impl IssueLinker {
     pub async fn fetch_or_create_issue(
         input: &ExceptionEvent<Fingerprinted>,
@@ -37,11 +47,13 @@ impl IssueLinker {
             .proposed_issue_name()
             .map(str::to_string)
             .unwrap_or_else(|| input.exception_list()[0].exception_type.clone());
+        let name = drop_non_descriptive(name);
 
         let description = input
             .proposed_issue_description()
             .map(str::to_string)
             .unwrap_or_else(|| input.exception_list()[0].exception_message.clone());
+        let description = drop_non_descriptive(description);
 
         // Debug: a bad client timestamp is SDK/user data quality, handled by falling back.
         let event_timestamp = parse_datetime_assuming_utc(input.timestamp()).unwrap_or_else(|e| {
@@ -447,4 +459,25 @@ pub async fn process_assignment(
     };
 
     Ok(assignment)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::drop_non_descriptive;
+
+    #[test]
+    fn drops_non_descriptive_placeholders() {
+        assert_eq!(drop_non_descriptive("[object Object]".to_string()), "");
+        assert_eq!(drop_non_descriptive("undefined".to_string()), "");
+        assert_eq!(drop_non_descriptive("  undefined  ".to_string()), "");
+    }
+
+    #[test]
+    fn keeps_real_titles() {
+        assert_eq!(drop_non_descriptive("TypeError".to_string()), "TypeError");
+        assert_eq!(
+            drop_non_descriptive("Cannot read property 'x' of undefined".to_string()),
+            "Cannot read property 'x' of undefined"
+        );
+    }
 }

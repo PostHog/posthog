@@ -59,6 +59,21 @@ export function getRuntimeFromLib(lib?: string | null): ErrorTrackingRuntime {
     }
 }
 
+// A JS value thrown that is not an Error stringifies to a placeholder that tells a person
+// nothing about what broke: String({}) is '[object Object]' and String(undefined) is
+// 'undefined'. Ingest can store these as an issue name or description.
+const NON_DESCRIPTIVE_ISSUE_FIELDS = ['[object object]', 'undefined']
+
+/** Return a readable issue name or description, or undefined when the stored value is a
+ * blank or non-descriptive placeholder. Callers pick their own fallback for the undefined case. */
+export function cleanIssueField(value?: string | null): string | undefined {
+    const normalized = value?.trim().toLowerCase()
+    if (!normalized || NON_DESCRIPTIVE_ISSUE_FIELDS.includes(normalized)) {
+        return undefined
+    }
+    return value ?? undefined
+}
+
 export function concatValues(
     attrs: ExceptionAttributes | null,
     ...keys: (keyof ExceptionAttributes)[]
