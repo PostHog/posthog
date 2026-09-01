@@ -142,14 +142,6 @@ interface CapturedLane {
     segments: number
 }
 
-interface DestroyedSource {
-    /** Absent on a server that does not report the id. */
-    personKey: string | undefined
-    distinctKey: string
-    /** The memo's pre-resolve belief for the id, when it had one. */
-    beliefKey?: string
-}
-
 interface OpsLaneEntry {
     teamId: number
     personId: string
@@ -394,33 +386,14 @@ export class PersonhogPersonsStore implements PersonsStore {
      * instead, since which persons died is unknowable.
      */
     async mergePersons(request: MergePersonsRequest, batchId: number): Promise<MergePersonsResult> {
-        // Captured before the fresh resolve moves any edges: a lane keyed
-        // on a stale belief would miss the drain.
-        const memoOf = (distinctId: string) => this.memo.resolutionOf(`${request.teamId}:${distinctId}`)
-        const memoSourceKeys = request.sources.map((source) => memoOf(source.distinctId))
-        const memoTargetKey = memoOf(request.targetDistinctId)
         const fresh = await this.resolveForDrain(
             request.teamId,
             [request.targetDistinctId, ...request.sources.map((source) => source.distinctId)],
             batchId
         )
-        // A source may name two persons, the memo's belief and identity's
-        // answer, and both drain.
-        const sourceKeys = request.sources.flatMap((source, index) => [
-            ...new Set(
-                [fresh.get(source.distinctId), memoSourceKeys[index]].filter(
-                    (personKey): personKey is string => personKey != null
-                )
-            ),
-        ])
-        const targetKey = fresh.get(request.targetDistinctId) ?? memoTargetKey
-        const personKeys = [
-            ...new Set([
-                ...(targetKey != null ? [targetKey] : []),
-                ...(memoTargetKey != null ? [memoTargetKey] : []),
-                ...sourceKeys,
-            ]),
-        ]
+        // A lane keyed on a stale memo belief is not drained; its ops land
+        // after the merge through the tombstone redirect.
+        const personKeys = [...new Set(fresh.values())]
         // Claims arm their settle promise, so a writer already on the wire
         // is visible here even before it reaches its concurrency slot;
         // waiting lets the drain capture its lane instead of skipping it.
@@ -434,17 +407,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         // a leader fence, or claimed by a redirect) lands after the merge
         // through the tombstone redirect instead of inside the fold.
         await this.writeLanesBeforeMerge(personKeys)
-        const result = await this.runMerge(
-            request,
-            batchId,
-            new Map(
-                request.sources.flatMap((source, index) =>
-                    memoSourceKeys[index] != null
-                        ? [[source.distinctId, memoSourceKeys[index]] as [string, string]]
-                        : []
-                )
-            )
-        )
+        const result = await this.runMerge(request, batchId)
         return { ...result, survivor: this.memo.snapshot(result.survivor) }
     }
 
@@ -533,11 +496,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
-    private async runMerge(
-        request: MergePersonsRequest,
-        batchId: number,
-        beliefs: Map<string, string>
-    ): Promise<MergePersonsResult> {
+    private async runMerge(request: MergePersonsRequest, batchId: number): Promise<MergePersonsResult> {
         const singleSource = request.sources.length === 1
         let result
         try {
@@ -586,11 +545,9 @@ export class PersonhogPersonsStore implements PersonsStore {
                 personhogStoreMergeCallFailedCounter.inc({ error: 'OpIdReusedSettled' })
                 throw error
             }
-            // A failed call may still have sealed sources or flipped ids;
-            // how far it got is unknowable, so invalidate as if it had.
-            this.invalidateTeamAfterFailedMerge(request.teamId)
             // No verdict, so an ack could lose the merge. Only the call is
-            // wrapped, so a post-verdict bug surfaces as itself.
+            // wrapped, so a post-verdict bug surfaces as itself. Any edges
+            // the failed saga flipped heal through the tombstone redirect.
             personhogStoreMergeCallFailedCounter.inc({
                 error:
                     error instanceof ConnectError
@@ -613,13 +570,9 @@ export class PersonhogPersonsStore implements PersonsStore {
         const merged = result.results.filter((source) => source.outcome === 'merged')
         this.reconcileMergedPersons(
             request.teamId,
-            merged.map((source) => ({
-                personKey: source.sourcePersonId != null ? `${request.teamId}:${source.sourcePersonId}` : undefined,
-                distinctKey: `${request.teamId}:${source.sourceDistinctId}`,
-                // The pre-resolve belief: a stale belief's lane holds ops
-                // for a person the server merged under a different name.
-                beliefKey: beliefs.get(source.sourceDistinctId),
-            })),
+            merged.flatMap((source) =>
+                source.sourcePersonId != null ? [`${request.teamId}:${source.sourcePersonId}`] : []
+            ),
             result.survivor ? `${request.teamId}:${result.survivor.id}` : undefined,
             batchId
         )
@@ -1128,36 +1081,20 @@ export class PersonhogPersonsStore implements PersonsStore {
      */
     private reconcileMergedPersons(
         teamId: number,
-        destroyed: DestroyedSource[],
+        destroyedPersonKeys: string[],
         survivorKey: string | undefined,
         batchId: number
     ): void {
-        // A server-named person id is authoritative: that person is gone
-        // with its ids and baseline. A memo-inferred key is only as good as
-        // the memo, so those only release resolutions.
-        const authoritative = new Set<string>()
-        const inferred = new Set<string>()
-        for (const { personKey, distinctKey, beliefKey } of destroyed) {
-            if (personKey !== undefined) {
-                authoritative.add(personKey)
-            }
-            const resolved = this.memo.resolutionOf(distinctKey)
-            if (resolved != null) {
-                inferred.add(resolved)
-            }
-            // The merge's own resolve already rewrote this edge; without
-            // the captured belief a lane folded under it goes unclaimed.
-            if (beliefKey !== undefined) {
-                inferred.add(beliefKey)
-            }
-        }
+        // Only server-named person ids reconcile: those persons are gone
+        // with their ids and baselines. Anything the memo merely believes
+        // heals through the tombstone redirect when a write proves it.
+        const authoritative = new Set<string>(destroyedPersonKeys)
         // The survivor is never a destroyed source of its own merge; a memo
         // edge that says otherwise is stale and claims nothing.
         if (survivorKey !== undefined) {
             authoritative.delete(survivorKey)
-            inferred.delete(survivorKey)
         }
-        if (authoritative.size === 0 && inferred.size === 0) {
+        if (authoritative.size === 0) {
             return
         }
         // A lane holding ops for a destroyed person is left to write: its
@@ -1192,9 +1129,6 @@ export class PersonhogPersonsStore implements PersonsStore {
                     this.memo.releaseResolution(key)
                 }
                 cleared++
-            } else if (inferred.has(personKey)) {
-                this.memo.releaseResolution(key)
-                cleared++
             }
         }
         personhogStoreMergeCacheCounter.inc({ action: 'resolution_cleared' }, cleared)
@@ -1207,16 +1141,6 @@ export class PersonhogPersonsStore implements PersonsStore {
                 segments: stranded,
             })
         }
-    }
-
-    /**
-     * A failed merge call may have destroyed persons this batch cached,
-     * unknowably, so the team's resolutions re-resolve on next access; a
-     * pending lane's document stays as the read-your-write view.
-     */
-    private invalidateTeamAfterFailedMerge(teamId: number): void {
-        const cleared = this.memo.invalidateTeam(teamId)
-        personhogStoreMergeCacheCounter.inc({ action: 'invalidated_after_failure' }, cleared)
     }
 
     /**

@@ -390,10 +390,11 @@ describe('PersonhogPersonsStore', () => {
             expect((store as any).memo.resolutionOf('1:d1')).toBeDefined()
         })
 
-        it('any other failed call invalidates the team view and fails the batch', async () => {
-            // A semantic refusal from a later saga step arrives after
-            // sources may have been sealed or flipped, and a transport
-            // failure's progress is unknowable; both must invalidate.
+        it('any other failed call fails the batch and keeps the batch view', async () => {
+            // A semantic refusal from a later saga step (a parked op) and a
+            // transport failure both redeliver rather than settle; stale
+            // edges heal through the tombstone redirect, so nothing is
+            // invalidated.
             const refuse = (code: Code, metadata?: Headers) => {
                 repository.mergePersons = jest
                     .fn()
@@ -404,13 +405,12 @@ describe('PersonhogPersonsStore', () => {
             let bound = store.forBatch(0)
             await bound.fetchForUpdate(1, 'd1')
             await expect(bound.mergePersons(mergeRequest())).rejects.toBeInstanceOf(PersonMergeCallFailedError)
-            expect((store as any).memo.resolutionOf('1:d1')).toBeUndefined()
+            expect((store as any).memo.resolutionOf('1:d1')).toBeNull()
 
             refuse(Code.Unavailable)
             bound = store.forBatch(1)
-            await bound.fetchForUpdate(1, 'd1')
             await expect(bound.mergePersons(mergeRequest())).rejects.toBeInstanceOf(PersonMergeCallFailedError)
-            expect((store as any).memo.resolutionOf('1:d1')).toBeUndefined()
+            expect((store as any).memo.resolutionOf('1:d1')).toBeNull()
         })
 
         it('derives one op id per delivery regardless of how the event payload drifts', async () => {
@@ -583,36 +583,6 @@ describe('PersonhogPersonsStore', () => {
             expect(repository.resolvePersonsByDistinctIds).not.toHaveBeenCalled()
         })
 
-        it('invalidates the batch view when the saga call fails', async () => {
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([
-                { teamId: 1, distinctId: 'anon-1', person: { ...person, id: '9' } },
-            ] as never)
-            repository.fetchPersonById.mockResolvedValue({ ...person, id: '9' } as never)
-            const bound = store.forBatch(0)
-            await bound.fetchForUpdate(1, 'anon-1')
-            repository.mergePersons = jest.fn().mockRejectedValue(new Error('saga unreachable'))
-            repository.resolvePersonsByDistinctIds.mockClear()
-
-            await expect(
-                bound.mergePersons({
-                    teamId: 1,
-                    targetDistinctId: 'd1',
-                    sources: [{ distinctId: 'anon-1', eventUuid: 'event-uuid' }],
-                    eventOps: ops({}, '$identify'),
-                    eventUuid: 'event-uuid',
-                    allowIdentifiedSources: false,
-                    mergeMode: createDefaultSyncMergeMode(),
-                    createdAtMs: 3_600_000,
-                })
-            ).rejects.toThrow(PersonMergeCallFailedError)
-            repository.resolvePersonsByDistinctIds.mockClear()
-
-            // The saga persists each step, so a failed call may still have
-            // flipped the ids; the memo cannot be trusted afterwards.
-            await bound.fetchForUpdate(1, 'anon-1')
-            expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(1)
-        })
-
         it('purges a resolution under an id the request never named, via the reported person', async () => {
             // Only the person id reaches this: the batch resolved the person
             // under anon-2, and the merge names anon-1, so there is no memo
@@ -638,49 +608,6 @@ describe('PersonhogPersonsStore', () => {
             const seen = await bound.fetchForUpdate(1, 'anon-2')
             expect(seen?.id).toBe('7')
             expect(repository.resolvePersonsByDistinctIds).not.toHaveBeenCalled()
-        })
-
-        it('still purges by named distinct id when the merge reports no person', async () => {
-            // Older servers and op rows written before the field replay with
-            // no person id; reconciliation has to fall back rather than stop.
-            repository.mergePersons = jest.fn().mockResolvedValue({
-                survivor: survivor(),
-                results: [{ sourceDistinctId: 'anon-1', outcome: 'merged' }],
-            })
-            repository.resolvePersonsByDistinctIds.mockResolvedValueOnce([
-                { teamId: 1, distinctId: 'anon-1', person: { ...person, id: '9' } },
-            ] as never)
-            repository.fetchPersonById.mockResolvedValue({ ...person, id: '9' } as never)
-            const bound = store.forBatch(0)
-            await bound.fetchForUpdate(1, 'anon-1')
-            repository.resolvePersonsByDistinctIds.mockResolvedValueOnce([
-                { teamId: 1, distinctId: 'anon-1-alias', person: { ...person, id: '9' } },
-            ] as never)
-            await bound.fetchForUpdate(1, 'anon-1-alias')
-
-            await bound.mergePersons({
-                teamId: 1,
-                targetDistinctId: 'd1',
-                sources: [{ distinctId: 'anon-1', eventUuid: 'event-uuid' }],
-                eventOps: ops({}, '$identify'),
-                eventUuid: 'event-uuid',
-                allowIdentifiedSources: false,
-                mergeMode: createDefaultSyncMergeMode(),
-                createdAtMs: 3_600_000,
-            })
-            repository.resolvePersonsByDistinctIds.mockClear()
-
-            // With no server-named person the dead set is inferred from
-            // this store's own memo, which a replay or a cross-pod merge
-            // can make stale — so the alias is released to re-resolve
-            // rather than repointed on inference alone.
-            repository.resolvePersonsByDistinctIds.mockResolvedValueOnce([
-                { teamId: 1, distinctId: 'anon-1-alias', person: { ...person, id: '7' } },
-            ] as never)
-            repository.fetchPersonById.mockResolvedValue(survivor() as never)
-            const seen = await bound.fetchForUpdate(1, 'anon-1-alias')
-            expect(seen?.id).toBe('7')
-            expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(1)
         })
     })
 
@@ -1950,38 +1877,6 @@ describe('PersonhogPersonsStore', () => {
             createdAtMs: 3_600_000,
         })
 
-        it('a lane folded under a stale belief is still claimed by reconcile', async () => {
-            const bound = store.forBatch(0)
-            // The memo believes anon-1 names person 5 (a cross-pod remap has
-            // since moved it); ops were folded for that person.
-            repository.resolvePersonsByDistinctIds.mockResolvedValueOnce([
-                { teamId: 1, distinctId: 'anon-1', person: { ...person, id: '5' } },
-            ] as never)
-            repository.fetchPersonById.mockResolvedValue({ ...person, id: '5' } as never)
-            await bound.fetchForUpdate(1, 'anon-1')
-            await bound.applyEventOps({ ...person, id: '5' }, ops({ $set: { plan: 'stale' } }), 'anon-1')
-            // The merge's own resolve answers the current person, 9, and the
-            // saga destroys 9 — overwriting the memo edge before reconcile
-            // could read the old belief from it.
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([
-                { teamId: 1, distinctId: 'anon-1', person: { ...person, id: '9' } },
-            ] as never)
-            repository.mergePersons = jest.fn().mockResolvedValue({
-                survivor: person,
-                results: [{ sourceDistinctId: 'anon-1', outcome: 'merged', sourcePersonId: '9' }],
-            })
-
-            await bound.mergePersons(mergeReq())
-
-            // The captured belief puts person 5 in the fenced set, so the
-            // pre-merge write reaches its lane and the saga folds ops that
-            // would otherwise have had to chase the survivor afterwards,
-            // leaving its lane empty.
-            const written = repository.updatePersonProperties.mock.calls.map(([call]) => call.personId)
-            expect(written).toContain('5')
-            expect((store as any).entries.get('1:5')?.segments ?? []).toHaveLength(0)
-        })
-
         it('a post-verdict processing bug surfaces as itself, not as a call failure', async () => {
             const bound = store.forBatch(0)
             repository.mergePersons = jest.fn().mockResolvedValue({
@@ -2440,46 +2335,6 @@ describe('PersonhogPersonsStore', () => {
             expect(entry.segments[0].set).toEqual({ b: '2' })
         })
 
-        it('folds onto the survivor when a fence releases, not the merged-away person', async () => {
-            const bound = store.forBatch(0)
-            const dead = { ...person, id: '9' }
-            let releaseMerge: () => void = () => {}
-            repository.mergePersons = jest.fn().mockImplementation(
-                () =>
-                    new Promise((resolve) => {
-                        releaseMerge = () =>
-                            resolve({
-                                survivor: person,
-                                results: [{ sourceDistinctId: 'anon-1', outcome: 'merged', sourcePersonId: '9' }],
-                            })
-                    })
-            )
-            await bound.applyEventOps(dead, ops({ $set: { a: '1' } }), 'anon-1')
-
-            const merging = bound.mergePersons({
-                teamId: 1,
-                targetDistinctId: 'd1',
-                sources: [{ distinctId: 'anon-1', eventUuid: 'event-uuid' }],
-                eventOps: ops({}, '$identify'),
-                eventUuid: 'event-uuid',
-                allowIdentifiedSources: false,
-                mergeMode: createDefaultSyncMergeMode(),
-                createdAtMs: 3_600_000,
-            })
-            // The fence installs after the merge's own resolve; wait for it.
-            await new Promise((resolve) => setTimeout(resolve, 0))
-            // A caller holding the pre-merge person folds while the merge runs.
-            const parked = bound.applyEventOps(dead, ops({ $set: { after: 'merge' } }), 'anon-1')
-            releaseMerge()
-            await merging
-            await parked
-
-            // The distinct id must still name the survivor, and the ops must
-            // be on the survivor's lane rather than the destroyed person's.
-            expect((store as any).memo.resolutionOf('1:anon-1')).toBe('1:7')
-            expect((store as any).entries.get('1:7')?.segments.at(-1).set).toEqual({ after: 'merge' })
-        })
-
         it('frees a person projection once its lane and its ids are gone', async () => {
             const bound = store.forBatch(0)
             await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
@@ -2792,6 +2647,14 @@ describe('PersonhogPersonsStore', () => {
             results: [{ sourceDistinctId: 'anon-1', outcome: 'merged', sourcePersonId: '9' }],
         })
 
+        beforeEach(() => {
+            // The drain covers the persons the fresh resolve names.
+            repository.resolvePersonsByDistinctIds.mockImplementation(((keys: { distinctId: string }[]) =>
+                Promise.resolve(
+                    keys.map(({ distinctId }) => ({ teamId: 1, distinctId, person: { ...person } }))
+                )) as never)
+        })
+
         it('a lane opened by a sibling id still reaches the leader before its person dies', async () => {
             const bound = store.forBatch(0)
             // The event that opens the lane arrives on 'sibling', which the
@@ -2835,34 +2698,6 @@ describe('PersonhogPersonsStore', () => {
 
             const projected = (store as any).memo.viewOfPerson('1:7')
             expect(projected.properties).toEqual({ plan: 'merged', mine: 'kept' })
-        })
-
-        it('releases the resolutions of a person only a stale belief named', async () => {
-            // The memo believed anon-1 was person 5; the merge's own resolve
-            // answers 9 and the saga destroys it. Without the captured
-            // belief, 5's edge would survive and later events would read a
-            // person the merge folded away.
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([
-                { teamId: 1, distinctId: 'anon-1', person: { ...person, id: '5' } },
-                { teamId: 1, distinctId: 'anon-2', person: { ...person, id: '5' } },
-            ] as never)
-            repository.fetchPersonById.mockResolvedValue({ ...person, id: '5' } as never)
-            const bound = store.forBatch(0)
-            await bound.fetchForUpdate(1, 'anon-1')
-            await bound.fetchForUpdate(1, 'anon-2')
-            expect((store as any).memo.resolutionOf('1:anon-2')).toBe('1:5')
-
-            // The merge's own resolve answers 9 and the saga destroys it. The
-            // sibling id anon-2 is never named by the request, so only the
-            // captured belief can connect it to a person that is now gone.
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([
-                { teamId: 1, distinctId: 'anon-1', person: { ...person, id: '9' } },
-            ] as never)
-            repository.mergePersons = jest.fn().mockResolvedValue(merged())
-
-            await bound.mergePersons(request())
-
-            expect((store as any).memo.resolutionOf('1:anon-2')).not.toBe('1:5')
         })
 
         it('does not let a concurrent flush resolve over a lane a merge is writing', async () => {
@@ -2975,33 +2810,6 @@ describe('PersonhogPersonsStore', () => {
             expect(outcomes).toContain('premerge_lane_fenced')
         })
 
-        it('redirects a vanished person without waiting on its own fence', async () => {
-            // The pre-merge write finds the person already merged away. The
-            // redirect must not park on the fence this very merge installed,
-            // which nothing but this merge can release.
-            repository.updatePersonProperties.mockImplementation(((call: { personId: string }) =>
-                call.personId === '7'
-                    ? Promise.reject(new NoRowsUpdatedError('merged away'))
-                    : Promise.resolve({ person, updated: true })) as never)
-            repository.resolvePersonsByDistinctIds.mockResolvedValue([
-                { teamId: 1, distinctId: 'd1', person: { ...person, id: '12' } },
-            ] as never)
-            repository.mergePersons = jest.fn().mockResolvedValue(merged())
-            const bound = store.forBatch(0)
-            await bound.applyEventOps(person, ops({ $set: { plan: 'buffered' } }), 'd1')
-
-            personhogStoreFenceCounter.reset()
-            await bound.mergePersons(request())
-
-            const written = repository.updatePersonProperties.mock.calls.map(([call]) => call.personId)
-            expect(written).toContain('12')
-            expect(repository.mergePersons).toHaveBeenCalledTimes(1)
-            // With the guard removed the write would still happen once the
-            // fence wait expires, so no recorded wait is the only
-            // observable difference.
-            expect((await personhogStoreFenceCounter.get()).values).toEqual([])
-        })
-
         it('a lane mid-redirect does not stop the merge', async () => {
             // Between a direct write finding its person gone and the
             // redirect resolving, the lane is in flight. Its ops land on
@@ -3081,6 +2889,7 @@ describe('PersonhogPersonsStore', () => {
                 'anon-1'
             )
             await bound.mergePersons(request())
+            await bound.flush()
 
             const survivorWrite = writes.find((write) => write.personId === '7')
             expect(survivorWrite?.set).toEqual({ plan: 'ours' })

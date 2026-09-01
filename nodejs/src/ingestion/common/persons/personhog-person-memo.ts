@@ -208,27 +208,6 @@ export class PersonhogPersonMemo {
         this.resolutions.set(distinctKey, { personKey })
     }
 
-    /**
-     * Drops every resolution in a team, for a failed merge whose damage is
-     * unknowable; returns how many. An in-flight read can reinstall a
-     * stale edge afterwards, which heals through the tombstone redirect.
-     */
-    invalidateTeam(teamId: number): number {
-        const teamPrefix = `${teamId}:`
-        let cleared = 0
-        // Collected first: releaseResolution deletes from the map under walk.
-        const resolutionKeys = Array.from(this.resolutions.keys())
-        for (const key of resolutionKeys) {
-            if (key.startsWith(teamPrefix)) {
-                // Releasing keeps the refcount honest and lets a baseline
-                // with folded ops survive as the read-your-write view.
-                this.releaseResolution(key)
-                cleared++
-            }
-        }
-        return cleared
-    }
-
     private dropBaselineReference(personKey: string): void {
         const refs = (this.baselineRefCount.get(personKey) ?? 1) - 1
         if (refs > 0) {

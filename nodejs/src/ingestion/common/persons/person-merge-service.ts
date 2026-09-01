@@ -162,17 +162,14 @@ export class PersonMergeService {
                 })
                 return mergeSuccess(undefined, warningAck, true)
             }
-            if (e instanceof PersonMergeResponseMismatchError) {
-                // Not a verdict: nothing is recorded against the op id, so a
-                // retry can still succeed and the batch must fail rather than
-                // ack a merge that never happened.
-                throw e
-            }
-            if (e instanceof PersonMergeCallFailedError || e instanceof PersonMergeUnsettledError) {
-                // No verdict, or a verdict a retry can change. Acking would
-                // lose the merge; failing the batch lets redelivery replay
-                // it idempotently — the same loud-and-redeliver shape a
-                // failed Postgres merge transaction has.
+            if (
+                e instanceof PersonMergeResponseMismatchError ||
+                e instanceof PersonMergeCallFailedError ||
+                e instanceof PersonMergeUnsettledError
+            ) {
+                // No verdict, or one a retry can change: acking would lose
+                // the merge, so the batch fails and redelivery replays it
+                // idempotently.
                 throw e
             }
             mergeFinalFailuresCounter
