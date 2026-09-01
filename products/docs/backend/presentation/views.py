@@ -6,6 +6,7 @@ No business logic here.
 """
 
 from typing import cast
+from uuid import UUID
 
 from django.http.response import HttpResponseBase
 
@@ -160,7 +161,7 @@ class DocViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 team_id=self.team_id,
                 user_id=user.pk,
                 user_name=_display_name(user),
-                doc_id=pk,
+                doc_id=UUID(pk),
                 client_id=data["client_id"],
                 steps=data["steps"],
                 version=data["version"],
@@ -200,7 +201,7 @@ class DocViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 team_id=self.team_id,
                 user_id=user.pk,
                 user_name=_display_name(user),
-                doc_id=pk,
+                doc_id=UUID(pk),
                 client_id=data["client_id"],
                 version=data["version"],
                 cursor=data["cursor"],

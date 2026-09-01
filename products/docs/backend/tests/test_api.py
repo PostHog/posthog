@@ -1,3 +1,5 @@
+from typing import Any, cast
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -113,7 +115,7 @@ class TestDocsAPI(APIBaseTest):
 
         # Last-Event-ID=0-0 means "from the beginning", the same path a reconnecting client takes.
         response = self.client.get(self._url(f"{doc['id']}/collab/stream/"), HTTP_LAST_EVENT_ID="0-0")
-        body = b"".join(response.streaming_content).decode()
+        body = b"".join(cast(Any, response).streaming_content).decode()
 
         assert response["Content-Type"] == "text/event-stream"
         assert "event: step" in body

@@ -110,6 +110,25 @@ return {1, next_version}
 """
 
 
+def content_sse_frame(fields: dict[bytes, bytes], *, namespace: str, stream_key: str, stream_id: str) -> bytes | None:
+    """One content frame. The `id:` line carries the version, which is the stream id."""
+    try:
+        data = json.loads(fields[DATA_KEY])
+    except (json.JSONDecodeError, KeyError):
+        logger.warning(f"{namespace}_collab_invalid_payload", stream_key=stream_key, stream_id=stream_id)
+        return None
+
+    if data.get("type") == UPDATE_EVENT_TYPE:
+        event_name = "update"
+    elif "step" in data:
+        event_name = "step"
+    else:
+        logger.warning(f"{namespace}_collab_unknown_payload", stream_key=stream_key, stream_id=stream_id)
+        return None
+
+    return f"id: {stream_id}\nevent: {event_name}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n".encode()
+
+
 async def stream_collab_sse(
     namespace: str,
     team_id: int,
@@ -181,26 +200,11 @@ async def stream_collab_sse(
 
                     for stream_id, fields in entries:
                         content_id = stream_id.decode()
-                        try:
-                            data = json.loads(fields[DATA_KEY])
-                        except json.JSONDecodeError:
-                            logger.warning(
-                                f"{namespace}_collab_invalid_payload", stream_key=stream_key, stream_id=content_id
-                            )
-                            continue
-                        event_type = data.get("type")
-                        if event_type == UPDATE_EVENT_TYPE:
-                            yield (
-                                f"id: {content_id}\nevent: update\ndata: {json.dumps(data, separators=(',', ':'))}\n\n"
-                            ).encode()
-                        elif "step" in data:
-                            yield (
-                                f"id: {content_id}\nevent: step\ndata: {json.dumps(data, separators=(',', ':'))}\n\n"
-                            ).encode()
-                        else:
-                            logger.warning(
-                                f"{namespace}_collab_unknown_payload", stream_key=stream_key, stream_id=content_id
-                            )
+                        frame = content_sse_frame(
+                            fields, namespace=namespace, stream_key=stream_key, stream_id=content_id
+                        )
+                        if frame is not None:
+                            yield frame
 
                 # cooperative yield: prevents tight-loop monopolization when XREAD doesn't block
                 await asyncio.sleep(0)
