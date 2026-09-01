@@ -195,6 +195,14 @@ class AssistantArrayPropertyFilterOperator(StrEnum):
     IS_NOT = "is_not"
 
 
+class AssistantBehavioralPropertyFilterOperator(StrEnum):
+    EXACT = "exact"
+    GT = "gt"
+    GTE = "gte"
+    LT = "lt"
+    LTE = "lte"
+
+
 class Operator(StrEnum):
     IN_ = "in"
     NOT_IN = "not_in"
