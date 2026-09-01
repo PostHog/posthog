@@ -68,7 +68,7 @@ from posthog.helpers.two_factor_session import (
 )
 from posthog.helpers.user_devices import has_valid_known_device_cookie
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
-from posthog.models import OrganizationDomain, User
+from posthog.models import IdentityProviderConfig, OrganizationDomain, User
 from posthog.models.activity_logging import signal_handlers  # imported for its signal receivers too
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import generate_passkey_authentication_options, verify_passkey_authentication_response
@@ -437,7 +437,7 @@ class LoginPrecheckSerializer(serializers.Serializer):
             for cred in credentials
         ]
 
-        saml_available = OrganizationDomain.objects.get_is_saml_available_for_email(email)
+        saml_available = IdentityProviderConfig.objects.get_is_saml_available_for_email(email)
 
         return {
             "sso_enforcement": OrganizationDomain.objects.get_sso_enforcement_for_email_address(email),

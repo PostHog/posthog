@@ -44,7 +44,7 @@ import { type CodeExecutionMode, toSdkPermissionMode } from "../tools";
 import type { EffortLevel } from "../types";
 import { buildAppendedInstructions } from "./instructions";
 import { loadUserClaudeJsonMcpServers } from "./mcp-config";
-import { DEFAULT_MODEL, FALLBACK_MODEL } from "./models";
+import { DEFAULT_MODEL, resolveFallbackModel } from "./models";
 import { createRtkRewriteHook, resolveRtkPrefix } from "./rtk";
 import type { SettingsManager } from "./settings";
 
@@ -599,8 +599,10 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     options.model = DEFAULT_MODEL;
   }
 
-  if (!options.fallbackModel && options.model !== FALLBACK_MODEL) {
-    options.fallbackModel = FALLBACK_MODEL;
+  if (!options.fallbackModel) {
+    options.fallbackModel = resolveFallbackModel(
+      options.model ?? DEFAULT_MODEL,
+    );
   }
 
   if (params.additionalDirectories) {

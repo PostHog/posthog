@@ -1335,6 +1335,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
                 {
                     "query": source_query,
                     "query_results": serialized_response,
+                    "query_title": resource.export_context.get("title"),
                     "themes": get_themes_for_team(resource.team),
                 }
             )

@@ -31,7 +31,7 @@ export const speakSchema = {
     ),
 };
 
-export const SPEAK_TOOL_DESCRIPTION =
+const SPEAK_TOOL_DESCRIPTION =
   "Say a short line out loud to the user via text-to-speech — how you hand " +
   "them information while they look at another window. Lean toward using it. " +
   "Call it when you are BLOCKED and need them (kind 'needs_input'); when you " +

@@ -21,6 +21,7 @@ import {
 } from '~/queries/schema/schema-general'
 import type { Experiment, FeatureFlagFilters, MultivariateFlagVariant } from '~/types'
 
+import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
 import { experimentsCreate } from 'products/experiments/frontend/generated/api'
 import type {
     ExperimentApi,
@@ -32,7 +33,6 @@ import { visionScannersCreate } from 'products/replay_vision/frontend/generated/
 import type { ProductCrossSellProperties, ProductIntentProperties } from '../../../lib/utils/product-intents'
 import type { ExperimentMetricUnion } from '../../../queries/schema/schema-general'
 import type { FeatureFlagType } from '../../../types'
-import { NEW_EXPERIMENT } from '../constants'
 import { FORM_MODES, experimentLogic } from '../experimentLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
 import { experimentScannerBody, experimentScannerFilters } from '../replayVisionScanner'

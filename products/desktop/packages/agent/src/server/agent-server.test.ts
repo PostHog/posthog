@@ -29,7 +29,6 @@ import {
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import { getSessionJsonlPath } from "../adapters/claude/session/jsonl-hydration";
 import type { PermissionMode } from "../execution-mode";
-import { HandoffCheckpointTracker } from "../handoff-checkpoint";
 import type { PostHogAPIClient } from "../posthog-api";
 import type { ResumeState } from "../resume";
 import {
@@ -687,7 +686,6 @@ describe("AgentServer HTTP Mode", () => {
       };
       cleanupServer.session = {
         payload: { run_id: "run-1" },
-        pendingHandoffGitState: undefined,
         logWriter: { flush: vi.fn(async () => {}) },
         acpConnection: { cleanup: vi.fn(async () => {}) },
         sseController: { close: vi.fn() },
@@ -1320,6 +1318,7 @@ describe("AgentServer HTTP Mode", () => {
         clientConnection: { prompt },
       };
       return testServer as unknown as {
+        eventStreamSender: { enqueue: ReturnType<typeof vi.fn> };
         promptWithUpstreamRetry(request: {
           sessionId: string;
           prompt: ContentBlock[];
@@ -1354,6 +1353,13 @@ describe("AgentServer HTTP Mode", () => {
         expect(retryRequest.prompt[0].text).toContain(
           "interrupted by a transient connection error",
         );
+        const dispatchEvents =
+          testServer.eventStreamSender.enqueue.mock.calls.filter(
+            ([event]) =>
+              (event as { notification?: { method?: string } }).notification
+                ?.method === POSTHOG_NOTIFICATIONS.COMMAND_DISPATCHED,
+          );
+        expect(dispatchEvents).toHaveLength(1);
       } finally {
         vi.useRealTimers();
       }
@@ -2055,6 +2061,34 @@ describe("AgentServer HTTP Mode", () => {
 
       // Detach the fake session so afterEach's stop() short-circuits before
       // touching the partial session/relay stubs.
+      testServer.session = null;
+    });
+
+    it("strips pi-only descriptions before forwarding to the ACP adapter", async () => {
+      // claude and codex validate session params against the ACP schema, which does not
+      // declare a server description; only pi reads it.
+      const testServer = exposeRefresh(createServer());
+      const extMethod = vi.fn(async () => ({ refreshed: true }));
+      testServer.session = { clientConnection: { extMethod } };
+      testServer.mcpRelayServer = null;
+
+      await testServer.executeCommand("refresh_session", {
+        mcpServers: [
+          {
+            type: "http",
+            name: "posthog",
+            url: "https://mcp",
+            headers: [],
+            description: "Query PostHog insights and dashboards.",
+          },
+        ],
+      });
+
+      const forwarded = (extMethod.mock.calls[0] as unknown[])[1] as {
+        mcpServers: Array<Record<string, unknown>>;
+      };
+      expect(forwarded.mcpServers[0]).not.toHaveProperty("description");
+
       testServer.session = null;
     });
 
@@ -2880,7 +2914,49 @@ describe("AgentServer HTTP Mode", () => {
 
       expect(response.status).toBe(200);
       await expect(response.json()).resolves.toMatchObject({
-        result: { stopReason: "steer_declined", steered: false },
+        result: {
+          stopReason: "steer_declined",
+          steered: false,
+          reason: "startup_turn",
+        },
+      });
+      expect(prompt).not.toHaveBeenCalled();
+    }, 20000);
+
+    it("declines steering when the sandbox has no turn to fold it into", async () => {
+      const s = createServer();
+      await s.start();
+      const prompt = vi.fn();
+      const serverInternals = s as unknown as {
+        session: { clientConnection: { prompt: typeof prompt } };
+      };
+      serverInternals.session.clientConnection.prompt = prompt;
+
+      const response = await fetch(`http://localhost:${port}/command`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${createToken()}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: "steer-while-idle",
+          method: "user_message",
+          params: {
+            content: "status?",
+            messageId: "steer-while-idle",
+            steer: true,
+          },
+        }),
+      });
+
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        result: {
+          stopReason: "steer_declined",
+          steered: false,
+          reason: "no_active_turn",
+        },
       });
       expect(prompt).not.toHaveBeenCalled();
     }, 20000);
@@ -2923,7 +2999,11 @@ describe("AgentServer HTTP Mode", () => {
 
       const steerResponse = await send("steer-during-first-turn", true);
       await expect(steerResponse.json()).resolves.toMatchObject({
-        result: { stopReason: "steer_declined", steered: false },
+        result: {
+          stopReason: "steer_declined",
+          steered: false,
+          reason: "startup_turn",
+        },
       });
       expect(prompt).toHaveBeenCalledOnce();
 
@@ -2984,56 +3064,67 @@ describe("AgentServer HTTP Mode", () => {
       await activeTurn;
     }, 20000);
 
-    it("declines steering without blocking on a fallback normal turn", async () => {
-      const s = createServer();
-      await s.start();
-      const prompt = vi.fn();
-      const broadcastTurnComplete = vi.fn();
-      const resetTurnMessages = vi.fn();
-      const serverInternals = s as unknown as {
-        activeOwnedTurnCount: number;
-        broadcastTurnComplete: typeof broadcastTurnComplete;
-        session: {
-          clientConnection: { prompt: typeof prompt };
-          logWriter: { resetTurnMessages: typeof resetTurnMessages };
+    it.each([
+      [{ steer: false }, "adapter_rejected"],
+      [{ steer: false, steerDeclineCause: "compacting" }, "adapter_compacting"],
+    ])(
+      "declines steering without blocking on a fallback normal turn (%o)",
+      async (adapterMeta, expectedReason) => {
+        const s = createServer();
+        await s.start();
+        const prompt = vi.fn();
+        const broadcastTurnComplete = vi.fn();
+        const resetTurnMessages = vi.fn();
+        const serverInternals = s as unknown as {
+          activeOwnedTurnCount: number;
+          broadcastTurnComplete: typeof broadcastTurnComplete;
+          session: {
+            clientConnection: { prompt: typeof prompt };
+            logWriter: { resetTurnMessages: typeof resetTurnMessages };
+          };
         };
-      };
-      serverInternals.activeOwnedTurnCount = 1;
-      prompt.mockImplementationOnce(async () => {
-        serverInternals.activeOwnedTurnCount = 0;
-        return { stopReason: "end_turn", _meta: { steer: false } };
-      });
-      serverInternals.broadcastTurnComplete = broadcastTurnComplete;
-      serverInternals.session.clientConnection.prompt = prompt;
-      serverInternals.session.logWriter.resetTurnMessages = resetTurnMessages;
+        serverInternals.activeOwnedTurnCount = 1;
+        prompt.mockImplementationOnce(async () => {
+          serverInternals.activeOwnedTurnCount = 0;
+          return { stopReason: "end_turn", _meta: adapterMeta };
+        });
+        serverInternals.broadcastTurnComplete = broadcastTurnComplete;
+        serverInternals.session.clientConnection.prompt = prompt;
+        serverInternals.session.logWriter.resetTurnMessages = resetTurnMessages;
 
-      const response = await fetch(`http://localhost:${port}/command`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${createToken()}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: "steer-race",
-          method: "user_message",
-          params: { content: "continue normally", steer: true },
-        }),
-      });
+        const response = await fetch(`http://localhost:${port}/command`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${createToken()}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: "steer-race",
+            method: "user_message",
+            params: { content: "continue normally", steer: true },
+          }),
+        });
 
-      expect(response.status).toBe(200);
-      await expect(response.json()).resolves.toMatchObject({
-        result: { stopReason: "steer_declined", steered: false },
-      });
-      expect(prompt).toHaveBeenCalledTimes(1);
-      expect(prompt.mock.calls[0]?.[0]).toEqual(
-        expect.objectContaining({
-          _meta: expect.objectContaining({ steer: true }),
-        }),
-      );
-      expect(resetTurnMessages).not.toHaveBeenCalled();
-      expect(broadcastTurnComplete).not.toHaveBeenCalled();
-    }, 20000);
+        expect(response.status).toBe(200);
+        await expect(response.json()).resolves.toMatchObject({
+          result: {
+            stopReason: "steer_declined",
+            steered: false,
+            reason: expectedReason,
+          },
+        });
+        expect(prompt).toHaveBeenCalledTimes(1);
+        expect(prompt.mock.calls[0]?.[0]).toEqual(
+          expect.objectContaining({
+            _meta: expect.objectContaining({ steer: true }),
+          }),
+        );
+        expect(resetTurnMessages).not.toHaveBeenCalled();
+        expect(broadcastTurnComplete).not.toHaveBeenCalled();
+      },
+      20000,
+    );
 
     it("redelivers a messageId whose first delivery failed before producing a turn", async () => {
       const s = createServer();
@@ -3560,6 +3651,10 @@ describe("AgentServer HTTP Mode", () => {
           nativeResume: { sessionId: string; warm: boolean } | null;
           prewarmedRun: boolean;
           prewarmedStartupTurnPending: boolean;
+          eventStreamSender: {
+            enqueue: ReturnType<typeof vi.fn>;
+            stop: ReturnType<typeof vi.fn>;
+          };
           sendInitialTaskMessage(
             payload: JwtPayload,
             taskRun: TaskRun | null,
@@ -3568,6 +3663,10 @@ describe("AgentServer HTTP Mode", () => {
         internals.session.clientConnection.prompt = prompt;
         internals.prewarmedRun = true;
         internals.prewarmedStartupTurnPending = true;
+        internals.eventStreamSender = {
+          enqueue: vi.fn(),
+          stop: vi.fn(async () => {}),
+        };
         internals.resumeState = {
           conversation: [
             {
@@ -3579,7 +3678,6 @@ describe("AgentServer HTTP Mode", () => {
               content: [{ type: "text", text: "work completed so far" }],
             },
           ],
-          latestGitCheckpoint: null,
           interrupted: false,
           logEntryCount: 2,
           sessionId: "prior-session",
@@ -3611,6 +3709,13 @@ describe("AgentServer HTTP Mode", () => {
 
         expect(response.status).toBe(200);
         expect(prompt).toHaveBeenCalledOnce();
+        expect(
+          internals.eventStreamSender.enqueue.mock.calls.filter(
+            ([event]) =>
+              (event as { notification?: { method?: string } }).notification
+                ?.method === POSTHOG_NOTIFICATIONS.COMMAND_DISPATCHED,
+          ),
+        ).toHaveLength(1);
         const [{ prompt: promptBlocks }] = prompt.mock.calls[0] as unknown as [
           { prompt: ContentBlock[] },
         ];
@@ -3684,7 +3789,6 @@ describe("AgentServer HTTP Mode", () => {
             content: [{ type: "text", text: "work completed so far" }],
           },
         ],
-        latestGitCheckpoint: null,
         interrupted: false,
         logEntryCount: 2,
         sessionId: "prior-session",
@@ -3749,7 +3853,6 @@ describe("AgentServer HTTP Mode", () => {
                 content: [{ type: "text", text: "work completed so far" }],
               },
             ],
-            latestGitCheckpoint: null,
             interrupted: false,
             logEntryCount: 1,
             sessionId: "prior-session",
@@ -3765,48 +3868,6 @@ describe("AgentServer HTTP Mode", () => {
       );
       expect(internals.prewarmedRun).toBe(true);
       expect(internals.resumeState).not.toBeNull();
-    }, 30000);
-
-    it("applies the resume git checkpoint at most once", async () => {
-      // The checkpoint resets the workspace to the resumed run's snapshot. Applying it again after
-      // a turn has written files discards that work — including a turn that failed and is retried.
-      const s = createServer();
-      await s.start();
-
-      const applyFromHandoff = vi
-        .spyOn(HandoffCheckpointTracker.prototype, "applyFromHandoff")
-        .mockResolvedValue({ packBytes: 1, indexBytes: 1, totalBytes: 2 });
-      const payload: JwtPayload = {
-        run_id: "test-run-id",
-        task_id: "test-task-id",
-        team_id: 1,
-        user_id: 1,
-        distinct_id: "test-distinct-id",
-        mode: "interactive",
-      };
-      const internals = s as unknown as {
-        resumeState: ResumeState | null;
-        resumeGitCheckpointApplied: boolean | null;
-        config: { repositoryPath?: string };
-        applyResumeGitCheckpoint(payload: JwtPayload): Promise<boolean>;
-      };
-      internals.config.repositoryPath = "/tmp/workspace";
-      internals.resumeGitCheckpointApplied = null;
-      internals.resumeState = {
-        conversation: [],
-        latestGitCheckpoint: { branch: "main", head: "abc123" },
-        interrupted: false,
-        logEntryCount: 0,
-        sessionId: "prior-session",
-      } as unknown as ResumeState;
-
-      const first = await internals.applyResumeGitCheckpoint(payload);
-      const second = await internals.applyResumeGitCheckpoint(payload);
-
-      expect(first).toBe(true);
-      expect(second).toBe(true);
-      expect(applyFromHandoff).toHaveBeenCalledOnce();
-      applyFromHandoff.mockRestore();
     }, 30000);
 
     it("still continues after /compact sent as the first forwarded message", async () => {
@@ -3851,7 +3912,6 @@ describe("AgentServer HTTP Mode", () => {
             content: [{ type: "text", text: "work completed so far" }],
           },
         ],
-        latestGitCheckpoint: null,
         interrupted: false,
         logEntryCount: 1,
         sessionId: "prior-session",
@@ -3939,7 +3999,6 @@ describe("AgentServer HTTP Mode", () => {
             content: [{ type: "text", text: "work completed so far" }],
           },
         ],
-        latestGitCheckpoint: null,
         interrupted: false,
         logEntryCount: 2,
         sessionId: "prior-session",
@@ -4027,7 +4086,6 @@ describe("AgentServer HTTP Mode", () => {
             content: [{ type: "text", text: "old answer" }],
           },
         ],
-        latestGitCheckpoint: null,
         interrupted: false,
         logEntryCount: 2,
         sessionId: "prior-session",
@@ -4080,7 +4138,7 @@ describe("AgentServer HTTP Mode", () => {
       });
     });
 
-    describe("idle handoff resume", () => {
+    describe("idle same-run resume", () => {
       const idlePayload: JwtPayload = {
         task_id: "test-task-id",
         run_id: "test-run-id",
@@ -4224,6 +4282,10 @@ describe("AgentServer HTTP Mode", () => {
   });
 
   describe("runtime adapter selection", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
     it("defaults to claude when no runtime adapter is configured", () => {
       const s = createServer();
 
@@ -4262,6 +4324,29 @@ describe("AgentServer HTTP Mode", () => {
       expect(
         (s as unknown as TestableServer).buildCodexInstructions(sessionPrompt),
       ).toContain("Cloud Task Execution");
+    });
+
+    it("injects benjamin into codex instructions when POSTHOG_BENJAMIN is set", () => {
+      vi.stubEnv("POSTHOG_BENJAMIN", "1");
+      const s = createServer({ runtimeAdapter: "codex" });
+      const sessionPrompt = (
+        s as unknown as TestableServer
+      ).buildSessionSystemPrompt();
+
+      expect(
+        (s as unknown as TestableServer).buildCodexInstructions(sessionPrompt),
+      ).toContain("BENJAMIN-PLUS MODE ACTIVE");
+    });
+
+    it("omits benjamin from codex instructions when POSTHOG_BENJAMIN is unset", () => {
+      const s = createServer({ runtimeAdapter: "codex" });
+      const sessionPrompt = (
+        s as unknown as TestableServer
+      ).buildSessionSystemPrompt();
+
+      expect(
+        (s as unknown as TestableServer).buildCodexInstructions(sessionPrompt),
+      ).not.toContain("BENJAMIN-PLUS MODE ACTIVE");
     });
   });
 
@@ -4333,7 +4418,6 @@ describe("AgentServer HTTP Mode", () => {
       const goal = { objective: "Ship the fix", status: "paused" as const };
       s.resumeState = {
         conversation: [],
-        latestGitCheckpoint: null,
         interrupted: false,
         logEntryCount: 1,
         sessionId: "prior-session",
@@ -4424,7 +4508,6 @@ describe("AgentServer HTTP Mode", () => {
                 content: [{ type: "text", text: "progress so far" }],
               },
             ],
-            latestGitCheckpoint: null,
             interrupted: false,
             logEntryCount: 2,
             sessionId: "prior-session",
@@ -4476,7 +4559,6 @@ describe("AgentServer HTTP Mode", () => {
               content: [{ type: "text", text: "visible answer only" }],
             },
           ],
-          latestGitCheckpoint: null,
           interrupted: false,
           logEntryCount: 3,
           sessionId: "prior-session",
@@ -4571,7 +4653,6 @@ describe("AgentServer HTTP Mode", () => {
           conversation: [
             { role: "user", content: [{ type: "text", text: "continue" }] },
           ],
-          latestGitCheckpoint: null,
           interrupted: false,
           logEntryCount: 1,
           sessionId,

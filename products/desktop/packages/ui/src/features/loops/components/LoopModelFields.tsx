@@ -1,6 +1,7 @@
 import type { LoopSchemas } from "@posthog/api-client/loops";
 import {
   GLM_MODEL_FLAG,
+  GLM53_FLASH_MODEL_FLAG,
   GLM53_MODEL_FLAG,
   KIMI_MODEL_FLAG,
 } from "@posthog/shared";
@@ -60,6 +61,7 @@ export function LoopModelFields({
 }: LoopModelFieldsProps) {
   const glmEnabled = useFeatureFlag(GLM_MODEL_FLAG);
   const glm53Enabled = useFeatureFlag(GLM53_MODEL_FLAG);
+  const glm53FlashEnabled = useFeatureFlag(GLM53_FLASH_MODEL_FLAG);
   const kimiEnabled = useFeatureFlag(KIMI_MODEL_FLAG);
   const configOptions = useLoopModelConfigOptions(adapter);
 
@@ -69,11 +71,20 @@ export function LoopModelFields({
       ...loopModelOptions(adapter, configOptions, {
         glmEnabled,
         glm53Enabled,
+        glm53FlashEnabled,
         kimiEnabled,
         pinnedModel: model,
       }),
     ],
-    [adapter, configOptions, glmEnabled, glm53Enabled, kimiEnabled, model],
+    [
+      adapter,
+      configOptions,
+      glmEnabled,
+      glm53Enabled,
+      glm53FlashEnabled,
+      kimiEnabled,
+      model,
+    ],
   );
 
   const reasoningOptions = useMemo(

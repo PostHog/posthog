@@ -123,6 +123,7 @@ import {
     isLLMEvent,
     removeMilliseconds,
     sanitizeTraceUrlSearchParams,
+    selectAiValue,
 } from './utils'
 
 interface TraceQueueContext {
@@ -1777,14 +1778,20 @@ const EventContent = React.memo(
                                                                 traceId={trace.id}
                                                                 timestamp={event.createdAt}
                                                                 rawInput={event.properties.$ai_input}
-                                                                rawOutput={
-                                                                    event.properties.$ai_output_choices ??
+                                                                rawOutput={selectAiValue(
+                                                                    event.properties.$ai_output_choices,
                                                                     event.properties.$ai_output
-                                                                }
+                                                                )}
                                                                 tools={event.properties.$ai_tools}
                                                                 errorData={event.properties.$ai_error}
                                                                 httpStatus={event.properties.$ai_http_status}
                                                                 raisedError={event.properties.$ai_is_error}
+                                                                outputTokens={event.properties.$ai_output_tokens}
+                                                                reasoningTokens={event.properties.$ai_reasoning_tokens}
+                                                                textOutputTokens={
+                                                                    event.properties.$ai_text_output_tokens
+                                                                }
+                                                                stopReason={event.properties.$ai_stop_reason}
                                                                 searchQuery={searchQuery}
                                                                 displayOption={displayOption}
                                                                 highlightMessageIndex={highlightMessageIndex}

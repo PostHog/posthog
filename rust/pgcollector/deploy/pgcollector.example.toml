@@ -1,0 +1,25 @@
+[sink]
+# TLS is required unless the URL says sslmode=disable (local dev) or sslmode=prefer.
+database_url = "${PGCOLLECTOR_SINK_URL}"
+retention_days = 14
+
+[defaults]
+statement_timeout = "5s"
+databases = ["*"]
+
+[defaults.overrides]
+# sizes = { interval = "30m" }
+
+# Optional when PGCOLLECTOR_SERVER_<ID>_URL env vars are set (see docs/deploy.md).
+[[servers]]
+id = "prod-main"
+url = "postgres://pgcollector:${PROD_MAIN_PASSWORD}@prod-main.xxxx.us-east-1.rds.amazonaws.com:5432/postgres"
+reader_url = "postgres://pgcollector:${PROD_MAIN_PASSWORD}@prod-main-ro.xxxx.us-east-1.rds.amazonaws.com:5432/postgres"
+databases = ["posthog"]
+
+[servers.instances]
+# reader-1 = "postgres://pgcollector:${PROD_MAIN_PASSWORD}@prod-main-instance-2.xxxx.us-east-1.rds.amazonaws.com:5432/postgres"
+
+[servers.overrides]
+activity = { interval = "5s" }
+sizes = { enabled = false }

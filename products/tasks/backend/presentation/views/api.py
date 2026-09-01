@@ -12,6 +12,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.http import HttpResponse, HttpResponseRedirect, JsonResponse
+from django.utils.html import escape
 
 import pydantic
 import requests as http_requests
@@ -45,6 +46,7 @@ from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import ServerTimingsGathered
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.event_usage import groups
+from posthog.middleware import is_read_only_impersonation
 from posthog.models import User
 from posthog.permissions import (
     APIScopePermission,
@@ -413,13 +415,14 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: OpenApiResponse(response=TaskSerializer, description="List of tasks"),
         },
         summary="List tasks",
-        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.",
+        description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task.",
     )
     def list(self, request, *args, **kwargs):
         filters = {key: request.query_params.get(key) for key in request.query_params}
         filters["internal"] = getattr(request, "validated_query_data", {}).get("internal")
         filters["archived"] = getattr(request, "validated_query_data", {}).get("archived")
         filters["channel"] = getattr(request, "validated_query_data", {}).get("channel")
+        filters["hog_flow_id"] = getattr(request, "validated_query_data", {}).get("hog_flow_id")
         # Staff can opt into seeing every team task; re-check server-side so a client can't
         # forge the flag to bypass the per-user visibility gate.
         all_team_tasks = bool(getattr(request, "validated_query_data", {}).get("all_team_tasks"))
@@ -1761,7 +1764,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Clear conversation history",
         description=(
             "Record a `/clear` boundary in a finished run's log so the next run in the chain "
-            "starts with an empty conversation. Its checkpoints, artifacts, and visible history "
+            "starts with an empty conversation. Its artifacts and visible history "
             "are unaffected. Only for a finished run: an active one has an agent that owns the "
             "clear, so send `/clear` to it as an ordinary message instead."
         ),
@@ -2181,8 +2184,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         task_id = self._ensure_task_accessible()
         storage_path = request.validated_data["storage_path"]
 
-        # Walk the resume chain so cloud→cloud resume runs can fetch the git checkpoint
-        # pack/index that lives on the prior run they were forked from.
+        # Walk the resume chain because a resumed run can reference artifacts from an ancestor.
         content, artifact, error = tasks_facade.read_task_run_artifact(
             pk, task_id, self.team_id, storage_path=storage_path
         )
@@ -2255,6 +2257,64 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if url is None:
             raise NotFound()
         return HttpResponseRedirect(url)
+
+    def _preview_unavailable_page(self, outcome: str, task_id: str) -> HttpResponse:
+        if outcome == "ended":
+            heading = "This preview has ended"
+            body = "Rerun the task to start a new one."
+        elif outcome == "unavailable":
+            heading = "This preview isn't reachable right now"
+            body = "Try again in a moment."
+        else:
+            heading = "This preview isn't ready yet"
+            body = "PostHog is still starting in the sandbox. Refresh this page in a moment."
+        task_url = escape(absolute_uri(f"/project/{self.team_id}/tasks/{task_id}"))
+        html = (
+            '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+            '<meta name="viewport" content="width=device-width, initial-scale=1">'
+            f"<title>{escape(heading)}</title></head>"
+            '<body style="font-family: system-ui, sans-serif; margin: 3rem auto; max-width: 32rem; padding: 0 1rem;">'
+            f'<h1 style="font-size: 1.25rem;">{escape(heading)}</h1>'
+            f"<p>{escape(body)}</p>"
+            f'<p><a href="{task_url}">Back to the task</a></p>'
+            "</body></html>"
+        )
+        response = HttpResponse(html, content_type="text/html; charset=utf-8")
+        response["Cache-Control"] = "no-store"
+        return response
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(description="HTML page explaining that the preview is not ready yet or has ended"),
+            302: OpenApiResponse(description="Redirect to the sandbox preview with a freshly minted access token"),
+            403: OpenApiResponse(description="Refused during read-only impersonation"),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Open the dev stack preview for a task run",
+        description=(
+            "Redirects to the PostHog dev stack running inside this run's sandbox. A fresh sandbox "
+            "access token is minted on every request and carried only in the redirect target, so it "
+            "is never persisted or returned in a response body. When the run has no preview, or its "
+            "sandbox has stopped, this renders a short HTML page instead."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="preview", required_scopes=["task:write"])
+    def preview(self, request, pk=None, **kwargs):
+        if is_read_only_impersonation(request):
+            raise PermissionDenied(
+                "This action is not allowed during read-only user impersonation.", code="impersonation_read_only"
+            )
+        task_id = self._ensure_task_accessible()
+        redirect = tasks_facade.resolve_task_run_preview_redirect(
+            pk, task_id, self.team_id, user_id=cast(User, request.user).id
+        )
+        if redirect is None:
+            raise NotFound()
+        if redirect.outcome == "ready" and redirect.redirect_url:
+            response = HttpResponseRedirect(redirect.redirect_url)
+            response["Cache-Control"] = "no-store"
+            return response
+        return self._preview_unavailable_page(redirect.outcome, task_id)
 
     def _peer_messaging_gate(self, task_id: str) -> Response | None:
         """Server-side authorization for the peers endpoints. Tool gating in the
@@ -2484,8 +2544,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "Fetch the logs for a task run as JSONL. If the run resumes from "
             "another (state.resume_from_run_id), each ancestor's log is "
             "concatenated first (oldest ancestor → ... → this run) so resume "
-            "consumers see a single continuous history and can find the most "
-            "recent git_checkpoint event regardless of which run emitted it."
+            "consumers see a single continuous history."
         ),
     )
     @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
@@ -3057,7 +3116,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ) == tasks_facade.TaskRuntime.PI and not tasks_facade.pi_cloud_runtime_enabled(self.team, request.user):
             return _pi_cloud_runtime_disabled_response()
 
-        # Resume also runs in cloud: gate before handoff.
+        # A resumed run also consumes cloud capacity, so apply the cloud access gates.
         if not tasks_facade.task_exempt_from_code_access(task_id, self.team_id) and (
             access_response := code_access_required_response(request, self.organization, task_id=task_id)
         ):
@@ -3073,6 +3132,11 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if outcome == "already_active":
             return Response(
                 TaskRunErrorResponseSerializer({"error": "Run is already active in cloud"}).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if outcome == "not_cloud":
+            return Response(
+                TaskRunErrorResponseSerializer({"error": "Only cloud runs can be resumed in cloud"}).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if outcome == "ownership_changed":

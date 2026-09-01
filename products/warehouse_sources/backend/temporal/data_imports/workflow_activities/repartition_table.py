@@ -147,6 +147,14 @@ def _is_transient_infra_error(error: Exception) -> bool:
     # classification in delta.errors.is_transient_maintenance_error.
     if isinstance(error, InternalError) and isinstance(error.__cause__, psycopg.errors.ReadOnlySqlTransaction):
         return True
+    # s3fs collapses every S3 auth-failure response code (AccessDenied, ExpiredToken, InvalidAccessKeyId)
+    # into a bare PermissionError, and a 403 carries no code in its body to tell them apart. The rewrite
+    # only ever touches our own instance-role-authenticated data-warehouse bucket, so a denial here is
+    # the same transient IMDS/STS credential-resolution race already recognized as retryable in
+    # delta.table._is_retryable_purge_error — not a customer credential problem. Retrying on the next
+    # sync self-heals it; burning an attempt and reporting it instead abandons the table after the cap.
+    if isinstance(error, PermissionError):
+        return True
     message = str(error).lower()
     return any(snippet in message for snippet in _TRANSIENT_ERROR_SNIPPETS)
 

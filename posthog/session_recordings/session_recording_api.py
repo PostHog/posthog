@@ -293,6 +293,18 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
     # Dynamic attrs set on the model instance — not Django fields, so declare explicitly
     expiry_time = serializers.DateTimeField(read_only=True, allow_null=True)
     recording_ttl = serializers.IntegerField(read_only=True, allow_null=True)
+    total_size = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="Total stored size of the recording's snapshot data in bytes. "
+        "Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.",
+    )
+    event_count = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="Number of captured rrweb events in the recording. "
+        "Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.",
+    )
 
     def get_ongoing(self, obj: SessionRecording) -> bool:
         # ongoing is a custom field that we add if loading from ClickHouse
@@ -366,6 +378,8 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "activity_score",
             "external_references",
             "matches_filters",
+            "total_size",
+            "event_count",
         ]
 
         read_only_fields = [
@@ -391,6 +405,8 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "snapshot_library",
             "ongoing",
             "activity_score",
+            "total_size",
+            "event_count",
         ]
 
 

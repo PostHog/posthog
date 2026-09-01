@@ -270,6 +270,23 @@ export interface _MetricAnomalyReportApi {
     series: _MetricSeriesApi
 }
 
+export interface _MetricErrorSpikeApi {
+    /** When the error spike was detected, ISO 8601. */
+    detected_at: string
+    /** Error Tracking issue that spiked. */
+    issue_id: string
+    /**
+     * Issue name, if one is set.
+     * @nullable
+     */
+    issue_name: string | null
+}
+
+export interface _MetricErrorSpikesResponseApi {
+    /** Error Tracking issue spikes detected in the window, newest first. Team-wide: not yet scoped to a specific metric's service. */
+    results: _MetricErrorSpikeApi[]
+}
+
 /**
  * * `gauge` - gauge
  * * `sum` - sum
@@ -805,6 +822,17 @@ export type MetricsAttributesRetrieveParams = {
      * @maxLength 255
      */
     search?: string
+}
+
+export type MetricsErrorSpikesRetrieveParams = {
+    /**
+     * Lower bound (inclusive) for the spike window. ISO 8601.
+     */
+    dateFrom: string
+    /**
+     * Upper bound (exclusive) for the spike window. Defaults to now if omitted.
+     */
+    dateTo?: string
 }
 
 export type MetricsValuesRetrieveParams = {

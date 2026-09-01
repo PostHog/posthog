@@ -734,6 +734,12 @@ export interface hogFlowEditorLogicActions {
                                       filters: {
                                           properties?: any[] | undefined
                                       }
+                                      type: 'github-event'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
                                       type: 'slack-message'
                                   }
                                 | {
@@ -892,6 +898,12 @@ export interface hogFlowEditorLogicActions {
                   trigger?:
                       | {
                             type: 'schedule'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            type: 'github-event'
                         }
                       | {
                             filters: {
@@ -1581,6 +1593,12 @@ export interface hogFlowEditorLogicActions {
                                       filters: {
                                           properties?: any[] | undefined
                                       }
+                                      type: 'github-event'
+                                  }
+                                | {
+                                      filters: {
+                                          properties?: any[] | undefined
+                                      }
                                       type: 'slack-message'
                                   }
                                 | {
@@ -1739,6 +1757,12 @@ export interface hogFlowEditorLogicActions {
                   trigger?:
                       | {
                             type: 'schedule'
+                        }
+                      | {
+                            filters: {
+                                properties?: any[] | undefined
+                            }
+                            type: 'github-event'
                         }
                       | {
                             filters: {

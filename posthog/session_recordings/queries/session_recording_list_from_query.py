@@ -71,7 +71,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             sum(s.keypress_count) as keypress_count,
             sum(s.mouse_activity_count) as mouse_activity_count,
             sum(s.active_milliseconds)/1000 as active_seconds,
-            (duration - active_seconds) as inactive_seconds,
+            -- Concurrent tabs give overlapping blocks whose active time sums past the elapsed
+            -- span, and only the per-block totals are stored, so the overlap cannot be removed.
+            greatest(duration - active_seconds, 0) as inactive_seconds,
             sum(s.console_log_count) as console_log_count,
             sum(s.console_warn_count) as console_warn_count,
             sum(s.console_error_count) as console_error_count,
@@ -79,12 +81,15 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time,
             date_diff('DAY', {python_now}, expiry_time) as recording_ttl,
             {ongoing_selection},
-            round((
+            -- Clamped to the 0-100 the schema documents. The expression adds seconds to event
+            -- counts on both sides, so it is not a bounded ratio, and a session with no mouse
+            -- activity and no duration divides zero by zero, which reaches here as NaN.
+            round(least(greatest((
             ((sum(s.active_milliseconds) / 1000 + sum(s.click_count) + sum(s.keypress_count) + sum(s.console_error_count))) -- intent
             /
             ((sum(s.mouse_activity_count) + dateDiff('SECOND', start_time, end_time) + sum(s.console_error_count) + sum(s.console_log_count) + sum(s.console_warn_count)))
             * 100
-            ), 2) as activity_score,
+            ), 0), 100), 2) as activity_score,
             coalesce(max(s.surfacing_score), {unscored_surfacing_score}) as surfacing_score
         FROM raw_session_replay_events s
         WHERE {where_predicates}

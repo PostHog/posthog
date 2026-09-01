@@ -12,6 +12,7 @@ from collections.abc import Callable
 from uuid import UUID
 
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 
@@ -297,7 +298,9 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
     Safety net for the whole completion path. Polls PandaDoc for every row we
     still think is out for signature and marks the completed ones — recovering
     dropped, throttled, or 204'd `document.completed` webhooks and clearing the
-    backlog. Also re-enqueues the archive for signed rows whose PDF never landed.
+    backlog. Also re-sends envelopes stranded in `document.draft` — PandaDoc's
+    send call can 409 and never dispatch the signing email — and re-enqueues
+    the archive for signed rows whose PDF never landed.
 
     Each row is processed independently: `list_pending_signature_documents` is
     ordered oldest-first, so one row that deterministically errors (a bad
@@ -305,6 +308,7 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
     15-minute tick.
     """
     newly_signed = 0
+    drafts_resent = 0
     errors = 0
     pending_seen = 0
     # PandaDoc allows 100 downloads a minute across the whole account, shared with
@@ -320,13 +324,22 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
         for document in logic.list_pending_signature_documents():
             pending_seen += 1
             try:
-                if logic.get_pandadoc_document_status(document) == logic.PANDADOC_COMPLETED_STATUS:
+                pandadoc_status = logic.get_pandadoc_document_status(document)
+                if pandadoc_status == logic.PANDADOC_COMPLETED_STATUS:
                     if _try_mark_signed_and_schedule_archive(
                         document, capture=capture, delay_seconds=scheduled_archives
                     ):
                         newly_signed += 1
                         scheduled_archives += 1
                         signed_this_run.add(document.id)
+                elif (
+                    pandadoc_status == logic.PANDADOC_DRAFT_STATUS
+                    and timezone.now() - document.created_at >= logic.RECONCILE_DRAFT_MIN_AGE
+                ):
+                    if logic.send_pandadoc_envelope(document):
+                        drafts_resent += 1
+                    else:
+                        errors += 1
             except Exception as exc:
                 errors += 1
                 logger.exception("legal_document_reconcile_pending_row_failed", document_id=str(document.id))
@@ -358,5 +371,6 @@ def reconcile_pending_signatures() -> contracts.LegalDocumentReconcileResult:
     return contracts.LegalDocumentReconcileResult(
         newly_signed=newly_signed,
         archives_requeued=archives_requeued,
+        drafts_resent=drafts_resent,
         errors=errors,
     )
