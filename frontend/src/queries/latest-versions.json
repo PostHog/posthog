@@ -4,6 +4,6 @@
     "FunnelsQuery": 2,
     "LifecycleQuery": 2,
     "RetentionQuery": 2,
-    "StickinessQuery": 4,
-    "TrendsQuery": 4
+    "StickinessQuery": 5,
+    "TrendsQuery": 5
 }

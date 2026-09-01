@@ -104,6 +104,7 @@ import {
     isWebOverviewQuery,
     isWebStatsTableQuery,
     nodeKindToFilterProperty,
+    normalizeResultCustomizations,
     supportsBarValueStacking,
     supportsPercentStackView,
 } from '~/queries/utils'
@@ -2692,8 +2693,23 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             }
 
             const filterProperty = filterKeyForQuery(values.localQuerySource)
+            const mergedFilter: InsightFilter = { ...filterForQuery(values.localQuerySource), ...insightFilter }
+
+            // Trends and stickiness key result customizations two ways, and the dict must hold only
+            // one kind. Drop entries of the other kind so switching the picker or toggling a series
+            // can never leave a mixed dict the backend rejects.
+            if (isTrendsQuery(values.localQuerySource) || isStickinessQuery(values.localQuerySource)) {
+                const filter = mergedFilter as TrendsFilter
+                if (filter.resultCustomizations != null) {
+                    filter.resultCustomizations = normalizeResultCustomizations(
+                        filter.resultCustomizations,
+                        filter.resultCustomizationBy
+                    )
+                }
+            }
+
             actions.updateQuerySource({
-                [filterProperty]: { ...filterForQuery(values.localQuerySource), ...insightFilter },
+                [filterProperty]: mergedFilter,
             })
         },
 
