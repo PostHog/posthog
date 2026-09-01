@@ -15,6 +15,10 @@ export function WorkflowSuggestionDetails({ proposal }: { proposal: WorkflowProp
                     {JSON.stringify(proposal.evidence, null, 2)}
                 </pre>
             </div>
+            <div>
+                <span className="font-semibold">Producer type it declared: </span>
+                {proposal.source_type}
+            </div>
             {proposal.source_id && (
                 <div>
                     <span className="font-semibold">Source: </span>
