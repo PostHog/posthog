@@ -23,11 +23,15 @@ class Annotation(ModelActivityMixin, models.Model):
     content = models.CharField(max_length=8192, null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now, null=True)
     updated_at = models.DateTimeField(auto_now=True)
-    dashboard_item = models.ForeignKey("product_analytics.Insight", on_delete=models.SET_NULL, null=True, blank=True)
-    dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.SET_NULL, null=True, blank=True)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    organization = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE, null=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    dashboard_item = models.ForeignKey(
+        "product_analytics.Insight", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    dashboard = models.ForeignKey(
+        "dashboards.Dashboard", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    organization = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE, null=True, related_name="+")
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     scope = models.CharField(max_length=24, choices=Scope, default=Scope.INSIGHT)
     # Optional emoji shown in place of the default badge when surfacing the annotation.
     # Long enough to hold a single multi-codepoint grapheme (ZWJ sequences, skin-tone modifiers).

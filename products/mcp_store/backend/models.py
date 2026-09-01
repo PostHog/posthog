@@ -167,7 +167,7 @@ class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
 
 
 class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="mcp_server_installations")
     template = models.ForeignKey(
         MCPServerTemplate, on_delete=models.SET_NULL, related_name="installations", null=True, blank=True
@@ -243,7 +243,7 @@ class MCPServerInstallationTool(CreatedMetaFields, UpdatedMetaFields, UUIDModel)
 class MCPOAuthState(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     token_hash = models.CharField(max_length=64, unique=True, db_index=True)
     installation = models.ForeignKey(MCPServerInstallation, on_delete=models.CASCADE, related_name="oauth_states")
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     template = models.ForeignKey(
         MCPServerTemplate, on_delete=models.CASCADE, related_name="oauth_states", null=True, blank=True
     )

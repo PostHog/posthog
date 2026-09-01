@@ -299,6 +299,9 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         ),
     )
 
+    # Not sealed: the resource transfer graph walks reverse descriptors, so hiding
+    # survey_set would silently drop the survey link from Action-rooted duplications
+    # (test_relation_fields_Action locks the field list).
     actions = models.ManyToManyField(Action)
 
     @classmethod

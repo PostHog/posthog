@@ -14,7 +14,7 @@ class ZendeskImportJob(TeamScopedRootMixin, UUIDModel):
 
     # db_constraint=False: a real FK constraint would take SHARE ROW EXCLUSIVE on the
     # hot posthog_team table on CreateModel. App-level enforcement is enough here.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     status = models.CharField(max_length=32, choices=Status, default=Status.PENDING)
 
     total_tickets = models.BigIntegerField(default=0)

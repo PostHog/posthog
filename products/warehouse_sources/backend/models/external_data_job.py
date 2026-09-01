@@ -17,7 +17,7 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     Status = ExternalDataJobStatus
     PipelineVersion = ExternalDataJobPipelineVersion
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     pipeline = models.ForeignKey("warehouse_sources.ExternalDataSource", related_name="jobs", on_delete=models.CASCADE)
     schema = models.ForeignKey("warehouse_sources.ExternalDataSchema", on_delete=models.CASCADE, null=True, blank=True)
     status = models.CharField(max_length=400)

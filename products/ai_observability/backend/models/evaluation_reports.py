@@ -63,7 +63,7 @@ class EvaluationReport(UUIDTModel):
             models.UniqueConstraint(fields=["evaluation"], name="unique_evaluation_report_per_evaluation"),
         ]
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     evaluation = models.ForeignKey(
         "ai_observability.Evaluation",
         on_delete=models.CASCADE,
@@ -107,7 +107,7 @@ class EvaluationReport(UUIDTModel):
     # Lets users steer focus/scope/section choices without touching the base prompt.
     report_prompt_guidance = models.TextField(blank=True, default="")
 
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 
     @property

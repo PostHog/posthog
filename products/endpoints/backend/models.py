@@ -186,6 +186,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         on_delete=models.CASCADE,
         null=True,
         help_text="Team this version belongs to (denormalized from endpoint for HogQL system table access)",
+        related_name="+",
     )
     version = models.IntegerField()
     query = models.JSONField(help_text="Immutable query snapshot")
@@ -368,7 +369,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
         validators=[validate_endpoint_name],
         help_text="URL-safe name for the endpoint",
     )
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
+    team = models.ForeignKey(Team, on_delete=models.CASCADE, related_name="+")
 
     derived_from_insight = models.CharField(
         max_length=12,
@@ -381,7 +382,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
 
     current_version = models.IntegerField(default=1, help_text="Current version number of the endpoint query")
 
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     last_executed_at = models.DateTimeField(

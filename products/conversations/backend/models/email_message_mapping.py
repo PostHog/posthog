@@ -7,9 +7,9 @@ from .ticket import Ticket
 
 class EmailMessageMapping(UUIDModel):
     message_id = models.CharField(max_length=255, db_index=True)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE)
-    comment = models.ForeignKey("posthog.Comment", on_delete=models.CASCADE)
+    comment = models.ForeignKey("posthog.Comment", on_delete=models.CASCADE, related_name="+")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -63,7 +63,7 @@ class PropertyDefinition(UUIDTModel):
         related_name="property_definitions",
         related_query_name="team",
     )
-    project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True)
+    project = models.ForeignKey("posthog.Project", on_delete=models.CASCADE, null=True, related_name="+")
     name = models.CharField(max_length=400)
     is_numerical = models.BooleanField(
         default=False

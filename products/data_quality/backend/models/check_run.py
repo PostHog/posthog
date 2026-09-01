@@ -14,7 +14,7 @@ class DataQualitySuiteRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFie
     columns are a convenience for the common single-subject case, not the run's identity.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
@@ -76,7 +76,7 @@ class DataQualityCheckRun(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFie
     series is what future anomaly-detection check types train on.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )

@@ -4,7 +4,7 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 
 class GitHubSyncedModel(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     team_id: int
 
     config = models.ForeignKey(

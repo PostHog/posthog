@@ -23,7 +23,7 @@ class EmailThreadParticipantKind(models.TextChoices):
 
 
 class EmailThread(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     canonical_thread_key = models.CharField(max_length=998)
     subject = models.TextField(default="", blank=True)
     first_message_at = models.DateTimeField(null=True, blank=True)
@@ -47,7 +47,7 @@ class EmailThread(TeamScopedRootMixin, UUIDModel):
 
 
 class EmailThreadAccountLink(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     thread = models.ForeignKey("conversations.EmailThread", on_delete=models.CASCADE, related_name="account_links")
     account_id = models.CharField(max_length=64)
     account_external_id = models.CharField(max_length=400, null=True, blank=True)
@@ -69,7 +69,7 @@ class EmailThreadAccountLink(TeamScopedRootMixin, UUIDModel):
 
 
 class EmailThreadMessage(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     thread = models.ForeignKey("conversations.EmailThread", on_delete=models.CASCADE, related_name="messages")
     comment = models.OneToOneField(
         "posthog.Comment",
@@ -111,7 +111,7 @@ class EmailThreadMessage(TeamScopedRootMixin, UUIDModel):
 
 
 class EmailThreadParticipant(TeamScopedRootMixin, UUIDModel):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     thread = models.ForeignKey("conversations.EmailThread", on_delete=models.CASCADE, related_name="participants")
     email = models.CharField(max_length=400)
     display_name = models.CharField(max_length=400, default="", blank=True)

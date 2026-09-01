@@ -19,7 +19,7 @@ class WarehouseColumnAnnotation(TeamScopedRootMixin, CreatedMetaFields, UpdatedM
     # Kept on the model so the nested names and the `choices=` below stay unchanged.
     DescriptionSource = WarehouseColumnAnnotationDescriptionSource
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     table = models.ForeignKey(
         "warehouse_sources.DataWarehouseTable", on_delete=models.CASCADE, related_name="column_annotations"
     )

@@ -35,7 +35,7 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
 
     # db_constraint=False: a real FK constraint to the hot posthog_team table
     # takes a parent lock during migration; scoping is enforced app-side.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     # Channels are the tasks product's model; every canvas is filed into one.
     channel = models.ForeignKey("tasks.Channel", on_delete=models.CASCADE, db_constraint=False, related_name="canvases")
 
@@ -67,7 +67,7 @@ class Canvas(TeamScopedRootMixin, UUIDModel):
     legacy_code = models.TextField(null=True, blank=True)
 
     created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
@@ -96,7 +96,7 @@ class CanvasSourceVersion(TeamScopedRootMixin, UUIDModel):
     an existing version.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     canvas = models.ForeignKey(Canvas, on_delete=models.CASCADE, related_name="source_versions")
     parent_version = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
 
@@ -129,7 +129,7 @@ class CanvasSourceVersion(TeamScopedRootMixin, UUIDModel):
     draft = models.BooleanField(default=False)
 
     created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     created_at = models.DateTimeField(default=timezone.now)
 
@@ -153,7 +153,7 @@ class CanvasBuild(TeamScopedRootMixin, UUIDModel):
     STATUS_FAILED = "failed"
     ACTIVE_STATUSES = [STATUS_QUEUED, STATUS_BUILDING]
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     canvas = models.ForeignKey(Canvas, on_delete=models.CASCADE, related_name="builds")
     source_version = models.ForeignKey(CanvasSourceVersion, on_delete=models.CASCADE, related_name="builds")
 
@@ -212,8 +212,8 @@ class CanvasHomePreference(TeamScopedRootMixin, UUIDModel):
     home set — filter ``canvas__deleted=False`` — and re-provision on next open.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
-    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     canvas = models.ForeignKey(Canvas, on_delete=models.CASCADE, related_name="+")
 
     created_at = models.DateTimeField(default=timezone.now)
@@ -239,11 +239,13 @@ class CanvasState(TeamScopedRootMixin, UUIDModel):
     SCOPE_SHARED = "shared"
     SCOPES = [SCOPE_USER, SCOPE_SHARED]
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     canvas = models.ForeignKey(Canvas, on_delete=models.CASCADE, related_name="state_entries")
     scope = models.CharField(max_length=8)
     # The owning viewer for user-scoped rows; always null for shared rows.
-    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, null=True, blank=True, db_constraint=False)
+    user = models.ForeignKey(
+        "posthog.User", on_delete=models.CASCADE, null=True, blank=True, db_constraint=False, related_name="+"
+    )
     key = models.CharField(max_length=200)
     value = models.JSONField()
     created_at = models.DateTimeField(default=timezone.now)

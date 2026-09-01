@@ -104,11 +104,11 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
             models.Index(fields=["type", "enabled", "team"]),
         ]
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
     deleted = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
     enabled = models.BooleanField(default=False)
@@ -144,10 +144,7 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
     execution_order = models.PositiveSmallIntegerField(null=True, blank=True)
 
     batch_export = models.ForeignKey(
-        "batch_exports.BatchExport",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
+        "batch_exports.BatchExport", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
 
     # db_default alongside default: the plugin-server test fixtures INSERT into this table with raw
