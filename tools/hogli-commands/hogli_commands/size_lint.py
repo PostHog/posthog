@@ -140,18 +140,18 @@ def _lines_at(rev: str, path: str) -> int:
 
 
 def _line_count(path: str, rev: str | None) -> int:
-    """Size of *path*, read from *rev* when one is named and the file exists there.
+    """Size of *path*, read from *rev* when one is named and from disk otherwise.
 
-    Which copy to read follows the caller's scope, not the presence of a base. A
-    pre-push run carries only commits, so it reads HEAD and an uncommitted edit cannot
-    move the number away from what gets pushed. A run that includes the working tree
-    measures the working tree, so growth that is still uncommitted is reported. A file
-    that is new and not yet committed falls back to disk, the only place it exists.
+    Which copy to read follows the caller's scope. A pre-push run carries only commits,
+    so it reads the commit and an uncommitted edit cannot move the number away from
+    what gets pushed. A run that includes the working tree measures the working tree,
+    so growth that is not committed yet is still reported. A path with no blob at *rev*
+    is not committed at all, so it counts as zero and drops out rather than falling
+    back to disk, which would report content the caller did not ask about.
     """
     if rev is not None:
         result = _git("show", f"{rev}:{path}")
-        if result.returncode == 0:
-            return len(result.stdout.splitlines())
+        return 0 if result.returncode != 0 else len(result.stdout.splitlines())
     return len((REPO_ROOT / path).read_text(errors="replace").splitlines())
 
 
@@ -222,7 +222,9 @@ def cmd_lint_size(files: tuple[str, ...], against: str | None, committed: bool, 
     # ref that resolves but shares no history fails the same way a typo does.
     if against is not None and base is None:
         raise click.UsageError(f"no merge base with {against!r}: check the ref exists and shares history")
-    paths = list(files) if files else changed_files(against)
+    # Committed-only mode must not discover uncommitted work either, or a staged file
+    # would be selected and then measured as zero, which reads as a silent skip.
+    paths = list(files) if files else changed_files(against, include_worktree=not committed)
     in_scope = [
         path
         for path in paths

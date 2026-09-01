@@ -26,8 +26,8 @@ fail() {
 }
 
 # An empty index makes every tracked file read as deleted, so the staged list runs to
-# thousands of paths. That is the case that used to lose the warning: a match early in
-# a long list let grep close the pipe before git finished writing it.
+# thousands of paths. A match early in a list that long can close the pipe before git
+# finishes writing it, and under pipefail that has to still produce the warning.
 rm -f "$index"
 stage .claude/hooks/session-start.sh
 output="$(run .github/scripts/check-claude-hooks.sh)"

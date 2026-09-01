@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
 from hogli.cli import cli
-from hogli_commands import ci_preflight, size_lint
+from hogli_commands import change_detection, ci_preflight, size_lint
 from hogli_commands.size_lint import CROSSED_AT, NOTE_AT, _findings, _merge_base
 
 runner = CliRunner()
@@ -33,6 +33,8 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     _git(tmp_path, "add", "-A")
     _git(tmp_path, "commit", "-qm", "base")
     monkeypatch.setattr(size_lint, "REPO_ROOT", tmp_path)
+    # File discovery reads the repo through its own module-level root.
+    monkeypatch.setattr(change_detection, "REPO_ROOT", tmp_path)
     return tmp_path
 
 
@@ -167,6 +169,20 @@ class TestSizeLint:
         unrelated = runner.invoke(cli, ["lint:size", "--against", "unrelated", "posthog/big.py"])
         assert unrelated.exit_code != 0
         assert "unrelated" in unrelated.output
+
+    def test_committed_mode_does_not_discover_uncommitted_work(self, repo: Path) -> None:
+        # Discovery has to match the promise of the flag. Selecting a staged file and then
+        # measuring it at HEAD, where it does not exist, would read as a silent skip.
+        _git(repo, "checkout", "-qb", "feature")
+        _write(repo, "posthog/staged.py", CROSSED_AT + 100)
+        _git(repo, "add", "posthog/staged.py")
+
+        result = runner.invoke(cli, ["lint:size", "--against", "master", "--committed"])
+
+        # The count is the assertion: measuring the file at HEAD would also produce no
+        # finding, so only the number of files selected separates the two behaviors.
+        assert result.exit_code == 0
+        assert "0 file(s) checked" in result.output
 
     def test_cli_reports_findings_without_failing(self, repo: Path, tmp_path: Path) -> None:
         # The check is advisory, and preflight reads a soft check as a warning only when
