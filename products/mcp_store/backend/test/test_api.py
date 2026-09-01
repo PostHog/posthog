@@ -44,7 +44,7 @@ from products.mcp_store.backend.presentation.gateway_views import (
 )
 from products.mcp_store.backend.presentation.views import _is_valid_posthog_code_callback_url
 
-ALLOW_URL = patch("products.mcp_store.backend.presentation.views.is_url_allowed", return_value=(True, None))
+ALLOW_URL = patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(True, None))
 
 POLICY_REQUEST_SERIALIZER_CASES = [
     ("policy_upsert", GatewayPoliciesUpsertSerializer, {}),
@@ -2141,7 +2141,7 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         mock_proxy.assert_not_called()
 
-    @patch("products.mcp_store.backend.proxy.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(True, None))
     @patch("products.mcp_store.backend.proxy.httpx.Client")
     def test_agent_grant_enforces_agent_scope_policy(self, mock_http_client, _mock_is_url_allowed) -> None:
         account = self._active_scout_account()
@@ -2697,7 +2697,7 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("products.mcp_store.backend.presentation.views.is_url_allowed", return_value=(False, "Private IP"))
+    @patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(False, "Private IP"))
     def test_install_custom_ssrf_blocked(self, _mock):
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
@@ -2706,7 +2706,7 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    @patch("products.mcp_store.backend.presentation.views.is_url_allowed", return_value=(False, "Local/metadata host"))
+    @patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(False, "Local/metadata host"))
     def test_install_custom_oauth_ssrf_blocked(self, _mock):
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
@@ -4485,7 +4485,7 @@ class TestMCPInstallationScopeAccess(ClickhouseTestMixin, APIBaseTest, QueryMatc
         other = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
         shared = self._create_installation(user=other, scope="shared", sensitive_configuration={"api_key": "k"})
 
-        with mock_patch("products.mcp_store.backend.proxy.is_url_allowed", return_value=(True, None)):
+        with mock_patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(True, None)):
             with mock_patch("products.mcp_store.backend.proxy.httpx.Client") as mock_client_cls:
                 mock_resp = MagicMock()
                 mock_resp.status_code = 200

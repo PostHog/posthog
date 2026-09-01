@@ -91,9 +91,12 @@ class TestBuildReportBody:
         assert body["startDate"] == "2026-03-01"
         assert body["endDate"] == "2026-04-01"
 
-    def test_orders_ascending_so_the_declared_sort_mode_holds(self):
+    def test_does_not_order_by_the_response_only_datetime_field(self):
+        # `datetime` is a response-only interval marker, not a queryable slug, so ordering by it
+        # makes the Query API reject the whole report with a 400.
         body = build_report_body("CampaignPerformance", MARCH_WINDOW, ALL_CAPABILITIES, None, None)
-        assert body["orderBys"] == [{"column": "datetime", "direction": "asc"}]
+        order_columns = {order["column"] for order in body.get("orderBys", [])}
+        assert "datetime" not in order_columns
 
     def test_drops_metrics_the_account_cannot_report_on(self):
         body = build_report_body(
