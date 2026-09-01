@@ -29,6 +29,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
+from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
@@ -81,6 +82,18 @@ from products.warehouse_sources.backend.facade.models import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def _view_column_inference_error(err: Exception, view_name: str) -> serializers.ValidationError:
+    # Column inference runs the query to read its output types, so it fails for reasons the static
+    # query check never sees: a runtime ClickHouse error, a timeout, or an unavailable warehouse
+    # source. Surface the safe, user-facing detail so the caller can fix the query; keep the generic
+    # message only for errors that are not safe to show.
+    if isinstance(err, ExposedHogQLError | ExposedCHQueryError):
+        return serializers.ValidationError(f"Could not read the view's column types: {err}")
+    capture_exception(err)
+    logger.exception("Failed to retrieve types for view %s", view_name)
+    return serializers.ValidationError("Failed to retrieve types for view")
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -874,9 +887,7 @@ class DataWarehouseSavedQuerySerializer(
 
                 view.external_tables = view.s3_tables
             except Exception as e:
-                capture_exception(e)
-                logger.exception("Failed to retrieve types for view %s", view.name)
-                raise serializers.ValidationError("Failed to retrieve types for view")
+                raise _view_column_inference_error(e, view.name)
 
         with transaction.atomic():
             view.save()
@@ -997,8 +1008,20 @@ class DataWarehouseSavedQuerySerializer(
                     .first()
                 )
 
+                # A view with prior query edits needs the concurrency token. Point a caller who
+                # omitted it at the field to send, rather than reporting a conflict that did not happen.
+                if edited_history_id is None and latest_activity_id is not None:
+                    raise serializers.ValidationError(
+                        {
+                            "edited_history_id": "To change the query, first retrieve the view and send its "
+                            "latest_history_id as edited_history_id. This confirms you are editing the current version."
+                        }
+                    )
                 if str(edited_history_id) != str(latest_activity_id):
-                    raise serializers.ValidationError("The query was modified by someone else.")
+                    raise serializers.ValidationError(
+                        "The query was modified by someone else. Retrieve the view again to get its "
+                        "latest_history_id, then retry with that value as edited_history_id."
+                    )
 
             if dag_managed_frequency:
                 # Tiered v2: the node target is the only store of frequency intent. The
@@ -1075,9 +1098,7 @@ class DataWarehouseSavedQuerySerializer(
                 except RecursionError:
                     raise serializers.ValidationError("Model contains a cycle")
                 except Exception as e:
-                    capture_exception(e)
-                    logger.exception("Failed to retrieve types for view %s", view.name)
-                    raise serializers.ValidationError("Failed to retrieve types for view")
+                    raise _view_column_inference_error(e, view.name)
 
                 view.status = DataWarehouseSavedQuery.Status.MODIFIED
                 view.save()

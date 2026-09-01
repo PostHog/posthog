@@ -13,6 +13,8 @@ from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.models import ActivityLog
 from posthog.models.activity_logging.activity_log import Detail
 
@@ -1725,7 +1727,7 @@ class TestSavedQuery(APIBaseTest):
             )
 
             self.assertEqual(response.status_code, 400, response.content)
-            self.assertEqual(response.json()["detail"], "The query was modified by someone else.")
+            self.assertIn("The query was modified by someone else.", response.json()["detail"])
 
     def test_update_concurrency_ignores_non_query_activity(self):
         response = self.client.post(
@@ -1802,6 +1804,53 @@ class TestSavedQuery(APIBaseTest):
             )
 
             self.assertEqual(response.status_code, 200, response.content)
+
+    def test_update_query_without_edited_history_id_names_the_field(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            },
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        saved_query = response.json()
+        self.assertIsNotNone(saved_query["latest_history_id"])
+
+        with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
+            mock_get_columns.return_value = {}
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {"query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 10"}},
+            )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()["attr"], "edited_history_id")
+        # The concurrency guard rejects before the query runs, so no wasted column inference.
+        mock_get_columns.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("exposed_error", ExposedHogQLError("Unknown table `foo`"), True),
+            ("internal_error", ValueError("boom"), False),
+        ]
+    )
+    def test_create_column_inference_error_surfaces_safe_reason(self, _name, error, is_exposed):
+        with patch.object(DataWarehouseSavedQuery, "get_columns", side_effect=error):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "event_view",
+                    "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+                },
+            )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        detail = response.json()["detail"]
+        if is_exposed:
+            self.assertIn("Unknown table `foo`", detail)
+        else:
+            self.assertEqual(detail, "Failed to retrieve types for view")
 
     def test_revert_materialization(self):
         response = self.client.post(
