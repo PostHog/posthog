@@ -71,6 +71,8 @@ class IcpFitResult:
     low_confidence: Optional[bool] = None
     agency_flag: Optional[bool] = None
     nonprofit_flag: Optional[bool] = None
+    wizard_ai_sdk: Optional[bool] = None
+    ai_pilled_source: Optional[str] = None
     version: str = SCORE_VERSION
     lists_version: Optional[str] = None
 
@@ -98,6 +100,7 @@ def score_company(
     lists: CuratedLists,
     role: Optional[str] = None,
     domain: Optional[str] = None,
+    wizard_ai_sdk: bool = False,
 ) -> IcpFitResult:
     """Score one company payload (REST shape — see module docstring) against the fit rules.
 
@@ -109,6 +112,11 @@ def score_company(
     know the answer regardless of enrichment); a missing/unmatched payload is not_found; a
     matched but empty-shell profile is insufficient_data (no numeric score — "no data yet"
     must never read as "evaluated and low"); everything else is scored 0–100.
+
+    `wizard_ai_sdk` is evidence only: AIPilled still scores on the Harmonic signal alone
+    (`ai_pilled_source` records "harmonic" / "wizard" / "both" so the wizard's contribution
+    is visible without a weight change), until post-disclosure coverage justifies wiring it
+    into the formula itself.
     """
     if (role or "").strip().lower() == "student":
         return IcpFitResult(status=STATUS_DISQUALIFIED, score=0, dq_reason="role=student", lists_version=lists.version)
@@ -192,10 +200,12 @@ def score_company(
 
     description = payload.get("description") or payload.get("short_description") or ""
     # AI tags, AI language in the description, or a .ai signup domain all qualify in full.
-    ai_pilled = (
-        15
-        if (tags & lists.ai_positive or (description and AI_DESC.search(description)) or (domain or "").endswith(".ai"))
-        else 0
+    harmonic_ai = bool(
+        tags & lists.ai_positive or (description and AI_DESC.search(description)) or (domain or "").endswith(".ai")
+    )
+    ai_pilled = 15 if harmonic_ai else 0
+    ai_pilled_source = (
+        "both" if harmonic_ai and wizard_ai_sdk else "harmonic" if harmonic_ai else "wizard" if wizard_ai_sdk else None
     )
 
     headcount_growth = (
@@ -240,5 +250,7 @@ def score_company(
         low_confidence=coverage <= 1,
         agency_flag=bool(tags & AGENCY_TAGS),
         nonprofit_flag=bool(tags & NONPROFIT_TAGS),
+        wizard_ai_sdk=wizard_ai_sdk,
+        ai_pilled_source=ai_pilled_source,
         lists_version=lists.version,
     )

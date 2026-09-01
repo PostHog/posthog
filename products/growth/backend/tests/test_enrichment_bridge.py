@@ -8,7 +8,9 @@ from posthog.models.group.group import Group
 from products.growth.backend.enrichment.bridge import (
     ClayBridgeInputs,
     OrganizationGroupTypeMissing,
+    WizardBridgeInputs,
     read_clay_bridge_inputs,
+    read_wizard_bridge_inputs,
 )
 
 _ORGANIZATION_GROUP_TYPES = [{"group_type": "organization", "group_type_index": 3}]
@@ -80,6 +82,52 @@ class TestEnrichmentBridge(BaseTest):
     def test_est_revenue_coercion(self, _name, raw, expected):
         inputs, _ = self._read(Group(group_properties={"icp_est_revenue": raw}))
         assert inputs.est_revenue == expected
+
+    def test_missing_organization_group_type_raises_rather_than_reading_as_absent(self):
+        with self.assertRaises(OrganizationGroupTypeMissing):
+            self._read(Group(group_properties={}), group_types=[{"group_type": "project", "group_type_index": 0}])
+
+
+class TestWizardBridge(BaseTest):
+    def _read(self, group, group_types=_ORGANIZATION_GROUP_TYPES, region="US"):
+        with (
+            patch("products.growth.backend.enrichment.bridge.get_instance_region", return_value=region),
+            patch("products.growth.backend.enrichment.bridge.Team.objects.get", return_value=self.team),
+            patch(
+                "products.growth.backend.enrichment.bridge.get_group_types_for_project",
+                return_value=group_types,
+            ),
+            patch("products.growth.backend.enrichment.bridge.get_group_by_key", return_value=group) as get_group,
+        ):
+            return read_wizard_bridge_inputs(organization_id="org-1"), get_group
+
+    @parameterized.expand([("eu", "EU"), ("self_hosted", None)])
+    def test_non_us_regions_skip_the_lookup_entirely(self, _name, region):
+        inputs, get_group = self._read(Group(group_properties={"wizard_ai_sdk_detected": True}), region=region)
+
+        assert inputs == WizardBridgeInputs()
+        get_group.assert_not_called()
+
+    def test_reads_the_wizard_stamp_off_the_organization_group(self):
+        group = Group(group_properties={"wizard_ai_sdk_detected": True})
+        inputs, get_group = self._read(group)
+
+        assert inputs == WizardBridgeInputs(ai_sdk_detected=True)
+        assert get_group.call_args.kwargs["group_type_index"] == 3
+        assert get_group.call_args.kwargs["group_key"] == "org-1"
+
+    def test_org_with_no_group_yet_reads_as_false(self):
+        inputs, _ = self._read(None)
+        assert inputs == WizardBridgeInputs()
+
+    def test_group_without_the_stamp_reads_as_false(self):
+        inputs, _ = self._read(Group(group_properties={"icp_est_revenue": 1}))
+        assert inputs == WizardBridgeInputs()
+
+    def test_non_boolean_value_reads_as_false(self):
+        # The wizard's own contract is boolean-only; a non-True value is not the stamp.
+        inputs, _ = self._read(Group(group_properties={"wizard_ai_sdk_detected": "true"}))
+        assert inputs == WizardBridgeInputs()
 
     def test_missing_organization_group_type_raises_rather_than_reading_as_absent(self):
         with self.assertRaises(OrganizationGroupTypeMissing):

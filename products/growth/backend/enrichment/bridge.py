@@ -14,6 +14,10 @@ simply has no properties (a real null, and Clay scored nothing for it either), w
 unreachable group store raises. Scoring an org on inputs we failed to fetch would write a
 silently-too-low score, which is worse than writing none — so callers degrade to writing
 firmographics without a score on a raise, and get another chance at the delayed recheck.
+
+Also hosts `read_wizard_bridge_inputs`: same organization group, same group-type-index
+lookup, same US-only / missing-group / raise-on-unreachable semantics, a different
+property key — the wizard's own AI-SDK detection stamp rather than a Clay column.
 """
 
 import dataclasses
@@ -30,6 +34,7 @@ from products.growth.backend.enrichment.writer import ORGANIZATION_GROUP_TYPE
 
 CLAY_EST_REVENUE_PROPERTY = "icp_est_revenue"
 CLAY_COMPANY_TYPE_PROPERTY = "icp_company_type"
+WIZARD_AI_SDK_DETECTED_PROPERTY = "wizard_ai_sdk_detected"
 
 
 class OrganizationGroupTypeMissing(Exception):
@@ -92,3 +97,29 @@ def read_clay_bridge_inputs(*, organization_id: str) -> ClayBridgeInputs:
         est_revenue=_numeric(properties.get(CLAY_EST_REVENUE_PROPERTY)),
         clay_processed=CLAY_COMPANY_TYPE_PROPERTY in properties,
     )
+
+
+@dataclasses.dataclass(frozen=True)
+class WizardBridgeInputs:
+    """The wizard's own AI-SDK detection stamp for one org. False when the wizard never reported it."""
+
+    ai_sdk_detected: bool = False
+
+
+def read_wizard_bridge_inputs(*, organization_id: str) -> WizardBridgeInputs:
+    """Fetch the wizard's `wizard_ai_sdk_detected` stamp for one org. Raises if the group store can't be read."""
+    # The wizard stamps the same US internal project Clay writes to, so outside US there is
+    # nothing to read — skip the lookup rather than querying a project the wizard never touched.
+    if get_instance_region() != "US":
+        return WizardBridgeInputs()
+    team = Team.objects.get(id=settings.GROWTH_ENRICHMENT_INTERNAL_TEAM_ID)
+    group = get_group_by_key(
+        team_id=team.id,
+        group_type_index=_organization_group_type_index(team),
+        group_key=organization_id,
+    )
+    if group is None:
+        return WizardBridgeInputs()
+
+    properties = group.group_properties or {}
+    return WizardBridgeInputs(ai_sdk_detected=properties.get(WIZARD_AI_SDK_DETECTED_PROPERTY) is True)

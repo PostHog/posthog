@@ -21,7 +21,11 @@ from posthoganalytics.client import Client
 from posthog.exceptions_capture import capture_exception
 from posthog.models.person.util import get_person_by_distinct_id
 
-from products.growth.backend.enrichment.bridge import ClayBridgeInputs, read_clay_bridge_inputs
+from products.growth.backend.enrichment.bridge import (
+    ClayBridgeInputs,
+    read_clay_bridge_inputs,
+    read_wizard_bridge_inputs,
+)
 from products.growth.backend.enrichment.clearbit import ClearbitInputs, clearbit_inputs_from_person_properties
 from products.growth.backend.enrichment.fields import EnrichmentFields
 from products.growth.backend.enrichment.fit_score import IcpFitResult, score_company
@@ -237,6 +241,19 @@ def _score_and_mirror(
     return icp_score, mirror_distinct_id
 
 
+def _read_wizard_ai_sdk(organization_id: str) -> bool:
+    """Best-effort recheck-only read of the wizard's AI-SDK stamp.
+
+    Isolated from `_score_fit`'s own try/except: the wizard bridge is optional evidence, so
+    an unreachable store degrades to no wizard input, not to no fit evaluation at all.
+    """
+    try:
+        return read_wizard_bridge_inputs(organization_id=organization_id).ai_sdk_detected
+    except Exception as e:
+        capture_exception(e)
+        return False
+
+
 def _score_fit(
     *,
     organization_id: str,
@@ -244,6 +261,7 @@ def _score_fit(
     role: Optional[str],
     domain: str,
     distinct_id: Optional[str],
+    is_recheck: bool,
 ) -> tuple[Optional[IcpFitResult], Optional[str]]:
     """Evaluate one org under the ICP fit score.
 
@@ -252,12 +270,18 @@ def _score_fit(
     active curated-lists row degrades to no evaluation at all (captured, never raised):
     scoring against empty lists would floor three components and look like a real answer.
 
+    The wizard's AI-SDK stamp is read on `is_recheck` only: the wizard runs long after
+    signup, so a first attempt would virtually never see it land in time. Its evidence rides
+    into `score_company` as `wizard_ai_sdk` without changing the score — see that function's
+    docstring.
+
     The fit person mirror needs no ownership guard and no person read: `icp_fit_score` is a
     brand-new person key nothing else writes, so every evaluation mirrors blindly on every
     attempt (unlike the clay mirror, which shares Clay's key and stays recheck-only behind
     the ownership check) — including a score-less one, whose status overwrites a stale
     number left by an earlier scored attempt.
     """
+    wizard_ai_sdk = _read_wizard_ai_sdk(organization_id) if is_recheck else False
     try:
         lists = load_active_lists()
         if lists is None:
@@ -268,7 +292,7 @@ def _score_fit(
         if payload is None:
             payload = normalize_graphql_company(latest_matched_payload(organization_id))
 
-        result = score_company(payload, lists=lists, role=role, domain=domain)
+        result = score_company(payload, lists=lists, role=role, domain=domain, wizard_ai_sdk=wizard_ai_sdk)
     except Exception as e:
         capture_exception(e)
         return None, None
@@ -362,6 +386,7 @@ async def enrich_organization(
         role=role_at_organization,
         domain=domain,
         distinct_id=distinct_id,
+        is_recheck=is_recheck,
     )
 
     if fields is None and fit is None:

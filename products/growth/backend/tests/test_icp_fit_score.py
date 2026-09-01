@@ -241,6 +241,40 @@ def test_ai_pilled_signals(_name, tags, description, domain, expected):
     assert (result.components or {}).get("ai_pilled") == expected
 
 
+def test_wizard_evidence_alone_does_not_change_the_score():
+    # The wizard stamp is evidence only in V1: AIPilled still fires on Harmonic inputs alone.
+    payload = _payload(description="We sell shoes")
+    without_wizard = score_company(payload, lists=LISTS, domain="acme.com")
+    with_wizard = score_company(payload, lists=LISTS, domain="acme.com", wizard_ai_sdk=True)
+
+    assert with_wizard.score == without_wizard.score
+    assert (with_wizard.components or {}).get("ai_pilled") == 0
+    assert with_wizard.wizard_ai_sdk is True
+    assert with_wizard.ai_pilled_source == "wizard"
+
+
+@parameterized.expand(
+    [
+        ("harmonic_only", [{"display_value": "Artificial Intelligence", "type": "MARKET"}], False, "harmonic", 15),
+        ("wizard_only", None, True, "wizard", 0),
+        ("both", [{"display_value": "Artificial Intelligence", "type": "MARKET"}], True, "both", 15),
+        ("neither", None, False, None, 0),
+    ]
+)
+def test_ai_pilled_source_records_which_evidence_was_present(
+    _name, tags, wizard_ai_sdk, expected_source, expected_score
+):
+    payload = _payload(description="We sell shoes")
+    if tags:
+        payload["tags_v2"] = tags
+    result = score_company(payload, lists=LISTS, domain="acme.com", wizard_ai_sdk=wizard_ai_sdk)
+
+    assert result.ai_pilled_source == expected_source
+    assert result.wizard_ai_sdk is wizard_ai_sdk
+    # "both" sources still cap at 15, never stack to 30.
+    assert (result.components or {}).get("ai_pilled") == expected_score
+
+
 # ---------- headcount growth (10) ----------
 
 
