@@ -1444,7 +1444,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
         cls.insight = Insight.objects.create(
             team=cls.team,
             name="Test Insight",
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            query={"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["*"]}},
         )
         cls.sharing_config = SharingConfiguration.objects.create(
             team=cls.team,
@@ -1581,7 +1581,7 @@ class TestSharedAdhocQueryExport(APIBaseTest):
     """The /exporter page for an insight-less PNG asset (export_context.source) must inline the
     pre-computed query result — the anonymous page can't authenticate against the query API."""
 
-    _SOURCE_QUERY = {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [{"event": "$pageview"}]}}
+    _SOURCE_QUERY = {"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["*"]}}
 
     def _create_asset(self) -> ExportedAsset:
         return ExportedAsset.objects.create(
@@ -1636,13 +1636,13 @@ class TestSharedCohortInlining(APIBaseTest):
 
         insight = Insight.objects.create(
             team=self.team,
-            name="Trend by cohort",
+            name="Insight by cohort",
             query={
-                "kind": "InsightVizNode",
+                "kind": "DataTableNode",
                 "source": {
-                    "kind": "TrendsQuery",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    "breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort.id]},
+                    "kind": "EventsQuery",
+                    "select": ["*"],
+                    "properties": [{"type": "cohort", "key": "id", "value": cohort.id}],
                 },
             },
         )
@@ -1660,13 +1660,7 @@ class TestSharedCohortInlining(APIBaseTest):
         insight = Insight.objects.create(
             team=self.team,
             name="No cohorts",
-            query={
-                "kind": "InsightVizNode",
-                "source": {
-                    "kind": "TrendsQuery",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                },
-            },
+            query={"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["*"]}},
         )
         config = SharingConfiguration.objects.create(team=self.team, insight=insight, enabled=True)
 
@@ -1686,11 +1680,11 @@ class TestSharedCohortInlining(APIBaseTest):
         insight_a = Insight.objects.create(
             team=self.team,
             query={
-                "kind": "InsightVizNode",
+                "kind": "DataTableNode",
                 "source": {
-                    "kind": "TrendsQuery",
-                    "series": [{"kind": "EventsNode", "event": "$pageview"}],
-                    "breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort_a.id]},
+                    "kind": "EventsQuery",
+                    "select": ["*"],
+                    "properties": [{"type": "cohort", "key": "id", "value": cohort_a.id}],
                 },
             },
         )
@@ -1765,13 +1759,18 @@ class TestSharedCohortInlining(APIBaseTest):
         dashboard = Dashboard.objects.create(team=self.team, name="dash", created_by=self.user)
         insight = Insight.objects.create(
             team=self.team,
-            name="Pageviews",
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            name="Event count",
+            # Alerts only render for an alertable insight kind, so the empty-alerts assertion
+            # below needs one — otherwise it holds for the wrong reason.
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {"kind": "HogQLQuery", "query": "select count() from events"},
+            },
             created_by=self.user,
             last_modified_by=self.user,
         )
         AlertConfiguration.objects.create(
-            team=self.team, insight=insight, name="High pageviews", enabled=True, created_by=self.user
+            team=self.team, insight=insight, name="High event count", enabled=True, created_by=self.user
         )
         DashboardTile.objects.create(dashboard=dashboard, team_id=self.team.id, insight=insight)
         text = Text.objects.create(team=self.team, body="Read me", created_by=self.user, last_modified_by=self.user)

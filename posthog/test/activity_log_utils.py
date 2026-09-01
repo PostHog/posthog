@@ -755,7 +755,11 @@ class ActivityLogTestHelper(APILicensedTest):
         data = {
             "name": name,
             "description": "Test saved metric",
-            "query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            "query": {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+            },
             **kwargs,
         }
         response = self.client.post(f"/api/projects/{self.team.id}/experiment_saved_metrics/", data, format="json")

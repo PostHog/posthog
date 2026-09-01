@@ -809,7 +809,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         insight = Insight.objects.create(
             team=self.team,
             created_by=self.user,
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            query={"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["*"]}},
         )
         DashboardTile.objects.create(dashboard=dashboard, insight=insight)
         mock_calculate.return_value = InsightResult(
@@ -3658,8 +3658,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {
                 "dashboards": [dashboard_id],
                 "query": {
-                    "kind": "InsightVizNode",
-                    "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                    "kind": "DataVisualizationNode",
+                    "source": {"kind": "HogQLQuery", "query": "select count() from events"},
                 },
             }
         )
@@ -3676,7 +3676,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             name="tile alert",
             threshold=threshold,
             condition={"type": "absolute_value"},
-            config={"type": "TrendsAlertConfig", "series_index": 0},
+            config={"type": "HogQLAlertConfig", "evaluation": "last_row"},
         )
 
         regular_response = self.dashboard_api.get_dashboard(dashboard_id)
@@ -3703,7 +3703,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard with broken tile", created_by=self.user)
         insight = Insight.objects.create(
             team=self.team,
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            query={"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["*"]}},
         )
         DashboardTile.objects.create(dashboard=dashboard, insight=insight)
 
