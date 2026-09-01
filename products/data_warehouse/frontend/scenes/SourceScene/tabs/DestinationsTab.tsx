@@ -29,6 +29,10 @@ export function DestinationsTab({ id }: DestinationsTabProps): JSX.Element {
                 setAttached([...attachedDestinationIds, destination.id])
             }
         },
+        onDeleted: (destinationId: string) => {
+            loadDestinations()
+            setAttached(attachedDestinationIds.filter((id) => id !== destinationId))
+        },
     }
     const { openForCreate, openForEdit } = useActions(destinationModalLogic(modalProps))
 

@@ -18,7 +18,7 @@ import { DestinationIcon } from './DestinationIcon'
 export function DestinationModal(props: DestinationModalLogicProps): JSX.Element {
     const logic = destinationModalLogic(props)
     const { isOpen, editing, editingIntegration, isDestinationFormSubmitting } = useValues(logic)
-    const { closeModal, submitDestinationForm } = useActions(logic)
+    const { closeModal, submitDestinationForm, deleteDestination } = useActions(logic)
 
     return (
         <>
@@ -33,6 +33,18 @@ export function DestinationModal(props: DestinationModalLogicProps): JSX.Element
                 }
                 footer={
                     <>
+                        {editing && !editing.is_posthog_warehouse ? (
+                            <LemonButton
+                                type="secondary"
+                                status="danger"
+                                onClick={() => deleteDestination(editing)}
+                                data-attr="warehouse-destination-delete"
+                                // Sits apart from Cancel and Save so it is not reached by accident.
+                                className="mr-auto"
+                            >
+                                Delete
+                            </LemonButton>
+                        ) : null}
                         <LemonButton type="secondary" onClick={closeModal}>
                             Cancel
                         </LemonButton>

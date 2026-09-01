@@ -32,6 +32,12 @@ export function DestinationStep(): JSX.Element {
                 toggleDestination(destination.id)
             }
         },
+        onDeleted: (destinationId: string) => {
+            loadDestinations()
+            if (selectedIds.includes(destinationId)) {
+                toggleDestination(destinationId)
+            }
+        },
     }
     const { openForCreate, openForEdit } = useActions(destinationModalLogic(modalProps))
 

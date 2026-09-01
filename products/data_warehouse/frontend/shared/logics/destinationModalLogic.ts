@@ -4,6 +4,7 @@ import type { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import type { DeepPartial, FieldName } from 'kea-forms'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -11,6 +12,7 @@ import type { IntegrationType } from '~/types'
 
 import {
     externalDataDestinationsCreate,
+    externalDataDestinationsDestroy,
     externalDataDestinationsPartialUpdate,
 } from 'products/warehouse_sources/frontend/generated/api'
 import { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
@@ -19,6 +21,8 @@ export interface DestinationModalLogicProps {
     /** Distinguishes the source-level modal from the schema-level one so they keep separate form state. */
     modalKey: string
     onSaved: (destination: ExternalDataDestinationApi) => void
+    /** Called after a destination is deleted, so the caller can drop it from its list. */
+    onDeleted?: (destinationId: string) => void
 }
 
 export interface DestinationFormValues {
@@ -62,6 +66,9 @@ export interface destinationModalLogicActions {
     loadIntegrations: () => any // integrationsLogic
     closeModal: () => {
         value: true
+    }
+    deleteDestination: (destination: ExternalDataDestinationApi) => {
+        destination: ExternalDataDestinationApi
     }
     openForCreate: () => {
         value: true
@@ -134,6 +141,7 @@ export const destinationModalLogic = kea<destinationModalLogicType>([
         openForCreate: true,
         openForEdit: (destination: ExternalDataDestinationApi) => ({ destination }),
         closeModal: true,
+        deleteDestination: (destination: ExternalDataDestinationApi) => ({ destination }),
     }),
     reducers({
         isOpen: [
@@ -195,7 +203,31 @@ export const destinationModalLogic = kea<destinationModalLogicType>([
             },
         },
     })),
-    listeners(({ actions, values }: any) => ({
+    listeners(({ actions, values, props }: any) => ({
+        deleteDestination: ({ destination }: { destination: ExternalDataDestinationApi }) => {
+            LemonDialog.open({
+                title: `Delete ${destination.name}?`,
+                description:
+                    'Every source and table that syncs here stops doing so. Tables already written ' +
+                    'to it are left where they are, and runs already under way finish first. ' +
+                    'This cannot be undone.',
+                primaryButton: {
+                    children: 'Delete destination',
+                    status: 'danger',
+                    onClick: async () => {
+                        try {
+                            await externalDataDestinationsDestroy(String(values.currentTeamId), destination.id)
+                            lemonToast.success(`Deleted ${destination.name}`)
+                            actions.closeModal()
+                            props.onDeleted?.(destination.id)
+                        } catch (e: any) {
+                            lemonToast.error(e.detail ?? `Could not delete ${destination.name}`)
+                        }
+                    },
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
+        },
         openForCreate: () => {
             actions.loadIntegrations()
             actions.setDestinationFormValues({

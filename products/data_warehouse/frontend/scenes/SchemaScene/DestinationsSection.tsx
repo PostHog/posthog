@@ -29,6 +29,12 @@ export function DestinationsSection({ schemaId }: DestinationsSectionProps): JSX
                 toggleDestination(destination.id)
             }
         },
+        onDeleted: (destinationId: string) => {
+            loadDestinations()
+            if (draftDestinationIds.includes(destinationId)) {
+                toggleDestination(destinationId)
+            }
+        },
     }
     const { openForCreate, openForEdit } = useActions(destinationModalLogic(modalProps))
 
