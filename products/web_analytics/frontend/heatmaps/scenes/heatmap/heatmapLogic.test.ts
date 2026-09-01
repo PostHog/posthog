@@ -104,6 +104,24 @@ describe('heatmapLogic', () => {
         expect(savedPartialUpdate).toHaveBeenCalledTimes(1)
         expect(savedRegenerateCreate).toHaveBeenCalledTimes(1)
     })
+
+    it('drops the stored screenshot when the page URL changes in iframe mode', async () => {
+        // A screenshot heatmap that was switched to iframe still holds its old screenshot in the client.
+        logic.actions.setScreenshotUrl('/api/environments/1/heatmap_screenshots/old/content/')
+        jest.mocked(savedPartialUpdate).mockResolvedValue({
+            url: 'https://example.com/new-page',
+            block_consent_modals: false,
+        } as any)
+
+        // Change the page URL while still in iframe mode.
+        logic.actions.setDisplayUrl('https://example.com/new-page')
+        await expectLogic(logic, () => {
+            logic.actions.updateHeatmap()
+        }).toFinishAllListeners()
+
+        // Cleared so switching back to screenshot re-renders the new page rather than showing the old one.
+        expect(logic.values.screenshotUrl).toBeNull()
+    })
 })
 
 describe('computeLockedWidth', () => {

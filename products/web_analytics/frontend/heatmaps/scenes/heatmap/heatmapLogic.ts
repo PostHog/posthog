@@ -396,11 +396,15 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 const renderInputChanged =
                     updated.url !== previousSavedUrl ||
                     (updated.block_consent_modals ?? false) !== previousBlockConsentModals
+                if (renderInputChanged) {
+                    // Drop the stored screenshot once its inputs change, even in iframe mode, so a later
+                    // switch back to screenshot re-renders the new page instead of reusing the old capture.
+                    actions.setScreenshotUrl(null)
+                    actions.setScreenshotLoaded(false)
+                }
                 // A saved change of URL or consent handling makes the server re-render on its own.
                 const renderTriggered = values.type === 'screenshot' && renderInputChanged
                 if (renderTriggered) {
-                    actions.setScreenshotUrl(null)
-                    actions.setScreenshotLoaded(false)
                     actions.setScreenshotError(null)
                     if (values.heatmapId) {
                         actions.pollScreenshotStatus(values.widthOverride)
