@@ -30,7 +30,8 @@ keep the dependency map returned by `canvas-source-retrieve` unchanged.
   HTML from untrusted content.
 - Papa Parse processes text already available to the canvas. Loading a remote CSV still requires its
   exact HTTPS origin in `capabilities.network.origins` (published canvases only — the edit-mode
-  preview blocks direct network access regardless of declaration).
+  preview blocks direct network access regardless of declaration). The same declaration is required
+  for external stylesheets, images, fonts, media, and frames.
 - Three.js owns its `<canvas>` element. React can own the surrounding Quill application shell.
 
 The standard imports remain `react`, `react-dom`, `react-dom/client`, `@posthog/quill`, `recharts`,

@@ -260,7 +260,7 @@ export interface LLMSkillApi {
      */
     name: string
     /**
-     * What this skill does and when to use it. Max 4096 characters.
+     * What this skill does and when to use it.
      * @maxLength 4096
      */
     description: string
@@ -334,7 +334,7 @@ export interface LLMSkillListApi {
      */
     name: string
     /**
-     * What this skill does and when to use it. Max 4096 characters.
+     * What this skill does and when to use it.
      * @maxLength 4096
      */
     description: string
@@ -414,8 +414,8 @@ export interface LLMSkillCreateApi {
      */
     name: string
     /**
-     * What this skill does and when to use it. Max 4096 characters.
-     * @maxLength 4096
+     * What this skill does and when to use it. Max 1024 characters.
+     * @maxLength 1024
      */
     description: string
     /** Total length of the full body in characters, independent of any body_offset/body_length paging. Compare against the length of the returned body to detect a truncated response. */
@@ -577,7 +577,7 @@ export interface PatchedLLMSkillPublishApi {
     edits?: LLMSkillEditOperationApi[]
     /**
      * Updated description for the new version.
-     * @maxLength 4096
+     * @maxLength 1024
      */
     description?: string
     /**
@@ -793,6 +793,31 @@ export type LlmSkillsListParams = {
      */
     search?: string
 }
+
+export type LlmSkillsBundleRetrieveParams = {
+    /**
+     * What each skill directory in the zip contains. 'stub' (default) writes a SKILL.md with the name, description and instructions to fetch the skill over the PostHog MCP when it is invoked. 'full' writes the rendered SKILL.md, every bundled file and the Codex sidecar.
+     *
+     * * `stub` - stub
+     * * `full` - full
+     * @minLength 1
+     */
+    content?: LlmSkillsBundleRetrieveContent
+    /**
+     * Maximum number of skills in the zip, newest first; default 20, at most 100. Every skill in the zip costs the agent prompt context on each turn, so pick what the harness can usefully carry. Skills past the limit are reported in X-Skills-Dropped.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+}
+
+export type LlmSkillsBundleRetrieveContent =
+    (typeof LlmSkillsBundleRetrieveContent)[keyof typeof LlmSkillsBundleRetrieveContent]
+
+export const LlmSkillsBundleRetrieveContent = {
+    Stub: 'stub',
+    Full: 'full',
+} as const
 
 export type LlmSkillsNameRetrieveParams = {
     /**

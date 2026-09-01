@@ -83,7 +83,10 @@ export function OrganizationPersonalAPIKeys(): JSX.Element {
     ]
 
     return (
-        <PayGateMini feature={AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}>
+        <PayGateMini
+            feature={AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}
+            featureDetail="organization-personal-api-keys"
+        >
             <div className="mb-2">
                 <LemonInput
                     type="search"

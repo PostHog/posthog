@@ -1,3 +1,4 @@
+import '../../../tests/helpers/mocks/consumer.mock'
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 import '../../../tests/helpers/mocks/producer.mock'
 
@@ -5,7 +6,7 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
-import { createOrganization, createTeam, getFirstTeam, getTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { createOrganization, createTeam, createTestTeamFixture, getTeam } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
@@ -39,11 +40,10 @@ describe('CDP Internal Events Consumer', () => {
     }
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
         })
-        team = await getFirstTeam(hub.postgres)
+        team = (await createTestTeamFixture(hub.postgres)).team
 
         const otherOrganizationId = await createOrganization(hub.postgres)
         const team2Id = await createTeam(hub.postgres, otherOrganizationId)
@@ -56,13 +56,6 @@ describe('CDP Internal Events Consumer', () => {
             hogQueue: mockJobQueue,
             hogflowQueue: mockJobQueue,
         })
-
-        // Don't actually connect Kafka — test the core logic only
-        processor['kafkaConsumer'] = {
-            connect: jest.fn(),
-            disconnect: jest.fn(),
-            isHealthy: jest.fn(),
-        } as any
 
         mockQueueInvocations = mockJobQueue.queueInvocations
 
@@ -129,9 +122,9 @@ describe('CDP Internal Events Consumer', () => {
                     },
                     person: undefined,
                     project: {
-                        id: 2,
+                        id: team.id,
                         name: 'TEST PROJECT',
-                        url: 'http://localhost:8000/project/2',
+                        url: `http://localhost:8000/project/${team.id}`,
                     },
                 })
             })
@@ -320,6 +313,17 @@ describe('CDP Internal Events Consumer', () => {
                 },
             })
 
+        const githubEvent = (teamId: number, properties: Record<string, any> = {}) =>
+            createInternalEvent(teamId, {
+                event: {
+                    timestamp: '2026-08-17T12:00:00.000Z',
+                    uuid: 'aaaaaaaa-bbbb-cccc-dddd-11111111111',
+                    event: '$github_event_received',
+                    distinct_id: 'octocat',
+                    properties: { repository: 'PostHog/posthog', event_type: 'issues', own_app: false, ...properties },
+                },
+            })
+
         it('should start a workflow whose trigger is a slack message', async () => {
             const hogFlow = await _insertHogFlow(hub.postgres, buildHogFlow(team.id, { type: 'slack-message' }))
 
@@ -377,6 +381,7 @@ describe('CDP Internal Events Consumer', () => {
             // guard is part of eligibility, not the trigger's stored filters, so a workflow created
             // through the API or MCP still has it.
             const integration = await insertIntegration(hub.postgres, team.id, {
+                id: team.id,
                 kind: 'slack',
                 config: { app_id: 'A0POSTHOG' },
             })
@@ -389,6 +394,37 @@ describe('CDP Internal Events Consumer', () => {
 
             expect(invocations.filter((i: any) => i.hogFlow)).toHaveLength(expected)
         })
+
+        it('should start a workflow whose trigger is a github event', async () => {
+            const hogFlow = await _insertHogFlow(hub.postgres, buildHogFlow(team.id, { type: 'github-event' }))
+
+            const globals = await processor._parseKafkaBatch([createKafkaMessage(githubEvent(team.id))])
+            const { invocations } = await processor.processBatch(globals)
+
+            const hogFlowInvocations = invocations.filter((i: any) => i.hogFlow)
+            expect(hogFlowInvocations).toHaveLength(1)
+            expect(hogFlowInvocations[0].functionId).toBe(hogFlow.id)
+        })
+
+        it.each([
+            ['own_app is stamped true', true, 0],
+            ['own_app is stamped false', false, 1],
+        ])(
+            'starts a github workflow only when the delivery is not our own write: %s',
+            async (_name, ownApp, expected) => {
+                // A workflow that comments back on an issue sees its own comment arrive on this topic.
+                // The guard is part of eligibility, not the trigger's stored filters, so a workflow
+                // created through the API or MCP still has it.
+                await _insertHogFlow(hub.postgres, buildHogFlow(team.id, { type: 'github-event' }))
+
+                const globals = await processor._parseKafkaBatch([
+                    createKafkaMessage(githubEvent(team.id, { own_app: ownApp })),
+                ])
+                const { invocations } = await processor.processBatch(globals)
+
+                expect(invocations.filter((i: any) => i.hogFlow)).toHaveLength(expected)
+            }
+        )
 
         it('should parse a message for a team that has a hog flow but no hog functions', async () => {
             // The parse step used to drop any team with no internal_destination functions, which

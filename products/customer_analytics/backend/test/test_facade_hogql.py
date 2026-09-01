@@ -7,24 +7,36 @@
 from uuid import uuid4
 
 from posthog.test.base import NonAtomicBaseTest
+from unittest.mock import Mock
 
 from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import ExpressionField, LazyJoin, Table
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import QueryError, TableAccessDeniedError
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.auth import ProjectSecretAPIKeyUser
 from posthog.models import OrganizationMembership, TaggedItem, User
 from posthog.models.organization import AvailableFeature
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.conversations.backend.models import EmailThread, EmailThreadAccountLink
 from products.customer_analytics.backend.facade.hogql import (
+    account_channel_summaries,
     account_custom_property_values,
     account_custom_property_values_history,
+    account_email_thread_links,
+    account_email_threads,
+    account_email_threads_join,
+    account_meetings,
     account_resource_notebooks,
+    account_support_tickets_join,
     account_tagged_items,
     accounts,
     custom_property_definitions,
@@ -37,6 +49,7 @@ from products.customer_analytics.backend.facade.hogql import (
 )
 from products.customer_analytics.backend.models import (
     Account,
+    AccountChannelSummary,
     CustomPropertyDefinition,
     CustomPropertyValue,
     FeatureRequest,
@@ -46,6 +59,7 @@ from products.customer_analytics.backend.models import (
     FeatureRequestProductArea,
     FeatureRequestProductAreaLink,
 )
+from products.customer_analytics.backend.models.meeting import Meeting
 from products.notebooks.backend.models import ResourceNotebook
 
 
@@ -58,6 +72,10 @@ class TestFacadeHogqlSystemTables(SimpleTestCase):
             ("account_custom_property_values_history", account_custom_property_values_history, CustomPropertyValue),
             ("account_tagged_items", account_tagged_items, TaggedItem),
             ("account_resource_notebooks", account_resource_notebooks, ResourceNotebook),
+            ("account_meetings", account_meetings, Meeting),
+            ("account_channel_summaries", account_channel_summaries, AccountChannelSummary),
+            ("account_email_threads", account_email_threads, EmailThread),
+            ("account_email_thread_links", account_email_thread_links, EmailThreadAccountLink),
             ("feature_requests", feature_requests, FeatureRequest),
             ("feature_request_product_areas", feature_request_product_areas, FeatureRequestProductArea),
             ("feature_request_account_links", feature_request_account_links, FeatureRequestAccountLink),
@@ -81,6 +99,104 @@ class TestFacadeHogqlSystemTables(SimpleTestCase):
             f"system.{table.name} exposes {sorted(missing)}, which no longer exist as columns on "
             f"{model.__name__}. Update the PostgresTable def in facade/hogql.py to match the model."
         )
+
+
+class TestAccountCommunicationHogqlAccess(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("email_threads", account_email_threads_join, "system._account_email_threads"),
+            ("support_tickets", account_support_tickets_join, "system.support_tickets"),
+        ]
+    )
+    def test_ticket_access_is_required(self, _name, resolver, table_name) -> None:
+        access_control = Mock()
+        access_control.check_access_level_for_resource.return_value = False
+        database = Mock(user_access_control=access_control)
+        database.is_table_access_denied.return_value = False
+        context = HogQLContext(database=database)
+        join_to_add = Mock(fields_accessed={"count": ["count"]})
+
+        with self.assertRaises(TableAccessDeniedError) as error:
+            resolver(join_to_add, context, Mock())
+
+        assert error.exception.table_name == table_name
+        access_control.check_access_level_for_resource.assert_called_once_with("ticket", "viewer")
+
+
+class TestAccountCommunicationHogqlProjectSecretKey(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @parameterized.expand(
+        [
+            ("email_threads", account_email_threads_join),
+            ("support_tickets", account_support_tickets_join),
+        ]
+    )
+    def test_ticket_scoped_key_can_resolve_communication_join(self, _name, resolver) -> None:
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="account-communication-access",
+            secure_value="sha256$" + "f" * 64,
+            scopes=["account:read", "ticket:read"],
+        )
+        context = HogQLContext(database=Database.create_for(team=self.team, user=ProjectSecretAPIKeyUser(key)))
+
+        resolver(Mock(fields_accessed={"count": ["count"]}), context, Mock())
+
+
+class TestAccountCommunicationHogqlIsolation(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_hidden_email_tables_require_ticket_access_and_filter_denied_accounts(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        viewer = User.objects.create_and_join(self.organization, "email-hogql-viewer@example.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=viewer, organization=self.organization)
+        visible_account = Account.objects.unscoped().create(team=self.team, name="Visible account")
+        denied_account = Account.objects.unscoped().create(team=self.team, name="Denied account")
+
+        for account, subject in ((visible_account, "Visible thread"), (denied_account, "Denied thread")):
+            thread = EmailThread.objects.for_team(self.team.id).create(
+                team=self.team,
+                canonical_thread_key=f"thread-{account.id}",
+                subject=subject,
+            )
+            EmailThreadAccountLink.objects.for_team(self.team.id).create(
+                team=self.team,
+                thread=thread,
+                account_id=str(account.id),
+                match_source="known_email",
+            )
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(denied_account.id),
+            access_level="none",
+            organization_member=membership,
+        )
+
+        threads = execute_hogql_query(
+            "SELECT subject FROM system._account_email_threads", team=self.team, user=viewer
+        ).results
+        links = execute_hogql_query(
+            "SELECT account_id FROM system._account_email_thread_links", team=self.team, user=viewer
+        ).results
+
+        assert threads == [("Visible thread",)]
+        assert links == [(str(visible_account.id),)]
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="ticket",
+            access_level="none",
+            organization_member=membership,
+        )
+        with self.assertRaises(TableAccessDeniedError):
+            execute_hogql_query("SELECT subject FROM system._account_email_threads", team=self.team, user=viewer)
 
 
 class TestFeatureRequestHogqlAccess(NonAtomicBaseTest):

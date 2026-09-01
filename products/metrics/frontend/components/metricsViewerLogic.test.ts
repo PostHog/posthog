@@ -161,12 +161,23 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
     })
 
-    it('backfills the metric type when the picker loads after the metric was set', () => {
+    it('backfills the metric type and recommended aggregation when the picker loads after the metric was set', () => {
         metricNamePickerLogic.actions.loadItemsSuccess([])
         logic.actions.setMetricName('queue_depth')
         expect(logic.values.metricsQueryNode?.clauses[0]).not.toHaveProperty('metricType')
         metricNamePickerLogic.actions.loadItemsSuccess(PICKER_ITEMS)
         expect(logic.values.metricsQueryNode?.clauses[0].metricType).toBe('gauge')
+        // A cold URL restore sets the name before the list arrives, so without the late
+        // recommendation a gauge/counter link would silently chart as a raw sum.
+        expect(logic.values.aggregation).toBe('avg')
+    })
+
+    it('the late backfill leaves an explicitly chosen aggregation alone', () => {
+        metricNamePickerLogic.actions.loadItemsSuccess([])
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setAggregation('p95')
+        metricNamePickerLogic.actions.loadItemsSuccess(PICKER_ITEMS)
+        expect(logic.values.aggregation).toBe('p95')
     })
 
     // "Add to dashboard" must not create a fresh insight on every click — repeated
@@ -240,6 +251,24 @@ describe('metricsViewerLogic', () => {
             new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError')
         )
         expect(logic.values.queryError).toBeNull()
+    })
+
+    // A superseded query's abort lands as a failure while the replacement query is still in
+    // flight. kea-loaders' auto `queryResultsLoading` drops to false then, which flashed the
+    // "No data" empty state between the spinner and the chart, so `queryLoading` must ride
+    // out the abort, while still clearing on a real failure.
+    it.each([
+        [
+            'a superseded (aborted) query',
+            NEW_QUERY_STARTED_ERROR_MESSAGE,
+            new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'),
+            true,
+        ],
+        ['a real query failure', 'Invalid regex pattern', new Error('Invalid regex pattern'), false],
+    ])('queryLoading after %s', (_name, message, errorObject, expected) => {
+        logic.actions.fetchQueryResults({})
+        logic.actions.fetchQueryResultsFailure(message, errorObject)
+        expect(logic.values.queryLoading).toBe(expected)
     })
 
     // The filter bar's property filters must translate into the backend's Prometheus-style

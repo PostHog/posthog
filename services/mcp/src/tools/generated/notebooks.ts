@@ -80,6 +80,9 @@ const notebooksCreate = (): ToolBase<typeof NotebooksCreateSchema, WithPostHogUr
         if (params.deleted !== undefined) {
             body['deleted'] = params.deleted
         }
+        if (params.variables !== undefined) {
+            body['variables'] = params.variables
+        }
         const result = await context.api.request<Schemas.Notebook>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/notebooks/`,
@@ -207,6 +210,9 @@ const notebooksPartialUpdate = (): ToolBase<typeof NotebooksPartialUpdateSchema,
         }
         if (params.deleted !== undefined) {
             body['deleted'] = params.deleted
+        }
+        if (params.variables !== undefined) {
+            body['variables'] = params.variables
         }
         const result = await context.api.request<Schemas.Notebook>({
             method: 'PATCH',

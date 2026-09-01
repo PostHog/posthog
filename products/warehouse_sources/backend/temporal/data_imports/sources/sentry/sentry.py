@@ -1136,14 +1136,15 @@ def validate_credentials(
                 + ".",
             )
         if response.status_code == 404:
-            return False, f"Sentry organization '{organization_slug}' not found"
+            return False, "Sentry organization not found. Verify your organization slug, then reconnect."
 
-        try:
-            return False, response.json().get("detail", response.text)
-        except Exception:
-            return False, response.text
+        # Keep the vendor detail in logs for debugging, but never surface it — the raw body can
+        # echo the org slug or unrelated Sentry internals back to the customer.
+        logger.warning("sentry_source.validate_credentials_unexpected_status", status_code=response.status_code)
+        return False, "Could not connect to Sentry. Check your auth token and organization slug, then reconnect."
     except RequestException as exc:
-        return False, str(exc)
+        logger.warning("sentry_source.validate_credentials_request_error", error=str(exc))
+        return False, "Could not reach Sentry to validate your credentials. Check your connection, then try again."
 
 
 # ---------------------------------------------------------------------------

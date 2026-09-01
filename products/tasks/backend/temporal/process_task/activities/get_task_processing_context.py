@@ -17,14 +17,18 @@ from products.tasks.backend.constants import (
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
+    DEV_STACK_IMAGE_NAME,
+    DEV_STACK_PREVIEW_FEATURE_FLAG,
     HOGLAND_SANDBOX_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
     PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
+    PR_LOOP_ENABLED_STATE_KEY,
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
     SANDBOX_ROTATION_FEATURE_FLAG,
     get_vm_sandbox_flag_payload,
+    is_same_run_resume_state,
     vm_sandbox_allowed_origin_products,
     vm_sandbox_default_base_origin_products,
     vm_sandbox_default_custom_image,
@@ -144,6 +148,7 @@ class TaskProcessingContext:
     # workflow start and persisted into TaskRun.state at provision time, so activities
     # and out-of-band consumers route deterministically for the run's whole life.
     sandbox_backend: str = "modal"
+    dev_stack_preview_enabled: bool = False
 
     @property
     def mode(self) -> str:
@@ -181,7 +186,7 @@ class TaskProcessingContext:
     @property
     def is_snapshot_resume(self) -> bool:
         state = self.state or {}
-        has_resume_source = isinstance(state.get("resume_from_run_id"), str) or state.get("handoff_resumed") is True
+        has_resume_source = isinstance(state.get("resume_from_run_id"), str) or is_same_run_resume_state(state)
         return has_resume_source and isinstance(state.get("snapshot_external_id"), str)
 
     @property
@@ -702,6 +707,47 @@ def _is_desktop_workspace_warm_enabled(
     return enabled
 
 
+def _is_dev_stack_preview_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+    origin_product: str | None,
+    use_modal_vm_sandbox: bool,
+    custom_image_name: str | None,
+    repository: str | None,
+) -> bool:
+    if (
+        not use_modal_vm_sandbox
+        or custom_image_name != DEV_STACK_IMAGE_NAME
+        or origin_product != Task.OriginProduct.USER_CREATED
+        or (repository or "").casefold() != "posthog/posthog"
+    ):
+        return False
+
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                DEV_STACK_PREVIEW_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("dev_stack_preview_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    log_with_activity_context(
+        "dev_stack_preview_flag_checked",
+        run_id=run_id,
+        dev_stack_preview_enabled=enabled,
+    )
+    return enabled
+
+
 def _is_modal_network_allowlist_enabled(
     *,
     distinct_id: str,
@@ -768,7 +814,7 @@ def _resolve_sandbox_backend(
 
     # Hard gates: a "hogland" result (override OR flag) is only allowed when hogland can
     # actually run this run. These sit ahead of the override so a stale or forged `hogland`
-    # (e.g. carried across a cloud handoff) can't defeat the EU guard or the Modal-only
+    # carried across a cloud resume can't defeat the EU guard or the Modal-only
     # fallbacks and leave the run with unenforced egress.
     if not settings.HOGLAND_API_URL or not (settings.HOGLAND_API_TOKEN_FILE or settings.HOGLAND_API_TOKEN):
         return "modal"
@@ -1068,6 +1114,10 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         or False
     )  # Ensure we get a boolean value even if the flag is missing
     emit_agent_log(run_id, "debug", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
+    try:
+        TaskRun.update_state_atomic(task_run.id, updates={PR_LOOP_ENABLED_STATE_KEY: pr_loop_enabled})
+    except Exception as e:
+        log_with_activity_context("pr_loop_enabled_stamp_failed", run_id=run_id, error=str(e))
     pi_persistent_streaming = task.runtime == Task.Runtime.PI and not is_slack_interaction_state(state)
     sandbox_event_ingest_override = state.get("sandbox_event_ingest_enabled")
     if pi_persistent_streaming and not isinstance(sandbox_event_ingest_override, bool):
@@ -1250,6 +1300,20 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         f"sandbox_backend: {sandbox_backend} for this task run",
     )
 
+    dev_stack_preview_enabled = _is_dev_stack_preview_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        origin_product=task.origin_product,
+        use_modal_vm_sandbox=use_modal_vm_sandbox,
+        custom_image_name=custom_image_name,
+        repository=run_repository,
+    )
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"dev_stack_preview_enabled: {dev_stack_preview_enabled} for this task run",
+    )
     pr_authorship_mode = get_pr_authorship_mode(task, state)
     user_github_integration_id = None
     if not (is_slack_interaction_state(state) and pr_authorship_mode.value == "user"):
@@ -1322,6 +1386,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         continue_as_new_history_threshold=settings.TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD,
         interactive_max_run_duration_seconds=interactive_max_run_duration_seconds,
         sandbox_backend=sandbox_backend,
+        dev_stack_preview_enabled=dev_stack_preview_enabled,
         # v1 scopes peer messaging to Pi runs; the flag check is skipped elsewhere
         # so ACP runs never even evaluate it.
         peer_messaging_enabled=task.runtime == Task.Runtime.PI

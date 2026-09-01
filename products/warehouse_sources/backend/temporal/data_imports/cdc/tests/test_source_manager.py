@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager
     CDCSourceManager,
     has_pending_legacy_backlog,
     is_buffered_consolidated,
+    scheduled_sync_consumes_buffer,
     serves_buffered_lane,
 )
 
@@ -128,6 +129,7 @@ def _schema(**overrides) -> MagicMock:
     schema.cdc_table_mode = overrides.get("cdc_table_mode", "consolidated")
     schema.initial_sync_complete = overrides.get("initial_sync_complete", True)
     schema.sync_type_config = overrides.get("sync_type_config", {})
+    schema.source.job_inputs = overrides.get("job_inputs", {})
     return schema
 
 
@@ -289,6 +291,20 @@ class TestBufferedGating:
 
     def test_a_flipped_consolidated_schema_consumes_the_buffer(self):
         assert is_buffered_consolidated(_schema(), ingest_mode="buffered") is True
+
+    def test_a_flipped_schema_forces_the_buffered_consumer_on_its_scheduled_sync(self):
+        assert scheduled_sync_consumes_buffer(_schema(job_inputs={"cdc_ingest_mode": "buffered"})) is True
+
+    @parameterized.expand(
+        [
+            ("source_never_flipped", {}),
+            ("no_job_inputs", {"job_inputs": None}),
+            ("companion_lane", {"job_inputs": {"cdc_ingest_mode": "buffered"}, "cdc_table_mode": "cdc_only"}),
+            ("still_snapshotting", {"job_inputs": {"cdc_ingest_mode": "buffered"}, "cdc_mode": "snapshot"}),
+        ]
+    )
+    def test_the_scheduled_sync_is_not_forced_off_the_flag_for(self, _name, overrides):
+        assert scheduled_sync_consumes_buffer(_schema(**overrides)) is False
 
 
 class TestPendingLegacyBacklog:

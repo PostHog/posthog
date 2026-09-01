@@ -291,6 +291,10 @@ export function findNewEvents(allSnapshots: eventWithTime[], currentEvents: even
     return newEvents
 }
 
+// Longer than any legit in-session idle span (the default session idle timeout is 30 minutes),
+// so a gap past this exists only in recordings with corrupted timestamps.
+export const INSTANT_SKIP_INACTIVITY_THRESHOLD_MS = 60 * 60 * 1000
+
 /** Find the segment containing this timestamp, falling back to the nearest valid one if out of range. */
 export function findSegmentForTimestamp(segments: RecordingSegment[], timestamp?: number): RecordingSegment | null {
     if (timestamp === undefined) {
@@ -537,6 +541,8 @@ export interface sessionRecordingPlayerLogicValues {
     createExportJSON: () => ExportedSessionRecordingFileV2 // sessionRecordingDataCoordinatorLogic
     customRRWebEvents: customEvent[] // sessionRecordingDataCoordinatorLogic
     fullyLoaded: boolean // sessionRecordingDataCoordinatorLogic
+    hasOversizedMutations: boolean // sessionRecordingDataCoordinatorLogic
+    recordingTooLargeToPlay: boolean // sessionRecordingDataCoordinatorLogic
     sessionPlayerData: SessionPlayerData // sessionRecordingDataCoordinatorLogic
     sessionPlayerMetaData: SessionRecordingType | null // sessionRecordingDataCoordinatorLogic
     sessionPlayerMetaDataLoading: boolean // sessionRecordingDataCoordinatorLogic
@@ -1157,6 +1163,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'customRRWebEvents',
                 'fullyLoaded',
                 'trackedWindow',
+                'recordingTooLargeToPlay',
+                'hasOversizedMutations',
             ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting', 'showMetadataFooter', 'playerControlsOverlay'],
@@ -2104,6 +2112,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.tryInitReplayer()
         },
         tryInitReplayer: () => {
+            if (values.hasOversizedMutations) {
+                actions.setPlayer(null)
+                return
+            }
             // Tries to initialize a new player
             const windowId = values.segmentForTimestamp(values.currentTimestamp)?.windowId
 
@@ -2320,6 +2332,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     actions.seekToTimestamp(segment.endTimestamp)
                     return
                 }
+                // fast-forwarding a multi-hour span saturates the main thread; only 'gap' segments
+                // are event-free, so only they are safe to jump with a seek
+                const remainingMs =
+                    segment.endTimestamp -
+                    clamp(
+                        values.currentTimestamp ?? segment.startTimestamp,
+                        segment.startTimestamp,
+                        segment.endTimestamp
+                    )
+                if (
+                    values.playingState === SessionPlayerState.PLAY &&
+                    segment.kind === 'gap' &&
+                    remainingMs > INSTANT_SKIP_INACTIVITY_THRESHOLD_MS
+                ) {
+                    actions.seekToTimestamp(segment.endTimestamp)
+                    return
+                }
                 actions.setSkippingInactivity(true)
             } else {
                 actions.setSkippingInactivity(false)
@@ -2467,6 +2496,10 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
         syncSnapshotsWithPlayer: async (_, breakpoint) => {
+            // Never feed the replayer events it cannot survive applying
+            if (values.hasOversizedMutations) {
+                return
+            }
             // On loading more of the recording, trigger some state changes
             const currentEvents = values.player?.replayer?.service.state.context.events ?? []
             const eventsToAdd: eventWithTime[] = []
@@ -2545,6 +2578,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             breakpoint()
         },
         loadRecordingMetaSuccess: () => {
+            if (values.recordingTooLargeToPlay) {
+                actions.setPlayerError('recordingTooLarge')
+                return
+            }
+
             // As the connected data logic may be preloaded we call a shared function here and on mount
             actions.syncSnapshotsWithPlayer()
 
@@ -2586,6 +2624,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.retrySnapshotLoading()
         },
         setPlay: () => {
+            if (values.recordingTooLargeToPlay || values.hasOversizedMutations) {
+                return
+            }
             if (!values.snapshotsLoaded) {
                 actions.loadSnapshots()
             }
@@ -2606,6 +2647,15 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions.setEndReached(false)
 
             if (nextTimestamp !== undefined) {
+                // resuming inside a long gap re-enters it without a segment change, so jump here too
+                const segment = values.segmentForTimestamp(nextTimestamp)
+                if (
+                    values.skipInactivitySetting &&
+                    segment?.kind === 'gap' &&
+                    segment.endTimestamp - nextTimestamp > INSTANT_SKIP_INACTIVITY_THRESHOLD_MS
+                ) {
+                    nextTimestamp = segment.endTimestamp
+                }
                 actions.seekToTimestamp(nextTimestamp, true)
             }
 
@@ -2857,7 +2907,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.currentTimestamp,
                     values.currentSegment?.kind,
                     values.roughAnimationFPS,
-                    cache._frameState ?? initialFrameState()
+                    cache._frameState ?? initialFrameState(),
+                    frameNow
                 )
                 cache._frameState = frameResult.newState
                 let newTimestamp = frameResult.resolvedTimestamp
@@ -3239,6 +3290,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     })),
 
     subscriptions(({ actions, values }) => ({
+        hasOversizedMutations: (detected: boolean) => {
+            if (detected) {
+                actions.setPause()
+                actions.setPlayerError('recordingTooLarge')
+            }
+        },
         sessionPlayerData: (value, oldValue) => {
             const hasSnapshotChanges = value?.snapshotsByWindowId !== oldValue?.snapshotsByWindowId
 
@@ -3255,7 +3312,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             const rrwebPlayerTime = values.player?.replayer?.getCurrentTime()
 
-            if (rrwebPlayerTime !== undefined && values.currentPlayerState === SessionPlayerState.PLAY) {
+            // A stall during an inactivity skip leaves the player in SKIP, not PLAY, so the recovery
+            // must run in both states or a skip can never nudge past the blockage.
+            const canRecover =
+                values.currentPlayerState === SessionPlayerState.PLAY ||
+                values.currentPlayerState === SessionPlayerState.SKIP
+            if (rrwebPlayerTime !== undefined && canRecover) {
                 actions.skipPlayerForward(rrwebPlayerTime, values.roughAnimationFPS)
             }
         },

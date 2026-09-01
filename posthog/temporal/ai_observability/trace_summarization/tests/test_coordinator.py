@@ -85,6 +85,17 @@ class TestBatchTraceSummarizationCoordinatorWorkflow:
         assert result.window_minutes == expected.window_minutes
         assert result.model == expected.model
 
+    @pytest.mark.parametrize(
+        "inputs,expected_message",
+        [
+            pytest.param(["trace", "200", "20", "bogus"], "minimal, detailed", id="unknown_mode"),
+            pytest.param(["trace", "200", "20", "detailed", "30", "gpt-5.6-luna"], "gpt-4.1-nano", id="unknown_model"),
+        ],
+    )
+    def test_parse_inputs_rejects_unknown_enum_value(self, inputs, expected_message):
+        with pytest.raises(ValueError, match=expected_message):
+            BatchTraceSummarizationCoordinatorWorkflow.parse_inputs(inputs)
+
     def test_continuation_fields_default_to_none(self):
         inputs = BatchTraceSummarizationCoordinatorInputs()
 

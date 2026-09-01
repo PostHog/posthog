@@ -179,12 +179,19 @@ export interface AlertDeliveryApi {
     display_label: string
 }
 
+/**
+ * @nullable
+ */
+export type AlertCheckApiError = { [key: string]: string } | null
+
 export interface AlertCheckApi {
     readonly id: string
     readonly created_at: string
     /** @nullable */
     readonly calculated_value: number | null
     readonly state: AlertCheckStateEnumApi
+    /** @nullable */
+    readonly error: AlertCheckApiError
     readonly targets_notified: boolean
     readonly anomaly_scores: unknown
     readonly triggered_points: unknown

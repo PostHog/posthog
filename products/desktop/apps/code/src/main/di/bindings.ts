@@ -39,7 +39,6 @@ import type {
   GIT_DIFF_SOURCE,
   GitDiffSource,
 } from "@posthog/core/git-pr/identifiers";
-import type { HANDOFF_HOST } from "@posthog/core/handoff/identifiers";
 import type { GitHubIntegrationService } from "@posthog/core/integrations/github";
 import type {
   GITHUB_INTEGRATION_SERVICE,
@@ -119,6 +118,7 @@ import type { CRYPTO_SERVICE } from "@posthog/platform/crypto";
 import type { DEEP_LINK_SERVICE } from "@posthog/platform/deep-link";
 import type { DEV_HOST_ACTIONS_SERVICE } from "@posthog/platform/dev-host-actions";
 import type { DIALOG_SERVICE } from "@posthog/platform/dialog";
+import type { DISK_CACHE_SERVICE } from "@posthog/platform/disk-cache";
 import type { FILE_ICON_SERVICE } from "@posthog/platform/file-icon";
 import type { IMAGE_PROCESSOR_SERVICE } from "@posthog/platform/image-processor";
 import type { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
@@ -172,15 +172,6 @@ import type {
   FsCapability,
 } from "@posthog/workspace-server/services/fs/identifiers";
 import type { GitService } from "@posthog/workspace-server/services/git/service";
-import type {
-  HANDOFF_GIT_GATEWAY,
-  HANDOFF_LOG_GATEWAY,
-} from "@posthog/workspace-server/services/handoff/identifiers";
-import type {
-  HandoffGitGateway,
-  HandoffLogGateway,
-} from "@posthog/workspace-server/services/handoff/ports";
-import type { HandoffHostService } from "@posthog/workspace-server/services/handoff/service";
 import type {
   ILogsService,
   LOGS_SERVICE,
@@ -267,6 +258,7 @@ import type { DevLogsService } from "../services/dev-logs/service";
 import type { DevMetricsService } from "../services/dev-metrics/service";
 import type { DevNetworkService } from "../services/dev-network/service";
 import type { DiscordPresenceService } from "../services/discord-presence/service";
+import type { DiskCache } from "../services/disk-cache/service";
 import type { EncryptionService } from "../services/encryption/service";
 import type { SecureStoreService } from "../services/secure-store/service";
 import type { settingsStore } from "../services/settingsStore";
@@ -345,6 +337,7 @@ export interface MainBindings {
   [WORKSPACE_SETTINGS_SERVICE]: ElectronWorkspaceSettings;
   [APP_METRICS_SERVICE]: ElectronAppMetrics;
   [DEV_HOST_ACTIONS_SERVICE]: ElectronDevHostActions;
+  [DISK_CACHE_SERVICE]: DiskCache;
 
   // Database (main aliases + ws-server source tokens via toService)
   [MAIN_DATABASE_SERVICE]: DatabaseService;
@@ -428,11 +421,6 @@ export interface MainBindings {
   [GIT_AGENT_SERVICE]: unknown;
   [GIT_WORKSPACE_LOOKUP]: GitWorkspaceLookup;
   [GIT_PR_STATUS_PROVIDER]: IGitPrStatus;
-
-  // Handoff
-  [HANDOFF_HOST]: HandoffHostService;
-  [HANDOFF_GIT_GATEWAY]: HandoffGitGateway;
-  [HANDOFF_LOG_GATEWAY]: HandoffLogGateway;
 
   // Notification / oauth
   [NOTIFICATION_SERVICE]: NotificationService;

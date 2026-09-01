@@ -46,7 +46,7 @@ export function EnvironmentStep({
   return (
     <StepBody
       title={editing ? "Name and repositories" : "What are you setting up?"}
-      description="Name it, and pick the repositories its sessions work on."
+      description="Name it, and pick the repositories its sessions work on"
     >
       {/* Targeting an existing environment only attaches an image to it, so
           without custom images there is nothing this choice could do. */}

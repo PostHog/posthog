@@ -80,6 +80,8 @@ _LAZY = {
     "PostgresSource": "sources.postgres.source",
     "RedshiftSource": "sources.redshift.source",
     "SnowflakeSource": "sources.snowflake.source",
+    "connect_trino": "sources.trino.trino",
+    "trino_error_to_message": "sources.trino.trino",
 }
 
 __all__ = sorted(_LAZY)

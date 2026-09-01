@@ -14,6 +14,12 @@ ManagementMode = Literal["posthog", "self_managed"]
 IngestMode = Literal["legacy", "buffered"]
 
 
+def parse_ingest_mode(job_inputs: Mapping[str, Any] | None) -> IngestMode:
+    """Anything unrecognized reads as legacy: an unknown value must not route a source onto a
+    path it was never flipped to."""
+    return "buffered" if (job_inputs or {}).get("cdc_ingest_mode") == "buffered" else "legacy"
+
+
 @dataclass(frozen=True)
 class CDCConfig:
     """Base class for engine-specific CDC configs returned by ``parse_cdc_config``.
@@ -82,6 +88,8 @@ class CDCStreamReader(Protocol):
     def read_changes(self) -> Iterator[ChangeEvent]: ...
 
     def confirm_position(self, position: str) -> None: ...
+
+    def current_position(self) -> str | None: ...
 
     def get_primary_key_columns(self, schema_name: str, table_names: list[str]) -> dict[str, list[str]]: ...
 

@@ -150,6 +150,12 @@ vi.mock("./context-wiki", () => ({
   prepareContextWiki: mockPrepareContextWiki,
 }));
 
+vi.mock("./codex-home", () => ({
+  cleanupCodexHome: vi.fn().mockResolvedValue(undefined),
+  getCodexHomeDir: vi.fn(() => "/mock/codex-home"),
+  prepareCodexHome: vi.fn().mockResolvedValue("/mock/codex-home"),
+}));
+
 vi.mock("node:fs", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs")>();
   return {
@@ -1245,6 +1251,7 @@ describe("AgentService", () => {
           buildSystemPrompt: (
             credentials: { apiHost: string; projectId: number },
             taskId: string,
+            cwd: string,
             customInstructions?: string,
             additionalDirectories?: string[],
             systemPromptOverride?: string,
@@ -1254,6 +1261,7 @@ describe("AgentService", () => {
       ).buildSystemPrompt(
         credentials,
         "task-1",
+        "/tmp/task-1",
         undefined,
         undefined,
         systemPromptOverride,
@@ -1298,11 +1306,13 @@ describe("AgentService", () => {
           buildSystemPrompt: (
             credentials: { apiHost: string; projectId: number },
             taskId: string,
+            cwd: string,
           ) => { append: string };
         }
       ).buildSystemPrompt(
         { apiHost: "https://app.posthog.com", projectId: 1 },
         "task-1",
+        "/tmp/task-1",
       ).append;
 
       expect(prompt).toContain(

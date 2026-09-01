@@ -56,9 +56,7 @@ export function hasKnownSourceProduct(
   return (values ?? []).some((value) => getSourceProductMeta(value) !== null);
 }
 
-export const SOURCE_PRODUCT_META: Partial<
-  Record<SourceProduct, SourceProductMeta>
-> = {
+const SOURCE_PRODUCT_META: Partial<Record<SourceProduct, SourceProductMeta>> = {
   session_replay: {
     Icon: VideoIcon,
     color: "var(--amber-9)",

@@ -15,10 +15,12 @@ call [--json] [--confirm] <tool_name> <json_input> — call a tool with JSON inp
 
 Load all matching topics in one `learn` command first. Topics are cumulative.
 
-- analytics: Query or analyze PostHog data, metrics, and events.
+- analytics: Query or analyze PostHog data; governed metrics, certified tables, and verified joins live in the catalog.
 - visualizations: Create or render a visualization.
 - urls: Load before writing any PostHog app link or URL.
 - feedback: Send feedback about PostHog.
+
+**Metrics & SQL trust**: for any metric question (business or operational), and before writing SQL or joins, run `learn analytics` — the catalog defines governed metrics (`system.information_schema.metrics`), certified tables/views, and verified joins. Check it before insights or raw SQL and state the outcome in query context.
 
 **SCHEMA DRILL-DOWN RULE — HARD REQUIREMENT**
 

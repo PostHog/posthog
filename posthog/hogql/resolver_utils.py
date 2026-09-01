@@ -209,26 +209,28 @@ def lookup_cte_by_name(global_scopes: list[ast.SelectQueryType], name: str) -> O
 
 
 def get_long_table_name(select: ast.SelectQueryType, type: ast.Type) -> str:
-    if isinstance(type, ast.TableType):
-        return select.get_alias_for_table_type(type) or ""
-    elif isinstance(type, ast.LazyTableType):
-        return type.table.to_printed_hogql()
-    elif isinstance(type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
-        return type.alias
-    elif isinstance(type, ast.SelectQueryAliasType):
-        return type.alias
-    elif isinstance(type, ast.SelectViewType):
-        return type.alias
-    elif isinstance(type, ast.CTETableType):
-        return type.name
-    elif isinstance(type, ast.CTETableAliasType):
-        return type.alias
-    elif isinstance(type, ast.LazyJoinType):
-        return f"{get_long_table_name(select, type.table_type)}__{type.field}"
-    elif isinstance(type, ast.VirtualTableType):
-        return f"{get_long_table_name(select, type.table_type)}__{type.field}"
-    else:
-        raise ResolutionError(f"Unknown table type in LazyTableResolver: {type.__class__.__name__}")
+    match type:
+        case ast.TableType():
+            return select.get_alias_for_table_type(type) or ""
+        case ast.LazyTableType(table=table):
+            return table.to_printed_hogql()
+        case (
+            ast.TableAliasType(alias=alias)
+            | ast.ColumnAliasedTableType(alias=alias)
+            | ast.SelectQueryAliasType(alias=alias)
+            | ast.SelectViewType(alias=alias)
+            | ast.CTETableAliasType(alias=alias)
+        ):
+            return alias
+        case ast.CTETableType(name=name):
+            return name
+        case (
+            ast.LazyJoinType(table_type=table_type, field=field)
+            | ast.VirtualTableType(table_type=table_type, field=field)
+        ):
+            return f"{get_long_table_name(select, table_type)}__{field}"
+        case _:
+            raise ResolutionError(f"Unknown table type in LazyTableResolver: {type.__class__.__name__}")
 
 
 def ast_to_query_node(expr: ast.Expr | ast.HogQLXTag):

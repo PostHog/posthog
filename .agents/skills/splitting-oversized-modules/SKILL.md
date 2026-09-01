@@ -1,14 +1,17 @@
 ---
 name: splitting-oversized-modules
 description: >
-  Split an oversized Python module (a 2000+ line logic.py, models.py, api.py, or its test
-  file) into a package of one module per concern, mechanically and provably without changing
-  behavior. Use on a request to split / break up / decompose a god module or move functions
-  out of one, or once a human has agreed to split one before some other change. Covers the
-  worth-it gate, assigning symbols to concerns with an acyclic dependency graph, the AST plus
-  tokenize move script, and proving the result is a pure move. Python only — for frontend
-  files use writing-ui-components. Not for extracting a shared helper into common/, and not
-  for moving code between products, which is isolating-product-facade-contracts.
+  Split an oversized Python module (a thousand-plus-line logic.py, models.py, api.py, or its
+  test file) into a package of one module per concern, mechanically and provably without
+  changing behavior. Use on a request to split / break up / decompose a god module or move
+  functions out of one, once a human has agreed to split one before some other change, or
+  before restructuring code inside a module already over roughly a thousand lines — breaking
+  up a long function or extracting helpers in place leaves everything in the same file, so
+  check the worth-it gate and propose the split first. Covers that gate, assigning symbols to
+  concerns with an acyclic dependency graph, the AST plus tokenize move script, and proving
+  the result is a pure move. Python only — for frontend files use writing-ui-components. Not
+  for extracting a shared helper into common/, and not for moving code between products,
+  which is isolating-product-facade-contracts.
 ---
 
 # Splitting oversized modules
@@ -27,6 +30,11 @@ All three must hold: over roughly a thousand lines, several concerns that change
 independently, and something still actively changing in it. A big cohesive frozen file buys
 nothing. Skip generated files, and skip a file several people are mid-change in
 (`git log --oneline -20 -- <file>`).
+
+A complexity warning on one function is a symptom of this, not a separate job. Extracting
+that function into helpers leaves every helper in the same file, so the read-set is
+unchanged and the file gets longer. Measure the file first (`wc -l`), and when it clears the
+gate, propose the split instead of the in-place extraction.
 
 Splitting is a separate PR from whatever you came to do. Land the move as its own base PR
 and branch your work on top — see `/stacking-prs`. Never bundle it into a feature diff, and

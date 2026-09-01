@@ -1,5 +1,9 @@
+from typing import Any
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
+
+from products.notebooks.backend.sql_v2_variables import RESERVED_VARIABLE_NAMES
 
 
 @extend_schema_field(serializers.DictField(child=serializers.FloatField()))
@@ -26,6 +30,53 @@ class NotebookSQLV2RefSerializer(serializers.Serializer):
             "last-run HogQL); 'local' is a dataframe a Python node bound in the kernel namespace."
         ),
     )
+
+
+# A notebook is authored by hand, so these sit just above real use: a person types a handful
+# of named values, not a data set. Keeping them tight also bounds the abuse case — values ride
+# a Temporal payload (~2 MiB hard limit) to the kernel, and one placeholder repeated across a
+# query multiplies its value into the SQL the engine receives.
+MAX_VARIABLES_PER_NOTEBOOK = 10
+MAX_VARIABLE_NAME_CHARS = 200
+MAX_VARIABLE_VALUE_CHARS = 1_000
+
+
+class NotebookVariableSerializer(serializers.Serializer):
+    """One notebook-level variable. Shared by the notebook's own `variables` field and a run body."""
+
+    name = serializers.CharField(
+        max_length=MAX_VARIABLE_NAME_CHARS,
+        help_text="Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.",
+    )
+    # CharField, not ChoiceField: a `type` enum collides with other generated enums under
+    # --fail-on-warn (same precedent as the status fields below).
+    type = serializers.CharField(
+        help_text="How to coerce the value: 'string', 'number', 'boolean', or 'date'. Unknown types read as 'string'."
+    )
+    value = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The variable's current value. A 'date' accepts an absolute date or a relative "
+            "expression ('-7d', 'mStart'), resolved against the project timezone."
+        ),
+    )
+
+    def validate_value(self, value: Any) -> Any:
+        # Only scalars are ever bound, so anything longer than this is not a value someone typed.
+        if isinstance(value, str) and len(value) > MAX_VARIABLE_VALUE_CHARS:
+            raise serializers.ValidationError(f"A variable value can be at most {MAX_VARIABLE_VALUE_CHARS} characters.")
+        return value
+
+    def validate_name(self, value: str) -> str:
+        name = value.strip()
+        # A SQL cell reads the name as a `{name}` placeholder and a Python cell as a global, so
+        # only a plain identifier can ever resolve.
+        if not name.isidentifier():
+            raise serializers.ValidationError("Use letters, numbers, and underscores, and don't start with a number.")
+        if name in RESERVED_VARIABLE_NAMES:
+            raise serializers.ValidationError(f"'{name}' is reserved by PostHog. Pick another name.")
+        return name
 
 
 class NotebookSQLV2RunRequestSerializer(serializers.Serializer):
@@ -60,6 +111,19 @@ class NotebookSQLV2RunRequestSerializer(serializers.Serializer):
             "Available upstream nodes, keyed by dataframe name. A SQL node inlines referenced hogql "
             "refs as CTEs — unless it references a local ref, which reroutes the run to the sandbox's "
             "DuckDB; a python node materializes the hogql refs its code reads as pandas frames."
+        ),
+    )
+    variables = NotebookVariableSerializer(
+        many=True,
+        required=False,
+        default=list,
+        # DRF forwards this to the ListSerializer (LIST_SERIALIZER_KWARGS); the stubs only
+        # type Serializer.__init__, so mypy cannot see it.
+        max_length=MAX_VARIABLES_PER_NOTEBOOK,  # type: ignore[call-arg]
+        help_text=(
+            "Notebook-level variables in scope for this run. A SQL node has each `{name}` bound to "
+            "its value before dispatch; a Python node gets them as globals in the kernel namespace. "
+            "A SQL node reading a `{name}` that is absent here fails the dispatch."
         ),
     )
     connection_id = serializers.UUIDField(

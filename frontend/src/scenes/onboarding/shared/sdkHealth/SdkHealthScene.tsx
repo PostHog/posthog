@@ -94,12 +94,6 @@ export function SdkHealthScene(): JSX.Element {
                 </div>
             )}
 
-            {/* Beta feedback banner */}
-            <LemonBanner type="info">
-                <strong>SDK Health is in Beta!</strong> Help us improve by sharing your feedback?{' '}
-                <Link to="#panel=support%3Asupport%3Asdk%3Alow%3Atrue">Send feedback</Link>
-            </LemonBanner>
-
             <div className="p-3">
                 {loading ? null : hasErrors ? (
                     <div className="text-center text-muted p-4">
