@@ -189,6 +189,39 @@ def test_drop_index_concurrently_is_idempotent(temp_table):
     assert not _index_exists(idx_name)
 
 
+def test_drop_index_concurrently_reverse_is_noop_when_recreate_disabled():
+    # A dead index maps to no model; reversing its drop must not run a CREATE, or
+    # it would target a table that is absent here and raise UndefinedTable.
+    op = DropIndexConcurrently(
+        index_name="dead_idx",
+        table_name="table_absent_here",
+        columns="(col)",
+        recreate_on_reverse=False,
+    )
+    assert op.reverse_sql == migrations.RunSQL.noop
+
+    executed: list[str] = []
+
+    class _Recorder:
+        def execute(self, sql: str) -> None:
+            executed.append(sql)
+
+    op.database_backwards("posthog", _Recorder(), from_state=None, to_state=None)
+    assert executed == []
+
+
+def test_drop_index_recreate_on_reverse_survives_deconstruct():
+    disabled = DropIndexConcurrently(index_name="i", table_name="t", columns="(c)", recreate_on_reverse=False)
+    _, _, kwargs = disabled.deconstruct()
+    assert kwargs["recreate_on_reverse"] is False
+    assert DropIndexConcurrently(**kwargs).reverse_sql == migrations.RunSQL.noop
+
+    default = DropIndexConcurrently(index_name="i", table_name="t", columns="(c)")
+    _, _, default_kwargs = default.deconstruct()
+    assert "recreate_on_reverse" not in default_kwargs
+    assert "CREATE INDEX CONCURRENTLY" in DropIndexConcurrently(**default_kwargs).reverse_sql
+
+
 @pytest.mark.django_db(transaction=True)
 def test_subclasses_runsql_for_introspection_compatibility():
     """Subclasses must remain RunSQL so makemigrations / sqlmigrate continue to work."""
