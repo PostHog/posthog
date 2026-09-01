@@ -30,15 +30,6 @@ class Migration(migrations.Migration):
             field=models.ManyToManyField(related_name="+", through="cohorts.CohortPeople", to="posthog.person"),
         ),
         migrations.AlterField(
-            model_name="cohort",
-            name="team",
-            field=models.ForeignKey(
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="+",
-                to="posthog.team",
-            ),
-        ),
-        migrations.AlterField(
             model_name="cohortcalculationhistory",
             name="team",
             field=models.ForeignKey(

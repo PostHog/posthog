@@ -122,6 +122,7 @@ posthog.Team batch_exports.BatchExportBackfill.team reverse-accessor(batchexport
 posthog.Team business_knowledge.KnowledgeGapSuggestion.team reverse-accessor(business_knowledge_gap_suggestions) 1
 posthog.Team business_knowledge.KnowledgeSource.team reverse-accessor(business_knowledge_sources) 1
 posthog.Team cdp.Hook.team reverse-accessor(rest_hooks) 1
+posthog.Team cohorts.Cohort.team reverse-accessor(cohort_set) 1
 posthog.Team conversations.ConversationRestoreToken.team reverse-accessor(conversation_restore_tokens) 1
 posthog.Team conversations.EmailChannel.team reverse-accessor(email_channels) 1
 posthog.Team conversations.SigningSecret.team reverse-accessor(conversations_signing_secret) 1

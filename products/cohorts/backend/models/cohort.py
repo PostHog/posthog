@@ -184,7 +184,9 @@ def is_cohort_recalculation_only_save(kwargs: dict) -> bool:
 class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     name = models.CharField(max_length=400, null=True, blank=True)
     description = models.CharField(max_length=1000, blank=True)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    # Not sealed: the feature flag list endpoint prefetches team__cohort_set
+    # into available_cohorts.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     deleted = models.BooleanField(default=False)
     filters = models.JSONField(
         null=True,
