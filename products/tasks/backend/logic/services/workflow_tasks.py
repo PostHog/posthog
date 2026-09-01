@@ -201,13 +201,19 @@ def create_workflow_task(
     # Snapshot the connector allowlist onto the run: the sandbox mounts only what's here
     # (see loop_mcp_installation_allowlist), so a later edit of the workflow can't change
     # what an already-queued run may reach.
+    config_snapshot: dict[str, Any] = {
+        "connectors": {
+            "mcp_installation_ids": mcp_installation_ids or [],
+            "posthog_mcp_scopes": posthog_mcp_scopes,
+        }
+    }
+    if skills:
+        # Which version each skill was at when this run was planned. A later run of the same task
+        # inherits config_snapshot without re-rendering the prompt, so this is the only record.
+        config_snapshot["skills"] = [{"name": skill.name, "version": skill.version} for skill in skills]
+
     extra_run_state: dict[str, Any] = {
-        "config_snapshot": {
-            "connectors": {
-                "mcp_installation_ids": mcp_installation_ids or [],
-                "posthog_mcp_scopes": posthog_mcp_scopes,
-            }
-        },
+        "config_snapshot": config_snapshot,
         "inactivity_timeout_seconds": WORKFLOW_RUN_IDLE_TIMEOUT_SECONDS,
         # The boot-path override, not pending_user_message: the agent server self-delivers a
         # pending message at boot AND forward_pending_user_message forwards it, and the two
@@ -215,12 +221,6 @@ def create_workflow_task(
         # prompt twice. The override is only read by the boot path, so it delivers once.
         "initial_prompt_override": _render_run_message(prompt, event, skills),
     }
-    if skills:
-        # Which version each skill was at when this run was planned. A later run of the same task
-        # inherits config_snapshot without re-rendering the prompt, so this is the only record.
-        extra_run_state["config_snapshot"]["skills"] = [
-            {"name": skill.name, "version": skill.version} for skill in skills
-        ]
 
     try:
         # One transaction so a duplicate origin_key rolls back the task, its run, and the
