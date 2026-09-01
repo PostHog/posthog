@@ -30,8 +30,7 @@ export function claudeAuthTerminalCommand(
   action: ClaudeAuthAction,
   claudeCliPath: string,
 ): ClaudeAuthTerminalCommand {
-  const args =
-    action === "login" ? ["auth", "login", "--claudeai"] : ["auth", "logout"];
+  const args = action === "login" ? ["auth", "login"] : ["auth", "logout"];
   // The legacy CLI ships as cli.js and needs a JS runtime to start.
   const isLegacyJs = claudeCliPath.endsWith(".js");
   const parts = isLegacyJs
@@ -114,15 +113,11 @@ export async function hasClaudeLogin(
       finish(false);
     }, options.timeoutMs ?? STATUS_TIMEOUT_MS);
 
-    // Stdout can contain account details; never logged, only counted. Stderr
-    // carries the failure reason, so keep a bounded slice of it.
-    let outputLength = 0;
+    // Stdout carries the account email and organization, so it is discarded
+    // unread. Stderr carries the failure reason, so keep a bounded slice.
     let stderr = "";
-    child.stdout?.on("data", (chunk: Buffer) => {
-      outputLength += chunk.length;
-    });
+    child.stdout?.on("data", () => {});
     child.stderr?.on("data", (chunk: Buffer) => {
-      outputLength += chunk.length;
       if (stderr.length < 500) stderr += chunk.toString("utf8");
     });
     child.on("error", (error) => {
@@ -135,7 +130,6 @@ export async function hasClaudeLogin(
       options.logger?.debug("claude auth status finished", {
         claudeCliPath: options.claudeCliPath,
         exitCode: code,
-        outputLength,
         stderr: stderr.slice(0, 500),
       });
       finish(code === 0);

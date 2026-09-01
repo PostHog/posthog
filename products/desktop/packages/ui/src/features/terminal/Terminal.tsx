@@ -17,6 +17,8 @@ export interface TerminalProps {
   additionalEnv?: Record<string, string>;
   /** Variables to drop from the inherited env, ambient shell values included. */
   unsetEnv?: string[];
+  /** Keep the output off disk and out of session replay. */
+  sensitive?: boolean;
   onReady?: () => void;
   onExit?: (exitCode?: number) => void;
 }
@@ -30,6 +32,7 @@ export function Terminal({
   command,
   additionalEnv,
   unsetEnv,
+  sensitive,
   onReady,
   onExit,
 }: TerminalProps) {
@@ -53,6 +56,7 @@ export function Terminal({
         command,
         additionalEnv,
         unsetEnv,
+        sensitive,
       });
     }
   }, [
@@ -64,6 +68,7 @@ export function Terminal({
     command,
     additionalEnv,
     unsetEnv,
+    sensitive,
   ]);
 
   // Attach/detach from DOM
@@ -124,7 +129,10 @@ export function Terminal({
   }, [sessionId]);
 
   return (
-    <Box onMouseDown={handleMouseDown} className="relative h-full p-3">
+    <Box
+      onMouseDown={handleMouseDown}
+      className={`relative h-full p-3 ${sensitive ? "ph-no-capture" : ""}`}
+    >
       <div ref={terminalRef} className="h-full w-full" />
       <style>
         {`

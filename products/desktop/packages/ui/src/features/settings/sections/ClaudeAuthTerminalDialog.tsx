@@ -161,6 +161,7 @@ export function ClaudeAuthTerminalDialog({
                   command={terminal.command}
                   additionalEnv={terminal.additionalEnv}
                   unsetEnv={terminal.unsetEnv}
+                  sensitive
                   onExit={handleExit}
                 />
               </div>

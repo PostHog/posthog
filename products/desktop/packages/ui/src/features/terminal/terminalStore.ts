@@ -50,15 +50,26 @@ export function clearPersistedSessionIds(persistedState: unknown) {
   return {
     ...state,
     terminalStates: Object.fromEntries(
-      Object.entries(state.terminalStates).map(([key, value]) => [
-        key,
-        {
-          ...value,
-          sessionId: null,
-        },
-      ]),
+      Object.entries(state.terminalStates)
+        .filter(([key]) => !isSensitiveKey(key))
+        .map(([key, value]) => [
+          key,
+          {
+            ...value,
+            sessionId: null,
+          },
+        ]),
     ),
   };
+}
+
+/**
+ * Terminals whose output must never reach disk. The auth terminal shows a
+ * sign-in URL and can show a pasted sign-in code. The filter also drops the
+ * entries that earlier builds wrote.
+ */
+function isSensitiveKey(key: string): boolean {
+  return key.startsWith("claude-auth-");
 }
 
 export const useTerminalStore = create<TerminalStoreState>()(
@@ -128,15 +139,18 @@ export const useTerminalStore = create<TerminalStoreState>()(
     }),
     {
       name: "terminal-store",
-      version: 1,
+      // 2 drops the auth terminal output that version 1 wrote to disk.
+      version: 2,
       migrate: (persistedState) =>
         clearPersistedSessionIds(persistedState) as PersistedTerminalStoreState,
       partialize: (state): PersistedTerminalStoreState => ({
         terminalStates: Object.fromEntries(
-          Object.entries(state.terminalStates).map(([k, v]) => [
-            k,
-            { serializedState: v.serializedState, sessionId: null },
-          ]),
+          Object.entries(state.terminalStates)
+            .filter(([k]) => !isSensitiveKey(k))
+            .map(([k, v]) => [
+              k,
+              { serializedState: v.serializedState, sessionId: null },
+            ]),
         ),
       }),
     },

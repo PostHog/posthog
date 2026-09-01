@@ -50,6 +50,8 @@ interface TerminalInstance {
   resizeObserver: ResizeObserver | null;
   saveTimeout: number | null;
   persistenceKey: string;
+  /** Content must not reach disk or session replay. */
+  sensitive: boolean;
   cwd?: string;
   taskId?: string;
   command?: string;
@@ -66,6 +68,11 @@ interface CreateOptions {
   additionalEnv?: Record<string, string>;
   /** Variables to drop from the inherited env, ambient shell values included. */
   unsetEnv?: string[];
+  /**
+   * The output can carry account data or a sign-in code. The terminal then
+   * keeps no serialized copy, so nothing reaches the persisted store.
+   */
+  sensitive?: boolean;
 }
 
 type ReadyPayload = { sessionId: string; persistenceKey: string };
@@ -196,6 +203,7 @@ class TerminalManagerImpl {
       command,
       additionalEnv,
       unsetEnv,
+      sensitive,
     } = options;
 
     const existing = this.instances.get(sessionId);
@@ -233,6 +241,7 @@ class TerminalManagerImpl {
       resizeObserver: null,
       saveTimeout: null,
       persistenceKey,
+      sensitive: sensitive === true,
       cwd,
       taskId,
       command,
@@ -457,6 +466,10 @@ class TerminalManagerImpl {
   }
 
   private scheduleSave(sessionId: string, instance: TerminalInstance): void {
+    if (instance.sensitive) {
+      return;
+    }
+
     if (instance.saveTimeout) {
       clearTimeout(instance.saveTimeout);
     }
@@ -563,12 +576,13 @@ class TerminalManagerImpl {
     // Drain buffered output so the serialized snapshot reflects the latest data.
     this.flushWrite(sessionId, instance);
 
-    const serialized = instance.serializeAddon.serialize();
-    this.emit("stateChange", {
-      sessionId,
-      persistenceKey: instance.persistenceKey,
-      serializedState: serialized,
-    });
+    if (!instance.sensitive) {
+      this.emit("stateChange", {
+        sessionId,
+        persistenceKey: instance.persistenceKey,
+        serializedState: instance.serializeAddon.serialize(),
+      });
+    }
 
     if (instance.terminalElement) {
       getParkingContainer().appendChild(instance.terminalElement);
