@@ -86,19 +86,62 @@ func NewPathCleanerFromJSON(raw string) *PathCleaner {
 func (pc *PathCleaner) Clean(path string) string {
 	// Cleaning is best-effort normalization: if the raw path already exceeds the
 	// ceiling, or a rule amplifies it past one, abandon cleaning and return the
-	// raw path rather than let an abusive ruleset grow it unbounded. Checking
-	// after every rule also caps each step's input, so the chain can't compound.
+	// raw path rather than let an abusive ruleset grow it unbounded. Bounding each
+	// rule's output also caps the next rule's input, so the chain can't compound.
 	if len(path) > maxCleanedPathLen {
 		return path
 	}
 	cleaned := path
 	for _, rule := range pc.rules {
-		cleaned = rule.regex.ReplaceAllString(cleaned, rule.replacement)
-		if len(cleaned) > maxCleanedPathLen {
+		// Size the result from the match and group lengths before running the
+		// replacement, so a rule that would amplify the path bails here instead of
+		// letting ReplaceAllString allocate the whole blown-up string first. The
+		// replacement itself stays stdlib, so cleaned output matches the query side
+		// exactly.
+		if replacementOverflows(rule.regex, rule.replacement, cleaned) {
 			return path
 		}
+		cleaned = rule.regex.ReplaceAllString(cleaned, rule.replacement)
 	}
 	return cleaned
+}
+
+// replacementOverflows reports whether applying the rule to src would produce
+// more than maxCleanedPathLen bytes, computed from match offsets and group
+// lengths without building the (possibly amplified) result. `replacement` is
+// translateAlias output: `${0}`-`${9}` backreferences, `$$` for a literal `$`,
+// everything else literal — so the byte count matches what ReplaceAllString
+// would emit.
+func replacementOverflows(re *regexp.Regexp, replacement, src string) bool {
+	total := 0
+	last := 0
+	for _, m := range re.FindAllStringSubmatchIndex(src, -1) {
+		total += m[0] - last
+		last = m[1]
+		for i := 0; i < len(replacement); i++ {
+			c := replacement[i]
+			if c == '$' && i+1 < len(replacement) {
+				if replacement[i+1] == '$' {
+					total++
+					i++
+					continue
+				}
+				if replacement[i+1] == '{' && i+3 < len(replacement) &&
+					replacement[i+2] >= '0' && replacement[i+2] <= '9' && replacement[i+3] == '}' {
+					if g := int(replacement[i+2] - '0'); 2*g+1 < len(m) && m[2*g] >= 0 {
+						total += m[2*g+1] - m[2*g]
+					}
+					i += 3
+					continue
+				}
+			}
+			total++
+		}
+		if total > maxCleanedPathLen {
+			return true
+		}
+	}
+	return total+(len(src)-last) > maxCleanedPathLen
 }
 
 // translateAlias converts a replaceRegexpAll replacement string (`\0`-`\9`

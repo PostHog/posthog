@@ -116,6 +116,21 @@ func TestPathCleanerBoundsOutputAmplification(t *testing.T) {
 	assert.LessOrEqual(t, len(got), maxCleanedPathLen)
 }
 
+func TestPathCleanerBoundsSingleRuleAmplification(t *testing.T) {
+	// One rule whose replacement repeats a full-input capture many times would, under a
+	// plain ReplaceAllString, allocate a multi-megabyte string before any size check.
+	// Cleaning must size the result up front and fall back to the raw path instead.
+	alias := strings.Repeat(`\1`, 400)
+	rules := fmt.Sprintf(`[{"alias": %q, "regex": "(.*)"}]`, alias)
+	cleaner := NewPathCleanerFromJSON(rules)
+	require.NotNil(t, cleaner)
+
+	path := "/" + strings.Repeat("a", 4000)
+	got := cleaner.Clean(path)
+	assert.Equal(t, path, got, "amplifying single rule must fall back to the raw path")
+	assert.LessOrEqual(t, len(got), maxCleanedPathLen)
+}
+
 func TestPathCleanerReturnsOversizedInputUnchanged(t *testing.T) {
 	cleaner := NewPathCleanerFromJSON(`[{"alias": "/x", "regex": "/.*"}]`)
 	require.NotNil(t, cleaner)
