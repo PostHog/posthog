@@ -69,8 +69,7 @@ def _clean_filters(filters: dict) -> tuple[dict, set[str]]:
             new_groups.append(new_group)
         new_filters["groups"] = new_groups
 
-    # Payloads are looked up by the matched variant key, or by "true" on a boolean flag, so a
-    # payload under any other key is unreachable and dropping it is invisible.
+    # A payload under a key no evaluation can resolve is unreachable, so dropping it is invisible.
     payloads = new_filters.get("payloads")
     if isinstance(payloads, dict):
         if not new_filters.get("multivariate"):
@@ -107,14 +106,11 @@ def clean_flag_filters_inert_violations(apps, schema_editor):
     # whole table client-side. id-range batches are memory-bounded however the connection is pooled.
     last_id = 0
     while True:
-        # _base_manager: the default manager excludes soft-deleted flags.
-        # Skip encrypted flags: `encrypt_flag_payloads` encrypts every payload key, not just the
-        # ones the read path serves, so dropping one destroys a customer secret with no way back.
-        # `exclude` rather than `filter(=False)` keeps legacy NULL rows in scope. The audit keeps
-        # reporting them.
+        # _base_manager documents that soft-deleted rows are in scope (a historical model's
+        # manager is plain anyway). Encrypted flags are skipped entirely: every payload key is
+        # ciphertext, so dropping one destroys a secret; exclude keeps legacy NULL rows in scope.
         rows = list(
             FeatureFlag._base_manager.filter(id__gt=last_id)
-            .exclude(filters=None)
             .exclude(has_encrypted_payloads=True)
             .order_by("id")
             .only("id", "filters")[:BATCH_SIZE]
