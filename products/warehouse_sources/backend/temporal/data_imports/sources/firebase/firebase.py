@@ -1,5 +1,6 @@
 import json
 import time
+import datetime
 import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
@@ -12,8 +13,13 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    incremental_field,
+    rank_incremental_fields,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.settings import (
     AUTH_USERS_PAGE_SIZE,
@@ -22,9 +28,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.s
     FIRESTORE_API_ROOT,
     FIRESTORE_COLLECTION_IDS_PAGE_SIZE,
     FIRESTORE_CREATE_TIME_COLUMN,
+    FIRESTORE_DOCUMENT_ID_FIELD,
     FIRESTORE_ID_COLUMN,
+    FIRESTORE_INCREMENTAL_VALUE_TYPES,
+    FIRESTORE_MAX_INTEGER,
+    FIRESTORE_MAX_TIMESTAMP,
+    FIRESTORE_METADATA_COLUMNS,
     FIRESTORE_PAGE_SIZE,
     FIRESTORE_PATH_COLUMN,
+    FIRESTORE_SCHEMA_SAMPLE_DOCUMENTS,
     FIRESTORE_UPDATE_TIME_COLUMN,
     GOOGLE_TOKEN_URI,
     IDENTITY_TOOLKIT_API_ROOT,
@@ -45,8 +57,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.s
     RESPONSE_TOO_LARGE_ERROR,
     TOKEN_EXPIRY_SKEW_SECONDS,
     firestore_table_name,
+    is_supported_incremental_field_name,
     realtime_database_table_name,
 )
+from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 LOGGER: FilteringBoundLogger = structlog.get_logger(__name__)
 
@@ -68,6 +82,21 @@ class FirebaseResumeConfig:
     """Resume cursor: a Firestore/Identity Platform page token, or a Realtime Database key."""
 
     cursor: str
+    # An incremental Firestore read has no page token. It pages on the last row's position instead,
+    # which is the ordered pair (cursor field value, document name), so `cursor` holds the document
+    # name and this holds the JSON-encoded Firestore value beside it. Every other surface pages on a
+    # single opaque token and leaves this unset, which is also what a cursor saved before this field
+    # existed decodes to.
+    incremental_value: Optional[str] = None
+
+
+@frozen
+class FirestoreIncrementalCursor:
+    """The cursor field the user picked for one collection, and the watermark to read past."""
+
+    field_name: str
+    field_type: IncrementalFieldType
+    last_value: Any
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -390,6 +419,235 @@ def list_collection_ids(
     return collection_ids
 
 
+def sample_firestore_incremental_fields(
+    session: requests.Session,
+    tokens: AccessTokenProvider,
+    credentials: FirebaseCredentials,
+    collection_id: str,
+) -> list[IncrementalField]:
+    """Find the fields of one collection that can carry an incremental sync's cursor.
+
+    Firestore holds no schema to read, so the candidates come from a sample of real documents. A
+    field qualifies only when every sampled document carries it with the same orderable type:
+    Firestore drops a document from an ordered read when the ordered field is missing, so a field
+    that only part of the collection sets would strand the rest of it permanently.
+    """
+    url = f"{_firestore_documents_root(credentials)}/{quote(collection_id, safe='')}"
+    payload = _request(session, tokens, "GET", url, params={"pageSize": FIRESTORE_SCHEMA_SAMPLE_DOCUMENTS}) or {}
+    documents = [document for document in payload.get("documents") or [] if isinstance(document, dict)]
+    if not documents:
+        return []
+
+    shared = _orderable_field_types(documents[0])
+    for document in documents[1:]:
+        present = _orderable_field_types(document)
+        shared = {name: field_type for name, field_type in shared.items() if present.get(name) == field_type}
+
+    return rank_incremental_fields([incremental_field(name, field_type) for name, field_type in sorted(shared.items())])
+
+
+def _orderable_field_types(document: dict[str, Any]) -> dict[str, IncrementalFieldType]:
+    """Map the document's top-level fields to the cursor type each one could drive."""
+    fields = document.get("fields")
+    if not isinstance(fields, dict):
+        return {}
+
+    types: dict[str, IncrementalFieldType] = {}
+    for name, value in fields.items():
+        if not isinstance(value, dict) or not is_supported_incremental_field_name(name):
+            continue
+        # `flatten_firestore_document` writes the metadata columns last, so a document field of the
+        # same name never reaches the row. The query would filter on the document field while the
+        # watermark tracked the metadata column, and the two would drift apart.
+        if name in FIRESTORE_METADATA_COLUMNS:
+            continue
+        for value_type, field_type in FIRESTORE_INCREMENTAL_VALUE_TYPES.items():
+            if value_type in value:
+                types[name] = field_type
+                break
+    return types
+
+
+def get_incremental_fields(
+    credentials: FirebaseCredentials, table_names: list[str]
+) -> dict[str, list[IncrementalField]]:
+    """Candidate cursor fields for each Firestore collection among `table_names`.
+
+    Auth users and Realtime Database paths never appear: Identity Platform's `accounts:batchGet` and
+    the Realtime Database REST API both page on a key and expose no timestamp filter to sync against.
+    """
+    collections = [
+        (table, collection_id)
+        for table, collection_id in ((table, _resolve_firestore_collection(table)) for table in table_names)
+        if collection_id is not None
+    ]
+    if not collections:
+        return {}
+
+    tokens = AccessTokenProvider(_auth_session(credentials), credentials)
+    api_session = _api_session(credentials)
+
+    fields: dict[str, list[IncrementalField]] = {}
+    for table, collection_id in collections:
+        try:
+            candidates = sample_firestore_incremental_fields(api_session, tokens, credentials, collection_id)
+        except requests.HTTPError as e:
+            # One unreadable collection must not empty the whole schema picker. That table offers
+            # full refresh, and the sync itself still reports the failure.
+            LOGGER.warning(f"Skipping incremental field discovery for Firestore collection {collection_id}: {e}")
+            continue
+        if candidates:
+            fields[table] = candidates
+    return fields
+
+
+def _rfc3339(value: Any) -> str:
+    """Render a watermark the way Firestore renders its own timestamps: UTC, `Z`-suffixed.
+
+    The stored watermark is normally a datetime, but `process_incremental_value` passes a number
+    through unchanged for a datetime cursor, so a numeric watermark is read as a Unix epoch.
+    """
+    if isinstance(value, datetime.datetime):
+        moment = value if value.tzinfo is not None else value.replace(tzinfo=datetime.UTC)
+    elif isinstance(value, int | float) and not isinstance(value, bool):
+        moment = datetime.datetime.fromtimestamp(value, tz=datetime.UTC)
+    else:
+        raise FirebaseConfigError(
+            "PostHog couldn't read the last value this table synced up to. Reset the table's sync to "
+            "start it again from the beginning."
+        )
+    return moment.astimezone(datetime.UTC).isoformat().replace("+00:00", "Z")
+
+
+def _firestore_cursor_value(field_type: IncrementalFieldType, value: Any) -> dict[str, Any]:
+    if field_type == IncrementalFieldType.Integer:
+        # The REST API carries int64 as a JSON string so the value survives a JavaScript parser.
+        return {"integerValue": str(int(value))}
+    return {"timestampValue": _rfc3339(value)}
+
+
+def _firestore_type_ceiling(field_type: IncrementalFieldType) -> dict[str, Any]:
+    if field_type == IncrementalFieldType.Integer:
+        return {"integerValue": str(FIRESTORE_MAX_INTEGER)}
+    return {"timestampValue": FIRESTORE_MAX_TIMESTAMP}
+
+
+def _incremental_filter(field_name: str, field_type: IncrementalFieldType, last_value: Any) -> dict[str, Any]:
+    """Bound a read to the rows after the watermark, and to the cursor field's own type.
+
+    Both bounds are needed. See `FIRESTORE_MAX_TIMESTAMP` for what a lone lower bound would match.
+    """
+    field = {"fieldPath": field_name}
+    return {
+        "compositeFilter": {
+            "op": "AND",
+            "filters": [
+                {
+                    "fieldFilter": {
+                        "field": field,
+                        "op": "GREATER_THAN",
+                        "value": _firestore_cursor_value(field_type, last_value),
+                    }
+                },
+                {
+                    "fieldFilter": {
+                        "field": field,
+                        "op": "LESS_THAN_OR_EQUAL",
+                        "value": _firestore_type_ceiling(field_type),
+                    }
+                },
+            ],
+        }
+    }
+
+
+def _document_cursor(document: dict[str, Any], field_name: str) -> Optional[tuple[dict[str, Any], str]]:
+    """Position of one row in the ordered read: its cursor field value, then its document name."""
+    fields = document.get("fields")
+    value = fields.get(field_name) if isinstance(fields, dict) else None
+    name = document.get("name")
+    if not isinstance(value, dict) or not isinstance(name, str):
+        return None
+    return value, name
+
+
+def iter_firestore_documents_incremental(
+    session: requests.Session,
+    tokens: AccessTokenProvider,
+    credentials: FirebaseCredentials,
+    collection_id: str,
+    field_name: str,
+    field_type: IncrementalFieldType,
+    last_value: Any,
+    resumable_source_manager: ResumableSourceManager[FirebaseResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    """Read the documents of one collection that changed after the watermark, oldest first.
+
+    `runQuery` is the only Firestore read that filters, and it answers with no page token, so each
+    page starts after the position of the previous page's last row. Ordering by the cursor field and
+    then the document id keeps that position unambiguous when documents share a cursor value.
+    """
+    url = f"{_firestore_documents_root(credentials)}:runQuery"
+    query: dict[str, Any] = {
+        "from": [{"collectionId": collection_id}],
+        "where": _incremental_filter(field_name, field_type, last_value),
+        "orderBy": [
+            {"field": {"fieldPath": field_name}, "direction": "ASCENDING"},
+            {"field": {"fieldPath": FIRESTORE_DOCUMENT_ID_FIELD}, "direction": "ASCENDING"},
+        ],
+        "limit": FIRESTORE_PAGE_SIZE,
+    }
+    cursor = _resume_incremental_cursor(resumable_source_manager, logger, collection_id)
+
+    for _ in range(MAX_PAGES):
+        page_query = dict(query)
+        if cursor is not None:
+            value, name = cursor
+            page_query["startAt"] = {"values": [value, {"referenceValue": name}], "before": False}
+        payload = _request(session, tokens, "POST", url, json_body={"structuredQuery": page_query}) or []
+
+        # A `runQuery` stream also carries entries that only report read progress and hold no document.
+        documents = [
+            entry["document"]
+            for entry in payload
+            if isinstance(entry, dict) and isinstance(entry.get("document"), dict)
+        ]
+        if documents:
+            yield [flatten_firestore_document(document) for document in documents]
+
+        if len(documents) < FIRESTORE_PAGE_SIZE:
+            break
+
+        cursor = _document_cursor(documents[-1], field_name)
+        if cursor is None:
+            # The query orders on this field, so Firestore cannot return a document without it.
+            logger.warning(f"Stopping Firestore collection {collection_id}: last document has no {field_name}")
+            break
+        # Saved after yielding so a crash re-yields the last page instead of skipping it.
+        resumable_source_manager.save_state(
+            FirebaseResumeConfig(cursor=cursor[1], incremental_value=json.dumps(cursor[0]))
+        )
+
+    resumable_source_manager.clear_state()
+
+
+def _resume_incremental_cursor(
+    resumable_source_manager: ResumableSourceManager[FirebaseResumeConfig],
+    logger: FilteringBoundLogger,
+    collection_id: str,
+) -> Optional[tuple[dict[str, Any], str]]:
+    if not resumable_source_manager.can_resume():
+        return None
+    resume = resumable_source_manager.load_state()
+    # A cursor saved with no field value beside it came from a full-refresh read and names a page
+    # token rather than a document, so it cannot position an ordered query.
+    if resume is None or resume.incremental_value is None:
+        return None
+    logger.debug(f"Resuming incremental Firestore collection {collection_id} from cursor={resume.cursor}")
+    return json.loads(resume.incremental_value), resume.cursor
+
+
 def iter_firestore_documents(
     session: requests.Session,
     tokens: AccessTokenProvider,
@@ -521,6 +779,11 @@ def _resume_cursor(
     resume = resumable_source_manager.load_state()
     if resume is None:
         return None
+    # A checkpoint carrying a field value came from an ordered incremental read, so its cursor names
+    # a document rather than a page token. Every surface here pages on a token, which Firestore and
+    # Identity Platform would both reject.
+    if resume.incremental_value is not None:
+        return None
     logger.debug(f"Resuming {label} from cursor={resume.cursor}")
     return resume.cursor
 
@@ -530,6 +793,7 @@ def get_rows(
     table_name: str,
     resumable_source_manager: ResumableSourceManager[FirebaseResumeConfig],
     logger: FilteringBoundLogger,
+    incremental_cursor: Optional[FirestoreIncrementalCursor] = None,
 ) -> Iterator[list[dict[str, Any]]]:
     tokens = AccessTokenProvider(_auth_session(credentials), credentials)
 
@@ -545,6 +809,19 @@ def get_rows(
 
     collection_id = _resolve_firestore_collection(table_name)
     if collection_id is not None:
+        if incremental_cursor is not None:
+            yield from iter_firestore_documents_incremental(
+                api_session,
+                tokens,
+                credentials,
+                collection_id,
+                incremental_cursor.field_name,
+                incremental_cursor.field_type,
+                incremental_cursor.last_value,
+                resumable_source_manager,
+                logger,
+            )
+            return
         yield from iter_firestore_documents(
             api_session, tokens, credentials, collection_id, resumable_source_manager, logger
         )
@@ -615,13 +892,59 @@ def validate_credentials(credentials: FirebaseCredentials) -> tuple[bool, Option
     return True, None
 
 
+def resolve_incremental_cursor(
+    table_name: str,
+    should_use_incremental_field: bool,
+    field_name: Optional[str],
+    field_type: Optional[IncrementalFieldType],
+    last_value: Any,
+) -> Optional[FirestoreIncrementalCursor]:
+    """The cursor to read this table with, or None to read all of it.
+
+    Only Firestore collections filter server-side. An incremental setting on any other table would
+    otherwise read every row while the pipeline merged the result as if it were a delta.
+    """
+    if not should_use_incremental_field or _resolve_firestore_collection(table_name) is None:
+        return None
+    if not field_name or field_type is None:
+        raise FirebaseConfigError(
+            f"The table {table_name} is set to sync incrementally but has no field to sync on. "
+            "Pick one in the table's sync settings, or switch the table to full refresh."
+        )
+    if field_type not in FIRESTORE_INCREMENTAL_VALUE_TYPES.values():
+        raise FirebaseConfigError(
+            f"Firestore can't sync on {field_name} because it isn't a timestamp or a number. "
+            "Pick a different field in the table's sync settings, or switch the table to full refresh."
+        )
+    if not is_supported_incremental_field_name(field_name):
+        raise FirebaseConfigError(
+            f"Firestore can't sort on a field named {field_name}. It reads the dots and other punctuation "
+            "in a field name as a path into a nested field. Pick a different field in the table's sync "
+            "settings, or switch the table to full refresh."
+        )
+    if last_value is None:
+        last_value = incremental_type_to_initial_value(field_type)
+    return FirestoreIncrementalCursor(field_name=field_name, field_type=field_type, last_value=last_value)
+
+
 def firebase_source(
     credentials: FirebaseCredentials,
     table_name: str,
     resumable_source_manager: ResumableSourceManager[FirebaseResumeConfig],
     logger: FilteringBoundLogger,
+    should_use_incremental_field: bool = False,
+    incremental_field_name: Optional[str] = None,
+    incremental_field_type: Optional[IncrementalFieldType] = None,
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     is_firestore = _resolve_firestore_collection(table_name) is not None
+    incremental_cursor = resolve_incremental_cursor(
+        table_name,
+        should_use_incremental_field,
+        incremental_field_name,
+        incremental_field_type,
+        db_incremental_field_last_value,
+    )
 
     if table_name == AUTH_USERS_TABLE:
         primary_keys = AUTH_USERS_PRIMARY_KEY
@@ -637,11 +960,13 @@ def firebase_source(
             table_name=table_name,
             resumable_source_manager=resumable_source_manager,
             logger=logger,
+            incremental_cursor=incremental_cursor,
         ),
         primary_keys=primary_keys,
-        # Rows arrive ordered by document key, not by time, and no surface here filters on a
-        # timestamp, so there is no ascending watermark to declare.
-        sort_mode=None,
+        # An incremental read is ordered by the cursor field, so the pipeline can advance the
+        # watermark after every page. Every other read arrives ordered by document key, which is no
+        # watermark at all, and declaring one would freeze the sync at the highest key it had seen.
+        sort_mode="asc" if incremental_cursor is not None else None,
         # Firestore documents run to 1 MiB each, so chunks are capped tighter than the default.
         chunk_size=2000,
         chunk_size_bytes=100 * 1024 * 1024,
