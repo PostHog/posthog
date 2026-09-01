@@ -210,7 +210,7 @@ class Subscription(ModelActivityMixin, models.Model):
 
     summary_enabled = models.BooleanField(default=False)
     summary_prompt_guide = models.CharField(max_length=500, blank=True, default="")
-    delivery_config = models.JSONField(default=dict)
+    delivery_config = models.JSONField(default=dict, db_default={})
 
     class Meta:
         indexes = [
