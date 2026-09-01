@@ -4446,6 +4446,7 @@ export interface FeatureFlagBasicType {
     deleted: boolean
     active: boolean
     ensure_experience_continuity: boolean | null
+    bucketing_identifier?: FeatureFlagBucketingIdentifier | null
 }
 
 export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team_id'>, WithAccessControl {
@@ -4472,7 +4473,6 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     status: 'ACTIVE' | 'STALE' | 'ARCHIVED' | 'DELETED' | 'UNKNOWN'
     _create_in_folder?: string | null
     evaluation_runtime: FeatureFlagEvaluationRuntime
-    bucketing_identifier?: FeatureFlagBucketingIdentifier | null
     last_called_at?: string | null
     is_used_in_replay_settings?: boolean
 }

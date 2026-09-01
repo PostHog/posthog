@@ -27,6 +27,7 @@ import { Metrics } from '../MetricsView/new/Metrics'
 import { RecalculationStatus } from '../MetricsView/shared/RecalculationStatus'
 import { isLegacyExperiment } from '../utils'
 import { DistributionModal, DistributionTable } from './DistributionTable'
+import { ExperimentBucketingMismatchBanner } from './ExperimentBucketingMismatchBanner'
 import { ExperimentDebugPanel } from './ExperimentExecutionPathComparison'
 import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
 import { ExperimentHeader } from './ExperimentHeader'
@@ -153,6 +154,7 @@ export function ExperimentView(): JSX.Element {
             ) : (
                 <>
                     <ExperimentWarningBanner />
+                    <ExperimentBucketingMismatchBanner />
                     {showDebugPanel && (
                         <div className="mb-4">
                             <ExperimentDebugPanel

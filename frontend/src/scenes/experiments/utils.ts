@@ -36,6 +36,7 @@ import {
     ExperimentMetricGoal,
     ExperimentMetricMathType,
     FeatureFlagBasicType,
+    FeatureFlagBucketingIdentifier,
     FeatureFlagType,
     FilterType,
     FunnelConversionWindowTimeUnit,
@@ -112,6 +113,15 @@ export function getFlagVariants(
     flag: FeatureFlagBasicType | FeatureFlagType | null | undefined
 ): MultivariateFlagVariant[] {
     return flag?.filters?.multivariate?.variants ?? []
+}
+
+/**
+ * Whether the linked flag randomizes users by device. The matcher buckets on $device_id, but
+ * experiment results still group exposures and metrics by person, so results measure a unit the
+ * flag did not randomize on. A deleted flag distributes no traffic, so the mismatch does not apply.
+ */
+export function flagBucketsOnDevice(flag: FeatureFlagBasicType | FeatureFlagType | null | undefined): boolean {
+    return !!flag && !flag.deleted && flag.bucketing_identifier === FeatureFlagBucketingIdentifier.DEVICE_ID
 }
 
 /**

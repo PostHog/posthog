@@ -19,6 +19,7 @@ import {
     AccessControlLevel,
     Experiment,
     ExperimentMetricMathType,
+    FeatureFlagBasicType,
     FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
     FeatureFlagType,
@@ -37,6 +38,7 @@ import {
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
     filterToExposureConfig,
+    flagBucketsOnDevice,
     getBaselineVariantKey,
     getEventCountQuery,
     getExposureFallbackFilter,
@@ -2125,5 +2127,34 @@ describe('toConcurrencyPayload', () => {
         expect(payload.original_experiment?.start_date).toBeNull()
         expect(payload.original_experiment?.holdout_id).toBeNull()
         expect(payload.original_experiment?.exposure_criteria).toBeNull()
+    })
+})
+
+describe('flagBucketsOnDevice', () => {
+    const flag = (overrides: Partial<FeatureFlagBasicType>): FeatureFlagBasicType =>
+        ({
+            id: 1,
+            team_id: 1,
+            key: 'test',
+            name: '',
+            filters: { groups: [] },
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: null,
+            ...overrides,
+        }) as FeatureFlagBasicType
+
+    it.each([
+        ['no flag', undefined, false],
+        ['distinct-id bucketing', flag({ bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID }), false],
+        ['unset bucketing', flag({ bucketing_identifier: null }), false],
+        ['device bucketing', flag({ bucketing_identifier: FeatureFlagBucketingIdentifier.DEVICE_ID }), true],
+        [
+            'deleted device-bucketed flag',
+            flag({ bucketing_identifier: FeatureFlagBucketingIdentifier.DEVICE_ID, deleted: true }),
+            false,
+        ],
+    ])('returns %s -> %s', (_label, input, expected) => {
+        expect(flagBucketsOnDevice(input)).toBe(expected)
     })
 })
