@@ -4109,6 +4109,14 @@ export interface TeamBasicApi {
     readonly access_control: boolean
 }
 
+export type MembershipLevelEnumApi = (typeof MembershipLevelEnumApi)[keyof typeof MembershipLevelEnumApi]
+
+export const MembershipLevelEnumApi = {
+    Number1: 1,
+    Number8: 8,
+    Number15: 15,
+} as const
+
 /**
  * * `0` - none
  * * `3` - config
@@ -4152,7 +4160,7 @@ export interface OrganizationApi {
     logo_media_id?: string | null
     readonly created_at: string
     readonly updated_at: string
-    readonly membership_level: EffectiveMembershipLevelEnumApi
+    readonly membership_level: MembershipLevelEnumApi
     readonly plugins_access_level: PluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
@@ -4250,7 +4258,7 @@ export interface OrganizationBasicApi {
     slug: string
     /** @nullable */
     readonly logo_media_id: string | null
-    readonly membership_level: EffectiveMembershipLevelEnumApi
+    readonly membership_level: MembershipLevelEnumApi
     members_can_use_personal_api_keys?: boolean
     /**
      * Set this to 'No' to temporarily disable an organization.

@@ -1,6 +1,7 @@
 import {
   ArrowsSplit,
   Cloud,
+  Cube,
   Gear,
   Laptop,
   Plus,
@@ -33,6 +34,7 @@ import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { useCallback, useMemo, useState } from "react";
 import {
   type CloudTarget,
+  type CloudTargetOption,
   cloudTargetKey,
   DEFAULT_CLOUD_TARGET,
 } from "../cloudTargets";
@@ -74,6 +76,8 @@ const LOCAL_MODES: {
 
 const CLOUD_ICON = <Cloud size={14} weight="regular" />;
 
+const IMAGE_ICON = <Cube size={14} weight="regular" />;
+
 const ICON_BUTTON_CLASS =
   "flex cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0.5 text-muted-foreground transition-colors hover:bg-fill-hover hover:text-foreground";
 
@@ -93,10 +97,25 @@ export function WorkspaceModeSelect({
   const { options, favoriteKey, toggleFavorite } = useCloudTargetOptions();
   const [menuOpen, setMenuOpen] = useState(false);
 
+  const environmentOptions = options.filter(
+    (option) => option.target.kind !== "image",
+  );
+  const imageOptions = options.filter(
+    (option) => option.target.kind === "image",
+  );
+
   const handleAddEnvironment = useCallback(() => {
     setMenuOpen(false);
     openSettings("cloud-environments", "create");
   }, []);
+
+  const selectTarget = useCallback(
+    (target: CloudTarget) => {
+      onChange("cloud");
+      onCloudTargetChange?.(target);
+    },
+    [onChange, onCloudTargetChange],
+  );
 
   const showCloud = overrideModes
     ? overrideModes.includes("cloud")
@@ -209,10 +228,7 @@ export function WorkspaceModeSelect({
 
         {showCloud && options.length === 1 && (
           <DropdownMenuItem
-            onClick={() => {
-              onChange("cloud");
-              onCloudTargetChange?.(DEFAULT_CLOUD_TARGET);
-            }}
+            onClick={() => selectTarget(DEFAULT_CLOUD_TARGET)}
             render={
               <ItemMenuItem size="xs" className="w-full">
                 <ItemMedia variant="icon" className="mt-2 ml-2">
@@ -245,71 +261,99 @@ export function WorkspaceModeSelect({
             </div>
 
             <DropdownMenuGroup>
-              {options.map((option) => {
-                const isFavorite = favoriteKey === option.key;
-                return (
-                  <DropdownMenuItem
-                    key={option.key}
-                    onClick={() => {
-                      onChange("cloud");
-                      onCloudTargetChange?.(option.target);
-                    }}
-                    render={
-                      <ItemMenuItem
-                        size="xs"
-                        className="w-full"
-                        render={<div />}
-                      >
-                        <ItemMedia variant="icon" className="mt-2 ml-2">
-                          <span>{CLOUD_ICON}</span>
-                        </ItemMedia>
-                        <ItemContent variant="menuItem">
-                          <ItemTitle>{option.name}</ItemTitle>
-                          <ItemDescription className="whitespace-nowrap leading-none">
-                            {option.description}
-                          </ItemDescription>
-                        </ItemContent>
-                        <ItemActions className="mr-1.5 ml-auto self-center">
-                          <button
-                            type="button"
-                            tabIndex={-1}
-                            aria-label={
-                              isFavorite
-                                ? `Stop using ${option.name} by default`
-                                : `Use ${option.name} by default`
-                            }
-                            aria-pressed={isFavorite}
-                            onPointerDown={(event) => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                            }}
-                            onClick={(event) => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              toggleFavorite(option.target);
-                            }}
-                            className={cn(
-                              "flex cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0.5 transition-colors hover:text-foreground",
-                              isFavorite
-                                ? "text-foreground"
-                                : "text-muted-foreground opacity-0 group-hover/dropdown-menu-item:opacity-100",
-                            )}
-                          >
-                            <Star
-                              size={12}
-                              weight={isFavorite ? "fill" : "regular"}
-                            />
-                          </button>
-                        </ItemActions>
-                      </ItemMenuItem>
-                    }
-                  />
-                );
-              })}
+              {environmentOptions.map((option) => (
+                <CloudTargetItem
+                  key={option.key}
+                  option={option}
+                  isFavorite={favoriteKey === option.key}
+                  onSelect={selectTarget}
+                  onToggleFavorite={toggleFavorite}
+                />
+              ))}
             </DropdownMenuGroup>
+
+            {imageOptions.length > 0 && (
+              <>
+                <div className="px-2 py-1">
+                  <MenuLabel className="p-0">Images</MenuLabel>
+                </div>
+                <DropdownMenuGroup>
+                  {imageOptions.map((option) => (
+                    <CloudTargetItem
+                      key={option.key}
+                      option={option}
+                      isFavorite={favoriteKey === option.key}
+                      onSelect={selectTarget}
+                      onToggleFavorite={toggleFavorite}
+                    />
+                  ))}
+                </DropdownMenuGroup>
+              </>
+            )}
           </>
         )}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function CloudTargetItem({
+  option,
+  isFavorite,
+  onSelect,
+  onToggleFavorite,
+}: {
+  option: CloudTargetOption;
+  isFavorite: boolean;
+  onSelect: (target: CloudTarget) => void;
+  onToggleFavorite: (target: CloudTarget) => void;
+}) {
+  const icon = option.target.kind === "image" ? IMAGE_ICON : CLOUD_ICON;
+  return (
+    <DropdownMenuItem
+      onClick={() => onSelect(option.target)}
+      render={
+        <ItemMenuItem size="xs" className="w-full" render={<div />}>
+          <ItemMedia variant="icon" className="mt-2 ml-2">
+            <span>{icon}</span>
+          </ItemMedia>
+          <ItemContent variant="menuItem">
+            <ItemTitle>{option.name}</ItemTitle>
+            <ItemDescription className="whitespace-nowrap leading-none">
+              {option.description}
+            </ItemDescription>
+          </ItemContent>
+          <ItemActions className="mr-1.5 ml-auto self-center">
+            <button
+              type="button"
+              tabIndex={-1}
+              aria-label={
+                isFavorite
+                  ? `Stop using ${option.name} by default`
+                  : `Use ${option.name} by default`
+              }
+              aria-pressed={isFavorite}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onToggleFavorite(option.target);
+              }}
+              className={cn(
+                "flex cursor-pointer items-center justify-center rounded-sm border-0 bg-transparent p-0.5 transition-colors hover:text-foreground",
+                isFavorite
+                  ? "text-foreground"
+                  : "text-muted-foreground opacity-0 group-hover/dropdown-menu-item:opacity-100",
+              )}
+            >
+              <Star size={12} weight={isFavorite ? "fill" : "regular"} />
+            </button>
+          </ItemActions>
+        </ItemMenuItem>
+      }
+    />
   );
 }

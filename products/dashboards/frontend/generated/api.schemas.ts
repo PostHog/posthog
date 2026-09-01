@@ -217,6 +217,14 @@ export const RestrictionLevelEnumApi = {
     Number37: 37,
 } as const
 
+export type EffectiveRestrictionLevelEnumApi =
+    (typeof EffectiveRestrictionLevelEnumApi)[keyof typeof EffectiveRestrictionLevelEnumApi]
+
+export const EffectiveRestrictionLevelEnumApi = {
+    Number21: 21,
+    Number37: 37,
+} as const
+
 export type EffectivePrivilegeLevelEnumApi =
     (typeof EffectivePrivilegeLevelEnumApi)[keyof typeof EffectivePrivilegeLevelEnumApi]
 
@@ -276,7 +284,7 @@ export interface DashboardBasicApi {
      * * `21` - Everyone in the project can edit
      * * `37` - Only those invited to this dashboard can edit */
     readonly restriction_level: RestrictionLevelEnumApi
-    readonly effective_restriction_level: EffectivePrivilegeLevelEnumApi
+    readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -414,7 +422,7 @@ export interface DashboardApi {
     data_color_theme_id?: number | null
     tags?: unknown[]
     restriction_level?: RestrictionLevelEnumApi
-    readonly effective_restriction_level: EffectivePrivilegeLevelEnumApi
+    readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
@@ -1017,7 +1025,11 @@ export interface PatchedPatchedDashboardOpenApiApi {
      */
     data_color_theme_id?: number | null
     tags?: string[]
-    restriction_level?: EffectivePrivilegeLevelEnumApi
+    /** Who can edit this dashboard.
+     *
+     * * `21` - Everyone in the project can edit
+     * * `37` - Only those invited to this dashboard can edit */
+    restriction_level?: RestrictionLevelEnumApi
     /**
      * List of quick filter IDs associated with this dashboard.
      * @nullable
@@ -9138,7 +9150,7 @@ export interface InsightApi {
     readonly last_modified_at: string
     readonly last_modified_by: UserBasicApi
     readonly is_sample: boolean
-    readonly effective_restriction_level: EffectivePrivilegeLevelEnumApi
+    readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
