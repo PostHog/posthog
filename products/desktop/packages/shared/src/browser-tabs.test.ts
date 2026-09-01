@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  closeTab,
-  closeTabs,
+  closeTabs as closeTabsTransform,
+  closeTab as closeTabTransform,
+  DEFAULT_TAB_HREF,
   decideTabNavigation,
   openTab,
   POSITION_GAP,
@@ -64,6 +65,27 @@ function openAt(s: TabsSnapshot, windowId: string, href: string) {
     makeId,
     now,
   });
+}
+
+function closeTab(snapshot: TabsSnapshot, tabId: string) {
+  return closeTabTransform(snapshot, tabId, {
+    href: DEFAULT_TAB_HREF,
+    makeId,
+    now,
+  });
+}
+
+function closeTabs(
+  snapshot: TabsSnapshot,
+  tabIds: string[],
+  focusTabId?: string | null,
+) {
+  return closeTabsTransform(
+    snapshot,
+    tabIds,
+    { href: DEFAULT_TAB_HREF, makeId, now },
+    focusTabId,
+  );
 }
 
 /** A navigation to `href` while `activeTab` is focused. */
@@ -388,12 +410,18 @@ describe("closeTab", () => {
     expect(r.snapshot.windows.map((w) => w.id)).toEqual(["w1"]);
   });
 
-  it("shows the landing (null active) when the primary's last tab closes", () => {
+  it("opens a fresh tab when the primary's last tab closes", () => {
     const t = open(snapshot(), "w1", "dash-a");
     const r = closeTab(t.snapshot, t.tabId);
     expect(r.closedWindowId).toBeNull();
-    expect(r.snapshot.windows[0].activeTabId).toBeNull();
-    expect(r.snapshot.tabs).toHaveLength(0);
+    expect(r.nextActiveTabId).not.toBe(t.tabId);
+    expect(r.snapshot.windows[0].activeTabId).toBe(r.nextActiveTabId);
+    expect(r.snapshot.tabs).toEqual([
+      expect.objectContaining({
+        id: r.nextActiveTabId,
+        href: DEFAULT_TAB_HREF,
+      }),
+    ]);
   });
 });
 describe("closeTabs", () => {
@@ -450,11 +478,13 @@ describe("closeTabs", () => {
     expect(r.windows[0].activeTabId).toBe(ids[0]);
   });
 
-  it("lands the primary window on channels when all tabs close", () => {
+  it("keeps a fresh tab in the primary window when all tabs close", () => {
     const { s, ids } = openMany(2);
     const r = closeTabs(s, ids);
-    expect(r.tabs).toHaveLength(0);
-    expect(r.windows[0].activeTabId).toBeNull();
+    expect(r.tabs).toEqual([
+      expect.objectContaining({ href: DEFAULT_TAB_HREF }),
+    ]);
+    expect(r.windows[0].activeTabId).toBe(r.tabs[0].id);
   });
 
   it("drops an emptied secondary window", () => {

@@ -19,13 +19,10 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.utils import render_template
 
+from products.access_control.backend.facade.object_names import display_model, resources_with_object_access_controls
 from products.access_control.backend.facade.user_access_control import AccessSource
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
-from products.access_control.backend.presentation.access_control_settings import (
-    _display_model,
-    resources_with_object_access_controls,
-)
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.cohorts.backend.models.cohort import Cohort
 from products.conversations.backend.models import Ticket
@@ -2265,7 +2262,7 @@ def test_resources_with_object_access_controls_snapshot(snapshot):
 # snapshot above but missing here dropped out silently and needs an entry in
 # _MODELS_NOT_IN_ENTITY_MAP, or has no objects worth picking.
 def test_resources_served_to_the_object_rule_picker_snapshot(snapshot):
-    assert sorted(r for r in resources_with_object_access_controls() if _display_model(r)) == snapshot
+    assert sorted(r for r in resources_with_object_access_controls() if display_model(r)) == snapshot
 
 
 class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
@@ -2360,6 +2357,13 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
         )
         assert res.status_code == status.HTTP_200_OK, res.json()
         assert [(r["id"], r["name"]) for r in res.json()["results"]] == [(str(insight.id), "Weekly signups")]
+
+        # Notebook URLs carry a short_id too
+        res = self.client.get(
+            f"/api/projects/@current/access_control_object_search?resource=notebook&id={notebook.short_id}"
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert [(r["id"], r["name"]) for r in res.json()["results"]] == [(str(notebook.id), "Q3 planning")]
 
         res = self.client.get("/api/projects/@current/access_control_object_search?resource=webhook")
         assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()

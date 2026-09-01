@@ -418,10 +418,15 @@ export const OrganizationGetAllSchema = z.object({})
 
 export const ProjectGetAllSchema = z.object({})
 
+const EventDefinitionTagSchema = z
+    .string()
+    .max(255)
+    .refine((tag) => tag.trim().toLowerCase().length <= 255, 'Tag must be at most 255 characters after normalization')
+
 export const EventDefinitionUpdateInputSchema = z.object({
     description: z.string().optional().describe('Description explaining when the event is triggered'),
     tags: z
-        .array(z.string())
+        .array(EventDefinitionTagSchema)
         .optional()
         .describe(
             'Tags to organize events by product area (e.g. "checkout", "onboarding") or user journey stage (e.g. "acquisition", "activation", "monetization", "retention")'
@@ -439,6 +444,11 @@ export const EventDefinitionUpdateInputSchema = z.object({
 export const EventDefinitionUpdateSchema = z.object({
     eventName: z.string().describe('The name of the event to update (e.g. "$pageview", "user_signed_up")'),
     data: EventDefinitionUpdateInputSchema.describe('The event definition data to update'),
+})
+
+export const EventDefinitionCreateSchema = z.object({
+    eventName: z.string().min(1).max(400).describe('The name of the event to create (e.g. "user_signed_up")'),
+    data: EventDefinitionUpdateInputSchema.optional().describe('Optional metadata for the new event definition'),
 })
 
 export const PropertyDefinitionUpdateInputSchema = z.object({

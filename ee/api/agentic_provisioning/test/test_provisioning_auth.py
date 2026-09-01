@@ -260,7 +260,7 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
         self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token)
 
         user = User.objects.get(email=email)
-        # The wizard app does not set provisioning_issues_personal_api_key, so no PAT is minted.
+        # The wizard app does not set issues_personal_api_key, so no PAT is minted.
         pat = PersonalAPIKey.objects.filter(user=user).first()
         assert pat is None
 

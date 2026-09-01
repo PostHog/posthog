@@ -87,6 +87,8 @@ class SessionRecording(UUIDTModel):
     activity_score: Optional[float] = None
     expiry_time: Optional[datetime] = None
     recording_ttl: Optional[int] = None
+    total_size: Optional[int] = None
+    event_count: Optional[int] = None
     # False when this recording was included in listing results via session_recording_id
     # despite not matching the listing filters
     matches_filters: Optional[bool] = None
@@ -139,6 +141,8 @@ class SessionRecording(UUIDTModel):
             self.expiry_time = metadata["expiry_time"]
             self.recording_ttl = metadata["recording_ttl"]
             self.ongoing = metadata["ongoing"]
+            self.total_size = metadata["total_size"]
+            self.event_count = metadata["event_count"]
 
         return True
 

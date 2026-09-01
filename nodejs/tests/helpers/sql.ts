@@ -143,7 +143,11 @@ export async function resetTestDatabase(): Promise<void> {
 // Helper function to determine which database a table belongs to
 function getPostgresUseForTable(table: string): PostgresUse {
     // Behavioral cohorts tables
-    if (table === 'cohort_membership') {
+    if (
+        table === 'cohort_membership' ||
+        table === 'cohort_membership_sweeps' ||
+        table === 'cohort_membership_consumer_progress'
+    ) {
         return PostgresUse.BEHAVIORAL_COHORTS_RW
     }
 
@@ -552,7 +556,7 @@ export async function resetBehavioralCohortsDatabase(postgres: PostgresRouter): 
     await assertRouterTargetsTestDatabase(postgres, PostgresUse.BEHAVIORAL_COHORTS_RW)
     await postgres.query(
         PostgresUse.BEHAVIORAL_COHORTS_RW,
-        'TRUNCATE TABLE cohort_membership',
+        'TRUNCATE TABLE cohort_membership, cohort_membership_sweeps, cohort_membership_consumer_progress',
         undefined,
         'reset-behavioral-cohorts-db'
     )

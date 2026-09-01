@@ -49,6 +49,19 @@ describe("pendingTaskPromptStore", () => {
     expect(pendingTaskPromptStoreApi.get("k1")).toBeUndefined();
   });
 
+  it("flags an existing entry interrupted so the pending view can recover it", () => {
+    pendingTaskPromptStoreApi.set("k1", { promptText: "hi", attachments: [] });
+    pendingTaskPromptStoreApi.markInterrupted("k1", "offline");
+    expect(pendingTaskPromptStoreApi.get("k1")?.interruptReason).toBe(
+      "offline",
+    );
+  });
+
+  it("never resurrects a discarded prompt when marking a missing key", () => {
+    pendingTaskPromptStoreApi.markInterrupted("gone", "failed");
+    expect(pendingTaskPromptStoreApi.get("gone")).toBeUndefined();
+  });
+
   it("returns every surviving entry newest-first for recovery", () => {
     pendingTaskPromptStoreApi.set("old", {
       promptText: "old",

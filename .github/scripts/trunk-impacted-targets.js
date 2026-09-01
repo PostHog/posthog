@@ -26,10 +26,20 @@
 // call to the old name, and master breaks on a combination neither run held.
 //
 //   1. A product change claims its own lane plus its direct importers, rather
-//      than every backend lane. tach.toml is the enforced Python module graph
-//      (`tach check` runs in CI), so for a product it declares, the modules
-//      that may import it are exactly the ones listing it in `depends_on`. A
-//      product absent from that graph is unconstrained and still widens.
+//      than every backend lane. The tach map is the real Python import graph
+//      (`tach map` reads the imports that `tach check` enforces in CI), so for
+//      a product it walked, the products that import it are known from the
+//      files. A product absent from that map has no known importer set and
+//      still widens.
+//
+//      ACCEPTED RISK: the map is read from each PR's own tree, so an importer
+//      that does not exist yet is not in it. PR A renames a symbol in X, PR B
+//      adds the first call from Y to X, and neither lane names the other's
+//      product; master holds the combination untested. The declared graph in
+//      tach.toml covered only the slice of this where Y had listed X in
+//      `depends_on` before importing it, and closing it fully would make every
+//      PR claim what its products import as well, which lands nearly every
+//      product PR in the hub products' lanes.
 //
 //      This does NOT require the product to be isolated. Isolation is the
 //      stronger claim that a change inside the product can only break the
@@ -59,7 +69,7 @@
 //      product_analytics, which depends on warehouse_sources) is no longer
 //      serialized, and master's post-merge run is the only net for it. The
 //      transitive closure was not a usable alternative: a 31-product cycle in
-//      tach.toml means every member reaches every other, so any seed inside it
+//      the product graph means every member reaches every other, so any seed inside it
 //      expanded to the whole backend and the cascade could not distinguish
 //      products at all.
 //
@@ -223,9 +233,10 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/trunk-impacted-targets.yml', UNIVERSAL],
     ['turbo.json', UNIVERSAL],
 
-    // tach.toml is one of those graphs, so it carries the same self-gating
-    // hazard, but every edge it can move lands on a python lane: `tach check`
-    // runs in ci-backend.yml, and the two readers of the graph, this script and
+    // tach.toml shapes one of those graphs (its exclude list decides what
+    // `tach map` walks), so it carries the same self-gating hazard, but every
+    // edge it can move lands on a python lane: `tach check` runs in
+    // ci-backend.yml, and the two readers of the map, this script and
     // turbo-discover, use it only to cascade python product lanes. `python`
     // claims all of them, so a PR editing the graph still overlaps every PR
     // whose lanes were computed against the old one.
@@ -1215,8 +1226,8 @@ function isInProductWorkspace(product, file, productWorkspaces) {
 //      filter, but a filter tuned to over-run is not a safe source for lane
 //      assignment, while an --ignore is a statement that the suite does not
 //      cover the path at all.
-//   2. The product is absent from tach.toml, the enforced Python module graph,
-//      so no declared module may import it.
+//   2. The product is absent from the tach map, the real Python import graph,
+//      so no Python file under a source root imports it.
 //
 // A product satisfying both cannot fail another product's backend suite, so
 // its files claim its own lanes instead of all of them. Either condition
@@ -1251,15 +1262,14 @@ function loadBackendDetachedProducts(repoRoot, products, tachGraph) {
     return detached
 }
 
-// tach spells its modules both ways across the file, so a product counts as
-// declared under either spelling. A product absent from the graph, or a graph
-// that could not be read at all, is not constrained by `tach check` and so has
-// no bounded importer set.
+// A product the tach map walked has a known importer set. One absent from the
+// map (no Python with an import edge under a source root, or excluded by
+// tach.toml), or a map that could not be read at all, has none.
 function isTachDeclared(product, tachGraph) {
     if (!tachGraph) {
         return false
     }
-    return tachGraph.graph.has(product) || tachGraph.graph.has(product.replace(/_/g, '-'))
+    return tachGraph.graph.has(product)
 }
 
 function listTachDeclaredProducts(products, tachGraph) {
@@ -1884,6 +1894,7 @@ function computeTargets(changedFiles, context) {
         productWorkspaces = new Map(),
         backendDetachedProducts = new Set(),
         tachDeclaredProducts = listTachDeclaredProducts(products, tachGraph),
+        deletedFiles = new Set(),
     } = context
     const targets = new Set()
 
@@ -2075,7 +2086,13 @@ function computeTargets(changedFiles, context) {
                 targets.add(feProduct(product))
             }
             if (isBackend || (!isBackend && !isFrontend && !isWorkspaceOnly)) {
-                if (isolatedProducts.has(product)) {
+                if (isBackend && deletedFiles.has(file)) {
+                    // The tach map is read from the head tree, so a deleted or
+                    // renamed-away file is not in it and its importers are
+                    // unknown. The PR that removes a facade module beside a
+                    // caller it missed is the exact conflict lanes exist for.
+                    allPyProducts()
+                } else if (isolatedProducts.has(product)) {
                     targets.add(pyProduct(product))
                     if (touchesContractSurface(product, file, contractSurfaces)) {
                         cascadeSeeds.add(product)
@@ -2105,9 +2122,9 @@ function computeTargets(changedFiles, context) {
                     // product can be too unsealed to skip the suite and still
                     // have a bounded importer set.
                     //
-                    // The bound only holds for a product tach declares. One
-                    // absent from the graph is unconstrained by `tach check`,
-                    // so anything may import it and it still widens below.
+                    // The bound only holds for a product the tach map walked.
+                    // One absent from the map has no known importer set, so
+                    // it still widens below.
                     targets.add(pyProduct(product))
                     cascadeSeeds.add(product)
                 } else {
@@ -2212,9 +2229,10 @@ function computeTargets(changedFiles, context) {
     return [...targets].sort()
 }
 
-// tach.toml is the enforced Python module graph (`tach check` runs in CI, so it
-// cannot drift from what is importable). Turbo-style dashed names cross the
-// boundary in both directions; product directories are underscored.
+// The tach map is the real Python import graph (`tach map` reads the imports
+// that `tach check` enforces in CI, so it cannot drift from what is
+// importable). Turbo-style dashed names cross the boundary in both directions;
+// product directories are underscored.
 function tachDependentProducts(changedProducts, tachGraph) {
     if (!tachGraph) {
         return null
@@ -2233,14 +2251,9 @@ function tachDependentProducts(changedProducts, tachGraph) {
 }
 
 function loadTachGraph(repoRoot) {
-    try {
-        const { parseTachModules, tachDependents } = require('./turbo-discover')
-        const text = fs.readFileSync(path.join(repoRoot, 'tach.toml'), 'utf8')
-        return { graph: parseTachModules(text), tachDependents }
-    } catch (error) {
-        console.error(`tach.toml graph unavailable (${error.message}); backend changes widen to all products`)
-        return null
-    }
+    const { loadTachModuleGraph, tachDependents } = require('./turbo-discover')
+    const graph = loadTachModuleGraph(repoRoot)
+    return graph === null ? null : { graph, tachDependents }
 }
 
 // Every directory under services/ holds a lane, so the list has to be read
@@ -2369,7 +2382,9 @@ if (require.main === module) {
             console.error('No changed files on stdin; reporting ALL')
             result = ALL
         } else {
-            result = computeTargets(changedFiles, buildContext(REPO_ROOT))
+            // The change list carries deleted paths too; the tree no longer does.
+            const deletedFiles = new Set(changedFiles.filter((file) => !fs.existsSync(path.join(REPO_ROOT, file))))
+            result = computeTargets(changedFiles, { ...buildContext(REPO_ROOT), deletedFiles })
         }
     } catch (error) {
         // Any unexpected failure has to widen rather than narrow, because a

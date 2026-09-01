@@ -165,6 +165,11 @@ def _pr_close_reason(
     if instance.status == SignalReport.Status.POTENTIAL and prior_status in _SNOOZE_SOURCE_STATUSES:
         return "snoozed"
 
+    # Only a resolve that a caller asked for through the state API supersedes the PR. The PR-merge
+    # webhook also lands in RESOLVED, and its PR is merged, so there is nothing to close there.
+    if instance.status == SignalReport.Status.RESOLVED and getattr(instance, "_close_pr_on_resolve", False):
+        return "resolved"
+
     return None
 
 
@@ -176,12 +181,13 @@ def close_pr_when_report_dismissed(
     update_fields: set[str] | None = None,
     **kwargs: Any,
 ) -> None:
-    """Close the implementation PR when a report is suppressed or snoozed.
+    """Close the implementation PR when a report is suppressed, snoozed, or resolved by a caller.
 
-    This is the single choke point for the archive→close side effect: every suppression surface
+    This is the single choke point for the dismiss→close side effect: every suppression surface
     (Slack, the REST state/bulk-state API, any future one) ends in a ``save`` that flips status
     to SUPPRESSED, and snoozing a ready/resolved report ends in READY/RESOLVED → POTENTIAL, so
-    hooking the model here covers them all without each caller opting in.
+    hooking the model here covers them all without each caller opting in. A resolve closes the PR
+    only when the state API flagged it (see ``_pr_close_reason``).
     """
     prior_status = getattr(instance, "_prior_status", None)
     reason = _pr_close_reason(

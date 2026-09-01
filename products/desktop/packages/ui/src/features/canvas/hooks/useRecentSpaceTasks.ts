@@ -33,7 +33,7 @@ const spaceTreeTasksQueryKey = (spaceId: string) =>
   [...spaceTreeTasksQueryRoot, spaceId] as const;
 
 /** How many sessions a space shows when expanded in the list. */
-export const RECENT_TASKS_PER_SPACE = 5;
+const RECENT_TASKS_PER_SPACE = 5;
 
 /**
  * A little more than the tree shows, because archived tasks are filtered out

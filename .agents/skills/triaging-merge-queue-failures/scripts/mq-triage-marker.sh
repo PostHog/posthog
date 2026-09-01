@@ -2,11 +2,11 @@
 # Constrained marker I/O for the merge queue triage sweep: the agent must never read
 # raw PR comment bodies, so this helper emits/accepts only strictly validated data.
 #
-# Marker state is only trusted from our own App: reads and the comment chosen for update
-# are restricted to comments authored by MQ_TRIAGE_BOT_LOGIN (the Loop's `<slug>[bot]`
-# login). A commenter can otherwise plant a marker to spoof "already triaged" and skip a
-# PR. Fail closed: with the login unset, `get` returns nothing and `set` always creates,
-# so a fuzzy match never trusts or overwrites another author's comment.
+# Marker state is only trusted from the identity the sweep posts as: reads and the comment
+# chosen for update are restricted to comments authored by MQ_TRIAGE_BOT_LOGIN. A commenter
+# can otherwise plant a marker to spoof "already triaged" and skip a PR. Fail closed: with
+# the login unset, `get` returns nothing and `set` always creates, so a fuzzy match never
+# trusts or overwrites another author's comment.
 set -euo pipefail
 
 MARKER_RE='<!-- mq-triage:[0-9a-f]{40}:[0-9]+ -->'
@@ -15,7 +15,7 @@ BOT_LOGIN=${MQ_TRIAGE_BOT_LOGIN:-}
 usage() {
     echo "usage: $0 get <owner/repo> <pr_number>" >&2
     echo "       $0 set <owner/repo> <pr_number> <head_oid> <check_run_id> < body.md" >&2
-    echo "requires MQ_TRIAGE_BOT_LOGIN (the Loop App's <slug>[bot] login)" >&2
+    echo "requires MQ_TRIAGE_BOT_LOGIN (the login the sweep's comments are authored by)" >&2
     exit 2
 }
 
@@ -32,17 +32,42 @@ case "$pr" in
     '' | *[!0-9]*) usage ;;
 esac
 
+# Bodies of this PR's comments authored by our own identity only.
 own_comment_bodies() {
     gh api "repos/$repo/issues/$pr/comments" --paginate \
         --jq '.[] | select(.user.login == env.BOT_LOGIN) | .body' 2>/dev/null
 }
 
+# A marker written under a different login is invisible to `get` and unreachable by the
+# `set` upsert, so the sweep re-triages every PR and appends a comment each time. That is
+# indistinguishable from "never triaged", so report it instead of returning empty.
+#
+# Only another App identity can mean that, so match bot authors and a complete marker. A human
+# who pastes marker-shaped text would otherwise halt every sweep that reaches their PR.
+warn_on_foreign_marker() {
+    gh api "repos/$repo/issues/$pr/comments" --paginate \
+        --jq '[.[] | select(.user.login != env.BOT_LOGIN) | select(.user.type == "Bot")
+                   | select(.body | test("<!-- mq-triage:[0-9a-f]{40}:[0-9]+ -->"))
+                   | .user.login] | unique | join(", ")' 2>/dev/null
+}
+
 case "$cmd" in
     get)
-        BOT_LOGIN="$BOT_LOGIN" own_comment_bodies |
+        found=$(BOT_LOGIN="$BOT_LOGIN" own_comment_bodies |
             grep -oE "$MARKER_RE" |
             tail -1 |
-            grep -oE '[0-9a-f]{40}:[0-9]+' || true
+            grep -oE '[0-9a-f]{40}:[0-9]+' || true)
+        if [ -z "$found" ]; then
+            others=$(BOT_LOGIN="$BOT_LOGIN" warn_on_foreign_marker)
+            if [ -n "$others" ]; then
+                echo "MQ_TRIAGE_BOT_LOGIN=$BOT_LOGIN found no marker, but one exists from: $others" >&2
+                echo "Set MQ_TRIAGE_BOT_LOGIN to the login that authors this sweep's comments." >&2
+                exit 3
+            fi
+        fi
+        if [ -n "$found" ]; then
+            printf '%s\n' "$found"
+        fi
         ;;
     set)
         head_oid=${4:-}

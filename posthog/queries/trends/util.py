@@ -6,8 +6,7 @@ from zoneinfo import ZoneInfo
 import structlog
 from dateutil.relativedelta import relativedelta
 
-from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, UNIQUE_GROUPS
-from posthog.models.entity import Entity
+from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES
 from posthog.models.filters import Filter
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.team import Team
@@ -41,12 +40,6 @@ ALL_SUPPORTED_MATH_FUNCTIONS = [
     *list(PROPERTY_MATH_FUNCTIONS.keys()),
     *list(COUNT_PER_ACTOR_MATH_FUNCTIONS.keys()),
 ]
-
-
-def is_series_group_based(entity: Entity) -> bool:
-    return entity.math == UNIQUE_GROUPS or (
-        entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS and entity.math_group_type_index is not None
-    )
 
 
 F = TypeVar("F", Filter, PropertiesTimelineFilter)

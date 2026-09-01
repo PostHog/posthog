@@ -33,6 +33,62 @@ class WikiPageSerializer(serializers.Serializer):
     updated_at = serializers.DateTimeField(help_text="When this page was last changed in the wiki history.")
 
 
+class DreamRunSerializer(serializers.Serializer):
+    """One dreaming run: the merge commit it landed as, plus what it changed."""
+
+    sha = serializers.CharField(help_text="Merge commit sha the run landed as; pass back as `sha` on the detail read.")
+    date = serializers.CharField(help_text="The run's date, `YYYY-MM-DD`.")
+    committed_at = serializers.DateTimeField(help_text="When the run landed.")
+    summary = serializers.CharField(allow_blank=True, help_text="The run summary the dreaming agent wrote.")
+    pages_added = serializers.IntegerField(help_text="Pages the run created.")
+    pages_modified = serializers.IntegerField(help_text="Pages the run edited.")
+    pages_deleted = serializers.IntegerField(help_text="Pages the run removed.")
+
+
+class ActiveDreamRunSerializer(serializers.Serializer):
+    """A dreaming task that has not reached a terminal state yet."""
+
+    run_status = serializers.ChoiceField(
+        choices=[
+            ("not_started", "not_started"),
+            ("queued", "queued"),
+            ("in_progress", "in_progress"),
+        ],
+        help_text="The current task-run state for the active dream.",
+    )
+    started_at = serializers.DateTimeField(help_text="When the active dream task was created.")
+
+
+class DreamRunListSerializer(serializers.Serializer):
+    """Response shape for the wiki's dream run listing."""
+
+    head_sha = serializers.CharField(help_text="Commit sha of the wiki's current head.")
+    active_run = ActiveDreamRunSerializer(
+        allow_null=True,
+        help_text="The organization's active dreaming task, or null when no dream is running.",
+    )
+    dreams = DreamRunSerializer(many=True, help_text="Every landed dream run, newest first.")
+
+
+class DreamFileDiffSerializer(serializers.Serializer):
+    """One file a dream run changed, with its unified patch."""
+
+    path = serializers.CharField(help_text="Repo-relative path of the changed page.")
+    status = serializers.ChoiceField(
+        choices=[("added", "added"), ("modified", "modified"), ("deleted", "deleted")],
+        help_text="How the run changed the page.",
+    )
+    patch = serializers.CharField(allow_blank=True, help_text="Unified git patch for this file.")
+    truncated = serializers.BooleanField(help_text="Whether the patch was cut off for size.")
+
+
+class DreamRunDetailSerializer(serializers.Serializer):
+    """Response shape for one dream run: the run plus the diff it landed."""
+
+    run = DreamRunSerializer()
+    files = DreamFileDiffSerializer(many=True, help_text="Per-file patches, in diff order.")
+
+
 class WikiHealthFindingSerializer(serializers.Serializer):
     category = serializers.CharField(help_text="Stable category used to group this finding.")
     path = serializers.CharField(help_text="Wiki page path associated with this finding.")
