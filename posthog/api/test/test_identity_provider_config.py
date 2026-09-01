@@ -70,6 +70,82 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
             ).exists()
         )
 
+    def test_cannot_create_saml_config_with_overlapping_domain_coverage(self):
+        self._make_admin()
+        domain = OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="example.com",
+            verified_at=timezone.now(),
+        )
+        IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            config_scope="saml",
+            domain_scope="all",
+            saml_entity_id="existing-entity",
+            saml_acs_url="https://existing.example.com/acs",
+            saml_x509_cert="existing-cert",
+        )
+
+        response = self.client.post(
+            "/api/organizations/@current/identity_provider_configs/",
+            {
+                "config_scope": "saml",
+                "domain_scope": "selected",
+                "organization_domain_ids": [str(domain.id)],
+                "saml_entity_id": "new-entity",
+                "saml_acs_url": "https://new.example.com/acs",
+                "saml_x509_cert": "new-cert",
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "domain_scope")
+
+    def test_cannot_update_saml_config_with_overlapping_domain_coverage(self):
+        self._make_admin()
+        first_domain = OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="first.example.com",
+            verified_at=timezone.now(),
+        )
+        second_domain = OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="second.example.com",
+            verified_at=timezone.now(),
+        )
+        first_config = IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            config_scope="saml",
+            domain_scope="selected",
+            saml_entity_id="first-entity",
+            saml_acs_url="https://first.example.com/acs",
+            saml_x509_cert="first-cert",
+        )
+        second_config = IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            config_scope="saml",
+            domain_scope="selected",
+            saml_entity_id="second-entity",
+            saml_acs_url="https://second.example.com/acs",
+            saml_x509_cert="second-cert",
+        )
+        LinkedIdentityProviderConfig.objects.create(
+            identity_provider_config=first_config,
+            organization_domain=first_domain,
+        )
+        LinkedIdentityProviderConfig.objects.create(
+            identity_provider_config=second_config,
+            organization_domain=second_domain,
+        )
+
+        response = self.client.patch(
+            f"/api/organizations/@current/identity_provider_configs/{first_config.id}/",
+            {"organization_domain_ids": [str(second_domain.id)]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "domain_scope")
+
     def test_updating_selected_domains_replaces_links(self):
         self._make_admin()
         first_domain = OrganizationDomain.objects.create(organization=self.organization, domain="first.example.com")

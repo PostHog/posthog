@@ -14,16 +14,24 @@ export function IdentityProviderDomainScope({
     domainScope,
     domains,
     disabled,
+    hasSamlDomainScopeConflict,
     showScopeWarning,
 }: {
     configScope: ConfigScopeEnumApi
     domainScope: DomainScopeEnumApi
     domains: OrganizationDomainApi[]
     disabled: boolean
+    hasSamlDomainScopeConflict: boolean
     showScopeWarning: boolean
 }): JSX.Element {
     return (
         <div className="space-y-4">
+            {hasSamlDomainScopeConflict && (
+                <LemonBanner type="error">
+                    This SAML configuration overlaps with another SAML configuration on one or more verified domains.
+                    Choose different domains before saving.
+                </LemonBanner>
+            )}
             {showScopeWarning && (
                 <LemonBanner type="warning">
                     Changing this value can affect your{' '}

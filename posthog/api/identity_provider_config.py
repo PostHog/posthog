@@ -1,6 +1,7 @@
 from typing import Any, cast
 
 from django.db import transaction
+from django.db.models import Q
 
 import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
@@ -18,7 +19,7 @@ from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField
 from posthog.api.utils import action
 from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
-from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.identity_provider_config import ConfigScope, DomainScope, IdentityProviderConfig, saml_configured_q
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -199,6 +200,58 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"id_jag_issuer_url": "XAA (ID-JAG) is not available for this organization."},
                 code="feature_not_available",
+            )
+
+        instance = cast(IdentityProviderConfig | None, self.instance)
+        saml_values = {
+            field: attrs.get(field, getattr(instance, field, None))
+            for field in ("saml_entity_id", "saml_acs_url", "saml_x509_cert")
+        }
+        if not all(saml_values.values()):
+            return attrs
+
+        organization_domains = attrs.get("organization_domains")
+        if organization_domains is None:
+            proposed_domain_ids = set(
+                (instance.organization_domains if instance else OrganizationDomain.objects.none())
+                .filter(verified_at__isnull=False)
+                .values_list("id", flat=True)
+            )
+        else:
+            proposed_domain_ids = {domain.id for domain in organization_domains if domain.verified_at is not None}
+
+        domain_scope = attrs.get("domain_scope", getattr(instance, "domain_scope", None))
+        other_saml_configs = IdentityProviderConfig.objects.filter(
+            saml_configured_q(), organization=organization
+        ).filter(Q(config_scope=ConfigScope.SAML) | Q(config_scope__isnull=True))
+        if instance:
+            other_saml_configs = other_saml_configs.exclude(pk=instance.pk)
+
+        if domain_scope == DomainScope.ALL:
+            has_overlap = other_saml_configs.filter(
+                Q(organization__domains__verified_at__isnull=False)
+                | Q(linked_identity_provider_configs__organization_domain__verified_at__isnull=False)
+            ).exists()
+        elif proposed_domain_ids:
+            has_overlap = other_saml_configs.filter(
+                Q(
+                    domain_scope=DomainScope.ALL,
+                    organization__domains__id__in=proposed_domain_ids,
+                    organization__domains__verified_at__isnull=False,
+                )
+                | Q(
+                    linked_identity_provider_configs__organization_domain_id__in=proposed_domain_ids,
+                    linked_identity_provider_configs__organization_domain__verified_at__isnull=False,
+                )
+            ).exists()
+        else:
+            has_overlap = False
+
+        if has_overlap:
+            raise serializers.ValidationError(
+                {
+                    "domain_scope": "This SAML configuration overlaps with another SAML configuration on one or more verified domains. Choose different domains before saving."
+                }
             )
 
         return attrs

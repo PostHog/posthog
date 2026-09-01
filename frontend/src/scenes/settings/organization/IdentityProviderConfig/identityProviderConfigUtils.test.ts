@@ -3,6 +3,7 @@ import { ConfigScopeEnumApi, DomainScopeEnumApi, IdentityProviderConfigApi } fro
 import {
     getIdentityProviderConfigForScope,
     getIdentityProviderConfigStatus,
+    hasSamlDomainScopeConflict,
     getIdentityProviderConfigStatusDescription,
 } from './identityProviderConfigUtils'
 
@@ -29,6 +30,61 @@ describe('identityProviderConfigUtils', () => {
         )
         expect(getIdentityProviderConfigForScope([unscopedConfig, samlConfig], ConfigScopeEnumApi.Scim)?.id).toBe(
             'unscoped'
+        )
+    })
+
+    it.each([
+        [
+            'all-domain configuration overlapping a selected-domain configuration',
+            DomainScopeEnumApi.All,
+            [],
+            ['domain-1'],
+            [
+                makeConfig({ id: 'current', has_saml: true }),
+                makeConfig({
+                    id: 'other',
+                    config_scope: ConfigScopeEnumApi.Saml,
+                    organization_domain_ids: ['domain-1'],
+                    has_saml: true,
+                }),
+            ],
+            true,
+        ],
+        [
+            'selected-domain configuration overlapping an all-domain configuration',
+            DomainScopeEnumApi.Selected,
+            ['domain-1'],
+            ['domain-1'],
+            [
+                makeConfig({ id: 'current', has_saml: true }),
+                makeConfig({
+                    id: 'other',
+                    config_scope: ConfigScopeEnumApi.Saml,
+                    domain_scope: DomainScopeEnumApi.All,
+                    has_saml: true,
+                }),
+            ],
+            true,
+        ],
+        [
+            'selected-domain configuration with no overlapping domains',
+            DomainScopeEnumApi.Selected,
+            ['domain-1'],
+            ['domain-1', 'domain-2'],
+            [
+                makeConfig({ id: 'current', has_saml: true }),
+                makeConfig({
+                    id: 'other',
+                    config_scope: ConfigScopeEnumApi.Saml,
+                    organization_domain_ids: ['domain-2'],
+                    has_saml: true,
+                }),
+            ],
+            false,
+        ],
+    ] as const)('detects %s', (_, domainScope, selectedDomainIds, verifiedDomainIds, configs, expected) => {
+        expect(hasSamlDomainScopeConflict(configs, 'current', domainScope, selectedDomainIds, verifiedDomainIds)).toBe(
+            expected
         )
     })
 

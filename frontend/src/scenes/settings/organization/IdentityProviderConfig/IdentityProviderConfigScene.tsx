@@ -44,6 +44,7 @@ export function IdentityProviderConfigScene(): JSX.Element | null {
         identityProviderConfigForm,
         identityProviderConfigFormChanged,
         isIdentityProviderConfigFormSubmitting,
+        hasSamlDomainScopeConflict,
         isConfigScopeValid,
         isRedesignEnabled,
         organizationDomains,
@@ -156,6 +157,7 @@ export function IdentityProviderConfigScene(): JSX.Element | null {
                                 domainScope={identityProviderConfigForm.domain_scope}
                                 domains={organizationDomains ?? []}
                                 disabled={isIdentityProviderConfigFormSubmitting}
+                                hasSamlDomainScopeConflict={hasSamlDomainScopeConflict}
                                 showScopeWarning={identityProviderConfig?.config_scope === null}
                             />
                             <div className="flex flex-wrap gap-2">

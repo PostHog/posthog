@@ -55,6 +55,35 @@ export function isIdentityProviderConfigScope(value: string): value is ConfigSco
     return Object.values(ConfigScopeEnumApi).includes(value as ConfigScopeEnumApi)
 }
 
+export function hasSamlDomainScopeConflict(
+    configs: readonly IdentityProviderConfigApi[] | null,
+    currentConfigId: string | null,
+    domainScope: DomainScopeEnumApi,
+    selectedDomainIds: readonly string[],
+    verifiedDomainIds: readonly string[]
+): boolean {
+    if (!configs) {
+        return false
+    }
+
+    const otherSamlConfigs = configs.filter(
+        (config) =>
+            config.id !== currentConfigId &&
+            (config.config_scope === ConfigScopeEnumApi.Saml || config.config_scope == null) &&
+            config.has_saml
+    )
+    const coveredDomainIds =
+        domainScope === DomainScopeEnumApi.All
+            ? new Set(verifiedDomainIds)
+            : new Set(selectedDomainIds.filter((id) => verifiedDomainIds.includes(id)))
+
+    return otherSamlConfigs.some((config) => {
+        const configDomainIds =
+            config.domain_scope === DomainScopeEnumApi.All ? verifiedDomainIds : (config.organization_domain_ids ?? [])
+        return configDomainIds.some((id) => coveredDomainIds.has(id))
+    })
+}
+
 export function getIdentityProviderConfigForScope(
     configs: IdentityProviderConfigApi[],
     configScope: ConfigScopeEnumApi

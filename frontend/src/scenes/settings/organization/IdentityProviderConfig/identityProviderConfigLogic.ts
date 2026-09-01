@@ -35,7 +35,8 @@ import {
 } from '~/generated/core/api.schemas'
 import type { Breadcrumb } from '~/types'
 
-import { IDENTITY_PROVIDER_FEATURES } from './identityProviderConfigUtils'
+import { identityProviderConfigsLogic } from './identityProviderConfigsLogic'
+import { IDENTITY_PROVIDER_FEATURES, hasSamlDomainScopeConflict } from './identityProviderConfigUtils'
 
 export interface IdentityProviderConfigLogicProps {
     configScope: ConfigScopeEnumApi | null
@@ -155,6 +156,7 @@ export interface identityProviderConfigLogicValues {
     identityProviderConfigFormTouched: boolean
     identityProviderConfigFormTouches: Record<string, boolean>
     identityProviderConfigFormValidationErrors: DeepPartialMap<IdentityProviderConfigForm, ValidationErrorType>
+    hasSamlDomainScopeConflict: boolean
     identityProviderConfigLoadFailed: boolean
     identityProviderConfigLoaded: boolean
     identityProviderConfigLoading: boolean
@@ -451,6 +453,30 @@ export const identityProviderConfigLogic = kea<identityProviderConfigLogicType>(
             (selectors) => [selectors.identityProviderConfig, (_, props) => props.configScope],
             (config: IdentityProviderConfigApi | null, configScope: ConfigScopeEnumApi | null): boolean =>
                 !!configScope && (!config?.config_scope || config.config_scope === configScope),
+        ],
+        hasSamlDomainScopeConflict: [
+            (selectors) => [
+                selectors.identityProviderConfig,
+                selectors.identityProviderConfigForm,
+                identityProviderConfigsLogic.selectors.identityProviderConfigs,
+                selectors.organizationDomains,
+                (_, props) => props.configScope,
+            ],
+            (
+                identityProviderConfig: IdentityProviderConfigApi | null,
+                form: IdentityProviderConfigForm,
+                configs: IdentityProviderConfigApi[] | null,
+                domains: OrganizationDomainApi[] | null,
+                configScope: ConfigScopeEnumApi | null
+            ): boolean =>
+                configScope === ConfigScopeEnumApi.Saml &&
+                hasSamlDomainScopeConflict(
+                    configs,
+                    identityProviderConfig?.id ?? null,
+                    form.domain_scope,
+                    form.organization_domain_ids,
+                    domains?.filter((domain) => domain.is_verified).map((domain) => domain.id) ?? []
+                ),
         ],
         breadcrumbs: [
             (_, props) => [props.configScope],
