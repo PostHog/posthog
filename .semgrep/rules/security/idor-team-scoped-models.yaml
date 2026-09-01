@@ -181,10 +181,13 @@ rules:
                               |ExperimentSavedMetric
                               |ExportedAsset
                               |ExportedRecording
+                              |ExternalDataDestination
                               |ExternalDataJob
                               |ExternalDataSchema
+                              |ExternalDataSchemaDestination
                               |ExternalDataSchemaOOMEvent
                               |ExternalDataSource
+                              |ExternalDataSourceDestination
                               |FeatureFlag
                               |FeatureRequest
                               |FeatureRequestAccountLink
