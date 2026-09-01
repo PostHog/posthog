@@ -15,7 +15,6 @@ from posthog.models import Organization, Team
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationTable
 from products.marketing_analytics.dags.marketing_precompute import (
     COST_MATERIALIZATION_GRAINS,
-    DEFAULT_ROLLOUT_TEAM_IDS,
     PRECOMPUTE_CHUNK_DAYS,
     PRECOMPUTE_WINDOW_DAYS,
     SELECTED_TEAM_IDS_ENV_VAR,
@@ -24,7 +23,6 @@ from products.marketing_analytics.dags.marketing_precompute import (
     marketing_precompute_job,
 )
 
-_IS_CLOUD = "products.marketing_analytics.dags.marketing_precompute.is_cloud"
 _ENSURE = "products.marketing_analytics.dags.marketing_precompute.ensure_precomputed"
 _FF = "products.marketing_analytics.backend.hogql_queries.marketing_analytics_config.feature_enabled_or_false"
 _DB = "products.marketing_analytics.dags.marketing_precompute.Database"
@@ -116,19 +114,9 @@ class TestGetSelectedTeamIds:
             assert get_selected_team_ids() == expected
 
     def test_env_set_empty_disables(self):
-        with patch(_IS_CLOUD, return_value=True), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ""}):
+        # The override wins even when empty — an explicit kill switch, regardless of configured teams.
+        with patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ""}):
             assert get_selected_team_ids() == []
-
-    @parameterized.expand(
-        [
-            ("cloud_uses_default_rollout", True, DEFAULT_ROLLOUT_TEAM_IDS),
-            ("off_cloud_is_empty", False, []),
-        ]
-    )
-    def test_unset_behavior_depends_on_cloud(self, _name, cloud, expected):
-        with patch(_IS_CLOUD, return_value=cloud), patch.dict(os.environ, {}, clear=False):
-            os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
-            assert get_selected_team_ids() == expected
 
 
 class TestConversionWarming(APIBaseTest):
@@ -141,6 +129,22 @@ class TestConversionWarming(APIBaseTest):
             team.marketing_analytics_config.conversion_goals = goals
             team.marketing_analytics_config.save()
         return team
+
+    def test_unset_audience_is_teams_with_conversion_goals(self):
+        # Precompute-only serving requires every team with a conversion goal to be warmed, so the default
+        # audience is discovered from config. Teams with an empty goal list, or no marketing config at all,
+        # are left out — warming them would be wasted work.
+        with_goals = self._make_team("with_goals", goals=[_PRECOMPUTABLE_GOAL])
+        empty_goals = self._make_team("empty_goals", goals=[])
+        no_config = self._make_team("no_config")
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
+            selected = get_selected_team_ids()
+
+        assert with_goals.pk in selected
+        assert empty_goals.pk not in selected
+        assert no_config.pk not in selected
 
     @patch(_ENSURE, new_callable=_ready_mock)
     @patch(_SINGLE_CHUNK, _BIG_CHUNK)
