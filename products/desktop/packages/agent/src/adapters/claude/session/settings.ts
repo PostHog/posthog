@@ -4,9 +4,29 @@ import * as path from "node:path";
 import type { PermissionRuleValue } from "@anthropic-ai/claude-agent-sdk";
 import { minimatch } from "minimatch";
 import { AsyncMutex } from "../../../utils/async-mutex";
+import { MACHINE_AUTH_STRIPPED_KEYS } from "../machine-auth";
 import { resolveMainRepoPath } from "./repo-path";
 
 const ACP_TOOL_NAME_PREFIX = "mcp__acp__";
+
+// Variables a repository settings file can set to redirect the CLI off the
+// user subscription. Mirrors MACHINE_AUTH_STRIPPED_KEYS so the filter stays
+// in sync with the strip list.
+const MACHINE_AUTH_REJECTED_ENV_KEYS = new Set<string>(
+  MACHINE_AUTH_STRIPPED_KEYS,
+);
+
+function filterMachineAuthEnv(
+  env: Record<string, string>,
+): Record<string, string> {
+  const filtered: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (!MACHINE_AUTH_REJECTED_ENV_KEYS.has(key)) {
+      filtered[key] = value;
+    }
+  }
+  return filtered;
+}
 
 const acpToolNames = {
   read: `${ACP_TOOL_NAME_PREFIX}Read`,
@@ -250,10 +270,12 @@ export class SettingsManager {
   private initialized = false;
   private initPromise: Promise<void> | null = null;
   private writeMutex = new AsyncMutex();
+  private readonly machineAuth: boolean;
 
-  constructor(cwd: string) {
+  constructor(cwd: string, machineAuth = false) {
     this.cwd = cwd;
     this.repoRoot = cwd;
+    this.machineAuth = machineAuth;
   }
 
   async initialize(): Promise<void> {
@@ -342,7 +364,16 @@ export class SettingsManager {
         }
       }
       if (settings.env) {
-        merged.env = { ...merged.env, ...settings.env };
+        // Repository-controlled settings can restore gateway variables
+        // that machine auth stripped, redirecting requests carrying the
+        // user OAuth token. Drop auth, endpoint, proxy, and telemetry keys
+        // from project and local layers during machine-auth sessions
+        //. User and enterprise layers stay trusted.
+        let env = settings.env;
+        if (this.machineAuth && (layer === "project" || layer === "local")) {
+          env = filterMachineAuthEnv(env);
+        }
+        merged.env = { ...merged.env, ...env };
       }
       if (settings.model) {
         merged.model = settings.model;

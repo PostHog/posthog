@@ -17,7 +17,7 @@ import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { useQuery } from "@tanstack/react-query";
 
 export interface SubscriptionStatus {
-  loggedIn: boolean;
+  loginState: "logged-in" | "logged-out" | "unknown";
 }
 
 export type WorkspaceModeForAccess = "local" | "worktree" | "cloud";
@@ -55,20 +55,20 @@ export function subscriptionNeedsConnection(input: {
   return (
     input.flagEnabled &&
     input.subscriptionOn &&
-    input.status?.loggedIn === false
+    input.status?.loginState === "logged-out"
   );
 }
 
 export function effectiveModelAccess(input: {
   flagEnabled: boolean;
   subscriptionOn: boolean;
-  loggedIn: boolean;
+  loginState: "logged-in" | "logged-out" | "unknown";
   workspaceMode: WorkspaceModeForAccess;
 }): ModelAccess {
   const usesOwnSubscription =
     input.flagEnabled &&
     input.subscriptionOn &&
-    input.loggedIn &&
+    input.loginState === "logged-in" &&
     input.workspaceMode !== "cloud";
   return usesOwnSubscription ? "own-subscription" : "posthog-gateway";
 }
@@ -81,13 +81,18 @@ export function applyModelAccess(
   const spec = SPECS[adapter];
   const state = useSettingsStore.getState();
   const prev = spec.readAccess(state);
-  if (prev === next) return;
-  spec.writeAccess(state, next);
-  track(ANALYTICS_EVENTS.SETTING_CHANGED, {
-    setting_name: spec.settingName,
-    new_value: next,
-    old_value: prev,
-  });
+  // Always sync the connected super property. Only the setting write and
+  // the SETTING_CHANGED event are gated on an access change, because a
+  // login/logout transition can flip `connected` while `ModelAccess` stays
+  // the same.
+  if (prev !== next) {
+    spec.writeAccess(state, next);
+    track(ANALYTICS_EVENTS.SETTING_CHANGED, {
+      setting_name: spec.settingName,
+      new_value: next,
+      old_value: prev,
+    });
+  }
   registerAdapterSubscription(adapter, { access: next, connected });
 }
 
@@ -102,7 +107,15 @@ export async function registerSubscriptionAtBoot(
     : "posthog-gateway";
   registerAdapterSubscription(adapter, { access, connected: false });
   const status = await fetchStatus();
-  registerAdapterSubscription(adapter, { access, connected: status.loggedIn });
+  // Re-read the setting after the probe. A user can change the toggle while
+  // the status check is in flight; the earlier `access` value is stale.
+  const freshAccess = flagEnabled
+    ? SPECS[adapter].readAccess(useSettingsStore.getState())
+    : "posthog-gateway";
+  registerAdapterSubscription(adapter, {
+    access: freshAccess,
+    connected: status.loginState === "logged-in",
+  });
 }
 
 function settingsHydrated(): Promise<void> {
@@ -122,6 +135,7 @@ export interface AdapterSubscription {
   subscriptionOn: boolean;
   status: SubscriptionStatus | undefined;
   loggedIn: boolean;
+  loginState: "logged-in" | "logged-out" | "unknown";
   needsConnection: boolean;
   setSubscriptionOn: (on: boolean) => void;
 }
@@ -132,19 +146,25 @@ export function useAdapterSubscription(adapter: Adapter): AdapterSubscription {
   const modelAccess = useSettingsStore(spec.readAccess);
   const { localWorkspaces } = useHostCapabilities();
   const hostTRPC = useHostTRPC();
+  // Short stale time so a login or logout between actions does not stick. The
+  // desktop client default is five minutes, which can route a task through the
+  // wrong billing source after the user changes state.
   const { data: status } = useQuery({
     ...hostTRPC.agent[spec.statusProcedure].queryOptions(),
     enabled: flagEnabled && localWorkspaces,
+    staleTime: 30_000,
   });
 
   const subscriptionOn = modelAccess === "own-subscription";
-  const loggedIn = status?.loggedIn === true;
+  const loggedIn = status?.loginState === "logged-in";
+  const loginState = status?.loginState ?? "unknown";
 
   return {
     flagEnabled,
     subscriptionOn,
     status,
     loggedIn,
+    loginState,
     needsConnection: subscriptionNeedsConnection({
       flagEnabled,
       subscriptionOn,

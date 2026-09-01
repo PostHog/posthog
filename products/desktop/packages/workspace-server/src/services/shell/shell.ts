@@ -63,6 +63,20 @@ function getShellArgs(shell: string): string[] {
   return ["-l"];
 }
 
+// The flag a shell uses to run a command string. POSIX shells use `-c`,
+// cmd.exe uses `/c`, and PowerShell uses `-Command`. A single `-c` breaks
+// auth terminals on Windows.
+function getCommandShellArgs(shell: string, command: string): string[] {
+  if (platform() === "win32") {
+    const lower = shell.toLowerCase();
+    if (lower.includes("powershell") || lower.includes("pwsh")) {
+      return ["-NoLogo", "-Command", command];
+    }
+    return ["/c", command];
+  }
+  return ["-c", command];
+}
+
 function buildShellEnv(
   additionalEnv?: Record<string, string>,
   unsetEnv?: string[],
@@ -253,7 +267,7 @@ export class ShellService extends TypedEventEmitter<ShellEvents> {
     const workingDir = this.resolveWorkingDir(sessionId, cwd);
     const shell = getDefaultShell();
 
-    const ptyProcess = pty.spawn(shell, ["-c", command], {
+    const ptyProcess = pty.spawn(shell, getCommandShellArgs(shell, command), {
       name: "xterm-256color",
       cols: 80,
       rows: 24,

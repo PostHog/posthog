@@ -1,12 +1,10 @@
 import { useHostTRPC } from "@posthog/host-router/react";
 import { Button, Switch } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
-import {
-  applyModelAccess,
-  useAdapterSubscription,
-} from "@posthog/ui/features/settings/adapterSubscription";
+import { useAdapterSubscription } from "@posthog/ui/features/settings/adapterSubscription";
 import { SettingsCardRow } from "@posthog/ui/features/settings/components/SettingsCard";
 import { track } from "@posthog/ui/shell/analytics";
+import { registerAdapterSubscription } from "@posthog/ui/shell/posthogAnalyticsImpl";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactElement, useEffect, useRef, useState } from "react";
 import {
@@ -30,9 +28,13 @@ export function ClaudeSubscriptionSettings(): ReactElement | null {
     ...statusQuery,
     enabled: subscription.flagEnabled,
   });
-  const loggedIn = status?.loggedIn === true;
-  const settled = !isPending && !isError;
+  const loggedIn = status?.loginState === "logged-in";
+  const statusUnknown = status?.loginState === "unknown";
+  const settled = !isPending && !isError && !statusUnknown;
 
+  // Track connection state for analytics only. The toggle stays the source
+  // of truth for the billing preference; a status observation must not write
+  // the setting.
   const lastKnownLoggedIn = useRef<boolean | null>(null);
   useEffect(() => {
     if (!settled) return;
@@ -41,12 +43,18 @@ export function ClaudeSubscriptionSettings(): ReactElement | null {
     if (previous === null || previous === loggedIn) return;
     if (loggedIn) {
       track(ANALYTICS_EVENTS.CLAUDE_SUBSCRIPTION_CONNECTED);
-      applyModelAccess("claude", "own-subscription", true);
-      return;
+    } else {
+      track(ANALYTICS_EVENTS.CLAUDE_SUBSCRIPTION_SIGNED_OUT);
     }
-    track(ANALYTICS_EVENTS.CLAUDE_SUBSCRIPTION_SIGNED_OUT);
-    applyModelAccess("claude", "posthog-gateway", false);
-  }, [settled, loggedIn]);
+    // Keep the connected super property in sync with the login state without
+    // touching the access preference.
+    registerAdapterSubscription("claude", {
+      access: subscription.subscriptionOn
+        ? "own-subscription"
+        : "posthog-gateway",
+      connected: loggedIn,
+    });
+  }, [settled, loggedIn, subscription.subscriptionOn]);
 
   if (!subscription.flagEnabled) {
     return null;
@@ -56,15 +64,21 @@ export function ClaudeSubscriptionSettings(): ReactElement | null {
     void queryClient.invalidateQueries({ queryKey: statusQuery.queryKey });
   };
 
-  const summary = loggedIn
+  // The summary reflects the effective billing source, which needs both
+  // the login and the toggle. A logged-in account with the switch
+  // off still bills PostHog credits.
+  const usingSubscription = loggedIn && subscription.subscriptionOn;
+  const summary = usingSubscription
     ? "Local and worktree Claude sessions run on your Claude plan instead of PostHog credits. Cloud tasks always use PostHog credits"
-    : "Run local and worktree Claude sessions on your Claude plan instead of PostHog credits. Log in once with the Claude Code CLI, then re-check";
+    : loggedIn
+      ? "Your Claude account is connected, but the switch is off. Local and worktree Claude sessions still use PostHog credits. Turn the switch on to use your Claude plan"
+      : "Run local and worktree Claude sessions on your Claude plan instead of PostHog credits. Log in once with the Claude Code CLI, then re-check";
 
   const statusLine = ((): { color: string; label: string } => {
     if (isPending) {
       return { color: "bg-(--gray-9)", label: "Checking" };
     }
-    if (isError) {
+    if (isError || statusUnknown) {
       return { color: "bg-(--amber-9)", label: "Could not check the login" };
     }
     if (loggedIn) {
@@ -116,6 +130,7 @@ export function ClaudeSubscriptionSettings(): ReactElement | null {
         </Button>
         <Switch
           size="sm"
+          aria-label="Use your Claude subscription"
           checked={subscription.subscriptionOn}
           onCheckedChange={(checked) => {
             subscription.setSubscriptionOn(checked === true);

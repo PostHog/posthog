@@ -13,7 +13,7 @@ import { Terminal } from "@posthog/ui/features/terminal/Terminal";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { secureRandomString } from "@posthog/ui/utils/random";
 import { useQuery } from "@tanstack/react-query";
-import { type ReactElement, useCallback, useState } from "react";
+import { type ReactElement, useCallback, useEffect, useState } from "react";
 
 export type ClaudeAuthAction = "login" | "logout";
 
@@ -67,22 +67,24 @@ export function ClaudeAuthTerminalDialog({
 }: ClaudeAuthTerminalDialogProps): ReactElement {
   const hostTRPC = useHostTRPC();
   const isDarkMode = useThemeStore((state) => state.isDarkMode);
-  const { data: terminal } = useQuery(
-    hostTRPC.agent.claudeAuthTerminal.queryOptions({ action }),
-  );
+  const [started, setStarted] = useState(action === "login");
+  const { data: terminal } = useQuery({
+    ...hostTRPC.agent.claudeAuthTerminal.queryOptions({ action }),
+    enabled: started,
+  });
   const [sessionId] = useState(
     () => `claude-auth-${action}-${secureRandomString(7)}`,
   );
-  const [started, setStarted] = useState(action === "login");
   const [stopped, setStopped] = useState(false);
 
   const statusQuery = useQuery({
     ...hostTRPC.agent.claudeSubscriptionStatus.queryOptions(),
     enabled: stopped,
   });
-  const loggedIn = statusQuery.data?.loggedIn;
+  const loggedIn = statusQuery.data?.loginState === "logged-in";
+  const statusKnown = statusQuery.data?.loginState !== undefined;
   const verified = ((): boolean | undefined => {
-    if (!stopped || statusQuery.isFetching || loggedIn === undefined) {
+    if (!stopped || statusQuery.isFetching || !statusKnown) {
       return undefined;
     }
     return action === "login" ? loggedIn : !loggedIn;
@@ -113,6 +115,15 @@ export function ClaudeAuthTerminalDialog({
     destroyTerminalSession(sessionId);
     onClose();
   }, [sessionId, onClose]);
+
+  // A route or flag change can unmount the dialog without a close callback.
+  // Destroy the auth terminal and its server pty on unmount so the sensitive
+  // process does not survive the component.
+  useEffect(() => {
+    return () => {
+      destroyTerminalSession(sessionId);
+    };
+  }, [sessionId]);
 
   return (
     <Dialog open onOpenChange={(open) => !open && handleClose()}>
@@ -179,7 +190,6 @@ export function ClaudeAuthTerminalDialog({
               <Button
                 variant="primary"
                 size="sm"
-                disabled={!terminal}
                 onClick={() => setStarted(true)}
               >
                 Log out

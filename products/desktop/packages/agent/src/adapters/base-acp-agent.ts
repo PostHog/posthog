@@ -16,7 +16,7 @@ import type {
   WriteTextFileRequest,
   WriteTextFileResponse,
 } from "@agentclientprotocol/sdk";
-import { restrictedModelMeta } from "@posthog/shared";
+import { isAnthropicModelId, restrictedModelMeta } from "@posthog/shared";
 import {
   compareModelsForPicker,
   DEFAULT_GATEWAY_MODEL,
@@ -190,6 +190,26 @@ export abstract class BaseAcpAgent implements Agent {
       isDeepseekModelId(modelId);
 
     let currentModelId = currentModelOverride ?? DEFAULT_GATEWAY_MODEL;
+
+    // Subscription mode: no gateway URL means fetchGatewayModels returned an
+    // empty list, so `options` is empty and the picker cannot validate the
+    // saved id. A gateway-only id (Cloudflare, Modal, Deepseek, GLM) saved
+    // from a gateway session survives here and fails on the first turn
+    //. Fall back to the Anthropic default in that case.
+    if (
+      adapterModels.length === 0 &&
+      currentModelId !== DEFAULT_GATEWAY_MODEL &&
+      !isAnthropicModelId(currentModelId)
+    ) {
+      this.logger.warn(
+        "Saved model is not available without the gateway; falling back to default",
+        {
+          requestedModel: currentModelId,
+          fallbackModel: DEFAULT_GATEWAY_MODEL,
+        },
+      );
+      currentModelId = DEFAULT_GATEWAY_MODEL;
+    }
 
     if (!options.some((opt) => opt.value === currentModelId)) {
       if (!isClaudeAdapterModelId(currentModelId)) {

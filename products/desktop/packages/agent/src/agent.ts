@@ -1,4 +1,9 @@
-import { buildPrOutput, mergePrUrls, readPrUrls } from "@posthog/shared";
+import {
+  buildPrOutput,
+  isAnthropicModelId,
+  mergePrUrls,
+  readPrUrls,
+} from "@posthog/shared";
 import {
   buildPosthogPropertyHeaderLines,
   buildPosthogPropertyHeaderRecord,
@@ -91,10 +96,13 @@ export class Agent {
       : await this._resolveGatewayConfig(options.gatewayUrl);
     this.taskRunId = taskRunId;
 
-    // getTask and getUserNode are independent, so start both before building
-    // attribution rather than serializing two startup round trips.
+    // Task attribution and the user node only feed the gateway auth headers.
+    // Subscription sessions have no gateway env, so the requests are unused.
+    // Skip them to avoid a slow PostHog fetch delaying a direct Claude session
+    //.
+    const needsAttribution = !claudeSubscription && gatewayConfig !== null;
     const taskPromise =
-      this.posthogAPI && taskId !== "__preview__"
+      needsAttribution && this.posthogAPI && taskId !== "__preview__"
         ? this.posthogAPI.getTask(taskId).catch((error) => {
             this.logger.debug("Failed to fetch task attribution", error);
             return null;
@@ -103,8 +111,9 @@ export class Agent {
     // The node the gateway holds a person's spend limit against. Null (a
     // task-scoped credential) simply carries no user node, so the limit does
     // not apply rather than applying to the wrong person.
-    const userNodePromise =
-      this.posthogAPI?.getUserNode() ?? Promise.resolve(null);
+    const userNodePromise = needsAttribution
+      ? (this.posthogAPI?.getUserNode() ?? Promise.resolve(null))
+      : Promise.resolve(null);
     const [task, userNode] = await Promise.all([taskPromise, userNodePromise]);
 
     const attribution =
@@ -188,6 +197,21 @@ export class Agent {
       }
     }
     if (!sanitizedModel && options.adapter !== "codex" && !claudeSubscription) {
+      sanitizedModel = DEFAULT_GATEWAY_MODEL;
+    }
+    // A first-party Claude subscription can only run Anthropic models. A
+    // saved gateway-only id (Cloudflare, Modal, Deepseek, GLM) survives the
+    // skip of the gateway model fetch and then fails on the first turn
+    //. Fall back to the Anthropic default so the session starts.
+    if (
+      claudeSubscription &&
+      sanitizedModel &&
+      !isAnthropicModelId(sanitizedModel)
+    ) {
+      this.logger.warn(
+        "Saved model is not available on the Claude subscription; using default",
+        { savedModel: sanitizedModel, fallback: DEFAULT_GATEWAY_MODEL },
+      );
       sanitizedModel = DEFAULT_GATEWAY_MODEL;
     }
 

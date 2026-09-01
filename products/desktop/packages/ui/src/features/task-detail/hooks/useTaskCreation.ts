@@ -417,7 +417,7 @@ export function useTaskCreation({
               ? effectiveModelAccess({
                   flagEnabled: codexSubscription.flagEnabled,
                   subscriptionOn: codexSubscription.subscriptionOn,
-                  loggedIn: codexSubscription.loggedIn,
+                  loginState: codexSubscription.loginState,
                   workspaceMode,
                 })
               : undefined;
@@ -426,7 +426,7 @@ export function useTaskCreation({
               ? effectiveModelAccess({
                   flagEnabled: claudeSubscription.flagEnabled,
                   subscriptionOn: claudeSubscription.subscriptionOn,
-                  loggedIn: claudeSubscription.loggedIn,
+                  loginState: claudeSubscription.loginState,
                   workspaceMode,
                 })
               : undefined;
@@ -720,10 +720,10 @@ export function useTaskCreation({
       taskService,
       tasks,
       codexSubscription.flagEnabled,
-      codexSubscription.loggedIn,
+      codexSubscription.loginState,
       codexSubscription.subscriptionOn,
       claudeSubscription.flagEnabled,
-      claudeSubscription.loggedIn,
+      claudeSubscription.loginState,
       claudeSubscription.subscriptionOn,
     ],
   );

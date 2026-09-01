@@ -161,6 +161,13 @@ export function isAnthropicModel(model: GatewayModel): boolean {
   return model.id.startsWith("claude-") || model.id.startsWith("anthropic/");
 }
 
+// Model-id check for paths that have no GatewayModel object, such as a saved
+// preference replayed on reconnect. A first-party Claude subscription can
+// only run Anthropic models.
+export function isAnthropicModelId(modelId: string): boolean {
+  return modelId.startsWith("claude-") || modelId.startsWith("anthropic/");
+}
+
 export function isOpenAIModel(model: GatewayModel): boolean {
   if (model.owned_by) {
     return model.owned_by === "openai";

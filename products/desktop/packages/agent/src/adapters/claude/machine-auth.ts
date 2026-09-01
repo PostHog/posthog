@@ -1,3 +1,6 @@
+import * as os from "node:os";
+import * as path from "node:path";
+
 export interface MachineClaudeAuth {
   configDir?: string;
 }
@@ -9,6 +12,14 @@ export const MACHINE_AUTH_STRIPPED_KEYS = [
   "ANTHROPIC_CUSTOM_HEADERS",
   "OPENAI_BASE_URL",
   "OPENAI_API_KEY",
+  // Provider selectors route the CLI to a third-party inference surface
+  // (Bedrock, Vertex, Foundry, AWS, Mantle) instead of the first-party
+  // Claude.ai subscription. An ambient value can bypass the user login.
+  "CLAUDE_CODE_USE_BEDROCK",
+  "CLAUDE_CODE_USE_VERTEX",
+  "CLAUDE_CODE_USE_FOUNDRY",
+  "CLAUDE_CODE_USE_ANTHROPIC_AWS",
+  "CLAUDE_CODE_USE_MANTLE",
   "CLAUDE_CODE_ENABLE_TELEMETRY",
   "CLAUDE_CODE_ENHANCED_TELEMETRY_BETA",
   "CLAUDE_CODE_PROPAGATE_TRACEPARENT",
@@ -39,7 +50,12 @@ export function applyMachineClaudeAuth(
   if (auth.configDir) {
     env.CLAUDE_CONFIG_DIR = auth.configDir;
   } else {
-    delete env.CLAUDE_CONFIG_DIR;
+    // Pin the child to the user's Claude config so the CLI reads the
+    // subscription login from a single, known location. Deleting the
+    // variable also resolves to ~/.claude, but an explicit value keeps the
+    // parent and child on the same directory so imported transcripts and
+    // gateway-resume hydration find the same files.
+    env.CLAUDE_CONFIG_DIR = path.join(os.homedir(), ".claude");
   }
 }
 
@@ -51,5 +67,8 @@ export function machineClaudeAuthShellEnv(auth: MachineClaudeAuth): {
   if (auth.configDir) {
     return { set: { CLAUDE_CONFIG_DIR: auth.configDir }, unset };
   }
-  return { set: {}, unset: [...unset, "CLAUDE_CONFIG_DIR"] };
+  return {
+    set: { CLAUDE_CONFIG_DIR: path.join(os.homedir(), ".claude") },
+    unset,
+  };
 }

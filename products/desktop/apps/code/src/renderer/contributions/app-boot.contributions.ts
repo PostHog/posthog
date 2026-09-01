@@ -4,7 +4,10 @@ import {
   CLAUDE_OWN_SUBSCRIPTION_FLAG,
   CODEX_OWN_SUBSCRIPTION_FLAG,
 } from "@posthog/shared";
-import { registerSubscriptionAtBoot } from "@posthog/ui/features/settings/adapterSubscription";
+import {
+  registerSubscriptionAtBoot,
+  type SubscriptionStatus,
+} from "@posthog/ui/features/settings/adapterSubscription";
 import {
   initializePostHog,
   posthogFeatureFlags,
@@ -20,7 +23,7 @@ const log = logger.scope("app-boot");
 const SUBSCRIPTION_BOOT: {
   adapter: Adapter;
   flag: string;
-  fetchStatus: () => Promise<{ loggedIn: boolean }>;
+  fetchStatus: () => Promise<SubscriptionStatus>;
 }[] = [
   {
     adapter: "codex",

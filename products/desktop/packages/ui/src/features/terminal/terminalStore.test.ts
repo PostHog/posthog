@@ -61,7 +61,7 @@ describe("terminalStore persistence", () => {
     });
   });
 
-  it("drops transcripts written before sensitive terminals were marked", () => {
+  it("drops only auth terminal transcripts, not task terminal scrollback", () => {
     expect(
       clearPersistedTranscripts({
         terminalStates: {
@@ -75,7 +75,7 @@ describe("terminalStore persistence", () => {
     ).toEqual({
       terminalStates: {
         "claude-auth-login-abc": { serializedState: null, sessionId: null },
-        "task-1-shell": { serializedState: null, sessionId: null },
+        "task-1-shell": { serializedState: "scrollback", sessionId: null },
       },
     });
   });

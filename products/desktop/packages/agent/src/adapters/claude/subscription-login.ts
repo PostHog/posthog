@@ -14,6 +14,11 @@ export interface ClaudeAuthTerminalCommand {
 }
 
 function shellQuote(value: string): string {
+  // POSIX single quotes do not quote paths on Windows. Use double quotes
+  // there, escaping embedded double quotes.
+  if (process.platform === "win32") {
+    return `"${value.replaceAll('"', '\\"')}"`;
+  }
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
@@ -47,21 +52,58 @@ export interface ClaudeLoginCheckOptions {
   timeoutMs?: number;
 }
 
+// Three-state result so callers can tell a confirmed logout from an
+// operational failure (missing binary, spawn error, timeout, unparseable
+// output). Treating a failed probe as "logged out" can route later sessions
+// through the gateway and spend PostHog credits by accident.
+export type ClaudeLoginResult = "logged-in" | "logged-out" | "unknown";
+
+interface ClaudeAuthStatusJson {
+  loggedIn?: unknown;
+  authMethod?: unknown;
+  apiProvider?: unknown;
+  subscriptionType?: unknown;
+}
+
+// A first-party Claude subscription login. `claude.ai` OAuth (Pro/Max/Team/
+// Enterprise) and a long-lived `oauth_token` both bill against the user plan.
+// `api_key` and `third_party` (Bedrock, Vertex, Foundry, Mantle) do not, so
+// they must not be reported as a subscription login.
+function isSubscriptionLogin(status: ClaudeAuthStatusJson): boolean {
+  if (status.loggedIn !== true) return false;
+  const method = status.authMethod;
+  return method === "claude.ai" || method === "oauth_token";
+}
+
+function parseAuthStatusJson(stdout: string): ClaudeAuthStatusJson | null {
+  const trimmed = stdout.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === "object") {
+      return parsed as ClaudeAuthStatusJson;
+    }
+  } catch {
+    // Fall through; non-JSON output means the CLI is older or errored.
+  }
+  return null;
+}
+
 export async function hasClaudeLogin(
   options: ClaudeLoginCheckOptions,
-): Promise<boolean> {
+): Promise<ClaudeLoginResult> {
   if (!existsSync(options.claudeCliPath)) {
-    options.logger?.debug("Claude CLI not found, reporting no login", {
+    options.logger?.debug("Claude CLI not found, reporting unknown", {
       claudeCliPath: options.claudeCliPath,
     });
-    return false;
+    return "unknown";
   }
 
   const isLegacyJs = options.claudeCliPath.endsWith(".js");
   const command = isLegacyJs ? process.execPath : options.claudeCliPath;
   const args = isLegacyJs
-    ? [options.claudeCliPath, "auth", "status"]
-    : ["auth", "status"];
+    ? [options.claudeCliPath, "auth", "status", "--json"]
+    : ["auth", "status", "--json"];
 
   const env: NodeJS.ProcessEnv = { ...process.env };
   applyMachineClaudeAuth(env, options.machineAuth);
@@ -69,13 +111,13 @@ export async function hasClaudeLogin(
     env.ELECTRON_RUN_AS_NODE = "1";
   }
 
-  return new Promise<boolean>((resolve) => {
+  return new Promise<ClaudeLoginResult>((resolve) => {
     let settled = false;
-    const finish = (loggedIn: boolean): void => {
+    const finish = (result: ClaudeLoginResult): void => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      resolve(loggedIn);
+      resolve(result);
     };
 
     const child = spawn(command, args, {
@@ -85,11 +127,14 @@ export async function hasClaudeLogin(
 
     const timer = setTimeout(() => {
       child.kill("SIGTERM");
-      finish(false);
+      finish("unknown");
     }, options.timeoutMs ?? STATUS_TIMEOUT_MS);
 
+    let stdout = "";
     let stderr = "";
-    child.stdout?.on("data", () => {});
+    child.stdout?.on("data", (chunk: Buffer) => {
+      if (stdout.length < 10_000) stdout += chunk.toString("utf8");
+    });
     child.stderr?.on("data", (chunk: Buffer) => {
       if (stderr.length < 500) stderr += chunk.toString("utf8");
     });
@@ -97,15 +142,29 @@ export async function hasClaudeLogin(
       options.logger?.debug("Failed to run claude auth status", {
         error: error.message,
       });
-      finish(false);
+      finish("unknown");
     });
     child.on("exit", (code) => {
+      const status = parseAuthStatusJson(stdout);
       options.logger?.debug("claude auth status finished", {
         claudeCliPath: options.claudeCliPath,
         exitCode: code,
+        authMethod: status?.authMethod ?? null,
         stderr: stderr.slice(0, 500),
       });
-      finish(code === 0);
+      if (status && isSubscriptionLogin(status)) {
+        finish("logged-in");
+        return;
+      }
+      // Exit 0 with a parsed status that is not a subscription login means a
+      // third-party provider or API key is active. Exit non-zero with no JSON
+      // means the CLI confirmed no login. Either way the user is not on their
+      // Claude subscription.
+      if (status || code === 0) {
+        finish("logged-out");
+        return;
+      }
+      finish("unknown");
     });
   });
 }

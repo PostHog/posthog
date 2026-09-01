@@ -453,6 +453,11 @@ describe("buildSessionOptions", () => {
       "ANTHROPIC_AUTH_TOKEN",
       "ANTHROPIC_API_KEY",
       "ANTHROPIC_CUSTOM_HEADERS",
+      "CLAUDE_CODE_USE_BEDROCK",
+      "CLAUDE_CODE_USE_VERTEX",
+      "CLAUDE_CODE_USE_FOUNDRY",
+      "CLAUDE_CODE_USE_ANTHROPIC_AWS",
+      "CLAUDE_CODE_USE_MANTLE",
       "CLAUDE_CODE_ENABLE_TELEMETRY",
       "OTEL_EXPORTER_OTLP_ENDPOINT",
       "TRACEPARENT",
@@ -507,7 +512,7 @@ describe("buildSessionOptions", () => {
     });
 
     it.each([
-      { configDir: undefined, expected: undefined },
+      { configDir: undefined, expected: path.join(os.homedir(), ".claude") },
       { configDir: "/home/me/.claude", expected: "/home/me/.claude" },
     ])(
       "runs against the machine config dir $configDir, not the app one",

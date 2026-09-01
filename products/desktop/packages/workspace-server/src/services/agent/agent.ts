@@ -532,19 +532,19 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
 
   private codexLogin?: CodexLoginSession;
   private codexAuthGeneration = 0;
+  private claudeAuthGeneration = 0;
 
   async getCodexSubscriptionStatus(): Promise<CodexSubscriptionStatus> {
-    if (this.codexLogin) return { loggedIn: false };
-    return {
-      loggedIn: await hasCodexChatgptLogin({
-        binaryPath: this.getCodexBinaryPath(),
-      }),
-    };
+    if (this.codexLogin) return { loginState: "logged-out" };
+    const loggedIn = await hasCodexChatgptLogin({
+      binaryPath: this.getCodexBinaryPath(),
+    });
+    return { loginState: loggedIn ? "logged-in" : "logged-out" };
   }
 
   async getClaudeSubscriptionStatus(): Promise<ClaudeSubscriptionStatus> {
     return {
-      loggedIn: await hasClaudeLogin({
+      loginState: await hasClaudeLogin({
         claudeCliPath: this.getClaudeCliPath(),
         machineAuth: machineClaudeAuth(),
         logger: this.log,
@@ -552,7 +552,14 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     };
   }
 
-  getClaudeAuthTerminal(action: ClaudeAuthAction): ClaudeAuthTerminal {
+  async getClaudeAuthTerminal(
+    action: ClaudeAuthAction,
+  ): Promise<ClaudeAuthTerminal> {
+    // A logout invalidates the credentials every active subscription session
+    // holds, so stop them before the command can run. Login needs no guard.
+    if (action === "logout") {
+      await this.prepareClaudeAccountChange();
+    }
     const { command, env } = claudeAuthTerminalCommand(
       action,
       this.getClaudeCliPath(),
@@ -564,6 +571,23 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       additionalEnv: env.set,
       unsetEnv: env.unset,
     };
+  }
+
+  private async prepareClaudeAccountChange(): Promise<void> {
+    this.claudeAuthGeneration += 1;
+    await this.stopClaudeSubscriptionSessions();
+  }
+
+  private async stopClaudeSubscriptionSessions(): Promise<void> {
+    const sessionIds = [...this.sessions.entries()]
+      .filter(
+        ([, session]) =>
+          session.config.claudeModelAccess === "own-subscription",
+      )
+      .map(([taskRunId]) => taskRunId);
+    await Promise.all(
+      sessionIds.map((taskRunId) => this.cleanupSession(taskRunId)),
+    );
   }
 
   async startCodexSubscriptionLogin(): Promise<{ authUrl: string }> {
@@ -980,9 +1004,29 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       );
       const codexSubscription =
         adapter === "codex" && config.codexModelAccess === "own-subscription";
-      const claudeSubscription =
+      let claudeSubscription =
         adapter === "claude" && config.claudeModelAccess === "own-subscription";
+      // Re-verify the Claude login before honoring the own-subscription
+      // preference. The client can send a stale access value after the user
+      // signed out in another terminal, and reconnect replays the stored
+      // value without a fresh check. Downgrade to the gateway
+      // so the session starts with PostHog credentials instead of no auth.
+      if (claudeSubscription) {
+        const loginState = await hasClaudeLogin({
+          claudeCliPath: this.getClaudeCliPath(),
+          machineAuth: machineClaudeAuth(),
+          logger: this.log,
+        });
+        if (loginState !== "logged-in") {
+          this.log.warn(
+            "Claude own-subscription requested but login is not active; using gateway",
+            { loginState, isReconnect },
+          );
+          claudeSubscription = false;
+        }
+      }
       const codexAuthGeneration = this.codexAuthGeneration;
+      const claudeAuthGeneration = this.claudeAuthGeneration;
 
       let codexHome: string | undefined;
       if (adapter === "codex") {
@@ -1325,6 +1369,13 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
       ) {
         await this.cleanupSession(taskRunId);
         throw new Error("The Codex account changed during task setup.");
+      }
+      if (
+        claudeSubscription &&
+        claudeAuthGeneration !== this.claudeAuthGeneration
+      ) {
+        await this.cleanupSession(taskRunId);
+        throw new Error("The Claude account changed during task setup.");
       }
       this.recordActivity(taskRunId);
 

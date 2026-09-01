@@ -26,10 +26,17 @@ export function resolveFallbackModel(modelId: string): string | undefined {
 export function rerootedModelOptions(
   modelId: string | undefined,
   existingFallbackModel?: string,
+  machineAuth?: boolean,
 ):
   | { model: string; fallbackModel: string | undefined }
   | Record<string, never> {
   if (!modelId) return {};
+  // Machine-auth sessions bill against the user's Claude plan, which may
+  // not include the gateway fallback model. Leave the fallback unset so a
+  // query rebuild (/clear, MCP refresh, /btw) does not restore it.
+  if (machineAuth) {
+    return { model: modelId, fallbackModel: undefined };
+  }
   const fallbackModel =
     existingFallbackModel && existingFallbackModel !== modelId
       ? existingFallbackModel

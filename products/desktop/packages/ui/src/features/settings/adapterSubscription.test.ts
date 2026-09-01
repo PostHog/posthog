@@ -12,10 +12,13 @@ import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import {
   effectiveModelAccess,
   registerSubscriptionAtBoot,
+  type SubscriptionStatus,
   subscriptionNeedsConnection,
 } from "./adapterSubscription";
 
-const status = (loggedIn: boolean) => ({ loggedIn });
+const status = (loginState: "logged-in" | "logged-out" | "unknown") => ({
+  loginState,
+});
 
 describe("adapter subscription gating", () => {
   it.each([
@@ -24,7 +27,7 @@ describe("adapter subscription gating", () => {
       {
         flagEnabled: true,
         subscriptionOn: true,
-        loggedIn: true,
+        loginState: "logged-in" as const,
         workspaceMode: "cloud" as const,
       },
       "posthog-gateway",
@@ -34,7 +37,17 @@ describe("adapter subscription gating", () => {
       {
         flagEnabled: true,
         subscriptionOn: true,
-        loggedIn: false,
+        loginState: "logged-out" as const,
+        workspaceMode: "local" as const,
+      },
+      "posthog-gateway",
+    ],
+    [
+      "unknown status while loading falls back to the gateway",
+      {
+        flagEnabled: true,
+        subscriptionOn: true,
+        loginState: "unknown" as const,
         workspaceMode: "local" as const,
       },
       "posthog-gateway",
@@ -44,7 +57,7 @@ describe("adapter subscription gating", () => {
       {
         flagEnabled: false,
         subscriptionOn: true,
-        loggedIn: true,
+        loginState: "logged-in" as const,
         workspaceMode: "local" as const,
       },
       "posthog-gateway",
@@ -54,7 +67,7 @@ describe("adapter subscription gating", () => {
       {
         flagEnabled: true,
         subscriptionOn: true,
-        loggedIn: true,
+        loginState: "logged-in" as const,
         workspaceMode: "local" as const,
       },
       "own-subscription",
@@ -64,7 +77,7 @@ describe("adapter subscription gating", () => {
       {
         flagEnabled: true,
         subscriptionOn: true,
-        loggedIn: true,
+        loginState: "logged-in" as const,
         workspaceMode: "worktree" as const,
       },
       "own-subscription",
@@ -81,22 +94,35 @@ describe("adapter subscription gating", () => {
     ],
     [
       "confirmed signed out needs connection",
-      { flagEnabled: true, subscriptionOn: true, status: status(false) },
+      { flagEnabled: true, subscriptionOn: true, status: status("logged-out") },
       true,
     ],
     [
       "signed in does not need connection",
-      { flagEnabled: true, subscriptionOn: true, status: status(true) },
+      { flagEnabled: true, subscriptionOn: true, status: status("logged-in") },
+      false,
+    ],
+    [
+      "unknown status does not need connection",
+      { flagEnabled: true, subscriptionOn: true, status: status("unknown") },
       false,
     ],
     [
       "subscription off never needs connection",
-      { flagEnabled: true, subscriptionOn: false, status: status(false) },
+      {
+        flagEnabled: true,
+        subscriptionOn: false,
+        status: status("logged-out"),
+      },
       false,
     ],
     [
       "flag off never needs connection",
-      { flagEnabled: false, subscriptionOn: true, status: status(false) },
+      {
+        flagEnabled: false,
+        subscriptionOn: true,
+        status: status("logged-out"),
+      },
       false,
     ],
   ])("%s", (_name, input, expected) => {
@@ -130,12 +156,30 @@ describe("adapter subscription gating", () => {
     it("reports the login state once the check answers", async () => {
       await registerSubscriptionAtBoot(
         "claude",
-        () => Promise.resolve({ loggedIn: true }),
+        () => Promise.resolve({ loginState: "logged-in" }),
         true,
       );
 
       expect(registerAdapterSubscription).toHaveBeenLastCalledWith("claude", {
         access: "own-subscription",
+        connected: true,
+      });
+    });
+
+    it("re-reads the setting after the probe so a toggle change is not stale", async () => {
+      useSettingsStore.setState({
+        _hasHydrated: true,
+        claudeModelAccess: "own-subscription",
+      });
+      const fetchStatus = vi.fn((): Promise<SubscriptionStatus> => {
+        // Simulate the user flipping the toggle while the probe runs.
+        useSettingsStore.setState({ claudeModelAccess: "posthog-gateway" });
+        return Promise.resolve({ loginState: "logged-in" });
+      });
+      await registerSubscriptionAtBoot("claude", fetchStatus, true);
+
+      expect(registerAdapterSubscription).toHaveBeenLastCalledWith("claude", {
+        access: "posthog-gateway",
         connected: true,
       });
     });

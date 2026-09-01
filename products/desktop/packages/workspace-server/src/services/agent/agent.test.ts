@@ -318,15 +318,46 @@ describe("AgentService", () => {
     it.each([
       { action: "login" as const, expected: "'auth' 'login'" },
       { action: "logout" as const, expected: "'auth' 'logout'" },
-    ])("describes the claude auth $action terminal", ({ action, expected }) => {
-      const terminal = service.getClaudeAuthTerminal(action);
+    ])(
+      "describes the claude auth $action terminal",
+      async ({ action, expected }) => {
+        const terminal = await service.getClaudeAuthTerminal(action);
 
-      expect(terminal.command).toContain(
-        "/mock/appPath/.vite/build/claude-cli/claude",
-      );
-      expect(terminal.command).toContain(expected);
-      expect(terminal.unsetEnv).toContain("CLAUDE_CONFIG_DIR");
-      expect(terminal.unsetEnv).toContain("ANTHROPIC_API_KEY");
+        expect(terminal.command).toContain(
+          "/mock/appPath/.vite/build/claude-cli/claude",
+        );
+        expect(terminal.command).toContain(expected);
+        expect(terminal.additionalEnv.CLAUDE_CONFIG_DIR).toMatch(
+          /[\\/]\.claude$/,
+        );
+        expect(terminal.unsetEnv).toContain("ANTHROPIC_API_KEY");
+      },
+    );
+
+    it("stops active subscription sessions when logout starts", async () => {
+      const sessions = (
+        service as unknown as { sessions: Map<string, unknown> }
+      ).sessions;
+      const cleanedUp: string[] = [];
+      vi.spyOn(
+        service as unknown as { cleanupSession: (id: string) => Promise<void> },
+        "cleanupSession",
+      ).mockImplementation((taskRunId: string) => {
+        cleanedUp.push(taskRunId);
+        return Promise.resolve();
+      });
+      sessions.set("run-sub-1", {
+        config: { claudeModelAccess: "own-subscription" },
+      });
+      sessions.set("run-gw-1", {
+        config: { claudeModelAccess: "posthog-gateway" },
+      });
+
+      await service.getClaudeAuthTerminal("logout");
+
+      // Only the subscription session is cleaned up; the gateway session is
+      // left alone.
+      expect(cleanedUp).toEqual(["run-sub-1"]);
     });
   });
 

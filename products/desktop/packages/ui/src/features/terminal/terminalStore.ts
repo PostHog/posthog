@@ -74,12 +74,17 @@ export function clearPersistedTranscripts(persistedState: unknown) {
     return persistedState;
   }
 
+  // Only auth terminals hold sensitive login/logout scrollback. Normal task
+  // terminals use serializedState to restore shell history, so the upgrade
+  // must not clear them.
   return {
     ...state,
     terminalStates: Object.fromEntries(
       Object.entries(state.terminalStates).map(([key, value]) => [
         key,
-        { ...value, serializedState: null },
+        key.startsWith("claude-auth-")
+          ? { ...value, serializedState: null }
+          : value,
       ]),
     ),
   };
