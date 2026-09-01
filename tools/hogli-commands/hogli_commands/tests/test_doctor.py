@@ -1285,7 +1285,7 @@ def test_doctor_git_spawns_the_repack_detached_instead_of_blocking(
     repo = tmp_path / "posthog"
     (repo / ".git" / "objects" / "pack").mkdir(parents=True)
     monkeypatch.setattr("hogli_commands.doctor.REPO_ROOT", repo)
-    monkeypatch.setattr("hogli_commands.doctor._git_housekeeping_running", lambda _: False)
+    monkeypatch.setattr("hogli_commands.doctor._git_housekeeping_running", lambda *a: False)
     monkeypatch.setattr("hogli_commands.doctor._git_maintenance_registered", lambda _: True)
     monkeypatch.setattr(
         "hogli_commands.doctor._git_health",
@@ -1362,7 +1362,7 @@ def test_doctor_git_fix_writes_the_commit_graph_below_the_pack_threshold(
     repo = tmp_path / "posthog"
     (repo / ".git" / "objects" / "pack").mkdir(parents=True)
     monkeypatch.setattr("hogli_commands.doctor.REPO_ROOT", repo)
-    monkeypatch.setattr("hogli_commands.doctor._git_housekeeping_running", lambda _: False)
+    monkeypatch.setattr("hogli_commands.doctor._git_housekeeping_running", lambda *a: False)
     monkeypatch.setattr("hogli_commands.doctor._git_maintenance_registered", lambda _: True)
     monkeypatch.setattr(
         "hogli_commands.doctor._git_health",
@@ -1396,7 +1396,7 @@ def test_doctor_git_fix_reports_a_failed_step_instead_of_success(
     repo = tmp_path / "posthog"
     (repo / ".git" / "objects" / "pack").mkdir(parents=True)
     monkeypatch.setattr("hogli_commands.doctor.REPO_ROOT", repo)
-    monkeypatch.setattr("hogli_commands.doctor._git_housekeeping_running", lambda _: False)
+    monkeypatch.setattr("hogli_commands.doctor._git_housekeeping_running", lambda *a: False)
     monkeypatch.setattr("hogli_commands.doctor._git_maintenance_registered", lambda _: True)
     monkeypatch.setattr(
         "hogli_commands.doctor._git_health",
@@ -1468,7 +1468,7 @@ def test_housekeeping_scan_ignores_git_in_another_repository(monkeypatch: pytest
         ),
     )
 
-    assert _git_housekeeping_running(Path("/home/x/posthog")) is False
+    assert _git_housekeeping_running(Path("/home/x/posthog"), Path("/home/x/posthog/.git")) is False
 
 
 def test_housekeeping_scan_claims_git_running_in_this_repository(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1481,7 +1481,7 @@ def test_housekeeping_scan_claims_git_running_in_this_repository(monkeypatch: py
         ),
     )
 
-    assert _git_housekeeping_running(Path("/home/x/posthog")) is True
+    assert _git_housekeeping_running(Path("/home/x/posthog"), Path("/home/x/posthog/.git")) is True
 
 
 def test_housekeeping_scan_is_idle_when_no_git_process_matches(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1490,4 +1490,72 @@ def test_housekeeping_scan_is_idle_when_no_git_process_matches(monkeypatch: pyte
         lambda cmd, **kw: SimpleNamespace(returncode=1, stdout="", stderr=""),
     )
 
-    assert _git_housekeeping_running(Path("/home/x/posthog")) is False
+    assert _git_housekeeping_running(Path("/home/x/posthog"), Path("/home/x/posthog/.git")) is False
+
+
+def test_housekeeping_scan_claims_a_sibling_linked_worktree(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A repack started from a sibling worktree without -C names neither the owning
+    # checkout nor its path, but it uses the same object store. Missing it starts a
+    # second repack against that store.
+    common = Path("/home/x/posthog/.git")
+    monkeypatch.setattr(
+        "hogli_commands.doctor.subprocess.run",
+        lambda cmd, **kw: (
+            SimpleNamespace(returncode=0, stdout="4242\n", stderr="")
+            if cmd[0] == "pgrep"
+            else SimpleNamespace(returncode=0, stdout="git repack -adl --threads=0\n", stderr="")
+        ),
+    )
+    monkeypatch.setattr("hogli_commands.doctor._process_cwd", lambda pid: Path("/home/x/worktrees/tach"))
+    monkeypatch.setattr("hogli_commands.doctor._common_dir_of", lambda cwd: common)
+
+    assert _git_housekeeping_running(Path("/home/x/posthog"), common) is True
+
+
+def test_housekeeping_scan_stays_idle_when_the_working_directory_is_unreadable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Without lsof and without /proc the cwd cannot be read. Claiming the process
+    # there would disable stale-lock removal and repacking on that machine forever.
+    monkeypatch.setattr(
+        "hogli_commands.doctor.subprocess.run",
+        lambda cmd, **kw: (
+            SimpleNamespace(returncode=0, stdout="4242\n", stderr="")
+            if cmd[0] == "pgrep"
+            else SimpleNamespace(returncode=0, stdout="git gc --prune=now\n", stderr="")
+        ),
+    )
+    monkeypatch.setattr("hogli_commands.doctor._process_cwd", lambda pid: None)
+
+    assert _git_housekeeping_running(Path("/home/x/posthog"), Path("/home/x/posthog/.git")) is False
+
+
+def test_doctor_git_fix_refuses_while_a_repack_is_already_running(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # --fix used to start a second minutes-long repack against the same object store.
+    repo = tmp_path / "posthog"
+    (repo / ".git" / "objects" / "pack").mkdir(parents=True)
+    monkeypatch.setattr("hogli_commands.doctor.REPO_ROOT", repo)
+    monkeypatch.setattr("hogli_commands.doctor._git_housekeeping_running", lambda *a: True)
+    monkeypatch.setattr("hogli_commands.doctor._git_maintenance_registered", lambda _: True)
+    monkeypatch.setattr(
+        "hogli_commands.doctor._git_health",
+        lambda common, pack_cap: SimpleNamespace(
+            pack_count=pack_cap + 1,
+            packs_capped=False,
+            has_promisor=True,
+            stale_lock=None,
+            missing_commit_graph=True,
+        ),
+    )
+    ran: list[list[str]] = []
+    monkeypatch.setattr(
+        "hogli_commands.doctor.subprocess.run",
+        lambda cmd, **kw: ran.append(cmd) or SimpleNamespace(returncode=0, stdout="", stderr=""),
+    )
+
+    result = CliRunner().invoke(doctor_git, ["--fix"])
+
+    assert result.exit_code == 0
+    assert not any("repack" in cmd for cmd in ran)

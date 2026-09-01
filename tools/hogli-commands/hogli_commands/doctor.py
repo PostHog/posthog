@@ -2539,26 +2539,66 @@ def _run_checks(repo_root: Path) -> list[CheckResult]:
 _GIT_HOUSEKEEPING_PGREP_PATTERN = r"git( +-[cC] +[^ ]+)* +(gc|repack|maintenance|pack-objects)"
 
 
-def _process_belongs_to_repo(pid: str, repo: str) -> bool:
-    """Whether one git process works on this repository.
+def _process_cwd(pid: str) -> Path | None:
+    """The working directory of another process, or None when it cannot be read.
 
-    The scheduled job names the path with ``-C``, and git's own scheduler does not,
-    so check the command line first and the working directory second.
+    Linux exposes it directly. macOS needs lsof, which is not guaranteed to exist.
+    """
+    try:
+        return Path(f"/proc/{pid}/cwd").resolve(strict=True)
+    except OSError:
+        pass
+    if not shutil.which("lsof"):
+        return None
+    try:
+        out = subprocess.run(
+            ["lsof", "-a", "-p", pid, "-d", "cwd", "-Fn"], capture_output=True, text=True, timeout=5
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return next((Path(line[1:]) for line in out.splitlines() if line.startswith("n")), None)
+
+
+def _common_dir_of(cwd: Path) -> Path | None:
+    """The object store a directory belongs to, which is shared across linked worktrees."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(cwd), "rev-parse", "--git-common-dir"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        return (cwd / result.stdout.strip()).resolve(strict=True)
+    except OSError:
+        return None
+
+
+def _process_belongs_to_repo(pid: str, repo: str, common_dir: Path) -> bool:
+    """Whether one git process works on this object store.
+
+    Comparing object stores rather than paths catches a sibling linked worktree, which
+    shares the store without naming the owning checkout anywhere.
     """
     try:
         cmdline = subprocess.run(["ps", "-p", pid, "-o", "command="], capture_output=True, text=True, timeout=5)
     except (OSError, subprocess.SubprocessError):
         return True  # Cannot tell, so claim it and do nothing.
-    if repo in cmdline.stdout:
+    if repo in cmdline.stdout or str(common_dir) in cmdline.stdout:
         return True
-    try:
-        cwd = subprocess.run(["lsof", "-a", "-p", pid, "-d", "cwd", "-Fn"], capture_output=True, text=True, timeout=5)
-    except (OSError, subprocess.SubprocessError):
-        return True
-    return any(line[1:].startswith(repo) for line in cwd.stdout.splitlines() if line.startswith("n"))
+    cwd = _process_cwd(pid)
+    if cwd is None:
+        # An unreadable working directory must not disable the repair. Every
+        # invocation this code starts names the path, so an unknown one is not ours.
+        return False
+    return str(cwd).startswith(repo) or _common_dir_of(cwd) == common_dir
 
 
-def _git_housekeeping_running(main_worktree: Path) -> bool:
+def _git_housekeeping_running(main_worktree: Path, common_dir: Path) -> bool:
     """True while git already packs this repository.
 
     The pattern alone is machine wide, so an unrelated checkout running `git gc` would
@@ -2576,7 +2616,7 @@ def _git_housekeeping_running(main_worktree: Path) -> bool:
     if result.returncode != 0:
         return False
     repo = str(main_worktree)
-    return any(_process_belongs_to_repo(pid, repo) for pid in result.stdout.split())
+    return any(_process_belongs_to_repo(pid, repo, common_dir) for pid in result.stdout.split())
 
 
 def _git_main_worktree(repo_root: Path, common_dir: Path) -> Path:
@@ -2678,7 +2718,7 @@ def doctor_git(fix: bool) -> None:
     health = _git_health(common_dir, _GIT_PACK_WARNING_THRESHOLD)
     packs_high = health.pack_count > _GIT_PACK_WARNING_THRESHOLD
     # Run the process scan only when a result depends on it.
-    busy = _git_housekeeping_running(main_worktree) if (health.stale_lock or packs_high) else False
+    busy = _git_housekeeping_running(main_worktree, common_dir) if (health.stale_lock or packs_high) else False
     acted = False
 
     if health.stale_lock and not busy:
@@ -2703,6 +2743,9 @@ def doctor_git(fix: bool) -> None:
     count = f"{health.pack_count}+" if health.packs_capped else str(health.pack_count)
 
     if fix:
+        if busy:
+            click.echo("Git is already packing this repository. Try again when it finishes.")
+            return
         ok = True
         if packs_high:
             click.echo(f"{count} pack files. Repacking in the foreground, which takes minutes.")
