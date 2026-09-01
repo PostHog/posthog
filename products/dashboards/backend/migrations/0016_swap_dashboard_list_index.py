@@ -11,8 +11,9 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # The dropped index is partial on deleted=false and lists team_id last, so the dashboards
-        # list query (team_id equality, ORDER BY -pinned, name, no deleted filter) can never use it.
+        # The dropped index leads with (-pinned, name) and lists team_id last, so a team-scoped
+        # list ordered by -pinned, name cannot seek it. Its deleted=false partial predicate is
+        # not the blocker, because the list path excludes deleted rows anyway.
         SafeRemoveIndexConcurrently(
             model_name="dashboard",
             name="idx_dashboard_deleted_team_id",
