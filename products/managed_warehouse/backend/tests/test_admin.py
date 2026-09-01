@@ -47,7 +47,7 @@ class TestManagedWarehouseViewTranslationJobAdmin(BaseTest):
         job.refresh_from_db()
         assert job.created_by == self.user
         assert job.status == ManagedWarehouseViewTranslationJob.Status.PENDING
-        start_job.assert_called_once_with(job.id)
+        start_job.assert_called_once_with(job.id, self.organization.id)
 
 
 class TestDuckgresServerAdminProvision(BaseTest):

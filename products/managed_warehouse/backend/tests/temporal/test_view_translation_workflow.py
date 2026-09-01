@@ -190,7 +190,7 @@ class TestManagedWarehouseViewTranslationStarter(BaseTest):
             "products.managed_warehouse.backend.view_translation.sync_connect",
             return_value=temporal,
         ):
-            start_managed_warehouse_view_translation(job.id)
+            start_managed_warehouse_view_translation(job.id, job.organization_id)
 
         job.refresh_from_db()
         assert job.workflow_id == f"managed-warehouse-view-translation/{job.id}"

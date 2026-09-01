@@ -17,13 +17,15 @@ from products.managed_warehouse.backend.models import ManagedWarehouseViewTransl
 logger = structlog.get_logger(__name__)
 
 
-def start_managed_warehouse_view_translation(job_id: UUID | str) -> None:
-    job = ManagedWarehouseViewTranslationJob.objects.get(id=job_id)
+def start_managed_warehouse_view_translation(job_id: UUID | str, organization_id: UUID | str) -> None:
+    job = ManagedWarehouseViewTranslationJob.objects.get(id=job_id, organization_id=organization_id)
     if job.status != ManagedWarehouseViewTranslationJob.Status.PENDING:
         return
 
     workflow_id = f"managed-warehouse-view-translation/{job.id}"
-    ManagedWarehouseViewTranslationJob.objects.filter(id=job.id).update(workflow_id=workflow_id)
+    ManagedWarehouseViewTranslationJob.objects.filter(id=job.id, organization_id=organization_id).update(
+        workflow_id=workflow_id
+    )
 
     try:
         temporal = sync_connect()
@@ -39,7 +41,7 @@ def start_managed_warehouse_view_translation(job_id: UUID | str) -> None:
             )
         )
     except Exception as error:
-        ManagedWarehouseViewTranslationJob.objects.filter(id=job.id).update(
+        ManagedWarehouseViewTranslationJob.objects.filter(id=job.id, organization_id=organization_id).update(
             status=ManagedWarehouseViewTranslationJob.Status.FAILED,
             latest_error=str(error)[:4000],
             finished_at=timezone.now(),
@@ -48,7 +50,7 @@ def start_managed_warehouse_view_translation(job_id: UUID | str) -> None:
         capture_exception(error)
         return
 
-    ManagedWarehouseViewTranslationJob.objects.filter(id=job.id).update(
+    ManagedWarehouseViewTranslationJob.objects.filter(id=job.id, organization_id=organization_id).update(
         workflow_id=workflow_id,
         workflow_run_id=handle.run_id,
     )

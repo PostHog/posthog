@@ -19,12 +19,12 @@ from products.managed_warehouse.backend.models import (
 )
 
 
-def _start_translation_job(job_id: UUID) -> None:
+def _start_translation_job(job_id: UUID, organization_id: UUID) -> None:
     from products.managed_warehouse.backend.view_translation import (  # noqa: PLC0415 - keeps the Temporal client off Django startup paths
         start_managed_warehouse_view_translation,
     )
 
-    start_managed_warehouse_view_translation(job_id)
+    start_managed_warehouse_view_translation(job_id, organization_id)
 
 
 class ManagedWarehouseViewTranslationJobForm(forms.ModelForm):
@@ -109,7 +109,7 @@ class ManagedWarehouseViewTranslationJobAdmin(admin.ModelAdmin):
             obj.status = ManagedWarehouseViewTranslationJob.Status.PENDING
         super().save_model(request, obj, form, change)
         if not change:
-            transaction.on_commit(partial(_start_translation_job, obj.id))
+            transaction.on_commit(partial(_start_translation_job, obj.id, obj.organization_id))
 
     def has_delete_permission(
         self, request: HttpRequest, obj: ManagedWarehouseViewTranslationJob | None = None
