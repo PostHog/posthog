@@ -14195,6 +14195,8 @@ export namespace Schemas {
        *
        * * `email` - email */
       dedupe_key?: DedupeKeyEnum | null;
+      /** Whether the workflow contains an email step. The tiered audience limit only applies to email sends; SMS, push, and webhook batches keep the flat limit. Defaults to true. */
+      sends_email?: boolean;
     }
 
     /**
@@ -17087,6 +17089,8 @@ export namespace Schemas {
       /** @nullable */
       github_integration: number | null;
       repositories: string[];
+      /** @nullable */
+      auto_archive_after_days: number | null;
       created_at: string;
       created_by?: TaskUserBasicInfo | null;
       starred?: boolean;
@@ -28815,6 +28819,8 @@ export namespace Schemas {
      * * `analysis_wrong` - Agent's analysis is wrong
      * * `wontfix_intentional` - Won't fix - intentional behavior
      * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
+     * * `fixed_outside_posthog` - Fixed outside PostHog
+     * * `pr_merged` - PR was merged
      * * `other` - Something else…
      */
     export type DismissalReasonEnum = typeof DismissalReasonEnum[keyof typeof DismissalReasonEnum];
@@ -28826,6 +28832,8 @@ export namespace Schemas {
       AnalysisWrong: 'analysis_wrong',
       WontfixIntentional: 'wontfix_intentional',
       WontfixIrrelevant: 'wontfix_irrelevant',
+      FixedOutsidePosthog: 'fixed_outside_posthog',
+      PrMerged: 'pr_merged',
       Other: 'other',
     } as const;
 
@@ -29783,6 +29791,28 @@ export namespace Schemas {
     export interface ElementValue {
       /** A distinct value of the requested element property */
       name: string;
+    }
+
+    /**
+     * How much workflow email this project may send, and how much of that it has used.
+     */
+    export interface EmailSendingAllowance {
+      /** The project's current sending tier. Projects start at 0 and move up as they build a clean sending history. */
+      readonly tier: number;
+      /** The highest tier there is, so the current tier can be shown as progress. */
+      readonly max_tier: number;
+      /** How many emails this tier allows per hour. */
+      readonly emails_per_hour: number;
+      /** How many emails this tier allows per day. */
+      readonly emails_per_day: number;
+      /** The largest audience this tier allows for a single batch send. */
+      readonly max_batch_audience: number;
+      /** Emails sent by this project's workflows in the last hour. */
+      readonly emails_sent_last_hour: number;
+      /** Emails sent by this project's workflows in the last 24 hours. */
+      readonly emails_sent_last_day: number;
+      /** True when these allowances are applied to sends. False while they are only being measured. */
+      readonly enforced: boolean;
     }
 
     /**
@@ -60147,6 +60177,13 @@ export namespace Schemas {
          * @items.maxLength 255
          */
       repositories?: string[];
+      /**
+         * Days of inactivity before tasks in this channel are archived. Accepts 1 through 365. Null disables automatic archiving.
+         * @minimum 1
+         * @maximum 365
+         * @nullable
+         */
+      auto_archive_after_days?: number | null;
     }
 
     export interface PatchedClusteringJob {
@@ -76663,19 +76700,21 @@ export namespace Schemas {
     } as const;
 
     export interface SignalReportBulkStateRequest {
-      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is only allowed from a researched status (ready or pending_input) or a suppressed report; other statuses return 409 (skipped in bulk).
+      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is only allowed from a researched status (ready or pending_input) or a suppressed report; other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.
        *
        * * `suppressed` - suppressed
        * * `potential` - potential
        * * `resolved` - resolved */
       state: SignalReportStateEnum;
-      /** Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' (the reason/note records why). Reserve 'already_fixed' with state='potential' (snooze/restore) for "fixed by something else / might recur" cases, so the report reappears if the issue comes back. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). The dismissal codes (report_unclear, analysis_wrong, wontfix_*) go with state='suppressed'. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
        *
        * * `already_fixed` - Already fixed
        * * `report_unclear` - Report is unclear to me
        * * `analysis_wrong` - Agent's analysis is wrong
        * * `wontfix_intentional` - Won't fix - intentional behavior
        * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
+       * * `fixed_outside_posthog` - Fixed outside PostHog
+       * * `pr_merged` - PR was merged
        * * `other` - Something else… */
       dismissal_reason?: DismissalReasonEnum;
       /**
@@ -76807,19 +76846,21 @@ export namespace Schemas {
     }
 
     export interface SignalReportStateRequest {
-      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is only allowed from a researched status (ready or pending_input) or a suppressed report; other statuses return 409 (skipped in bulk).
+      /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is only allowed from a researched status (ready or pending_input) or a suppressed report; other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.
        *
        * * `suppressed` - suppressed
        * * `potential` - potential
        * * `resolved` - resolved */
       state: SignalReportStateEnum;
-      /** Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' (the reason/note records why). Reserve 'already_fixed' with state='potential' (snooze/restore) for "fixed by something else / might recur" cases, so the report reappears if the issue comes back. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+      /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). The dismissal codes (report_unclear, analysis_wrong, wontfix_*) go with state='suppressed'. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
        *
        * * `already_fixed` - Already fixed
        * * `report_unclear` - Report is unclear to me
        * * `analysis_wrong` - Agent's analysis is wrong
        * * `wontfix_intentional` - Won't fix - intentional behavior
        * * `wontfix_irrelevant` - Won't fix - issue is real but insignificant
+       * * `fixed_outside_posthog` - Fixed outside PostHog
+       * * `pr_merged` - PR was merged
        * * `other` - Something else… */
       dismissal_reason?: DismissalReasonEnum;
       /**
@@ -85040,6 +85081,8 @@ export namespace Schemas {
       readonly email_sending_suspended_at: string | null;
       /** Staff-authored reason shown to customers alongside the suspension notice; empty when not suspended. */
       readonly email_sending_suspension_reason: string;
+      /** The project's sending tier, what it allows, and how much of it has been used; null when the caller lacks project-wide workflow access. */
+      readonly sending_allowance: EmailSendingAllowance | null;
     }
 
     export const TeamMCPGatewayConfigMemberDefaultPreset = {...MCPPolicyPresetEnum,...BlankEnum,} as const
