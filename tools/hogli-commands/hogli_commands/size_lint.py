@@ -62,6 +62,23 @@ EXCLUDED: Final = (
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
+class RenameMaps:
+    """Where a path came from, one hop per namespace.
+
+    The two maps stay apart because they describe different namespaces. Merging them
+    would join two unrelated files whenever a rename reuses a pathname another rename
+    just vacated.
+    """
+
+    staged: dict[str, str]  # index path -> its name at HEAD
+    committed: dict[str, str]  # HEAD path -> its name at the merge base
+
+    def path_at_base(self, path: str) -> str:
+        at_head = self.staged.get(path, path)
+        return self.committed.get(at_head, at_head)
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
 class Finding:
     file: str
     lines: int
@@ -103,7 +120,7 @@ def _rename_map(*diff_args: str) -> dict[str, str]:
     return sources
 
 
-def _rename_maps(base: str) -> tuple[dict[str, str], dict[str, str]]:
+def _rename_maps(base: str) -> RenameMaps:
     """Rename sources for the two hops between the merge base and the index.
 
     Nearly half of all threshold crossings are file moves. Without them, relocating a
@@ -112,19 +129,8 @@ def _rename_maps(base: str) -> tuple[dict[str, str], dict[str, str]]:
     `git mv` has no committed rename to find yet. A move that is neither committed nor
     staged stays undetectable, because git has no rename to report until one side is
     recorded.
-
-    The two maps stay separate because they describe different namespaces: one takes an
-    index path to its name at HEAD, the other takes a HEAD path to its name at the base.
-    Merging them would join two unrelated files whenever a rename reuses a pathname
-    another rename just vacated.
     """
-    return _rename_map("--cached", "HEAD"), _rename_map(f"{base}...HEAD")
-
-
-def _path_at_base(staged: dict[str, str], committed: dict[str, str], path: str) -> str:
-    """The name *path* had at the merge base, one rename per hop."""
-    at_head = staged.get(path, path)
-    return committed.get(at_head, at_head)
+    return RenameMaps(staged=_rename_map("--cached", "HEAD"), committed=_rename_map(f"{base}...HEAD"))
 
 
 def _lines_at(rev: str, path: str) -> int:
@@ -150,7 +156,7 @@ def _line_count(path: str, rev: str | None) -> int:
 
 def _findings(files: list[str], base: str | None, rev: str | None = None) -> list[Finding]:
     """Every crossing, plus at most one note for the largest already-oversized file."""
-    staged, committed = _rename_maps(base) if base is not None else ({}, {})
+    renames = _rename_maps(base) if base is not None else RenameMaps(staged={}, committed={})
     crossings: list[Finding] = []
     already_large: list[Finding] = []
     for path in files:
@@ -158,7 +164,7 @@ def _findings(files: list[str], base: str | None, rev: str | None = None) -> lis
         # CROSSED_AT is the lower of the two thresholds, so nothing under it is reportable.
         if lines <= CROSSED_AT:
             continue
-        was = _lines_at(base, _path_at_base(staged, committed, path)) if base is not None else 0
+        was = _lines_at(base, renames.path_at_base(path)) if base is not None else 0
         # Without a base there is no "before" size, so nothing can be called a crossing.
         if base is not None and was <= CROSSED_AT:
             crossings.append(Finding(file=path, lines=lines, was=was, crossed=True))
