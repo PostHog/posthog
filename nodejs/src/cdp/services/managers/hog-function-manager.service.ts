@@ -1,6 +1,6 @@
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
-import { LazyLoader } from '~/common/utils/lazy-loader'
+import { DEFAULT_LOADER_RETRY, LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { PubSub } from '~/common/utils/pubsub'
@@ -74,11 +74,15 @@ export class HogFunctionManagerService {
     ) {
         this.lazyLoaderByTeam = new LazyLoader({
             name: 'hog_function_manager_by_team',
+            // Absorb transient Postgres blips (e.g. a PgBouncer restart) inside a single load
+            // attempt so a pooler blip does not fail a batch of hog function work.
+            loaderRetry: DEFAULT_LOADER_RETRY,
             loader: async (teamIds) => await this.fetchTeamHogFunctions(teamIds),
         })
 
         this.lazyLoader = new LazyLoader({
             name: 'hog_function_manager',
+            loaderRetry: DEFAULT_LOADER_RETRY,
             loader: async (ids) => await this.fetchHogFunctions(ids),
         })
 
