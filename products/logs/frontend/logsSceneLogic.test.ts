@@ -245,6 +245,89 @@ describe('logsSceneLogic', () => {
         })
     })
 
+    describe('anomalies URL sync', () => {
+        const anomaliesRange = { date_from: '-1wStart', date_to: 'wStart' }
+
+        it('writes the picked service and week to the URL, and drops each at its default', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setServiceName('checkout')
+                logic.actions.setDateRange(anomaliesRange)
+            }).toFinishAllListeners()
+
+            expect(router.values.searchParams.serviceName).toEqual('checkout')
+            expect(router.values.searchParams.anomaliesDateRange).toEqual(anomaliesRange)
+
+            await expectLogic(logic, () => {
+                logic.actions.setServiceName(null)
+                logic.actions.setDateRange({ date_from: '-7d' })
+            }).toFinishAllListeners()
+
+            expect(router.values.searchParams.serviceName).toBeUndefined()
+            expect(router.values.searchParams.anomaliesDateRange).toBeUndefined()
+        })
+
+        it('restores both from a shared URL', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', {
+                    activeTab: 'anomalies',
+                    serviceName: 'checkout',
+                    anomaliesDateRange: JSON.stringify(anomaliesRange),
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.serviceName).toEqual('checkout')
+            expect(logic.values.dateRange).toEqual(anomaliesRange)
+        })
+
+        it('leaves the log viewer window alone', async () => {
+            // The two ranges share one URL, so writing the anomalies week must not move the
+            // viewer's own dateRange param and silently reframe the user's logs.
+            const viewerRange = logic.values.filters.dateRange
+
+            await expectLogic(logic, () => {
+                logic.actions.setDateRange(anomaliesRange)
+            }).toFinishAllListeners()
+
+            expect(router.values.searchParams.dateRange).not.toEqual(anomaliesRange)
+            expect(logic.values.filters.dateRange).toEqual(viewerRange)
+        })
+
+        it('returns to the default week when the param drops out of the URL', async () => {
+            // The default week writes no param, so navigating back past a week that did write
+            // one has to clear it. Without this the picker keeps the older week on the way back.
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', {
+                    activeTab: 'anomalies',
+                    anomaliesDateRange: JSON.stringify(anomaliesRange),
+                })
+            }).toFinishAllListeners()
+            expect(logic.values.dateRange).toEqual(anomaliesRange)
+
+            // The write arms the URL sync guard and clears it in a macrotask, which
+            // toFinishAllListeners does not flush. A real back-navigation lands well after that.
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { activeTab: 'anomalies' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.dateRange).toEqual({ date_from: '-7d' })
+        })
+
+        it('ignores the anomalies params while another tab is active', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', {
+                    activeTab: 'viewer',
+                    serviceName: 'checkout',
+                    anomaliesDateRange: JSON.stringify(anomaliesRange),
+                })
+            }).toFinishAllListeners()
+
+            expect(logic.values.serviceName).toBeNull()
+            expect(logic.values.dateRange).toEqual({ date_from: '-7d' })
+        })
+    })
+
     describe('facetNameSearch URL sync', () => {
         it('parses facetNameSearch from URL', async () => {
             await expectLogic(logic, () => {

@@ -11,6 +11,8 @@ import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Params } from 'scenes/sceneTypes'
 
+import type { DateRange } from '~/queries/schema/schema-general'
+
 import {
     DEFAULT_ORDER_BY,
     DEFAULT_VIEW_MODE,
@@ -37,6 +39,7 @@ import {
 } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/logDetailsModalLogic'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
+import { DEFAULT_ANOMALIES_DATE_RANGE, logsAnomaliesLogic } from 'products/logs/frontend/logsAnomaliesLogic'
 
 import type { LogMessage } from '../../../frontend/src/queries/schema/schema-general'
 import type { LogsOrderBy } from './types'
@@ -91,6 +94,8 @@ export interface logsSceneLogicValues {
         explicitDate: boolean | null | undefined
     } // logsViewerFiltersLogic
     linkToLogId: string | null // logsViewerLogic
+    serviceName: string | null // logsAnomaliesLogic
+    dateRange: DateRange // logsAnomaliesLogic
     activeTab: LogsSceneActiveTab
     expandedAttributeBreaksdowns: string[]
 }
@@ -100,6 +105,12 @@ export interface logsSceneLogicActions {
     setFacetNameSearch: (search: string) => {
         search: string
     } // facetRailLogic
+    setServiceName: (serviceName: string | null) => {
+        serviceName: string | null
+    } // logsAnomaliesLogic
+    setDateRange: (dateRange: DateRange) => {
+        dateRange: DateRange
+    } // logsAnomaliesLogic
     closeLogDetails: () => {
         value: true
     } // logDetailsModalLogic
@@ -183,6 +194,8 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             ['closeLogDetails'],
             facetRailLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['setFacetNameSearch'],
+            logsAnomaliesLogic,
+            ['setServiceName', 'setDateRange'],
         ],
         values: [
             logsViewerFiltersLogic({ id: LOGS_SCENE_VIEWER_ID }),
@@ -195,6 +208,8 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             ['linkToLogId'],
             facetRailLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['facetNameSearch'],
+            logsAnomaliesLogic,
+            ['serviceName', 'dateRange'],
         ],
     })),
     urlToAction(({ actions, values, cache }) => {
@@ -320,6 +335,30 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             if (facetNameSearch !== values.facetNameSearch) {
                 actions.setFacetNameSearch(facetNameSearch)
             }
+
+            // Picking a service fetches its band charts, so these are only read while the
+            // Anomalies tab is the one being shown.
+            const effectiveTab = requestedTab ?? values.activeTab
+            if (effectiveTab === 'anomalies') {
+                const serviceName = typeof params.serviceName === 'string' ? params.serviceName : null
+                if (serviceName !== values.serviceName) {
+                    actions.setServiceName(serviceName)
+                }
+                try {
+                    // An absent param means the default, so going back past a week that was
+                    // written to the URL returns to it rather than keeping the last pick.
+                    const anomaliesDateRange = params.anomaliesDateRange
+                        ? typeof params.anomaliesDateRange === 'string'
+                            ? JSON.parse(params.anomaliesDateRange)
+                            : params.anomaliesDateRange
+                        : DEFAULT_ANOMALIES_DATE_RANGE
+                    if (!equal(anomaliesDateRange, values.dateRange)) {
+                        actions.setDateRange(anomaliesDateRange)
+                    }
+                } catch {
+                    // Ignore malformed anomaliesDateRange JSON in URL
+                }
+            }
         }
         return {
             '*': urlToAction,
@@ -414,6 +453,16 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             )
         }
 
+        const syncAnomaliesParams = (): ReturnType<typeof syncSearchParams> => {
+            return withUrlSyncGuard(() =>
+                syncSearchParams(router, (params: Params) => {
+                    updateSearchParams(params, 'serviceName', values.serviceName, null)
+                    updateSearchParams(params, 'anomaliesDateRange', values.dateRange, DEFAULT_ANOMALIES_DATE_RANGE)
+                    return params
+                })
+            )
+        }
+
         return {
             // initialLogsLimit is a one-shot override from "copy link to log" URLs.
             // It ensures the first fetch loads enough logs to include the linked log,
@@ -424,6 +473,8 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             syncUrl: () => syncUrl(),
             setActiveTab: () => syncActiveTab(),
             setViewMode: () => syncViewMode(),
+            setServiceName: () => syncAnomaliesParams(),
+            setDateRange: () => syncAnomaliesParams(),
         }
     }),
 
