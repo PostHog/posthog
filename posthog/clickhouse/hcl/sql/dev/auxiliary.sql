@@ -275,6 +275,21 @@ CREATE TABLE posthog.raw_error_tracking_fingerprint_issue_state (
   _partition UInt64,
   INDEX kafka_timestamp_minmax_raw_error_tracking_fingerprint_issue_state _timestamp TYPE minmax GRANULARITY 3
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.raw_error_tracking_fingerprint_issue_state', '{replica}-{shard}', version) ORDER BY (team_id, fingerprint) SETTINGS index_granularity = 512;
+CREATE TABLE posthog.sharded_billing_usage_records (
+  schema_version UInt8,
+  record_id String,
+  producer_id LowCardinality(String),
+  team_id Int64,
+  organization_id UUID,
+  usage_key LowCardinality(String),
+  unit LowCardinality(String),
+  quantity Int64,
+  timestamp DateTime64(6, 'UTC'),
+  inserted_at DateTime64(6, 'UTC'),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.sharded_billing_usage_records', '{replica}', inserted_at) ORDER BY (team_id, toDate(timestamp), producer_id, usage_key, record_id) PARTITION BY toYYYYMM(timestamp) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.sharded_conversion_goal_attributed_preaggregated (
   team_id Int64,
   job_id UUID,

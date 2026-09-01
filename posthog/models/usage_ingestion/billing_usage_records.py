@@ -64,7 +64,13 @@ CREATE TABLE IF NOT EXISTS {BILLING_USAGE_RECORDS_TABLE}
     {BASE_BILLING_USAGE_RECORDS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
-ENGINE = {Distributed(data_table=SHARDED_BILLING_USAGE_RECORDS_TABLE, sharding_key="cityHash64(team_id)")}
+ENGINE = {
+        Distributed(
+            data_table=SHARDED_BILLING_USAGE_RECORDS_TABLE,
+            sharding_key="cityHash64(team_id)",
+            cluster=settings.CLICKHOUSE_AUX_CLUSTER,
+        )
+    }
 """
 
 
@@ -75,7 +81,13 @@ CREATE TABLE IF NOT EXISTS {WRITABLE_BILLING_USAGE_RECORDS_TABLE}
     {BASE_BILLING_USAGE_RECORDS_COLUMNS}
     {KAFKA_COLUMNS_WITH_PARTITION}
 )
-ENGINE = {Distributed(data_table=SHARDED_BILLING_USAGE_RECORDS_TABLE, sharding_key="cityHash64(team_id)")}
+ENGINE = {
+        Distributed(
+            data_table=SHARDED_BILLING_USAGE_RECORDS_TABLE,
+            sharding_key="cityHash64(team_id)",
+            cluster=settings.CLICKHOUSE_AUX_CLUSTER,
+        )
+    }
 """
 
 

@@ -37,7 +37,8 @@ development. It uses structured JSON logs otherwise.
 | Kafka cluster | `warpstream-shared` |
 | Topic | `clickhouse_billing_usage_records`, 8 partitions, 7-day retention |
 | ClickHouse Kafka table and MV | `NodeRole.INGESTION_SMALL` |
-| ClickHouse storage and read tables | `NodeRole.DATA` |
+| ClickHouse storage table | `NodeRole.AUX` |
+| ClickHouse read table | `NodeRole.DATA` |
 | Reachability | in-cluster only; no external proxy and no request authentication |
 | Owning team | `team-ingestion` |
 

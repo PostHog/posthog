@@ -2120,7 +2120,7 @@ SQL
     column "_offset" { type = "UInt64" }
     column "_partition" { type = "UInt64" }
     engine "distributed" {
-      cluster_name    = "posthog"
+      cluster_name    = "aux"
       remote_database = "posthog"
       remote_table    = "sharded_billing_usage_records"
       sharding_key    = "cityHash64(team_id)"

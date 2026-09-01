@@ -3340,7 +3340,7 @@ CREATE TABLE posthog.writable_billing_usage_records (
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64
-) ENGINE = Distributed('posthog', 'posthog', 'sharded_billing_usage_records', cityHash64(team_id));
+) ENGINE = Distributed('aux', 'posthog', 'sharded_billing_usage_records', cityHash64(team_id));
 CREATE TABLE posthog.writable_cohort_membership (
   team_id Int64,
   cohort_id Int64,
@@ -5721,7 +5721,7 @@ CREATE TABLE posthog.billing_usage_records (
   _timestamp DateTime,
   _offset UInt64,
   _partition UInt64
-) ENGINE = Distributed('posthog', 'posthog', 'sharded_billing_usage_records', cityHash64(team_id));
+) ENGINE = Distributed('aux', 'posthog', 'sharded_billing_usage_records', cityHash64(team_id));
 CREATE TABLE posthog.conversion_goal_attributed_preaggregated (
   team_id Int64,
   job_id UUID,

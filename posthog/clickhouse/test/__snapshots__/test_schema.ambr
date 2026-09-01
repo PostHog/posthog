@@ -1166,7 +1166,7 @@
   , _partition UInt64
   
   )
-  ENGINE = Distributed('posthog', 'posthog_test', 'sharded_billing_usage_records', cityHash64(team_id))
+  ENGINE = Distributed('aux', 'posthog_test', 'sharded_billing_usage_records', cityHash64(team_id))
   
   '''
 # ---
@@ -9077,7 +9077,7 @@
   , _partition UInt64
   
   )
-  ENGINE = Distributed('posthog', 'posthog_test', 'sharded_billing_usage_records', cityHash64(team_id))
+  ENGINE = Distributed('aux', 'posthog_test', 'sharded_billing_usage_records', cityHash64(team_id))
   
   '''
 # ---
