@@ -137,8 +137,8 @@ pub enum ReleaseMode {
     /// Bind the release to the uploaded symbol sets
     SymbolSet,
     /// Resolve the release per event (the default). A web build reads an id injected into the
-    /// chunk. A build that injects nothing, such as Hermes or proguard, resolves the release from
-    /// the app version and namespace the SDK already sends
+    /// chunk. A Hermes build injects nothing, and resolves the release from the app version and
+    /// namespace the SDK already sends
     Event,
 }
 
