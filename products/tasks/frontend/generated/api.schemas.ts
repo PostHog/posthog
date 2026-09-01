@@ -2635,6 +2635,11 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * @nullable
      */
     rtk_enabled?: boolean | null
+    /**
+     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
+     * @nullable
+     */
+    benjamin_enabled?: boolean | null
 }
 
 /**
@@ -2756,6 +2761,11 @@ export interface CodexTaskRunCreateSchemaApi {
      * @nullable
      */
     rtk_enabled?: boolean | null
+    /**
+     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
+     * @nullable
+     */
+    benjamin_enabled?: boolean | null
 }
 
 export interface TaskRunResumeRequestSchemaApi {
@@ -3122,6 +3132,11 @@ export interface TaskRunBootstrapCreateRequestApi {
      * @nullable
      */
     rtk_enabled?: boolean | null
+    /**
+     * Whether the Benjamin-Plus token-efficiency instruction applies to this run. Omitted or null lets the server decide from the feature flag; true or false pins the choice for this run.
+     * @nullable
+     */
+    benjamin_enabled?: boolean | null
 }
 
 /**
