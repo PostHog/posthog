@@ -163,9 +163,13 @@ def measure_flag_evaluations_parity(
                         FROM {settings.CLICKHOUSE_DATABASE}.events
                         WHERE team_id IN %(teams)s AND toDate(timestamp) = %(day)s
                           AND event = %(event)s
-                          -- Same predicate the fork applies before it writes: an event
-                          -- without a non-empty string $feature_flag never produces a row,
-                          -- so counting it here would read as a false deficit.
+                          -- The fork writes a row only when $feature_flag is a non-empty string,
+                          -- and lets every other $feature_flag_called event continue to the events
+                          -- table untouched. Without the same condition here, each one reads as a
+                          -- lost row. JSONExtractString on its own is not that condition, because
+                          -- it renders a number, boolean, object or array as its text, so
+                          -- JSONType has to reject those types before the empty-string check.
+                          AND JSONType(properties, '$feature_flag') = 'String'
                           AND JSONExtractString(properties, '$feature_flag') != ''
                     )
                     GROUP BY team_id, uuid
@@ -199,14 +203,25 @@ def parity_alert_lines(results: ParityResults) -> list[str] | None:
     """The Slack message for a run, or None when there is nothing to say.
 
     Only a deficit and an uncovered team are worth waking someone for. Excess is reported as
-    context but never triggers the alert on its own: flag_evaluations carries a permanent
-    surplus of a fraction of a percent, because clients re-send event uuids and its plain
-    MergeTree cannot collapse them while the ReplacingMergeTree behind events does. Alerting
-    on any difference would fire every day for every team and teach everyone to ignore it.
+    context but never triggers the alert on its own. It counts uuids the fork wrote that the
+    events table has no row for. Over the week to 2026-08-31 in prod-US it stayed at or below
+    0.09 percent of the uuids the fork wrote, and was zero on four of the seven days. Re-sent
+    uuids are not what it counts: the comparison groups by (team_id, uuid), so the duplicate
+    rows that flag_evaluations keeps and the ReplacingMergeTree behind events collapses fold
+    into one entry per side before anything is counted, and a re-sent uuid that reached both
+    tables lands in in_both.
 
     There is no threshold on the deficit for the opposite reason: it has measured zero on
     every day checked so far, so any non-zero value is a regression a threshold would hide.
     """
+
+    # No enabled team means the fork wrote nothing anywhere for the whole lookback window, which
+    # a rolled-back allowlist produces. Staying quiet here would report it as a clean run.
+    if not results.teams_enabled:
+        return [
+            f"*flag_evaluations parity* for `{results.day}`",
+            "No team wrote a flag_evaluations row in the lookback window, so nothing was compared.",
+        ]
 
     deficits = sorted(
         (team for team in results.checked if team.only_in_events > 0),
@@ -260,6 +275,10 @@ def report_flag_evaluations_parity(
     if lines is None:
         context.log.info(f"Parity holds for {len(results.checked)} teams on {results.day}")
         return
+
+    # A Slack failure is logged and swallowed below, and the per-team deficit lines exist
+    # nowhere else, so record them before the post is attempted.
+    context.log.warning("\n".join(lines))
 
     if not settings.CLOUD_DEPLOYMENT:
         context.log.info("Skipping Slack notification in non-prod environment")

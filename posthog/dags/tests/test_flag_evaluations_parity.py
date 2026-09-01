@@ -58,6 +58,14 @@ class TestParityAlertLines:
         assert lines is not None
         assert any(expected in line for line in lines)
 
+    def test_alerts_when_no_team_is_enabled(self) -> None:
+        # A cleared allowlist leaves no enabled team, which produces no deficit. Reporting that
+        # as a clean run would hide the fork having stopped writing everywhere.
+        results = ParityResults(day=datetime.now(tz=UTC).date(), checked=[], teams_enabled=0, teams_truncated=0)
+        lines = parity_alert_lines(results)
+        assert lines is not None
+        assert any("No team wrote a flag_evaluations row in the lookback window" in line for line in lines)
+
     def test_summary_counts_queried_teams_not_only_teams_with_rows(self) -> None:
         # Ten teams were queried but only one had rows on the day. The summary must report the
         # queried count, not len(checked), or it understates coverage and contradicts the
@@ -140,3 +148,11 @@ def test_measure_attributes_deficit_and_excess_to_the_right_team(cluster: Clickh
     assert by_team[excess_team] == TeamParity(excess_team, only_in_events=0, only_in_flag_evaluations=1, in_both=0)
     # Switched on during the checked day, so it is skipped rather than reported as a deficit.
     assert activation_team not in by_team
+
+    # A run capped by max_teams has to report the teams it left out, or it reads as full
+    # coverage. Only the counts are asserted, because ORDER BY count() DESC does not settle
+    # which of the equally-sized teams the cap drops.
+    capped = measure_flag_evaluations_parity(
+        dagster.build_op_context(), FlagEvaluationsParityConfig(max_teams=2), cluster
+    )
+    assert (capped.teams_enabled, capped.teams_truncated) == (3, 1)
