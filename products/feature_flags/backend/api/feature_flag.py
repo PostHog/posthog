@@ -40,7 +40,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.services.flags_service import RETRYABLE_FLAGS_SERVICE_EXCEPTIONS, get_flags_from_service
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
-from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, ErrorResponseSerializer, action
+from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, ErrorResponseSerializer, ServiceRequest, action
 from posthog.auth import (
     IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
@@ -3032,6 +3032,65 @@ class BulkDeleteResponseSerializer(serializers.Serializer):
     )
 
 
+def flag_lifecycle_responses(bad_request: str | None = None) -> dict[int, Any]:
+    """Response schemas for a flag lifecycle action.
+
+    ``bad_request`` is the 400 that action can actually produce. Documenting the union of all
+    of them would tell an agent to expect failures its action cannot raise.
+    """
+    responses: dict[int, Any] = {
+        200: FeatureFlagSerializer,
+        409: OpenApiResponse(
+            response=ErrorResponseSerializer,
+            description="An approval policy gates this change. A change request was opened; the flag is unchanged.",
+        ),
+    }
+    if bad_request is not None:
+        responses[400] = OpenApiResponse(response=ErrorResponseSerializer, description=bad_request)
+    return responses
+
+
+class FlagLifecycleWriteRequest(ServiceRequest):
+    """The request a flag lifecycle action hands to the flag facade.
+
+    The actions are POST but they perform an update, and two things in the write path branch on
+    the method. ``FeatureFlagSerializer.validate`` runs create-only validation on POST, so a team
+    with ``require_evaluation_contexts`` set would get "at least one evaluation context is
+    required to create a new feature flag" from a state flip. The approval gate's resource-id
+    extraction returns None for POST, so pending change requests for different flags collide and
+    the second one is dropped as a duplicate. Reporting the write as the PATCH it is fixes both.
+
+    ``data`` stays empty because these endpoints declare no body. The serializer reads ``version``
+    and ``original_flag`` off the request, so a body echoed back from an earlier read could
+    otherwise discard the state change and still return 200.
+
+    Everything else defers to the real request, so impersonation attribution and analytics behave
+    as they do on any other flag write.
+    """
+
+    # ServiceRequest declares these from its own narrow defaults (None, {}); the real request's
+    # values are wider, so widen the annotations here rather than casting at each assignment.
+    successful_authenticator: Any
+    headers: Any
+
+    def __init__(self, request: request.Request) -> None:
+        self._request = request
+        super().__init__(request.user, method="PATCH")
+        self.successful_authenticator = request.successful_authenticator
+        self.path = request.path
+        self.GET = request.GET
+        self.META = request.META
+        self.headers = request.headers
+        self.session = getattr(request, "session", {})
+
+    def __getattr__(self, name: str) -> Any:
+        # Reached only for attributes ServiceRequest does not define, so `method` and `data`
+        # always come from this shim rather than the real request.
+        if name == "_request":
+            raise AttributeError(name)
+        return getattr(self._request, name)
+
+
 # ClickHouse cost attribution: this viewset currently has no direct ClickHouse calls —
 # all ClickHouse work is delegated to helpers (user_blast_radius.py, flag_analytics.py)
 # that already tag their queries. If you add a new ClickHouse query reachable from an
@@ -3427,6 +3486,137 @@ class FeatureFlagViewSet(
             ],
             status=200,
         )
+
+    # Lifecycle actions — the typed, single-purpose alternative to PATCH for the two state
+    # fields. Each one changes only `active` and/or `archived`. None of them accepts or
+    # rewrites `filters`, so a caller no longer reads the flag, mutates one field, and sends
+    # the whole targeting object back (which silently overwrites concurrent edits).
+    #
+    # Each routes through the flag facade, which writes through FeatureFlagSerializer — the
+    # same path PATCH uses, so the approval gate, the dependency guards, optimistic
+    # versioning, cache invalidation and activity logging all apply.
+    #
+    # A flag already in the requested state is a successful no-op with no write, so a retry
+    # cannot bump the version or log a change that did not happen.
+    #
+    # The facade is imported inside each action because it imports this module's serializer.
+
+    def _lifecycle_response(self, feature_flag: FeatureFlag) -> Response:
+        data = self.get_serializer(feature_flag).data
+        # `filters` serializes the stored dict, so an encrypted payload would leave here as
+        # ciphertext. Mirrors retrieve().
+        if data.get("has_encrypted_payloads", False):
+            data["filters"]["payloads"] = get_decrypted_flag_payloads_protected(
+                self.request, data["filters"]["payloads"]
+            )
+        return Response(data, status=status.HTTP_200_OK)
+
+    def _set_active(self, request: request.Request, *, active: bool) -> Response:
+        from products.feature_flags.backend.facade.api import set_flag_active
+
+        feature_flag: FeatureFlag = self.get_object()
+        if feature_flag.active != active:
+            feature_flag = set_flag_active(
+                feature_flag,
+                active,
+                team=self.team,
+                user=request.user,
+                request=FlagLifecycleWriteRequest(request),
+            )
+        return self._lifecycle_response(feature_flag)
+
+    @action(
+        methods=["POST"],
+        detail=True,
+        required_scopes=["feature_flag:write"],
+        request=None,
+        responses=flag_lifecycle_responses("The flag is archived, or one of the flags it depends on is disabled."),
+    )
+    def enable(self, request: request.Request, **kwargs) -> Response:
+        """
+        Enable a feature flag.
+
+        Sets `active` to true and changes nothing else. Targeting, variants, payloads, tags and
+        archived state are left as they are. An archived flag is refused: unarchive it first. A
+        flag whose own flag dependencies are disabled is also refused. An already-enabled flag
+        is returned unchanged.
+        """
+        return self._set_active(request, active=True)
+
+    @action(
+        methods=["POST"],
+        detail=True,
+        required_scopes=["feature_flag:write"],
+        request=None,
+        responses=flag_lifecycle_responses("Another active flag depends on this one."),
+    )
+    def disable(self, request: request.Request, **kwargs) -> Response:
+        """
+        Disable a feature flag.
+
+        Sets `active` to false and changes nothing else. Targeting, variants, payloads, tags and
+        archived state are left as they are. Refused when other active flags depend on this one.
+        An already-disabled flag is returned unchanged.
+
+        A disabled flag stops evaluating for every consumer, including a linked experiment or a
+        session replay setting. Read the full definition first to report that impact.
+        """
+        return self._set_active(request, active=False)
+
+    @action(
+        methods=["POST"],
+        detail=True,
+        required_scopes=["feature_flag:write"],
+        request=None,
+        responses=flag_lifecycle_responses("The flag is enabled and another active flag depends on it."),
+    )
+    def archive(self, request: request.Request, **kwargs) -> Response:
+        """
+        Archive a feature flag, hiding it from the default flag list.
+
+        Sets `archived` to true. An archived flag must be disabled, so an enabled flag also gets
+        `active` set to false in the same write. Targeting, variants and payloads are left as
+        they are, and linked experiment and survey history is preserved. Archiving an enabled
+        flag is refused when other active flags depend on it. An already-archived flag is
+        returned unchanged.
+        """
+        from products.feature_flags.backend.facade.api import archive_flag
+
+        feature_flag: FeatureFlag = self.get_object()
+        if feature_flag.archived:
+            return self._lifecycle_response(feature_flag)
+        updated = archive_flag(
+            feature_flag,
+            team=self.team,
+            user=request.user,
+            request=FlagLifecycleWriteRequest(request),
+            disable_if_active=True,
+        )
+        return self._lifecycle_response(updated)
+
+    @action(
+        methods=["POST"],
+        detail=True,
+        required_scopes=["feature_flag:write"],
+        request=None,
+        responses=flag_lifecycle_responses(),
+    )
+    def unarchive(self, request: request.Request, **kwargs) -> Response:
+        """
+        Restore an archived feature flag to the default flag list.
+
+        Sets `archived` to false and changes nothing else. The flag stays disabled; enable it
+        with a separate call. An already-unarchived flag is returned unchanged.
+        """
+        from products.feature_flags.backend.facade.api import unarchive_flag
+
+        feature_flag: FeatureFlag = self.get_object()
+        if not feature_flag.archived:
+            return self._lifecycle_response(feature_flag)
+        updated = unarchive_flag(
+            feature_flag, team=self.team, user=request.user, request=FlagLifecycleWriteRequest(request)
+        )
+        return self._lifecycle_response(updated)
 
     @extend_schema(
         parameters=[
