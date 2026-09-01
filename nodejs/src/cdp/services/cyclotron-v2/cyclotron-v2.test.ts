@@ -2535,5 +2535,33 @@ describe('Cyclotron V2', () => {
             expect(result.depths.get('queue-a')).toBe(2)
             expect(result.depths.get('queue-b')).toBe(1)
         })
+
+        it('sweeps expired conversion watchers and keeps live ones', async () => {
+            // The sweep is the only thing that removes a watcher that never converts, and it moved
+            // here from the matcher. If a refactor drops it from runOnce the table grows without
+            // bound and nothing else fails, so assert the delete happens on a real row.
+            const insertWatcher = async (id: string, expiresAt: Date): Promise<void> => {
+                await assertPool.query(
+                    `INSERT INTO conversion_watchers
+                     (id, team_id, function_id, run_id, distinct_id, goal, expires_at)
+                     VALUES ($1, 1, $2, $1, $3, $4, $5)`,
+                    [id, uuidv7(), `sweep-${id}`, JSON.stringify({ events: [] }), expiresAt]
+                )
+            }
+            const expired = uuidv7()
+            const live = uuidv7()
+            await insertWatcher(expired, new Date(Date.now() - 60_000))
+            await insertWatcher(live, new Date(Date.now() + 3_600_000))
+
+            const janitor = createJanitor()
+            await janitor.runOnce()
+
+            const remaining = await assertPool.query(`SELECT id FROM conversion_watchers WHERE id = ANY($1::uuid[])`, [
+                [expired, live],
+            ])
+            expect(remaining.rows.map((r) => r.id)).toEqual([live])
+
+            await janitor.stop()
+        })
     })
 })

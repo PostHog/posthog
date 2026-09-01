@@ -63,6 +63,12 @@ const janitorRunCounter = new Counter({
     help: 'Number of janitor cleanup runs completed',
 })
 
+// Kept on the name the matcher used to emit, so existing dashboards and queries survive the move.
+const conversionWatchersSweptCounter = new Counter({
+    name: 'cdp_conversion_watchers_swept',
+    help: 'Expired conversion watcher rows deleted. These are runs that reached the end of their attribution window without converting.',
+})
+
 const queueDepthGauge = new Gauge({
     name: 'cdp_cyclotron_v2_queue_depth',
     help: 'Number of available jobs per queue',
@@ -165,6 +171,7 @@ export class CyclotronV2Janitor {
             : await this.failPoisonPills()
 
         const stalled = await this.resetStalledJobs()
+        await this.sweepExpiredConversionWatchers()
         const depths = await this.measureQueueDepths()
 
         janitorRunCounter.inc()
@@ -469,6 +476,38 @@ export class CyclotronV2Janitor {
         }
 
         return count
+    }
+
+    /**
+     * Deletes conversion watchers whose attribution window has closed.
+     *
+     * Nothing else removes them: a watcher that converts is deleted by the matcher's claim, and one
+     * that never converts would otherwise live forever. This runs here rather than in the matcher
+     * because every matcher pod would run its own copy, all deleting from the same table.
+     *
+     * A failure is logged and swallowed: an expired watcher has already stopped matching via the
+     * `expires_at` predicate, so a missed sweep costs space and never a conversion, and it must not
+     * stop the janitor finishing its cyclotron work.
+     */
+    async sweepExpiredConversionWatchers(): Promise<number> {
+        try {
+            const result = await this.pool.query(
+                `DELETE FROM conversion_watchers
+                 WHERE id IN (
+                     SELECT id FROM conversion_watchers WHERE expires_at <= NOW() LIMIT $1
+                 )`,
+                [this.cleanupBatchSize]
+            )
+            const deleted = result.rowCount ?? 0
+            if (deleted > 0) {
+                conversionWatchersSweptCounter.inc(deleted)
+                logger.info('CyclotronV2Janitor swept expired conversion watchers', { count: deleted })
+            }
+            return deleted
+        } catch (err) {
+            logger.error('CyclotronV2Janitor conversion watcher sweep failed', { error: String(err) })
+            return 0
+        }
     }
 
     async measureQueueDepths(): Promise<Map<string, number>> {
