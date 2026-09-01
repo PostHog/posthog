@@ -1,4 +1,6 @@
-import { getPerformanceEvents } from 'scenes/session-recordings/apm/performance-event-utils'
+import { getPerformanceEvents, itemSizeInfo } from 'scenes/session-recordings/apm/performance-event-utils'
+
+import { PerformanceEvent } from '~/types'
 
 const aSingleSnapshotWithNetworkPayloads = {
     windowId: '018d5247-079c-7126-8e43-464605576a62',
@@ -299,6 +301,24 @@ describe('performance-event-utils', () => {
             '018d5247-079c-7126-8e43-464605576a62': [snapshot],
         })
         expect(result).toEqual([])
+    })
+
+    it.each([
+        // browser reports a literal 0 for an unmeasurable request (cross-origin, opaque, blocked)
+        [
+            'unmeasurable 0 is treated as unknown',
+            { transfer_size: 0, encoded_body_size: 0, decoded_body_size: 0 },
+            null,
+        ],
+        // a cached request has no transfer size but keeps its decoded body size
+        ['cached request reports its decoded size', { transfer_size: 0, decoded_body_size: 5120 }, 5120],
+        ['transfer size wins when present', { transfer_size: 3311, decoded_body_size: 3011 }, 3311],
+    ])('itemSizeInfo bytes: %s', (_name, item, expectedBytes) => {
+        const sizeInfo = itemSizeInfo(item as PerformanceEvent)
+        expect(sizeInfo.bytes).toEqual(expectedBytes)
+        if (expectedBytes === null) {
+            expect(sizeInfo.formattedBytes).toEqual('')
+        }
     })
 
     it('skips malformed entries in rrweb/network@1 requests instead of crashing', () => {

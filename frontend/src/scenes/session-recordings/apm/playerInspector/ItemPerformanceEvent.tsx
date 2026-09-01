@@ -110,6 +110,19 @@ function StartedAt({ item }: { item: PerformanceEvent }): JSX.Element | null {
     ) : null
 }
 
+function isFailedNetworkRequest(item: PerformanceEvent): boolean {
+    // The SDK records a status for every fetch/XHR it captures, including 0 for an
+    // opaque cross-origin response. A captured call with a method but no status did
+    // not complete: it was blocked by a firewall, rejected by CORS, or hit a network
+    // error. Skip navigations and requests captured before PostHog started.
+    return (
+        item.entry_type !== 'navigation' &&
+        !item.is_initial &&
+        item.method !== undefined &&
+        item.response_status === undefined
+    )
+}
+
 function durationMillisecondsFrom(item: PerformanceEvent): number | null {
     let duration = item.duration
     if (duration === undefined && item.end_time !== undefined && item.start_time !== undefined) {
@@ -202,22 +215,22 @@ export function ItemPerformanceEvent({ item, finalTimestamp }: ItemPerformanceEv
                     <div className="flex gap-2 p-2 text-xs cursor-pointer items-center">
                         <MethodTag item={item} />
                         <PerformanceEventLabel name={item.name} expanded={false} />
-                        {/* We only show the status if it exists and is an error status */}
+                        {/* Highlight the request when it returned an error status, or when it broke
+                            without a status at all (blocked by a firewall, CORS, or a network error) */}
                         {otherProps.response_status && otherProps.response_status >= 400 ? (
                             <span
                                 className={clsx(
                                     'font-semibold',
-                                    otherProps.response_status >= 400 &&
-                                        otherProps.response_status < 500 &&
-                                        'text-warning-dark',
-                                    otherProps.response_status >= 500 && 'text-danger-dark'
+                                    otherProps.response_status < 500 ? 'text-warning-dark' : 'text-danger-dark'
                                 )}
                             >
                                 {otherProps.response_status}
                             </span>
+                        ) : isFailedNetworkRequest(item) ? (
+                            <span className="font-semibold text-danger-dark">failed</span>
                         ) : null}
                         {renderTimeBenchmark(duration)}
-                        <span className={clsx('font-semibold')}>{sizeInfo.formattedBytes}</span>
+                        <span className={clsx('font-semibold')}>{sizeInfo.formattedBytes || 'size not available'}</span>
                     </div>
                 )}
             </div>
@@ -364,6 +377,32 @@ export function ItemPerformanceEventDetail({ item }: ItemPerformanceEventProps):
     )
 }
 
+// The SDK stores a diagnostic string as the body when it cannot record the real one.
+// Translate the known messages so the reader sees why the body is missing, not raw SDK output.
+function networkBodyDiagnostic(content: string): string | null {
+    const prefix = '[SessionReplay] '
+    if (!content.startsWith(prefix)) {
+        return null
+    }
+    const message = content.slice(prefix.length)
+    if (message.startsWith('Timeout')) {
+        return 'PostHog stopped reading this body because it took too long.'
+    }
+    if (message.startsWith('Body too large')) {
+        return "PostHog didn't record this body because it was too large."
+    }
+    if (message.startsWith('Cannot read body of type')) {
+        return "PostHog couldn't record this body because its type isn't supported."
+    }
+    if (message.startsWith('Failed to stringify')) {
+        return "PostHog couldn't record this body because it couldn't be converted to text."
+    }
+    if (message.startsWith('Failed to read body')) {
+        return "PostHog couldn't read this body."
+    }
+    return "PostHog couldn't record this body."
+}
+
 export function BodyDisplay({
     content,
     headers,
@@ -387,6 +426,16 @@ export function BodyDisplay({
     }
     if (headerContentType === 'application/json') {
         language = Language.JSON
+    }
+
+    const bodyDiagnostic = networkBodyDiagnostic(displayContent)
+    if (bodyDiagnostic) {
+        return (
+            <>
+                <p>{bodyDiagnostic}</p>
+                <pre>received: {displayContent}</pre>
+            </>
+        )
     }
 
     const isAutoRedaction = /(\[SessionRecording].*redacted)/.test(displayContent)
@@ -465,10 +514,10 @@ export function StatusTag({ item, detailed }: { item: PerformanceEvent; detailed
     const statusDescription = `${responseStatus} ${isKeyOf(responseStatus, FriendlyHttpStatus) ? FriendlyHttpStatus[responseStatus] : ''}`
 
     let statusType: LemonTagType = 'success'
-    if (responseStatus >= 400 || responseStatus < 100) {
-        statusType = 'warning'
-    } else if (responseStatus >= 500) {
+    if (responseStatus >= 500) {
         statusType = 'danger'
+    } else if (responseStatus >= 400 || responseStatus < 100) {
+        statusType = 'warning'
     }
 
     return (
@@ -500,6 +549,16 @@ function StatusRow({ item }: { item: PerformanceEvent }): JSX.Element | null {
 
     if (item.response_status) {
         statusRow = <StatusTag item={item} detailed={true} />
+    } else if (isFailedNetworkRequest(item)) {
+        statusRow = (
+            <div className="flex gap-4 items-center justify-between overflow-hidden">
+                <div className="font-semibold">Status code</div>
+                <div>
+                    <LemonTag type="danger">Failed</LemonTag>
+                    <span className="text-secondary"> no response received</span>
+                </div>
+            </div>
+        )
     }
 
     if (item.method) {

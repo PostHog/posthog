@@ -311,17 +311,25 @@ function isPositiveNumber(value: any): value is number {
     return typeof value === 'number' && value >= 0
 }
 
+function hasMeasuredSize(value: any): value is number {
+    return typeof value === 'number' && value > 0
+}
+
 function bytesFrom(item: PerformanceEvent): number | null {
+    // The browser reports a literal 0 for a request it cannot measure: cross-origin,
+    // opaque, blocked, or served from cache. A 0 here is "unknown", not "no data", so
+    // skip it and try the next source before falling back to null.
+
     // encoded body + header
-    if (isPositiveNumber(item.transfer_size)) {
+    if (hasMeasuredSize(item.transfer_size)) {
         return item.transfer_size
     }
     // body while encoded e.g. gzipped
-    if (isPositiveNumber(item.encoded_body_size)) {
+    if (hasMeasuredSize(item.encoded_body_size)) {
         return item.encoded_body_size
     }
     // body after being decoded e.g. unzipped
-    if (isPositiveNumber(item.decoded_body_size)) {
+    if (hasMeasuredSize(item.decoded_body_size)) {
         return item.decoded_body_size
     }
 
