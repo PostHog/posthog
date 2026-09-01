@@ -1,5 +1,5 @@
-# Ships an image when GitHub Actions is down. Git must still be up: the checkout
-# clones from GitHub. Runbook: https://runbooks.posthog.com/services/dev-tooling/runbooks/github-outage
+# Git must still be up: the checkout clones from GitHub.
+# Runbook: https://runbooks.posthog.com/services/dev-tooling/runbooks/github-outage
 #
 # Pushes to posthog-cloud-prs because the posthog-cloud role is trusted only for
 # refs/heads/master, and a fix shipped this way is never on master.
@@ -73,13 +73,13 @@ jobs:
 
             - name: Report image reference
               env:
-                  REGISTRY: ${{ steps.aws-ecr.outputs.registry }}
-                  DIGEST: ${{ steps.build.outputs.digest }}
+                  IMAGE: ${{ steps.aws-ecr.outputs.registry }}/posthog-cloud-prs@${{ steps.build.outputs.digest }}
               run: |
                   {
                       echo "## Image ready"
                       echo ""
-                      echo "\`$REGISTRY/posthog-cloud-prs@$DIGEST\`"
+                      echo "\`$IMAGE\`"
                       echo ""
-                      echo "Pin this digest in ArgoCD. Tags expire after 14 days."
+                      echo "Pin this image in ArgoCD, then redeploy from master once Actions is back."
+                      echo "This image is deleted after 14 days."
                   } | tee -a "$GITHUB_STEP_SUMMARY"
