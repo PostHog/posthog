@@ -82,6 +82,10 @@ HOGLAND_GOLDEN_DISK_GB = 64.0
 # the server enforces the real per-call budgets.
 _HTTP_TIMEOUT = httpx.Timeout(30 * 60, connect=15)
 
+# hogland rejects any box tag longer than this (the create() API 400s with
+# "tag[i] must be <= 64 chars").
+_HOGLAND_MAX_TAG_CHARS = 64
+
 # Static container env the Modal image carries as Dockerfile ENVs. The golden image
 # bakes them into /etc/environment too; passing them per-box keeps a restore that
 # predates a bake change consistent with this backend.
@@ -221,7 +225,10 @@ class HoglandSandbox(AgentServerLaunchMixin):
         config.image_fallback = None
 
         env = {**_STATIC_BOX_ENV, **(config.environment_variables or {})}
-        tags = [f"{key}={value}" for key, value in (config.metadata or {}).items()]
+        # hogland caps each box tag at 64 chars; the Modal-shaped metadata overflows it
+        # (workflow_id is `task-processing-<task_id>-<run_id>`, ~100 chars), so truncate.
+        # task_id and task_run_id are separate, within-limit tags, so tracing survives.
+        tags = [f"{key}={value}"[:_HOGLAND_MAX_TAG_CHARS] for key, value in (config.metadata or {}).items()]
 
         try:
             client = get_hogland_client()

@@ -92,6 +92,19 @@ class TestHoglandSandboxCreate:
         assert sandbox.id == "box-abc123def456"
         assert config.snapshot_restored is False
 
+    def test_create_truncates_tags_over_the_hogland_64_char_limit(self):
+        # hogland 400s any box tag longer than 64 chars; the Modal-shaped workflow_id tag
+        # (`task-processing-<task_id>-<run_id>`, ~90 chars) overflows it, so create() must
+        # truncate. Without truncation this run fails with "tag[i] must be <= 64 chars".
+        workflow_id = "task-processing-" + "a" * 36 + "-" + "b" * 36
+        config = SandboxConfig(name="s", metadata={"workflow_id": workflow_id, "task_id": "t1"})
+        _, client = self._create(config)
+
+        tags = client.create.call_args.kwargs["tags"]
+        assert all(len(t) <= 64 for t in tags)
+        assert f"workflow_id={workflow_id}"[:64] in tags
+        assert "task_id=t1" in tags
+
     def test_create_records_the_read_back_box_shape_for_the_ledger(self):
         # The box ignores per-task overrides, so the ledger must reflect the shape the box
         # actually delivered, read back from box.view.spec — not the requested override and
