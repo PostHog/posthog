@@ -9,7 +9,7 @@ from requests import Response, Session
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.search import (
-    fetch_custom_field_selectors,
+    ALL_CUSTOM_FIELDS_SELECTOR,
     iter_search_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.close.settings import (
@@ -221,7 +221,9 @@ def close_search_source(
 
     def items() -> Iterator[list[dict[str, Any]]]:
         session = _make_search_session(api_key)
-        fields = [*config.search_fields, *fetch_custom_field_selectors(session, CLOSE_BASE_URL, object_type, logger)]
+        # One `custom` selector pulls every custom field, so the field list stays bounded no
+        # matter how many an org has. See ALL_CUSTOM_FIELDS_SELECTOR.
+        fields = [*config.search_fields, ALL_CUSTOM_FIELDS_SELECTOR]
         yield from iter_search_rows(
             session=session,
             base_url=CLOSE_BASE_URL,
