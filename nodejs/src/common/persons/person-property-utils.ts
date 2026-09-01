@@ -76,11 +76,15 @@ const INITIAL_PROPERTIES = new Set([
     '$initial_utm_term',
 ])
 
+// Properties ingestion derives from campaign params instead of lifting from the event
+const DERIVED_CAMPAIGN_PROPERTIES = new Set(['$fbc'])
+
 // Combined set of all properties that should be protected from trimming
 const ALL_PROTECTED_PROPERTIES = new Set([
     ...CORE_PERSON_PROPERTIES,
     ...EVENT_TO_PERSON_PROPERTIES,
     ...CAMPAIGN_PROPERTIES,
+    ...DERIVED_CAMPAIGN_PROPERTIES,
     ...SESSION_PROPERTIES,
     ...IDENTITY_PROPERTIES,
     ...INITIAL_PROPERTIES,
