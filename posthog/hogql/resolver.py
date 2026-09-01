@@ -887,6 +887,12 @@ class Resolver(CloningVisitor):
         # Track CTEs defined at this level (will be attached to new_node)
         current_level_ctes: dict[str, ast.CTE] | None = None
 
+        # Append the "scope" onto the stack early, so that nodes we "self.visit" below can access it.
+        # This must happen before we resolve the CTEs, so a field in the first CTE has a scope to
+        # resolve against. Otherwise both the scope stack and the CTE map are empty during the first
+        # CTE, and any field inside it fails with "No scope or CTE available".
+        self.scopes.append(node_type)
+
         # First step: resolve all the "WITH" CTEs onto "self.ctes" if there are any
         if node.ctes:
             self.ctes = dict(parent_ctes)
@@ -897,9 +903,6 @@ class Resolver(CloningVisitor):
             node_type.ctes = current_level_ctes
         else:
             self.ctes = dict(parent_ctes)
-
-        # Append the "scope" onto the stack early, so that nodes we "self.visit" below can access it.
-        self.scopes.append(node_type)
 
         # Clone the select query, piece by piece
         new_node = ast.SelectQuery(
@@ -2266,11 +2269,13 @@ class Resolver(CloningVisitor):
                 assert isinstance(cte.type, ast.CTETableType)
 
                 # Check if this is a table CTE (subquery style) vs scalar CTE (column style)
-                # Table CTE: WITH x AS (SELECT ...) - can only be used in FROM clauses
-                # Scalar CTE: WITH expr AS x or WITH (SELECT 1) AS x - can be used as scalar values
+                # Table CTE: WITH x AS (SELECT ...)
+                # Scalar CTE: WITH expr AS x or WITH (SELECT 1) AS x
                 if cte.cte_type == "subquery":
-                    # Table CTE: can only be used in FROM clauses (handled in visit_join_expr)
-                    raise QueryError(f"Cannot use table CTE {cte.name} as a value. Use it in a FROM clause instead.")
+                    # Table CTE: normally used in a FROM clause (handled in visit_join_expr), but it
+                    # can also appear in a value position such as `WHERE person_id IN paid_people`,
+                    # which ClickHouse accepts. Pass the name through and let ClickHouse resolve it.
+                    return ast.Field(chain=node.chain)
                 elif cte.cte_type == "column":
                     # Try to extract the actual return type from the scalar CTE's SELECT query
                     # Scalar CTEs should return a single column, so we get the type of the first selected column
