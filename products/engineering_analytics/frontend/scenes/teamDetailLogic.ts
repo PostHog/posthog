@@ -149,9 +149,11 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
             null as TeamActivityData | null,
             {
                 loadActivity: async (): Promise<TeamActivityData> => {
+                    // Current-state list on the fixed default window, deliberately outside the
+                    // window picker's scope (the panel rule in ../AGENTS.md).
                     const data = await engineeringAnalyticsTeamCiActivity(projectId(), {
                         owner_team: props.ownerTeam,
-                        date_from: values.window,
+                        date_from: DEFAULT_TEAMS_WINDOW,
                         source_id: props.sourceId ?? undefined,
                     })
                     return {
@@ -255,7 +257,6 @@ export const teamDetailLogic = kea<teamDetailLogicType>([
     }),
     listeners(({ actions }) => ({
         setWindow: () => {
-            actions.loadActivity()
             actions.loadMergeTrend()
             actions.loadHealthRow()
         },

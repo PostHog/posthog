@@ -21,7 +21,13 @@ import { WindowComparisonCard } from '../components/WindowComparisonCard'
 import { compactHoursLabel } from '../lib/format'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { TeamDetailLogicProps, TeamTestSignalRow, teamDetailLogic } from './teamDetailLogic'
-import { TEAMS_WINDOW_DATE_OPTIONS, TEAMS_WINDOW_LABELS, UNOWNED_TEAM, isTeamsWindow } from './teamsLogic'
+import {
+    DEFAULT_TEAMS_WINDOW,
+    TEAMS_WINDOW_DATE_OPTIONS,
+    TEAMS_WINDOW_LABELS,
+    UNOWNED_TEAM,
+    isTeamsWindow,
+} from './teamsLogic'
 
 export const scene: SceneExport<TeamDetailLogicProps> = {
     component: EngineeringAnalyticsTeamScene,
@@ -51,7 +57,6 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
     const repository = activeSource?.repo ?? null
     const chartTheme = useChartTheme()
 
-    const labels = TEAMS_WINDOW_LABELS[window]
     const isUnowned = ownerTeam === UNOWNED_TEAM
 
     const testColumns: LemonTableColumns<TeamTestSignalRow> = [
@@ -94,11 +99,12 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
             render: (_, row) => row.runner,
         },
         {
-            title: labels.current,
+            title: TEAMS_WINDOW_LABELS[DEFAULT_TEAMS_WINDOW].current,
             key: 'signalCount',
             width: 140,
             align: 'right',
-            tooltip: 'Runs where this test failed, errored, or a retry recovered it.',
+            tooltip:
+                'Runs where this test failed, errored, or a retry recovered it. Fixed window; the picker above does not move this list.',
             sorter: (a, b) => a.signalCount - b.signalCount,
             render: (_, row) => (
                 <div className="text-right text-sm font-semibold tabular-nums">
@@ -146,9 +152,7 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                 its window (the repo-hub pattern). */}
             <div className="relative mt-4 rounded-lg border border-primary p-4">
                 <div className="absolute -top-4 right-3 flex flex-wrap items-center justify-end gap-2 bg-primary px-2">
-                    {(healthRowLoading || mergeTrendLoading || activityLoading) && (
-                        <Spinner className="text-secondary" />
-                    )}
+                    {(healthRowLoading || mergeTrendLoading) && <Spinner className="text-secondary" />}
                     <DateFilter
                         dateFrom={window}
                         onChange={(from) => isTeamsWindow(from) && setWindow(from)}
@@ -232,28 +236,30 @@ export function EngineeringAnalyticsTeamScene(): JSX.Element {
                             )}
                         </Section>
                     )}
-
-                    <Section id="team-tests" title="Owned tests with signal" busy={activityLoading}>
-                        <LemonTable
-                            data-attr="engineering-analytics-team-tests-table"
-                            size="small"
-                            columns={testColumns}
-                            dataSource={activity?.tests ?? []}
-                            rowKey={(row) => `${row.runner}:${row.nodeid}`}
-                            loading={activityLoading}
-                            pagination={{ pageSize: 25 }}
-                            useURLForSorting={false}
-                            emptyState="No owned tests with signal in this window."
-                            nouns={['test', 'tests']}
-                        />
-                        {activity?.truncatedTests && (
-                            <div className="mt-2 text-xs text-tertiary">
-                                Showing the strongest signals. More owned tests had signal in this window.
-                            </div>
-                        )}
-                    </Section>
                 </div>
             </div>
+
+            {/* Current-state signal on the fixed default window, deliberately outside the scope
+                panel: the picker does not move it. */}
+            <Section id="team-tests" title="Owned tests with signal" busy={activityLoading}>
+                <LemonTable
+                    data-attr="engineering-analytics-team-tests-table"
+                    size="small"
+                    columns={testColumns}
+                    dataSource={activity?.tests ?? []}
+                    rowKey={(row) => `${row.runner}:${row.nodeid}`}
+                    loading={activityLoading}
+                    pagination={{ pageSize: 25 }}
+                    useURLForSorting={false}
+                    emptyState="No owned tests with signal."
+                    nouns={['test', 'tests']}
+                />
+                {activity?.truncatedTests && (
+                    <div className="mt-2 text-xs text-tertiary">
+                        Showing the strongest signals. More owned tests had signal.
+                    </div>
+                )}
+            </Section>
         </SceneContent>
     )
 }
