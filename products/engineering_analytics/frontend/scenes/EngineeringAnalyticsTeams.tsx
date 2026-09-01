@@ -110,7 +110,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                 rowClassName="cursor-pointer"
                 onRow={(row) => rowNavigationProps(detailUrlOf(row.ownerTeam, sourceId))}
                 loading={teamsLoading}
-                pagination={{ pageSize: 10 }}
+                pagination={{ pageSize: 20 }}
                 useURLForSorting={false}
                 emptyState="No team-attributed CI signal yet. Signal appears once CI emits test spans with ownership stamps."
                 nouns={['team', 'teams']}
