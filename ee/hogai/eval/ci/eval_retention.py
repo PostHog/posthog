@@ -4,8 +4,6 @@ from braintrust import EvalCase
 
 from posthog.schema import AssistantRetentionEventsNode, AssistantRetentionFilter, AssistantRetentionQuery, NodeKind
 
-from ee.hogai.chat_agent.retention.toolkit import RETENTION_SCHEMA
-
 from ..base import MaxPublicEval
 from ..scorers import PlanAndQueryOutput, PlanCorrectness, QueryAndPlanAlignment, QueryKindSelection, TimeRangeRelevancy
 
@@ -30,7 +28,7 @@ async def eval_retention(call_root_for_insight_generation, pytestconfig):
             ),
             QueryAndPlanAlignment(
                 query_kind=NodeKind.RETENTION_QUERY,
-                json_schema=RETENTION_SCHEMA,
+                query_model=AssistantRetentionQuery,
                 evaluation_criteria="""
 1. Returning event alignment: Verify that the returning event in `retentionFilter.returningEntity.name` exactly matches the returning event specified in the plan.
 2. Target event alignment: Verify that the target event in `retentionFilter.targetEntity.name` exactly matches the target event specified in the plan.
