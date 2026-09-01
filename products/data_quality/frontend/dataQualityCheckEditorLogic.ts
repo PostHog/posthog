@@ -458,15 +458,25 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
         customSqlPreview: [
             null as CustomSqlPreview | null,
             {
-                runCustomSqlPreview: async (): Promise<CustomSqlPreview> => {
+                runCustomSqlPreview: async (_, breakpoint): Promise<CustomSqlPreview> => {
                     const sql = values.checkForm.customSql.trim()
                     // Force a fresh calculation: the scheduled check run always reads current data, so the
                     // preview must not serve a cached result that could report a different verdict.
-                    const response = await performQuery<HogQLQuery>(
-                        { kind: NodeKind.HogQLQuery, query: sql },
-                        undefined,
-                        'force_blocking'
-                    )
+                    let response: NonNullable<HogQLQuery['response']>
+                    try {
+                        response = await performQuery<HogQLQuery>(
+                            { kind: NodeKind.HogQLQuery, query: sql },
+                            undefined,
+                            'force_blocking'
+                        )
+                    } catch (error) {
+                        // Cmd+Enter can start a second preview while one is in flight. Drop a superseded
+                        // request so its late failure cannot replace the newer result with a stale error.
+                        breakpoint()
+                        throw error
+                    }
+                    // Same guard on the success path: a superseded result must not overwrite the newer one.
+                    breakpoint()
                     return {
                         sql,
                         columns: response.columns ?? [],

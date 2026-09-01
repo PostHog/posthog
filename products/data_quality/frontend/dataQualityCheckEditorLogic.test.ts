@@ -361,6 +361,34 @@ describe('dataQualityCheckEditorLogic', () => {
         expect(logic.values.customSqlPreviewError).toBeNull()
     })
 
+    it('drops a superseded preview so a late failure keeps the newer result', async () => {
+        // Cmd+Enter can start a second preview while the first is still running. If the older
+        // request then fails, its error must not replace the newer request's good result.
+        let failFirst: (error: unknown) => void = () => {}
+        ;(performQuery as jest.Mock)
+            .mockImplementationOnce(() => new Promise((_resolve, reject) => (failFirst = reject)))
+            .mockResolvedValueOnce({ columns: [], results: [], hasMore: false })
+
+        await mountLogic()
+        await openWith(null, { checkType: 'custom_sql', customSql: 'SELECT order_id FROM orders' })
+
+        // First request stays pending; the second supersedes it and passes. Do not wait for all
+        // listeners here — the first request is meant to still be in flight.
+        logic.actions.runCustomSqlPreview()
+        await expectLogic(logic, () => logic.actions.runCustomSqlPreview()).toDispatchActions([
+            'runCustomSqlPreviewSuccess',
+        ])
+
+        expect(logic.values.customSqlPreviewVerdict).toEqual('pass')
+
+        // The stale first request fails last; the breakpoint must swallow it, not show an error.
+        failFirst({ detail: 'Unknown table' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.customSqlPreviewError).toBeNull()
+        expect(logic.values.customSqlPreviewVerdict).toEqual('pass')
+    })
+
     it('blocks saving custom SQL with a Monaco validation error', async () => {
         await mountLogic()
         await openWith(null, { checkType: 'custom_sql', customSql: 'SELECT * FROM orders' })
