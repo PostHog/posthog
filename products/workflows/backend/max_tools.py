@@ -11,6 +11,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 from rest_framework import serializers
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
@@ -203,6 +204,12 @@ class CreateBroadcastArgs(BaseModel):
 _ALLOWED_AUDIENCE_CONDITION_TYPES = frozenset({"person", "cohort"})
 
 
+@frozen
+class _BroadcastGraph:
+    actions: list[dict[str, Any]]
+    edges: list[dict[str, Any]]
+
+
 def _text_to_html(text: str) -> str:
     paragraphs = [f"<p>{html_lib.escape(p.strip())}</p>" for p in text.split("\n\n") if p.strip()]
     body = "\n".join(paragraphs)
@@ -252,7 +259,7 @@ class CreateBroadcastTool(MaxTool):
         email_html: str,
         email_text: str,
         sender: dict[str, str],
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    ) -> _BroadcastGraph:
         actions: list[dict[str, Any]] = [
             {
                 "id": "trigger_audience",
@@ -287,7 +294,7 @@ class CreateBroadcastTool(MaxTool):
             {"from": "trigger_audience", "to": "email_broadcast", "type": "continue"},
             {"from": "email_broadcast", "to": "exit_done", "type": "continue"},
         ]
-        return actions, edges
+        return _BroadcastGraph(actions=actions, edges=edges)
 
     def _create_broadcast(
         self,
@@ -299,14 +306,14 @@ class CreateBroadcastTool(MaxTool):
         sender: dict[str, str],
         conversion_goal: Optional[BroadcastConversionGoal],
     ) -> HogFlow:
-        actions, edges = self._build_actions(properties, email_subject, email_html, email_text, sender)
+        graph = self._build_actions(properties, email_subject, email_html, email_text, sender)
         data: dict[str, Any] = {
             "name": name,
             "kind": HogFlow.Kind.BROADCAST,
             "status": HogFlow.State.DRAFT,
             "exit_condition": HogFlow.ExitCondition.ONLY_AT_END,
-            "actions": actions,
-            "edges": edges,
+            "actions": graph.actions,
+            "edges": graph.edges,
         }
         if conversion_goal is not None:
             data["conversion"] = {
