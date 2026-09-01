@@ -163,5 +163,5 @@ async def test_experimental_realtime_usage_schedules_are_separate_and_serializab
     schedule = captured["schedule"]
     assert captured["schedule_id"] == schedule_id
     assert schedule.action.workflow == "gather-experimental-realtime-usage"
-    assert schedule.action.args == [{"day_offset": expected_day_offset, "organization_ids": None}]
+    assert schedule.action.args == [{"day_offset": expected_day_offset, "organization_ids": None, "mode": "capture"}]
     assert schedule.policy.overlap.name == "SKIP"
