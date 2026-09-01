@@ -90,8 +90,7 @@ class CleanupConfig(dagster.Config):
     cleanup: bool = pydantic.Field(
         default=True,
         description="Drop the dictionaries and clear this run's snapshot rows when the run finishes. "
-        "False keeps them for inspection only until the next run starts, whose janitor reaps any "
-        "finished run's dictionaries regardless of this flag.",
+        "False keeps them only until the next run's janitor reaps them.",
     )
     team_batches: int = pydantic.Field(
         default=DEFAULT_TEAM_BATCHES,
@@ -1152,12 +1151,10 @@ def _drop_dictionary(client: Client, qualified_name: str) -> None:
 
 
 def _kill_and_drop_run_assets(cluster: ClickhouseCluster, run_id: str) -> None:
-    """Kill the mutations that read a run's dictionaries, then drop the dictionaries.
+    """Kill the mutations that still read a run's dictionaries, then drop the dictionaries.
 
-    A mutation still reading one of these dictionaries would fail the moment it is dropped, so
-    the kill comes first. Killing a half-applied ordered delete is safe: every intermediate
-    state leaves each key's tombstone as the surviving max version, so nothing resurrects.
-    Only mutations naming this run's dictionaries are touched.
+    Kill first: a dropped dictionary fails its readers. Killing a half-applied ordered delete
+    is safe because each key's tombstone stays the surviving max version.
     """
 
     def kill_run_mutations(client: Client) -> None:
@@ -1179,9 +1176,7 @@ def _kill_and_drop_run_assets(cluster: ClickhouseCluster, run_id: str) -> None:
         cluster.map_all_hosts(partial(_drop_dictionary, qualified_name=name)).result()
 
 
-# The exact names this job gives its per-run dictionaries: a snapshot table prefix, a Dagster run
-# id with dashes swapped for underscores, and the _dictionary suffix. The janitor refuses to
-# touch anything else.
+# Exactly the per-run dictionary names this job generates; the janitor touches nothing else.
 _RUN_SCOPED_DICTIONARY = re.compile(
     r"^(?:" + "|".join(re.escape(t) for t in CLEANUP_SNAPSHOT_TABLES) + r")"
     r"_([0-9a-f]{8}_[0-9a-f]{4}_[0-9a-f]{4}_[0-9a-f]{4}_[0-9a-f]{12})_dictionary$"
@@ -1197,12 +1192,9 @@ _TERMINAL_RUN_STATUSES = frozenset(
 def reap_stranded_run_assets(context: dagster.OpExecutionContext, cluster: ClickhouseCluster) -> int:
     """Drop dictionaries left by finished sweep runs, and return how many runs were reaped.
 
-    The failure hook cleans up when an op fails, but nothing fires for a canceled run, a crashed
-    run worker, or a failure before the first step exists. Dictionaries have no TTL, and a
-    stranded pair holds tens of GiB on every host, so each run starts by reaping what dead runs
-    left behind. Only dictionaries whose embedded run id belongs to a run this instance knows to
-    be finished are touched: an active run's assets are in use, and an unknown run id is skipped
-    because it cannot be proven dead.
+    Cancellation, run-worker crashes, and pre-step failures skip the failure hook, and
+    dictionaries have no TTL. Only runs this instance knows to be finished are reaped:
+    an active run's assets are in use, and an unknown run id cannot be proven dead.
     """
     try:
         current = context.run_id.replace("-", "_")
