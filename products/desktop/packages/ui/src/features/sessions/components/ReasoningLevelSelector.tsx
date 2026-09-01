@@ -22,8 +22,10 @@ import {
 } from "@posthog/quill";
 import {
   FAST_MODE_FLAG,
+  isAnthropicModelId,
   isDefaultSelectOption,
   isRestrictedModelOption,
+  type ModelAccess,
   selectOptionDocsUrl,
 } from "@posthog/shared";
 import {
@@ -38,6 +40,7 @@ import {
 } from "@posthog/ui/features/sessions/components/HarnessSubmenu";
 import { ModelCostFooter } from "@posthog/ui/features/sessions/components/ModelCostChip";
 import { ModelRadioItem } from "@posthog/ui/features/sessions/components/ModelRadioItem";
+import { SubscriptionSubmenu } from "@posthog/ui/features/sessions/components/SubscriptionSubmenu";
 import type { AgentAdapter } from "@posthog/ui/features/settings/settingsStore";
 import { AnimatedHeight } from "@posthog/ui/primitives/AnimatedHeight";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
@@ -71,6 +74,8 @@ interface ReasoningLevelSelectorProps {
   onMenuOpenChange?: (open: boolean) => void;
   disabled?: boolean;
   isLoading?: boolean;
+  modelAccess?: ModelAccess;
+  showBillingMenu?: boolean;
 }
 
 function toDropdownOptions(
@@ -106,6 +111,8 @@ export function ReasoningLevelSelector({
   onMenuOpenChange,
   disabled,
   isLoading,
+  modelAccess,
+  showBillingMenu,
 }: ReasoningLevelSelectorProps) {
   const [internalMenuOpen, setInternalMenuOpen] = useState(false);
   const open = menuOpen ?? internalMenuOpen;
@@ -132,6 +139,13 @@ export function ReasoningLevelSelector({
 
   const modelSelect =
     displayModel?.type === "select" ? displayModel : undefined;
+
+  const onOwnSubscription =
+    adapter === "claude" && modelAccess === "own-subscription";
+  const unavailableReason = (modelId: string): string | undefined =>
+    onOwnSubscription && !isAnthropicModelId(modelId)
+      ? "Your Claude plan cannot run this model. Change billing to PostHog credits to use it."
+      : undefined;
 
   const handleHarnessSelect = (harness: AgentHarness) => {
     if (harness === adapter) {
@@ -231,6 +245,7 @@ export function ReasoningLevelSelector({
             (candidate) => candidate.value === notch.model,
           );
           if (!entry || isRestrictedModelOption(entry._meta)) return [];
+          if (unavailableReason(notch.model)) return [];
           const efforts = getReasoningEffortOptions(adapter, notch.model) ?? [];
           if (!efforts.some((option) => option.value === notch.effort)) {
             return [];
@@ -437,6 +452,9 @@ export function ReasoningLevelSelector({
                     onChange={handleHarnessSelect}
                   />
                 )}
+                {showBillingMenu && adapter && (
+                  <SubscriptionSubmenu adapter={adapter} />
+                )}
                 {modelSelect && (
                   <DropdownMenuSub>
                     <DropdownMenuSubTrigger>
@@ -449,6 +467,7 @@ export function ReasoningLevelSelector({
                       <DropdownMenuRadioGroup
                         value={currentModel ?? ""}
                         onValueChange={(value) => {
+                          if (unavailableReason(value)) return;
                           // A plan-restricted model opens the upgrade gate
                           // instead of becoming the selection.
                           if (gateRestrictedModelPick(modelEntries, value)) {
@@ -471,6 +490,9 @@ export function ReasoningLevelSelector({
                                       key={model.value}
                                       model={model}
                                       closeOnClick={false}
+                                      unavailableReason={unavailableReason(
+                                        model.value,
+                                      )}
                                     />
                                   ))}
                               </Fragment>
@@ -484,6 +506,9 @@ export function ReasoningLevelSelector({
                                   key={model.value}
                                   model={model}
                                   closeOnClick={false}
+                                  unavailableReason={unavailableReason(
+                                    model.value,
+                                  )}
                                 />
                               ))}
                       </DropdownMenuRadioGroup>
