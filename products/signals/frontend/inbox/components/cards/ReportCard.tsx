@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { router } from 'kea-router'
 
-import { IconCheck, IconHide, IconUndo } from '@posthog/icons'
+import { IconHide, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -105,7 +105,7 @@ export function InboxCardSourceMeta({
  * there is no separate open button. Dismissing and resolving live in the report detail pane and the
  * bulk selection bar, where what is being judged is in full view. Other surfaces that embed this
  * card can still opt into a row-level Dismiss via `onDismiss`. The redesign also drops the status
- * and actionability chips: the section a row sits in (Needs a PR, Not actionable, ...) already says
+ * and actionability chips: the state a row is in (Needs decision, Not actionable, ...) already says
  * what they said. With the flag off every row keeps its chips, its Dismiss button, and "Review".
  */
 export function ReportCard({
@@ -232,7 +232,17 @@ export function ReportCard({
                     )}
                     {outcomeLabel && (
                         <Tooltip title={report.dismissal_note || undefined}>
-                            <LemonTag size="small" icon={isResolved ? <IconCheck /> : <IconHide />}>
+                            <LemonTag
+                                size="small"
+                                icon={
+                                    <span
+                                        className={clsx(
+                                            'size-1.5 shrink-0 rounded-full',
+                                            isResolved ? 'bg-success' : 'bg-danger'
+                                        )}
+                                    />
+                                }
+                            >
                                 {outcomeLabel}
                             </LemonTag>
                         </Tooltip>
@@ -249,7 +259,14 @@ export function ReportCard({
     )
 
     return (
-        <div className={inboxCardRowClassName(attached, { dashed: !hasPr })}>
+        <div
+            className={clsx(
+                inboxCardRowClassName(attached, { dashed: !hasPr }),
+                // Closed rows recede so open work stands out in the mixed flat list; hover restores
+                // full opacity for reading. Matches the disabled-scout treatment in ScoutRosterCard.
+                (isDismissed || isResolved) && 'opacity-55 hover:opacity-100'
+            )}
+        >
             <div className="relative flex min-w-0 flex-1">
                 {hasPr && prNumber != null ? (
                     <div className="absolute right-0 top-0 z-10">
