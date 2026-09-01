@@ -800,6 +800,13 @@ function useChannelActions(channel: Channel): {
         inactivity_days: days,
         success: true,
       });
+      if (days === null) {
+        toast.success("Auto-archive is off");
+      } else {
+        toast.success("Auto-archive is on", {
+          description: `Inactive tasks will be archived after ${days} ${days === 1 ? "day" : "days"}.`,
+        });
+      }
       return true;
     } catch (error) {
       track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
@@ -868,14 +875,24 @@ function useChannelActions(channel: Channel): {
       },
       {
         key: "auto-archive",
-        label: "Auto-archive…",
+        label:
+          channel.autoArchiveAfterDays == null
+            ? "Auto-archive: off…"
+            : `Auto-archive: ${channel.autoArchiveAfterDays} ${channel.autoArchiveAfterDays === 1 ? "day" : "days"}…`,
         icon: <ArchiveBoxIcon size={14} />,
         separatorBefore: true,
         onSelect: () => setAutoArchiveOpen(true),
       },
       ...editableSpaceActions,
     ];
-  }, [channel.channelType, channel.id, isStarred, noun, toggleStar]);
+  }, [
+    channel.autoArchiveAfterDays,
+    channel.channelType,
+    channel.id,
+    isStarred,
+    noun,
+    toggleStar,
+  ]);
 
   return {
     actions,

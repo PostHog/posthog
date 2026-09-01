@@ -27,6 +27,9 @@ describe("AutoArchiveSettingsDialog", () => {
     );
 
     await user.click(
+      screen.getByRole("switch", { name: "Auto-archive inactive tasks" }),
+    );
+    await user.click(
       screen.getByRole("combobox", { name: "Inactivity period" }),
     );
     await user.click(await screen.findByRole("option", { name: "Custom…" }));

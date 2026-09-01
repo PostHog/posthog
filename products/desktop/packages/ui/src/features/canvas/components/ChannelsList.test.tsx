@@ -277,7 +277,7 @@ describe("ChannelsList", () => {
       );
 
       expect(
-        await screen.findByRole("menuitem", { name: "Auto-archive…" }),
+        await screen.findByRole("menuitem", { name: "Auto-archive: off…" }),
       ).toBeVisible();
     },
   );

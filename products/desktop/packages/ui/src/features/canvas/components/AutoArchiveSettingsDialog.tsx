@@ -20,19 +20,19 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Switch,
 } from "@posthog/quill";
 import type { Channel } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useEffect, useState } from "react";
 
 export type AutoArchiveAfterDays = number;
 
-const NEVER = "never";
 const CUSTOM = "custom";
 const MIN_THRESHOLD_DAYS = 1;
 const MAX_THRESHOLD_DAYS = 365;
+const DEFAULT_THRESHOLD_DAYS = 7;
 const PRESET_DAYS = new Set([1, 3, 7, 14, 30]);
 const OPTIONS: { value: string; label: string }[] = [
-  { value: NEVER, label: "Never" },
   { value: "1", label: "After 1 day" },
   { value: "3", label: "After 3 days" },
   { value: "7", label: "After 7 days" },
@@ -42,7 +42,7 @@ const OPTIONS: { value: string; label: string }[] = [
 ];
 
 function toSelection(days: AutoArchiveAfterDays | null | undefined): string {
-  if (days == null) return NEVER;
+  if (days == null) return String(DEFAULT_THRESHOLD_DAYS);
   return PRESET_DAYS.has(days) ? String(days) : CUSTOM;
 }
 
@@ -76,6 +76,7 @@ export function AutoArchiveSettingsDialog({
 }) {
   const currentDays = channel.autoArchiveAfterDays ?? null;
   const currentSelection = toSelection(currentDays);
+  const [enabled, setEnabled] = useState(currentDays !== null);
   const [selection, setSelection] = useState(currentSelection);
   const [customDays, setCustomDays] = useState<number | null>(() =>
     toCustomDays(currentDays),
@@ -83,19 +84,19 @@ export function AutoArchiveSettingsDialog({
 
   useEffect(() => {
     if (open) {
+      setEnabled(currentDays !== null);
       setSelection(currentSelection);
       setCustomDays(toCustomDays(currentDays));
     }
   }, [currentDays, currentSelection, open]);
 
-  const selectedDays =
-    selection === NEVER
-      ? null
-      : selection === CUSTOM
-        ? isValidThreshold(customDays)
-          ? customDays
-          : undefined
-        : Number(selection);
+  const selectedDays = !enabled
+    ? null
+    : selection === CUSTOM
+      ? isValidThreshold(customDays)
+        ? customDays
+        : undefined
+      : Number(selection);
   const isUnchanged = selectedDays === currentDays;
 
   const submit = async (): Promise<void> => {
@@ -123,37 +124,59 @@ export function AutoArchiveSettingsDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogBody viewportClassName="flex flex-col gap-3">
-          <Field>
-            <FieldLabel htmlFor="auto-archive-after-days">
-              Inactivity period
-            </FieldLabel>
-            <Select
-              value={selection}
-              onValueChange={(next) => setSelection(next ?? NEVER)}
-              items={OPTIONS}
+          <Field orientation="horizontal">
+            <FieldContent>
+              <FieldLabel htmlFor="auto-archive-enabled">
+                Auto-archive inactive tasks
+              </FieldLabel>
+              <FieldDescription>
+                Turn this on to archive finished tasks after a period of
+                inactivity.
+              </FieldDescription>
+            </FieldContent>
+            <Switch
+              id="auto-archive-enabled"
+              size="sm"
+              checked={enabled}
+              onCheckedChange={setEnabled}
               disabled={isSaving}
-            >
-              <SelectTrigger
-                id="auto-archive-after-days"
-                aria-label="Inactivity period"
-                className="w-full"
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="start" side="bottom" sideOffset={6}>
-                {OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <FieldDescription>
-              New messages and task runs reset this period. Tasks being viewed,
-              pinned, or actively running are not archived.
-            </FieldDescription>
+            />
           </Field>
-          {selection === CUSTOM && (
+          {enabled && (
+            <Field>
+              <FieldLabel htmlFor="auto-archive-after-days">
+                Inactivity period
+              </FieldLabel>
+              <Select
+                value={selection}
+                onValueChange={(next) =>
+                  setSelection(next ?? String(DEFAULT_THRESHOLD_DAYS))
+                }
+                items={OPTIONS}
+                disabled={isSaving}
+              >
+                <SelectTrigger
+                  id="auto-archive-after-days"
+                  aria-label="Inactivity period"
+                  className="w-full"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="start" side="bottom" sideOffset={6}>
+                  {OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldDescription>
+                New messages and task runs reset this period. Tasks being
+                viewed, pinned, or actively running are not archived.
+              </FieldDescription>
+            </Field>
+          )}
+          {enabled && selection === CUSTOM && (
             <Field orientation="horizontal">
               <FieldContent>
                 <FieldLabel htmlFor="custom-auto-archive-days">
