@@ -139,6 +139,17 @@ class ExportedAsset(models.Model):
 
     class Meta:
         db_table = "posthog_exportedasset"
+        indexes = [
+            # Monthly video export quota count, scoped by team and recent creation.
+            models.Index(fields=["team", "-created_at"], name="expasset_team_created"),
+            # Open-graph preview lookup on shared insight/dashboard page loads.
+            models.Index(
+                fields=["team", "insight", "dashboard", "export_format"],
+                name="expasset_team_ins_dash_fmt",
+            ),
+            # Daily TTL sweep in delete_expired_assets.
+            models.Index(fields=["expires_after"], name="expasset_expires_after"),
+        ]
 
     def save(self, *args, **kwargs):
         if not self.expires_after:

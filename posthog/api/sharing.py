@@ -1545,16 +1545,11 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         if not target:
             return None
 
-        exported_asset_matches = ExportedAsset.objects.filter(
+        existing_asset = ExportedAsset.objects.filter(
             team=resource.team,
             insight=resource.insight or None,
             dashboard=resource.dashboard or None,
             export_format=ExportedAsset.ExportFormat.PNG.value,
-        )
+        ).first()
 
-        if exported_asset_matches.exists():
-            return exported_asset_matches.first()
-        else:
-            export_asset = export_asset_for_opengraph(resource)
-
-            return export_asset
+        return existing_asset or export_asset_for_opengraph(resource)
