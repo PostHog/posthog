@@ -91,7 +91,7 @@ class TestHarmonicRateLimitHeaderParser(SimpleTestCase):
         ]
     )
     def test_parser_returns_none_for_absent_or_garbage_headers(self, _name, headers, expected) -> None:
-        assert _parse_harmonic_rate_limit(headers) == expected
+        assert _parse_harmonic_rate_limit(headers, None) == expected
 
 
 async def test_request_gates_before_sending_and_records_the_response() -> None:

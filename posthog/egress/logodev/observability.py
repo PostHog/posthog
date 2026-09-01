@@ -7,6 +7,7 @@ snapshot and the gauges stay unset — they exist because :class:`EgressMetrics`
 instrument set, and they start reporting the moment logo.dev grows the headers.
 """
 
+from collections.abc import Mapping
 from urllib.parse import urlparse
 
 import requests
@@ -17,6 +18,7 @@ from posthog.egress.observability.observability import (
     EgressObservability,
     RateLimitSnapshot,
     register_egress_observability,
+    unpack_requests_response,
 )
 
 LOGODEV_DOMAIN = "logodev"
@@ -45,7 +47,7 @@ _metrics = EgressMetrics(
 )
 
 
-def _parse_logodev_rate_limit(response: requests.Response) -> RateLimitSnapshot:
+def _parse_logodev_rate_limit(_headers: Mapping[str, str] | None, _url: str | None) -> RateLimitSnapshot:
     return RateLimitSnapshot()
 
 
@@ -77,7 +79,17 @@ def record_logodev_api_response(
 ) -> None:
     """Record one logo.dev API response. The scope is always the instance's single account —
     logo.dev meters per token and each instance holds exactly one."""
-    logodev_egress.record_response(response, source=source, scope="default", method=method, endpoint=endpoint)
+    status_code, headers, request_method, request_url = unpack_requests_response(response)
+    logodev_egress.record_response(
+        status_code,
+        headers,
+        source=source,
+        scope="default",
+        method=method,
+        endpoint=endpoint,
+        request_method=request_method,
+        request_url=request_url,
+    )
 
 
 def record_logodev_api_exception(

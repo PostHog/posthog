@@ -16,6 +16,7 @@ from posthog.egress.observability.observability import (
     RateLimitSnapshot,
     default_normalize_endpoint,
     register_egress_observability,
+    unpack_requests_response,
 )
 
 FIRECRAWL_DOMAIN = "firecrawl"
@@ -57,15 +58,13 @@ def _float_header(headers: Mapping[str, str] | None, name: str) -> float | None:
         return None
 
 
-def _parse_firecrawl_rate_limit(response: requests.Response) -> RateLimitSnapshot:
+def _parse_firecrawl_rate_limit(headers: Mapping[str, str] | None, url: str | None) -> RateLimitSnapshot:
     """Read Firecrawl's rate-limit headers when the response carries them. ``reset_at`` is left unset
     because Firecrawl does not document whether its reset header is an epoch or a number of seconds,
-    and a gauge that could be either is worse than an unset one."""
-    headers = response.headers if isinstance(response.headers, Mapping) else None
-    request = getattr(response, "request", None)
-    url = getattr(request, "url", None)
+    and a gauge that could be either is worse than an unset one. ``resource`` comes from the request
+    url, not a curated endpoint label, because Firecrawl meters each endpoint separately."""
     return RateLimitSnapshot(
-        resource=default_normalize_endpoint(url if isinstance(url, str) else None),
+        resource=default_normalize_endpoint(url),
         remaining=_float_header(headers, "X-RateLimit-Remaining"),
         limit=_float_header(headers, "X-RateLimit-Limit"),
     )
@@ -84,7 +83,17 @@ def record_firecrawl_api_response(
 ) -> None:
     """Record one Firecrawl API response. The scope is always the instance's single account,
     because Firecrawl meters per API key and each instance holds exactly one."""
-    firecrawl_egress.record_response(response, source=source, scope="default", method=method, endpoint=endpoint)
+    status_code, headers, request_method, request_url = unpack_requests_response(response)
+    firecrawl_egress.record_response(
+        status_code,
+        headers,
+        source=source,
+        scope="default",
+        method=method,
+        endpoint=endpoint,
+        request_method=request_method,
+        request_url=request_url,
+    )
 
 
 def record_firecrawl_api_exception(

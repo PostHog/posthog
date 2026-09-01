@@ -10,7 +10,7 @@ valid and every API can name its metrics idiomatically — the reuse is in the r
 endpoint-normalisation, and the registry, not in a single metric series.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -29,9 +29,12 @@ class RateLimitSnapshot:
     reset_at: float | None = None
 
 
-# Parses a response into a RateLimitSnapshot. Per-domain because each API exposes its budget
-# differently (GitHub: X-RateLimit-* headers; others may use different headers or a body field).
-ResponseParser = Callable[[requests.Response], RateLimitSnapshot]
+# Parses a response into a RateLimitSnapshot from its headers and, for a domain that keys its
+# gauge resource by endpoint (e.g. Firecrawl), the request url. Per-domain because each API exposes
+# its budget differently (GitHub: X-RateLimit-* headers; others may use different headers or a body
+# field), and transport-agnostic — headers and a url exist whether the request was requests- or
+# aiohttp-based.
+ResponseParser = Callable[[Mapping[str, str] | None, str | None], RateLimitSnapshot]
 
 
 @dataclass(frozen=True)
@@ -68,6 +71,27 @@ def default_normalize_endpoint(url: str | None) -> str:
     return "/" + "/".join("{id}" if seg.isdigit() else seg for seg in path.split("/"))
 
 
+def unpack_requests_response(
+    response: requests.Response,
+) -> tuple[int, Mapping[str, str] | None, str | None, str | None]:
+    """Pull the primitives :meth:`EgressObservability.record_response` needs off a ``requests.Response``:
+    status code, headers, and the prepared request's method/url. A response's ``.request`` (and its
+    method/url) may be absent or non-string — a response built without a prepared request, or a test
+    mock whose attributes are themselves Mocks — so this coerces to str-or-None/Mapping-or-None rather
+    than raising: telemetry is best-effort, and a urlparse(Mock) blowing up here must not fail the
+    actual outbound call."""
+    headers = response.headers if isinstance(response.headers, Mapping) else None
+    request = getattr(response, "request", None)
+    req_method = getattr(request, "method", None)
+    req_url = getattr(request, "url", None)
+    return (
+        response.status_code,
+        headers,
+        req_method if isinstance(req_method, str) else None,
+        req_url if isinstance(req_url, str) else None,
+    )
+
+
 class EgressObservability:
     """One third-party API's egress telemetry: a metric set, a response parser, and an endpoint
     normaliser. Construct one per domain and register it; consumers record through it.
@@ -92,36 +116,31 @@ class EgressObservability:
 
     def record_response(
         self,
-        response: requests.Response,
+        status_code: int,
+        headers: Mapping[str, str] | None,
         *,
         source: str,
         scope: str | None = None,
         method: str | None = None,
         endpoint: str | None = None,
+        request_method: str | None = None,
+        request_url: str | None = None,
     ) -> None:
-        # The response's .request (and its method/url) may be absent or non-string — a response built
-        # without a prepared request, or a test mock whose attributes are themselves Mocks. Coerce to
-        # str-or-None so a recorder never raises into the request flow: telemetry is best-effort, and a
-        # urlparse(Mock) blowing up here must not fail the actual GitHub call.
-        request = getattr(response, "request", None)
-        req_method = getattr(request, "method", None)
-        req_url = getattr(request, "url", None)
-        method_label = (method or (req_method if isinstance(req_method, str) else None) or "GET").upper()
-        endpoint_label = (
-            endpoint
-            if endpoint is not None
-            else self._normalize_endpoint(req_url if isinstance(req_url, str) else None)
-        )
-        self._metrics.request_counter.labels(
-            scope or "", method_label, endpoint_label, str(response.status_code), source
-        ).inc()
+        """``status_code``/``headers`` are the response's own; ``request_method``/``request_url`` are
+        the request's, used only as a fallback when the caller doesn't pass a curated ``method``/
+        ``endpoint``. Callers unpack their transport's response type into these primitives (see
+        :func:`unpack_requests_response` for the ``requests`` case) so this method stays
+        transport-agnostic — sync (``requests``) and async (``aiohttp``) domains share it alike."""
+        method_label = (method or request_method or "GET").upper()
+        endpoint_label = endpoint if endpoint is not None else self._normalize_endpoint(request_url)
+        self._metrics.request_counter.labels(scope or "", method_label, endpoint_label, str(status_code), source).inc()
 
         if scope is None:
             return
 
         # Gauges are keyed by (scope, resource) only — the shared budget owner, no source. Every
         # source sharing one budget updates one series; a per-source gauge would strand stale values.
-        snapshot = self._parser(response)
+        snapshot = self._parser(headers, request_url)
         if snapshot.remaining is not None:
             self._metrics.remaining_gauge.labels(scope, snapshot.resource).set(snapshot.remaining)
         if snapshot.limit is not None:
@@ -192,6 +211,14 @@ def record_outbound_api_response(
     endpoint: str | None = None,
 ) -> None:
     """Domain-keyed convenience for generic callers that hold only a domain string."""
+    status_code, headers, request_method, request_url = unpack_requests_response(response)
     resolve_egress_observability(domain).record_response(
-        response, source=source, scope=scope, method=method, endpoint=endpoint
+        status_code,
+        headers,
+        source=source,
+        scope=scope,
+        method=method,
+        endpoint=endpoint,
+        request_method=request_method,
+        request_url=request_url,
     )

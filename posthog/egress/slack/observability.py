@@ -50,7 +50,7 @@ def _header(headers: Mapping[str, object], name: str) -> str | None:
     return None
 
 
-def _parse_slack_rate_limit(response: requests.Response) -> RateLimitSnapshot:
+def _parse_slack_rate_limit(_headers: Mapping[str, str] | None, _url: str | None) -> RateLimitSnapshot:
     return RateLimitSnapshot()
 
 
@@ -76,8 +76,10 @@ def record_slack_api_response(
 ) -> None:
     normalized_workspace_id = workspace_id or None
     typed_response = cast(requests.Response, response)
+    headers = typed_response.headers if isinstance(typed_response.headers, Mapping) else None
     slack_egress.record_response(
-        typed_response,
+        typed_response.status_code,
+        headers,
         source=source,
         scope=normalized_workspace_id,
         method=method,
