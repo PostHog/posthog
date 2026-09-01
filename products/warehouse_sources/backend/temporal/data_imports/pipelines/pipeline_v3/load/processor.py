@@ -754,6 +754,32 @@ def process_message(
         _process_message_reported(message, export_signal, progress_callback, verify_ownership)
 
 
+def _process_external_destinations_only(
+    export_signal: "ExportSignalMessage",
+    verify_ownership: Callable[[], None] | None,
+) -> None:
+    """Deliver a batch for a run that writes to external destinations only.
+
+    Same lifecycle as any other run, minus everything Delta-specific. The batch is done when
+    every destination has taken it, and the final batch completes the job.
+    """
+
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.delivery import (  # noqa: PLC0415
+        deliver_batch_to_destinations,
+    )
+
+    deliver_batch_to_destinations(export_signal)
+
+    if not export_signal.is_final_batch:
+        return
+
+    # Minutes may have passed, so re-check ownership before completion promotes the cursor.
+    if verify_ownership is not None:
+        verify_ownership()
+
+    _mark_job_completed(export_signal)
+
+
 def _process_message_reported(
     message: Any,
     export_signal: "ExportSignalMessage",
@@ -766,6 +792,13 @@ def _process_message_reported(
     # Clear cached S3FileSystem instances to avoid reusing sessions bound to a
     # previously closed event loop (async_to_sync creates/destroys loops).
     s3fs.S3FileSystem.clear_instance_cache()
+
+    # Imported here, not at module scope: `load/__init__` imports this module, and delivery
+    # imports `load.idempotency`, so a module-level import closes the cycle.
+    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.delivery import (  # noqa: PLC0415
+        deliver_batch_to_destinations,
+        warehouse_is_a_destination,
+    )
 
     try:
         team_id_str = str(export_signal.team_id)
@@ -789,6 +822,12 @@ def _process_message_reported(
             is_first_sync=export_signal.is_first_ever_sync,
         )
 
+        if not warehouse_is_a_destination(export_signal):
+            # The customer asked for their data elsewhere and not here, so there is no delta
+            # write, no table to register and no post-import to run.
+            _process_external_destinations_only(export_signal, verify_ownership)
+            return
+
         already_processed = is_batch_already_processed(
             export_signal.team_id,
             export_signal.schema_id,
@@ -796,6 +835,12 @@ def _process_message_reported(
             export_signal.batch_index,
             delta_table_ref=delta_table_ref,
         )
+
+        # The warehouse having this batch says nothing about the other destinations, so
+        # delivery runs on every path and decides for itself what is left to do. Gating it on
+        # the warehouse's marker would strand a destination that failed, and gating publication
+        # on the write marker would leave a full refresh staged and never swapped in.
+        deliver_batch_to_destinations(export_signal)
 
         if already_processed and not export_signal.is_final_batch:
             IDEMPOTENCY_HIT_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc()
@@ -898,7 +943,11 @@ def _process_message_reported(
 
         if existing_delta_table is not None:
             try:
-                pa_table = evolve_pyarrow_schema(pa_table, existing_delta_table.schema())
+                pa_table = evolve_pyarrow_schema(
+                    pa_table,
+                    existing_delta_table.schema(),
+                    merge_key_columns=[*(primary_keys or []), *(export_signal.partition_keys or [])],
+                )
             except SchemaColumnTypeChangedException as e:
                 # A safe numeric widening is mechanically recoverable: stamp reset_pipeline so the
                 # next scheduled sync resets and re-syncs the table, and reword the failure so

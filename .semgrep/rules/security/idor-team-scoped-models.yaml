@@ -73,6 +73,7 @@ rules:
                               |AgentToolApprovalRequest
                               |AgentTransportBinding
                               |AgentUser
+                              |AIObservabilityChecklistItemState
                               |Alert
                               |AlertConfiguration
                               |Annotation
@@ -103,6 +104,9 @@ rules:
                               |CohortBackfillRun
                               |CohortBackfillRunCohort
                               |Comment
+                              |ContentAutopilotProposal
+                              |ContentAutopilotRun
+                              |ContentAutopilotSiteProfile
                               |Conversation
                               |ConversationRestoreToken
                               |CoreMemory
@@ -177,10 +181,13 @@ rules:
                               |ExperimentSavedMetric
                               |ExportedAsset
                               |ExportedRecording
+                              |ExternalDataDestination
                               |ExternalDataJob
                               |ExternalDataSchema
+                              |ExternalDataSchemaDestination
                               |ExternalDataSchemaOOMEvent
                               |ExternalDataSource
+                              |ExternalDataSourceDestination
                               |FeatureFlag
                               |FeatureRequest
                               |FeatureRequestAccountLink
@@ -364,6 +371,8 @@ rules:
                               |UserRepoPreference
                               |VisionAction
                               |VisionActionRun
+                              |VisionAlertConfiguration
+                              |VisionAlertMatch
                               |WarehouseColumnAnnotation
                               |WarehouseColumnStatistics
                               |WebAnalyticsAchievementProgress
@@ -445,6 +454,7 @@ rules:
                         |AgentToolApprovalRequest
                         |AgentTransportBinding
                         |AgentUser
+                        |AIObservabilityChecklistItemState
                         |Alert
                         |AlertConfiguration
                         |Annotation
@@ -475,6 +485,9 @@ rules:
                         |CohortBackfillRun
                         |CohortBackfillRunCohort
                         |Comment
+                        |ContentAutopilotProposal
+                        |ContentAutopilotRun
+                        |ContentAutopilotSiteProfile
                         |Conversation
                         |ConversationRestoreToken
                         |CoreMemory
@@ -729,6 +742,8 @@ rules:
                         |UserRepoPreference
                         |VisionAction
                         |VisionActionRun
+                        |VisionAlertConfiguration
+                        |VisionAlertMatch
                         |WarehouseColumnAnnotation
                         |WarehouseColumnStatistics
                         |WebAnalyticsAchievementProgress
@@ -834,6 +849,7 @@ rules:
                               |LegalDocument
                               |ManagedWarehouseSourceLifecycle
                               |OrganizationMembership
+                              |OrganizationMemberNotificationLock
                               |OrganizationDomain
                               |OrganizationIntegration
                               |OrganizationInvite
@@ -908,6 +924,7 @@ rules:
                         |LegalDocument
                         |ManagedWarehouseSourceLifecycle
                         |OrganizationMembership
+                        |OrganizationMemberNotificationLock
                         |OrganizationDomain
                         |OrganizationIntegration
                         |OrganizationInvite
@@ -1160,6 +1177,7 @@ rules:
                               |PersistedFolder
                               |Reminder
                               |SessionRecordingViewed
+                              |UserFacetSettings
                               |UserHomeSettings
                               |UserProductList
                               |UserScenePersonalisation
@@ -1233,6 +1251,7 @@ rules:
                         |PersistedFolder
                         |Reminder
                         |SessionRecordingViewed
+                        |UserFacetSettings
                         |UserHomeSettings
                         |UserProductList
                         |UserScenePersonalisation
