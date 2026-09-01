@@ -186,9 +186,21 @@ export function copyPiRpcHost(): Plugin {
         dirname(source),
         "product-engineer",
       );
+      const bundledAgents = join(dirname(source), "bundled-agents");
+      const orchestrationSkills = join(dirname(source), "skills");
       if (!existsSync(productEngineerResources)) {
         throw new Error(
           `[copy-pi-rpc-host] Unable to find product engineer resources at ${productEngineerResources}. Build @posthog/agent first.`,
+        );
+      }
+      if (!existsSync(bundledAgents)) {
+        throw new Error(
+          `[copy-pi-rpc-host] Unable to find bundled agents at ${bundledAgents}. Build @posthog/agent first.`,
+        );
+      }
+      if (!existsSync(orchestrationSkills)) {
+        throw new Error(
+          `[copy-pi-rpc-host] Unable to find orchestration skills at ${orchestrationSkills}. Build @posthog/agent first.`,
         );
       }
 
@@ -198,6 +210,12 @@ export function copyPiRpcHost(): Plugin {
         join(buildDirectory, "product-engineer"),
         { recursive: true },
       );
+      cpSync(bundledAgents, join(buildDirectory, "bundled-agents"), {
+        recursive: true,
+      });
+      cpSync(orchestrationSkills, join(buildDirectory, "skills"), {
+        recursive: true,
+      });
     },
   };
 }
