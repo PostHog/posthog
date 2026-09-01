@@ -654,11 +654,27 @@ class Task(DeletedMetaFields, models.Model):
             apply_ai_run_defaults,
         )
         from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keeps temporalio off the import path (matches _build_task)
+            RuntimeAdapter,
             apply_runtime_adapter_run_state,
+            clamp_initial_permission_mode,
         )
 
         resolved = apply_ai_run_defaults(state, self.team_id, acting_user_id or self.created_by_id)
         if resolved is None:
+            # Nothing resolved here, but the mode may still be paired with a runtime the
+            # serializer never saw together: the facade materializes the default into the
+            # state before this runs (warm matching resolves early), and with no adapter
+            # at all the run launches on the sandbox fallback, which reads an unset
+            # adapter as claude. Clamp against that effective adapter so a mode named in
+            # the other runtime's vocabulary can't persist against a run that won't
+            # honor it. For an explicitly pinned adapter the serializer already paired
+            # the two, so this is a no-op.
+            effective_adapter = state.get("runtime_adapter") or RuntimeAdapter.CLAUDE.value
+            permission_mode = clamp_initial_permission_mode(
+                effective_adapter, state.get("initial_permission_mode") or None
+            )
+            if permission_mode:
+                state["initial_permission_mode"] = permission_mode
             return
 
         permission_mode = apply_runtime_adapter_run_state(
