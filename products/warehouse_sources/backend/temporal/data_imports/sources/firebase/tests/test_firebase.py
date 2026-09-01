@@ -512,9 +512,7 @@ class TestFirestoreIncrementalReads:
         read_incremental(
             session,
             logger,
-            cursor=incremental_cursor(
-                field_name="version", field_type=IncrementalFieldType.Integer, last_value=42.5
-            ),
+            cursor=incremental_cursor(field_name="version", field_type=IncrementalFieldType.Integer, last_value=42.5),
         )
 
         filters = session.requests[0][2]["json"]["structuredQuery"]["where"]["compositeFilter"]["filters"]
@@ -530,9 +528,7 @@ class TestFirestoreIncrementalReads:
         read_incremental(
             session,
             logger,
-            cursor=incremental_cursor(
-                field_name="version", field_type=IncrementalFieldType.Integer, last_value=42.0
-            ),
+            cursor=incremental_cursor(field_name="version", field_type=IncrementalFieldType.Integer, last_value=42.0),
         )
 
         filters = session.requests[0][2]["json"]["structuredQuery"]["where"]["compositeFilter"]["filters"]
