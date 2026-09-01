@@ -28,6 +28,7 @@ from products.stamphog.backend.logic.channel_resolution import (
 from products.stamphog.backend.logic.digest import (
     _HEADLINE_MAX_RETRIES,
     _HEADLINE_TIMEOUT_SECONDS,
+    GRAZE_CHANGED_FILES,
     MAX_DIGEST_PRS,
     MAX_FALLBACK_PRS,
     DigestPRSummary,
@@ -730,6 +731,47 @@ def test_a_headline_failure_keeps_the_judged_digest() -> None:
     # and a team's audiences post one at a time, so an unbounded stall on an optional call holds up
     # this digest and every audience behind it. The client's own default is ten minutes with retries.
     assert client.options == [{"timeout": _HEADLINE_TIMEOUT_SECONDS, "max_retries": _HEADLINE_MAX_RETRIES}]
+
+
+@pytest.mark.parametrize(
+    "owned_count,changed_files,dropped",
+    [
+        (1, GRAZE_CHANGED_FILES, True),
+        (1, GRAZE_CHANGED_FILES - 1, False),
+        (2, GRAZE_CHANGED_FILES, False),
+    ],
+)
+def test_a_merge_that_only_grazed_the_team_never_reaches_the_model(
+    owned_count: int, changed_files: int, dropped: bool
+) -> None:
+    # A repo-wide config change owned one line in ten products and reached every one of their
+    # channels. The prompt named the graze and asked the model to drop it, and the model kept it
+    # anyway: the prompt carries no diff, so nothing in it says what that one file does. Code
+    # decides now. The grazed merge goes first so a filter that forgot to renumber the index map
+    # would resolve the model's index 0 to the wrong PR.
+    grazed = _pr_stub("o/r", 1, "Swept in", "https://github.com/o/r/pull/1")
+    grazed.changed_files = changed_files
+    owned = _pr_stub("o/r", 2, "Ours", "https://github.com/o/r/pull/2")
+    audiences = [
+        PullRequestAudience(
+            audience_key=AUDIENCE,
+            reason=AudienceReason.OWNED,
+            owned_files=[f"a{i}.py" for i in range(count)],
+            owned_file_count=count,
+        )
+        for count in (owned_count, 1)
+    ]
+    selection = json.dumps({"prs": [{"index": 0, "rule": "contract", "summary": "The first one."}]})
+    client = _recording_llm_client([selection, json.dumps({"headline": "Something shipped."})])
+
+    with patch("products.stamphog.backend.logic.digest.get_llm_client", return_value=client):
+        summary = summarize_merged_prs([grazed, owned], audiences)
+
+    assert ("Swept in" in client.prompts[0]) is not dropped
+    assert [p.pr_number for p in summary.prs] == [2 if dropped else 1]
+    # The scope line still counts every merge the audience claimed. Counting only what survived
+    # would tell a swept team that nothing landed in its area at all.
+    assert summary.considered == 2
 
 
 def test_a_model_outage_posts_a_short_plain_list_and_says_it_judged_nothing() -> None:
