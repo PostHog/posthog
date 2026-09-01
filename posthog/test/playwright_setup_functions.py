@@ -446,23 +446,44 @@ def _create_events_and_persons(
     import uuid as uuid_module
 
     from posthog.models.event.util import create_event
-    from posthog.models.person.util import create_person, create_person_distinct_id
+    from posthog.models.person.util import create_person, create_person_distinct_id, get_persons_mapped_by_distinct_id
     from posthog.models.utils import UUIDT
     from posthog.test.persons import (
         add_distinct_id,
         create_person as create_test_person,
     )
 
-    person_uuids: dict[str, str] = {}
+    # The harness retries a 500 (e.g. a transient ClickHouse blip during the insert loop
+    # below) up to 3 times. Person/distinct-id rows already committed to Postgres by an
+    # earlier attempt must not be recreated — the unique_distinct_id_for_team constraint
+    # would reject it, turning a retryable failure into a hard one and burying the
+    # original error under a confusing one. Look up what already exists first and reuse
+    # it, so a retry is a no-op for anything the previous attempt already seeded.
+    all_requested_distinct_ids = list(
+        {distinct_id for person_spec in (persons or []) for distinct_id in person_spec.distinct_ids}
+        | {event_spec.distinct_id for event_spec in (events or [])}
+    )
+    person_uuids: dict[str, str] = {
+        distinct_id: str(existing_person.uuid)
+        for distinct_id, existing_person in (
+            get_persons_mapped_by_distinct_id(team.pk, all_requested_distinct_ids).items()
+            if all_requested_distinct_ids
+            else []
+        )
+    }
 
     # Create explicit persons (may have multiple distinct IDs)
     if persons:
         for person_spec in persons:
+            if all(distinct_id in person_uuids for distinct_id in person_spec.distinct_ids):
+                continue
             person_uuid = str(UUIDT())
             props = person_spec.properties or {}
             create_person(team_id=team.pk, version=0, uuid=person_uuid, properties=props)
             pg_person = create_test_person(team=team, uuid=person_uuid, properties=props)
             for distinct_id in person_spec.distinct_ids:
+                if distinct_id in person_uuids:
+                    continue
                 create_person_distinct_id(team_id=team.pk, distinct_id=distinct_id, person_id=person_uuid)
                 add_distinct_id(person=pg_person, distinct_id=distinct_id)
                 person_uuids[distinct_id] = person_uuid
@@ -476,7 +497,7 @@ def _create_events_and_persons(
         if event_spec.properties and "$set" in event_spec.properties:
             person_props.setdefault(event_spec.distinct_id, {}).update(event_spec.properties["$set"])
 
-    # Create persons for distinct_ids not already created via explicit persons
+    # Create persons for distinct_ids not already created via explicit persons or a prior attempt
     distinct_ids = {e.distinct_id for e in events}
     for distinct_id in distinct_ids:
         if distinct_id in person_uuids:
