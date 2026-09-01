@@ -7,6 +7,7 @@ TEMP_DIR=$(mktemp -d)
 UDFS=(
     json_drop_keys
     json_clean_posthog_event_properties
+    json_clean_posthog_person_properties
     json_strip_empty_strings_and_nulls
 )
 
@@ -24,6 +25,9 @@ query_for() {
             ;;
         json_clean_posthog_event_properties)
             echo "SELECT JSONCleanPostHogEventProperties(x) FROM $input FORMAT TabSeparated"
+            ;;
+        json_clean_posthog_person_properties)
+            echo "SELECT JSONCleanPostHogPersonProperties(x) FROM $input FORMAT TabSeparated"
             ;;
         json_strip_empty_strings_and_nulls)
             echo "SELECT JSONStripEmptyStringsAndNulls(x) FROM $input FORMAT TabSeparated"

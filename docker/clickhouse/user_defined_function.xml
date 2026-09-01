@@ -611,6 +611,18 @@
 
     <function>
         <type>executable_pool</type>
+        <name>JSONCleanPostHogPersonProperties</name>
+        <return_type>String</return_type>
+        <argument>
+            <type>String</type>
+        </argument>
+        <format>Raw</format>
+        <command>json_clean_posthog_event_properties_udf --chunked --person-properties</command>
+        <send_chunk_header>true</send_chunk_header>
+    </function>
+
+    <function>
+        <type>executable_pool</type>
         <name>JSONStripEmptyStringsAndNulls</name>
         <return_type>String</return_type>
         <argument>

@@ -35,6 +35,20 @@ func TestProcessLineDropsHighVolumeEventProperties(t *testing.T) {
 	}
 }
 
+func TestProcessLinePreservesPersonProperties(t *testing.T) {
+	input := []byte(`{"$active_feature_flags":["flag"],"$feature/test":true,"$set":{"name":"value"},"nested.key":"value","drop":null}`)
+	want := `{"$active_feature_flags":["flag"],"$feature/test":true,"$set":{"name":"value"},"nested":{"key":"value"}}`
+
+	var got bytes.Buffer
+	proc := processor{kind: personProperties}
+	if err := proc.processLine(input, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.String() != want {
+		t.Fatalf("processLine() = %s, want %s", got.String(), want)
+	}
+}
+
 func TestProcessLineGroupsFeatureProperties(t *testing.T) {
 	input := []byte(`{"$feature/first-flag":"control","$feature/number":42,"$feature/enabled":true,"$feature/config":{"nested.value":"dropped"},"$feature_flags":"invalid","$feature_flags":{"existing":"kept"},"$feature_flag_payloads":{"flag":"dropped"},"other":"value"}`)
 	want := `{"$feature_flags":{"existing":"kept","first-flag":"control","number":42,"enabled":true,"config":{"nested":{"value":"dropped"}}},"other":"value"}`
@@ -209,7 +223,7 @@ func TestRunChunked(t *testing.T) {
 	want := "{\"keep\":1}\n{\"$feature_flags\":{\"enabled\":true}}\n{}\n"
 	var output bytes.Buffer
 
-	if err := runChunked(strings.NewReader(input), &output); err != nil {
+	if err := runChunked(strings.NewReader(input), &output, eventProperties); err != nil {
 		t.Fatal(err)
 	}
 	if output.String() != want {

@@ -16,6 +16,7 @@ EARLIEST_UDF_VERSION = 11
 
 UNVERSIONED_FUNCTIONS = {
     "JSONCleanPostHogEventProperties",
+    "JSONCleanPostHogPersonProperties",
     "JSONStripEmptyStringsAndNulls",
 }
 

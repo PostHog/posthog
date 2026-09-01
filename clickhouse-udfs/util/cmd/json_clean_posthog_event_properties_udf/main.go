@@ -21,6 +21,13 @@ const (
 	normalizationObjectArray
 )
 
+type propertiesKind byte
+
+const (
+	eventProperties propertiesKind = iota
+	personProperties
+)
+
 type pathRule struct {
 	normalization normalizationKind
 	children      map[string]*pathRule
@@ -139,6 +146,7 @@ type mergeKey struct {
 type processor struct {
 	data      []byte
 	pos       int
+	kind      propertiesKind
 	mutated   bool
 	rawSafe   bool
 	free      []*value
@@ -174,7 +182,7 @@ func (p *processor) processLine(rawLine []byte, buf *bytes.Buffer) error {
 		return fmt.Errorf("json parse error: trailing data at byte %d", p.pos)
 	}
 
-	cleaned, err := p.cleanEventProperties(parsed)
+	cleaned, err := p.cleanProperties(parsed)
 	if err != nil {
 		p.recycle(parsed)
 		if errors.Is(err, errMaxJSONDepth) {
@@ -193,6 +201,13 @@ func (p *processor) processLine(rawLine []byte, buf *bytes.Buffer) error {
 	}
 	p.recycle(cleaned)
 	return nil
+}
+
+func (p *processor) cleanProperties(v *value) (*value, error) {
+	if p.kind == personProperties {
+		return p.cleanNode(nil, v)
+	}
+	return p.cleanEventProperties(v)
 }
 
 func (p *processor) cleanEventProperties(v *value) (*value, error) {
@@ -1190,11 +1205,11 @@ func borrowedBytes(s string) []byte {
 	return unsafe.Slice(unsafe.StringData(s), len(s))
 }
 
-func run(input io.Reader, output io.Writer) error {
+func run(input io.Reader, output io.Writer, kind propertiesKind) error {
 	reader := bufio.NewReaderSize(input, 4*1024*1024)
 	writer := bufio.NewWriterSize(output, 4*1024*1024)
 	buf := bytes.NewBuffer(make([]byte, 0, 64*1024))
-	proc := processor{}
+	proc := processor{kind: kind}
 
 	for {
 		line, err := reader.ReadBytes('\n')
@@ -1225,11 +1240,11 @@ func run(input io.Reader, output io.Writer) error {
 	}
 }
 
-func runChunked(input io.Reader, output io.Writer) error {
+func runChunked(input io.Reader, output io.Writer, kind propertiesKind) error {
 	reader := bufio.NewReaderSize(input, 4*1024*1024)
 	writer := bufio.NewWriterSize(output, 4*1024*1024)
 	buf := bytes.NewBuffer(make([]byte, 0, 64*1024))
-	proc := processor{}
+	proc := processor{kind: kind}
 
 	for {
 		var rows int
@@ -1261,6 +1276,7 @@ func runChunked(input io.Reader, output io.Writer) error {
 func main() {
 	cpuProfile := flag.String("cpuprofile", "", "write CPU profile to file")
 	chunked := flag.Bool("chunked", false, "read a row-count header before each input chunk")
+	cleanPersonProperties := flag.Bool("person-properties", false, "clean person properties without event-specific transformations")
 	flag.Parse()
 
 	if *cpuProfile != "" {
@@ -1284,7 +1300,11 @@ func main() {
 	if *chunked {
 		runner = runChunked
 	}
-	if err := runner(os.Stdin, os.Stdout); err != nil {
+	kind := eventProperties
+	if *cleanPersonProperties {
+		kind = personProperties
+	}
+	if err := runner(os.Stdin, os.Stdout, kind); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
