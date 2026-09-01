@@ -65,8 +65,8 @@ export function useTaxonomicLocalOverrides(context: {
         [recentFilterItems, taxonomicGroupTypes, excludedOperators, selectingKeyOnly, excludedProperties]
     )
     const contextFilteredPinnedItems = useMemo(
-        () => filterPinnedForContext(pinnedFilterItems, taxonomicGroupTypes),
-        [pinnedFilterItems, taxonomicGroupTypes]
+        () => filterPinnedForContext(pinnedFilterItems, taxonomicGroupTypes, excludedProperties),
+        [pinnedFilterItems, taxonomicGroupTypes, excludedProperties]
     )
 
     return useCallback(

@@ -236,13 +236,13 @@ export const INBOX_LEGACY_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
 }
 
 /**
- * The sections of the Reports list, in render order: work waiting on you first, then work waiting
- * on an agent. Each is a collapsible run of report cards with
- * its own fixed server filter (see `INBOX_REPORT_SECTION_LIST_PARAMS`), keyed `reportListLogic`
- * instance, header count, and pagination — the sections stack in one column rather than switching.
- * pinned: these keys are the `tab` property on the inbox analytics events, the `data-attr` on each
- * section header, and the keys of the persisted expanded/collapsed state, so they outlive renames of
- * the labels above them (`needs-decision` is now "Needs a PR", `monitoring` is "Review and merge").
+ * The report states of the Reports list, in filter order: work waiting on you first, then work
+ * waiting on an agent, then the closed states. Each has its own fixed server filter (see
+ * `INBOX_REPORT_SECTION_LIST_PARAMS`), keyed `reportListLogic` instance, count, and pagination;
+ * the flat list merges the rows of the states the state filter selects.
+ * pinned: these keys are the `tab` property on the inbox analytics events and the values of the
+ * `state` URL filter param, so they outlive renames of the labels above them (`monitoring` is
+ * now "Review and merge").
  */
 export const INBOX_REPORT_SECTION_KEYS = [
     'monitoring',
@@ -261,13 +261,13 @@ export const INBOX_PRIMARY_REPORT_SECTION_KEY: InboxReportSectionKey = 'needs-de
 
 export const INBOX_REPORT_SECTION_LABEL: Record<InboxReportSectionKey, string> = {
     monitoring: 'Review and merge',
-    'needs-decision': 'Needs a PR',
+    'needs-decision': 'Needs decision',
     resolved: 'Resolved',
     dismissed: 'Dismissed',
     'not-actionable': 'Not actionable',
 }
 
-/** One line per section, shown as a tooltip when hovering its header. */
+/** One line per state, shown as a tooltip on its state-filter option. */
 export const INBOX_REPORT_SECTION_DESCRIPTION: Record<InboxReportSectionKey, string> = {
     monitoring: 'Reports with a pull request open, ready for you to review and merge on GitHub.',
     'needs-decision': 'Reports an agent can act on that have no pull request yet.',
@@ -279,12 +279,12 @@ export const INBOX_REPORT_SECTION_DESCRIPTION: Record<InboxReportSectionKey, str
 }
 
 /**
- * Sections only rendered for staff users (internal). Not actionable is an internal triage surface;
- * every other section is public to any team member.
+ * States only rendered for staff users (internal). Not actionable is an internal triage surface;
+ * every other state is public to any team member.
  */
 export const INBOX_STAFF_ONLY_REPORT_SECTION_KEYS: InboxReportSectionKey[] = ['not-actionable']
 
-/** Small tag rendered next to a section's label in its header. */
+/** Small tag rendered next to a state's label in the state filter. */
 export const INBOX_REPORT_SECTION_TAG: Partial<Record<InboxReportSectionKey, 'Staff'>> = {
     'not-actionable': 'Staff',
 }
