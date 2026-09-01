@@ -60,9 +60,16 @@ const meta: Meta<typeof SavedDashboardViewsPicker> = {
     title: 'Products/Dashboards/Saved views/Picker',
     component: SavedDashboardViewsPicker,
     parameters: {
-        layout: 'centered',
-        testOptions: { snapshotTargetSelector: '[data-attr="dashboard-saved-views-popover"]' },
+        layout: 'padded',
+        testOptions: { snapshotTargetSelector: '.Popover' },
     },
+    decorators: [
+        (Story) => (
+            <div className="absolute left-4 top-4">
+                <Story />
+            </div>
+        ),
+    ],
 }
 
 export default meta
@@ -113,7 +120,7 @@ export const Loading: Story = {
     },
     parameters: {
         testOptions: {
-            snapshotTargetSelector: '[data-attr="dashboard-saved-views-popover"]',
+            snapshotTargetSelector: '.Popover',
             waitForLoadersToDisappear: false,
         },
     },
