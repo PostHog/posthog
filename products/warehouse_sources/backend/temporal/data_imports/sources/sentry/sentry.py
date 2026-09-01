@@ -270,34 +270,67 @@ class SentryPaginator(BasePaginator):
 # Low-level HTTP helpers (used only by issue_tag_values custom fan-out)
 # ---------------------------------------------------------------------------
 
+# Raised when Sentry keeps rate-limiting our requests (HTTP 429) until the request-level retry
+# budget runs out. The source classifies this as retryable (see `SentrySource.get_retryable_errors`)
+# so Temporal retries the whole activity and the next sync picks up the self-recovering limit. The
+# wording never interpolates the org, URL, or response body, so it stays safe for error tracking —
+# a raw `raise_for_status()` HTTPError would leak the org slug in its URL.
+SENTRY_RATE_LIMITED_MESSAGE = (
+    "Sentry rate-limited PostHog's API requests (HTTP 429) and the limit did not clear within the "
+    "retry window. This is temporary and the next scheduled sync retries automatically."
+)
+
+
+class SentryRateLimitedError(Exception):
+    """Sentry kept returning 429 until the request-level retry budget ran out."""
+
 
 def _is_retryable_response(response: Response) -> bool:
     return response.status_code in _RETRYABLE_STATUS_CODES
 
 
+def _rate_limit_wait_from_headers(response: Response) -> float | None:
+    """Seconds to wait before a 429 retry, read from Sentry's rate-limit headers.
+
+    `X-Sentry-Rate-Limit-Reset` is an epoch second; `Retry-After` is a delta in seconds. Prefer
+    whichever the response carries, and return None when neither yields a positive wait so the
+    caller falls back to exponential backoff.
+    """
+    reset_header = response.headers.get("X-Sentry-Rate-Limit-Reset")
+    if reset_header:
+        try:
+            reset_epoch = int(reset_header)
+        except ValueError:
+            pass
+        else:
+            wait_until_reset = reset_epoch - int(datetime.now(UTC).timestamp())
+            if wait_until_reset > 0:
+                return float(wait_until_reset)
+
+    retry_after = response.headers.get("Retry-After")
+    if retry_after:
+        try:
+            retry_after_seconds = int(retry_after)
+        except ValueError:
+            pass
+        else:
+            if retry_after_seconds > 0:
+                return float(retry_after_seconds)
+
+    return None
+
+
 def _retry_wait_seconds(state: RetryCallState) -> float:
-    fallback_wait = min(2 ** (state.attempt_number - 1), 30)
+    fallback_wait = float(min(2 ** (state.attempt_number - 1), 30))
     if state.outcome is None or state.outcome.failed:
-        return float(fallback_wait)
+        return fallback_wait
 
     response = state.outcome.result()
     if response.status_code != 429:
-        return float(fallback_wait)
+        return fallback_wait
 
-    reset_header = response.headers.get("X-Sentry-Rate-Limit-Reset")
-    if not reset_header:
-        return float(fallback_wait)
-
-    try:
-        reset_epoch = int(reset_header)
-    except ValueError:
-        return float(fallback_wait)
-
-    wait_until_reset = reset_epoch - int(datetime.now(UTC).timestamp())
-    if wait_until_reset <= 0:
-        return float(fallback_wait)
-
-    return float(wait_until_reset)
+    header_wait = _rate_limit_wait_from_headers(response)
+    return header_wait if header_wait is not None else fallback_wait
 
 
 def _raise_on_failed_retry(state: RetryCallState) -> Response:
@@ -308,7 +341,13 @@ def _raise_on_failed_retry(state: RetryCallState) -> Response:
         if exc is None:
             raise RuntimeError("Unexpected request retry state")
         raise exc
-    return state.outcome.result()
+    response = state.outcome.result()
+    if response.status_code == 429:
+        # The rate limit did not clear within our retry budget. Raise a credential-safe error the
+        # source treats as retryable instead of returning the 429 to the caller, whose
+        # `raise_for_status()` would surface an HTTPError with the org slug in its URL.
+        raise SentryRateLimitedError(SENTRY_RATE_LIMITED_MESSAGE)
+    return response
 
 
 @retry(
