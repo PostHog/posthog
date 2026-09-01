@@ -7,6 +7,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { broadcastPreviewLogic } from './broadcastPreviewLogic'
 import { BroadcastSummary } from './BroadcastSummary'
 import { BroadcastWizard } from './BroadcastWizard'
 import { BroadcastWizardLogicProps, broadcastWizardLogic } from './broadcastWizardLogic'
@@ -23,7 +24,9 @@ export function BroadcastScene({ id }: BroadcastWizardLogicProps): JSX.Element {
 
     return (
         <BindLogic logic={broadcastWizardLogic} props={logicProps}>
-            <BroadcastSceneContent id={logicProps.id} />
+            <BindLogic logic={broadcastPreviewLogic} props={logicProps}>
+                <BroadcastSceneContent id={logicProps.id} />
+            </BindLogic>
         </BindLogic>
     )
 }

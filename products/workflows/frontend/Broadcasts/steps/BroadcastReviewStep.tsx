@@ -5,6 +5,7 @@ import { Spinner } from '@posthog/lemon-ui'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
+import { BroadcastEmailPreview } from '../BroadcastEmailPreview'
 import { broadcastWizardLogic } from '../broadcastWizardLogic'
 
 function ReviewRow({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
@@ -23,7 +24,6 @@ export function BroadcastReviewStep(): JSX.Element {
         blastRadiusLoading,
         goalEnabled,
         conversion,
-        email,
         scheduleSummary,
         emailRateLimit,
         rateLimitedSendDuration,
@@ -75,23 +75,7 @@ export function BroadcastReviewStep(): JSX.Element {
                 </ReviewRow>
 
                 <ReviewRow label="Email">
-                    <div className="flex flex-col gap-1">
-                        <span className="font-semibold">{email.subject || 'No subject'}</span>
-                        {email.html ? (
-                            <iframe
-                                srcDoc={email.html}
-                                sandbox=""
-                                title="Email preview"
-                                className="h-64 w-full rounded border border-border"
-                            />
-                        ) : email.text ? (
-                            <div className="text-muted whitespace-pre-wrap text-sm max-h-64 overflow-y-auto">
-                                {email.text}
-                            </div>
-                        ) : (
-                            <span className="text-muted">No content yet</span>
-                        )}
-                    </div>
+                    <BroadcastEmailPreview />
                 </ReviewRow>
 
                 <ReviewRow label="Schedule">{scheduleSummary}</ReviewRow>
