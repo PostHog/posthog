@@ -77,6 +77,7 @@ SIGNALS_DEV_APP_ID = "019fb2ee-9d54-0000-61d9-faf825230d44"
 _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
     {
         "claude-fable-5",
+        "claude-fable-5-1",
         "claude-opus-4-5",
         "claude-opus-4-6",
         "claude-opus-4-7",
@@ -144,6 +145,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=frozenset(
             {
                 "claude-fable-5",
+                "claude-fable-5-1",
                 "claude-opus-4-5",
                 "claude-opus-4-6",
                 "claude-opus-4-7",
