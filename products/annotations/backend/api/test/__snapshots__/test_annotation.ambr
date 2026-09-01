@@ -249,7 +249,14 @@
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.12
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -288,8 +295,10 @@
          "posthog_organization"."personalization",
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."is_platform"
-  FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  FROM "posthog_organizationmembership"
+  INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
+  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+         AND "posthog_organizationmembership"."user_id" = 99999)
   LIMIT 21
   '''
 # ---
@@ -908,6 +917,61 @@
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.21
   '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_organizationmembership"
+  INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
+  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+         AND "posthog_organizationmembership"."user_id" = 99999)
+  LIMIT 21
+  '''
+# ---
+# name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.22
+  '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",
          "ee_accesscontrol"."access_level",
@@ -931,7 +995,7 @@
              AND "ee_accesscontrol"."team_id" = 99999))
   '''
 # ---
-# name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.22
+# name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.23
   '''
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -984,7 +1048,7 @@
   WHERE "posthog_organizationmembership"."user_id" = 99999
   '''
 # ---
-# name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.23
+# name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.24
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_annotation"
@@ -1002,7 +1066,7 @@
               OR "posthog_annotation"."team_id" = 99999))
   '''
 # ---
-# name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.24
+# name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.25
   '''
   SELECT "posthog_annotation"."id",
          "posthog_annotation"."content",
@@ -1129,7 +1193,7 @@
   LIMIT 1000
   '''
 # ---
-# name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.25
+# name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.26
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -1175,7 +1239,7 @@
          AND "posthog_user"."id" = 99999)
   '''
 # ---
-# name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.26
+# name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.27
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -1221,7 +1285,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.27
+# name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.28
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -1363,7 +1427,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.28
+# name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.29
   '''
   SELECT "posthog_project"."updated_at",
          "posthog_project"."id",
@@ -1375,31 +1439,6 @@
   FROM "posthog_project"
   WHERE "posthog_project"."id" = 99999
   LIMIT 21
-  '''
-# ---
-# name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.29
-  '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at",
-         "posthog_team"."organization_id" AS "_team_organization_id"
-  FROM "ee_accesscontrol"
-  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-             AND "posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999))
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.3
@@ -1466,10 +1505,90 @@
          "posthog_organization"."is_platform"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE "posthog_organizationmembership"."user_id" = 99999
+  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+         AND "posthog_organizationmembership"."user_id" = 99999)
+  LIMIT 21
   '''
 # ---
 # name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.31
+  '''
+  SELECT "ee_accesscontrol"."id",
+         "ee_accesscontrol"."team_id",
+         "ee_accesscontrol"."access_level",
+         "ee_accesscontrol"."resource",
+         "ee_accesscontrol"."resource_id",
+         "ee_accesscontrol"."organization_member_id",
+         "ee_accesscontrol"."role_id",
+         "ee_accesscontrol"."created_by_id",
+         "ee_accesscontrol"."created_at",
+         "ee_accesscontrol"."updated_at",
+         "posthog_team"."organization_id" AS "_team_organization_id"
+  FROM "ee_accesscontrol"
+  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
+  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
+  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
+          AND "ee_accesscontrol"."role_id" IS NULL
+          AND "ee_accesscontrol"."team_id" = 99999)
+         OR ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
+             AND "posthog_organizationmembership"."user_id" = 99999
+             AND "ee_accesscontrol"."role_id" IS NULL
+             AND "ee_accesscontrol"."team_id" = 99999))
+  '''
+# ---
+# name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.32
+  '''
+  SELECT "posthog_organizationmembership"."id",
+         "posthog_organizationmembership"."organization_id",
+         "posthog_organizationmembership"."user_id",
+         "posthog_organizationmembership"."level",
+         "posthog_organizationmembership"."joined_at",
+         "posthog_organizationmembership"."updated_at",
+         "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."enforce_verified_domains",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."members_can_see_org_members",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."read_only_mcp_access",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."has_active_subscription",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_organizationmembership"
+  INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
+  WHERE "posthog_organizationmembership"."user_id" = 99999
+  '''
+# ---
+# name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.33
   '''
   SELECT COUNT(*) AS "__count"
   FROM "posthog_annotation"
@@ -1487,7 +1606,7 @@
               OR "posthog_annotation"."team_id" = 99999))
   '''
 # ---
-# name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.32
+# name: TestAnnotation.test_retrieving_annotation_is_not_n_plus_1.34
   '''
   SELECT "posthog_annotation"."id",
          "posthog_annotation"."content",
