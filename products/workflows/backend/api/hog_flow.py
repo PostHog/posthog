@@ -3671,7 +3671,12 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
     )
     base_version = serializers.IntegerField(
         required=False,
-        help_text="Workflow version this was authored against. Defaults to the current live version.",
+        help_text=(
+            "Workflow version this was authored against. Required when the proposal changes a whole "
+            "list (actions, edges, variables), because approve refuses such a proposal once the "
+            "workflow has moved on and a defaulted version would read as current however long the "
+            "producer took. Defaults to the current live version otherwise."
+        ),
     )
     step_id = serializers.CharField(
         required=False,
@@ -3731,12 +3736,31 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
     def validate_content(self, value: Any) -> dict:
         if not isinstance(value, dict) or not value:
             raise exceptions.ValidationError("Provide at least one workflow content field to change.")
-        unknown = sorted(set(value) - set(DRAFT_CONTENT_FIELDS))
+        unknown = sorted(set(value) - set(PROPOSAL_CONTENT_FIELDS))
         if unknown:
             raise exceptions.ValidationError(
-                f"Unknown content field(s): {', '.join(unknown)}. Valid fields: {', '.join(DRAFT_CONTENT_FIELDS)}."
+                f"Unknown content field(s): {', '.join(unknown)}. Valid fields: {', '.join(PROPOSAL_CONTENT_FIELDS)}."
             )
+        for field in PROPOSAL_LIST_OF_OBJECT_FIELDS:
+            if field not in value:
+                continue
+            items = value[field]
+            if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+                raise exceptions.ValidationError(f"`{field}` must be a list of objects.")
         return value
+
+    def validate(self, attrs: dict) -> dict:
+        changes_a_whole_list = any(field in attrs.get("content", {}) for field in PROPOSAL_WHOLE_LIST_FIELDS)
+        if changes_a_whole_list and attrs.get("base_version") is None:
+            raise exceptions.ValidationError(
+                {
+                    "base_version": (
+                        "Send the workflow version you read, so approving this can tell whether the "
+                        "workflow moved on while you were writing it."
+                    )
+                }
+            )
+        return attrs
 
 
 class WorkflowProposalApproveRequestSerializer(serializers.Serializer):
@@ -3832,7 +3856,18 @@ class ProposalOutOfDateError(exceptions.APIException):
 # changes one variable carries every other variable as it stood when the proposal was written, and
 # staging it drops any added since. The single-value fields (trigger, conversion, exit_condition)
 # are deliberately absent - replacing one of those is the proposal's stated purpose, not collateral.
-PROPOSAL_WHOLE_LIST_FIELDS = ("actions", "edges", "abort_action", "variables")
+PROPOSAL_WHOLE_LIST_FIELDS = ("actions", "edges", "variables")
+
+# `trigger` and `abort_action` are read-only on the workflow serializer: `trigger` is derived from
+# the trigger action, and publish re-serializes the draft, so a proposed value for either is dropped
+# on the way to the live workflow. A suggestion that cannot ship is worse than one that is refused,
+# so they are not proposable at all.
+PROPOSAL_CONTENT_FIELDS = tuple(field for field in DRAFT_CONTENT_FIELDS if field not in ("trigger", "abort_action"))
+
+# Content fields that hold a list of objects. Their items reach the secret-stripping and graph
+# validation helpers, which read each item as a mapping, so anything else has to fail as a bad
+# request here rather than as an AttributeError several frames down.
+PROPOSAL_LIST_OF_OBJECT_FIELDS = ("actions", "edges", "variables")
 
 
 def unstage_workflow_proposals(hog_flow: HogFlow) -> None:
@@ -4524,6 +4559,13 @@ class HogFlowViewSet(
         instance.draft_encrypted_inputs = draft_encrypted_inputs
         instance.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
 
+        # A person editing the draft is editing over an approved suggestion, and the edit may undo
+        # exactly what it proposed. Approved means "this suggestion is what sits in the draft", so
+        # the suggestion returns to the queue and publish cannot record it as applied to a version
+        # that no longer carries it. The person decides again, with the suggestion still in front
+        # of them.
+        unstage_workflow_proposals(instance)
+
     @extend_schema(request=HogFlowGraphUpdateSerializer, responses={200: HogFlowSerializer})
     @action(detail=True, methods=["PATCH"])
     def graph(self, request: Request, *args, **kwargs):
@@ -5060,7 +5102,11 @@ class HogFlowViewSet(
         # Derived from the transport, never from the request body: a caller that could label its own
         # provenance could pass an agent's proposal off as a human's.
         source = get_event_source(request)
-        if source in (EventSource.POSTHOG_CODE, EventSource.WIZARD):
+        # `self_driving` is the one value that names a PostHog-run agent, so only the signal that
+        # cannot be forged may set it: the Signals OAuth application the run minted under. Every
+        # other agent surface is recognised from a user agent or a client header, which a caller
+        # writes for itself, so those record as `mcp` — an agent of some kind, unattributed.
+        if source == EventSource.SELF_DRIVING:
             return WorkflowProposal.CreatedVia.SELF_DRIVING
         if source in AGENT_EVENT_SOURCES:
             return WorkflowProposal.CreatedVia.MCP
@@ -5094,7 +5140,13 @@ class HogFlowViewSet(
         instance = self.get_object()
 
         if request.method == "GET":
-            queryset = WorkflowProposal.objects.filter(hog_flow=instance).order_by("-created_at")
+            # Applied suggestions are ordered by the version that carried them, not by when they were
+            # written: a suggestion approved after later-written ones ships last, and a limited read
+            # of the newest applied ones has to show the change that shipped last. Everything else
+            # reads as a queue, newest first.
+            applied_only = request.query_params.get("status") == WorkflowProposal.Status.APPLIED
+            ordering = ("-applied_version", "-created_at") if applied_only else ("-created_at",)
+            queryset = WorkflowProposal.objects.filter(hog_flow=instance).order_by(*ordering)
             requested_status = request.query_params.get("status")
             if requested_status:
                 if requested_status not in WorkflowProposal.Status.values:
