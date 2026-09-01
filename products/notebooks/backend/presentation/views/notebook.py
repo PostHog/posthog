@@ -1369,6 +1369,11 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # restarts. Capture the shape before the write so we can tell whether a restart is the
         # only way to make the configuration true.
         shape_before = build_notebook_sandbox_config(notebook)
+        # Kept so a failed restart can put the row back to the shape that is still running.
+        shape_before_fields = {
+            "cpu_cores": notebook.kernel_cpu_cores,
+            "memory_gb": notebook.kernel_memory_gb,
+        }
 
         if "cpu_cores" in serializer.validated_data:
             notebook.kernel_cpu_cores = serializer.validated_data["cpu_cores"]
@@ -1418,6 +1423,15 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 restarted = True
             except (SandboxProvisionError, RuntimeError):
                 logger.exception("notebook_kernel_config_restart_failed", notebook_short_id=notebook.short_id)
+                # The new size only exists once a sandbox runs it. The write has to precede the
+                # restart, because the restart reads it, so undo it when the restart does not
+                # happen. Otherwise every later status prices a shape that is not running, and
+                # nothing after this response ever says otherwise.
+                notebook.kernel_cpu_cores = shape_before_fields["cpu_cores"]
+                notebook.kernel_memory_gb = shape_before_fields["memory_gb"]
+                if notebook.pk:
+                    notebook.save(update_fields=["kernel_cpu_cores", "kernel_memory_gb"])
+                configured = build_notebook_sandbox_config(notebook)
 
         config_payload = {
             "cpu_cores": notebook.kernel_cpu_cores,
