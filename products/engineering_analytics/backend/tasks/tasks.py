@@ -5,7 +5,9 @@ from celery import shared_task
 
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration.github import GitHubIntegration
+from posthog.models.scoping import with_team_scope
 from posthog.models.team import Team
+from posthog.scoping_audit import skip_team_scope_audit
 
 from products.engineering_analytics.backend.logic.census import collect_repo_census, emit_census_events
 from products.engineering_analytics.backend.logic.sources import list_github_sources
@@ -16,6 +18,9 @@ logger = structlog.get_logger(__name__)
 
 
 @shared_task(ignore_result=True)
+# Fan-out across every team with a GitHub source: cross-team by design, and the model still
+# uses a plain manager, so there is no unscoped() to declare it with.
+@skip_team_scope_audit
 def emit_test_ownership_census() -> None:
     team_ids = (
         ExternalDataSource.objects.filter(source_type=ExternalDataSourceType.GITHUB, deleted=False)
@@ -27,6 +32,7 @@ def emit_test_ownership_census() -> None:
 
 
 @shared_task(ignore_result=True)
+@with_team_scope()
 def emit_team_test_census(team_id: int) -> None:
     team = Team.objects.get(id=team_id)
     seen_repos: set[str] = set()
