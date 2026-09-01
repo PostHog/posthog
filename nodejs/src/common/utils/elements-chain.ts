@@ -144,7 +144,9 @@ function extractAttrClass(el: Record<string, any>): Element['attr_class'] {
     if (!attr_class) {
         return undefined
     } else if (Array.isArray(attr_class)) {
-        return attr_class
+        // Return a copy, because elementsToString sorts attr_class in place and must not
+        // reorder the caller's live `$elements` on the legacy derivation path.
+        return [...attr_class]
     } else {
         return attr_class.split(' ')
     }

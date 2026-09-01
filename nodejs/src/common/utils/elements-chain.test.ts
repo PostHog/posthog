@@ -200,6 +200,14 @@ describe('elementsChainFromProperties()', () => {
         expect(elementsChainFromProperties({})).toBe('')
     })
 
+    it('does not reorder the input $elements class array', () => {
+        const properties = {
+            $elements: [{ tag_name: 'a', attr__class: ['zeta', 'alpha'], nth_child: 1, nth_of_type: 1 }],
+        }
+        elementsChainFromProperties(properties)
+        expect(properties.$elements[0].attr__class).toEqual(['zeta', 'alpha'])
+    })
+
     // A malformed legacy `$elements` payload must not throw, because the transformer derives
     // the chain outside any per-event guard, where a throw crashes the ingestion worker.
     it.each([
