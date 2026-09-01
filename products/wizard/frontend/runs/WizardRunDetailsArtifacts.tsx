@@ -1,5 +1,5 @@
 import { IconArrowRight, IconExternal, IconGitBranch, IconGithub } from '@posthog/icons'
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import type { WizardRunApi, WizardRunArtifactApi, WizardRunGitDiffArtifactApi } from '../generated/api.schemas'
 import { formatArtifactSize } from '../wizardRunDisplay'
@@ -8,16 +8,28 @@ import { WizardRunDiffStats } from './WizardRunDiffStats'
 export function WizardRunDetailsArtifacts({
     run,
     artifacts,
+    error,
     loading,
     onOpenDiff,
+    onRetry,
 }: {
     run: WizardRunApi
     artifacts: WizardRunArtifactApi[]
+    error: string | null
     loading: boolean
     onOpenDiff: (artifact: WizardRunGitDiffArtifactApi) => void
+    onRetry: () => void
 }): JSX.Element {
     if (loading) {
         return <LemonSkeleton repeat={2} className="h-12 w-full" />
+    }
+
+    if (error && artifacts.length === 0) {
+        return (
+            <LemonBanner type="error" action={{ children: 'Try again', onClick: onRetry }}>
+                {error}
+            </LemonBanner>
+        )
     }
 
     if (artifacts.length === 0) {

@@ -31,6 +31,7 @@ export interface wizardRunDetailsLogicValues {
     cancelRunRequest: WizardRunApi | null
     cancelRunRequestLoading: boolean
     runArtifacts: WizardRunArtifactApi[]
+    runArtifactsError: string | null
     runArtifactsLoading: boolean
     runDetails: WizardRunApi | null
     runDetailsLoading: boolean
@@ -153,6 +154,14 @@ export const wizardRunDetailsLogic = kea<wizardRunDetailsLogicType>([
 
                     return runId && !state.includes(runId) ? [...state, runId] : state
                 },
+            },
+        ],
+        runArtifactsError: [
+            null as string | null,
+            {
+                loadRunArtifacts: () => null,
+                loadRunArtifactsSuccess: () => null,
+                loadRunArtifactsFailure: (_, { errorObject }) => requestError(errorObject, "Couldn't load artifacts."),
             },
         ],
         selectedRunDiffArtifactId: [

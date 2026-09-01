@@ -165,6 +165,18 @@ describe('wizardRunDetailsLogic', () => {
         })
     })
 
+    it('records an artifact load failure and clears it on a successful retry', async () => {
+        mockLoadWizardRunArtifacts.mockRejectedValueOnce(new Error('network down'))
+        logic.actions.selectRun(makeRun())
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ runArtifactsError: expect.any(String) })
+
+        mockLoadWizardRunArtifacts.mockResolvedValue([])
+        logic.actions.refreshSelectedRun()
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ runArtifactsError: null })
+    })
+
     it('keeps resolved artifact state visible during a refresh', async () => {
         logic.actions.selectRun(makeRun())
         await expectLogic(logic).toFinishAllListeners()

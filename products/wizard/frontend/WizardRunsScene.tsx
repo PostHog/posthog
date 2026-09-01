@@ -63,6 +63,7 @@ export function WizardRunsScene(): JSX.Element {
 
     const {
         cancelRunRequestLoading,
+        runArtifactsError,
         runDetailsLoading,
         runDiffError,
         runDiffLoading,
@@ -187,6 +188,7 @@ export function WizardRunsScene(): JSX.Element {
             <WizardRunDetailsDrawer
                 run={selectedRun}
                 artifacts={selectedRunArtifacts}
+                artifactsError={runArtifactsError}
                 artifactsLoading={selectedRunArtifactsInitialLoading}
                 currentUserId={user?.id ?? null}
                 refreshing={runDetailsLoading}

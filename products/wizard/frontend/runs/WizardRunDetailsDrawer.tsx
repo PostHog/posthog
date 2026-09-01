@@ -24,6 +24,7 @@ import { WizardRunStatusTag } from './WizardRunStatusTag'
 export function WizardRunDetailsDrawer({
     run,
     artifacts,
+    artifactsError,
     artifactsLoading,
     currentUserId,
     refreshing,
@@ -42,6 +43,7 @@ export function WizardRunDetailsDrawer({
 }: {
     run: WizardRunApi | null
     artifacts: WizardRunArtifactApi[]
+    artifactsError: string | null
     artifactsLoading: boolean
     currentUserId: number | null
     refreshing: boolean
@@ -210,8 +212,10 @@ export function WizardRunDetailsDrawer({
                         <WizardRunDetailsArtifacts
                             run={run}
                             artifacts={artifacts}
+                            error={artifactsError}
                             loading={artifactsLoading}
                             onOpenDiff={onOpenDiff}
+                            onRetry={onRefresh}
                         />
                     </section>
 
