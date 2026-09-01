@@ -385,7 +385,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
 
         unpriced_trace = traces["trace_unpriced"]
         self.assertIsNone(unpriced_trace.totalCost)
-        self.assertIsNone(unpriced_trace.requestCost)
+        self.assertIsNone(unpriced_trace.inputCost)
         self.assertIsNone(unpriced_trace.inputTokens)
 
     @freeze_time("2025-01-16T00:00:00Z")
