@@ -91,30 +91,12 @@ pub struct PersonhogStore {
     /// plan's handoffs share one id, so this turns a few hundred reads
     /// per reconcile pass into one.
     freeze_quorums: Arc<StdMutex<HashMap<String, Vec<String>>>>,
-    /// When each id was last read and found missing. A remembered
-    /// absence answers resolutions from memory until it expires
-    /// (`absent_freeze_quorum_ttl`) or `apply_plan` re-puts the
-    /// record, but never for good: the sweep can delete a record a
-    /// later chunk re-creates, and a pinned absence would hold every
-    /// later resolution on the every-live-router fallback.
+    /// When each id was last read and found missing.
     absent_freeze_quorums: Arc<StdMutex<HashMap<String, Instant>>>,
-    /// See [`DEFAULT_ABSENT_FREEZE_QUORUM_TTL`].
     absent_freeze_quorum_ttl: Duration,
 }
 
-/// How long a remembered absence answers without a re-read. The
-/// reconcile pass resolves every Freezing handoff each tick and a
-/// plan's handoffs share one id, so an unremembered absence costs one
-/// etcd read and one warn per Freezing handoff per pass. `apply_plan`
-/// invalidates when it re-puts a record, so the expiry only bounds how
-/// long a record written by another coordinator process goes unseen.
-/// An unseen record widens the requirement to every live router, which
-/// delays a handoff rather than advancing it early, so the expiry must
-/// stay small against the freeze phase deadline. Kept below the
-/// reconcile interval (default 5s): an expiry at or above the interval
-/// would let an absence cached in one pass carry the next whole pass,
-/// which defers the re-read to the pass after and doubles how long a
-/// re-created record goes unseen.
+/// How long a remembered absence answers without a re-read.
 const DEFAULT_ABSENT_FREEZE_QUORUM_TTL: Duration = Duration::from_secs(4);
 
 /// Counts store calls by the method that made them. The shared etcd
@@ -228,11 +210,7 @@ impl PersonhogStore {
         }
     }
 
-    /// Test hook: the expiry cannot be exercised against a mocked
-    /// clock (`Instant` is real time), so tests shrink it instead.
-    /// Production code keeps the default: the caches are shared
-    /// across clones but the expiry is per-clone, so divergent values
-    /// would judge the same entry differently.
+    /// Test hook
     #[doc(hidden)]
     pub fn with_absent_freeze_quorum_ttl(mut self, ttl: Duration) -> Self {
         self.absent_freeze_quorum_ttl = ttl;
@@ -931,12 +909,6 @@ impl PersonhogStore {
             Ok(application)
         }
         .await;
-        // On every return, errors included: an earlier chunk can have
-        // re-put the record before a later chunk failed. Ordered after
-        // the writes because a resolve that read absence before a
-        // chunk's re-put can remember it again afterwards; the entry's
-        // expiry repairs that within one window, as it repairs a task
-        // abort mid-plan, which skips this cleanup entirely.
         if let Some((id, _)) = freeze_quorum {
             self.absent_freeze_quorums
                 .lock()
@@ -1094,10 +1066,6 @@ impl PersonhogStore {
                 if let Some(members) = cached {
                     return Ok(Some(members));
                 }
-                // A fresh miss answers from memory too, so a missing
-                // record costs about one read and one warn per expiry
-                // window (racing resolves can each read once), not one
-                // per Freezing handoff per reconcile pass.
                 let recently_absent = self
                     .absent_freeze_quorums
                     .lock()
@@ -1111,8 +1079,6 @@ impl PersonhogStore {
                 let members = self.get_freeze_quorum(id).await?;
                 match &members {
                     Some(recorded) => {
-                        // The record is back, so a remembered absence
-                        // is stale.
                         self.absent_freeze_quorums
                             .lock()
                             .expect("freeze quorum absence cache lock poisoned")
@@ -1143,12 +1109,6 @@ impl PersonhogStore {
                             .absent_freeze_quorums
                             .lock()
                             .expect("freeze quorum absence cache lock poisoned");
-                        // Bounded like the membership cache. Refreshing
-                        // a present id does not grow the map, so it
-                        // evicts nothing; a growing insert evicts the
-                        // stalest entry, which the recorded instant
-                        // names directly. An evicted absence only
-                        // costs the next resolution a re-read.
                         if absent.len() >= 32 && !absent.contains_key(id) {
                             if let Some(stalest) = absent
                                 .iter()

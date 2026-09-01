@@ -5862,9 +5862,6 @@ async fn a_swept_quorum_delete_loses_to_a_concurrent_re_put() {
 async fn a_missing_membership_is_resolved_again_once_written() {
     use personhog_coordination::types::AssignmentPrecondition;
 
-    // A generous expiry, so a stalled runner cannot expire the
-    // remembered absence mid-test: the final assertion must exercise
-    // apply_plan's invalidation, not the expiry.
     let store = (*test_store("quorum-absence-remembered").await)
         .clone()
         .with_absent_freeze_quorum_ttl(Duration::from_secs(3600));
@@ -5890,9 +5887,6 @@ async fn a_missing_membership_is_resolved_again_once_written() {
         .unwrap()
         .is_none());
 
-    // A record written outside apply_plan stays behind the remembered
-    // absence until it expires: the resolution must answer from
-    // memory, without a read per Freezing handoff per pass.
     store
         .inner()
         .put(
