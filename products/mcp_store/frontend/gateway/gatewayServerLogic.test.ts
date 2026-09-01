@@ -140,6 +140,7 @@ function serviceAccount(id: string = 'scout-id', grants: Grant[] = []): MCPServi
             icon_key: '',
             icon_domain: '',
             connection_state: 'ready' as const,
+            reachable: true,
         })),
         last_active_at: null,
         created_at: '2026-01-01T00:00:00Z',

@@ -3,15 +3,16 @@ import type { LemonTagType } from '@posthog/lemon-ui'
 import type { MCPServiceAccountServerApi } from '../generated/api.schemas'
 
 /**
- * The servers an agent's ownerless runs (a scout, a workflow task) can mount: team-scoped grants only,
- * one row per server. Several members can team-share the same server and the run mounts every healthy
- * team share, so the row carries a ready share when one exists and its health tag does not report a
- * problem the run does not have. Sorted by name, ignoring case.
+ * The servers an agent's ownerless runs (a scout, a workflow task) can mount: reachable team-scoped
+ * grants only (the gateway refuses grants on project-disabled servers and grants whose owner an admin
+ * revoked), one row per server. Several members can team-share the same server and the run mounts
+ * every healthy team share, so the row carries a ready share when one exists and its health tag does
+ * not report a problem the run does not have. Sorted by name, ignoring case.
  */
 export function teamSharedAgentServers(servers: readonly MCPServiceAccountServerApi[]): MCPServiceAccountServerApi[] {
     const byServer = new Map<string, MCPServiceAccountServerApi>()
     for (const server of servers) {
-        if (server.scope !== 'team') {
+        if (server.scope !== 'team' || !server.reachable) {
             continue
         }
         const existing = byServer.get(server.id)

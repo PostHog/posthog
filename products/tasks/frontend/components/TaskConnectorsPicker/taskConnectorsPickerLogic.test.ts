@@ -34,7 +34,8 @@ function server(
     name: string,
     connectionState: ConnectionStateEnumApi,
     sharedBy: UserBasicApi = YOU,
-    scope: MCPServiceAccountServerApi['scope'] = 'team'
+    scope: MCPServiceAccountServerApi['scope'] = 'team',
+    reachable: boolean = true
 ): MCPServiceAccountServerApi {
     return {
         id,
@@ -45,6 +46,7 @@ function server(
         icon_key: name.toLowerCase(),
         icon_domain: `${name.toLowerCase()}.com`,
         connection_state: connectionState,
+        reachable,
     }
 }
 
@@ -82,17 +84,18 @@ describe('taskConnectorsPickerLogic', () => {
         logic?.unmount()
     })
 
-    it('offers the team shares of the workflow agent, not another agent or a personal share', async () => {
+    it('offers the team shares of the workflow agent, not another agent, a personal share, or an unreachable grant', async () => {
         const personalIncident = server('incident-id', 'Incident.io', 'ready', YOU, 'personal')
         const teamIncident = server('incident-id', 'Incident.io', 'ready', TEAMMATE)
         const datadog = server('datadog-id', 'Datadog', 'needs_reauth', TEAMMATE)
+        const disabledLinear = server('linear-id', 'Linear', 'ready', TEAMMATE, 'team', false)
         const scoutOnlyNotion = server('notion-id', 'Notion', 'ready')
         useMocks({
             get: {
                 '/api/projects/:team_id/mcp_gateway/service_accounts/': () =>
                     listResponse([
                         account('scout', [scoutOnlyNotion]),
-                        account('workflow', [personalIncident, teamIncident, datadog]),
+                        account('workflow', [personalIncident, teamIncident, datadog, disabledLinear]),
                     ]),
             },
         })
@@ -102,7 +105,8 @@ describe('taskConnectorsPickerLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.workflowAccount?.agent_key).toEqual('workflow')
-        // A grant to another agent never backs a workflow run, and neither does a personal share.
+        // A grant to another agent never backs a workflow run, and neither does a personal share or a
+        // grant the gateway refuses (server disabled for the project, or the sharing member revoked).
         expect(logic.values.teamWorkflowServers).toEqual([datadog, teamIncident])
         expect(logic.values.serviceAccountsFailed).toBe(false)
     })

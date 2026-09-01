@@ -49761,6 +49761,8 @@ export namespace Schemas {
        * * `disabled` - disabled
        * * `missing_credential` - missing_credential */
       connection_state: ConnectionStateEnum;
+      /** Whether agent runs can use this grant: the server is enabled for the project and an admin has not revoked the sharing member's access. Independent of connection_state, which reports credential health. */
+      reachable: boolean;
     }
 
     export interface MCPServiceAccount {

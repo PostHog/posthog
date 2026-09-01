@@ -76,6 +76,7 @@ function teamServer(id: string, name: string): MCPServiceAccountServerApi {
         icon_key: name.toLowerCase(),
         icon_domain: `${name.toLowerCase()}.com`,
         connection_state: 'ready',
+        reachable: true,
     }
 }
 

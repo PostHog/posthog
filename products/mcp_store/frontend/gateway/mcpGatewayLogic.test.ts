@@ -168,6 +168,7 @@ function serviceAccountWithShare(scope: MCPAgentGrantScopeEnumApi): MCPServiceAc
                 icon_key: '',
                 icon_domain: '',
                 connection_state: 'ready',
+                reachable: true,
             },
         ],
         last_active_at: null,
@@ -427,6 +428,7 @@ describe('mcpGatewayLogic', () => {
                     icon_key: '',
                     icon_domain: '',
                     connection_state: 'ready' as const,
+                    reachable: true,
                 },
             ],
         }
@@ -471,6 +473,7 @@ describe('mcpGatewayLogic', () => {
                     icon_key: '',
                     icon_domain: '',
                     connection_state: 'ready' as const,
+                    reachable: true,
                 },
             ],
         })

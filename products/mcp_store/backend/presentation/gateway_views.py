@@ -11,7 +11,18 @@ from functools import cached_property
 from typing import Any, cast
 
 from django.db import transaction
-from django.db.models import Case, Count, IntegerField, Prefetch, Q, QuerySet, When, prefetch_related_objects
+from django.db.models import (
+    Case,
+    Count,
+    Exists,
+    IntegerField,
+    OuterRef,
+    Prefetch,
+    Q,
+    QuerySet,
+    When,
+    prefetch_related_objects,
+)
 from django.utils import timezone
 
 import structlog
@@ -602,6 +613,13 @@ class MCPServiceAccountServerSerializer(serializers.Serializer):
         choices=AGENT_SERVER_CONNECTION_STATE_CHOICES,
         help_text="Whether the credential delegated to the agent is ready to use.",
     )
+    reachable = serializers.BooleanField(
+        help_text=(
+            "Whether agent runs can use this grant: the server is enabled for the project and an admin "
+            "has not revoked the sharing member's access. Independent of connection_state, which reports "
+            "credential health."
+        )
+    )
 
 
 class MCPServiceAccountSerializer(serializers.ModelSerializer):
@@ -678,6 +696,9 @@ class MCPServiceAccountSerializer(serializers.ModelSerializer):
                     "icon_key": server.template.icon_key if server.template else "",
                     "icon_domain": server.template.icon_domain if server.template else "",
                     "connection_state": connection_state,
+                    # Mirrors the run-path predicate (reachable_agent_grants plus the
+                    # is_team_enabled filter), so pickers can hide grants a run cannot mount.
+                    "reachable": server.is_team_enabled and not getattr(access, "grant_owner_revoked", False),
                 }
             )
         return servers
@@ -1227,6 +1248,12 @@ class MCPServiceAccountViewSet(
         return sync_built_in_agents(self.team)
 
     def _server_access_prefetch(self) -> Prefetch:
+        # An admin revocation makes the grant unreachable for agent runs, the
+        # same way reachable_agent_grants excludes it on the mount path.
+        grant_owner_revoked = MCPMemberServerRevocation.objects.for_team(self.team_id).filter(
+            gateway_server_id=OuterRef("gateway_server_id"),
+            user_id=OuterRef("user_id"),
+        )
         return Prefetch(
             "server_access",
             # See MCPGatewayServerViewSet.safely_get_queryset: a user-less grant
@@ -1234,6 +1261,7 @@ class MCPServiceAccountViewSet(
             # MCPServiceAccountServerSerializer.shared_by is not nullable.
             queryset=MCPServiceAccountServerAccess.objects.for_team(self.team_id)
             .exclude(user__isnull=True)
+            .annotate(grant_owner_revoked=Exists(grant_owner_revoked))
             .select_related("gateway_server__template", "installation", "user")
             .order_by("gateway_server__name"),
         )

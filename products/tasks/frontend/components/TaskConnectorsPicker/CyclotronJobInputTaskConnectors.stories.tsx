@@ -31,6 +31,7 @@ function server(
         icon_key: '',
         icon_domain: '',
         connection_state: connectionState,
+        reachable: true,
     }
 }
 
