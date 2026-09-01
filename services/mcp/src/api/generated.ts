@@ -85221,13 +85221,6 @@ export namespace Schemas {
       channel?: string | null;
     }
 
-    export interface TeachingCanvas {
-      /** The teaching canvas that was resolved or created. */
-      canvas_id: string;
-      /** The requester's personal space containing the canvas. */
-      channel_id: string;
-    }
-
     /**
      * The default AI run triple stored at team or user level.
      *
@@ -85315,6 +85308,13 @@ export namespace Schemas {
       ai_run_preferences: TasksAIRunPreferences;
       /** The defaults a new run will use when no explicit runtime selection is sent. */
       resolved_ai_run_defaults: TasksResolvedAIRunDefaults;
+    }
+
+    export interface TeachingCanvas {
+      /** The teaching canvas that was resolved or created. */
+      canvas_id: string;
+      /** The requester's personal space containing the canvas. */
+      channel_id: string;
     }
 
     export type TeamDefaultModifiers = { [key: string]: unknown };
