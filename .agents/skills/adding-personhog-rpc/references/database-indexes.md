@@ -14,7 +14,7 @@ Primary key is composite `(team_id, id)`.
 | ------------------------------------------ | ------ | ---------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | `posthog_person_new_pkey`                  | PK     | `(team_id, id)`              | Partition-pruned lookup                                                                                             |
 | `posthog_person_team_id_uuid_uniq`         | UNIQUE | `(team_id, uuid)`            | Partition-pruned uuid lookup. **Named `posthog_person_new_uuid_idx` in migration-built databases** — see note below |
-| `posthog_person_team_id_uuid_covering_idx` | UNIQUE | `(team_id, uuid) INCLUDE id` | Covering variant: `uuid -> id` resolution runs index-only, no heap fetch. Supersedes the plain unique index above   |
+| `posthog_person_team_id_uuid_covering_idx` | UNIQUE | `(team_id, uuid) INCLUDE id` | Covering variant: `uuid -> id` runs index-only, heap-free when all-visible. Supersedes the plain unique index above |
 | `posthog_person_p{i}_id_idx`               | INDEX  | `(id)`                       | Per-partition index on id (64 indexes, one per partition)                                                           |
 
 > **The uuid index has two names.** `rust/persons_migrations/20251113000001` creates it as
@@ -31,7 +31,7 @@ Constraints: `check_properties_size` — `pg_column_size(properties) <= 655360` 
 - `WHERE team_id = $1 AND id = $2` → PK scan
 - `WHERE team_id = $1 AND uuid = $2` → unique `(team_id, uuid)` index (partition-pruned)
 - `WHERE team_id = $1 AND id = ANY($2)` → PK scan
-- `WHERE team_id = $1 AND uuid = ANY($2)` → unique `(team_id, uuid)` index scan; selecting only `id` runs index-only via `posthog_person_team_id_uuid_covering_idx`
+- `WHERE team_id = $1 AND uuid = ANY($2)` → unique `(team_id, uuid)` index scan; selecting only `id` can run index-only via `posthog_person_team_id_uuid_covering_idx` (heap-free only for pages the visibility map marks all-visible)
 
 ## posthog_persondistinctid
 

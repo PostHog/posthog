@@ -6,8 +6,11 @@
 -- but that index does not carry id, so every matched uuid costs a random heap
 -- fetch. At up to 1000 uuids per call this is the dominant cost of the resolve.
 --
--- INCLUDE (id) lets the resolve run as an index-only scan: id is read straight
--- from the index leaf and the heap is never touched.
+-- INCLUDE (id) lets the resolve run as an index-only scan: id is read from the
+-- index leaf, so PostgreSQL skips the heap for any page the visibility map marks
+-- all-visible. Person UPDATEs clear that bit, so the heap-free win holds only
+-- while autovacuum keeps the touched pages all-visible; confirm on real batches
+-- with EXPLAIN (ANALYZE, BUFFERS) that Heap Fetches stays low.
 --
 -- This UNIQUE index enforces the same (team_id, uuid) constraint as the existing
 -- unique index, so the older one is now redundant and can be dropped out-of-band
