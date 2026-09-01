@@ -93,7 +93,14 @@ describe('github event trigger', () => {
                 valid: true,
             },
         ])('validate returns valid=$valid for $name', ({ properties, valid }) => {
-            const result = getTriggerType().validate!({ type: 'github-event', filters: { properties } } as any)
+            const result = getTriggerType().validate!({
+                type: 'internal-event',
+                filters: {
+                    source: 'internal-events',
+                    events: [{ id: '$github_event_received', type: 'events' }],
+                    properties,
+                },
+            } as any)
             expect(result?.valid).toBe(valid)
         })
 

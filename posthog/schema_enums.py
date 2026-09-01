@@ -195,6 +195,14 @@ class AssistantArrayPropertyFilterOperator(StrEnum):
     IS_NOT = "is_not"
 
 
+class AssistantBehavioralPropertyFilterOperator(StrEnum):
+    EXACT = "exact"
+    GT = "gt"
+    GTE = "gte"
+    LT = "lt"
+    LTE = "lte"
+
+
 class Operator(StrEnum):
     IN_ = "in"
     NOT_IN = "not_in"
@@ -1588,6 +1596,7 @@ class ExternalDataSourceType(StrEnum):
     CUSTOMERLY = "Customerly"
     DATASCOPE = "Datascope"
     DBT = "Dbt"
+    DEMODESK = "Demodesk"
     DEPUTY = "Deputy"
     DEVIN_AI = "DevinAI"
     DOCUSEAL = "Docuseal"
@@ -3641,6 +3650,7 @@ class ProductKey(StrEnum):
     COMMENTS = "comments"
     CONVERSATIONS = "conversations"
     CUSTOMER_ANALYTICS = "customer_analytics"
+    DASHBOARDS = "dashboards"
     DATA_CATALOG = "data_catalog"
     DATA_WAREHOUSE = "data_warehouse"
     DATA_WAREHOUSE_SAVED_QUERIES = "data_warehouse_saved_queries"

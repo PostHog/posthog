@@ -2758,6 +2758,8 @@ fn is_hog_empty(lit: &HogLiteral) -> bool {
 
 // `equals`/`notEquals` use strict equality (reference `a === b`): no cross-type coercion, so a
 // number and a numeric string are never equal. Differs from the coercing `==`/`!=` opcodes.
+// Strictness applies across types, not within them: the int and float variants of a number unify,
+// which matches the reference `===` where every number is f64.
 fn strict_equals(vm: &HogVM, a: &HogValue, b: &HogValue) -> Result<bool, VmError> {
     Ok(a.deref(&vm.heap)? == b.deref(&vm.heap)?)
 }

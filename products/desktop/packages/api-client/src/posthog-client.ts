@@ -4845,6 +4845,9 @@ export class PostHogAPIClient {
     if (params?.priority) {
       url.searchParams.set("priority", params.priority);
     }
+    if (params?.actionability) {
+      url.searchParams.set("actionability", params.actionability);
+    }
     if (params?.count_only != null) {
       url.searchParams.set("count_only", String(params.count_only));
     }

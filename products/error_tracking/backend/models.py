@@ -613,7 +613,11 @@ class ErrorTrackingStackFrame(UUIDTModel):
     context = models.JSONField(null=True, blank=True)
 
     class Meta:
-        indexes = []
+        indexes = [
+            # Recent-frames-per-team scans, such as the source maps recommendation. Without
+            # created_at in the index, a 24h window has to visit every frame the team ever stored.
+            models.Index(fields=["team", "created_at"], name="et_frame_team_created_at_idx"),
+        ]
 
         constraints = [
             models.UniqueConstraint(fields=["team_id", "raw_id", "part"], name="unique_team_id_raw_id_part"),
