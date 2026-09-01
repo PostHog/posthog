@@ -1,13 +1,59 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import type { Logger } from "../../utils/logger";
+import {
+  applyMachineClaudeConfigDir,
+  MACHINE_AUTH_STRIPPED_KEYS,
+  machineClaudeAuthEnv,
+} from "./machine-config-dir";
+
+export type ClaudeAuthAction = "login" | "logout";
+
+export interface ClaudeAuthTerminalCommand {
+  /** Ready to run under `sh -c`. */
+  command: string;
+  env: { set: Record<string, string>; unset: string[] };
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+/**
+ * The `claude auth` command to run in a terminal, and the env it needs.
+ *
+ * The CLI owns the whole OAuth flow: it opens the browser, prints the URL as a
+ * fallback, and reads the paste-back code from the terminal. The app never
+ * reads, copies, or stores the credentials. Sign-out is machine-wide, because
+ * the login the terminal writes is the machine's own.
+ */
+export function claudeAuthTerminalCommand(
+  action: ClaudeAuthAction,
+  claudeCliPath: string,
+): ClaudeAuthTerminalCommand {
+  const args =
+    action === "login" ? ["auth", "login", "--claudeai"] : ["auth", "logout"];
+  // The legacy CLI ships as cli.js and needs a JS runtime to start.
+  const isLegacyJs = claudeCliPath.endsWith(".js");
+  const parts = isLegacyJs
+    ? [process.execPath, claudeCliPath, ...args]
+    : [claudeCliPath, ...args];
+  const env = machineClaudeAuthEnv();
+  if (isLegacyJs && process.versions.electron) {
+    env.set.ELECTRON_RUN_AS_NODE = "1";
+  }
+  return { command: parts.map(shellQuote).join(" "), env };
+}
+
+export interface ClaudeLoginCheckLogger {
+  debug(message: string, ...args: unknown[]): void;
+}
 
 const STATUS_TIMEOUT_MS = 15_000;
 
 export interface ClaudeLoginCheckOptions {
   /** Bundled Claude CLI path — must be the same binary sessions spawn. */
   claudeCliPath: string;
-  logger?: Logger;
+  logger?: ClaudeLoginCheckLogger;
   timeoutMs?: number;
 }
 
@@ -17,8 +63,8 @@ export interface ClaudeLoginCheckOptions {
  * Read-only by design: we never read, copy, or refresh provider credentials.
  * The check spawns `claude auth status` and reads only the exit code, using
  * the same credential-stripped env a machine-auth session gets, so the answer
- * matches what a session would actually authenticate with. Login itself is
- * managed by the CLI (`claude` → `/login`); there is no in-app login flow.
+ * matches what a session would actually authenticate with. The CLI owns the
+ * credentials throughout, including in the in-app login terminal.
  */
 export async function hasClaudeLogin(
   options: ClaudeLoginCheckOptions,
@@ -39,11 +85,12 @@ export async function hasClaudeLogin(
 
   const env: NodeJS.ProcessEnv = { ...process.env };
   // Mirror the machine-auth session env: a stripped ambient credential must
-  // not make the check report an auth source sessions would not use.
-  delete env.ANTHROPIC_BASE_URL;
-  delete env.ANTHROPIC_AUTH_TOKEN;
-  delete env.ANTHROPIC_API_KEY;
-  delete env.ANTHROPIC_CUSTOM_HEADERS;
+  // not make the check report an auth source sessions would not use, and the
+  // login lives in the machine's config dir, not the app's.
+  for (const key of MACHINE_AUTH_STRIPPED_KEYS) {
+    delete env[key];
+  }
+  applyMachineClaudeConfigDir(env);
   if (process.versions.electron || process.env.ELECTRON_RUN_AS_NODE) {
     env.ELECTRON_RUN_AS_NODE = "1";
   }
@@ -67,13 +114,16 @@ export async function hasClaudeLogin(
       finish(false);
     }, options.timeoutMs ?? STATUS_TIMEOUT_MS);
 
-    // Output can contain account details; never logged, only counted.
+    // Stdout can contain account details; never logged, only counted. Stderr
+    // carries the failure reason, so keep a bounded slice of it.
     let outputLength = 0;
+    let stderr = "";
     child.stdout?.on("data", (chunk: Buffer) => {
       outputLength += chunk.length;
     });
-    child.stderr?.on("data", () => {
-      outputLength += 1;
+    child.stderr?.on("data", (chunk: Buffer) => {
+      outputLength += chunk.length;
+      if (stderr.length < 500) stderr += chunk.toString("utf8");
     });
     child.on("error", (error) => {
       options.logger?.debug("Failed to run claude auth status", {
@@ -83,8 +133,10 @@ export async function hasClaudeLogin(
     });
     child.on("exit", (code) => {
       options.logger?.debug("claude auth status finished", {
+        claudeCliPath: options.claudeCliPath,
         exitCode: code,
         outputLength,
+        stderr: stderr.slice(0, 500),
       });
       finish(code === 0);
     });

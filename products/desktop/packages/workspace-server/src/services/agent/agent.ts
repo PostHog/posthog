@@ -21,7 +21,11 @@ import {
 } from "@posthog/agent";
 import type { McpToolApprovals } from "@posthog/agent/adapters/claude/mcp/tool-metadata";
 import { hydrateSessionJsonl } from "@posthog/agent/adapters/claude/session/jsonl-hydration";
-import { hasClaudeLogin } from "@posthog/agent/adapters/claude/subscription-login";
+import {
+  type ClaudeAuthAction,
+  claudeAuthTerminalCommand,
+  hasClaudeLogin,
+} from "@posthog/agent/adapters/claude/subscription-login";
 import {
   type CodexLoginSession,
   hasCodexChatgptLogin,
@@ -120,6 +124,7 @@ import type {
 import {
   AgentServiceEvent,
   type AgentServiceEvents,
+  type ClaudeAuthTerminal,
   type ClaudeSubscriptionStatus,
   type CodexSubscriptionStatus,
   type Credentials,
@@ -541,7 +546,27 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     return {
       loggedIn: await hasClaudeLogin({
         claudeCliPath: this.getClaudeCliPath(),
+        logger: this.log,
       }),
+    };
+  }
+
+  /**
+   * The `claude auth login` or `claude auth logout` terminal the user watches.
+   * The CLI opens the browser and reads the paste-back code itself, so the app
+   * never handles the credentials. The renderer starts the session so it is
+   * already subscribed when the first output arrives.
+   */
+  getClaudeAuthTerminal(action: ClaudeAuthAction): ClaudeAuthTerminal {
+    const { command, env } = claudeAuthTerminalCommand(
+      action,
+      this.getClaudeCliPath(),
+    );
+    return {
+      command,
+      cwd: homedir(),
+      additionalEnv: env.set,
+      unsetEnv: env.unset,
     };
   }
 

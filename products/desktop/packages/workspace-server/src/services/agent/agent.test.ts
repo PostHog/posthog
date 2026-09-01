@@ -314,6 +314,23 @@ describe("AgentService", () => {
     vi.unstubAllGlobals();
   });
 
+  describe("claude auth terminal", () => {
+    it.each([
+      { action: "login" as const, expected: "'auth' 'login' '--claudeai'" },
+      { action: "logout" as const, expected: "'auth' 'logout'" },
+    ])("describes the claude auth $action terminal", ({ action, expected }) => {
+      const terminal = service.getClaudeAuthTerminal(action);
+
+      expect(terminal.command).toContain(
+        "/mock/appPath/.vite/build/claude-cli/claude",
+      );
+      expect(terminal.command).toContain(expected);
+      // The app override must not hide the machine's own login.
+      expect(terminal.unsetEnv).toContain("CLAUDE_CONFIG_DIR");
+      expect(terminal.unsetEnv).toContain("ANTHROPIC_API_KEY");
+    });
+  });
+
   describe("context wiki mount", () => {
     const credentials = {
       apiHost: "https://app.posthog.test",

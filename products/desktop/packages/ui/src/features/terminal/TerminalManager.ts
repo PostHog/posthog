@@ -63,6 +63,9 @@ interface CreateOptions {
   initialState?: string;
   taskId?: string;
   command?: string;
+  additionalEnv?: Record<string, string>;
+  /** Variables to drop from the inherited env, ambient shell values included. */
+  unsetEnv?: string[];
 }
 
 type ReadyPayload = { sessionId: string; persistenceKey: string };
@@ -184,8 +187,16 @@ class TerminalManagerImpl {
   }
 
   create(options: CreateOptions): TerminalInstance {
-    const { sessionId, persistenceKey, cwd, initialState, taskId, command } =
-      options;
+    const {
+      sessionId,
+      persistenceKey,
+      cwd,
+      initialState,
+      taskId,
+      command,
+      additionalEnv,
+      unsetEnv,
+    } = options;
 
     const existing = this.instances.get(sessionId);
     if (existing) {
@@ -255,7 +266,10 @@ class TerminalManagerImpl {
     instance.cleanups.push(() => exitSub.unsubscribe());
 
     // Initialize shell session
-    this.initializeSession(sessionId, instance, cwd, taskId, command);
+    this.initializeSession(sessionId, instance, cwd, taskId, command, {
+      additionalEnv,
+      unsetEnv,
+    });
 
     this.instances.set(sessionId, instance);
     return instance;
@@ -267,6 +281,10 @@ class TerminalManagerImpl {
     cwd?: string,
     taskId?: string,
     command?: string,
+    commandEnv?: {
+      additionalEnv?: Record<string, string>;
+      unsetEnv?: string[];
+    },
   ): Promise<void> {
     try {
       const sessionExists = await resolveService<ShellClient>(
@@ -283,6 +301,8 @@ class TerminalManagerImpl {
             command,
             cwd,
             taskId,
+            additionalEnv: commandEnv?.additionalEnv,
+            unsetEnv: commandEnv?.unsetEnv,
           });
         } else {
           await resolveService<ShellClient>(SHELL_CLIENT).create({

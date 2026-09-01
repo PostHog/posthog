@@ -14,6 +14,9 @@ export interface TerminalProps {
   initialState?: string;
   taskId?: string;
   command?: string;
+  additionalEnv?: Record<string, string>;
+  /** Variables to drop from the inherited env, ambient shell values included. */
+  unsetEnv?: string[];
   onReady?: () => void;
   onExit?: (exitCode?: number) => void;
 }
@@ -25,6 +28,8 @@ export function Terminal({
   initialState,
   taskId,
   command,
+  additionalEnv,
+  unsetEnv,
   onReady,
   onExit,
 }: TerminalProps) {
@@ -46,9 +51,20 @@ export function Terminal({
         initialState,
         taskId,
         command,
+        additionalEnv,
+        unsetEnv,
       });
     }
-  }, [sessionId, persistenceKey, cwd, initialState, taskId, command]);
+  }, [
+    sessionId,
+    persistenceKey,
+    cwd,
+    initialState,
+    taskId,
+    command,
+    additionalEnv,
+    unsetEnv,
+  ]);
 
   // Attach/detach from DOM
   useEffect(() => {
