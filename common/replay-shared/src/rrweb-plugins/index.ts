@@ -8,6 +8,9 @@ export const CorsPlugin: ReplayPlugin & {
     _replaceFontCssUrls: (value: string | null) => string | null
     _replaceFontUrl: (value: string) => string
     _replaceJSUrl: (value: string) => string
+    _replaceImageUrl: (value: string) => string
+    _replaceSrcset: (value: string) => string
+    _replaceImageCssUrls: (value: string | null) => string | null
 } = {
     _replaceFontCssUrls: (value: string | null): string | null => {
         return (
@@ -29,13 +32,41 @@ export const CorsPlugin: ReplayPlugin & {
         return value.replace(/^(https:\/\/[^\s"?#]+\.js(?:[?#][^\s"]*)?)$/i, `${PROXY_URL}/proxy?url=$1`)
     },
 
+    // An img/source src is always an image, so proxy any absolute https URL. Leave data:,
+    // blob:, relative, and already-proxied URLs untouched.
+    _replaceImageUrl: (value: string): string => {
+        if (!value || !/^https:\/\//i.test(value) || value.startsWith(PROXY_URL)) {
+            return value
+        }
+        return `${PROXY_URL}/proxy?url=${value}`
+    },
+
+    _replaceSrcset: (value: string): string => {
+        // srcset is a comma-separated list of `url descriptor` candidates; rewrite the URL
+        // that opens each candidate and keep its descriptor.
+        return value.replace(
+            /(^|,\s*)(https:\/\/[^\s,]+)/gi,
+            (_match, separator: string, url: string) => `${separator}${CorsPlugin._replaceImageUrl(url)}`
+        )
+    },
+
+    _replaceImageCssUrls: (value: string | null): string | null => {
+        return (
+            value?.replace(
+                /url\((['"]?)(https:\/\/[^\s'"?#]+\.(?:png|jpe?g|gif|webp|svg|avif|bmp|ico)(?:[?#][^\s'")]*)?)\1\)/gi,
+                (_match, quote: string, url: string) => `url(${quote}${CorsPlugin._replaceImageUrl(url)}${quote})`
+            ) || null
+        )
+    },
+
     onBuild: (node) => {
         if (node.nodeName === 'STYLE') {
             const styleElement = node as HTMLStyleElement
             const childNodes = styleElement.childNodes
             for (let i = 0; i < childNodes.length; i++) {
                 if (childNodes[i].nodeType == 3) {
-                    const updatedContent = CorsPlugin._replaceFontCssUrls(childNodes[i].textContent)
+                    let updatedContent = CorsPlugin._replaceFontCssUrls(childNodes[i].textContent)
+                    updatedContent = CorsPlugin._replaceImageCssUrls(updatedContent)
                     if (updatedContent !== childNodes[i].textContent) {
                         childNodes[i].textContent = updatedContent
                     }
@@ -59,6 +90,30 @@ export const CorsPlugin: ReplayPlugin & {
         if (node.nodeName === 'SCRIPT') {
             const scriptElement = node as HTMLScriptElement
             scriptElement.src = CorsPlugin._replaceJSUrl(scriptElement.src)
+        }
+
+        if (node.nodeName === 'IMG' || node.nodeName === 'SOURCE') {
+            const mediaElement = node as HTMLImageElement | HTMLSourceElement
+            const src = mediaElement.getAttribute('src')
+            if (src) {
+                mediaElement.setAttribute('src', CorsPlugin._replaceImageUrl(src))
+            }
+            const srcset = mediaElement.getAttribute('srcset')
+            if (srcset) {
+                mediaElement.setAttribute('srcset', CorsPlugin._replaceSrcset(srcset))
+            }
+        }
+
+        // Inline background-image and other CSS image url()s on any element.
+        if (node.nodeType === 1) {
+            const element = node as HTMLElement
+            const style = element.getAttribute('style')
+            if (style && style.includes('url(')) {
+                const updatedStyle = CorsPlugin._replaceImageCssUrls(style)
+                if (updatedStyle && updatedStyle !== style) {
+                    element.setAttribute('style', updatedStyle)
+                }
+            }
         }
     },
 }
