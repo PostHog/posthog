@@ -1390,6 +1390,43 @@ def _do_edit_report(
                 attribution=attribution,
                 author=run.skill_name,
             )
+    charts_set = len(charts) if charts is not None and charts_changed else None
+    prompts_set = len(suggested_prompts) if suggested_prompts is not None and prompts_changed else None
+    changed = (
+        bool(updated_fields or note_appended or reviewers_set) or charts_set is not None or prompts_set is not None
+    )
+    # Enqueue the edited report's Slack delivery as the first post-commit step — before the slower
+    # side effects below (repository inference, autostart) and the tally writes further down. An
+    # earlier delivery of the same report may still be building its message, and it reads the report's
+    # latest-delivery marker to decide whether to yield to this edit. Claiming that marker here, right
+    # after the content commits, keeps the window in which the edit is visible but the marker is not as
+    # short as one status read. If the slow work ran first, that earlier delivery could read the freshly
+    # committed edit, still find no marker, and post the edited report — the same content this edit's
+    # own delivery then posts a second time.
+    if changed:
+        # Mirror emit's surfaced gate: an edit to a suppressed / never-surfaced report must not push
+        # its content to a configured destination. The delivery worker re-checks status at send time
+        # (the report can be suppressed after enqueue), so this mainly keeps the two paths symmetric
+        # and skips queueing work that would no-op.
+        report_status = get_scout_report_status(team_id=team.id, report_id=report_id)
+        # Suggested questions live in the inbox, nowhere in the Slack message, so an edit that
+        # touched only them has nothing to say in the channel — delivering it would post the report
+        # a second time byte for byte.
+        prompts_only = prompts_set is not None and not (
+            updated_fields or note_appended or reviewers_set or charts_set is not None
+        )
+        if report_status is not None and _surfaced(report_status) and not prompts_only:
+            # A note-only edit leaves the title, summary and charts the Slack report message shows
+            # unchanged, so re-posting it would duplicate the message already in the channel.
+            # Deliver the note itself instead; any edit that rewrote the content re-posts the
+            # report as before.
+            note_only = note_appended and not updated_fields and not charts_changed
+            queue_configured_scout_slack_delivery(
+                run_id=run.id,
+                output_type="report",
+                output_id=report_id,
+                edit_note=append_note if note_only else None,
+            )
     # A rewrite can move the report onto a different repository, and an inferred target is only ever a
     # reading of that text. Outside the transaction above for the same reason autostart is: it reads
     # the team's GitHub repo cache, which has no business holding the content write open.
@@ -1404,8 +1441,6 @@ def _do_edit_report(
     # draft PR. Fired outside any txn since it spawns a Task — mirrors emit's post-commit hand-off.
     if reviewers_set:
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=report_id)
-    charts_set = len(charts) if charts is not None and charts_changed else None
-    prompts_set = len(suggested_prompts) if suggested_prompts is not None and prompts_changed else None
     logger.info(
         "signals_scout.edit_report: edited",
         extra={
@@ -1443,35 +1478,14 @@ def _do_edit_report(
     )
     # Record the edit on the run tally only when something actually changed — a no-op edit (e.g. a
     # title rewrite to its current value, or re-sending the charts already stored) must not claim the
-    # run touched the report, or notify its destination a second time about nothing.
-    if result.changed:
+    # run touched the report, or notify its destination a second time about nothing. The Slack
+    # delivery for this edit was already enqueued above, before the autostart side effect, so a prior
+    # in-flight delivery sees the supersede marker rather than posting the edit a second time.
+    if changed:
         record_report_edit(team_id=team.id, run_id=run.id, report_id=report_id)
         # Also link the run itself on the report's work log (deduped), so the editing scout's
         # transcript is reachable from the report — not just the run-side `edited_report_ids` tally.
         record_scout_run_task_artefact(team_id=team.id, report_id=report_id, run=run, task_id=attribution.task_id)
-        # Mirror emit's surfaced gate: an edit to a suppressed / never-surfaced report must not push
-        # its content to a configured destination. The delivery worker re-checks status at send time
-        # (the report can be suppressed after enqueue), so this mainly keeps the two paths symmetric
-        # and skips queueing work that would no-op.
-        report_status = get_scout_report_status(team_id=team.id, report_id=report_id)
-        # Suggested questions live in the inbox, nowhere in the Slack message, so an edit that
-        # touched only them has nothing to say in the channel — delivering it would post the report
-        # a second time byte for byte.
-        prompts_only = prompts_set is not None and not (
-            updated_fields or note_appended or reviewers_set or charts_set is not None
-        )
-        if report_status is not None and _surfaced(report_status) and not prompts_only:
-            # A note-only edit leaves the title, summary and charts the Slack report message shows
-            # unchanged, so re-posting it would duplicate the message already in the channel.
-            # Deliver the note itself instead; any edit that rewrote the content re-posts the
-            # report as before.
-            note_only = note_appended and not updated_fields and not charts_changed
-            queue_configured_scout_slack_delivery(
-                run_id=run.id,
-                output_type="report",
-                output_id=report_id,
-                edit_note=append_note if note_only else None,
-            )
     return result
 
 

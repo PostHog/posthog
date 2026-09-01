@@ -433,6 +433,53 @@ class TestScoutReportAPI(APIBaseTest):
         autostart.assert_awaited_once()
         assert repository_at_autostart == ["acme/gadgets"]
 
+    def test_content_edit_queues_slack_delivery_before_the_autostart_side_effect(self) -> None:
+        # A prior delivery of the same report may still be building its Slack message; it reads the
+        # report's latest-delivery marker to decide whether to yield to this edit. The edit claims
+        # that marker when it queues its own delivery, so the queue call must run before the slow
+        # post-commit side effects (repository inference, autostart). Otherwise the prior delivery can
+        # read the freshly committed edit, still find no marker, and post the edited report a second
+        # time — the same content this edit's own delivery then posts again.
+        run = _make_run(self.team)
+        # Emit before the destination is set, so only the edit below queues a delivery.
+        with _safe_judge(), patch(EMBED_PATH), patch(CONNECTED_REPOS_PATH, return_value=_CONNECTED_REPOS):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        config = run.scout_config
+        assert config is not None
+        config.output_destinations = {"slack": {"integration_id": 17, "channel": "CSCOUTS|#scout-findings"}}
+        config.save(update_fields=["output_destinations"])
+
+        queued_output_ids: list[str] = []
+        queued_before_autostart: list[bool] = []
+
+        def _record_queue(**kwargs) -> None:
+            queued_output_ids.append(kwargs["output_id"])
+
+        async def _record_autostart(**kwargs) -> None:
+            queued_before_autostart.append(bool(queued_output_ids))
+
+        with (
+            patch(CONNECTED_REPOS_PATH, return_value=_CONNECTED_REPOS),
+            patch(
+                "products.signals.backend.scout_harness.tools.report.queue_configured_scout_slack_delivery",
+                side_effect=_record_queue,
+            ),
+            patch(AUTOSTART_PATH, new=AsyncMock(side_effect=_record_autostart)),
+        ):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": created["report_id"],
+                    "summary": "Rewritten summary",
+                    "suggested_reviewers": [{"github_login": "octocat"}],
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        # The reviewer change ran autostart, and the delivery was already queued by the time it did.
+        assert queued_output_ids == [created["report_id"]]
+        assert queued_before_autostart == [True]
+
     def test_emit_report_writes_autostart_artefacts(self) -> None:
         # The autostart inputs the scout supplies become the same artefacts a pipeline report carries,
         # which is what `maybe_autostart_from_report_artefacts` reads to open a draft PR. Repo is normalized.
