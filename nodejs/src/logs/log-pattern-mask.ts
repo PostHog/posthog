@@ -148,12 +148,13 @@ function extractJsonMessage(value: object): string | null {
     return null
 }
 
-const capOutput = (pattern: string): string =>
-    pattern.length > PATTERN_CAPS.maxOutputChars ? pattern.slice(0, PATTERN_CAPS.maxOutputChars) : pattern
+function truncate(value: string, max: number): string {
+    return value.length > max ? value.slice(0, max) : value
+}
 
-function jsonKeySetPattern(value: object): string {
-    const keys = Object.keys(value).sort()
-    const kept = keys.slice(0, KEY_SET_MAX_KEYS)
+/** Sorts `keys` in place, so the caller must not read its order afterwards. */
+function jsonKeySetPattern(keys: string[]): string {
+    const kept = keys.sort().slice(0, KEY_SET_MAX_KEYS)
     const overflow = keys.length - kept.length
     return `<JSON:${kept.join(',')}${overflow > 0 ? `,+${overflow}` : ''}>`
 }
@@ -171,9 +172,9 @@ export function computeLogPattern(body: string | null | undefined): LogPatternRe
     }
 
     // Parse before capping, so a long structured body still yields its message rather than a slice of
-    // itself. Cutting first left every JSON body over the cap as invalid JSON, and a truncated-prose
-    // pattern is near-unique per record: it carries hostnames and field order past the cut, so each
-    // oversized record minted its own pattern. `maxParseChars` keeps a bound on one record's parse cost.
+    // itself. Cutting first would leave every oversized JSON body as invalid JSON, and truncated prose
+    // is near-unique per record: it carries hostnames and field order past the cut, so each oversized
+    // record would mint its own pattern. `maxParseChars` bounds one record's parse cost.
     const parseSkipped = body.length > PATTERN_CAPS.maxParseChars
     const parsed = parseSkipped ? ({ kind: 'invalid_json', raw: body } as const) : parseLogBodyForIngestion(body)
     const bodyKind: PatternBodyKind =
@@ -188,14 +189,15 @@ export function computeLogPattern(body: string | null | undefined): LogPatternRe
             const message = extractJsonMessage(parsed.value)
             if (message === null) {
                 const isArray = Array.isArray(parsed.value)
-                const pattern = isArray ? JSON_ARRAY : jsonKeySetPattern(parsed.value)
+                const keys = isArray ? [] : Object.keys(parsed.value)
+                const pattern = isArray ? JSON_ARRAY : jsonKeySetPattern(keys)
                 return {
-                    pattern: capOutput(pattern),
+                    pattern: truncate(pattern, PATTERN_CAPS.maxOutputChars),
                     bodyKind,
                     inputCapped: false,
                     parseSkipped,
                     maskedLength: pattern.length,
-                    ...(isArray ? {} : { jsonKeyCount: Object.keys(parsed.value).length }),
+                    ...(isArray ? {} : { jsonKeyCount: keys.length }),
                     ruleFires: [],
                 }
             }
@@ -214,9 +216,9 @@ export function computeLogPattern(body: string | null | undefined): LogPatternRe
     }
 
     const inputCapped = maskInput.length > PATTERN_CAPS.maxInputChars
-    const { masked, ruleFires } = maskString(inputCapped ? maskInput.slice(0, PATTERN_CAPS.maxInputChars) : maskInput)
+    const { masked, ruleFires } = maskString(truncate(maskInput, PATTERN_CAPS.maxInputChars))
     return {
-        pattern: capOutput(masked),
+        pattern: truncate(masked, PATTERN_CAPS.maxOutputChars),
         bodyKind,
         inputCapped,
         parseSkipped,

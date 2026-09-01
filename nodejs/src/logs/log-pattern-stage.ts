@@ -20,13 +20,22 @@ export const logsPatternMaskedLengthHistogram = new Histogram({
 export const logsPatternKeySetKeysHistogram = new Histogram({
     name: 'logs_ingestion_pattern_keyset_keys',
     help: 'Top-level key count of message-less JSON objects. Everything above the 32 bucket was capped; validates the key-set cap from data.',
-    buckets: [1, 2, 4, 8, 16, 24, 32, 48, 64, 128],
+    // Reaches past 32k because a body just under `maxParseChars` can carry that many top-level keys.
+    buckets: [1, 2, 4, 8, 16, 24, 32, 48, 64, 128, 512, 2048, 8192, 32768],
+})
+
+export const logsPatternBodyLengthHistogram = new Histogram({
+    name: 'logs_ingestion_pattern_body_length_chars',
+    help: 'Raw body length seen by the stage. Sizes the long-line problem; the mask-input counter measures the extracted message instead.',
+    buckets: [256, 1024, 4096, 8192, 32768, 131072, 262144, 1048576],
 })
 
 export const logsPatternMaskingDurationHistogram = new Histogram({
     name: 'logs_ingestion_pattern_masking_duration_seconds',
     help: 'Per-record pattern masking duration.',
-    buckets: [0.000001, 0.000005, 0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01],
+    // A body near `maxParseChars` parses in milliseconds, so the buckets run past 10ms to keep the
+    // tail that ceiling governs measurable rather than collapsed into +Inf.
+    buckets: [0.000001, 0.000005, 0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1],
 })
 
 export const logsPatternRuleFiredCounter = new Counter({
@@ -83,6 +92,7 @@ function stampBatch(records: LogRecord[]): void {
         record.pattern_version = PATTERN_VERSION
         logsPatternMaskingDurationHistogram.observe((performance.now() - start) / 1000)
 
+        logsPatternBodyLengthHistogram.observe(record.body?.length ?? 0)
         logsPatternMaskedLengthHistogram.observe(result.maskedLength)
         if (result.jsonKeyCount !== undefined) {
             logsPatternKeySetKeysHistogram.observe(result.jsonKeyCount)
