@@ -108,9 +108,10 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                         'task_model',
                         'task_repository',
                         'task_mcp_installations',
+                        'signals_scout',
                     ])
                     .describe(
-                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations'
+                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations\n\* `signals_scout` - signals_scout'
                     ),
                 key: zod.string(),
                 label: zod.string().optional(),
@@ -199,9 +200,10 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                                     'task_model',
                                     'task_repository',
                                     'task_mcp_installations',
+                                    'signals_scout',
                                 ])
                                 .describe(
-                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations'
+                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations\n\* `signals_scout` - signals_scout'
                                 ),
                             key: zod.string(),
                             label: zod.string().optional(),
@@ -352,9 +354,10 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         'task_model',
                         'task_repository',
                         'task_mcp_installations',
+                        'signals_scout',
                     ])
                     .describe(
-                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations'
+                        '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations\n\* `signals_scout` - signals_scout'
                     ),
                 key: zod.string(),
                 label: zod.string().optional(),
@@ -443,9 +446,10 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                                     'task_model',
                                     'task_repository',
                                     'task_mcp_installations',
+                                    'signals_scout',
                                 ])
                                 .describe(
-                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations'
+                                    '\* `string` - string\n\* `number` - number\n\* `boolean` - boolean\n\* `dictionary` - dictionary\n\* `choice` - choice\n\* `json` - json\n\* `integration` - integration\n\* `integration_multi` - integration_multi\n\* `integration_field` - integration_field\n\* `email` - email\n\* `native_email` - native_email\n\* `posthog_assignee` - posthog_assignee\n\* `posthog_ticket_tags` - posthog_ticket_tags\n\* `posthog_business_hours` - posthog_business_hours\n\* `non_failure_status_codes` - non_failure_status_codes\n\* `customer_analytics_account_properties` - customer_analytics_account_properties\n\* `customer_analytics_account_relationships` - customer_analytics_account_relationships\n\* `task_model` - task_model\n\* `task_repository` - task_repository\n\* `task_mcp_installations` - task_mcp_installations\n\* `signals_scout` - signals_scout'
                                 ),
                             key: zod.string(),
                             label: zod.string().optional(),

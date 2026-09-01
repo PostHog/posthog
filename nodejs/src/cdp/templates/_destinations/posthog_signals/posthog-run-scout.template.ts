@@ -36,7 +36,7 @@ return response.body
     inputs_schema: [
         {
             key: 'skill_name',
-            type: 'string',
+            type: 'signals_scout',
             label: 'Scout',
             secret: false,
             required: true,
