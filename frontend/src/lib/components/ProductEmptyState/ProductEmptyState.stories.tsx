@@ -21,6 +21,7 @@ import { metricsEmptyState } from 'products/metrics/frontend/emptyState/metricsE
 import { productToursEmptyState } from 'products/product_tours/frontend/emptyState/productToursEmptyState'
 import { replayVisionEmptyState } from 'products/replay_vision/frontend/emptyState/replayVisionEmptyState'
 import { llmSkillsEmptyState } from 'products/skills/frontend/emptyState/llmSkillsEmptyState'
+import { surveysEmptyState } from 'products/surveys/frontend/emptyState/surveysEmptyState'
 import { tracingEmptyState } from 'products/tracing/frontend/emptyState/tracingEmptyState'
 import { userInterviewsEmptyState } from 'products/user_interviews/frontend/emptyState/userInterviewsEmptyState'
 
@@ -235,4 +236,9 @@ export const TracingNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
 // Metrics detection asks the has-metrics API on mount - answer "none yet".
 export const MetricsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(metricsEmptyState, 'needs-setup', {
     mocks: { get: { '/api/projects/:team_id/metrics/has_metrics/': [200, { hasMetrics: false }] } },
+})
+
+// Surveys detection counts surveys (live + archived) on mount - answer "none yet".
+export const SurveysNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(surveysEmptyState, 'needs-setup', {
+    mocks: { get: { '/api/projects/:team_id/surveys/': [200, { count: 0, results: [] }] } },
 })
