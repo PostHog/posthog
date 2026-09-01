@@ -11,7 +11,11 @@ import api from 'lib/api'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { isWebKitBrowser } from 'lib/utils/dom'
 import { handleLoginRedirect, loginLogic } from 'scenes/authentication/login/loginLogic'
-import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
+import {
+    getPasskeyErrorMessage,
+    isTransientPasskeyServerError,
+    isWebAuthnCancellation,
+} from 'scenes/settings/user/passkeys/utils'
 import { userLogic } from 'scenes/userLogic'
 
 export interface PasskeyLoginBeginResponse {
@@ -191,6 +195,18 @@ export const passkeyLogic = kea<passkeyLogicType>([
                             actions.passkeyAuthenticationCancelled()
                             return null
                         }
+                        if (isTransientPasskeyServerError(e)) {
+                            // A server, gateway, or network hiccup, not a bad request. Show a short
+                            // retry message and swallow it like a cancellation: stay on the login
+                            // screen so the user can retry, and keep the transient blip out of error
+                            // tracking.
+                            actions.setGeneralError(
+                                'passkey_error',
+                                'Passkey login is temporarily unavailable. Please try again.'
+                            )
+                            actions.passkeyAuthenticationCancelled()
+                            return null
+                        }
                         actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
                         throw e
                     }
@@ -240,9 +256,10 @@ export const passkeyLogic = kea<passkeyLogicType>([
                 handleLoginRedirect()
                 window.location.reload()
             } catch (e: unknown) {
-                // The autofill passkey prompt is routinely dismissed — the user types a password
-                // instead, or navigates away. Swallow those; surface anything genuinely wrong.
-                if (!isWebAuthnCancellation(e)) {
+                // Autofill runs without a deliberate click, so a dismissed prompt or a transient
+                // server hiccup should stay silent rather than surface an error on the login
+                // screen. Only surface something genuinely wrong with the request.
+                if (!isWebAuthnCancellation(e) && !isTransientPasskeyServerError(e)) {
                     actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
                 }
             }

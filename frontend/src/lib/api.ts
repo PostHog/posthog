@@ -368,7 +368,9 @@ export async function getJSONOrNull(response: Response): Promise<any> {
 
 function apiErrorFallback(response: Response, method: string, url: string): string {
     const pathname = new URL(url, location.origin).pathname
-    return `Non-OK response [${method} ${pathname}] (status ${response.status}: ${response.statusText})`
+    // `statusText` is left out on purpose: it is empty over HTTP/2 and populated over HTTP/1.1, so
+    // interpolating it splits one fault into separate error tracking issues.
+    return `Non-OK response [${method} ${pathname}] (status ${response.status})`
 }
 
 /**
