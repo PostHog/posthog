@@ -386,7 +386,10 @@ export function renderColumn(
         }
 
         return String(value)
-    } else if (key.startsWith('context.columns.')) {
+        // A non-string key (e.g. a gap left by an unnamed conversion goal) has no key-based
+        // rendering. Guard the remaining `key.startsWith` / `trimQuotes(key)` branches so it falls
+        // through to the value-based default instead of crashing the whole table.
+    } else if (typeof key === 'string' && key.startsWith('context.columns.')) {
         const columnName = trimQuotes(key.substring(16)) // 16 = "context.columns.".length
         const Component = context?.columns?.[columnName]?.render
         return Component ? (
@@ -459,7 +462,10 @@ export function renderColumn(
             )
         }
         return String(value)
-    } else if (trimQuotes(key).endsWith('$virt_mrr') || trimQuotes(key).endsWith('$virt_revenue')) {
+    } else if (
+        typeof key === 'string' &&
+        (trimQuotes(key).endsWith('$virt_mrr') || trimQuotes(key).endsWith('$virt_revenue'))
+    ) {
         if (value === null || value === undefined) {
             return '—'
         }
