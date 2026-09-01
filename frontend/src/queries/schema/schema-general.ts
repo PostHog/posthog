@@ -3043,6 +3043,20 @@ export interface AccountsTableUnassignedFilter {
     kind: 'unassigned'
 }
 
+export enum AccountsTableRelationshipOperator {
+    Exact = 'exact',
+    IsNot = 'is_not',
+    IsSet = 'is_set',
+    IsNotSet = 'is_not_set',
+}
+
+export interface AccountsTableRelationshipFilter {
+    kind: 'relationship'
+    definitionId: string
+    operator: AccountsTableRelationshipOperator
+    userIds?: integer[]
+}
+
 export interface AccountsTableAccountIdFilter {
     kind: 'account_id'
     accountId: string
@@ -3103,6 +3117,7 @@ export type AccountsTableFilter =
     | AccountsTableAssignedToFilter
     | AccountsTableAssignedFilter
     | AccountsTableUnassignedFilter
+    | AccountsTableRelationshipFilter
     | AccountsTableAccountIdFilter
     | AccountsTableAccountFieldFilter
     | AccountsTableCustomPropertyFilter
@@ -9961,6 +9976,7 @@ export enum ProductKey {
     COMMENTS = 'comments',
     CONVERSATIONS = 'conversations',
     CUSTOMER_ANALYTICS = 'customer_analytics',
+    DASHBOARDS = 'dashboards',
     DATA_CATALOG = 'data_catalog',
     DATA_WAREHOUSE = 'data_warehouse',
     DATA_WAREHOUSE_SAVED_QUERY = 'data_warehouse_saved_queries',
