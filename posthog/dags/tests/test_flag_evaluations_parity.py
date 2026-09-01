@@ -56,9 +56,10 @@ class TestParityAlertLines:
 @pytest.mark.django_db
 def test_measure_attributes_deficit_and_excess_to_the_right_team(cluster: ClickhouseCluster) -> None:
     day = (datetime.now(tz=UTC) - timedelta(days=1)).replace(hour=12, minute=0, second=0, microsecond=0)
+    earlier = day - timedelta(days=1)
     matched, also_matched, events_only, fork_only = UUID(int=1), UUID(int=2), UUID(int=3), UUID(int=4)
     person = UUID(int=99)
-    clean_team, deficit_team, excess_team = 8001, 8002, 8003
+    clean_team, deficit_team, excess_team, activation_team = 8001, 8002, 8003, 8004
 
     def insert_events(client: Client) -> None:
         flag_props = '{"$feature_flag": "my-flag"}'
@@ -79,6 +80,10 @@ def test_measure_attributes_deficit_and_excess_to_the_right_team(cluster: Clickh
                 (deficit_team, "$feature_flag_called", "d", person, UUID(int=8), day, '{"$feature_flag": 5}'),
                 # A different event with a uuid the fork never sees must not read as a deficit.
                 (excess_team, "$pageview", "d", person, UUID(int=5), day, ""),
+                # activation_team is switched on during the checked day: this earlier event
+                # has no fork row, so checking the team would read as a deficit. The op must
+                # skip the team instead.
+                (activation_team, "$feature_flag_called", "d", person, UUID(int=9), day, flag_props),
             ],
         )
 
@@ -87,17 +92,25 @@ def test_measure_attributes_deficit_and_excess_to_the_right_team(cluster: Clickh
         partial(
             insert_flag_evaluations,
             [
+                # A row before the checked day marks each team as one the fork was already
+                # writing for, so it stays in the enabled set and is compared on the day.
+                (clean_team, "d", person, UUID(int=10), earlier),
+                (deficit_team, "d", person, UUID(int=11), earlier),
+                (excess_team, "d", person, UUID(int=12), earlier),
                 (clean_team, "d", person, matched, day),
                 # Enabled, so the op checks it, but one of its two events never arrived.
                 (deficit_team, "d", person, also_matched, day),
                 # Two rows for one uuid: a duplicate is excess, and excess is not a deficit.
                 (excess_team, "d", person, fork_only, day),
                 (excess_team, "d", person, fork_only, day),
+                # activation_team's first-ever row is on the checked day, so it was switched
+                # on that day and must be skipped rather than compared.
+                (activation_team, "d", person, UUID(int=13), day),
             ],
         )
     ).result()
 
-    # Two teams per query, three teams enabled, so the batching loop runs more than once.
+    # Two teams per query and three teams compared, so the batching loop runs more than once.
     config = FlagEvaluationsParityConfig(teams_per_query=2)
     results = measure_flag_evaluations_parity(dagster.build_op_context(), config, cluster)
 
@@ -105,3 +118,5 @@ def test_measure_attributes_deficit_and_excess_to_the_right_team(cluster: Clickh
     assert by_team[clean_team] == TeamParity(clean_team, only_in_events=0, only_in_flag_evaluations=0, in_both=1)
     assert by_team[deficit_team] == TeamParity(deficit_team, only_in_events=1, only_in_flag_evaluations=0, in_both=1)
     assert by_team[excess_team] == TeamParity(excess_team, only_in_events=0, only_in_flag_evaluations=1, in_both=0)
+    # Switched on during the checked day, so it is skipped rather than reported as a deficit.
+    assert activation_team not in by_team

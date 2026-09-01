@@ -88,7 +88,7 @@ def measure_flag_evaluations_parity(
         # allowlist, so the two cannot drift.
         enabled_rows = client.execute(
             f"""
-            SELECT team_id, count() AS rows
+            SELECT team_id, count() AS rows, min(toDate(timestamp)) AS first_day
             FROM {settings.CLICKHOUSE_DATABASE}.{FLAG_EVALUATIONS_TABLE}
             WHERE toDate(timestamp) >= %(lookback_start)s AND toDate(timestamp) <= %(day)s
             GROUP BY team_id
@@ -98,10 +98,18 @@ def measure_flag_evaluations_parity(
             settings=query_settings,
         )
 
-        ranked_teams = [int(row[0]) for row in enabled_rows]
+        # A team whose earliest row in the lookback window falls on the checked day was
+        # switched on that day. Its events from before the allowlist reached the pods have
+        # no fork row, so comparing it would report a deficit for a fork that works. Skip it;
+        # its first full day is checked on the next run.
+        ranked_teams = [int(row[0]) for row in enabled_rows if row[2] < day]
+        skipped_activation = len(enabled_rows) - len(ranked_teams)
         teams = ranked_teams[: config.max_teams]
         truncated = len(ranked_teams) - len(teams)
-        context.log.info(f"{len(ranked_teams)} teams enabled, checking {len(teams)} for {day}")
+        context.log.info(
+            f"{len(ranked_teams)} teams enabled, checking {len(teams)} for {day}"
+            + (f", skipped {skipped_activation} activated that day" if skipped_activation else "")
+        )
 
         checked: list[TeamParity] = []
         for start in range(0, len(teams), config.teams_per_query):
