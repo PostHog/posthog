@@ -9,6 +9,7 @@ import {
     chunkMutationSnapshot,
     PLACEHOLDER_SVG_DATA_IMAGE_URL,
 } from './index'
+import { COMMON_REPLAYER_CONFIG } from './rrweb-plugins'
 
 describe('@posthog/replay-shared', () => {
     describe('parseJsonSnapshots', () => {
@@ -112,6 +113,16 @@ describe('@posthog/replay-shared', () => {
     describe('PLACEHOLDER_SVG_DATA_IMAGE_URL', () => {
         it('is a data URL string', () => {
             expect(PLACEHOLDER_SVG_DATA_IMAGE_URL).toContain('data:image/svg+xml;base64,')
+        })
+    })
+
+    describe('COMMON_REPLAYER_CONFIG', () => {
+        it('replays focus interactions so :focus driven overlays render (#22275)', () => {
+            expect(COMMON_REPLAYER_CONFIG.triggerFocus).toBe(true)
+        })
+
+        it('keeps the replay iframe scriptless', () => {
+            expect(COMMON_REPLAYER_CONFIG.UNSAFE_replayCanvas).toBe(false)
         })
     })
 })

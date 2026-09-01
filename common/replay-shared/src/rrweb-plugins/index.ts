@@ -67,8 +67,12 @@ const defaultStyleRules = `.ph-no-capture { background-image: ${PLACEHOLDER_SVG_
 const shopifyShorthandCSSFix =
     '@media (prefers-reduced-motion: no-preference) { .scroll-trigger:not(.scroll-trigger--offscreen).animate--slide-in { animation: var(--animation-slide-in) } }'
 
+// Focus changes recorded as MouseInteraction(Focus) are replayed for real (rrweb's
+// default), so :focus/:focus-within/:focus-visible driven UI — dropdowns, backdrops,
+// autocomplete panels — renders as it did live instead of staying hidden (#22275).
+// preventScroll avoids jumpiness; focusing stays inside the sandboxed replay iframe.
 export const COMMON_REPLAYER_CONFIG: Partial<playerConfig> = {
-    triggerFocus: false,
+    triggerFocus: true,
     insertStyleRules: [defaultStyleRules, shopifyShorthandCSSFix],
     // Keep the replay iframe scriptless. UNSAFE_replayCanvas makes rrweb add `allow-scripts`
     // to the sandbox, which combined with the required `allow-same-origin` lets untrusted
