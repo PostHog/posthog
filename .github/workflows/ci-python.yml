@@ -203,8 +203,7 @@ jobs:
             - name: Check if the taxonomy JSON is up to date
               shell: bash
               run: |
-                  python3 bin/build-taxonomy-json.py
-                  git diff --exit-code -- frontend/src/taxonomy/core-filter-definitions-by-group.json
+                  python3 bin/build-taxonomy-json.py --check
 
             # Warn-only while the pre-existing violation backlog settles: findings annotate
             # the diff and land in the shared CI report comment, never a job failure.
