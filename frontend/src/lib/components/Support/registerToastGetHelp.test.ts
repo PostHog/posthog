@@ -45,16 +45,16 @@ describe('registerToastGetHelp', () => {
     })
 
     // Self-hosted has no Support tab, and a scene without a panel falls through to the support modal,
-    // which asks every plan for a message. Both keep the page they send people to today.
+    // which asks every plan for a message. Both link out to the channels their plan actually has.
     it.each([
         ['a self-hosted instance', { cloud: false, sidePanelAvailable: true }],
         ['a scene without a side panel', { cloud: true, sidePanelAvailable: false }],
-    ])('sends %s to the support page', async (_, options) => {
+    ])('sends %s to the support options docs', async (_, options) => {
         setUp(options)
 
         await expectLogic(sidePanelStateLogic, () => getHelp()).toFinishAllListeners()
 
         expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
-        expect(windowOpen).toHaveBeenCalledWith(expect.stringContaining('posthog.com/support'), '_blank')
+        expect(windowOpen).toHaveBeenCalledWith(expect.stringContaining('posthog.com/docs/support-options'), '_blank')
     })
 })
