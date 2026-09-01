@@ -77,6 +77,33 @@ describe('heatmapLogic', () => {
         expect(logic.values.screenshotError).not.toBeNull()
         expect(savedRegenerateCreate).not.toHaveBeenCalled()
     })
+
+    it('ignores a second regenerate while the first save is still in flight', async () => {
+        let resolveSave: ((value: any) => void) | undefined
+        jest.mocked(savedPartialUpdate).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveSave = resolve
+                })
+        )
+        const rendered = new Promise<void>((resolve) => {
+            jest.mocked(savedRegenerateCreate).mockImplementation(async () => {
+                resolve()
+                return {} as any
+            })
+        })
+
+        // Two clicks land while the save is still pending; the guard must collapse them into one.
+        logic.actions.regenerateScreenshot()
+        logic.actions.regenerateScreenshot()
+
+        expect(resolveSave).not.toBeUndefined()
+        resolveSave!({ url: 'https://example.com/pricing', block_consent_modals: false })
+        await rendered
+
+        expect(savedPartialUpdate).toHaveBeenCalledTimes(1)
+        expect(savedRegenerateCreate).toHaveBeenCalledTimes(1)
+    })
 })
 
 describe('computeLockedWidth', () => {

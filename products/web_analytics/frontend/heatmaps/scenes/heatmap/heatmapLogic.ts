@@ -576,25 +576,35 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     )
                     return
                 }
-                // The server rejects a render request for a heatmap it still holds as an iframe one, so
-                // the local edits must land first. This also lets Retry recover from a failed save.
-                const saved = await persistHeatmap()
-                if (!saved.ok) {
-                    // Show the save error so Retry stays reachable; otherwise the switch leaves a blank pane.
-                    actions.setScreenshotError(saved.error ?? 'Failed to regenerate screenshot')
+                // The banner stays mounted through the save, so a second Retry click can land before the
+                // render starts. Guard the whole save-and-render so two clicks don't double the renders.
+                if (cache.regeneratingScreenshot) {
                     return
                 }
-                if (saved.renderTriggered) {
-                    return
-                }
-                actions.setScreenshotError(null)
-                actions.setScreenshotUrl(null)
-                actions.setScreenshotLoaded(false)
+                cache.regeneratingScreenshot = true
                 try {
-                    await savedRegenerateCreate(String(values.currentTeamIdStrict), String(props.id))
-                    actions.pollScreenshotStatus(values.widthOverride)
-                } catch (error: unknown) {
-                    actions.setScreenshotError(getApiErrorMessage(error, 'Failed to regenerate screenshot'))
+                    // The server rejects a render request for a heatmap it still holds as an iframe one, so
+                    // the local edits must land first. This also lets Retry recover from a failed save.
+                    const saved = await persistHeatmap()
+                    if (!saved.ok) {
+                        // Show the save error so Retry stays reachable; otherwise the switch leaves a blank pane.
+                        actions.setScreenshotError(saved.error ?? 'Failed to regenerate screenshot')
+                        return
+                    }
+                    if (saved.renderTriggered) {
+                        return
+                    }
+                    actions.setScreenshotError(null)
+                    actions.setScreenshotUrl(null)
+                    actions.setScreenshotLoaded(false)
+                    try {
+                        await savedRegenerateCreate(String(values.currentTeamIdStrict), String(props.id))
+                        actions.pollScreenshotStatus(values.widthOverride)
+                    } catch (error: unknown) {
+                        actions.setScreenshotError(getApiErrorMessage(error, 'Failed to regenerate screenshot'))
+                    }
+                } finally {
+                    cache.regeneratingScreenshot = false
                 }
             },
             createHeatmap: async ({ context }) => {
