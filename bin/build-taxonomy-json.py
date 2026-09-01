@@ -12,7 +12,9 @@ import argparse
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.append(str(REPO_ROOT))
+# Ahead of site-packages, so the repo's posthog wins over an installed one of the
+# same name and the check cannot compare against a different taxonomy.
+sys.path.insert(0, str(REPO_ROOT))
 
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP  # noqa: E402 — needs the sys.path line above
 
