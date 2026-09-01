@@ -18,6 +18,7 @@ import type { PermissionRequest } from "@posthog/ui/features/sessions/sessionLog
 import type {
   AnalyticsTracker,
   AnalyticsUserGroups,
+  TrackOptions,
 } from "@posthog/ui/shell/analytics";
 import { logger } from "@posthog/ui/shell/logger";
 
@@ -314,20 +315,25 @@ export function track<K extends keyof EventPropertyMap>(
   ...args: EventPropertyMap[K] extends never
     ? []
     : EventPropertyMap[K] extends undefined
-      ? [properties?: EventPropertyMap[K]]
-      : [properties: EventPropertyMap[K]]
+      ? [properties?: EventPropertyMap[K], options?: TrackOptions]
+      : [properties: EventPropertyMap[K], options?: TrackOptions]
 ) {
   if (!isInitialized) {
     return;
   }
 
+  const [rawProperties, options] = args as [
+    EventPropertyMap[K]?,
+    TrackOptions?,
+  ];
+
   // Stamp inbox events with the client discriminator. Spread first so a caller
   // could override it, matching posthog's inboxAnalytics.ts (none do today).
   const properties = isInboxAnalyticsEvent(eventName)
-    ? { inbox_client: INBOX_CLIENT, ...args[0] }
-    : args[0];
+    ? { inbox_client: INBOX_CLIENT, ...rawProperties }
+    : rawProperties;
 
-  posthog.capture(eventName, properties);
+  posthog.capture(eventName, properties, options);
 }
 
 /**

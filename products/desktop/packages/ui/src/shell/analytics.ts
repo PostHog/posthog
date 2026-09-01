@@ -5,12 +5,17 @@ import type {
 } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
 
+/** Per-call capture options. `send_instantly` bypasses batching so an event fired during page unload leaves before the page goes. */
+export interface TrackOptions {
+  send_instantly?: boolean;
+}
+
 type TrackArgs<K extends keyof EventPropertyMap> =
   EventPropertyMap[K] extends never
     ? []
     : EventPropertyMap[K] extends undefined
-      ? [properties?: EventPropertyMap[K]]
-      : [properties: EventPropertyMap[K]];
+      ? [properties?: EventPropertyMap[K], options?: TrackOptions]
+      : [properties: EventPropertyMap[K], options?: TrackOptions];
 
 export interface AnalyticsUserGroups {
   team?: { id: number; uuid: string; name: string } | null;
