@@ -84,6 +84,21 @@ describe("buildThreadGroups MCP detection", () => {
     expect(grouping.idToRowIndex.get("t2")).toBe(0);
   });
 
+  it("summarizes a workflow as a workflow, not a generic tool call", () => {
+    const items = [
+      toolCallItem("read-1", undefined, { kind: "read" }),
+      toolCallItem("workflow-1", undefined, { title: "workflow" }),
+    ];
+
+    const grouping = buildThreadGroups(items, {});
+    const row = grouping.rows[0];
+    expect(row.kind).toBe("tool_group");
+    if (row.kind !== "tool_group") {
+      return;
+    }
+    expect(row.summary.doneLabel).toBe("Read a file, ran a workflow");
+  });
+
   it("counts only spawned agents as subagents", () => {
     const items = [
       toolCallItem("spawn-1", {
@@ -103,7 +118,7 @@ describe("buildThreadGroups MCP detection", () => {
     if (row.kind !== "tool_group") return;
     expect(row.summary.counts.subagents).toBe(1);
     expect(row.summary.counts.other).toBe(2);
-    expect(row.summary.doneLabel).toBe("1 subagent, 2 tool calls");
+    expect(row.summary.doneLabel).toBe("Ran 1 subagent, 2 tool calls");
   });
 });
 
