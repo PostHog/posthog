@@ -2,11 +2,8 @@
 name: signals-scout-customer-analytics-billing-and-usage
 description: >
   Signals scout for per-account product-mix shifts. Watches each staked account's usage and
-  forecasted MRR at the product grain for one product dropping or spiking against its own
-  same-weekday trailing baseline while the account total holds — the shape account-level
-  monitoring is blind to. Sweeps account notes, channel summaries, and synced comms for a
-  planned-change explanation before filing, and files each validated shift as a report in the
-  inbox.
+  forecasted MRR per product for one product dropping or spiking against its own baseline while
+  the account total holds.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes:
   read-only analytics plus signal_scout_internal:write (scratchpad) +
