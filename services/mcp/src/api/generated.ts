@@ -10796,6 +10796,21 @@ export namespace Schemas {
     }
 
     /**
+     * A failing check or a savings estimate from the audit.
+     */
+    export interface AuditOpportunity {
+      /** Lighthouse audit id, for example `prioritize-lcp-image`. */
+      audit_id: string;
+      /** Lighthouse's own title for the check. */
+      title: string;
+      /**
+         * Estimated milliseconds this would save. Null for a pass/fail check with no estimate.
+         * @nullable
+         */
+      savings_ms: number | null;
+    }
+
+    /**
      * * `oauth` - oauth
      * * `credentials` - credentials
      */
@@ -47562,6 +47577,45 @@ export namespace Schemas {
       FullWidth: 'full_width',
     } as const;
 
+    /**
+     * The element the browser chose as the Largest Contentful Paint.
+     */
+    export interface LcpElement {
+      /**
+         * CSS selector for the element.
+         * @nullable
+         */
+      selector: string | null;
+      /**
+         * The element's opening tag, truncated by Lighthouse.
+         * @nullable
+         */
+      snippet: string | null;
+      /**
+         * Human-readable label, usually the alt or text.
+         * @nullable
+         */
+      node_label: string | null;
+    }
+
+    /**
+     * One phase of the LCP timeline, which is where the time actually went.
+     */
+    export interface LcpPhase {
+      /** Lighthouse's own label for this subpart of the LCP, e.g. 'Time to first byte' or 'Element render delay'. Passed through verbatim, so the exact wording follows the Lighthouse version. */
+      phase: string;
+      /**
+         * Milliseconds spent in this phase.
+         * @nullable
+         */
+      timing_ms: number | null;
+      /**
+         * This subpart's share of the total LCP, e.g. '62%'.
+         * @nullable
+         */
+      percent: string | null;
+    }
+
     export interface LeakedKeyReport {
       /**
          * The leaked PostHog personal API key, project secret API key, or OAuth access/refresh token to revoke.
@@ -47697,6 +47751,68 @@ export namespace Schemas {
       Failed: 'failed',
       Incompatible: 'incompatible',
     } as const;
+
+    /**
+     * Request body for `scout-lighthouse-audit`: one page, one device profile.
+     */
+    export interface LighthouseAuditRequest {
+      /**
+         * The page to audit. Must be an https url on an allowed host — public PostHog pages only. Pages behind a login cannot be audited: the browser signs in to nothing, so it would measure the login screen and report its numbers as the page's.
+         * @maxLength 2000
+         */
+      url: string;
+      /** Which device profile to emulate. Desktop and mobile produce different numbers, so audit the one whose field data you are explaining.
+       *
+       * * `desktop` - desktop
+       * * `mobile` - mobile */
+      form_factor?: FormFactorEnum;
+    }
+
+    /**
+     * Lab metrics from this run: `lcp_ms`, `fcp_ms`, `cls`, `tbt_ms`, `speed_index_ms`, `tti_ms`. One throttled cold load, not a p75 over real users — use it to explain a field finding, never to replace one.
+     */
+    export type LighthouseAuditResponseMetrics = {[key: string]: number};
+
+    /**
+     * The audit, reduced to what a web vitals finding cites.
+     *
+     * The full Lighthouse report runs to a few hundred KB of detail no finding ever quotes, so the
+     * response carries the metrics, the LCP element and its phase breakdown, and the ranked
+     * opportunities, and drops the rest.
+     */
+    export interface LighthouseAuditResponse {
+      /** The url that was audited. */
+      requested_url: string;
+      /**
+         * Where the browser ended up after redirects.
+         * @nullable
+         */
+      final_url: string | null;
+      /** The device profile the audit emulated. */
+      form_factor: string;
+      /**
+         * The Lighthouse version that produced this report. Audit ids move between major versions, so cite it when an expected field came back empty.
+         * @nullable
+         */
+      lighthouse_version: string | null;
+      /**
+         * Lighthouse performance score out of 100 for this run.
+         * @nullable
+         */
+      performance_score: number | null;
+      /** Lab metrics from this run: `lcp_ms`, `fcp_ms`, `cls`, `tbt_ms`, `speed_index_ms`, `tti_ms`. One throttled cold load, not a p75 over real users — use it to explain a field finding, never to replace one. */
+      metrics: LighthouseAuditResponseMetrics;
+      /** The element the browser chose as the LCP, or null when Lighthouse could not name one. */
+      lcp_element: LcpElement | null;
+      /** Where the LCP time went, phase by phase. Empty when the report omits the breakdown. */
+      lcp_phases: LcpPhase[];
+      /** LCP-specific checks this page failed, such as an unprioritized or lazy-loaded hero image. */
+      lcp_checks_failed: AuditOpportunity[];
+      /** Ranked savings estimates across the whole page, largest first. */
+      opportunities: AuditOpportunity[];
+      /** How many audits this run may still spend. Each run gets 5. */
+      audits_remaining: number;
+    }
 
     export type LimitContext = typeof LimitContext[keyof typeof LimitContext];
 
