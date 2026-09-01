@@ -388,6 +388,9 @@ class OAuthValidator(OAuth2Validator):
         if request.client:
             return request.client
 
+        if not client_id:
+            return None
+
         app = OAuthApplication.objects.filter(client_id=client_id).first()
 
         if app is None or not app.is_usable(request):

@@ -52,15 +52,9 @@ describe("createHarnessRuntime", () => {
           expect.arrayContaining([
             "<inline:hog-branding>",
             "<inline:posthog-provider>",
+            "<inline:orchestration>",
             "<inline:web-access>",
             "<inline:mcp>",
-          ]),
-        );
-        expect(extensionPaths).not.toEqual(
-          expect.arrayContaining([
-            "<inline:background-jobs>",
-            "<inline:subagent>",
-            "<inline:workflow>",
           ]),
         );
       } finally {

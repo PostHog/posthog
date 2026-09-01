@@ -228,6 +228,12 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # source was streaming moments earlier in the same sync, so a fresh reconnect recovers. Match the
     # Erlang-tuple wording, the stable low-false-positive signal.
     "{:error, :econnrefused}",
+    # The generic GenServer-timeout sibling: Supavisor reports a pool-level checkout or internal
+    # backend-connect timeout as a ConnectionFailure carrying "{:error, :timeout}", the Erlang
+    # GenServer call-timeout atom, distinct from the POSIX-level ":etimedout". Same transient pooler
+    # class as :etimedout and :econnrefused (pooler couldn't hand us a backend connection; recovers
+    # once the pool has capacity or the backend reconnects), so recover by reconnecting.
+    "{:error, :timeout}",
     # Neon's proxy reports a compute that didn't finish waking from scale-to-zero before the
     # auth handshake deadline as a ConnectionFailure (SQLSTATE 08006, an OperationalError):
     # "Failed to connect to database: authentication did not complete within <n>ms". The wake is
