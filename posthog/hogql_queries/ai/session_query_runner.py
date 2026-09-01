@@ -152,135 +152,129 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
         query = parse_select(
             """
             SELECT
-                trace_id AS id,
-                any(session_id) AS ai_session_id,
-                min(timestamp) AS first_timestamp,
-                max(timestamp) AS last_timestamp,
+                deduped.trace_id AS id,
+                any(deduped.session_id) AS ai_session_id,
+                min(deduped.timestamp) AS first_timestamp,
+                max(deduped.timestamp) AS last_timestamp,
                 ifNull(
-                    nullIf(argMinIf(distinct_id, timestamp, event = '$ai_trace'), ''),
-                    argMin(distinct_id, timestamp)
+                    nullIf(argMinIf(deduped.distinct_id, deduped.timestamp, deduped.event = '$ai_trace'), ''),
+                    argMin(deduped.distinct_id, deduped.timestamp)
                 ) AS first_distinct_id,
                 round(
                     CASE
-                        WHEN countIf(latency > 0 AND event != '$ai_generation') = 0
-                             AND countIf(latency > 0 AND event = '$ai_generation') > 0
-                        THEN sumIf(latency,
-                                   event = '$ai_generation' AND latency > 0
+                        WHEN countIf(deduped.latency > 0 AND deduped.event != '$ai_generation') = 0
+                             AND countIf(deduped.latency > 0 AND deduped.event = '$ai_generation') > 0
+                        THEN sumIf(deduped.latency,
+                                   deduped.event = '$ai_generation' AND deduped.latency > 0
                              )
-                        ELSE sumIf(latency,
-                                   parent_id IS NULL
-                                   OR parent_id = trace_id
+                        ELSE sumIf(deduped.latency,
+                                   deduped.parent_id IS NULL
+                                   OR deduped.parent_id = deduped.trace_id
                              )
                     END, 2
                 ) AS total_latency,
-                -- NULL means no event carried the field, 0 is a reported zero.
-                -- nullIf(sum, 0) would collapse a real zero into NULL. Matches
-                -- trace_query_runner and traces_query_runner.
-                if(countIf(isNotNull(input_tokens)
-                           AND event IN ('$ai_generation', '$ai_embedding')) > 0,
-                   sumIf(input_tokens,
-                         event IN ('$ai_generation', '$ai_embedding')
-                   ),
-                   NULL
+                -- NULL means no event carried the field, 0 is a reported zero — the
+                -- same contract as the trace and traces runners. These columns are
+                -- Nullable, so a bare sum already returns NULL when no row reported
+                -- a value; nullIf(sum, 0) would collapse a real zero into NULL.
+                sumIf(deduped.input_tokens,
+                      deduped.event IN ('$ai_generation', '$ai_embedding')
                 ) AS input_tokens,
-                if(countIf(isNotNull(output_tokens)
-                           AND event IN ('$ai_generation', '$ai_embedding')) > 0,
-                   sumIf(output_tokens,
-                         event IN ('$ai_generation', '$ai_embedding')
-                   ),
-                   NULL
+                sumIf(deduped.output_tokens,
+                      deduped.event IN ('$ai_generation', '$ai_embedding')
                 ) AS output_tokens,
-                if(countIf(isNotNull(input_cost_usd)
-                           AND event IN ('$ai_generation', '$ai_embedding')) > 0,
-                   round(sumIf(input_cost_usd,
-                               event IN ('$ai_generation', '$ai_embedding')
-                   ), 10),
-                   NULL
+                round(
+                    sumIf(deduped.input_cost_usd,
+                          deduped.event IN ('$ai_generation', '$ai_embedding')
+                    ), 10
                 ) AS input_cost,
-                if(countIf(isNotNull(output_cost_usd)
-                           AND event IN ('$ai_generation', '$ai_embedding')) > 0,
-                   round(sumIf(output_cost_usd,
-                               event IN ('$ai_generation', '$ai_embedding')
-                   ), 10),
-                   NULL
+                round(
+                    sumIf(deduped.output_cost_usd,
+                          deduped.event IN ('$ai_generation', '$ai_embedding')
+                    ), 10
                 ) AS output_cost,
-                if(countIf(isNotNull(request_cost_usd)
-                           AND event IN ('$ai_generation', '$ai_embedding')) > 0,
-                   round(sumIf(request_cost_usd,
-                               event IN ('$ai_generation', '$ai_embedding')
-                   ), 10),
-                   NULL
+                round(
+                    sumIf(deduped.request_cost_usd,
+                          deduped.event IN ('$ai_generation', '$ai_embedding')
+                    ), 10
                 ) AS request_cost,
-                if(countIf(isNotNull(web_search_cost_usd)
-                           AND event IN ('$ai_generation', '$ai_embedding')) > 0,
-                   round(sumIf(web_search_cost_usd,
-                               event IN ('$ai_generation', '$ai_embedding')
-                   ), 10),
-                   NULL
+                round(
+                    sumIf(deduped.web_search_cost_usd,
+                          deduped.event IN ('$ai_generation', '$ai_embedding')
+                    ), 10
                 ) AS web_search_cost,
-                if(countIf(isNotNull(total_cost_usd)
-                           AND event IN ('$ai_generation', '$ai_embedding')) > 0,
-                   round(sumIf(total_cost_usd,
-                               event IN ('$ai_generation', '$ai_embedding')
-                   ), 10),
-                   NULL
+                round(
+                    sumIf(deduped.total_cost_usd,
+                          deduped.event IN ('$ai_generation', '$ai_embedding')
+                    ), 10
                 ) AS total_cost,
                 arrayDistinct(
                     arraySort(
                         x -> x.3,
                         groupArrayIf(
-                            tuple(uuid, event, timestamp, properties,
-                                  input, output, output_choices, input_state, output_state, tools),
-                            event != '$ai_trace'
+                            tuple(deduped.uuid, deduped.event, deduped.timestamp, deduped.properties,
+                                  deduped.input, deduped.output, deduped.output_choices,
+                                  deduped.input_state, deduped.output_state, deduped.tools),
+                            deduped.event != '$ai_trace'
                         )
                     )
                 ) AS events,
-                argMinIf(input_state,
-                         timestamp, event = '$ai_trace'
+                argMinIf(deduped.input_state,
+                         deduped.timestamp, deduped.event = '$ai_trace'
                 ) AS input_state,
-                argMinIf(output_state,
-                         timestamp, event = '$ai_trace'
+                argMinIf(deduped.output_state,
+                         deduped.timestamp, deduped.event = '$ai_trace'
                 ) AS output_state,
                 ifNull(
                     argMinIf(
-                        ifNull(nullIf(span_name, ''), nullIf(trace_name, '')),
-                        timestamp,
-                        event = '$ai_trace'
+                        ifNull(nullIf(deduped.span_name, ''), nullIf(deduped.trace_name, '')),
+                        deduped.timestamp,
+                        deduped.event = '$ai_trace'
                     ),
                     argMin(
-                        ifNull(nullIf(span_name, ''), nullIf(trace_name, '')),
-                        timestamp,
+                        ifNull(nullIf(deduped.span_name, ''), nullIf(deduped.trace_name, '')),
+                        deduped.timestamp,
                     )
                 ) AS trace_name,
-                countIf(is_error = 1 OR isNotNull(error)) AS error_count,
-                any(properties.ai_support_impersonated) AS is_support_trace,
+                countIf(deduped.is_error = 1 OR isNotNull(deduped.error)) AS error_count,
+                any(deduped.properties.ai_support_impersonated) AS is_support_trace,
                 arrayFilter(
                     x -> x != '',
                     arrayDistinct(
                         splitByChar(',',
                             arrayStringConcat(
                                 groupArrayIf(
-                                    toString(properties.$ai_tools_called),
-                                    event = '$ai_generation'
-                                    AND isNotNull(properties.$ai_tools_called)
-                                    AND toString(properties.$ai_tools_called) != ''
+                                    toString(deduped.properties.$ai_tools_called),
+                                    deduped.event = '$ai_generation'
+                                    AND isNotNull(deduped.properties.$ai_tools_called)
+                                    AND toString(deduped.properties.$ai_tools_called) != ''
                                 ),
                                 ','
                             )
                         )
                     )
                 ) AS tools
-            FROM posthog.ai_events AS ai_events
-            WHERE event IN (
-                '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
-            )
-              AND {trace_filter_conditions}
-              AND trace_id IN (
-                  SELECT trace_id
-                  FROM posthog.ai_events AS ai_events
-                  WHERE {session_filter_conditions}
-              )
-            GROUP BY trace_id
+            FROM (
+                SELECT
+                    uuid, event, timestamp, distinct_id, properties,
+                    trace_id, session_id, parent_id, span_name, trace_name,
+                    latency, is_error, error, input_tokens, output_tokens,
+                    input_cost_usd, output_cost_usd, request_cost_usd,
+                    web_search_cost_usd, total_cost_usd,
+                    input, output, output_choices, input_state, output_state, tools
+                FROM posthog.ai_events AS ai_events
+                WHERE event IN (
+                    '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
+                )
+                  AND {trace_filter_conditions}
+                  AND trace_id IN (
+                      SELECT trace_id
+                      FROM posthog.ai_events AS ai_events
+                      WHERE {session_filter_conditions}
+                  )
+                LIMIT 1 BY uuid
+            ) AS deduped
+            GROUP BY deduped.trace_id
             ORDER BY first_timestamp DESC
             """,
         )

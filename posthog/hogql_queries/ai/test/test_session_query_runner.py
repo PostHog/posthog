@@ -180,6 +180,34 @@ class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertIsNone(unpriced_trace.inputCost)
         self.assertIsNone(unpriced_trace.inputTokens)
 
+    def test_duplicate_ingested_rows_are_not_double_counted(self) -> None:
+        # At-least-once ingestion can write the same event twice with the same
+        # uuid. The sums must count it once.
+        duplicated = {
+            "event": "$ai_generation",
+            "event_uuid": "e0a416d5-2f2c-4dcf-a34e-92e3ec2ef03d",
+            "distinct_id": "person1",
+            "team": self.team,
+            "timestamp": datetime(2025, 1, 15, 0, 0, tzinfo=UTC),
+            "properties": {
+                "$ai_session_id": "session-duped",
+                "$ai_trace_id": "trace_duped",
+                "$ai_latency": 1,
+                "$ai_input_tokens": 7,
+                "$ai_output_tokens": 3,
+                "$ai_total_cost_usd": 0.01,
+            },
+        }
+        bulk_create_ai_events([duplicated, duplicated])
+
+        runner = SessionQueryRunner(team=self.team, query=SessionQuery(sessionId="session-duped"))
+        traces = {trace.id: trace for trace in runner.calculate().results}
+
+        trace = traces["trace_duped"]
+        self.assertEqual(trace.inputTokens, 7)
+        self.assertEqual(trace.outputTokens, 3)
+        self.assertAlmostEqual(trace.totalCost or 0, 0.01)
+
     def test_paginates_session_traces(self) -> None:
         bulk_create_ai_events(
             [
