@@ -78,7 +78,7 @@ import type {
     SharingConfigurationApi,
     UploadedMediaApi,
     UploadedMediaCreate201,
-    UploadedMediaCreateApi,
+    UploadedMediaCreateBody,
     UploadedMediaListParams,
     UploadedMediaStartUploadApi,
     UploadedMediaUploadStartedApi,
@@ -2407,13 +2407,15 @@ export const getUploadedMediaCreateUrl = (projectId: string) => {
  */
 export const uploadedMediaCreate = async (
     projectId: string,
-    uploadedMediaCreateApi: UploadedMediaCreateApi,
+    uploadedMediaCreateBody?: UploadedMediaCreateBody,
     options?: RequestInit
 ): Promise<UploadedMediaCreate201> => {
     const formData = new FormData()
-    formData.append(`image`, uploadedMediaCreateApi.image)
-    if (uploadedMediaCreateApi.purpose !== undefined) {
-        formData.append(`purpose`, uploadedMediaCreateApi.purpose)
+    if (uploadedMediaCreateBody?.image !== undefined) {
+        formData.append(`image`, uploadedMediaCreateBody.image)
+    }
+    if (uploadedMediaCreateBody?.purpose !== undefined) {
+        formData.append(`purpose`, uploadedMediaCreateBody.purpose)
     }
 
     return apiMutator<UploadedMediaCreate201>(getUploadedMediaCreateUrl(projectId), {

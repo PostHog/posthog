@@ -1,3 +1,4 @@
+import io
 import os
 import re
 import shutil
@@ -12,6 +13,7 @@ from django.test import override_settings
 from boto3 import resource
 from botocore.config import Config
 from parameterized import parameterized
+from PIL import Image
 from rest_framework import status
 
 from posthog.api.uploaded_media import FOUR_MEGABYTES
@@ -25,6 +27,7 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 from posthog.storage import object_storage
+from posthog.storage.object_storage import ObjectStorageError
 
 MEDIA_ROOT = tempfile.mkdtemp()
 
@@ -129,6 +132,34 @@ class TestMediaAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertEqual(response.json()["detail"], "Uploaded media must be less than 4MB")
+
+    @parameterized.expand(
+        [
+            ("bmp", "BMP", "image/bmp"),
+            ("avif", "AVIF", "image/avif"),
+        ]
+    )
+    def test_accepts_every_format_the_download_route_treats_as_inline_safe(
+        self, _name: str, pillow_format: str, expected_content_type: str
+    ) -> None:
+        """Any format download() is willing to serve inline must also be accepted on upload —
+        otherwise the sniffer silently narrows what dashboard text cards, notebooks, and org
+        logos can store, even though download() would happily serve it."""
+        buffer = io.BytesIO()
+        try:
+            Image.new("RGB", (2, 2), color="red").save(buffer, format=pillow_format)
+        except Exception:
+            self.skipTest(f"Pillow build here can't encode {pillow_format}")
+        fake_file = SimpleUploadedFile(
+            name=f"logo.{_name}", content=buffer.getvalue(), content_type=expected_content_type
+        )
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/uploaded_media",
+                {"image": fake_file},
+                format="multipart",
+            )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
 
     def test_download_sets_nosniff_and_strict_csp(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
@@ -336,6 +367,20 @@ class TestMediaLibraryAPI(APIBaseTest):
             list_response = self.client.get(f"/api/projects/{self.team.id}/uploaded_media/?purpose=email")
             self.assertEqual(list_response.json()["count"], 0)
 
+    def test_create_rejects_an_oversized_purpose_before_writing_anything(self) -> None:
+        """purpose is a varchar(100) column. Without validating it up front, an oversized value
+        reaches the DB write after the row and object already exist, turning a client mistake
+        into an unhandled 500 with orphaned state instead of a clean 400."""
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/uploaded_media",
+                    {"image": image, "purpose": "x" * 101},
+                    format="multipart",
+                )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        assert UploadedMedia.objects.count() == 0
+
     def test_create_stores_sniffed_content_type_not_the_claimed_one(self) -> None:
         """A caller claiming the wrong content type must not corrupt what we store and serve —
         we sniff the real type from the bytes, so a mislabeled upload is still served correctly."""
@@ -468,6 +513,19 @@ class TestMediaLibraryAPI(APIBaseTest):
             media_id, _ = self._start_upload()
             response = self.client.post(f"/api/projects/{self.team.id}/uploaded_media/{media_id}/complete_upload/")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        assert UploadedMedia.objects.get(id=media_id).pending is True
+
+    def test_complete_upload_reports_a_storage_outage_as_retryable_not_missing(self) -> None:
+        """A transient storage failure must not look like 'you never uploaded a file' — that
+        4xx reads as a client mistake to callers and to alerting, and hides a real outage."""
+        with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
+            media_id, _ = self._start_upload()
+            with patch(
+                "posthog.api.uploaded_media.object_storage.read_bytes",
+                side_effect=ObjectStorageError("read failed"),
+            ):
+                response = self.client.post(f"/api/projects/{self.team.id}/uploaded_media/{media_id}/complete_upload/")
+        assert response.status_code >= 500
         assert UploadedMedia.objects.get(id=media_id).pending is True
 
     def test_complete_upload_rejects_non_image_bytes_and_cleans_up(self) -> None:

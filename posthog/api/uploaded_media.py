@@ -23,6 +23,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import UploadedMedia
 from posthog.models.uploaded_media import ObjectStorageUnavailable
 from posthog.storage import object_storage
+from posthog.storage.object_storage import ObjectStorageError
 
 FOUR_MEGABYTES = 4 * 1024 * 1024
 
@@ -110,10 +111,11 @@ def validate_image_file(file: Optional[bytes], user: int) -> bool:
         return False
 
 
-# The set of image types the media library will actually sniff and serve. Deliberately
-# narrower than the download route's inline-safe allowlist: no SVG (never safe to serve
-# inline — script execution risk), no AVIF (Pillow build support is inconsistent).
-_SNIFFABLE_IMAGE_CONTENT_TYPES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp"})
+# The set of image types a sniff will accept — matches _INLINE_SAFE_CONTENT_TYPES exactly,
+# since accepting a format the download route wouldn't serve inline anyway just produces a
+# stored file that always downloads as an attachment. No SVG: never safe to serve inline
+# (script execution risk), so it's absent from _INLINE_SAFE_CONTENT_TYPES too.
+_SNIFFABLE_IMAGE_CONTENT_TYPES = _INLINE_SAFE_CONTENT_TYPES
 
 # Guards against a decompression bomb: a small, highly-compressed file that decodes to an
 # enormous bitmap. Checked from the header, before Pillow decodes the full image into memory.
@@ -226,13 +228,19 @@ class UploadedMediaUploadStartedSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True, help_text="Id of the pending upload — pass this to complete_upload.")
     upload_url = serializers.URLField(read_only=True, help_text="POST the image file here as multipart/form-data.")
     form_fields = serializers.DictField(
-        read_only=True, help_text="Extra form fields to send alongside the file in the same POST."
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Extra form fields to send alongside the file in the same POST.",
     )
     expires_in = serializers.IntegerField(read_only=True, help_text="Seconds before upload_url expires.")
 
 
 class UploadedMediaCreateSerializer(serializers.Serializer):
-    image = serializers.FileField(help_text="Image file. Must be under 4MB and a real, decodable image.")
+    # allow_empty_file=True: an empty upload isn't a malformed request, just an image that
+    # will fail the later sniff — that 400 already exists and carries a clearer message.
+    image = serializers.FileField(
+        allow_empty_file=True, help_text="Image file. Must be under 4MB and a real, decodable image."
+    )
     purpose = serializers.CharField(
         required=False,
         max_length=100,
@@ -344,15 +352,21 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def complete_upload(self, request, *args, **kwargs) -> Response:
         uploaded_media = self.get_object()
 
-        head = object_storage.head_object(uploaded_media.media_location)
-        if head is None:
+        # A single read distinguishes "nothing was uploaded" from "storage is unreachable" —
+        # read_bytes(missing_ok=True) returns None only for a genuine missing key and raises
+        # ObjectStorageError for everything else, so an outage surfaces as a retryable 5xx
+        # instead of the same 400 a client mistake gets.
+        try:
+            content = object_storage.read_bytes(uploaded_media.media_location, missing_ok=True)
+        except ObjectStorageError:
+            raise APIException("Could not read the uploaded file. Please try again.")
+
+        if content is None:
             raise ValidationError(code="upload_not_found", detail="No file was uploaded to the upload URL.")
 
-        content_length = head.get("ContentLength")
-        if not isinstance(content_length, int) or content_length > FOUR_MEGABYTES:
+        if len(content) > FOUR_MEGABYTES:
             raise ValidationError(code="file_too_large", detail="Uploaded media must be less than 4MB")
 
-        content = object_storage.read_bytes(uploaded_media.media_location)
         sniffed_content_type = sniff_image_content_type(content)
         if sniffed_content_type is None:
             uploaded_media.delete()
@@ -369,7 +383,7 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         uploaded_media.media_location = permanent_location
         uploaded_media.content_type = sniffed_content_type
-        uploaded_media.size_bytes = content_length
+        uploaded_media.size_bytes = len(content)
         uploaded_media.pending = False
         uploaded_media.save(update_fields=["media_location", "content_type", "size_bytes", "pending"])
 
@@ -386,14 +400,38 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     Uploaded media must have a content type beginning with 'image/' and be less than 4MB. Pass `purpose` to also
     add the image to a library (e.g. `email`), making it visible to `GET ?purpose=...`.
     """,
-        request=UploadedMediaCreateSerializer,
+        # A raw dict, not request=UploadedMediaCreateSerializer: drf-spectacular can't tell a
+        # FileField apart from a plain string once a serializer also has to describe the
+        # non-multipart request bodies this parser-configured viewset advertises, and silently
+        # emits `type: string, format: uri` — a generated client that can never satisfy it.
+        request={
+            "multipart/form-data": {
+                "type": "object",
+                "properties": {
+                    "image": {
+                        "type": "string",
+                        "format": "binary",
+                        "description": "Image file. Must be under 4MB and a real, decodable image.",
+                    },
+                    "purpose": {
+                        "type": "string",
+                        "maxLength": 100,
+                        "description": "Library to add this image to, e.g. `email`. Omit to upload without "
+                        "joining a library (as dashboard text cards and notebooks do).",
+                    },
+                },
+                "required": ["image"],
+            }
+        },
         responses={201: OpenApiTypes.OBJECT},
     )
     def create(self, request, *args, **kwargs) -> Response:
-        try:
-            file = request.data["image"]
-            purpose = request.data.get("purpose") or None
+        serializer = UploadedMediaCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        file = serializer.validated_data["image"]
+        purpose = serializer.validated_data.get("purpose") or None
 
+        try:
             if file.size > FOUR_MEGABYTES:
                 raise ValidationError(code="file_too_large", detail="Uploaded media must be less than 4MB")
 
@@ -448,8 +486,6 @@ class MediaViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 )
             else:
                 raise UnsupportedMediaType(file.content_type)
-        except KeyError:
-            raise ValidationError(code="no-image-provided", detail="An image file must be provided")
         except ObjectStorageUnavailable:
             raise ValidationError(
                 code="object_storage_required",

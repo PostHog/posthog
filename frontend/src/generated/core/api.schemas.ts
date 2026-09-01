@@ -4054,16 +4054,6 @@ export interface PaginatedUploadedMediaListApi {
     results: UploadedMediaApi[]
 }
 
-export interface UploadedMediaCreateApi {
-    /** Image file. Must be under 4MB and a real, decodable image. */
-    image: string
-    /**
-     * Library to add this image to, e.g. `email`. Omit to upload without joining a library (as dashboard text cards and notebooks do).
-     * @maxLength 100
-     */
-    purpose?: string
-}
-
 export interface UploadedMediaStartUploadApi {
     /**
      * The file's display name, e.g. 'logo.png'.
@@ -4080,7 +4070,7 @@ export interface UploadedMediaStartUploadApi {
 /**
  * Extra form fields to send alongside the file in the same POST.
  */
-export type UploadedMediaUploadStartedApiFormFields = { [key: string]: unknown }
+export type UploadedMediaUploadStartedApiFormFields = { [key: string]: string }
 
 export interface UploadedMediaUploadStartedApi {
     /** Id of the pending upload — pass this to complete_upload. */
@@ -5199,6 +5189,16 @@ export type UploadedMediaListParams = {
      * The library to list, e.g. `email`.
      */
     purpose: string
+}
+
+export type UploadedMediaCreateBody = {
+    /** Image file. Must be under 4MB and a real, decodable image. */
+    image: Blob
+    /**
+     * Library to add this image to, e.g. `email`. Omit to upload without joining a library (as dashboard text cards and notebooks do).
+     * @maxLength 100
+     */
+    purpose?: string
 }
 
 export type UploadedMediaCreate201 = { [key: string]: unknown }

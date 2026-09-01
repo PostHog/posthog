@@ -85692,16 +85692,6 @@ export namespace Schemas {
       file: string;
     }
 
-    export interface UploadedMediaCreate {
-      /** Image file. Must be under 4MB and a real, decodable image. */
-      image: string;
-      /**
-         * Library to add this image to, e.g. `email`. Omit to upload without joining a library (as dashboard text cards and notebooks do).
-         * @maxLength 100
-         */
-      purpose?: string;
-    }
-
     export interface UploadedMediaStartUpload {
       /**
          * The file's display name, e.g. 'logo.png'.
@@ -85718,7 +85708,7 @@ export namespace Schemas {
     /**
      * Extra form fields to send alongside the file in the same POST.
      */
-    export type UploadedMediaUploadStartedFormFields = { [key: string]: unknown };
+    export type UploadedMediaUploadStartedFormFields = {[key: string]: string};
 
     export interface UploadedMediaUploadStarted {
       /** Id of the pending upload — pass this to complete_upload. */
@@ -99202,6 +99192,16 @@ export namespace Schemas {
      * The library to list, e.g. `email`.
      */
     purpose: string;
+    };
+
+    export type UploadedMediaCreateBody = {
+      /** Image file. Must be under 4MB and a real, decodable image. */
+      image: Blob;
+      /**
+         * Library to add this image to, e.g. `email`. Omit to upload without joining a library (as dashboard text cards and notebooks do).
+         * @maxLength 100
+         */
+      purpose?: string;
     };
 
     export type UploadedMediaCreate201 = { [key: string]: unknown };

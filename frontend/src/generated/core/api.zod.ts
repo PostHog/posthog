@@ -1023,7 +1023,7 @@ export const SessionRecordingsSharingRefreshCreateBody = /* @__PURE__ */ zod
 export const uploadedMediaCreateBodyPurposeMax = 100
 
 export const UploadedMediaCreateBody = /* @__PURE__ */ zod.object({
-    image: zod.url().describe('Image file. Must be under 4MB and a real, decodable image.'),
+    image: zod.instanceof(File).describe('Image file. Must be under 4MB and a real, decodable image.'),
     purpose: zod
         .string()
         .max(uploadedMediaCreateBodyPurposeMax)
