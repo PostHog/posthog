@@ -804,9 +804,7 @@ jobs:
               # the historical migration work. Treat cache/restore problems as misses:
               # restore-schema-fresh leaves a fresh empty db on failure, so the migrate
               # step below runs the full history.
-              # TEMP(nextgensquash): force the full migrate so CI builds every DB from the
-              # squashed chain. Revert this line before merge.
-              if: ${{ false && (github.event_name == 'pull_request' || github.event_name == 'push') }}
+              if: github.event_name == 'pull_request' || github.event_name == 'push'
               env:
                   TARGET_DB: posthog_e2e_test
               run: |

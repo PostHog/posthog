@@ -878,10 +878,8 @@ jobs:
             - name: Prime test_posthog from cached schema
               # Treat cache problems as misses; the migrate step below rebuilds the DB
               # whenever this one reports restored=false.
-              # TEMP(nextgensquash): force the full migrate so CI builds every DB from the
-              # squashed chain. Revert this line before merge.
               id: prime-schema
-              if: ${{ false && github.event_name == 'pull_request' }}
+              if: ${{ github.event_name == 'pull_request' }}
               run: |
                   echo "restored=false" >> "$GITHUB_OUTPUT"
                   if [ ! -f schema.sql.gz ]; then
