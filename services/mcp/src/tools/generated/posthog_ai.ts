@@ -69,6 +69,9 @@ const conversationsRetrieve = (): ToolBase<
         })
         const filtered = pickResponseFields(result, [
             'id',
+            'user.email',
+            'user.first_name',
+            'user.last_name',
             'title',
             'topic',
             'status',
