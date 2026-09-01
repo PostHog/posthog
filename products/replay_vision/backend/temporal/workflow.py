@@ -468,11 +468,16 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             # it gets neither a false retry prompt nor a message that merges it into the transient-outage issue.
             if rasterizer_type in _RASTERIZER_INFRA_TRANSIENT_TYPES and not _failure_non_retryable(e):
                 # A PostHog dependency blip, not a broken recording. Classify transient so the observation
-                # stays retryable, and drop the volatile message so one outage can't fragment into an
-                # error-tracking issue per errno and pod address.
+                # stays retryable, and keep the raw errno and pod address in the worker log only: `from None`
+                # drops the volatile cause so error tracking groups the outage by the stable message alone
+                # instead of minting a fresh issue per errno and pod address.
+                wf.logger.warning(
+                    "replay_vision.rasterizer_infra_transient",
+                    extra={"rasterizer_code": rasterizer_type, "detail": _root_cause_message(e)},
+                )
                 raise ScannerFailureError(
                     _normalized_rasterizer_infra_message(rasterizer_type), kind=FailureKind.INFRA_TRANSIENT
-                ) from e
+                ) from None
             # Direct cause only: a nested activity timeout inside the child already bumped the
             # counter there, and matching it here would double-count one run.
             if (

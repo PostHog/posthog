@@ -2402,6 +2402,12 @@ async def test_apply_scanner_workflow_classifies_rasterizer_dependency_failure_b
     assert mark_observation_ineligible_activity not in called
     assert mocks.activity_calls[-1][1].error_reason == expected_reason
 
+    if expected_kind is FailureKind.INFRA_TRANSIENT:
+        # `from None` keeps the volatile cause out of the chain error tracking serializes, so the outage
+        # groups by the stable message instead of the errno and pod address the leaf still carries.
+        assert exc_info.value.__cause__ is None
+        assert exc_info.value.__suppress_context__ is True
+
 
 @pytest.mark.asyncio
 async def test_apply_scanner_workflow_cleans_up_gemini_file_when_call_provider_fails() -> None:
