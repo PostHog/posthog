@@ -69,21 +69,29 @@ class TestExceptionHandlerWWWAuthenticate(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("at_capacity", ClickHouseAtCapacity(), 503),
-            ("query_timeout", ClickHouseQueryTimeOut(), 504),
+            # A 503 capacity failure is transient cluster load, so advertise a fixed back-off window.
+            ("at_capacity", ClickHouseAtCapacity(), 503, str(CLICKHOUSE_CAPACITY_RETRY_AFTER_SECONDS)),
+            # A 504 timeout is a repeatable per-query failure, so it must not carry a fixed Retry-After:
+            # the client would just rerun the same expensive query, and the failure breaker can serve it
+            # with a much longer reopen window than a fixed 30s.
+            ("query_timeout", ClickHouseQueryTimeOut(), 504, None),
         ]
     )
-    def test_retry_after_on_transient_clickhouse_capacity(
+    def test_retry_after_on_clickhouse_capacity_responses(
         self,
         _name: str,
         exception: APIException,
         expected_status: int,
+        expected_retry_after: str | None,
     ) -> None:
         # Without Retry-After, API clients retry blind during a capacity event and worsen the pileup.
         response = exception_handler(exception, {"request": self._request()})
         assert response is not None
         assert response.status_code == expected_status
-        assert response["Retry-After"] == str(CLICKHOUSE_CAPACITY_RETRY_AFTER_SECONDS)
+        if expected_retry_after is None:
+            assert "Retry-After" not in response
+        else:
+            assert response["Retry-After"] == expected_retry_after
 
     def test_hint_ignores_host_header(self) -> None:
         """A spoofed Host header must not steer the discovery URL away from SITE_URL."""

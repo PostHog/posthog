@@ -78,9 +78,12 @@ class DatabaseSchemaUnavailable(APIException):
     default_code = "database_schema_unavailable"
 
 
-# Advisory back-off in seconds. The handler in drf-exceptions-hog turns a truthy `wait` into a
-# `Retry-After` header, so a client that retries gets a real window instead of hammering a busy
-# cluster. Both codes signal transient cluster load, so they share one value.
+# Advisory back-off in seconds for the 503 capacity response. The handler in drf-exceptions-hog
+# turns a truthy `wait` into a `Retry-After` header, so a client that retries gets a real window
+# instead of hammering a busy cluster. Only ClickHouseAtCapacity carries it: a query timeout is a
+# repeatable per-query failure (see classify_failure and CH_TRANSIENT_ERRORS), and the failure
+# breaker can serve a remembered timeout with a much longer reopen window, so a fixed 30s here would
+# understate that window and contradict the "It can run again in about N minutes" hint in the body.
 CLICKHOUSE_CAPACITY_RETRY_AFTER_SECONDS = 30
 
 
@@ -109,7 +112,6 @@ class ClickHouseBytesLimitExceeded(ValidationError):
 
 class ClickHouseQueryTimeOut(APIException):
     status_code = 504
-    wait = CLICKHOUSE_CAPACITY_RETRY_AFTER_SECONDS
     default_detail = "Query has hit the max execution time before completing. See our docs for how to improve your query performance. You may need to materialize."
 
 
