@@ -61,6 +61,11 @@ def _drop_self_hosted_reports(reports: list[dict[str, object]], token: Optional[
     own project token until the operator upgrades. Customers configure this endpoint with their
     own project token, so the token separates the two; the document URL alone cannot.
 
+    The token gate is what protects customers: a report on any other token returns below, from
+    any domain. The document URL then splits what is left, because Cloud's own app sends with
+    this token too — a PostHog or local host is Cloud reporting on itself and has to survive.
+    So that second check only ever keeps more than the token gate alone would.
+
     `CSP_DROP_SELF_HOSTED_REPORTS` gates the drop itself. While it is off the classifier still
     runs and records `would_drop`, so the counter shows what enabling it costs before it costs it.
 
