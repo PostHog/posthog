@@ -5,12 +5,10 @@ import django.contrib.postgres.fields
 from django.db import migrations, models
 
 import posthog.uuidt
-from posthog.migration_helpers import AddForeignKeyNotValid, ValidateForeignKey
+from posthog.migration_helpers import AddForeignKeyNotValid
 
 
 class Migration(migrations.Migration):
-    atomic = False
-
     dependencies = [
         ("exports", "0008_exportedasset_source_authentication"),
     ]
@@ -103,5 +101,4 @@ class Migration(migrations.Migration):
             to_table="posthog_team",
             to_column="id",
         ),
-        ValidateForeignKey(model_name="subscriptioncontext", name="subscriptioncontext_team_id_fk"),
     ]
