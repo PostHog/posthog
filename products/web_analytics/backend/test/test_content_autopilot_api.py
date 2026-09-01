@@ -9,7 +9,7 @@ from rest_framework import status
 from posthog.models import Organization, Team
 from posthog.rate_limit import ContentAutopilotDiscoveryBurstRateThrottle
 
-from products.web_analytics.backend.api.content_autopilot import CONTENT_AUTOPILOT_FEATURE_FLAGS
+from products.web_analytics.backend.api.content_autopilot import CONTENT_AUTOPILOT_FEATURE_FLAG
 from products.web_analytics.backend.models import ContentAutopilotProposal, ContentAutopilotRun
 from products.web_analytics.backend.public_url_fetch import PublicUrlFetchError
 from products.web_analytics.backend.test.content_autopilot_test_utils import (
@@ -59,18 +59,17 @@ class TestContentAutopilotAPI(APIBaseTest):
         payload.update(overrides)
         return payload
 
-    @parameterized.expand([(flag,) for flag in CONTENT_AUTOPILOT_FEATURE_FLAGS])
-    def test_requires_both_rollout_flags_with_user_and_organization_context(self, disabled_flag: str) -> None:
-        self.feature_enabled.side_effect = lambda flag, *args, **kwargs: flag != disabled_flag
+    def test_requires_the_rollout_flag_with_user_and_organization_context(self) -> None:
+        self.feature_enabled.return_value = False
 
         response = self.client.get(self._profiles_url())
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        calls_by_flag = {call.args[0]: call for call in self.feature_enabled.call_args_list}
-        self.assertIn(disabled_flag, calls_by_flag)
-        for call in calls_by_flag.values():
-            self.assertEqual(call.args[1], self.user.distinct_id)
-            self.assertEqual(call.kwargs["organization_id"], str(self.organization.id))
+        self.feature_enabled.assert_called_once_with(
+            CONTENT_AUTOPILOT_FEATURE_FLAG,
+            self.user.distinct_id,
+            organization_id=str(self.organization.id),
+        )
 
     def test_requires_an_authenticated_project_member(self) -> None:
         self.client.logout()
@@ -123,18 +122,10 @@ class TestContentAutopilotAPI(APIBaseTest):
             {"https://example.com", "https://docs.example.com"},
         )
 
-    @patch("products.web_analytics.backend.api.content_autopilot.MAX_CONTENT_AUTOPILOT_SITE_PROFILES", 1)
-    def test_project_cannot_exceed_the_site_profile_limit(self) -> None:
+    def test_project_cannot_configure_the_same_domain_twice(self) -> None:
         create_content_autopilot_profile(self.team)
 
-        response = self.client.post(
-            self._profiles_url(),
-            self._profile_payload(
-                domain="https://docs.example.com",
-                source_urls=["https://docs.example.com/sitemap.xml"],
-            ),
-            format="json",
-        )
+        response = self.client.post(self._profiles_url(), self._profile_payload(), format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["attr"], "domain")

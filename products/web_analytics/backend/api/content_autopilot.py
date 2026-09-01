@@ -5,7 +5,6 @@ from urllib.parse import urlparse
 
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
-from django.db.models.fields.json import KeyTextTransform
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import serializers, status, viewsets
@@ -46,11 +45,7 @@ from products.web_analytics.backend.models import (
 )
 from products.web_analytics.backend.public_url_fetch import PublicUrlFetchError
 
-CONTENT_AUTOPILOT_FEATURE_FLAGS = (
-    "web-analytics-page-performance",
-    "web-analytics-content-autopilot",
-)
-MAX_CONTENT_AUTOPILOT_SITE_PROFILES = 100
+CONTENT_AUTOPILOT_FEATURE_FLAG = "web-analytics-content-autopilot"
 DUPLICATE_DOMAIN_CONSTRAINT = "content_auto_profile_team_domain"
 DUPLICATE_DOMAIN_MESSAGE = "This site is already configured for the project."
 
@@ -73,9 +68,8 @@ class ContentAutopilotViewSetMixin(TeamAndOrgViewSetMixin):
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
         distinct_id = getattr(request.user, "distinct_id", None)
-        if not distinct_id or not all(
-            posthog_feature_flag_enabled(flag, distinct_id, organization_id=self.organization_id)
-            for flag in CONTENT_AUTOPILOT_FEATURE_FLAGS
+        if not distinct_id or not posthog_feature_flag_enabled(
+            CONTENT_AUTOPILOT_FEATURE_FLAG, distinct_id, organization_id=self.organization_id
         ):
             raise PermissionDenied("This feature is not available.")
 
@@ -98,16 +92,6 @@ class ContentAutopilotViewSetMixin(TeamAndOrgViewSetMixin):
         )
 
 
-class ContentAutopilotMetricSerializer(serializers.Serializer):
-    impressions = serializers.IntegerField(required=False, help_text="Google Search impressions in the period.")
-    clicks = serializers.IntegerField(required=False, help_text="Google Search clicks in the period.")
-    click_through_rate = serializers.FloatField(required=False, help_text="Google Search click-through rate.")
-    average_position = serializers.FloatField(required=False, help_text="Average Google Search position.")
-    visitors = serializers.IntegerField(required=False, help_text="PostHog visitors in the period.")
-    ai_referrals = serializers.IntegerField(required=False, help_text="Visits referred by AI assistants.")
-    crawler_requests = serializers.IntegerField(required=False, help_text="Requests from recognized AI crawlers.")
-
-
 class ContentAutopilotEvidenceSerializer(serializers.Serializer):
     opportunity_kind = serializers.ChoiceField(
         choices=[
@@ -124,18 +108,10 @@ class ContentAutopilotEvidenceSerializer(serializers.Serializer):
     query = serializers.CharField(
         required=False, allow_blank=True, help_text="Search query supported by this evidence."
     )
-    metrics = ContentAutopilotMetricSerializer(
-        required=False,
-        help_text="Observed metrics supporting the opportunity.",
-    )
 
 
 class ContentAutopilotSnapshotSerializer(serializers.Serializer):
-    captured_at = serializers.DateTimeField(required=False, help_text="When the run inputs were captured.")
     domain = serializers.URLField(required=False, help_text="Site domain used for the run.")
-    search_console_connected = serializers.BooleanField(
-        required=False, help_text="Whether Search Console data was available."
-    )
     confidence = serializers.ChoiceField(
         choices=[("standard", "Standard"), ("lower", "Lower")],
         required=False,
@@ -155,7 +131,6 @@ class ContentAutopilotSnapshotSerializer(serializers.Serializer):
 class ContentAutopilotErrorSerializer(serializers.Serializer):
     error_code = serializers.CharField(help_text="Stable machine-readable error code.")
     message = serializers.CharField(help_text="Error explanation suitable for the review workspace.")
-    retryable = serializers.BooleanField(help_text="Whether the failed step can be retried.")
 
 
 class ContentAutopilotValidationCheckSerializer(serializers.Serializer):
@@ -246,17 +221,6 @@ class ContentAutopilotSiteProfileSerializer(serializers.ModelSerializer):
         attrs["domain"] = domain
         attrs["name"] = submitted("name").strip() or (urlparse(domain).hostname or domain).removeprefix("www.")
 
-        team_profiles = ContentAutopilotSiteProfile.objects.for_team(self.context["get_team"]().id)
-        duplicates = team_profiles.filter(domain=domain)
-        if self.instance is not None:
-            duplicates = duplicates.exclude(id=self.instance.id)
-        if duplicates.exists():
-            raise ValidationError({"domain": DUPLICATE_DOMAIN_MESSAGE})
-        if self.instance is None and team_profiles.count() >= MAX_CONTENT_AUTOPILOT_SITE_PROFILES:
-            raise ValidationError(
-                {"domain": f"A project can configure up to {MAX_CONTENT_AUTOPILOT_SITE_PROFILES} sites."}
-            )
-
         for source_url in submitted("source_urls", []) or []:
             url = str(source_url)
             parsed_source = urlparse(url)
@@ -340,7 +304,6 @@ class ContentAutopilotRunSerializer(serializers.ModelSerializer):
             "run_status",
             "input_snapshot",
             "errors",
-            "triggered_by_id",
             "created_at",
             "updated_at",
             "completed_at",
@@ -349,7 +312,6 @@ class ContentAutopilotRunSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "profile_id": {"help_text": "Site profile used by this run."},
             "run_status": {"help_text": "Current durable workflow status."},
-            "triggered_by_id": {"help_text": "User who explicitly started this run."},
         }
 
 
@@ -418,8 +380,8 @@ class ContentAutopilotProposalListSerializer(ContentAutopilotProposalBaseSeriali
 
     @extend_schema_field(serializers.CharField)
     def get_file_path(self, proposal: ContentAutopilotProposal) -> str:
-        file_path: str | None = getattr(proposal, "content_file_path", None)
-        return file_path or ""
+        file_path = proposal.content_package.get("file_path") if isinstance(proposal.content_package, dict) else None
+        return file_path if isinstance(file_path, str) else ""
 
 
 class ContentAutopilotProposalListQuerySerializer(serializers.Serializer):
@@ -445,7 +407,7 @@ class ContentAutopilotExportResponseSerializer(serializers.Serializer):
 class ContentAutopilotSiteProfileViewSet(ContentAutopilotViewSetMixin, viewsets.ModelViewSet):
     serializer_class = ContentAutopilotSiteProfileSerializer
     queryset = ContentAutopilotSiteProfile.objects.unscoped()
-    http_method_names = ["get", "post", "put", "patch", "head", "options"]
+    http_method_names = ["get", "post", "patch", "head", "options"]
 
     def get_throttles(self) -> list[BaseThrottle]:
         if self.action == "discover":
@@ -543,18 +505,7 @@ class ContentAutopilotProposalViewSet(ContentAutopilotViewSetMixin, viewsets.Rea
                 ContentAutopilotProposalListQuerySerializer,
                 {"run_id": "run_id", "profile_id": "run__profile_id"},
             )
-            queryset = queryset.annotate(content_file_path=KeyTextTransform("file_path", "content_package")).only(
-                "id",
-                "run_id",
-                "proposal_type",
-                "lifecycle_status",
-                "title",
-                "target_query",
-                "evidence",
-                "validation_report",
-                "created_at",
-                "updated_at",
-            )
+            queryset = queryset.defer("original_markdown", "proposed_markdown")
         return queryset.order_by("-created_at")
 
     @validated_request(

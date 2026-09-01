@@ -273,28 +273,6 @@ export const WebAnalyticsContentAutopilotProfilesCreateBody = /* @__PURE__ */ zo
     search_console_enabled: zod.boolean().optional().describe('Whether to use connected Google Search Console data.'),
 })
 
-export const webAnalyticsContentAutopilotProfilesUpdateBodyNameMax = 255
-
-export const webAnalyticsContentAutopilotProfilesUpdateBodyDomainMax = 2048
-
-export const WebAnalyticsContentAutopilotProfilesUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod
-        .string()
-        .max(webAnalyticsContentAutopilotProfilesUpdateBodyNameMax)
-        .optional()
-        .describe('Name used to identify this site in the workspace.'),
-    domain: zod
-        .url()
-        .max(webAnalyticsContentAutopilotProfilesUpdateBodyDomainMax)
-        .describe('Authorized site origin for this profile.'),
-    source_urls: zod
-        .array(zod.url())
-        .describe('Public sitemap and factual source URLs used to build the site profile.'),
-    content_boundaries: zod.array(zod.string()).describe('Same-origin URL path prefixes allowed for research.'),
-    brand_rules: zod.array(zod.string()).describe('Brand, terminology, and editorial rules applied to every proposal.'),
-    search_console_enabled: zod.boolean().optional().describe('Whether to use connected Google Search Console data.'),
-})
-
 export const webAnalyticsContentAutopilotProfilesPartialUpdateBodyNameMax = 255
 
 export const webAnalyticsContentAutopilotProfilesPartialUpdateBodyDomainMax = 2048

@@ -824,23 +824,6 @@ export const OpportunityKindEnumApi = {
     SiteHygiene: 'site_hygiene',
 } as const
 
-export interface ContentAutopilotMetricApi {
-    /** Google Search impressions in the period. */
-    impressions?: number
-    /** Google Search clicks in the period. */
-    clicks?: number
-    /** Google Search click-through rate. */
-    click_through_rate?: number
-    /** Average Google Search position. */
-    average_position?: number
-    /** PostHog visitors in the period. */
-    visitors?: number
-    /** Visits referred by AI assistants. */
-    ai_referrals?: number
-    /** Requests from recognized AI crawlers. */
-    crawler_requests?: number
-}
-
 export interface ContentAutopilotEvidenceApi {
     /** Reason the opportunity was selected.
      *
@@ -856,8 +839,6 @@ export interface ContentAutopilotEvidenceApi {
     page_url?: string
     /** Search query supported by this evidence. */
     query?: string
-    /** Observed metrics supporting the opportunity. */
-    metrics?: ContentAutopilotMetricApi
 }
 
 export interface ContentAutopilotValidationCheckApi {
@@ -1018,12 +999,8 @@ export const ConfidenceEnumApi = {
 } as const
 
 export interface ContentAutopilotSnapshotApi {
-    /** When the run inputs were captured. */
-    captured_at?: string
     /** Site domain used for the run. */
     domain?: string
-    /** Whether Search Console data was available. */
-    search_console_connected?: boolean
     /** Confidence level based on the available data sources.
      *
      * * `standard` - Standard
@@ -1042,8 +1019,6 @@ export interface ContentAutopilotErrorApi {
     error_code: string
     /** Error explanation suitable for the review workspace. */
     message: string
-    /** Whether the failed step can be retried. */
-    retryable: boolean
 }
 
 export interface ContentAutopilotRunApi {
@@ -1063,11 +1038,6 @@ export interface ContentAutopilotRunApi {
     input_snapshot: ContentAutopilotSnapshotApi
     /** Inspectable workflow errors and retryability. */
     errors: ContentAutopilotErrorApi[]
-    /**
-     * User who explicitly started this run.
-     * @nullable
-     */
-    readonly triggered_by_id: number | null
     readonly created_at: string
     readonly updated_at: string
     /** @nullable */

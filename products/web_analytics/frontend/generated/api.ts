@@ -645,24 +645,6 @@ export const webAnalyticsContentAutopilotProfilesRetrieve = async (
     )
 }
 
-export const getWebAnalyticsContentAutopilotProfilesUpdateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/${id}/`
-}
-
-export const webAnalyticsContentAutopilotProfilesUpdate = async (
-    projectId: string,
-    id: string,
-    contentAutopilotSiteProfileApi: NonReadonly<ContentAutopilotSiteProfileApi>,
-    options?: RequestInit
-): Promise<ContentAutopilotSiteProfileApi> => {
-    return apiMutator<ContentAutopilotSiteProfileApi>(getWebAnalyticsContentAutopilotProfilesUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(contentAutopilotSiteProfileApi),
-    })
-}
-
 export const getWebAnalyticsContentAutopilotProfilesPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/web_analytics_content_autopilot_profiles/${id}/`
 }
