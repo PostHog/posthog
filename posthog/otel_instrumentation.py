@@ -185,12 +185,19 @@ def initialize_otel():
 
 def instrument_django(provider: trace.TracerProvider):
     try:
+        sqlcommenter_enabled = os.environ.get("PGANALYZE_TRACEPARENT_ENABLED", "false").lower() == "true"
         DjangoInstrumentor().instrument(
             tracer_provider=provider,
             request_hook=_otel_django_request_hook,
             response_hook=_otel_django_response_hook,
+            is_sql_commentor_enabled=sqlcommenter_enabled,
         )
-        logger.info("otel_instrumentation_attempt", instrumentor="DjangoInstrumentor", status="success")
+        logger.info(
+            "otel_instrumentation_attempt",
+            instrumentor="DjangoInstrumentor",
+            status="success",
+            sqlcommenter_enabled=sqlcommenter_enabled,
+        )
     except Exception as e:
         logger.exception("otel_instrumentation_attempt", instrumentor="DjangoInstrumentor", status="error", exc_info=e)
 
@@ -218,7 +225,6 @@ def instrument_psycopg(provider: trace.TracerProvider):
             "otel_instrumentation_attempt",
             instrumentor="PsycopgInstrumentor",
             status="success",
-            note="SQLCommenter enabled for diagnostics",
         )
     except Exception as e:
         logger.exception("otel_instrumentation_attempt", instrumentor="PsycopgInstrumentor", status="error", exc_info=e)

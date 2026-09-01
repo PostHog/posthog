@@ -68,6 +68,7 @@ class TestOtelInstrumentation(SimpleTestCase):
             "OTEL_SERVICE_NAME": "test-service",
             "OTEL_SDK_DISABLED": "false",
             "OTEL_PYTHON_LOG_LEVEL": "debug",
+            "PGANALYZE_TRACEPARENT_ENABLED": "true",
         },
         clear=True,
     )
@@ -140,6 +141,7 @@ class TestOtelInstrumentation(SimpleTestCase):
         self.assertEqual(instrument_call_args[1]["tracer_provider"], mock_provider_instance)
         self.assertEqual(instrument_call_args[1]["request_hook"], _otel_django_request_hook)
         self.assertEqual(instrument_call_args[1]["response_hook"], _otel_django_response_hook)
+        self.assertTrue(instrument_call_args[1]["is_sql_commentor_enabled"])
 
         # Assert RedisInstrumentor call
         mock_redis_instrumentor_cls.assert_called_once_with()
@@ -365,6 +367,11 @@ class TestOtelInstrumentation(SimpleTestCase):
         self.assertNotIn("sampler", call_args[1])
 
         mock_set_tracer_provider.assert_called_once_with(mock_provider_instance)
+        django_instrument_call_args = mock_django_instrumentor_instance.instrument.call_args
+        self.assertFalse(django_instrument_call_args[1]["is_sql_commentor_enabled"])
+        mock_psycopg_instrumentor_instance.instrument.assert_called_once_with(
+            tracer_provider=mock_provider_instance, enable_commenter=False
+        )
 
         # Check for sampler configured log
         found_sampler_config_log = False

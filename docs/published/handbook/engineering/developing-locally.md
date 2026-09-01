@@ -474,6 +474,14 @@ hogli start --tracing
 
 Jaeger will be available at [http://localhost:16686](http://localhost:16686).
 
+To correlate Postgres queries with application traces in pganalyze, add this to `.env.local`:
+
+```.env
+PGANALYZE_TRACEPARENT_ENABLED=true
+```
+
+This setting appends the active W3C `traceparent` to queries made during Django requests through sqlcommenter. It has no effect when tracing is disabled or the current span is not sampled.
+
 #### Production usage
 
 We send our PostHog Cloud emails via Customer.io using their HTTP API. If Customer.io is not configured but SMTP is, it will fall back to SMTP. We do this so we can continue to support SMTP emails for self-hosted instances.
