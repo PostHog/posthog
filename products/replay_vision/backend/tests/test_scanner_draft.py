@@ -1,11 +1,13 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from rest_framework import status
 
 from posthog.schema import RecordingsQuery
 
-from posthog.models import PersonalAPIKey
+from posthog.models import EventDefinition, PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import AIBurstRateThrottle
 
@@ -15,15 +17,18 @@ from products.replay_vision.backend.queries.scanner_candidate_query import MIN_S
 from products.replay_vision.backend.queries.scanner_volume_estimate import ScannerVolumeEstimate
 from products.replay_vision.backend.queries.visited_paths import VisitedPath
 from products.replay_vision.backend.scanner_draft import (
+    _MAX_BASELINE_EVENTS,
     DraftError,
     ScannerDraft,
     _build_user_content,
     _business_context,
+    _events_for_goal,
     _existing_scanners,
     _ExistingScanner,
     _finalize,
     _finalize_v2,
     _generate,
+    _goal_terms,
     _LlmDraft,
     _LlmDraftV2,
     _solve_budget,
@@ -585,6 +590,61 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
             resp = self.client.post(self.draft_url, data={"goal": "find rage clicks"}, format="json")
 
         assert resp.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+
+class TestGoalTerms:
+    def test_keeps_the_words_that_carry_intent_longest_first(self):
+        # Longest first because only the first terms are looked up, and a specific word is a better
+        # event-name lookup than a vague one.
+        assert _goal_terms("watch users who answered the Onboarding feedback survey") == [
+            "onboarding",
+            "answered",
+            "feedback",
+            "survey",
+        ]
+
+    @pytest.mark.parametrize(
+        "goal",
+        [
+            "what do users want to see",  # all stopwords
+            "who is on it",  # all below the length floor
+            "",
+        ],
+    )
+    def test_a_goal_with_no_usable_words_looks_nothing_up(self, goal):
+        # No terms means the baseline alone, not an unfiltered scan of every event name.
+        assert _goal_terms(goal) == []
+
+
+class TestEventsForGoal(_VisionAPITestCase):
+    def _event(self, name: str):
+        return EventDefinition.objects.create(team=self.team, name=name, last_seen_at=timezone.now())
+
+    def test_a_rare_event_named_in_the_goal_is_surfaced_ahead_of_the_baseline(self):
+        # The regression this exists for: a relevant event too rare to sit in any baseline. The old
+        # briefing showed a fixed recency slice, so a goal naming this event saw nothing to filter on.
+        self._event("survey sent")
+        for i in range(_MAX_BASELINE_EVENTS + 10):
+            self._event(f"filler_event_{i:03d}")
+
+        events = _events_for_goal(self.team, "watch people who answered the pricing survey")
+
+        assert "survey sent" in events
+        # Matched events lead, so the one the goal points at is not buried under the sample.
+        assert events[0] == "survey sent"
+
+    def test_internal_events_stay_excluded_even_when_the_goal_names_them(self):
+        # `$`-prefixed events are PostHog internals, not product categories, on both paths.
+        self._event("$pageview")
+
+        assert _events_for_goal(self.team, "watch the pageview funnel") == []
+
+    def test_a_goal_matching_nothing_still_returns_the_baseline(self):
+        self._event("checkout_started")
+
+        events = _events_for_goal(self.team, "understand the zzzz nonexistent flow")
+
+        assert events == ["checkout_started"]
 
 
 class TestV2Query:

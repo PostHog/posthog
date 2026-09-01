@@ -17,7 +17,6 @@ import { cn } from 'lib/utils/css-classes'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { SurveysEmptyState } from 'scenes/surveys/components/empty-state/SurveysEmptyState'
 import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
 import { SurveyStatusTag } from 'scenes/surveys/components/SurveyStatusTag'
 import { SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from 'scenes/surveys/constants'
@@ -347,16 +346,8 @@ export function SurveysTable(): JSX.Element {
     )
 
     const hasSearchTerm = Boolean(searchTerm.trim())
-    const hasActiveFilters =
-        hasSearchTerm || filters.status !== 'any' || filters.type !== 'any' || filters.created_by != null
     const isInitialDataLoad = surveys.length === 0 && hasNextPage
     const isTableLoading = dataLoading || isInitialDataLoad
-    const shouldShowEmptyState =
-        !isTableLoading && tab === SurveysTabs.Active && !hasActiveFilters && surveys.length === 0
-
-    if (shouldShowEmptyState) {
-        return <SurveysEmptyState />
-    }
 
     return (
         <>

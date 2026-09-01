@@ -41,11 +41,12 @@ use capture::event_restrictions::{
     RestrictionScope, RestrictionType,
 };
 use capture::global_rate_limiter::GlobalRateLimiter;
+use capture::outputs::OutputRegistry;
 use capture::quota_limiters::CaptureQuotaLimiter;
 use capture::router::router;
 use capture::sinks::kafka::KafkaSinkBase;
 use capture::sinks::producer::MockKafkaProducer;
-use capture::sinks::registry::OutputRegistry;
+use capture::sinks::registry::TopicTable;
 use capture::time::TimeSource;
 use capture::v1::router::{router as v1_router, RouterConfig as V1RouterConfig};
 use capture::v1::test_utils::TestStateBuilder;
@@ -226,7 +227,7 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
     let service = build_restrictions(inputs).await;
 
     let producer = MockKafkaProducer::new();
-    let sink = KafkaSinkBase::with_producer(producer.clone(), OutputRegistry::from(&cfg.kafka));
+    let sink = KafkaSinkBase::with_producer(producer.clone(), TopicTable::from(&cfg.kafka));
     let quota_limiter =
         CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
 
@@ -238,7 +239,7 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
         },
         readiness,
         liveness,
-        Arc::new(sink),
+        Arc::new(OutputRegistry::single(sink)),
         redis,
         Some(Arc::new(limiter)),
         quota_limiter,
