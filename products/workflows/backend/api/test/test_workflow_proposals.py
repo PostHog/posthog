@@ -71,6 +71,9 @@ class TestWorkflowProposals(APIBaseTest):
             "source_type": "scout",
             **overrides,
         }
+        if "base_version" not in payload:
+            live = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
+            payload["base_version"] = live.json()["version"]
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/", payload, format="json"
         )
@@ -225,6 +228,7 @@ class TestWorkflowProposals(APIBaseTest):
                 "title": "Self-labelled as a human edit",
                 "rationale": "A caller must not be able to pass its own work off as someone else's.",
                 "content": {"actions": [_trigger_action(), _webhook_action()]},
+                "base_version": 1,
                 "source_type": "scout",
                 "created_via": "web",
             },
@@ -244,6 +248,7 @@ class TestWorkflowProposals(APIBaseTest):
                 "title": "Retry of the same finding",
                 "rationale": "A retried agent run must not queue a second copy for the human.",
                 "content": {"actions": [_trigger_action(), _webhook_action()]},
+                "base_version": 1,
                 "source_type": "scout",
                 "source_id": "run:1:finding:webhook-url",
             },
@@ -375,6 +380,7 @@ class TestWorkflowProposals(APIBaseTest):
                 "title": "Only the step I touched",
                 "rationale": "A truncated action list must not reach a draft.",
                 "content": {"actions": [_webhook_action(url="https://proposed.example.com")]},
+                "base_version": 1,
                 "source_type": "scout",
             },
             format="json",
@@ -410,6 +416,119 @@ class TestWorkflowProposals(APIBaseTest):
         stale = self.client.post(url, {"overwrite": True, "expected_draft_updated_at": "2020-01-01T00:00:00Z"})
         assert stale.status_code == 409, stale.json()
         assert WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"]).status == "suggested"
+
+    def test_a_whole_list_proposal_must_say_which_version_it_read(self, _mock_flag):
+        # Without it the row records the version at create time, so a producer that took its time
+        # looks current and the approve-time staleness guard never fires.
+        flow_id = self._create_active_flow()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+            {
+                "title": "Point the webhook somewhere else",
+                "rationale": "Testing the version contract.",
+                "content": {"actions": [_trigger_action(), _webhook_action()]},
+                "source_type": "scout",
+            },
+            format="json",
+        )
+        assert response.status_code == 400, response.json()
+        assert "base_version" in str(response.json())
+
+    @parameterized.expand(
+        [
+            ("read-only trigger", {"trigger": {"type": "event"}}, "Unknown content field"),
+            ("read-only abort action", {"abort_action": "action_1"}, "Unknown content field"),
+            ("actions holding a string", {"actions": ["oops"]}, "list of objects"),
+            ("actions that are not a list", {"actions": "oops"}, "list of objects"),
+            ("edges holding a string", {"edges": ["oops"]}, "list of objects"),
+        ]
+    )
+    def test_content_the_publish_path_cannot_carry_is_refused(
+        self, _mock_flag, _name: str, content: dict, expected: str
+    ):
+        # Each of these used to reach the graph validator or the secret stripper, which read every
+        # item as a mapping and answered a bad request with a 500.
+        flow_id = self._create_active_flow()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+            {
+                "title": "Change something publish would drop",
+                "rationale": "Testing the content contract.",
+                "content": content,
+                "base_version": 1,
+                "source_type": "scout",
+            },
+            format="json",
+        )
+        assert response.status_code == 400, response.json()
+        assert expected in str(response.json())
+
+    def test_editing_the_draft_returns_the_approved_suggestion_to_the_queue(self, _mock_flag):
+        # Approved means "this suggestion is what sits in the draft". An edit over that draft can
+        # undo the change, and publish reads approved as shipped, so the edit hands the decision back.
+        flow_id = self._create_active_flow()
+        proposal = self._propose(flow_id)
+        approve = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {}
+        )
+        assert approve.status_code == 200, approve.json()
+
+        edit = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {
+                "actions": [_trigger_action(), _webhook_action(url="https://edited.example.com")],
+                "stage_draft": True,
+            },
+            format="json",
+        )
+        assert edit.status_code == 200, edit.json()
+
+        assert (
+            WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"]).status
+            == WorkflowProposal.Status.SUGGESTED
+        )
+
+        self._publish(flow_id)
+        applied = WorkflowProposal.objects.for_team(self.team.id).get(id=proposal["id"])
+        assert applied.status == WorkflowProposal.Status.SUGGESTED
+        assert applied.applied_version is None
+
+    def test_applied_suggestions_are_listed_by_the_version_that_carried_them(self, _mock_flag):
+        # Apply order follows the version that shipped a suggestion, not when it was written: a
+        # suggestion approved after later-written ones ships last. The panel reads only the newest
+        # few applied, so creation order would hide the change that shipped most recently.
+        flow_id = self._create_active_flow()
+        flow = HogFlow.objects.get(id=flow_id)
+        written_first = WorkflowProposal(
+            hog_flow=flow,
+            team=self.team,
+            title="Written first, shipped last",
+            rationale="Approved after the other one had already shipped.",
+            content={"exit_condition": "exit_on_conversion"},
+            base_version=1,
+            status=WorkflowProposal.Status.APPLIED,
+            applied_version=3,
+            source_type=WorkflowProposal.SourceType.SCOUT,
+            created_via=WorkflowProposal.CreatedVia.MCP,
+        )
+        written_first.save()
+        written_last = WorkflowProposal(
+            hog_flow=flow,
+            team=self.team,
+            title="Written last, shipped first",
+            rationale="Approved and published before the other one.",
+            content={"exit_condition": "exit_on_conversion"},
+            base_version=1,
+            status=WorkflowProposal.Status.APPLIED,
+            applied_version=2,
+            source_type=WorkflowProposal.SourceType.SCOUT,
+            created_via=WorkflowProposal.CreatedVia.MCP,
+        )
+        written_last.save()
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/?status=applied&limit=1")
+        assert listed.status_code == 200, listed.json()
+        assert [row["id"] for row in listed.json()["results"]] == [str(written_first.id)]
 
 
 @patch("products.workflows.backend.api.hog_flow.posthoganalytics.feature_enabled", return_value=False)
