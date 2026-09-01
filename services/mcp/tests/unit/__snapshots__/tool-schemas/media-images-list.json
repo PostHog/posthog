@@ -11,6 +11,7 @@
         },
         "purpose": {
             "description": "The library to list, e.g. \"email\". Required.",
+            "enum": ["email"],
             "type": "string"
         }
     },
