@@ -14,6 +14,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { type SavedTicketView, type TicketViewFilters, normalizeAssigneeFilter } from '../../types'
 import { AssigneeLabelDisplay, AssigneeResolver } from '../Assignee'
+import { toTicketAssignee } from '../Assignee/types'
 import { type TicketViewsLogicProps, ticketViewsLogic } from './ticketViewsLogic'
 
 function FiltersSummary({ filters }: { filters: TicketViewFilters }): JSX.Element {
@@ -52,7 +53,7 @@ function FiltersSummary({ filters }: { filters: TicketViewFilters }): JSX.Elemen
                     ) : entry === 'me' ? (
                         'Me (current user)'
                     ) : (
-                        <AssigneeResolver assignee={entry}>
+                        <AssigneeResolver assignee={toTicketAssignee(entry)}>
                             {({ assignee }) => (
                                 <AssigneeLabelDisplay assignee={assignee} placeholder={`${entry.type}:${entry.id}`} />
                             )}

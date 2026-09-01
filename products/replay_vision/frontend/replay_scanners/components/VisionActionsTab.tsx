@@ -116,24 +116,30 @@ function VisionActionsTable({
     // When on, digests live on the scanner's own Scouts tab; vision actions then only carry alerts
     // (plus any legacy digests awaiting migration).
     const scoutDigests = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_SCOUT_DIGESTS]
+    // New alerts live on the Alerts tab; this tab then only lists legacy digests, and legacy
+    // alert rows and the legacy "New alert" button disappear (existing configs keep running
+    // backend-side until the migration).
+    const newAlerts = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_ALERTS]
 
     // The scanner's built-in featured digest is listed here alongside user-created digests and alerts
     // (marked with a "Featured digest" chip), so this page is the one place to see and manage every
     // automation on the scanner. It also has its own hero surface on the Observations tab.
-    const rows = visionActions
+    const rows = newAlerts ? visionActions.filter((action) => action.mode !== 'alert') : visionActions
 
     if (!visionActionsLoading && rows.length === 0) {
         const emptyState = (
             <ProductIntroduction
-                productName={scoutDigests ? 'Alerts' : 'Digests and alerts'}
-                thingName={scoutDigests ? 'alert' : 'digest or alert'}
+                productName={newAlerts ? 'Digests' : scoutDigests ? 'Alerts' : 'Digests and alerts'}
+                thingName={newAlerts ? 'digest' : scoutDigests ? 'alert' : 'digest or alert'}
                 isEmpty
                 customHog={HedgehogXRay}
                 docsURL={visionDocsUrl('actions')}
                 description={
-                    scoutDigests
-                        ? 'Set alerts that notify you when new matches appear or a threshold is reached. Alerts can deliver to Slack.'
-                        : "Get scheduled digests of this scanner's observations, synthesized by AI on the cadence you choose. Or set alerts that notify you when new matches appear or a threshold is reached. Both can deliver to Slack."
+                    newAlerts
+                        ? "Get scheduled digests of this scanner's observations, synthesized by AI on the cadence you choose."
+                        : scoutDigests
+                          ? 'Set alerts that notify you when new matches appear or a threshold is reached. Alerts can deliver to Slack.'
+                          : "Get scheduled digests of this scanner's observations, synthesized by AI on the cadence you choose. Or set alerts that notify you when new matches appear or a threshold is reached. Both can deliver to Slack."
                 }
                 actionElementOverride={
                     <div className="flex gap-2">
@@ -149,16 +155,18 @@ function VisionActionsTable({
                                 </LemonButton>
                             </EditorGate>
                         )}
-                        <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
-                            <LemonButton
-                                type="secondary"
-                                icon={<IconPlus />}
-                                to={urls.replayVisionActionNew(scannerId, 'alert')}
-                                data-attr="vision-action-new-alert-empty"
-                            >
-                                New alert
-                            </LemonButton>
-                        </EditorGate>
+                        {!newAlerts && (
+                            <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
+                                <LemonButton
+                                    type="secondary"
+                                    icon={<IconPlus />}
+                                    to={urls.replayVisionActionNew(scannerId, 'alert')}
+                                    data-attr="vision-action-new-alert-empty"
+                                >
+                                    New alert
+                                </LemonButton>
+                            </EditorGate>
+                        )}
                     </div>
                 }
             />
@@ -291,16 +299,18 @@ function VisionActionsTable({
                         </LemonButton>
                     </EditorGate>
                 )}
-                <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconPlus />}
-                        to={urls.replayVisionActionNew(scannerId, 'alert')}
-                        data-attr="vision-action-new-alert"
-                    >
-                        New alert
-                    </LemonButton>
-                </EditorGate>
+                {!newAlerts && (
+                    <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPlus />}
+                            to={urls.replayVisionActionNew(scannerId, 'alert')}
+                            data-attr="vision-action-new-alert"
+                        >
+                            New alert
+                        </LemonButton>
+                    </EditorGate>
+                )}
             </div>
             <LemonTable
                 columns={columns}
@@ -309,9 +319,11 @@ function VisionActionsTable({
                 rowKey="id"
                 data-attr="vision-actions-table"
                 emptyState={
-                    scoutDigests
-                        ? 'No alerts set up for this scanner yet.'
-                        : 'No digests or alerts set up for this scanner yet.'
+                    newAlerts
+                        ? 'No digests set up for this scanner yet.'
+                        : scoutDigests
+                          ? 'No alerts set up for this scanner yet.'
+                          : 'No digests or alerts set up for this scanner yet.'
                 }
             />
         </div>

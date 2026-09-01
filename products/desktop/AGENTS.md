@@ -30,7 +30,7 @@ Principle: logic is portable; hosts are thin.
 | `@posthog/ui` | React components, hooks, contributions, view-state stores. Built on `@posthog/quill`. | Business logic, `trpcClient`, Node |
 | `@posthog/host-trpc` | Shared `initTRPC` base with container-bearing context for Electron main routers. | Feature logic |
 | `@posthog/host-router` | Electron host tRPC routers that resolve services from request context and forward calls. Exposes `HostRouter` type and renderer `useHostTRPC`. | Service implementations |
-| `@posthog/di` | DI and boot primitives: `CONTRIBUTION`, `boot()`, `ROOT_LOGGER`, `setRootContainer()`, `bindToContainer()`, `useService`. | Feature code |
+| `@posthog/di` | DI and boot primitives: `CONTRIBUTION`, `boot()`, `ROOT_LOGGER`, `setRootContainer()`, `useService`. | Feature code |
 | `@posthog/electron-trpc` | tRPC-over-Electron-IPC transport. | Feature code |
 | `@posthog/git`, `@posthog/enricher`, `@posthog/agent` | Reusable domain implementation packages. | Host-specific code |
 
@@ -192,7 +192,6 @@ packages/ui/src/features/<feature>/
 - Hosts load modules in `desktop-contributions.ts` or the equivalent web/mobile composition file.
 - Hosts bind platform implementations in `desktop-services.ts`, `main/index.ts`, or host equivalents.
 - Hosts call `setRootContainer(container)` before resolving services through React or host seams.
-- Plain modules that must register bindings before root initialization use `bindToContainer((container) => ...)`.
 - `CONTRIBUTION` starts subscriptions, commands, routes, menus, and feature boot.
 - React uses `useService(TOKEN)` at boundaries only.
 

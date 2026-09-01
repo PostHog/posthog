@@ -2,6 +2,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { urls } from '~/scenes/urls'
 import { initKeaTests } from '~/test/init'
@@ -146,6 +148,9 @@ describe('mcpClusteringLogic', () => {
     beforeEach(async () => {
         jest.clearAllMocks()
         initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING], {
+            [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]: true,
+        })
         mockRetrieve.mockResolvedValue(SNAPSHOT)
         logic = mcpClusteringLogic()
         logic.mount()
@@ -154,6 +159,25 @@ describe('mcpClusteringLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+    })
+
+    it('loads the snapshot only after the intent routing flag resolves enabled', async () => {
+        logic.unmount()
+        initKeaTests()
+        mockRetrieve.mockClear()
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        logic = mcpClusteringLogic()
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockRetrieve).not.toHaveBeenCalled()
+
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING], {
+            [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]: true,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockRetrieve).toHaveBeenCalledTimes(1)
     })
 
     // The scorecards are the entry point into the list: each one states a count and

@@ -152,6 +152,21 @@ class TestScoutReportAPI(APIBaseTest):
                 data={"report_id": report_id, "summary": "Rewritten summary", "append_note": "And a note"},
                 format="json",
             )
+            charted = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": report_id,
+                    "append_note": "Added a chart",
+                    "charts": [
+                        {
+                            "chart_id": "signups",
+                            "title": "Daily signups",
+                            "query": {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": []}},
+                        }
+                    ],
+                },
+                format="json",
+            )
             prompted = self.client.post(
                 self._edit_url(str(run.id)),
                 data={"report_id": report_id, "suggested_prompts": ["Which teams are affected?"]},
@@ -161,10 +176,11 @@ class TestScoutReportAPI(APIBaseTest):
         assert emitted.status_code == status.HTTP_200_OK, emitted.json()
         assert edited.status_code == status.HTTP_200_OK, edited.json()
         assert rewritten.status_code == status.HTTP_200_OK, rewritten.json()
+        assert charted.status_code == status.HTTP_200_OK, charted.json()
         assert prompted.status_code == status.HTTP_200_OK, prompted.json()
         # The prompt-only edit delivers nothing: the questions render in the inbox and nowhere in the
         # Slack message, so posting it would repeat the report the channel already has, byte for byte.
-        assert enqueue.call_count == 3
+        assert enqueue.call_count == 4
         for call in enqueue.call_args_list:
             assert call.kwargs["team_id"] == self.team.id
             assert call.kwargs["output_type"] == "report"
@@ -176,10 +192,12 @@ class TestScoutReportAPI(APIBaseTest):
         assert enqueue.call_args_list[0].kwargs["delivery_id"] == report_id
         assert enqueue.call_args_list[1].kwargs["delivery_id"] != report_id
         # Only the note-only edit delivers as a note; an emit and a content rewrite post the report
-        # message, even when the rewrite also appended a note.
+        # message, even when the rewrite also appended a note. Charts are content the message shows,
+        # so a chart change with a note re-posts the report too.
         assert enqueue.call_args_list[0].kwargs["edit_note"] is None
         assert enqueue.call_args_list[1].kwargs["edit_note"] == "Re-validated on the next run"
         assert enqueue.call_args_list[2].kwargs["edit_note"] is None
+        assert enqueue.call_args_list[3].kwargs["edit_note"] is None
 
     def test_emit_report_unsafe_suppresses_but_returns_id(self) -> None:
         run = _make_run(self.team)

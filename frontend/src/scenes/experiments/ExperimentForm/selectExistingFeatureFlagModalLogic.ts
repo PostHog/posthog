@@ -11,8 +11,8 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { FeatureFlagType } from '~/types'
 
+import type { FeatureFlagModalFilters } from '../../../../../products/experiments/frontend/scenes/experimentsLogic'
 import type { TeamPublicType, TeamType } from '../../../types'
-import type { FeatureFlagModalFilters } from '../experimentsLogic'
 
 // Canonical definition lives in experimentsLogic; re-exported so existing importers keep working.
 export type { FeatureFlagModalFilters }

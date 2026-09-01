@@ -4,6 +4,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { Provider } from 'kea'
 
 import api from 'lib/api'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
 
 import type { HogQLQueryResponse } from '~/queries/schema/schema-general'
@@ -23,7 +24,7 @@ describe('AccountRelatedUsersExpansion', () => {
         cleanup()
     })
 
-    it('opens a dev EU member in the current admin', async () => {
+    it('shows the EU member access level and opens them in the current admin', async () => {
         jest.spyOn(api.organizationMembers, 'listForOrg').mockResolvedValue({
             count: 0,
             next: null,
@@ -31,7 +32,17 @@ describe('AccountRelatedUsersExpansion', () => {
             results: [],
         })
         jest.spyOn(api, 'query').mockResolvedValue({
-            results: [[42, 'membership-1', 'Alex', 'Mercer', 'alex+eu@example.com', 'distinct-1']],
+            results: [
+                [
+                    42,
+                    'membership-1',
+                    OrganizationMembershipLevel.Owner,
+                    'Alex',
+                    'Mercer',
+                    'alex+eu@example.com',
+                    'distinct-1',
+                ],
+            ],
         } as HogQLQueryResponse)
 
         render(
@@ -40,6 +51,8 @@ describe('AccountRelatedUsersExpansion', () => {
             </Provider>
         )
 
+        expect(await screen.findByText('Owner')).toBeInTheDocument()
+        expect(screen.getByPlaceholderText('Search users by name or email...')).toHaveAttribute('maxLength', '200')
         const impersonateButton = await screen.findByText('Impersonate')
         expect(impersonateButton.closest('a')).toHaveAttribute('href', 'http://localhost/admin/posthog/user/42/change/')
     })

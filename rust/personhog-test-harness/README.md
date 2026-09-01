@@ -180,10 +180,6 @@ target/debug/personhog-test-harness gate --routers 3 --leaders 3 --duration 18s 
 Verification still waits for convergence (bounded at 30s — 2x the slow-crash TTL chain, the slowest legitimate recovery) before asserting strong reads; red here means convergence itself failed.
 The two follow-ups once listed here are resolved: draining pods were never actually rebalance targets (`active_pod_names` has filtered to `Ready` pods since the original PoC — the earlier claim misread the wedge, whose real mechanism was the shutdown ordering fixed above), and a stuck handoff now defers only its own partition (the coordinator pins in-flight partitions and rebalances the rest — see `plan_partial_rebalance`).
 
-**Follow-up: the guarded rebalance transaction has a partition-count budget.**
-Plan application guards every handoff with two etcd compares (handoff-key absence + assignment precondition), and etcd's default `--max-txn-ops` of 128 caps the compare list — so a full-fleet plan (bootstrap, mass failover) fits in one transaction only up to 64 partitions; beyond that etcd rejects it with a hard error, not a guard failure.
-Every environment today runs well under the bound, but it must be resolved as part of choosing the prod partition count: either an explicitly-set shared chart value rendered into both etcd's `--max-txn-ops` and a coordinator plan budget (so the two validate against each other), or chunked plan application — which must not ship without stateright coverage of partial application and harness scenarios at that scale.
-
 **Follow-up: coalesce changelog recovery fetches if the pool ever queues.**
 Recoveries check out one pooled consumer per person, so N concurrent misses on genuinely-behind persons cost N sequential Kafka point-reads once the pool saturates.
 The changelog is offset-ordered, so a batch executor could assign one consumer at the lowest pending offset per partition and satisfy every waiter it passes in a single sweep (group-commit shape; bound the sweep span so sparse marks don't degenerate into scanning the gap between them).

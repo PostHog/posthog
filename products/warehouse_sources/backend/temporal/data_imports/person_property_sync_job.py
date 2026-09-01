@@ -84,7 +84,7 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
         # tracking rather than dying silently in an abandoned child workflow.
         PERSON_PROPERTY_SYNC_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
         log.exception("Person-property sync failed")
-        capture_exception(e)
+        capture_exception(e, inputs.properties_to_log)
         await record_failed_runs(
             team_id=inputs.team_id,
             binding=binding,

@@ -29,6 +29,7 @@ from products.web_analytics.backend.hogql_queries.agent_analytics_definitions im
     INACTIVITY_WINDOW_SECONDS,
     MAX_JOURNEY_STEPS,
     NAVIGATION_WINDOW_SECONDS,
+    content_gap_expr,
     malformed_path_expr,
     markdown_path_expr,
     normalized_path_expr,
@@ -555,6 +556,7 @@ class WebAgentAnalyticsQueryRunner(WebAnalyticsQueryRunner[WebAgentAnalyticsQuer
         status = response_status_code_expr()
         is_200 = parse_expr("{status} = 200", placeholders={"status": status})
         is_md = markdown_path_expr()
+        malformed_path = malformed_path_expr()
         excluded_path = static_asset_expr()
         included_path = ast.Not(expr=excluded_path)
         agent_scope = parse_expr(
@@ -587,12 +589,12 @@ class WebAgentAnalyticsQueryRunner(WebAnalyticsQueryRunner[WebAgentAnalyticsQuer
             "periods": self._periods_expression("timestamp"),
             "all_properties": self.all_properties(),
             "status": status,
-            "is_404": parse_expr("{status} = 404", placeholders={"status": status}),
+            "is_404": content_gap_expr(),
             "is_200": is_200,
             "is_md": is_md,
             "is_md_hit": parse_expr("{is_200} AND {is_md}", placeholders={"is_200": is_200, "is_md": is_md}),
             "is_html_hit": parse_expr("{is_200} AND NOT ({is_md})", placeholders={"is_200": is_200, "is_md": is_md}),
-            "malformed_path": malformed_path_expr(),
+            "malformed_path": malformed_path,
             "excluded_path": excluded_path,
             "included_path": included_path,
             "included_request": ast.And(exprs=[agent_scope, included_path]),

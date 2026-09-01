@@ -24,12 +24,13 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from ..facade.enums import CheckRunStatus, CheckSeverity, SubjectStatus, SuiteRunTrigger
-from ..models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
+from ..models import DataQualityCheck, DataQualitySuiteRun
 from .compiler import compile_check, related_subject_ref
 from .contracts import CompiledCheck, Evaluation
 from .notifications import notify_check_started_failing
+from .run_records import record_check_run
 from .staged_audit import StagedSubjectOverride, build_staged_database
-from .subject_access import check_type_reads_beyond_subject
+from .subject_access import check_type_reads_beyond_subject, pin_referenced_subjects
 from .subjects import resolve_subject
 
 QUERY_TYPE = "data_quality_check"
@@ -318,8 +319,8 @@ def _record_run(
 ) -> None:
     if check.subject_uuid is None:
         return
-    DataQualityCheckRun.objects.for_team(check.team_id).create(
-        team_id=check.team_id,
+    record_check_run(
+        check.team_id,
         quality_check=check,
         suite_run=suite_run,
         subject_type=check.subject_type,
@@ -330,6 +331,7 @@ def _record_run(
         column_name=check.column_name,
         check_config=check.config,
         check_severity=check.severity,
+        referenced_subjects=pin_referenced_subjects(check.team_id, check.check_type, check.config),
         status=outcome.status,
         failed_row_count=outcome.failed_row_count,
         observed_value=outcome.observed_value,

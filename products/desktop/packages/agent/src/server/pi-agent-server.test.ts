@@ -202,6 +202,65 @@ describe("PiAgentServer", () => {
     );
   });
 
+  it("persists extension requests and sends responses without waiting for RPC output", async () => {
+    const appendTaskRunLog = vi.fn(
+      async (_taskId: string, _runId: string, _entries: unknown[]) => ({}),
+    );
+    const respondToExtensionUI = vi.fn(async () => {});
+    const server = new PiAgentServer(config()) as unknown as {
+      posthogAPI: { appendTaskRunLog: typeof appendTaskRunLog };
+      session: unknown;
+      handleExtensionEvent(event: Record<string, unknown>): void;
+      executeCommand(
+        method: string,
+        params: Record<string, unknown>,
+      ): Promise<unknown>;
+      logFlushQueue: Promise<void>;
+    };
+    server.posthogAPI.appendTaskRunLog = appendTaskRunLog;
+    server.session = {
+      runtime: { client: { respondToExtensionUI } },
+    };
+    const request = {
+      type: "extension_ui_request",
+      id: "confirm-1",
+      method: "confirm",
+      title: "Continue?",
+      message: "Proceed?",
+    };
+    const response = {
+      type: "extension_ui_response",
+      id: "confirm-1",
+      confirmed: true,
+    };
+
+    server.handleExtensionEvent(request);
+    await server.logFlushQueue;
+    await server.executeCommand("pi/rpc", { command: response });
+    await server.logFlushQueue;
+
+    expect(respondToExtensionUI).toHaveBeenCalledWith(response);
+    const persistedEntries = appendTaskRunLog.mock.calls.flatMap(
+      ([, , entries]) => entries,
+    );
+    expect(persistedEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "pi_extension_event",
+          notification: expect.objectContaining({
+            params: expect.objectContaining(request),
+          }),
+        }),
+        expect.objectContaining({
+          type: "pi_extension_event",
+          notification: expect.objectContaining({
+            params: expect.objectContaining(response),
+          }),
+        }),
+      ]),
+    );
+  });
+
   it("bounds events retained while no SSE client is connected", () => {
     const server = new PiAgentServer(config()) as unknown as {
       broadcast(event: Record<string, unknown>): void;
@@ -402,7 +461,7 @@ describe("PiAgentServer", () => {
     await rm(repositoryPath, { recursive: true });
   });
 
-  it("aborts the streaming run and re-prompts when a steer arrives", async () => {
+  it("steers the streaming run in place instead of aborting it", async () => {
     const sendCommand = vi.fn(async (_command: Record<string, unknown>) => ({
       success: true,
     }));
@@ -430,25 +489,27 @@ describe("PiAgentServer", () => {
       },
     };
 
-    await server.executeCommand("user_message", {
+    const result = await server.executeCommand("user_message", {
       content: "stop, do this instead",
       messageId: "message-1",
       steer: true,
     });
 
-    expect(order).toEqual(["abort", "sendCommand"]);
+    expect(result).toMatchObject({ steered: true });
+    expect(order).toEqual(["sendCommand"]);
+    expect(abort).not.toHaveBeenCalled();
     expect(sendCommand).toHaveBeenCalledTimes(1);
     expect(sendCommand).toHaveBeenCalledWith({
       id: "message-1",
-      type: "prompt",
+      type: "steer",
       message: "stop, do this instead",
       images: [],
     });
   });
 
-  it("queues a steer that pi rejects because another run took the idle slot", async () => {
+  it("queues a steer that pi refuses while the run is still streaming", async () => {
     const sendCommand = vi.fn(async (command: Record<string, unknown>) => {
-      if (command.type === "prompt") {
+      if (command.type === "steer") {
         return { success: false, error: "Agent is already processing." };
       }
       return { success: true };
@@ -483,11 +544,12 @@ describe("PiAgentServer", () => {
       images: [],
     });
     expect(result).toMatchObject({ success: true });
+    expect(result).not.toHaveProperty("steered");
   });
 
-  it("declines a steer whose re-prompt fails while pi stays idle so the host redelivers", async () => {
+  it("declines a steer pi refuses while it stays idle so the host redelivers", async () => {
     const sendCommand = vi.fn(async (command: Record<string, unknown>) => {
-      if (command.type === "prompt") {
+      if (command.type === "steer") {
         return {
           success: false,
           error: "Cannot submit a prompt while compaction is in progress.",
@@ -525,11 +587,53 @@ describe("PiAgentServer", () => {
     expect(sendCommand).toHaveBeenCalledTimes(1);
     expect(sendCommand).toHaveBeenCalledWith({
       id: "message-4",
+      type: "steer",
+      message: "stop, do this instead",
+      images: [],
+    });
+    expect(result).toMatchObject({
+      success: false,
+      steered: false,
+      reason: "pi_delivery_failed",
+    });
+  });
+
+  it("sends a steer that arrives while pi is idle as a prompt, without asking for redelivery", async () => {
+    const sendCommand = vi.fn(async (_command: Record<string, unknown>) => ({
+      success: true,
+    }));
+    const abort = vi.fn(async () => {});
+    const server = new PiAgentServer(config()) as unknown as {
+      session: unknown;
+      executeCommand(
+        method: string,
+        params: Record<string, unknown>,
+      ): Promise<unknown>;
+    };
+    server.session = {
+      runtime: {
+        client: {
+          getState: vi.fn(async () => ({ isStreaming: false })),
+          abort,
+        },
+        sendCommand,
+      },
+    };
+
+    const result = await server.executeCommand("user_message", {
+      content: "stop, do this instead",
+      messageId: "message-5",
+      steer: true,
+    });
+
+    expect(abort).not.toHaveBeenCalled();
+    expect(sendCommand).toHaveBeenCalledWith({
+      id: "message-5",
       type: "prompt",
       message: "stop, do this instead",
       images: [],
     });
-    expect(result).toMatchObject({ success: false });
+    expect(result).not.toHaveProperty("steered");
   });
 
   it("queues a mid-turn message that is not a steer instead of aborting", async () => {
@@ -554,11 +658,12 @@ describe("PiAgentServer", () => {
       },
     };
 
-    await server.executeCommand("user_message", {
+    const result = await server.executeCommand("user_message", {
       content: "when you are done, also update the docs",
       messageId: "message-2",
     });
 
+    expect(result).not.toHaveProperty("steered");
     expect(abort).not.toHaveBeenCalled();
     expect(sendCommand).toHaveBeenCalledWith({
       id: "message-2",

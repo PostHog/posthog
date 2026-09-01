@@ -5,12 +5,23 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded
+
 from products.exports.backend.tasks.failure_handler import (
     FAILURE_TYPE_SYSTEM,
     FAILURE_TYPE_TIMEOUT_GENERATION,
     FAILURE_TYPE_UNKNOWN,
     FAILURE_TYPE_USER,
+    SLO_FAILURE_CATEGORY_APPLICATION,
+    SLO_FAILURE_CATEGORY_QUERY_CAPACITY,
+    SLO_FAILURE_CATEGORY_RENDERER_RATE_LIMITED,
+    SLO_FAILURE_CATEGORY_RENDERER_TIMEOUT,
+    SLO_FAILURE_CATEGORY_RENDERER_UNAVAILABLE,
+    SLO_FAILURE_CATEGORY_STORAGE,
+    BrowserlessUnavailable,
+    ExportCancelled,
     classify_failure_type,
+    export_slo_failure_details,
     is_user_query_error_type,
 )
 
@@ -102,3 +113,68 @@ class TestClassifyFailureType(TestCase):
     def test_name_string_classification_is_unchanged_for_backfill(self) -> None:
         # Stored rows only carry the class name, so the string path stays purely name-based.
         assert classify_failure_type("ValidationError") == FAILURE_TYPE_USER
+
+
+class TestExportSloFailureDetails(TestCase):
+    @parameterized.expand(
+        [
+            (
+                "browserless_rate_limit",
+                BrowserlessUnavailable("Browserless returned 429 Too Many Requests"),
+                SLO_FAILURE_CATEGORY_RENDERER_RATE_LIMITED,
+                "browserless",
+                True,
+            ),
+            ("render_timeout", "TimeoutError", SLO_FAILURE_CATEGORY_RENDERER_TIMEOUT, "browserless", True),
+            (
+                "export_cancelled",
+                ExportCancelled("cancelled"),
+                SLO_FAILURE_CATEGORY_RENDERER_TIMEOUT,
+                "browserless",
+                False,
+            ),
+            ("query_capacity", "ConcurrencyLimitExceeded", SLO_FAILURE_CATEGORY_QUERY_CAPACITY, "query", True),
+            # ClickHouse capacity errors share the query_capacity category — classify_query_error groups
+            # the same three as RATE_LIMITED. The instance path is what the export activity feeds in, and
+            # ClickHouseClusterMemoryLimitExceeded subclasses a user-query error, so without an explicit
+            # capacity check it would fall through to the query (user) or transient_dependency buckets.
+            (
+                "query_capacity_at_capacity_instance",
+                ClickHouseAtCapacity(),
+                SLO_FAILURE_CATEGORY_QUERY_CAPACITY,
+                "query",
+                True,
+            ),
+            (
+                "query_capacity_cluster_memory_instance",
+                ClickHouseClusterMemoryLimitExceeded(),
+                SLO_FAILURE_CATEGORY_QUERY_CAPACITY,
+                "query",
+                True,
+            ),
+            ("storage", "CHQueryErrorS3Error", SLO_FAILURE_CATEGORY_STORAGE, "object_storage", True),
+            ("unknown", "RuntimeError", SLO_FAILURE_CATEGORY_APPLICATION, "exporter", False),
+        ]
+    )
+    def test_returns_safe_breakdown_dimensions(
+        self,
+        _name: str,
+        exception: Exception | str,
+        category: str,
+        component: str,
+        retryable: bool,
+    ) -> None:
+        assert export_slo_failure_details(exception) == {
+            "failure_category": category,
+            "failure_component": component,
+            "failure_retryable": retryable,
+        }
+
+    def test_bounds_browserless_rate_limit_message_inspection(self) -> None:
+        exception = BrowserlessUnavailable(f"{'x' * 8_000} 429 Too Many Requests")
+
+        assert export_slo_failure_details(exception) == {
+            "failure_category": SLO_FAILURE_CATEGORY_RENDERER_UNAVAILABLE,
+            "failure_component": "browserless",
+            "failure_retryable": True,
+        }

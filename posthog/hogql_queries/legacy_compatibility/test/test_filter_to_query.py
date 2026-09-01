@@ -3,6 +3,8 @@ from typing import Any, cast
 import pytest
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import (
     ActionsNode,
     AggregationAxisFormat,
@@ -1677,43 +1679,30 @@ class TestFilterToQuery(BaseTest):
             ),
         )
 
-    def test_funnels_multiple_breakdowns(self):
-        filter: dict[str, Any] = {
-            "insight": "FUNNELS",
-            "breakdowns": [
-                {"type": "session", "property": "$session_duration"},
-            ],
-        }
+    @parameterized.expand(
+        [
+            (
+                "single",
+                [{"type": "session", "property": "$session_duration"}],
+                BreakdownFilter(breakdown="$session_duration", breakdown_type=BreakdownType.SESSION),
+            ),
+            (
+                "no_breakdown_type",
+                [{"property": "prop"}],
+                BreakdownFilter(breakdown="prop", breakdown_type=BreakdownType.EVENT),
+            ),
+            # An empty list used to raise "found more than one breakdown", so the insight never
+            # converted. It now lands where an absent `breakdowns` key lands: no breakdown property.
+            ("empty", [], BreakdownFilter(breakdown_type=BreakdownType.EVENT)),
+        ]
+    )
+    def test_funnels_breakdowns(self, _name, breakdowns, expected):
+        filter: dict[str, Any] = {"insight": "FUNNELS", "breakdowns": breakdowns}
 
         query = filter_to_query(filter)
 
         assert isinstance(query, FunnelsQuery)
-        self.assertEqual(
-            query.breakdownFilter,
-            BreakdownFilter(
-                breakdown="$session_duration",
-                breakdown_type=BreakdownType.SESSION,
-            ),
-        )
-
-    def test_funnels_multiple_breakdowns_no_breakdown_type(self):
-        filter: dict[str, Any] = {
-            "insight": "FUNNELS",
-            "breakdowns": [
-                {"property": "prop"},
-            ],
-        }
-
-        query = filter_to_query(filter)
-
-        assert isinstance(query, FunnelsQuery)
-        self.assertEqual(
-            query.breakdownFilter,
-            BreakdownFilter(
-                breakdown="prop",
-                breakdown_type=BreakdownType.EVENT,
-            ),
-        )
+        self.assertEqual(query.breakdownFilter, expected)
 
     def test_funnels_use_first_time_for_user_math(self):
         filter: dict[str, Any] = {

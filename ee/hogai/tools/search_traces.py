@@ -115,8 +115,8 @@ class SearchLLMTracesTool(MaxTool):
         results = [LLMTrace.model_validate(r) for r in raw_results]
         has_more = cast(bool, query_results.get("hasMore", False))
 
-        # The query runner returns limit+1 results when hasMore=True — the extra row is
-        # purely for detection and should not be displayed. Trim to the requested limit.
+        # TracesQueryRunner already trims the page to query.limit. This guard keeps the tool
+        # within its own contract if the runner ever returns the extra hasMore detection row.
         if has_more and len(results) > query.limit:
             results = results[: query.limit]
         next_cursor = str(current_offset + len(results)) if has_more else None

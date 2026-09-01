@@ -6,80 +6,11 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { FlakyTestListApi, GitHubSourceApi, QuarantineFileApi } from '../generated/api.schemas'
-
-const FLAKY_TESTS: FlakyTestListApi = {
-    items: [
-        {
-            runner: 'pytest',
-            nodeid: 'posthog/api/test/test_decide/TestDecide::test_flag_rollout_consistency',
-            selector: 'posthog/api/test/test_decide.py::TestDecide::test_flag_rollout_consistency',
-            classification: 'confirmed_flake',
-            same_commit_recovery_run_count: 6,
-            failed_run_count: 8,
-            failed_pr_count: 3,
-            master_failed_run_count: 2,
-            quarantined_failed_run_count: 0,
-            last_signal_at: '2026-07-01T18:30:00Z',
-        },
-        {
-            runner: 'pytest',
-            nodeid: 'posthog/tasks/test/test_usage_report/TestUsageReport::test_full_report',
-            selector: 'posthog/tasks/test/test_usage_report.py::TestUsageReport::test_full_report',
-            classification: 'suspected_regression',
-            same_commit_recovery_run_count: 0,
-            failed_run_count: 9,
-            failed_pr_count: 4,
-            master_failed_run_count: 5,
-            quarantined_failed_run_count: 0,
-            last_signal_at: '2026-07-01T09:12:00Z',
-        },
-        {
-            runner: 'pytest',
-            nodeid: 'posthog/hogql/test/test_resolver/TestResolver::test_asterisk_expander',
-            selector: 'posthog/hogql/test/test_resolver.py::TestResolver::test_asterisk_expander',
-            classification: 'quarantined',
-            same_commit_recovery_run_count: 0,
-            failed_run_count: 1,
-            failed_pr_count: 1,
-            master_failed_run_count: 0,
-            quarantined_failed_run_count: 3,
-            last_signal_at: '2026-06-30T22:45:00Z',
-        },
-        {
-            runner: 'pytest',
-            nodeid: 'posthog/temporal/tests/batch_exports/test_backfill::test_workflow_timeout',
-            selector: 'posthog/temporal/tests/batch_exports/test_backfill.py::test_workflow_timeout',
-            classification: 'confirmed_flake',
-            same_commit_recovery_run_count: 1,
-            failed_run_count: 1,
-            failed_pr_count: 1,
-            master_failed_run_count: 0,
-            quarantined_failed_run_count: 0,
-            last_signal_at: '2026-06-29T14:00:00Z',
-        },
-    ],
-    truncated: false,
-    limit: 50,
-}
+import type { GitHubSourceApi, QuarantineFileApi, TrunkQuarantineDebtApi } from '../generated/api.schemas'
 
 const QUARANTINE: QuarantineFileApi = {
     available: true,
-    entries: [
-        {
-            id: 'posthog/hogql/test/test_resolver.py::TestResolver::test_asterisk_expander',
-            runner: 'pytest',
-            reason: 'Nondeterministic ordering or data',
-            owner: '@PostHog/team-hogql',
-            issue: 'https://github.com/PostHog/posthog/issues/1',
-            added: '2026-06-24',
-            expires: '2026-07-08',
-            mode: 'run',
-            lifecycle: 'active',
-            days_until_expiry: 6,
-            selector_kind: 'test',
-        },
-    ],
+    entries: [],
     parse_errors: [],
     parse_warnings: [],
     repo: { provider: 'github', owner: 'PostHog', name: 'posthog' },
@@ -88,6 +19,56 @@ const QUARANTINE: QuarantineFileApi = {
 }
 
 const SOURCES: GitHubSourceApi[] = [{ id: 'src-1', repo: 'PostHog/posthog', prefix: '' }]
+
+const TRUNK_QUARANTINE: TrunkQuarantineDebtApi = {
+    available: true,
+    ttl_days: 15,
+    repository: 'PostHog/posthog',
+    trunk_url: 'https://app.trunk.io/posthog-inc/flaky-tests?repo=PostHog/posthog',
+    teams: [
+        { owner_team: 'batch-exports', test_count: 1, overdue_count: 1, oldest_age_days: 44 },
+        { owner_team: 'team-replay', test_count: 1, overdue_count: 1, oldest_age_days: 38 },
+        { owner_team: 'unowned', test_count: 1, overdue_count: 0, oldest_age_days: 9 },
+    ],
+    tests: [
+        {
+            runner: 'pytest',
+            nodeid: 'products/batch_exports/backend/tests/test_snowflake.py::TestSnowflakeExport::test_resume',
+            file: 'products/batch_exports/backend/tests/test_snowflake.py',
+            owner_team: 'batch-exports',
+            status: 'FLAKY',
+            quarantine_setting: 'AUTO_QUARANTINE',
+            quarantined_at: '2026-05-19T08:00:00Z',
+            age_days: 44,
+            overdue: true,
+            trunk_url: 'https://app.trunk.io/posthog-inc/flaky-tests/test/t-1?repo=PostHog/posthog',
+        },
+        {
+            runner: 'pytest',
+            nodeid: 'posthog/session_recordings/test/test_snapshots.py::TestSnapshots::test_batching',
+            file: 'posthog/session_recordings/test/test_snapshots.py',
+            owner_team: 'team-replay',
+            status: 'FLAKY',
+            quarantine_setting: 'AUTO_QUARANTINE',
+            quarantined_at: '2026-05-25T08:00:00Z',
+            age_days: 38,
+            overdue: true,
+            trunk_url: 'https://app.trunk.io/posthog-inc/flaky-tests/test/t-2?repo=PostHog/posthog',
+        },
+        {
+            runner: 'jest',
+            nodeid: 'frontend/src/lib/components/ActivityLog/activityLogLogic.test.tsx::humanizes flag changes',
+            file: 'frontend/src/lib/components/ActivityLog/activityLogLogic.test.tsx',
+            owner_team: 'unowned',
+            status: 'FLAKY',
+            quarantine_setting: 'AUTO_QUARANTINE',
+            quarantined_at: '2026-06-23T08:00:00Z',
+            age_days: 9,
+            overdue: false,
+            trunk_url: null,
+        },
+    ],
+}
 
 const meta: Meta = {
     component: App,
@@ -98,15 +79,15 @@ const meta: Meta = {
         mockDate: '2026-07-02',
         featureFlags: [FEATURE_FLAGS.ENGINEERING_ANALYTICS],
         testOptions: {
-            // A per-row quarantine button only renders once the queue has data rows.
-            waitForSelector: '[data-attr="eng-analytics-flaky-quarantine"]',
+            // The debt board's team table only renders once the trunk quarantine data loaded.
+            waitForSelector: '[data-attr="engineering-analytics-trunk-debt-teams-table"]',
         },
     },
     decorators: [
         mswDecorator({
             get: {
-                'api/projects/:team_id/engineering_analytics/flaky_tests/': FLAKY_TESTS,
                 'api/projects/:team_id/engineering_analytics/quarantine/': QUARANTINE,
+                'api/projects/:team_id/engineering_analytics/trunk_quarantine/': TRUNK_QUARANTINE,
                 'api/projects/:team_id/engineering_analytics/sources/': SOURCES,
                 'api/projects/:team_id/engineering_analytics/ci_cards/': {
                     open_prs: 18,
@@ -128,7 +109,7 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-export const FlakyTestLeaderboard: Story = {
+export const TrunkQuarantineDebt: Story = {
     render: () => <App />,
     parameters: { pageUrl: urls.engineeringAnalyticsTestHealth() },
 }

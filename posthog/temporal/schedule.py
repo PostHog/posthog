@@ -20,6 +20,7 @@ from temporalio.client import (
     ScheduleSpec,
 )
 
+from posthog.cloud_utils import is_cloud
 from posthog.slo.types import SloArea, SloConfig, SloOperation
 from posthog.temporal.ai.checkpoint_compaction.schedule import (
     create_checkpoint_compaction_schedule,
@@ -33,10 +34,12 @@ from posthog.temporal.ai_observability.evaluation_clustering.schedule import (
     create_evaluation_clustering_schedule,
     create_evaluation_sampler_schedule,
 )
+from posthog.temporal.ai_observability.trace_clustering import constants as trace_clustering_constants
 from posthog.temporal.ai_observability.trace_clustering.schedule import (
     create_generation_clustering_coordinator_schedule,
     create_trace_clustering_coordinator_schedule,
 )
+from posthog.temporal.ai_observability.trace_summarization import constants as trace_summarization_constants
 from posthog.temporal.ai_observability.trace_summarization.schedule import (
     create_batch_generation_summarization_schedule,
     create_batch_trace_summarization_schedule,
@@ -101,6 +104,7 @@ from products.experiments.backend.temporal.schedule import (
     create_experiment_precompute_enrollment_census_schedule,
 )
 from products.exports.backend.temporal.subscriptions.types import ScheduleAllSubscriptionsWorkflowInputs
+from products.growth.backend.temporal.signup_enrichment.schedule import create_icp_reenrichment_sweep_schedule
 from products.logs.backend.facade.temporal import create_logs_volume_tick_schedule
 from products.managed_warehouse.backend.facade.temporal import DucklakeCompactionInput
 from products.replay_vision.backend.temporal.estimates import create_replay_vision_estimates_schedule
@@ -109,6 +113,7 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
 )
 from products.replay_vision.backend.temporal.read_meter import create_replay_vision_read_meter_schedule
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
+from products.replay_vision.backend.temporal.vision_alerts.schedule import create_vision_alert_check_schedule
 from products.review_hog.backend.temporal.outcomes_schedule import create_review_hog_finding_outcomes_schedule
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
 from products.signals.backend.temporal.agentic.schedule import create_signals_scout_coordinator_schedule
@@ -690,6 +695,30 @@ async def cleanup_cohort_calculation_schedules(client: Client):
             await a_delete_schedule(client, schedule_id)
 
 
+async def cleanup_non_cloud_ai_observability_schedules(client: Client):
+    """Reap the AI observability clustering and summarization schedules on non-cloud deployments.
+
+    These coordinators reach the cloud-only guard in
+    ``posthog.temporal.ai_observability.llm_endpoint``, so they register only where that guard lets
+    them run: on cloud, or on a local DEBUG install. Temporal keeps a schedule until code deletes it,
+    so dropping them from the registration list does not remove rows an earlier release already
+    created. A self-hosted instance that deployed such a release keeps firing them every tick. Reap
+    them so those instances converge. Where the coordinators do register this is a no-op, because
+    the creators own these IDs.
+    """
+    if settings.DEBUG or is_cloud():
+        return
+    schedule_ids = [
+        trace_summarization_constants.COORDINATOR_SCHEDULE_ID,
+        trace_summarization_constants.GENERATION_COORDINATOR_SCHEDULE_ID,
+        trace_clustering_constants.COORDINATOR_SCHEDULE_ID,
+        trace_clustering_constants.GENERATION_COORDINATOR_SCHEDULE_ID,
+    ]
+    for schedule_id in schedule_ids:
+        if await a_schedule_exists(client, schedule_id):
+            await a_delete_schedule(client, schedule_id)
+
+
 async def create_run_usage_reports_schedule(client: Client):
     """Intraday usage report run every 30 minutes.
 
@@ -863,10 +892,6 @@ schedules = [
     create_sync_events_retention_schedule,
     create_replay_count_metrics_schedule,
     create_weekly_digest_schedule,
-    create_batch_trace_summarization_schedule,
-    create_batch_generation_summarization_schedule,
-    create_trace_clustering_coordinator_schedule,
-    create_generation_clustering_coordinator_schedule,
     create_intent_clustering_coordinator_schedule,
     create_eval_reports_schedule,
     create_count_trigger_schedule,
@@ -882,6 +907,7 @@ schedules = [
     create_experiment_precompute_canary_schedule,
     create_experiment_precompute_enrollment_census_schedule,
     cleanup_cohort_calculation_schedules,
+    cleanup_non_cloud_ai_observability_schedules,
     create_ingestion_acceptance_test_schedule,
     create_warehouse_sources_queue_partition_management_schedule,
     create_health_check_schedules,
@@ -904,12 +930,23 @@ schedules = [
     create_calendar_sync_coordinator_schedule,
     create_replay_vision_reconciler_schedule,
     create_replay_vision_estimates_schedule,
+    create_vision_alert_check_schedule,
     create_replay_vision_read_meter_schedule,
     create_github_job_logs_coordinator_schedule,
     create_review_hog_finding_outcomes_schedule,
     create_ci_signals_coordinator_schedule,
     create_cleanup_data_quality_check_runs_schedule,
 ]
+
+# AI observability summarization and clustering call the cloud-only guard in
+# posthog/temporal/ai_observability/llm_endpoint.py, which permits cloud and local DEBUG installs.
+# Anywhere else these coordinators discover teams, spawn the labeling activity, and fail on that
+# guard every run, so gate registration on the condition the guard itself uses.
+if settings.DEBUG or is_cloud():
+    schedules.append(create_batch_trace_summarization_schedule)
+    schedules.append(create_batch_generation_summarization_schedule)
+    schedules.append(create_trace_clustering_coordinator_schedule)
+    schedules.append(create_generation_clustering_coordinator_schedule)
 
 if settings.CLOUD_DEPLOYMENT:
     # Gemini uploads only happen in cloud; each sweep reaps only the files tracked in this
@@ -919,6 +956,9 @@ if settings.CLOUD_DEPLOYMENT:
     schedules.append(create_finalize_usage_reports_schedule)
     if should_register_checkpoint_compaction_schedule():
         schedules.append(create_checkpoint_compaction_schedule)
+    # The sweep re-fetches each region's own orgs from Harmonic, and only US and EU carry the key.
+    if settings.CLOUD_DEPLOYMENT in ("US", "EU"):
+        schedules.append(create_icp_reenrichment_sweep_schedule)
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)

@@ -20,6 +20,7 @@ from products.data_quality.backend.facade.enums import (
 )
 from products.data_quality.backend.logic.runner import run_check
 from products.data_quality.backend.models import DataQualityCheck, DataQualityCheckRun, DataQualitySuiteRun
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 RUNNER_QUERY = "products.data_quality.backend.logic.runner.execute_hogql_query"
 
@@ -272,6 +273,46 @@ class TestCheckRunner(BaseTest):
         run = DataQualityCheckRun.objects.for_team(self.team.id).get(quality_check=check)
         assert run.check_config == {"min": 1}
         assert run.check_severity == CheckSeverity.WARN
+        # An empty list, never null: a type that cannot reach past its own subject has to read as
+        # "read nothing" rather than as history nobody can judge.
+        assert run.referenced_subjects == []
+
+    @parameterized.expand([("custom_sql", CheckType.CUSTOM_SQL), ("relationships", CheckType.RELATIONSHIPS)])
+    def test_a_run_pins_the_subjects_it_read_beyond_its_own(self, _name, check_type: CheckType) -> None:
+        # Recording the name would stop naming what the run read the moment the object is deleted and
+        # somebody takes the name back, which is how history over a denied subject gets handed over.
+        target = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="customers", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+        )
+        backing_table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name=target.name,
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern=f"s3://bucket/{target.folder_path}/{target.normalized_name}",
+        )
+        target.table = backing_table
+        target.is_materialized = True
+        target.save(update_fields=["table", "is_materialized"])
+        is_custom_sql = check_type == CheckType.CUSTOM_SQL
+        check = self._check(
+            check_type=check_type,
+            column_name="" if is_custom_sql else "customer_id",
+            config=(
+                {"query": "SELECT 1 FROM customers"}
+                if is_custom_sql
+                else {"to_subject_type": SubjectType.VIEW, "to_subject_uuid": str(target.id), "to_column": "id"}
+            ),
+        )
+        with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [0, 0])):
+            run_check(check, self.suite_run, self.team)
+
+        run = DataQualityCheckRun.objects.for_team(self.team.id).get(quality_check=check)
+        assert run.referenced_subjects == [{"subject_type": SubjectType.VIEW, "subject_uuid": str(target.id)}]
+        # The gate asks whether each entry is contained in the caller's readable set, and an entry
+        # missing a key is contained in more than it should be. Exactly these two keys, both strings.
+        entry = run.referenced_subjects[0]
+        assert set(entry) == {"subject_type", "subject_uuid"}
+        assert all(isinstance(value, str) for value in entry.values())
 
     @parameterized.expand([("custom_sql", CheckType.CUSTOM_SQL), ("relationships", CheckType.RELATIONSHIPS)])
     def test_an_automated_referencing_check_without_an_author_errors_without_running(

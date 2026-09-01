@@ -123,7 +123,6 @@ export function ReportCardView(props: ReportCardViewProps) {
                 <ConventionalCommitScopeTag
                   type={conventionalTitle.type}
                   scope={conventionalTitle.scope}
-                  compact
                 />
               )
             }
@@ -332,10 +331,8 @@ export function ReportCard(props: ReportCardProps) {
         to: "/inbox/reports/$reportId" as const,
         params: { reportId: report.id },
       };
-  const { prefetch, pointerHandlers } = useInboxReportDetailPrefetch(
-    report,
-    detailRoute,
-  );
+  const { prefetch, pointerHandlers } =
+    useInboxReportDetailPrefetch(detailRoute);
   const navigate = useNavigate();
   // Archived rows are read-only, so skip the artefact fetch that powers the
   // repo slug + suggested-reviewer stack — neither is shown when archived.

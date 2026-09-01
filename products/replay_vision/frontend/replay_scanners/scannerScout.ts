@@ -150,7 +150,9 @@ Write the report so it stands alone for a reader with no prior context:
 ${focus.shape ?? DEFAULT_REPORT_SHAPE}
 - Ground every claim in observations you actually read, as real markdown links to the recording: \`[what it shows](/project/<project_id>/replay/<session_id>?t=<seconds>)\`, so the link opens on the moment being claimed. A bare \`[obs 3]\` is not a link and leaves the reader nowhere to go. Two or three per bullet is plenty; link the clearest cases, not every one.
 - Link what another scout already reported rather than restating it: \`[already documented](/project/<project_id>/inbox/<report_id>)\`, taking the id from \`inbox-reports-list\`. Several scouts watch this scanner and read the same window, so without the link one finding gets filed three times.
-- Close with what you checked, and name anything you could not cover and why.
+- Close by naming anything you could not cover and why (a failed query, sessions you had no time to read). Nothing missing means no closing line: never inventory the checks you ran — the evidence links already show your work.
+- The next run is the reassessment: never end on "keep monitoring", "recheck next window", or a condition for a future run. Cutting that sentence loses nothing.
+- Never narrate what the report does not contain ("no chart is attached because...", "no steering note applied"), and never quote harness or tool boilerplate ("governed catalog consulted", "noncanonical") into the report — the reader gets your findings, not your process.
 
 ${focus.quietVerdict ?? DEFAULT_QUIET_VERDICT} ${focus.priority}
 These are watcher findings: \`repository=NO_REPO\`. Set \`actionability\` by what the report asks of its reader. \`requires_human_input\` only when someone has to decide or act on what you found: it lands in the inbox awaiting input, and a digest that reports a quiet day does not belong in that queue. Otherwise \`immediately_actionable\`, which surfaces the report without asking anything of anyone. Never \`not_actionable\`: it suppresses the report, which empties the scanner's digest card and stops delivery, so a quiet day reads as a run that never happened. After writing, stash the report id under \`${scannerId}:report:<your skill_name>:<today>\` — that pointer, not the title, is how the next run finds this report.
@@ -164,6 +166,8 @@ insight query node of the kind \`execute-sql\` and the insight tools produce.
 
 - Attach one when a number's trajectory or spread carries the point, and place it in the summary with
   \`[label](chart:<chart_id>)\` so it renders next to the bullet it belongs to.
+- A number you have now tracked across several runs (a rate that moved again today) is exactly this
+  case: pull the daily series and chart the trajectory instead of narrating it run by run.
 - Skip it when a single number says the same thing. A chart of one bar is noise, and a quiet window
   needs no chart at all.
 - The chart must answer the bullet it sits under. Never attach one you have not looked at.

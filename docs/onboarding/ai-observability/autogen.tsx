@@ -1,6 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
+import { getOtelSessionIdStep } from './_snippets/otel-session-id'
 
 export const getAutoGenSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, CalloutBox, Markdown, Blockquote, dedent, snippets } = ctx
@@ -124,6 +125,7 @@ export const getAutoGenSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                 </>
             ),
         },
+        getOtelSessionIdStep(ctx, { languages: ['Python'] }),
     ]
 }
 

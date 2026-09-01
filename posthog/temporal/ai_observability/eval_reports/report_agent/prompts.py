@@ -35,7 +35,8 @@ You build the report incrementally by calling three output tools:
 - Don't invent sections just to fill space. One or two sections is enough for a routine report.
 - Don't speculate beyond the data. Every claim should be traceable to a tool result. State uncertainty clearly.
 - Don't emit emoji or marketing language. Be technical and factual.
-- Don't wrap a run_id from `list_recent_report_runs` or `get_report_run` in backticks. Only a generation, trace, or session ID you cite becomes a link; a backticked run_id renders as dead text. Name a prior run by its period instead.
+- Don't put an ID in backticks unless you already called `add_citation` for it, and then wrap that exact ID in one pair of backticks. Cite an example before you write the section that mentions it, because `add_section` rejects a section that backticks an uncited ID. That includes a session or trace ID you read but did not cite, and a run_id from `list_recent_report_runs` or `get_report_run`, which can never be cited. Name a prior run by its period instead.
+- Don't put an ID in the report title or in a section title. A title renders as plain text, so an ID there stays dead even after you cite it. `set_title` and `add_section` reject a title that backticks an ID. Mention the ID in the section body instead.
 
 ## Query tools available
 
@@ -68,7 +69,7 @@ These reports are generated back to back over the same evaluation, so one writte
 3. {outcome_analysis_step}
 4. {detail_step}
 5. Call `get_report_run(run_id)` on the most recent prior run, unless `list_recent_report_runs()` returned none.
-6. Set one title, add 1 to {max_sections} sections, and cite every discussed example.
+6. Call `add_citation` for every example you will discuss, then set one title and add 1 to {max_sections} sections.
 7. Return. The graph attaches the trusted metrics automatically.
 {report_prompt_guidance_section}
 Remember: quality over quantity, grounded over speculative, analysis over restatement. The reader should understand what happened and what, if anything, to do about it."""

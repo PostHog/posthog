@@ -6,7 +6,7 @@ import { logsAttributesRetrieve, logsFacetValuesCreate } from 'products/logs/fro
 
 import { logsViewerFiltersLogic } from '../Filters/logsViewerFiltersLogic'
 import { facetRailLogic } from './facetRailLogic'
-import { FACETS, FacetConfig } from './facets'
+import { FACETS, FacetConfig, buildCustomFacet } from './facets'
 import { facetValuesLogic } from './facetValuesLogic'
 
 jest.mock('products/logs/frontend/generated/api', () => ({
@@ -89,6 +89,26 @@ describe('facetValuesLogic', () => {
         )
     })
 
+    // Each source type must route to its own facet* body field — a binary-to-ternary slip (e.g. a
+    // plain attribute silently querying as a resource attribute) would misreport values with no
+    // type error, since _LogsFacetValuesBodyApi accepts any of the three.
+    it.each<[string, FacetConfig, Record<string, string>]>([
+        ['a column facet', SERVICE, { facetField: 'service_name' }],
+        ['a resource-attribute facet', facetConfig('namespace'), { facetResourceAttribute: 'k8s.namespace.name' }],
+        [
+            'a custom plain-attribute facet',
+            buildCustomFacet('log.iostream', 'attribute'),
+            { facetAttribute: 'log.iostream' },
+        ],
+    ])('%s requests the matching facet* body field', async (_, facet, expectedFields) => {
+        const logic = mountFacet(facet)
+        await expectLogic(logic).toDispatchActions(['loadFacetValuesSuccess'])
+        expect(mockFacetValues).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({ query: expect.objectContaining(expectedFields) })
+        )
+    })
+
     it('a collapsed facet defers its fetch until it is expanded, then only if the scope moved', async () => {
         railLogic.actions.toggleFacetCollapsed(SERVICE.key)
         const logic = mountFacet(SERVICE)
@@ -111,6 +131,32 @@ describe('facetValuesLogic', () => {
         railLogic.actions.toggleFacetCollapsed(SERVICE.key)
         await expectLogic(logic).toNotHaveDispatchedActions(['loadFacetValues'])
         expect(mockFacetValues).not.toHaveBeenCalled()
+    })
+
+    it('a manual refresh refetches an expanded facet even when the scope is unchanged', async () => {
+        const logic = mountFacet(SERVICE)
+        await expectLogic(logic).toDispatchActions(['loadFacetValuesSuccess'])
+        mockFacetValues.mockClear()
+
+        filtersLogic.actions.bumpFacetRefresh()
+        await expectLogic(logic).toDispatchActions(['loadFacetValues', 'loadFacetValuesSuccess'])
+        expect(mockFacetValues).toHaveBeenCalledTimes(1)
+    })
+
+    it('a manual refresh leaves a collapsed facet unfetched until it is expanded', async () => {
+        railLogic.actions.toggleFacetCollapsed(SERVICE.key)
+        const logic = mountFacet(SERVICE)
+        const other = mountFacet(LEVEL)
+        await expectLogic(other).toDispatchActions(['loadFacetValuesSuccess'])
+        mockFacetValues.mockClear()
+
+        filtersLogic.actions.bumpFacetRefresh()
+        await expectLogic(other).toDispatchActions(['loadFacetValuesSuccess'])
+        expect(logic.values.facetValues).toEqual([])
+
+        railLogic.actions.toggleFacetCollapsed(SERVICE.key)
+        await expectLogic(logic).toDispatchActions(['loadFacetValuesSuccess'])
+        expect(mockFacetValues).toHaveBeenCalledTimes(2)
     })
 
     it('collapsing while a fetch is still debouncing drops it, and expanding fetches again', async () => {
