@@ -75,6 +75,10 @@ function RealTimeUsageBody(): JSX.Element {
                 resourceType={{ type: 'billing' }}
             />
 
+            <LemonBanner type="warning" className="mt-4">
+                Experimental: This page is under construction. Do not rely on this data yet.
+            </LemonBanner>
+
             <div className="mt-6 max-w-300 space-y-4">
                 <div className="flex flex-wrap items-end gap-4">
                     <div className="flex flex-col gap-1">
