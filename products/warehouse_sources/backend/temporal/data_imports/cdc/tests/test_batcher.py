@@ -751,3 +751,28 @@ class TestSeqColumn:
         # The DELETE row copied `name` from the preceding update, proving
         # enrichment ran while seq stayed per-event.
         assert enriched.column("name")[1].as_py() == "Alice"
+
+
+class TestScd2TimestampType:
+    """`valid_from` carries the timestamp column's own values, so it must carry its type too.
+
+    The buffered path normalizes timestamps to naive before the loader derives SCD2; the legacy
+    path derives it in the extraction activity, where they are still UTC-aware. Declaring a fixed
+    type made pyarrow reject the whole batch on the buffered path.
+    """
+
+    @parameterized.expand([("naive", None), ("utc_aware", "UTC")])
+    def test_scd2_columns_match_the_timestamp_column(self, _name, tz):
+        ts = pa.timestamp("us", tz=tz)
+        table = pa.table(
+            {
+                "id": pa.array([1, 1], pa.int64()),
+                CDC_TIMESTAMP_COLUMN: pa.array([0, 1], ts),
+            }
+        )
+
+        result = build_scd2_table(table, ["id"])
+
+        assert result.schema.field(SCD2_VALID_FROM_COLUMN).type == ts
+        assert result.schema.field(SCD2_VALID_TO_COLUMN).type == ts
+        assert result.column(SCD2_VALID_TO_COLUMN).to_pylist()[0] is not None

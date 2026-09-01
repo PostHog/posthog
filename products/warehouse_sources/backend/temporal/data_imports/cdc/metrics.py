@@ -52,6 +52,17 @@ def get_buffer_files_written_metric(team_id: int, source_id: str, lane: str) -> 
     )
 
 
+def get_buffer_cursor_rows_skipped_metric(team_id: int, source_id: str) -> MetricCounter:
+    """Buffer rows an append lane skipped as already written, resuming part-way into a transaction.
+
+    Steady state is zero — a run resumes mid-transaction only after the previous one was cut short
+    inside it. A standing rate means runs keep dying part-way through.
+    """
+    return _source_meter(team_id, source_id).create_counter(
+        "cdc_buffer_cursor_rows_skipped_total", "Buffer rows skipped on resuming part-way into a file"
+    )
+
+
 def get_extract_retry_metric(team_id: int, source_id: str) -> MetricCounter:
     """Extraction runs that are not the first attempt.
 

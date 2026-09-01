@@ -13,19 +13,19 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     DELETED_COLUMN,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
+    APPLIED_ROWS_CONFIG_KEY,
     LOAD_POSITION_CONFIG_KEY,
     MAX_VERIFIED_DELETE_ROWS,
     SCD2_APPEND_MODE,
-    UnresolvedAppendError,
     batch_max_seq,
     dedupe_keep_highest_seq,
     drop_superseded_rows,
     has_engine_seq,
     is_cdc_write_resolution_enabled,
     persist_load_position,
+    provable_position,
     read_load_position,
     read_load_state,
-    require_resolution_for_append,
     resolve_batch,
     verify_delete_enrichment,
 )
@@ -214,33 +214,6 @@ class TestResolveBatch:
         assert result is table
 
 
-class TestRequireResolutionForAppend:
-    def test_the_append_lane_refuses_to_write_unresolved(self):
-        # Writing unresolved appends the replayed trailing file as new history and records no
-        # position, so every later run replays it again — permanent, compounding duplicates.
-        with pytest.raises(UnresolvedAppendError, match="users_cdc"):
-            require_resolution_for_append(
-                SCD2_APPEND_MODE, resolution_enabled=False, batch_carries_position=True, resource_name="users_cdc"
-            )
-
-    @parameterized.expand(
-        [
-            ("append_resolved", SCD2_APPEND_MODE, True, True),
-            ("merge_unresolved", "incremental_merge", False, True),
-            # The legacy companion path strips the position column before dispatch and delivers each
-            # micro-batch once, so it has nothing to resolve and must not be failed here.
-            ("legacy_append_without_a_position", SCD2_APPEND_MODE, False, False),
-        ]
-    )
-    def test_writes_that_can_proceed(self, _name, cdc_write_mode, resolution_enabled, batch_carries_position):
-        require_resolution_for_append(
-            cdc_write_mode,
-            resolution_enabled=resolution_enabled,
-            batch_carries_position=batch_carries_position,
-            resource_name="users",
-        )
-
-
 class TestVerifyDeleteEnrichment:
     def test_enriched_delete_is_clean(self):
         table = _batch([1], ["alice"], ["D"])
@@ -324,7 +297,8 @@ class TestLoadPosition:
         ):
             persist_load_position("schema-1", 2, "users", 100, rows_at_position=3)
 
-        assert captured[LOAD_POSITION_CONFIG_KEY] == {"users": {"position": 100, "rows_at_position": 3}}
+        assert captured[LOAD_POSITION_CONFIG_KEY] == {"users": 100}
+        assert captured[APPLIED_ROWS_CONFIG_KEY] == {"users": 3}
         # Capture's own position lives in the same JSON column and must survive.
         assert captured["cdc_last_log_position"] == "0/ABC"
 
@@ -340,7 +314,10 @@ class TestLoadPosition:
     def test_persist_is_monotonic(
         self, _name, existing, existing_rows, incoming, incoming_rows, expected, expected_rows
     ):
-        captured = {LOAD_POSITION_CONFIG_KEY: {"users": {"position": existing, "rows_at_position": existing_rows}}}
+        captured = {
+            LOAD_POSITION_CONFIG_KEY: {"users": existing},
+            APPLIED_ROWS_CONFIG_KEY: {"users": existing_rows},
+        }
 
         def fake_update(schema_id, team_id, *, mutate=None, **kwargs):
             mutate(captured)
@@ -351,14 +328,46 @@ class TestLoadPosition:
         ):
             persist_load_position("schema-1", 2, "users", incoming, rows_at_position=incoming_rows)
 
-        assert captured[LOAD_POSITION_CONFIG_KEY]["users"] == {
-            "position": expected,
-            "rows_at_position": expected_rows,
-        }
+        assert captured[LOAD_POSITION_CONFIG_KEY]["users"] == expected
+        assert captured[APPLIED_ROWS_CONFIG_KEY]["users"] == expected_rows
 
-    def test_read_state_treats_the_bare_int_shape_as_nothing_landed(self):
-        # Written before the count existed: re-apply that transaction rather than skip past it.
+    def test_the_position_reads_the_same_after_a_rollback_to_code_without_the_count(self):
+        # The count is a sibling key, so code that predates it reads the position untouched rather
+        # than finding a shape it cannot parse and treating the lane as never having committed.
+        captured: dict[str, Any] = {}
+
+        def fake_update(schema_id, team_id, *, mutate=None, **kwargs):
+            mutate(captured)
+
+        with patch(
+            "products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys",
+            side_effect=fake_update,
+        ):
+            persist_load_position("schema-1", 2, "users", 100, rows_at_position=3)
+
+        assert captured[LOAD_POSITION_CONFIG_KEY]["users"] == 100
+
+    def test_read_state_treats_a_missing_count_as_nothing_landed(self):
         assert read_load_state({LOAD_POSITION_CONFIG_KEY: {"users": 42}}, "users") == (42, 0)
+
+
+class TestProvablePosition:
+    """What a lane may claim it FINISHED, which is what makes a buffer file deletable."""
+
+    def test_a_lane_part_way_through_a_transaction_proves_only_the_one_before(self):
+        # Its skip counts rows across every file the transaction touches, so deleting any of them
+        # would spend the count on rows that never landed and drop the ones that follow.
+        config = {LOAD_POSITION_CONFIG_KEY: {"users": 200}, APPLIED_ROWS_CONFIG_KEY: {"users": 2}}
+
+        assert provable_position(config, "users") == 199
+
+    def test_a_lane_with_nothing_applied_at_its_position_proves_it(self):
+        config = {LOAD_POSITION_CONFIG_KEY: {"users": 200}, APPLIED_ROWS_CONFIG_KEY: {"users": 0}}
+
+        assert provable_position(config, "users") == 200
+
+    def test_a_lane_that_has_committed_nothing_proves_nothing(self):
+        assert provable_position({}, "users") is None
 
 
 class TestIsCdcWriteResolutionEnabled:

@@ -41,7 +41,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolutio
     is_cdc_write_resolution_enabled,
     persist_load_position,
     read_load_position,
-    require_resolution_for_append,
     resolve_batch,
     rows_at_max_seq,
     verify_delete_enrichment,
@@ -73,6 +72,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     OwnershipLostError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import (
+    batch_marked_in_cache,
     is_batch_already_processed,
     mark_batch_as_processed,
 )
@@ -245,14 +245,10 @@ def _resolve_cdc_positions(
     primary_keys: list[str],
     cdc_write_mode: str | None,
     team_id: str,
-) -> tuple[pa.Table, int | None]:
-    """Drop rows this lane's table has already applied.
-
-    Returns the batch and the position to record, which the caller persists only once the write
-    commits — a position ahead of the table would skip rows that never landed.
-    """
+) -> pa.Table:
+    """Drop rows this lane's table has already applied."""
     if not has_engine_seq(pa_table):
-        return pa_table, None
+        return pa_table
 
     watermark = read_load_position(sync_type_config, resource_name)
 
@@ -266,7 +262,99 @@ def _resolve_cdc_positions(
         if dropped:
             CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL.labels(team_id=team_id, reason=reason).inc(dropped)
 
-    return pa_table, batch_max_seq(pa_table)
+    return pa_table
+
+
+COMMIT_METADATA_POSITION_KEY = "cdc_load_position"
+COMMIT_METADATA_ROWS_KEY = "cdc_load_rows_at_position"
+
+
+def load_progress_to_commit_metadata(position: int, rows_at_position: int) -> dict[str, str]:
+    """The load progress as Delta commit metadata, so a persist failing after it is recoverable."""
+    return {COMMIT_METADATA_POSITION_KEY: str(position), COMMIT_METADATA_ROWS_KEY: str(rows_at_position)}
+
+
+def load_progress_from_commit_metadata(commit: dict[str, Any] | None) -> tuple[int, int] | None:
+    """Read back what `load_progress_to_commit_metadata` wrote, or None for a commit without it."""
+    if not commit:
+        return None
+    position = commit.get(COMMIT_METADATA_POSITION_KEY)
+    rows = commit.get(COMMIT_METADATA_ROWS_KEY)
+    if not isinstance(position, str) or not position.isdigit():
+        return None
+    return int(position), int(rows) if isinstance(rows, str) and rows.isdigit() else 0
+
+
+def _persist_load_progress(
+    schema_id: Any,
+    export_signal: ExportSignalMessage,
+    *,
+    position: int,
+    rows_at_position: int,
+    is_append: bool,
+) -> None:
+    """Record where this lane got to, after its write committed.
+
+    The merge lane tolerates losing it: the rows are re-read and it is recorded again, and the
+    upsert makes the replay a no-op. The append lane does not — its skip is how a re-read stops
+    short of the rows it already wrote, and a lost count re-appends them. So it fails the batch
+    instead, and the redelivery recovers the value from the commit that carried it.
+    """
+    try:
+        persist_load_position(
+            schema_id,
+            export_signal.team_id,
+            export_signal.resource_name,
+            position,
+            rows_at_position=rows_at_position,
+        )
+    except Exception:
+        if is_append:
+            raise
+        logger.warning("cdc_load_position_persist_failed", exc_info=True)
+
+
+def _recover_load_progress(export_signal: ExportSignalMessage, delta_table_ref: DeltaTableRef) -> None:
+    """Persist what a committed append batch recorded, for a redelivery that found it already done.
+
+    A batch persists its progress after its commit, so a crash between the two leaves the table
+    ahead of the count — and the next run would re-read those rows and append them twice. The
+    commit carries the pair, so the redelivery that detects the batch as done can finish what the
+    crashed attempt started.
+
+    Skipped when the dedup flag is present: that flag is written after the progress, so its presence
+    proves nothing was left half-done. Without this the ordinary final-batch re-send would scan
+    Delta history on every append run.
+    """
+    if export_signal.cdc_write_mode != SCD2_APPEND_MODE:
+        return
+    if batch_marked_in_cache(
+        export_signal.team_id, export_signal.schema_id, export_signal.run_uuid, export_signal.batch_index
+    ):
+        return
+
+    commit = async_to_sync(DeltaWriter(delta_table_ref).find_commit_with_metadata)(
+        {"run_uuid": export_signal.run_uuid, "batch_index": str(export_signal.batch_index)}
+    )
+    recovered = load_progress_from_commit_metadata(commit)
+    if recovered is None:
+        return
+
+    position, rows_at_position = recovered
+    persist_load_position(
+        export_signal.schema_id,
+        export_signal.team_id,
+        export_signal.resource_name,
+        position,
+        rows_at_position=rows_at_position,
+    )
+    logger.info(
+        "cdc_load_progress_recovered_from_commit",
+        resource_name=export_signal.resource_name,
+        batch_index=export_signal.batch_index,
+        position=position,
+        rows_at_position=rows_at_position,
+    )
 
 
 def _apply_partitioning(
@@ -810,6 +898,7 @@ def _process_message_reported(
                 run_uuid=export_signal.run_uuid,
                 batch_index=export_signal.batch_index,
             )
+            _recover_load_progress(export_signal, delta_table_ref)
             return
 
         if already_processed and export_signal.is_final_batch:
@@ -820,6 +909,7 @@ def _process_message_reported(
                 run_uuid=export_signal.run_uuid,
                 batch_index=export_signal.batch_index,
             )
+            _recover_load_progress(export_signal, delta_table_ref)
             if verify_ownership is not None:
                 verify_ownership()
             prepared_queryable_folder = _run_post_load_for_already_processed_batch(export_signal)
@@ -875,16 +965,13 @@ def _process_message_reported(
             "batch_index": str(export_signal.batch_index),
         }
 
+        # Counted on the batch as read. After resolution the batch no longer says how much of the
+        # position it carried, and the count the reader skips by has to match what it will re-read.
+        pending_rows_at_position = rows_at_max_seq(pa_table) if cdc_write_mode == SCD2_APPEND_MODE else 0
+
         resolution_enabled = cdc_write_mode is not None and is_cdc_write_resolution_enabled(
             export_signal.team_id, schema_id_str, export_signal.run_uuid
         )
-        require_resolution_for_append(
-            cdc_write_mode,
-            resolution_enabled=resolution_enabled,
-            batch_carries_position=has_engine_seq(pa_table),
-            resource_name=export_signal.resource_name,
-        )
-
         pa_table = _enrich_cdc_rows(
             pa_table,
             primary_keys=primary_keys,
@@ -895,10 +982,8 @@ def _process_message_reported(
             team_id=team_id_str,
         )
 
-        pending_load_position: int | None = None
-        pending_rows_at_position = 0
         if resolution_enabled:
-            pa_table, pending_load_position = _resolve_cdc_positions(
+            pa_table = _resolve_cdc_positions(
                 pa_table,
                 sync_type_config=schema.sync_type_config,
                 resource_name=export_signal.resource_name,
@@ -906,7 +991,16 @@ def _process_message_reported(
                 cdc_write_mode=cdc_write_mode,
                 team_id=team_id_str,
             )
-            pending_rows_at_position = rows_at_max_seq(pa_table)
+
+        # Recorded whatever the resolution rollout says. It is the append lane's resume point, so
+        # withholding it there re-appends the whole batch next run; and it is what proves a buffer
+        # file drained, so withholding it anywhere leaves that team's buffer growing to the S3 TTL
+        # with the slot long advanced past those changes.
+        pending_load_position = batch_max_seq(pa_table) if cdc_write_mode is not None else None
+
+        if pending_load_position is not None:
+            # Carried on the commit so a persist that fails after it can still be recovered.
+            commit_metadata.update(load_progress_to_commit_metadata(pending_load_position, pending_rows_at_position))
 
         if cdc_write_mode == SCD2_APPEND_MODE and SCD2_VALID_FROM_COLUMN not in pa_table.column_names:
             # Derived here rather than in the source: `valid_to` points at the next event for the
@@ -984,18 +1078,13 @@ def _process_message_reported(
         DELTA_ROWS_WRITTEN_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(pa_table.num_rows)
 
         if pending_load_position is not None:
-            # Best-effort: failing here would fail a batch that is already written, and the cost of
-            # losing the position is re-applying rows next time, which is a no-op.
-            try:
-                persist_load_position(
-                    schema.id,
-                    export_signal.team_id,
-                    export_signal.resource_name,
-                    pending_load_position,
-                    rows_at_position=pending_rows_at_position,
-                )
-            except Exception:  # noqa: BLE001 - bookkeeping must never fail a committed write
-                logger.warning("cdc_load_position_persist_failed", exc_info=True)
+            _persist_load_progress(
+                schema.id,
+                export_signal,
+                position=pending_load_position,
+                rows_at_position=pending_rows_at_position,
+                is_append=cdc_write_mode == SCD2_APPEND_MODE,
+            )
 
         internal_schema = HogQLSchema()
         # Build from the Delta table schema first to cover all columns from

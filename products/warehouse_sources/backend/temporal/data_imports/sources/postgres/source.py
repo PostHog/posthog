@@ -1374,7 +1374,7 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         )
         return SourceResponse(
             name=lane.resource_name,
-            items=lambda: manager.get_items(lane.resource_name),
+            items=lambda: manager.get_items(lane.resource_name, write_mode=lane.write_mode),
             primary_keys=primary_keys,
             cdc_write_mode=lane.write_mode,
         )

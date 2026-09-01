@@ -24,26 +24,37 @@ with a mix runs hybrid — some schemas buffered, the rest unchanged — and kee
 guard for the legacy ones.
 
 The trailing buffer file is re-read on every sync until its deletion proof matures. The merge lane
-absorbs that as a no-op upsert; the append (`_cdc`) lane skips the replayed prefix by counting the
-rows its own table already holds at the watermark position — visible as
-`warehouse_load_cdc_seq_guard_rows_dropped_total{reason="replayed"}`.
+absorbs that as a no-op upsert. The append (`_cdc`) lane cannot — history has no upsert — so it
+records how many rows of its current position it has written, and a re-read skips exactly that many
+before yielding the rest. The count is deliberately not a file name: a retried capture attempt
+re-emits the same changes under different names and different batch boundaries, so anything keyed
+on a file would resume at a coordinate that no longer exists. The rows of one transaction decode in
+the same order every time, whatever files they land in.
+
+While that count is non-zero the lane proves only the position BEFORE its own, so every file
+holding that transaction stays undeletable — the count is spent against those rows, and losing one
+of the files would spend it against rows that never landed. Watch
+`cdc_buffer_cursor_rows_skipped_total`: it fires only on a genuine mid-transaction resume, so a
+standing rate means runs keep dying partway through one.
 
 Nothing is re-snapshotted. The slot, the Delta tables, and `initial_sync_complete` are all
 preserved, so there is no WAL gap and no re-sync.
 
 ## Before flipping
 
-0. Pipeline version needs no preparation: the scheduled sync forces the v3 pipeline for
-   buffered-consolidated schemas, because only the v3 loader records the load position that proves
-   buffer files consumed. The team's `warehouse-pipelines-v3` rollout flag neither enables nor
+0. Pipeline version needs no preparation: the scheduled sync forces the v3 pipeline for every
+   buffered schema, because only the v3 loader records the load position that proves buffer files
+   consumed. The team's `warehouse-pipelines-v3` rollout flag neither enables nor
    blocks the flip, and narrowing it later does not affect flipped sources. Do not flip while a
    deploy is rolling out, so every worker already runs the forcing.
 1. `dwh-cdc-write-resolution` is on for the team. **The command refuses to flip without it.**
-   Without the flag the loader records no load position, so no consumed file is ever proven safe to
-   delete; the buffer then fills until the S3 TTL expires it, with the slot long advanced past those
-   changes. That is unrecoverable loss, not a stall. Rollback does not require the flag.
-   **The flag must also stay on after the flip** — turning it off later freezes the load position,
-   and the symptom is a frozen `cdc_load_position` with buffer files aging toward the TTL.
+   The flag gates ordering resolution: dropping rows the table already applied, collapsing repeated
+   keys within a batch, and checking that a DELETE is not about to erase columns the target still
+   holds. Without it a buffered merge lane still lands every row, but out of order across a retry.
+   Rollback does not require the flag.
+   Deletion no longer depends on it: the load position is recorded whatever the flag says, because
+   withholding it leaves the buffer growing to the S3 TTL with the slot long advanced past those
+   changes, which is unrecoverable loss rather than a stall.
 2. No source table has a column named `_ph_cdc_seq`. **The command refuses to flip if one does** —
    the name is reserved for change ordering, and capture hard-errors on the collision rather than
    writing files whose ordering and retry cleanup derive from customer data. A schema that already
@@ -175,9 +186,9 @@ Consume runs are ordinary jobs: `billable=True`, `rows_synced` = consumed rows. 
 source bills the same change events once per run, so the flip is billing-neutral by construction.
 One bounded exception: the trailing file of a burst is re-read for a tick or two until a completed
 run proves it consumed and it is deleted. On the merge lane those rows re-apply as no-op upserts in
-that window, never perpetually; on the append lane the replay guard drops them before the write
-(`warehouse_load_cdc_seq_guard_rows_dropped_total{reason="replayed"}`). Either way they are counted
-in `rows_synced` for that run, because the count precedes resolution.
+that window, never perpetually, and they are counted in `rows_synced` for that run because the
+count precedes resolution. The append lane skips them as it reads the file, so they never enter a
+batch and are never counted.
 
 `both`-mode schemas count each change event twice, once per table it feeds. That is unchanged by
 the flip: legacy writes both tables every tick from two `ExternalDataJob` rows, and buffered writes

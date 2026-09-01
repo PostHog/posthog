@@ -11,8 +11,11 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN, CDC_SEQ_PROVENANCE
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import build_buffer_file_name
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
+    COMPANION_WRITE_MODE,
+    CONSOLIDATED_WRITE_MODE,
     CDCLane,
     CDCSourceManager,
+    CDCWriteMode,
     companion_resource_name,
     consumes_buffer,
     has_pending_legacy_backlog,
@@ -101,8 +104,11 @@ def _patched(
         patch(
             "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.aget_s3_client"
         ) as mock_client,
-        patch.object(CDCSourceManager, "_read_consume_state", AsyncMock(return_value=(load_position, {}))),
-        patch.object(CDCSourceManager, "_read_applied_state", AsyncMock(return_value=(applied_position, applied_rows))),
+        patch.object(
+            CDCSourceManager,
+            "_read_consume_state",
+            AsyncMock(return_value=(load_position, {}, applied_position, applied_rows)),
+        ),
         patch.object(CDCSourceManager, "_completed_listing_time", AsyncMock(return_value=proof_time)),
         patch.object(CDCSourceManager, "_stamp_listing", AsyncMock()) as mock_stamp,
         patch(
@@ -129,10 +135,11 @@ async def _collect(
     proof_time: dt.datetime | None = None,
     applied_position: int | None = None,
     applied_rows: int = 0,
+    write_mode: CDCWriteMode = COMPANION_WRITE_MODE,
     **kwargs,
 ) -> list[pa.Table]:
     with _patched(s3, load_position, proof_time, applied_position, applied_rows):
-        return [t async for t in _manager().get_items("users", **kwargs)]
+        return [t async for t in _manager().get_items("users", write_mode=write_mode, **kwargs)]
 
 
 def _schema(**overrides) -> MagicMock:
@@ -414,16 +421,21 @@ class TestMultiLaneDeletionFloor:
     runs ahead. Deleting on its position alone would drop files the companion never appended.
     """
 
-    async def _floor(self, positions: dict[str, int | None], lanes: list[str]) -> int | None:
+    async def _floor(
+        self, positions: dict[str, int | None], lanes: list[str], applied_rows: dict[str, int] | None = None
+    ) -> int | None:
         manager = CDCSourceManager(
             inputs=MagicMock(team_id=_TEAM_ID, schema_id=_SCHEMA_ID), logger=AsyncMock(), lane_resource_names=lanes
         )
-        config = {"cdc_load_position": {name: pos for name, pos in positions.items() if pos is not None}}
+        config = {
+            "cdc_load_position": {name: pos for name, pos in positions.items() if pos is not None},
+            "cdc_load_rows_at_position": applied_rows or {},
+        }
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.database_sync_to_async_pool",
             lambda fn: AsyncMock(return_value=config),
         ):
-            floor, _ = await manager._read_consume_state("users")
+            floor, _stamps, _pos, _rows = await manager._read_consume_state("users")
         return floor
 
     async def test_the_slowest_lane_sets_the_floor(self):
@@ -438,6 +450,18 @@ class TestMultiLaneDeletionFloor:
     async def test_a_single_lane_schema_uses_its_own_position(self):
         floor = await self._floor({"users": 900}, ["users"])
         assert floor == 900
+
+    async def test_a_lane_owing_rows_at_its_position_holds_that_position_back(self):
+        # The skip counts rows across every file the transaction touches, so none of them may go
+        # while the count is non-zero — otherwise it lands on rows that were never applied.
+        floor = await self._floor({"users_cdc": 900}, ["users_cdc"], applied_rows={"users_cdc": 3})
+        assert floor == 899
+
+    async def test_the_slowest_lane_still_wins_when_the_other_owes_rows(self):
+        floor = await self._floor(
+            {"users": 200, "users_cdc": 900}, ["users", "users_cdc"], applied_rows={"users_cdc": 3}
+        )
+        assert floor == 200
 
 
 @pytest.mark.asyncio
@@ -484,6 +508,57 @@ class TestAppliedPrefixSkip:
         assert tables[0].column("id").to_pylist() == [1, 2]
 
 
+class TestSkipBudgetAgainstDeletion:
+    """The skip counts rows at a position, so every file holding that position must still be there.
+
+    `provable_position` is what keeps them: a lane part-way through a transaction proves only the
+    position before it, so nothing at that position is deletable while the count is non-zero.
+    """
+
+    async def test_a_file_at_the_applied_position_is_not_deleted_while_rows_are_owed(self):
+        # Deleting it would spend the count on the NEXT file's rows, which never landed, and drop
+        # them silently.
+        s3 = _FakeS3(
+            {
+                _key(200, 200, 0): _parquet_bytes(_table([1, 2], [200, 200])),
+                _key(200, 300, 1): _parquet_bytes(_table([3, 4], [200, 300])),
+            }
+        )
+
+        tables = await _collect(
+            s3,
+            load_position=199,
+            proof_time=_OLD_MTIME + dt.timedelta(hours=1),
+            applied_position=200,
+            applied_rows=2,
+        )
+
+        assert s3.removed == []
+        assert tables[0].column("id").to_pylist() == [3, 4]
+
+    async def test_the_position_clears_for_deletion_once_no_rows_are_owed(self):
+        s3 = _FakeS3({_key(200, 200, 0): _parquet_bytes(_table([1, 2], [200, 200]))})
+
+        await _collect(
+            s3,
+            load_position=200,
+            proof_time=_OLD_MTIME + dt.timedelta(hours=1),
+            applied_position=200,
+            applied_rows=0,
+        )
+
+        assert s3.removed == [_key(200, 200, 0)]
+
+    async def test_the_merge_lane_skips_nothing_whatever_the_count_says(self):
+        # Its upsert makes a row it already holds a no-op, so it re-reads freely; only the append
+        # lane resumes part-way into a transaction.
+        s3 = _FakeS3({_key(100, 200): _parquet_bytes(_table([1, 2], [200, 200]))})
+
+        tables = await _collect(s3, applied_position=200, applied_rows=2, write_mode=CONSOLIDATED_WRITE_MODE)
+
+        assert tables[0].column("id").to_pylist() == [1, 2]
+
+
 class TestPendingLegacyBacklog:
     # Legacy deliveries carry no position column, so a consumer merge racing them can be overwritten
     # by an older row. These prove both backlog forms hold the consumer off.
@@ -519,7 +594,7 @@ class TestListingProof:
         s3 = _FakeS3({_key(100, 199): _parquet_bytes(_table([1], [100]))})
 
         with _patched(s3, None, None) as mock_stamp:
-            [t async for t in _manager().get_items("users")]
+            [t async for t in _manager().get_items("users", write_mode=COMPANION_WRITE_MODE)]
 
         mock_stamp.assert_awaited_once()
 

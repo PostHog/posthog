@@ -25,6 +25,10 @@ WRITE_RESOLUTION_FLAG = "dwh-cdc-write-resolution"
 # Highest position applied, per lane resource name. Sibling of `cdc_last_log_position`, which
 # tracks capture — buffered ingress lets the two diverge, since capture runs ahead of load.
 LOAD_POSITION_CONFIG_KEY = "cdc_load_position"
+# How many rows of the position above an append lane has already written. A sibling key rather
+# than a richer `cdc_load_position`, so a rollback to code that predates it reads the position
+# exactly as before instead of finding a shape it cannot parse.
+APPLIED_ROWS_CONFIG_KEY = "cdc_load_rows_at_position"
 
 # Verification is a diagnostic; cap it so a delete-heavy batch can't dominate the write path.
 MAX_VERIFIED_DELETE_ROWS = 1_000
@@ -144,14 +148,31 @@ def read_load_state(sync_type_config: dict | None, resource_name: str) -> tuple[
     carries the commit's end LSN, so the position repeats across all of them. The count is what
     lets a re-read skip exactly the rows already applied and keep the rest.
 
-    Reads the bare-int shape this key held before the count existed as "position, nothing known to
-    have landed at it", which re-applies that transaction rather than skipping past it.
+    Counting rows rather than naming files is deliberate: a retried capture attempt re-emits the
+    same changes under different file names and different batch boundaries (see `buffer.py`), so
+    anything keyed on a file would resume at a coordinate that no longer exists. The rows of one
+    transaction decode in the same order every time, whatever files they land in.
     """
-    positions = (sync_type_config or {}).get(LOAD_POSITION_CONFIG_KEY) or {}
-    value = positions.get(resource_name)
-    if isinstance(value, dict):
-        return _coerce_position(value.get("position")), max(0, int(value.get("rows_at_position") or 0))
-    return _coerce_position(value), 0
+    config = sync_type_config or {}
+    position = _coerce_position((config.get(LOAD_POSITION_CONFIG_KEY) or {}).get(resource_name))
+    raw_rows = (config.get(APPLIED_ROWS_CONFIG_KEY) or {}).get(resource_name)
+    rows = raw_rows if isinstance(raw_rows, int) and not isinstance(raw_rows, bool) else 0
+    return position, max(0, rows)
+
+
+def provable_position(sync_type_config: dict | None, resource_name: str) -> int | None:
+    """The highest position this lane can prove it finished, which is what makes a file deletable.
+
+    A lane part-way through a transaction has NOT finished that transaction's position, and the
+    skip that resumes it counts rows across every file the transaction touches. Deleting any of
+    them would leave the count pointing past rows the reader can no longer see, and the rows after
+    it would be dropped as though they had landed. So a non-zero count proves only the position
+    before.
+    """
+    position, applied_rows = read_load_state(sync_type_config, resource_name)
+    if position is None:
+        return None
+    return position - 1 if applied_rows else position
 
 
 def persist_load_position(
@@ -167,17 +188,20 @@ def persist_load_position(
     Batches of one run land the same position one after another, so a batch at the position already
     recorded ADDS its rows rather than replacing the count — what landed at a transaction is the sum
     across every batch that carried part of it.
+
+    One mutate, because the two values only mean anything together: a position without its count
+    reads as a finished transaction and skips nothing, and a count without its position is applied
+    against the wrong transaction.
     """
     from products.warehouse_sources.backend.models.external_data_schema import update_sync_type_config_keys
 
     def _merge(config: dict[str, Any]) -> None:
-        positions = config.setdefault(LOAD_POSITION_CONFIG_KEY, {})
-        current_position, current_rows = read_load_state({LOAD_POSITION_CONFIG_KEY: positions}, resource_name)
-        # Monotonic, so a retried older batch can't rewind the guard for later ones.
-        if current_position is None or current_position < position:
-            positions[resource_name] = {"position": position, "rows_at_position": rows_at_position}
-        elif current_position == position:
-            positions[resource_name] = {"position": position, "rows_at_position": current_rows + rows_at_position}
+        current_position, current_rows = read_load_state(config, resource_name)
+        if current_position is not None and current_position > position:
+            return
+        rows = current_rows + rows_at_position if current_position == position else rows_at_position
+        config.setdefault(LOAD_POSITION_CONFIG_KEY, {})[resource_name] = position
+        config.setdefault(APPLIED_ROWS_CONFIG_KEY, {})[resource_name] = rows
 
     update_sync_type_config_keys(schema_id, team_id, mutate=_merge)
 
@@ -191,33 +215,6 @@ def rows_at_max_seq(table: pa.Table) -> int:
         return 0
     top = max(seqs)
     return sum(1 for seq in seqs if seq == top)
-
-
-class UnresolvedAppendError(RuntimeError):
-    """Raised rather than appending history that may already be in the table."""
-
-
-def require_resolution_for_append(
-    cdc_write_mode: str | None, *, resolution_enabled: bool, batch_carries_position: bool, resource_name: str
-) -> None:
-    """Refuse to write an append-lane batch that cannot be resolved against the table.
-
-    The merge lane tolerates writing unresolved: its upsert makes a replayed row a no-op. An
-    append cannot — it writes the replay as new history, and the same run records no position, so
-    every later run replays it again.
-
-    Only batches carrying our position column are at risk. The legacy extraction path strips it
-    before dispatching (see `_process_flush`), and delivers each micro-batch exactly once, so it
-    has nothing to resolve and must not be failed here.
-
-    Raising fails the run; the next scheduled sync retries it, since the flag lookup is cached for
-    the life of this one.
-    """
-    if cdc_write_mode == SCD2_APPEND_MODE and batch_carries_position and not resolution_enabled:
-        raise UnresolvedAppendError(
-            f"Write resolution is unavailable, so append lane {resource_name} cannot skip rows it "
-            "already holds. Refusing to write history that may duplicate."
-        )
 
 
 def resolve_batch(

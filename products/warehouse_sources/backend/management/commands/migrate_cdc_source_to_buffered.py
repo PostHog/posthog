@@ -50,6 +50,23 @@ DRAIN_POLL_SECONDS = 10
 EXPECTED_SYNC_INTERVAL = dt.timedelta(minutes=5)
 
 
+def _ineligible_reason(schema: ExternalDataSchema) -> str:
+    """Why this schema stays on legacy — the condition that failed, not its table mode.
+
+    Every table mode is served now, so printing the mode says nothing about why a schema was
+    skipped.
+    """
+    if not schema.should_sync:
+        return "disabled"
+    if not schema.is_cdc:
+        return "not cdc"
+    if schema.cdc_mode != "streaming":
+        return f"cdc_mode={schema.cdc_mode}"
+    if not schema.initial_sync_complete:
+        return "initial sync incomplete"
+    return f"table mode {schema.cdc_table_mode}"
+
+
 class Command(BaseCommand):
     help = "Move a CDC source onto buffered ingress (or back)."
 
@@ -91,7 +108,7 @@ class Command(BaseCommand):
         if not eligible and not rollback:
             raise CommandError(
                 "No schema on this source serves the buffered lane — nothing to flip. "
-                "Buffered ingress covers consolidated streaming schemas whose initial sync is done."
+                "Buffered ingress covers streaming schemas whose initial sync is done, in any table mode."
             )
         if current_mode == target_mode:
             self.stdout.write(self.style.WARNING(f"Already {target_mode}; nothing to do."))
@@ -121,9 +138,9 @@ class Command(BaseCommand):
         if is_cdc_write_resolution_enabled(source.team_id, str(eligible[0].id), f"preflight-{source.id}"):
             return
         raise CommandError(
-            f"{WRITE_RESOLUTION_FLAG} is off for team {source.team_id}. Buffered ingress needs it: "
-            "without it no load position is recorded, consumed files are never deleted, and they "
-            "expire at the S3 TTL with the slot already advanced past them."
+            f"{WRITE_RESOLUTION_FLAG} is off for team {source.team_id}. Buffered ingress needs it to "
+            "resolve write ordering: without it a retried batch can land rows the table already "
+            "holds back over newer ones, and a DELETE can erase columns the target still has."
         )
 
     def _require_no_reserved_columns(self, eligible: list[ExternalDataSchema]) -> None:
@@ -170,9 +187,7 @@ class Command(BaseCommand):
                 )
             )
         if ineligible:
-            detail = ", ".join(
-                f"{s.name} [{'disabled' if not s.should_sync else s.cdc_table_mode}]" for s in ineligible
-            )
+            detail = ", ".join(f"{s.name} [{_ineligible_reason(s)}]" for s in ineligible)
             self.stdout.write(self.style.WARNING(f"  staying on legacy ({len(ineligible)}): {detail}"))
             self.stdout.write(
                 self.style.WARNING(

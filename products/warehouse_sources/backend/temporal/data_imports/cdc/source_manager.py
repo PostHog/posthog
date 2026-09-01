@@ -37,9 +37,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
     SCD2_APPEND_MODE,
-    read_load_position,
+    provable_position,
     read_load_state,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.metrics import get_buffer_cursor_rows_skipped_metric
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
@@ -281,12 +282,12 @@ class CDCSourceManager:
         keep = [i for i in range(table.num_rows) if i not in skip]
         return table.take(pa.array(keep, type=pa.int64())), len(dropped)
 
-    async def _read_consume_state(self, resource_name: str) -> tuple[int | None, dict[str, dict]]:
-        """The deletion floor across every lane, and their listing stamps, read once per run.
+    async def _read_consume_state(self, resource_name: str) -> tuple[int | None, dict[str, dict], int | None, int]:
+        """The deletion floor across every lane, their listing stamps, and this lane's applied state.
 
-        The floor is the lowest position any lane has committed, so a file survives until the
-        slowest lane has taken it. A lane that has recorded nothing yet has proven nothing, so it
-        holds deletion entirely.
+        One read of `sync_type_config` answers all of it. The floor is the lowest position any lane
+        can PROVE it finished, so a file survives until the slowest lane has taken it; a lane that
+        has recorded nothing has proven nothing, so it holds deletion entirely.
 
         The floor decides which files are still needed, not correctness — `drop_superseded_rows` is
         that, and it re-reads the config per batch on the load side. Reading a stale value here
@@ -300,21 +301,11 @@ class CDCSourceManager:
             )
         )
         lanes = self._lanes(resource_name)
-        positions = [read_load_position(sync_type_config, lane) for lane in lanes]
+        positions = [provable_position(sync_type_config, lane) for lane in lanes]
         floor = None if any(p is None for p in positions) else min(p for p in positions if p is not None)
         stamps = _listing_stamps(sync_type_config, single_lane=lanes[0] if len(lanes) == 1 else None)
-        return floor, stamps
-
-    async def _read_applied_state(self, resource_name: str) -> tuple[int | None, int]:
-        """This lane's position and the rows already applied at it, read once per run."""
-        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-
-        sync_type_config = await database_sync_to_async_pool(db_read_with_retry)(
-            lambda: ExternalDataSchema.objects.values_list("sync_type_config", flat=True).get(
-                id=self._inputs.schema_id, team_id=self._inputs.team_id
-            )
-        )
-        return read_load_state(sync_type_config, resource_name)
+        applied_position, applied_rows = read_load_state(sync_type_config, resource_name)
+        return floor, stamps, applied_position, applied_rows
 
     async def _stamp_listing(self, resource_name: str, listed_at: dt.datetime) -> None:
         """Record that this run listed the buffer for its lane, before any file is read.
@@ -444,13 +435,19 @@ class CDCSourceManager:
     async def get_items(
         self,
         resource_name: str,
+        *,
+        write_mode: CDCWriteMode,
         batch_row_limit: int = DEFAULT_BATCH_ROW_LIMIT,
         batch_byte_limit: int = DEFAULT_BATCH_BYTE_LIMIT,
     ) -> AsyncGenerator[pa.Table]:
         listed_at = dt.datetime.now(tz=dt.UTC)
         files = await self._list_buffer_files()
-        floor, prior_stamps = await self._read_consume_state(resource_name)
-        applied_position, applied_rows = await self._read_applied_state(resource_name)
+        floor, prior_stamps, applied_position, applied_rows = await self._read_consume_state(resource_name)
+        # Only the append lane resumes part-way into a transaction. The merge lane re-reads freely:
+        # its upsert makes a row it already holds a no-op.
+        if write_mode != COMPANION_WRITE_MODE:
+            applied_rows = 0
+        skipped_rows = 0
         # Proof comes from the PRIOR stamps, resolved before this run overwrites its lane's.
         proof_time = await self._earliest_completed_listing(resource_name, prior_stamps) if floor is not None else None
         await self._stamp_listing(resource_name, listed_at)
@@ -478,6 +475,7 @@ class CDCSourceManager:
                 if applied_rows and applied_position is not None:
                     table, skipped = self._drop_applied_prefix(table, applied_position, applied_rows)
                     applied_rows -= skipped
+                    skipped_rows += skipped
 
                 if table.num_rows == 0:
                     continue
@@ -488,6 +486,15 @@ class CDCSourceManager:
 
             if batch:
                 yield self._finalize_batch(batch.tables)
+
+        if skipped_rows:
+            get_buffer_cursor_rows_skipped_metric(self._inputs.team_id, str(self._inputs.source_id)).add(skipped_rows)
+            await self._logger.ainfo(
+                "cdc_buffer_resumed_mid_transaction",
+                resource_name=resource_name,
+                position=applied_position,
+                rows_skipped=skipped_rows,
+            )
 
     def _finalize_batch(self, tables: list[pa.Table]) -> pa.Table:
         # `permissive` because a column added to the source table mid-stream makes later files
