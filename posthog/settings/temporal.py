@@ -25,6 +25,7 @@ MAX_CONCURRENT_WORKFLOW_TASKS: int | None = get_from_env(
     "MAX_CONCURRENT_WORKFLOW_TASKS", None, optional=True, type_cast=int
 )
 MAX_CONCURRENT_ACTIVITIES: int | None = get_from_env("MAX_CONCURRENT_ACTIVITIES", None, optional=True, type_cast=int)
+MAX_CACHED_WORKFLOWS: int | None = get_from_env("MAX_CACHED_WORKFLOWS", None, optional=True, type_cast=int)
 TARGET_MEMORY_USAGE: float | None = get_from_env("TARGET_MEMORY_USAGE", None, optional=True, type_cast=float)
 TARGET_CPU_USAGE: float | None = get_from_env("TARGET_CPU_USAGE", None, optional=True, type_cast=float)
 
