@@ -48,4 +48,26 @@ describe('safeStorageEngine', () => {
 
         expect(engine['never.written']).toBeUndefined()
     })
+
+    it('reports a startup storage failure once, on first key access', () => {
+        // The memory fallback never throws, so a store blocked at startup would go
+        // unreported without deferring the capture to first access. Isolate the module
+        // to reset its once-per-session guard, and mock only this require's posthog-js.
+        jest.resetModules()
+        const capture = jest.fn()
+        jest.doMock('posthog-js', () => ({ __esModule: true, default: { capture } }))
+        const { createSafeStorageEngine: create } = require('lib/utils/safeStorageEngine')
+
+        const engine = create(undefined, new Error('NS_ERROR_FAILURE'))
+        // Deferred: nothing is reported until the engine is actually touched
+        expect(capture).not.toHaveBeenCalled()
+
+        expect(engine['first.access']).toBeUndefined()
+        engine['second.access'] = 'value'
+
+        expect(capture).toHaveBeenCalledTimes(1)
+        expect(capture).toHaveBeenCalledWith('kea_localstorage_unavailable', { error: 'Error: NS_ERROR_FAILURE' })
+
+        jest.dontMock('posthog-js')
+    })
 })

@@ -96,29 +96,48 @@ function createStorageFacade(backing: Storage): Storage {
     }
 }
 
-export function createSafeStorageEngine(backing: Storage | undefined): Storage {
+export function createSafeStorageEngine(backing: Storage | undefined, startupError?: unknown): Storage {
     const facade = createStorageFacade(backing ?? createMemoryStorage())
+    // A store blocked at startup fails the probe and drops to the memory fallback, which never
+    // throws, so no facade catch can report it. resolveLocalStorage() also runs at module load,
+    // before posthog-js is initialized, so a capture there would be lost. Report on the first
+    // real key access instead - that runs during a logic mount, after posthog-js is up.
+    let startupPending = startupError !== undefined
+    const reportStartupFailureOnce = (): void => {
+        if (startupPending) {
+            startupPending = false
+            reportFailureOnce(startupError)
+        }
+    }
     return new Proxy(facade, {
-        get: (target, prop) =>
-            typeof prop === 'string' && !STORAGE_MEMBERS.has(prop)
-                ? // Native property access yields undefined for a missing key while
-                  // getItem yields null, and kea-localstorage branches on
-                  // `typeof engine[path] !== 'undefined'`. Returning null here would
-                  // load null over every persisted reducer's coded default
-                  (target.getItem(prop) ?? undefined)
-                : Reflect.get(target, prop),
+        get: (target, prop) => {
+            if (typeof prop === 'string' && !STORAGE_MEMBERS.has(prop)) {
+                reportStartupFailureOnce()
+                // Native property access yields undefined for a missing key while
+                // getItem yields null, and kea-localstorage branches on
+                // `typeof engine[path] !== 'undefined'`. Returning null here would
+                // load null over every persisted reducer's coded default
+                return target.getItem(prop) ?? undefined
+            }
+            return Reflect.get(target, prop)
+        },
         set: (target, prop, value) => {
             if (typeof prop === 'string' && !STORAGE_MEMBERS.has(prop)) {
+                reportStartupFailureOnce()
                 target.setItem(prop, String(value))
             }
             return true
         },
-        has: (target, prop) =>
-            typeof prop === 'string' && !STORAGE_MEMBERS.has(prop)
-                ? target.getItem(prop) !== null
-                : Reflect.has(target, prop),
+        has: (target, prop) => {
+            if (typeof prop === 'string' && !STORAGE_MEMBERS.has(prop)) {
+                reportStartupFailureOnce()
+                return target.getItem(prop) !== null
+            }
+            return Reflect.has(target, prop)
+        },
         deleteProperty: (target, prop) => {
             if (typeof prop === 'string' && !STORAGE_MEMBERS.has(prop)) {
+                reportStartupFailureOnce()
                 target.removeItem(prop)
             }
             return true
@@ -126,17 +145,19 @@ export function createSafeStorageEngine(backing: Storage | undefined): Storage {
     })
 }
 
-function resolveLocalStorage(): Storage | undefined {
+function resolveLocalStorage(): { storage: Storage | undefined; error?: unknown } {
     try {
         const probe = '__safe_storage_probe__'
         window.localStorage.setItem(probe, probe)
         window.localStorage.removeItem(probe)
-        return window.localStorage
-    } catch {
-        // Blocked outright, so fall back to memory and keep persistence
-        // working for the rest of the session
-        return undefined
+        return { storage: window.localStorage }
+    } catch (error) {
+        // Blocked outright, so fall back to memory and keep persistence working for the rest of
+        // the session. Keep the error so the first key access reports it - a full store, blocked
+        // site data, and Safari private mode all fail here, and those are the common causes
+        return { storage: undefined, error }
     }
 }
 
-export const safeStorageEngine = createSafeStorageEngine(resolveLocalStorage())
+const resolvedLocalStorage = resolveLocalStorage()
+export const safeStorageEngine = createSafeStorageEngine(resolvedLocalStorage.storage, resolvedLocalStorage.error)
