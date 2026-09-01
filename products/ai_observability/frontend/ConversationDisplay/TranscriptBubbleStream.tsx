@@ -364,7 +364,12 @@ export function TranscriptBubbleStream({
                         boxClassName={item.message.role === 'user' ? 'bg-fill-tertiary' : undefined}
                     >
                         {item.text && (
-                            <LemonMarkdown className="whitespace-pre-wrap break-words">{item.text}</LemonMarkdown>
+                            // Bubble text is customer trace content, and the ask path lifts it
+                            // straight from tool arguments — untrusted either way, so external
+                            // images must not auto-load a request against the viewer's browser.
+                            <LemonMarkdown className="whitespace-pre-wrap break-words" disableImages>
+                                {item.text}
+                            </LemonMarkdown>
                         )}
                         {item.nonText && <div className="italic text-muted text-xs mt-1">(has attachments)</div>}
                     </MessageTemplate>
