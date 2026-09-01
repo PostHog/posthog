@@ -25,6 +25,8 @@ export function BroadcastReviewStep(): JSX.Element {
         conversion,
         email,
         scheduleSummary,
+        emailRateLimit,
+        rateLimitedSendDuration,
         stepValidationErrors,
     } = useValues(broadcastWizardLogic)
 
@@ -93,6 +95,13 @@ export function BroadcastReviewStep(): JSX.Element {
                 </ReviewRow>
 
                 <ReviewRow label="Schedule">{scheduleSummary}</ReviewRow>
+
+                {emailRateLimit && (
+                    <ReviewRow label="Sending rate">
+                        At most {humanFriendlyNumber(emailRateLimit.count)} emails per {emailRateLimit.period}
+                        {rateLimitedSendDuration ? `, so about ${rateLimitedSendDuration} to reach everyone` : ''}
+                    </ReviewRow>
+                )}
             </div>
 
             {stepValidationErrors.review.length > 0 && (

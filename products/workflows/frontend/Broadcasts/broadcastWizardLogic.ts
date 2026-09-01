@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -26,6 +27,7 @@ import type {
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowConversionApi,
+    HogFlowEmailSendingRateLimitApi,
     HogFlowScheduleApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
@@ -111,12 +113,14 @@ export interface broadcastWizardLogicValues {
     currentStepHasErrors: boolean
     effectiveTimezone: string
     email: BroadcastEmailValue
+    emailRateLimit: HogFlowEmailSendingRateLimitApi | null
     firstInvalidStep: BroadcastWizardStep | null
     goalEnabled: boolean
     hasHydrated: boolean
     isReadOnly: boolean
     launching: boolean
     name: string
+    rateLimitedSendDuration: string
     recurringRepeating: boolean
     recurringStartsAt: string | null
     saving: boolean
@@ -205,6 +209,9 @@ export interface broadcastWizardLogicActions {
     setEmail: (email: BroadcastEmailValue) => {
         email: BroadcastEmailValue
     }
+    setEmailRateLimit: (emailRateLimit: HogFlowEmailSendingRateLimitApi | null) => {
+        emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+    }
     setGoalEnabled: (enabled: boolean) => {
         enabled: boolean
     }
@@ -276,6 +283,7 @@ export interface broadcastWizardLogicMeta {
             recurringRepeating: boolean,
             effectiveTimezone: string
         ) => string
+        rateLimitedSendDuration: (emailRateLimit: any, blastRadius: BlastRadiusApi | null) => string
         breadcrumbs: (name: string) => Breadcrumb[]
     }
 }
@@ -305,6 +313,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         setAudienceProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
         setGoalEnabled: (enabled: boolean) => ({ enabled }),
         setConversion: (conversion: HogFlowConversionApi) => ({ conversion }),
+        setEmailRateLimit: (emailRateLimit: HogFlowEmailSendingRateLimitApi | null) => ({ emailRateLimit }),
         setEmail: (email: BroadcastEmailValue) => ({ email }),
         setScheduleMode: (mode: BroadcastScheduleMode) => ({ mode }),
         setSendAt: (sendAt: string | null) => ({ sendAt }),
@@ -417,6 +426,13 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 setConversion: (_, { conversion }) => conversion,
                 hydrateFromBroadcast: (state, { broadcast }) =>
                     broadcast.conversion ? { ...DEFAULT_BROADCAST_CONVERSION, ...broadcast.conversion } : state,
+            },
+        ],
+        emailRateLimit: [
+            null as HogFlowEmailSendingRateLimitApi | null,
+            {
+                setEmailRateLimit: (_, { emailRateLimit }) => emailRateLimit,
+                hydrateFromBroadcast: (state, { broadcast }) => broadcast.email_sending_rate_limit ?? state,
             },
         ],
         email: [
@@ -620,6 +636,19 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 return buildSummary(scheduleState, recurringStartsAt)
             },
         ],
+        rateLimitedSendDuration: [
+            (s) => [s.emailRateLimit, s.blastRadius],
+            (emailRateLimit: HogFlowEmailSendingRateLimitApi | null, blastRadius: BlastRadiusApi | null): string => {
+                const recipients = blastRadius?.affected
+                if (!emailRateLimit || !recipients) {
+                    return ''
+                }
+                // An estimate: the worker holds sends under the limit by rescheduling them, and it
+                // retries on a jittered delay, so the real send runs a little longer than this.
+                const perSecond = emailRateLimit.count / (emailRateLimit.period === 'hour' ? 3600 : 60)
+                return humanFriendlyDuration(Math.ceil(recipients / perSecond), { maxUnits: 2 })
+            },
+        ],
         breadcrumbs: [
             (s) => [s.name],
             (name: string): Breadcrumb[] => [
@@ -812,6 +841,7 @@ function buildBroadcastPayload(values: {
     goalEnabled: boolean
     conversion: HogFlowConversionApi
     email: BroadcastEmailValue
+    emailRateLimit: HogFlowEmailSendingRateLimitApi | null
 }): Record<string, any> {
     return {
         kind: 'broadcast',
@@ -819,6 +849,7 @@ function buildBroadcastPayload(values: {
         name: values.name,
         exit_condition: 'exit_only_at_end',
         conversion: values.goalEnabled ? values.conversion : null,
+        email_sending_rate_limit: values.emailRateLimit,
         actions: [
             {
                 id: TRIGGER_ACTION_ID,
