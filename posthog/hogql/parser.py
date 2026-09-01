@@ -441,7 +441,14 @@ def _is_shallow_enough_to_shadow(rule: ParseRule, statement: str) -> bool:
     # for the brace first keeps ordinary SQL out of the count, where `if` is a scalar function and runs into dozens.
     if rule is not ParseRule.PROGRAM and "{" not in statement:
         return True
-    return len(_STATEMENT_KEYWORD_PATTERN.findall(statement)) <= _REJECTION_SHADOW_MAX_STATEMENT_KEYWORDS
+    # Count with `finditer` and stop once past the cap. A keyword-heavy program has millions of matches, and `findall`
+    # would allocate every one just to compare the length against a small bound — the cost this guard exists to avoid.
+    keywords = 0
+    for _ in _STATEMENT_KEYWORD_PATTERN.finditer(statement):
+        keywords += 1
+        if keywords > _REJECTION_SHADOW_MAX_STATEMENT_KEYWORDS:
+            return False
+    return True
 
 
 def _run_rejection_shadow(
