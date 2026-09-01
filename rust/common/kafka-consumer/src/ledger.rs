@@ -16,8 +16,10 @@ pub struct TakenFrontier {
     pub charge: Charge,
 }
 
-/// Per-partition delivered-offset ledger. Completion only marks slots; commit
-/// paths explicitly consume the contiguous prefix after observing it.
+/// Per-partition offset accounting: record offsets as they are delivered,
+/// complete them in any order, and read the highest offset that is safe to
+/// commit. Observing the frontier never changes it; a commit point consumes
+/// it with `take_frontier`.
 ///
 /// A ledger lives for one partition assignment: create it on assign, drop it
 /// on revoke. Kafka replays a partition from its committed offset after a
@@ -46,9 +48,8 @@ impl OffsetLedger {
     }
 
     /// Record offsets in delivery order and return their total charge. An
-    /// offset gap (transaction control records) gets pre-completed zero-charge
-    /// filler slots, so the window stays dense and the frontier walks over the
-    /// gap.
+    /// offset gap (transaction control records) never blocks the frontier and
+    /// carries no charge.
     ///
     /// # Panics
     ///
@@ -64,6 +65,8 @@ impl OffsetLedger {
                 offset >= next_offset,
                 "offset {offset} delivered below the window's next offset {next_offset}"
             );
+            // A gap becomes pre-completed zero-charge filler so the index
+            // math stays aligned with offsets.
             for _ in 0..offset - next_offset {
                 self.slots.push_back(Slot {
                     complete: true,
@@ -108,17 +111,17 @@ impl OffsetLedger {
         }
     }
 
-    /// Highest contiguous completed offset. This can be a gap offset when
-    /// filler ends the completed prefix; a commit one past it is still correct
-    /// because a gap holds no messages.
+    /// Highest offset with nothing incomplete at or below it, or `None`
+    /// before the first completion. Committing one past it is always safe,
+    /// even when a trailing gap makes this a gap offset.
     pub fn frontier(&self) -> Option<Offset> {
         let base_offset = self.base_offset?;
         (self.prefix > 0).then(|| base_offset + (self.prefix - 1))
     }
 
-    /// Consume the contiguous completed prefix previously observable through
-    /// `frontier`. This is intentionally separate from `complete` for shadow
-    /// comparisons against the current commit path.
+    /// Take the frontier and the charge of everything at or below it,
+    /// forgetting that span. Kept separate from `complete` so that reading
+    /// the frontier has no side effects and only commit points consume it.
     pub fn take_frontier(&mut self) -> Option<TakenFrontier> {
         let frontier_offset = self.frontier()?;
         let charge = self
