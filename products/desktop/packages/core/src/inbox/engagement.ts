@@ -59,11 +59,7 @@ export interface BuildBulkActionEventsInput {
   actionType: InboxBulkActionType;
   surface: InboxReportActionSurface;
   /** Dismissal metadata, only meaningful for `dismiss`. Note is truncated to 500 chars. */
-  dismissal?: {
-    reason?: string;
-    note?: string;
-    correctedRepository?: string | null;
-  };
+  dismissal?: { reason?: string; note?: string };
 }
 
 /**
@@ -98,9 +94,6 @@ export function buildBulkActionEvents(
       : {}),
     ...(actionType === "dismiss" && dismissal?.note
       ? { dismissal_note: dismissal.note.slice(0, 500) }
-      : {}),
-    ...(actionType === "dismiss" && dismissal?.correctedRepository
-      ? { dismissal_corrected_repository: dismissal.correctedRepository }
       : {}),
   }));
 }
