@@ -1,6 +1,6 @@
 import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
-import { WORKFLOWS_MCP_TOOLS } from '../generated/agentContext'
+import { CREATING_BROADCASTS_SKILL, WORKFLOWS_MCP_TOOLS } from '../generated/agentContext'
 import type { BroadcastEmailValue } from './broadcastWizardLogic'
 
 // Each visible chip and the hidden payload items it stands for share a dismiss group, so closing
@@ -25,6 +25,23 @@ const TOOL_CONTEXT_ITEMS: AttachedContextItem[] = WORKFLOWS_MCP_TOOLS.filter((to
     dismissGroup: GUIDANCE_DISMISS_GROUP,
     value: `MCP tool ${tool.name}: ${tool.description}`,
 }))
+
+// The skill body is embedded rather than discovered so the agent never spends turns working out
+// that PostHog can send a broadcast at all, the way it does from a cold start.
+const SKILL_CONTENT_CONTEXT_ITEM: AttachedContextItem = {
+    type: 'instructions',
+    hidden: true,
+    dismissGroup: GUIDANCE_DISMISS_GROUP,
+    value: `Skill ${CREATING_BROADCASTS_SKILL.name} (embedded): ${CREATING_BROADCASTS_SKILL.content}`,
+}
+
+// The visible counterpart to the embedded body, so the sender can see which skill is in play.
+const SKILL_CHIP_CONTEXT_ITEM: AttachedContextItem = {
+    type: 'skill',
+    key: CREATING_BROADCASTS_SKILL.name,
+    label: 'Creating broadcasts skill',
+    dismissGroup: GUIDANCE_DISMISS_GROUP,
+}
 
 // create_broadcast is a Max tool rather than an MCP one, so it is not in WORKFLOWS_MCP_TOOLS and has
 // to be named here for the agent to consider it while no broadcast exists yet.
@@ -70,7 +87,10 @@ export function serializeBroadcastEmailState(email: BroadcastEmailValue): string
 // All static strings below are build-time constants from our own repo, which is what makes them
 // safe to attach as trusted `instructions` items — never interpolate ids or user text into them.
 const PREAMBLE_BASE =
-    'The user has the PostHog broadcast wizard open. A broadcast is a workflow (hog flow) of kind ' +
+    'The user has the PostHog broadcast wizard open. The creating-broadcasts skill and the workflows MCP ' +
+    'tool catalog are included in this context, so you already have what you need to act. Do not spend ' +
+    'turns discovering tools, reading skill files, or offering cohorts and other products as the way to ' +
+    'send email. A broadcast is a workflow (hog flow) of kind ' +
     `"broadcast" with a single email step whose action id is "${EMAIL_ACTION_ID}". The ` +
     'broadcast_email_editor_state item is the current, possibly unsaved email in the editor - prefer it ' +
     'over a fetched definition when reading. '
@@ -111,6 +131,8 @@ export function buildBroadcastAgentContext(
             dismissGroup: GUIDANCE_DISMISS_GROUP,
             value: broadcastId ? PREAMBLE_SAVED : PREAMBLE_UNSAVED,
         },
+        SKILL_CONTENT_CONTEXT_ITEM,
+        SKILL_CHIP_CONTEXT_ITEM,
         ...(broadcastId ? TOOL_CONTEXT_ITEMS : [CREATE_TOOL_CONTEXT_ITEM]),
     ]
     if (broadcastId) {
