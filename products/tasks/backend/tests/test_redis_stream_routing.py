@@ -106,6 +106,30 @@ class TestTasksCacheAddRedisFallback(SimpleTestCase):
             self.assertTrue(tasks_redis.tasks_cache_add("guard-key", True, timeout=60))
             self.assertFalse(tasks_redis.tasks_cache_add("guard-key", True, timeout=60))
 
+    def test_recovery_mid_window_does_not_extend_suppression(self):
+        # A call the guard vetoes must not write redis. A redis key that outlives the guard entry
+        # pushes the next admission out to nearly two windows, and the 60s heartbeat guard has
+        # only a 2x margin before the 120s inactivity timer ends an unattended run.
+        cache = MagicMock()
+        cache.add.side_effect = [redis.exceptions.ConnectionError(), True]
+
+        with (
+            patch.object(tasks_redis, "get_tasks_cache", return_value=cache),
+            patch.object(tasks_redis, "capture_exception"),
+            patch.object(tasks_redis, "_next_capture_at", 0.0),
+            patch.dict(tasks_redis._local_guard_expiry, clear=True),
+            patch("products.tasks.backend.redis.time") as mock_time,
+        ):
+            mock_time.monotonic.return_value = 1000.0
+            self.assertTrue(tasks_redis.tasks_cache_add("guard-key", True, timeout=60))
+
+            mock_time.monotonic.return_value = 1059.0
+            self.assertFalse(tasks_redis.tasks_cache_add("guard-key", True, timeout=60))
+            self.assertEqual(cache.add.call_count, 1)
+
+            mock_time.monotonic.return_value = 1061.0
+            self.assertTrue(tasks_redis.tasks_cache_add("guard-key", True, timeout=60))
+
 
 class _ThreadHungryAsyncClient:
     """Async Redis stand-in whose ops need a default-executor thread to finish.

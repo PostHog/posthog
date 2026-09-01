@@ -114,12 +114,23 @@ _local_guard_lock = threading.Lock()
 _local_guard_expiry: dict[str, float] = {}
 
 
+def _drop_expired_guards(now: float) -> None:
+    # Call with _local_guard_lock held.
+    for key in [k for k, expires_at in _local_guard_expiry.items() if expires_at <= now]:
+        del _local_guard_expiry[key]
+
+
+def _local_guard_holds(key: str) -> bool:
+    now = time.monotonic()
+    with _local_guard_lock:
+        _drop_expired_guards(now)
+        return key in _local_guard_expiry
+
+
 def _local_guard_add(key: str, timeout: int) -> bool:
     now = time.monotonic()
     with _local_guard_lock:
-        expired = [k for k, expires_at in _local_guard_expiry.items() if expires_at <= now]
-        for k in expired:
-            del _local_guard_expiry[k]
+        _drop_expired_guards(now)
         if key in _local_guard_expiry:
             return False
         _local_guard_expiry[key] = now + timeout
@@ -152,12 +163,19 @@ def tasks_cache_add(key: str, value: Any, timeout: int) -> bool:
     newly added (the caller should proceed), False when it already existed. A redis failure
     degrades to a per-process guard with the same key and timeout, so an outage throttles per
     process instead of not at all."""
+    # The guard is read before the redis write. Writing first and vetoing after would leave a
+    # redis key that outlives the guard entry, so a recovery mid-window would suppress for up to
+    # twice the timeout — long enough for the 60s heartbeat guard to starve a 120s inactivity
+    # timer and end a live run.
+    if _local_guard_holds(key):
+        return False
     try:
         redis_added = bool(get_tasks_cache().add(key, value, timeout=timeout))
     except _REDIS_ERRORS as e:
         _note_cache_failure("add", e)
         return _local_guard_add(key, timeout)
-    # Record the redis admission in the local guard too, so the fallback still suppresses a
-    # repeat of this key if redis drops before the window ends. The guard write only runs on an
-    # admission (redis_added is True), not on the repeated cooldown checks that return False.
-    return redis_added and _local_guard_add(key, timeout)
+    if redis_added:
+        # Record the redis admission in the local guard too, so the fallback still suppresses a
+        # repeat of this key if redis drops before the window ends.
+        _local_guard_add(key, timeout)
+    return redis_added
