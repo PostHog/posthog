@@ -586,6 +586,7 @@ SPECTACULAR_SETTINGS = {
         "QuarantineModeEnum": "products.engineering_analytics.backend.facade.contracts.QuarantineMode",
         "CITestRunnerEnum": "products.engineering_analytics.backend.facade.contracts.CITestRunner",
         "RestrictionLevelEnum": "products.dashboards.backend.models.dashboard.Dashboard.RestrictionLevel",
+        "DashboardSavedViewScopeEnum": "products.dashboards.backend.models.dashboard_saved_view.DashboardSavedView.Scope",
         "OrganizationMembershipLevelEnum": "posthog.models.organization.OrganizationMembership.Level",
         "SetupTaskId": "posthog.models.team.setup_tasks.SetupTaskId",
         "SurveyType": "products.surveys.backend.models.Survey.SurveyType",
@@ -676,6 +677,8 @@ SPECTACULAR_SETTINGS = {
             None,
         ],
         "ModelEnum": "products.batch_exports.backend.models.batch_export.BatchExport.Model",
+        # Shared by FileDownloadHogQLRequest.model and FileDownloadCountRowsRequest.model.
+        "FileDownloadHogQLModelEnum": ["hogql"],
         "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
         "ScannerModelEnum": "products.replay_vision.backend.models.replay_scanner.ScannerModel",
         "ScannerTypeEnum": "products.replay_vision.backend.models.replay_scanner.ScannerType",
@@ -964,12 +967,6 @@ SPECTACULAR_SETTINGS = {
         # Same-value collisions: identical choice sets appear on fields with different names.
         # href_matching, text_matching, url_matching on ActionStep all share the same choices.
         "ActionStepMatchingEnum": ["contains", "regex", "exact"],
-        # effective_restriction_level and effective_privilege_level are SerializerMethodFields
-        # returning Dashboard.RestrictionLevel/PrivilegeLevel (IntegerChoices).  Since they
-        # go through the type-hint path (no x-spec-enum-id), they hash as (value, value).
-        "EffectivePrivilegeLevelEnum": [(21, 21), (37, 37)],
-        # effective_membership_level and level on OrganizationMember use the same int values.
-        "EffectiveMembershipLevelEnum": [(1, 1), (8, 8), (15, 15)],
         # descriptionContentType and thankYouMessageDescriptionContentType share values.
         "DescriptionContentTypeEnum": ["text", "html"],
         # Field-name collisions: multiple different choice sets use the same field name
@@ -1478,6 +1475,21 @@ WIZARD_GATEWAY_TOKEN_CAP_USD = get_from_env("WIZARD_GATEWAY_TOKEN_CAP_USD", "20"
 # is required rather than optional. Mirrors the CLI's PROGRAM_REGISTRY.
 WIZARD_GATEWAY_PROGRAM_IDS = get_list(get_from_env("WIZARD_GATEWAY_PROGRAM_IDS", ""))
 WIZARD_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("WIZARD_GATEWAY_TOKEN_TTL_SECONDS", 86400, type_cast=int)
+
+# Exact MCP endpoints that operators explicitly allow the MCP Store to reach even
+# when normal SSRF validation rejects their private/internal address. This is an
+# internal dogfooding escape hatch, not a hostname or CIDR allowlist: callers must
+# match one of these complete URLs byte-for-byte. Internal endpoints also bypass
+# the process HTTP proxy so cluster-local traffic is not sent to Smokescreen.
+# Parsed defensively like AI_GATEWAY_TEAM_TIER_OVERRIDES above: a malformed value
+# must not take every process down at settings import; the URL policy degrades to
+# an empty allowlist (everything internal stays blocked).
+try:
+    MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM: dict[str, list[str]] = json.loads(
+        get_from_env("MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM", "{}")
+    )
+except ValueError:
+    MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM = {}
 
 # Sharing configuration settings
 SHARING_TOKEN_GRACE_PERIOD_SECONDS = 60 * 5  # 5 minutes

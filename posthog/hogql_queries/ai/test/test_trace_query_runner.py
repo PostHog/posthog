@@ -966,6 +966,57 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(trace.totalLatency, 3.9)
         self.assertEqual(trace.events[0].properties.get("$ai_input"), [{"role": "user", "content": "Foo"}])
 
+    def test_sums_distinguish_reported_zero_from_no_report(self):
+        zero_trace_id = str(uuid.uuid4())
+        unpriced_trace_id = str(uuid.uuid4())
+        timestamp = datetime(2024, 12, 1, 0, 0, tzinfo=UTC)
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id=zero_trace_id,
+            team=self.team,
+            timestamp=timestamp,
+            properties={
+                "$ai_input_tokens": 0,
+                "$ai_output_tokens": 0,
+                "$ai_input_cost_usd": 0,
+                "$ai_output_cost_usd": 0,
+                "$ai_total_cost_usd": 0,
+            },
+        )
+        # A generation whose provider never reported usage carries no token or
+        # cost properties at all.
+        _create_event(
+            event="$ai_generation",
+            distinct_id="person1",
+            team=self.team,
+            timestamp=timestamp,
+            properties={
+                "$ai_trace_id": unpriced_trace_id,
+                "$ai_latency": 1,
+                "$ai_input": [{"role": "user", "content": "Foo"}],
+                "$ai_output_choices": [{"role": "assistant", "content": "Bar"}],
+            },
+        )
+
+        date_range = DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z")
+        zero_trace = (
+            TraceQueryRunner(team=self.team, query=TraceQuery(traceId=zero_trace_id, dateRange=date_range))
+            .calculate()
+            .results[0]
+        )
+        unpriced_trace = (
+            TraceQueryRunner(team=self.team, query=TraceQuery(traceId=unpriced_trace_id, dateRange=date_range))
+            .calculate()
+            .results[0]
+        )
+
+        self.assertEqual(zero_trace.totalCost, 0)
+        self.assertEqual(zero_trace.inputCost, 0)
+        self.assertEqual(zero_trace.inputTokens, 0)
+        self.assertIsNone(unpriced_trace.totalCost)
+        self.assertIsNone(unpriced_trace.inputCost)
+        self.assertIsNone(unpriced_trace.inputTokens)
+
     def test_trace_name_from_trace_event(self):
         """Test that trace_name comes from $ai_trace events when they exist."""
         _create_person(distinct_ids=["person1"], team=self.team)

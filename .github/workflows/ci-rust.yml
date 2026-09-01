@@ -345,6 +345,7 @@ jobs:
               continue-on-error: true
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -496,7 +497,14 @@ jobs:
                           extra_args="--test-threads=4"
                       fi
                       if [ "$pkg" = "cohort-seeder" ] && [ -f cohort-seeder/Cargo.toml ] && grep -q '^pg-test-support[[:space:]]*=' cohort-seeder/Cargo.toml; then
-                          DATABASE_URL='postgres://posthog:posthog@localhost:5432/test_posthog' run_nextest "$pkg" -p "$pkg" --features pg-test-support $extra_args || overall_rc=1
+                          features="pg-test-support"
+                          # ch-test-support arms the live-ClickHouse rebuild corpus against the
+                          # compose stack's clickhouse; the grep keeps branches that predate the
+                          # feature building.
+                          if grep -q '^ch-test-support[[:space:]]*=' cohort-seeder/Cargo.toml; then
+                              features="pg-test-support,ch-test-support"
+                          fi
+                          DATABASE_URL='postgres://posthog:posthog@localhost:5432/test_posthog' run_nextest "$pkg" -p "$pkg" --features "$features" $extra_args || overall_rc=1
                       else
                           run_nextest "$pkg" -p "$pkg" $extra_args || overall_rc=1
                       fi
@@ -595,6 +603,7 @@ jobs:
                   clean: false
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:

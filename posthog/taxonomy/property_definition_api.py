@@ -30,6 +30,7 @@ from posthog.taxonomy.taxonomy import (
     CORE_FILTER_DEFINITIONS_BY_GROUP,
     PROPERTY_NAME_ALIASES,
     PROPERTY_NAME_ALIASES_BY_TYPE,
+    QUERY_DEPRECATED_EVENT_PROPERTIES,
 )
 
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
@@ -502,9 +503,6 @@ ALWAYS_EXCLUDED_EVENT_PROPERTIES = set(
     [
         # distinct_id is set in properties by some libraries, but not consistently, so we shouldn't allow users to filter on it
         "distinct_id",
-        # used for updating properties
-        "$set",
-        "$set_once",
         # posthog-js used to send it on events and shouldn't have, now it confuses users
         "$initial_referrer",
         "$initial_referring_domain",
@@ -514,6 +512,7 @@ ALWAYS_EXCLUDED_EVENT_PROPERTIES = set(
         "$group_key",
         "$group_set",
     ]
+    + list(QUERY_DEPRECATED_EVENT_PROPERTIES)
     + [f"$group_{i}" for i in range(GROUP_TYPES_LIMIT)]
     # The $session_entry_X event properties should never be used, the corresponding session property should be used instead.
     # These were added as a workaround for the CDP not supporting true session properties yet.

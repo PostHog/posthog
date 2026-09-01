@@ -86,6 +86,12 @@ WORKFLOW_DISPATCH_ATTEMPT_TOTAL = Counter(
 WORKFLOW_DISPATCH_START_DURATION_SECONDS = Histogram(
     "posthog_tasks_workflow_dispatch_start_duration_seconds", "Temporal workflow start RPC duration"
 )
+WORKFLOW_DISPATCH_START_RPC_DURATION_SECONDS = Histogram(
+    "posthog_tasks_workflow_dispatch_start_rpc_duration_seconds",
+    "Temporal workflow start RPC duration",
+    labelnames=["kind"],
+    buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 2.5, 3, 5, 7.5, 10),
+)
 WORKFLOW_DISPATCH_READY = Gauge("posthog_tasks_workflow_dispatch_ready", "Ready workflow dispatches")
 WORKFLOW_DISPATCH_OLDEST_READY_AGE_SECONDS = Gauge(
     "posthog_tasks_workflow_dispatch_oldest_ready_age_seconds", "Age of the oldest ready workflow dispatch"

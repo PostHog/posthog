@@ -19,16 +19,29 @@ from redis import exceptions as redis_exceptions
 from structlog.types import FilteringBoundLogger
 
 from posthog.models import Team
+from posthog.redis import get_client
 from posthog.sync import database_sync_to_async
 from posthog.tasks.usage_report import ExternalDataJob
 
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import (
+    _get_redis,
     finish_row_tracking,
     increment_rows,
     setup_row_tracking,
     will_hit_billing_limit,
 )
+
+
+class _CacheReadFailsClient:
+    def __init__(self, inner):
+        self._inner = inner
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    def get(self, *args, **kwargs):
+        raise redis_exceptions.ConnectionError("Error connecting to redis:6379.")
 
 
 class TestRowTrackingRedisUnavailable(BaseTest):
@@ -146,13 +159,30 @@ class TestRowTracking(BaseTest):
 
             await finish_row_tracking(t_id, schema_id)
 
-    async def _run(self, source: ExternalDataSource, limit: int) -> bool:
+    async def _clear_billing_period_rows_cache(self) -> None:
+        # The organization is created once per test class and Redis is not rolled back between
+        # tests, so a cached sum would otherwise leak into the next test.
+        with override_settings(DATA_WAREHOUSE_REDIS_HOST="localhost", DATA_WAREHOUSE_REDIS_PORT="6379"):
+            async with _get_redis() as redis:
+                if not redis:
+                    return
+
+                keys = await redis.keys(f"posthog:data_warehouse_billing_period_rows:{self.organization.id}:*")
+                if keys:
+                    await redis.delete(*keys)
+
+    async def _run(self, source: ExternalDataSource, limit: int, clear_cache: bool = True) -> bool:
         from ee.models.license import License
 
-        await sync_to_async(License.objects.create)(
+        if clear_cache:
+            await self._clear_billing_period_rows_cache()
+
+        await sync_to_async(License.objects.get_or_create)(
             key="12345::67890",
-            plan="enterprise",
-            valid_until=datetime(2038, 1, 19, 3, 14, 7, tzinfo=ZoneInfo("UTC")),
+            defaults={
+                "plan": "enterprise",
+                "valid_until": datetime(2038, 1, 19, 3, 14, 7, tzinfo=ZoneInfo("UTC")),
+            },
         )
 
         with (
@@ -271,6 +301,44 @@ class TestRowTracking(BaseTest):
         source = await self._create_source()
 
         async with self._setup_redis_rows(20, team_id=another_team.pk):
+            assert await self._run(source, 10) is True
+
+    @pytest.mark.asyncio
+    async def test_row_tracking_serves_the_billing_period_sum_from_cache(self):
+        source = await self._create_source()
+
+        assert await self._run(source, 10) is False
+
+        await sync_to_async(ExternalDataJob.objects.create)(
+            team=self.team,
+            rows_synced=11,
+            pipeline=source,
+            finished_at=datetime.now(),
+            billable=True,
+            status=ExternalDataJob.Status.COMPLETED,
+        )
+
+        assert await self._run(source, 10, clear_cache=False) is False
+        assert await self._run(source, 10) is True
+
+    @pytest.mark.asyncio
+    async def test_row_tracking_queries_postgres_when_the_cache_read_fails(self):
+        # A Redis failure must fall through to the query. The caller treats a RedisError as
+        # "fail open", so letting one escape would skip the billing check for this run.
+        source = await self._create_source()
+        await sync_to_async(ExternalDataJob.objects.create)(
+            team=self.team,
+            rows_synced=11,
+            pipeline=source,
+            finished_at=datetime.now(),
+            billable=True,
+            status=ExternalDataJob.Status.COMPLETED,
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.row_tracking.get_client",
+            side_effect=lambda url: _CacheReadFailsClient(get_client(url)),
+        ):
             assert await self._run(source, 10) is True
 
     @pytest.mark.asyncio
