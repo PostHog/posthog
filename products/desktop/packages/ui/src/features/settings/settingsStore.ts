@@ -10,8 +10,8 @@ import { clampAutoCompactPercent } from "@posthog/core/sessions/autoCompact";
 import type {
   Adapter,
   AgentRuntime,
-  CodexModelAccess,
   ExecutionMode,
+  ModelAccess,
   WorkspaceMode,
 } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
@@ -133,7 +133,7 @@ export interface SyncedCustomInstructions {
 
 // ---------- Store shape ----------
 
-interface SettingsStore {
+export interface SettingsStore {
   // Run mode + last-used flow defaults
   defaultRunMode: DefaultRunMode;
   lastUsedRunMode: "local" | "cloud";
@@ -283,14 +283,16 @@ interface SettingsStore {
   // sessions, cloud covers cloud runs.
   rtkEnabledLocal: boolean;
   rtkEnabledCloud: boolean;
-  codexModelAccess: CodexModelAccess;
+  codexModelAccess: ModelAccess;
+  claudeModelAccess: ModelAccess;
   setAllowBypassPermissions: (enabled: boolean) => void;
   setPreventSleepWhileRunning: (enabled: boolean) => void;
   setDebugLogsCloudRuns: (enabled: boolean) => void;
   setAutoPublishCloudRuns: (enabled: boolean) => void;
   setRtkEnabledLocal: (enabled: boolean) => void;
   setRtkEnabledCloud: (enabled: boolean) => void;
-  setCodexModelAccess: (mode: CodexModelAccess) => void;
+  setCodexModelAccess: (mode: ModelAccess) => void;
+  setClaudeModelAccess: (mode: ModelAccess) => void;
 
   // Terminal
   terminalFont: TerminalFont;
@@ -550,6 +552,7 @@ export const useSettingsStore = create<SettingsStore>()(
       rtkEnabledLocal: true,
       rtkEnabledCloud: true,
       codexModelAccess: "posthog-gateway",
+      claudeModelAccess: "posthog-gateway",
       setAllowBypassPermissions: (enabled) =>
         set({ allowBypassPermissions: enabled }),
       setPreventSleepWhileRunning: (enabled) =>
@@ -560,6 +563,7 @@ export const useSettingsStore = create<SettingsStore>()(
       setRtkEnabledLocal: (enabled) => set({ rtkEnabledLocal: enabled }),
       setRtkEnabledCloud: (enabled) => set({ rtkEnabledCloud: enabled }),
       setCodexModelAccess: (mode) => set({ codexModelAccess: mode }),
+      setClaudeModelAccess: (mode) => set({ claudeModelAccess: mode }),
 
       // Terminal
       terminalFont: "berkeley-mono",
@@ -710,6 +714,7 @@ export const useSettingsStore = create<SettingsStore>()(
         rtkEnabledLocal: state.rtkEnabledLocal,
         rtkEnabledCloud: state.rtkEnabledCloud,
         codexModelAccess: state.codexModelAccess,
+        claudeModelAccess: state.claudeModelAccess,
 
         // Terminal
         terminalFont: state.terminalFont,
