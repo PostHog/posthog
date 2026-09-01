@@ -75,10 +75,8 @@ pub fn upload(args: &Args) -> Result<()> {
         .then(|| release_builder.fetch_or_create())
         .transpose()?;
 
-    // The release is created in both modes, so the server has a row to resolve an event's
-    // `$app_namespace` / `$app_version` / `$app_build` onto. Event mode only skips binding it to
-    // The mapping keeps the release the upload creates, so an exception takes the release of the
-    // mappings its frames resolved against.
+    // Bind the mapping to the release created for this build, so an exception symbolicated with
+    // this mapping is attributed to that release.
     file.release_id = release.map(|r| r.id.to_string());
 
     let to_upload: SymbolSetUpload = file.try_into()?;
