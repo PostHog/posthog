@@ -528,9 +528,15 @@ def get_request_analytics_properties(request) -> AnalyticsProps:
     host: str | None = None
     pathname: str | None = None
     if isinstance(current_url, str) and current_url:
-        parsed = urlparse(current_url)
-        host = parsed.netloc or None
-        pathname = parsed.path or None
+        try:
+            parsed = urlparse(current_url)
+        except ValueError:
+            # A malformed Referer (e.g. an invalid IPv6 host) makes urlparse raise; treat it as
+            # no URL rather than letting the error propagate to the caller.
+            current_url = None
+        else:
+            host = parsed.netloc or None
+            pathname = parsed.path or None
     else:
         current_url = None
     # Auth classes tag the query context with access_method during DRF dispatch

@@ -66,6 +66,26 @@ class TestReportUserAction(BaseTest):
                 },
             ),
             (
+                "malformed_referer_yields_null_url_fields",
+                {"Referer": "http://[broken", "X-Posthog-Session-Id": "sess-123"},
+                None,
+                {
+                    "source": "api",
+                    "$current_url": None,
+                    "$host": None,
+                    "$pathname": None,
+                    "$session_id": "sess-123",
+                    "was_impersonated": False,
+                    "access_method": None,
+                    "user_agent": None,
+                    "mcp_user_agent": None,
+                    "mcp_client_name": None,
+                    "mcp_client_version": None,
+                    "mcp_protocol_version": None,
+                    "mcp_oauth_client_name": None,
+                },
+            ),
+            (
                 "includes_mcp_user_agent_from_header",
                 {
                     "Referer": "http://app.posthog.com/insights",
