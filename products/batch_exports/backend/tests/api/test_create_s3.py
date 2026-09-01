@@ -132,7 +132,7 @@ def test_create_s3_family_batch_export_validates_empty_inputs(
 
 
 @pytest.mark.parametrize(
-    "destination_type,integration_fixture,credential_field",
+    "destination_type,integration_fixture,owned_field",
     [
         ("AwsS3", "aws_s3_integration", "aws_access_key_id"),
         ("AwsS3", "aws_s3_integration", "aws_secret_access_key"),
@@ -142,7 +142,7 @@ def test_create_s3_family_batch_export_validates_empty_inputs(
         ("S3Compatible", "s3_compatible_integration", "endpoint_url"),
     ],
 )
-def test_create_s3_family_batch_export_rejects_inline_credentials(
+def test_create_s3_family_batch_export_rejects_integration_owned_fields(
     client: HttpClient,
     temporal,
     organization,
@@ -150,7 +150,7 @@ def test_create_s3_family_batch_export_rejects_inline_credentials(
     user,
     destination_type,
     integration_fixture,
-    credential_field,
+    owned_field,
     request,
 ):
     """Credentials and the provider endpoint belong to the integration, so config may not carry them.
@@ -168,7 +168,7 @@ def test_create_s3_family_batch_export_rejects_inline_credentials(
             "interval": "hour",
             "destination": {
                 "type": destination_type,
-                "config": {**_S3_FAMILY_BASE_CONFIG, credential_field: "https://localhost:9000"},
+                "config": {**_S3_FAMILY_BASE_CONFIG, owned_field: "belongs-in-the-integration"},
                 "integration": integration.id,
             },
         },
@@ -176,7 +176,7 @@ def test_create_s3_family_batch_export_rejects_inline_credentials(
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
     assert response.json()["detail"] == (
         f"{destination_type} batch exports authenticate through their integration. "
-        f"Remove these fields from the configuration: ['{credential_field}']"
+        f"Remove these fields from the configuration: ['{owned_field}']"
     )
 
 
@@ -187,8 +187,8 @@ def test_create_s3_family_batch_export_rejects_inline_credentials(
         ("AwsS3", {"endpoint_url": "https://localhost:9000"}, "endpoint_url"),
         ("AwsS3", {"use_virtual_style_addressing": True}, "use_virtual_style_addressing"),
         # S3Compatible rejects AWS-only fields.
-        ("S3Compatible", {"endpoint_url": "https://localhost:9000", "kms_key_id": "alias/test"}, "kms_key_id"),
-        ("S3Compatible", {"endpoint_url": "https://localhost:9000", "encryption": "aws:kms"}, "encryption"),
+        ("S3Compatible", {"kms_key_id": "alias/test"}, "kms_key_id"),
+        ("S3Compatible", {"encryption": "aws:kms"}, "encryption"),
     ],
 )
 def test_create_s3_family_batch_export_rejects_inapplicable_fields(

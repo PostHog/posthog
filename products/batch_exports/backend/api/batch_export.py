@@ -1480,11 +1480,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
             # credential field is already rejected as unknown, since the input dataclasses never
             # declared it.
             integration_owned_fields = {"aws_access_key_id", "aws_secret_access_key", "endpoint_url"}
-            submitted_credential_fields = sorted(integration_owned_fields & config.keys())
-            if submitted_credential_fields:
+            submitted_owned_fields = sorted(integration_owned_fields & config.keys())
+            if submitted_owned_fields:
                 raise serializers.ValidationError(
                     f"{destination_type} batch exports authenticate through their integration. "
-                    f"Remove these fields from the configuration: {submitted_credential_fields}"
+                    f"Remove these fields from the configuration: {submitted_owned_fields}"
                 )
 
             # we already validate the required inputs in BatchExportDestinationSerializer::validate
