@@ -89,13 +89,11 @@ export class BlockProxy {
             this.blocks = data.blocks as RecordingBlock[]
             return this.blocks.length
         } catch (err) {
-            // The classifications above are already correct, including the non-retryable invalid shape.
             if (err instanceof RasterizationError) {
                 throw err
             }
-            // The listing timeout covers the lazy body read as well as the connection, so a DNS blip,
-            // a recording-api rollout, and a response that stops part way through the body all arrive
-            // here. Each one is transient, and each would otherwise escape as an unclassified UNKNOWN.
+            // The timeout covers the body read as well as the connection, so a rollout, a DNS blip and
+            // a response that stalls mid-body all land here. All are transient, not UNKNOWN.
             throw new RasterizationError(
                 `Failed to fetch block listing: ${(err as Error)?.message ?? String(err)}`,
                 true,

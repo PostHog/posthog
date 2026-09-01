@@ -122,8 +122,7 @@ describe('BlockProxy', () => {
 
             const proxy = new BlockProxy(testCfg, mockLog)
             await expect(proxy.fetchBlocks(baseInput())).rejects.toThrow('Invalid block listing response')
-            // A malformed listing reads the same way on a retry, so this classification must survive
-            // the rethrow that lets timeouts through as retryable.
+            // The rethrow that lets timeouts through as retryable must not flip this.
             await expect(proxy.fetchBlocks(baseInput())).rejects.toMatchObject({ retryable: false })
         })
 
