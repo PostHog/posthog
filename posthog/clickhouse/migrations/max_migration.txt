@@ -1,1 +1,1 @@
-0307_logs_pattern_kafka
+0310_add_cleanup_snapshot_tables

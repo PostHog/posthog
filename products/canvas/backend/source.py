@@ -13,6 +13,7 @@ can be exercised without a database and shared with the build worker.
 import re
 import json
 from typing import Any
+from urllib.parse import urlsplit
 
 import jsonschema
 
@@ -102,14 +103,31 @@ _NETWORK_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
     (
         re.compile(r"\bfetch\s*\("),
         "network_fetch",
-        "fetch() is blocked by the canvas sandbox — use the `ph` data bridge instead",
+        "fetch() requires every destination in capabilities.network.origins — prefer the `ph` data bridge for PostHog data",
     ),
     (
         re.compile(r"\bXMLHttpRequest\b"),
         "network_xhr",
-        "XMLHttpRequest is blocked by the canvas sandbox — use the `ph` data bridge instead",
+        "XMLHttpRequest requires every destination in capabilities.network.origins — prefer the `ph` data bridge for PostHog data",
     ),
 ]
+
+_FETCH_LITERAL_URL_RE = re.compile(r"\bfetch\s*\(\s*([\"'`])(https://[^\"'`]+)\1")
+# `object` and `embed` are left out on purpose: the artifact CSP keeps
+# `object-src 'none'`, so a declared origin cannot make them load. Matching
+# them would block publish with a remedy that does nothing.
+_RESOURCE_TAG_RE = re.compile(
+    r"<(?:img|audio|video|source|track|iframe)\b[^>]*?"
+    r"\b(?:src|poster)\s*=\s*(?:\{\s*)?([\"'`])(https://[^\"'`]+)\1",
+    re.IGNORECASE,
+)
+_SRCSET_TAG_RE = re.compile(r"<(?:img|source)\b[^>]*?\bsrcset\s*=\s*(?:\{\s*)?([\"'`])([^\"'`]+)\1", re.IGNORECASE)
+_SRCSET_URL_RE = re.compile(r"https://[^\s,]+")
+_LINK_TAG_RE = re.compile(r"<link\b[^>]*>", re.IGNORECASE)
+_REL_STYLESHEET_RE = re.compile(r"\brel\s*=\s*([\"'])stylesheet\1", re.IGNORECASE)
+_HREF_LITERAL_URL_RE = re.compile(r"\bhref\s*=\s*(?:\{\s*)?([\"'])(https://[^\"']+)\1", re.IGNORECASE)
+_CSS_URL_RE = re.compile(r"\burl\(\s*([\"']?)(https://[^\"')\s]+)\1\s*\)", re.IGNORECASE)
+_CSS_IMPORT_RE = re.compile(r"@import\s+([\"'])(https://[^\"']+)\1", re.IGNORECASE)
 
 # `ph` bridge calls checked against the project's declared capabilities. The
 # host enforces capabilities at runtime, so an undeclared call would build fine
@@ -224,6 +242,58 @@ def _validate_network_origin(origin: Any) -> str | None:
     if origin.rstrip("/") != canonical:
         return f'network origin must use its canonical form: "{canonical}"'
     return None
+
+
+def _network_origin_from_url(url: str) -> str | None:
+    try:
+        parsed = urlsplit(url)
+        port = parsed.port
+    except ValueError:
+        return None
+    if parsed.scheme != "https" or not parsed.hostname:
+        return None
+    hostname = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+    candidate = f"https://{hostname}" + (f":{port}" if port is not None else "")
+    return canonical_network_origin(candidate)
+
+
+def _literal_external_urls(content: str) -> list[tuple[str, int]]:
+    urls: list[tuple[str, int]] = []
+    for pattern in (_FETCH_LITERAL_URL_RE, _RESOURCE_TAG_RE, _CSS_URL_RE, _CSS_IMPORT_RE):
+        urls.extend((match.group(2), match.start(2)) for match in pattern.finditer(content))
+    for srcset in _SRCSET_TAG_RE.finditer(content):
+        urls.extend(
+            (match.group(0), srcset.start(2) + match.start()) for match in _SRCSET_URL_RE.finditer(srcset.group(2))
+        )
+    for tag in _LINK_TAG_RE.finditer(content):
+        if _REL_STYLESHEET_RE.search(tag.group(0)) is None:
+            continue
+        href = _HREF_LITERAL_URL_RE.search(tag.group(0))
+        if href is not None:
+            urls.append((href.group(2), tag.start() + href.start(2)))
+    return urls
+
+
+def _validate_network_capabilities(path: str, content: str, declared_origins: set[str]) -> list[dict[str, Any]]:
+    diagnostics: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for url, position in _literal_external_urls(content):
+        origin = _network_origin_from_url(url)
+        if origin is None or origin in seen:
+            continue
+        seen.add(origin)
+        if origin not in declared_origins:
+            diagnostics.append(
+                diagnostic(
+                    "error",
+                    "capability_missing_network_origin",
+                    f'External resource requires "{origin}" in capabilities.network.origins — '
+                    "the canvas sandbox blocks undeclared origins at runtime",
+                    path=path,
+                    line=_line_of(content, position),
+                )
+            )
+    return diagnostics
 
 
 def _validate_code_file(path: str, code: str) -> list[dict[str, Any]]:
@@ -570,7 +640,8 @@ def validate_source_project(project: dict[str, Any], *, kind: str = "freeform") 
     assets = project.get("assets") or {}
     if project.get("entryHtml") not in files:
         diagnostics.append(diagnostic("error", "missing_entry", "entryHtml must name a file present in files"))
-    network_origins = ((project.get("capabilities") or {}).get("network") or {}).get("origins") or []
+    capabilities = project.get("capabilities") or {}
+    network_origins = (capabilities.get("network") or {}).get("origins") or []
     for origin in network_origins:
         problem = _validate_network_origin(origin)
         if problem is not None:
@@ -661,11 +732,15 @@ def validate_source_project(project: dict[str, Any], *, kind: str = "freeform") 
                 )
             )
 
-    capabilities = project.get("capabilities") or {}
+    declared_network_origins = {
+        canonical for origin in network_origins if (canonical := canonical_network_origin(origin)) is not None
+    }
     for path, content in files.items():
-        if not path.endswith(_CODE_EXTENSIONS) or not isinstance(content, str):
+        if not isinstance(content, str):
             continue
-        diagnostics.extend(_validate_code_file(path, content))
-        diagnostics.extend(_validate_capabilities(path, content, capabilities))
+        diagnostics.extend(_validate_network_capabilities(path, content, declared_network_origins))
+        if path.endswith(_CODE_EXTENSIONS):
+            diagnostics.extend(_validate_code_file(path, content))
+            diagnostics.extend(_validate_capabilities(path, content, capabilities))
 
     return diagnostics

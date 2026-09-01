@@ -3360,6 +3360,11 @@
       `_bytes_compressed` UInt64 CODEC(DoubleDelta, ZSTD(1)),
       `_record_count` UInt64 CODEC(DoubleDelta, ZSTD(1)),
   
+      -- The dev and test schema builds logs_distributed on this shard, so these columns have to
+      -- match the ones on logs34. HogQL reads logs_distributed for every logs query.
+      `pattern` String,
+      `pattern_version` UInt8,
+  
       INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
       INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -4137,12 +4142,12 @@
   
   CREATE TABLE IF NOT EXISTS posthog_test.metric_attributes
   (
-      `team_id` Int32 CODEC(DoubleDelta, ZSTD(1)),
-      `time_bucket` DateTime64(0) CODEC(DoubleDelta, ZSTD(1)),
-      `service_name` LowCardinality(String) CODEC(ZSTD(1)),
-      `resource_fingerprint` UInt64 DEFAULT 0 CODEC(DoubleDelta, ZSTD(1)),
-      `attribute_key` LowCardinality(String) CODEC(ZSTD(1)),
-      `attribute_value` String CODEC(ZSTD(1)),
+      `team_id` Int32,
+      `time_bucket` DateTime64(0),
+      `service_name` LowCardinality(String),
+      `resource_fingerprint` UInt64 DEFAULT 0,
+      `attribute_key` LowCardinality(String),
+      `attribute_value` String,
       `attribute_count` SimpleAggregateFunction(sum, UInt64),
       `attribute_type` LowCardinality(String),
       INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
@@ -4223,30 +4228,30 @@
   
   CREATE TABLE IF NOT EXISTS posthog_test.metrics1
   (
-      `time_bucket` DateTime MATERIALIZED toStartOfDay(timestamp) CODEC(DoubleDelta, ZSTD(1)),
-      `uuid` String CODEC(ZSTD(1)),
-      `team_id` Int32 CODEC(ZSTD(1)),
-      `trace_id` String CODEC(ZSTD(1)),
-      `span_id` String CODEC(ZSTD(1)),
-      `trace_flags` Int32 CODEC(ZSTD(1)),
-      `timestamp` DateTime64(6) CODEC(DoubleDelta, ZSTD(1)),
-      `observed_timestamp` DateTime64(6) CODEC(DoubleDelta, ZSTD(1)),
-      `created_at` DateTime64(6) MATERIALIZED now() CODEC(DoubleDelta, ZSTD(1)),
-      `service_name` LowCardinality(String) CODEC(ZSTD(1)),
-      `metric_name` LowCardinality(String) CODEC(ZSTD(1)),
-      `metric_type` LowCardinality(String) CODEC(ZSTD(1)),
-      `value` Float64 CODEC(Gorilla, ZSTD(1)),
-      `count` UInt64 DEFAULT 1 CODEC(T64, ZSTD(1)),
-      `histogram_bounds` Array(Float64) CODEC(ZSTD(1)),
-      `histogram_counts` Array(UInt64) CODEC(ZSTD(1)),
-      `unit` LowCardinality(String) CODEC(ZSTD(1)),
-      `aggregation_temporality` LowCardinality(String) CODEC(ZSTD(1)),
-      `is_monotonic` Bool DEFAULT false CODEC(ZSTD(1)),
-      `resource_attributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
-      `resource_fingerprint` UInt64 MATERIALIZED cityHash64(resource_attributes) CODEC(DoubleDelta, ZSTD(1)),
-      `instrumentation_scope` String CODEC(ZSTD(1)),
-      `attributes_map_str` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
-      `attributes_map_float` Map(LowCardinality(String), Float64) CODEC(ZSTD(1)),
+      `time_bucket` DateTime MATERIALIZED toStartOfDay(timestamp),
+      `uuid` String,
+      `team_id` Int32,
+      `trace_id` String,
+      `span_id` String,
+      `trace_flags` Int32,
+      `timestamp` DateTime64(6),
+      `observed_timestamp` DateTime64(6),
+      `created_at` DateTime64(6) MATERIALIZED now(),
+      `service_name` LowCardinality(String),
+      `metric_name` LowCardinality(String),
+      `metric_type` LowCardinality(String),
+      `value` Float64 CODEC(Gorilla),
+      `count` UInt64 DEFAULT 1 CODEC(T64),
+      `histogram_bounds` Array(Float64),
+      `histogram_counts` Array(UInt64),
+      `unit` LowCardinality(String),
+      `aggregation_temporality` LowCardinality(String),
+      `is_monotonic` Bool DEFAULT false,
+      `resource_attributes` Map(LowCardinality(String), String),
+      `resource_fingerprint` UInt64 MATERIALIZED cityHash64(resource_attributes),
+      `instrumentation_scope` String,
+      `attributes_map_str` Map(LowCardinality(String), String),
+      `attributes_map_float` Map(LowCardinality(String), Float64),
       `time_minute` DateTime ALIAS toStartOfMinute(timestamp),
       `attributes` Map(String, String) ALIAS mapApply((k, v) -> (left(k, -5), v), attributes_map_str),
       INDEX idx_metric_name_set metric_name TYPE set(100) GRANULARITY 1,
@@ -6999,7 +7004,7 @@
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_events_recent', '{replica}', _timestamp)
   PARTITION BY toStartOfDay(inserted_at)
   ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid))
-  TTL toDateTime(inserted_at) + INTERVAL 7 DAY
+  TTL toDate(inserted_at) + INTERVAL 9 DAY
   
   SETTINGS ttl_only_drop_parts = 1
   
@@ -10672,6 +10677,11 @@
       `_bytes_compressed` UInt64 CODEC(DoubleDelta, ZSTD(1)),
       `_record_count` UInt64 CODEC(DoubleDelta, ZSTD(1)),
   
+      -- The dev and test schema builds logs_distributed on this shard, so these columns have to
+      -- match the ones on logs34. HogQL reads logs_distributed for every logs query.
+      `pattern` String,
+      `pattern_version` UInt8,
+  
       INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
       INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -10899,12 +10909,12 @@
   
   CREATE TABLE IF NOT EXISTS posthog_test.metric_attributes
   (
-      `team_id` Int32 CODEC(DoubleDelta, ZSTD(1)),
-      `time_bucket` DateTime64(0) CODEC(DoubleDelta, ZSTD(1)),
-      `service_name` LowCardinality(String) CODEC(ZSTD(1)),
-      `resource_fingerprint` UInt64 DEFAULT 0 CODEC(DoubleDelta, ZSTD(1)),
-      `attribute_key` LowCardinality(String) CODEC(ZSTD(1)),
-      `attribute_value` String CODEC(ZSTD(1)),
+      `team_id` Int32,
+      `time_bucket` DateTime64(0),
+      `service_name` LowCardinality(String),
+      `resource_fingerprint` UInt64 DEFAULT 0,
+      `attribute_key` LowCardinality(String),
+      `attribute_value` String,
       `attribute_count` SimpleAggregateFunction(sum, UInt64),
       `attribute_type` LowCardinality(String),
       INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
@@ -10979,30 +10989,30 @@
   
   CREATE TABLE IF NOT EXISTS posthog_test.metrics1
   (
-      `time_bucket` DateTime MATERIALIZED toStartOfDay(timestamp) CODEC(DoubleDelta, ZSTD(1)),
-      `uuid` String CODEC(ZSTD(1)),
-      `team_id` Int32 CODEC(ZSTD(1)),
-      `trace_id` String CODEC(ZSTD(1)),
-      `span_id` String CODEC(ZSTD(1)),
-      `trace_flags` Int32 CODEC(ZSTD(1)),
-      `timestamp` DateTime64(6) CODEC(DoubleDelta, ZSTD(1)),
-      `observed_timestamp` DateTime64(6) CODEC(DoubleDelta, ZSTD(1)),
-      `created_at` DateTime64(6) MATERIALIZED now() CODEC(DoubleDelta, ZSTD(1)),
-      `service_name` LowCardinality(String) CODEC(ZSTD(1)),
-      `metric_name` LowCardinality(String) CODEC(ZSTD(1)),
-      `metric_type` LowCardinality(String) CODEC(ZSTD(1)),
-      `value` Float64 CODEC(Gorilla, ZSTD(1)),
-      `count` UInt64 DEFAULT 1 CODEC(T64, ZSTD(1)),
-      `histogram_bounds` Array(Float64) CODEC(ZSTD(1)),
-      `histogram_counts` Array(UInt64) CODEC(ZSTD(1)),
-      `unit` LowCardinality(String) CODEC(ZSTD(1)),
-      `aggregation_temporality` LowCardinality(String) CODEC(ZSTD(1)),
-      `is_monotonic` Bool DEFAULT false CODEC(ZSTD(1)),
-      `resource_attributes` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
-      `resource_fingerprint` UInt64 MATERIALIZED cityHash64(resource_attributes) CODEC(DoubleDelta, ZSTD(1)),
-      `instrumentation_scope` String CODEC(ZSTD(1)),
-      `attributes_map_str` Map(LowCardinality(String), String) CODEC(ZSTD(1)),
-      `attributes_map_float` Map(LowCardinality(String), Float64) CODEC(ZSTD(1)),
+      `time_bucket` DateTime MATERIALIZED toStartOfDay(timestamp),
+      `uuid` String,
+      `team_id` Int32,
+      `trace_id` String,
+      `span_id` String,
+      `trace_flags` Int32,
+      `timestamp` DateTime64(6),
+      `observed_timestamp` DateTime64(6),
+      `created_at` DateTime64(6) MATERIALIZED now(),
+      `service_name` LowCardinality(String),
+      `metric_name` LowCardinality(String),
+      `metric_type` LowCardinality(String),
+      `value` Float64 CODEC(Gorilla),
+      `count` UInt64 DEFAULT 1 CODEC(T64),
+      `histogram_bounds` Array(Float64),
+      `histogram_counts` Array(UInt64),
+      `unit` LowCardinality(String),
+      `aggregation_temporality` LowCardinality(String),
+      `is_monotonic` Bool DEFAULT false,
+      `resource_attributes` Map(LowCardinality(String), String),
+      `resource_fingerprint` UInt64 MATERIALIZED cityHash64(resource_attributes),
+      `instrumentation_scope` String,
+      `attributes_map_str` Map(LowCardinality(String), String),
+      `attributes_map_float` Map(LowCardinality(String), Float64),
       `time_minute` DateTime ALIAS toStartOfMinute(timestamp),
       `attributes` Map(String, String) ALIAS mapApply((k, v) -> (left(k, -5), v), attributes_map_str),
       INDEX idx_metric_name_set metric_name TYPE set(100) GRANULARITY 1,
@@ -12028,7 +12038,7 @@
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_events_recent', '{replica}', _timestamp)
   PARTITION BY toStartOfDay(inserted_at)
   ORDER BY (team_id, toStartOfHour(inserted_at), event, cityHash64(distinct_id), cityHash64(uuid))
-  TTL toDateTime(inserted_at) + INTERVAL 7 DAY
+  TTL toDate(inserted_at) + INTERVAL 9 DAY
   SETTINGS storage_policy = 'hot_to_cold'
   SETTINGS ttl_only_drop_parts = 1
   

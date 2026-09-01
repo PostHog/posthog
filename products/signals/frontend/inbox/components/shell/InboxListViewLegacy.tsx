@@ -9,8 +9,7 @@ import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
 import { InboxTabKey, SignalRun } from '../../types'
 import { CardSkeleton } from '../cards/CardSkeleton'
 import { ScoutsRosterLegacy } from '../config/scouts/ScoutsRosterLegacy'
-import { InboxOnboardingTakeover } from '../onboarding/InboxOnboarding'
-import { InboxWelcomeRedesign } from '../onboarding/InboxWelcomeRedesign'
+import { InboxWelcome } from '../onboarding/InboxWelcome'
 import { ArchivedTab } from '../tabs/ArchivedTab'
 import { NotActionableTab } from '../tabs/NotActionableTab'
 import { PullRequestsTab } from '../tabs/PullRequestsTab'
@@ -68,15 +67,15 @@ function ActiveTabBody({
  */
 export function InboxListViewLegacy(): JSX.Element {
     const { activeTab, signalRuns, signalRunsLoading } = useValues(inboxSceneLogic)
-    const { onboardingMode, isWelcomeRedesign } = useValues(inboxOnboardingLogic)
+    const { onboardingMode } = useValues(inboxOnboardingLogic)
     const { ref: widthRef, size } = useResizeBreakpoints(
         { 0: 'narrow', [SETUP_RAIL_MIN_PX]: 'wide' },
         { initialSize: 'wide' }
     )
     const wide = size === 'wide'
-    // Self-driving isn't set up and the inbox is empty: the inbox becomes a single locked "Welcome"
-    // tab (the other tabs are visible but disabled) whose body is the onboarding card. The setup rail
-    // is dropped too, so the onboarding is the whole story – just run the one command.
+    // Self-driving isn't set up and the inbox is empty: the welcome page replaces the whole list
+    // view, tab bar included. The setup rail is dropped too, so the onboarding is the whole story –
+    // just run the one command.
     const onboarding = onboardingMode === 'takeover'
     // The takeover verdict is still settling: commit to neither UI. Rendering the tab bar or the
     // rail here is what caused the normal inbox to flash in and get replaced by the welcome page.
@@ -114,12 +113,10 @@ export function InboxListViewLegacy(): JSX.Element {
             <div className="flex flex-col min-h-0 flex-1 min-w-0">
                 {/* pl-5 (20px) aligns the first tab label with the SceneTitleSection description above;
                     pr-6 matches the report list's px-6 so the scope select shares the list's right edge. */}
-                {/* The redesigned welcome (experiment test arm) is a full-pane page with no tab
-                    row at all; control keeps the locked "Welcome" tab over the disabled real tabs. */}
-                {!isWelcomeRedesign && !pending && (
+                {!onboarding && !pending && (
                     <div className="flex items-end justify-between gap-2 border-b border-primary pl-5 pr-6 shrink-0">
-                        <InboxTabBarLegacy showConfigTab={!wide} onboarding={onboarding} />
-                        {!onboarding && isReportListTab(effectiveTab) && (
+                        <InboxTabBarLegacy showConfigTab={!wide} />
+                        {isReportListTab(effectiveTab) && (
                             <div className="pb-1.5">
                                 <InboxScopeSelect />
                             </div>
@@ -132,11 +129,7 @@ export function InboxListViewLegacy(): JSX.Element {
                             <CardSkeleton count={4} variant="cards" />
                         </div>
                     ) : onboarding ? (
-                        isWelcomeRedesign ? (
-                            <InboxWelcomeRedesign />
-                        ) : (
-                            <InboxOnboardingTakeover />
-                        )
+                        <InboxWelcome />
                     ) : (
                         <ActiveTabBody
                             tab={effectiveTab}

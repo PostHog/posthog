@@ -133,7 +133,7 @@
         "p-limit": "3.1.0",
         "pg": "^8.6.0",
         "pino": "^8.6.0",
-        "posthog-node": "5.51.3",
+        "posthog-node": "5.51.4",
         "pretty-bytes": "^5.6.0",
         "prom-client": "^14.2.0",
         "puppeteer": "^24.3.0",

@@ -75,6 +75,13 @@ const OVERVIEW: RepoOverviewApi = {
     open_to_merge_series_granularity: 'day',
     ready_to_merge_series: [],
     ready_to_merge_series_granularity: 'day',
+    delivery_pipeline: {
+        merged_pr_count: 52,
+        stages: [
+            { stage: 'open_to_gate', median_seconds: 16 * 3600 + 18 * 60, p90_seconds: 4 * 86400, pr_count: 39 },
+            { stage: 'gate_to_merge', median_seconds: 30 * 60 + 42, p90_seconds: 3 * 3600 + 8 * 60, pr_count: 39 },
+        ],
+    },
 }
 
 const ACTIVITY: WorkflowRunActivityApi = {

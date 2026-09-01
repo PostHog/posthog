@@ -150,8 +150,9 @@ class OwnersResolver:
     with ``repo_root`` for testing). Parsed files are cached per directory.
     """
 
-    def __init__(self, repo_root: Path | None = None) -> None:
+    def __init__(self, repo_root: Path | None = None, purpose: Purpose = DEFAULT_PURPOSE) -> None:
         self.repo_root = (repo_root or _git_repo_root()).resolve()
+        self.purpose = purpose
         self._dir_cache: dict[str, OwnersFile | None] = {}
         # The worktree is treated as immutable for the resolver's lifetime.
         self._tracked_cache: dict[str | None, list[str]] = {}
@@ -273,7 +274,7 @@ class OwnersResolver:
         (team slugs only), then the derived ``#<slug>``, else None. Only a team slug
         (not an ``@handle``) carries a channel."""
         if owners and not owners[0].startswith("@"):
-            return team_channel(owners[0], self._teams_registry()).channel
+            return team_channel(owners[0], self._teams_registry(), self.purpose).channel
         return None
 
     def _build_resolution(self, path: str, merged: _Merged) -> Resolution:

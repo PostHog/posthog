@@ -20,8 +20,13 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.lazy_join_tags import (
     ACCOUNT_CUSTOM_PROPERTIES,
     ACCOUNT_CUSTOM_PROPERTIES_HISTORY,
+    ACCOUNT_EMAIL_THREADS,
+    ACCOUNT_FEATURE_REQUESTS,
+    ACCOUNT_MEETINGS,
     ACCOUNT_NOTEBOOKS,
     ACCOUNT_RELATIONSHIPS,
+    ACCOUNT_SLACK_SUMMARIES,
+    ACCOUNT_SUPPORT_TICKETS,
     ACCOUNT_TAGS,
 )
 from posthog.hogql.database.models import (
@@ -43,7 +48,7 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
-from posthog.hogql.errors import ResolutionError
+from posthog.hogql.errors import ResolutionError, TableAccessDeniedError
 from posthog.hogql.parser import parse_expr, parse_select
 
 
@@ -87,6 +92,82 @@ account_resource_notebooks: _AccountScopedPostgresTable = _AccountScopedPostgres
             nullable=True,
             description="Account the notebook is linked to; join to `system.accounts.id`.",
         ),
+    },
+)
+
+
+account_meetings: PostgresTable = PostgresTable(
+    name="_account_meetings",
+    postgres_table_name="customer_analytics_meeting",
+    access_scope="account",
+    access_control_id_field="account_id",
+    description="Internal table of account meetings. Use `system.accounts.meetings` instead.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Meeting UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "account_id": UUIDDatabaseField(name="account_id", nullable=True),
+        "title": StringDatabaseField(name="title"),
+        "start_time": DateTimeDatabaseField(name="start_time"),
+        "end_time": DateTimeDatabaseField(name="end_time", nullable=True),
+        "organizer_email": StringDatabaseField(name="organizer_email"),
+        "status": StringDatabaseField(name="status"),
+    },
+)
+
+
+account_channel_summaries: PostgresTable = PostgresTable(
+    name="_account_channel_summaries",
+    postgres_table_name="customer_analytics_accountchannelsummary",
+    access_scope="account",
+    access_control_id_field="account_id",
+    description="Internal table of account Slack summaries. Use `system.accounts.slack_summaries` instead.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Summary UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "account_id": UUIDDatabaseField(name="account_id"),
+        "slack_channel_id": StringDatabaseField(name="slack_channel_id"),
+        "cadence": StringDatabaseField(name="cadence"),
+        "period_start": DateTimeDatabaseField(name="period_start"),
+        "period_end": DateTimeDatabaseField(name="period_end"),
+        "content": StringDatabaseField(name="content"),
+        "message_count": IntegerDatabaseField(name="message_count"),
+        "generated_at": DateTimeDatabaseField(name="generated_at"),
+    },
+)
+
+
+account_email_threads: PostgresTable = PostgresTable(
+    name="_account_email_threads",
+    postgres_table_name="posthog_conversations_email_thread",
+    access_scope="ticket",
+    resource_level_access_only=True,
+    predicates=[parse_expr("id IN (SELECT thread_id FROM system._account_email_thread_links)")],
+    description="Internal table of customer email threads. Use `system.accounts.email_threads` instead.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Email thread UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "subject": StringDatabaseField(name="subject"),
+        "first_message_at": DateTimeDatabaseField(name="first_message_at", nullable=True),
+        "last_message_at": DateTimeDatabaseField(name="last_message_at", nullable=True),
+        "message_count": IntegerDatabaseField(name="message_count"),
+        "preview": StringDatabaseField(name="preview"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+    },
+)
+
+
+account_email_thread_links: PostgresTable = PostgresTable(
+    name="_account_email_thread_links",
+    postgres_table_name="posthog_conversations_email_thread_account_link",
+    access_scope="ticket",
+    resource_level_access_only=True,
+    predicates=[parse_expr("account_id IN (SELECT toString(id) FROM system.accounts)")],
+    description="Internal table linking customer email threads to accounts. Use `system.accounts.email_threads` instead.",
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Email thread account link UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "thread_id": UUIDDatabaseField(name="thread_id"),
+        "account_id": StringDatabaseField(name="account_id"),
     },
 )
 
@@ -329,6 +410,164 @@ def _account_relationships_select(fields_accessed: dict[str, list[str | int]]) -
     )
 
 
+def _account_meetings_select() -> ast.SelectQuery | ast.SelectSetQuery:
+    return parse_select(
+        """
+        SELECT
+            account_id,
+            count() AS count,
+            max(start_time) AS latest_start_time,
+            toJSONString(arrayMap(row -> map(
+                'id', row.2,
+                'title', row.3,
+                'start_time', row.1,
+                'end_time', row.4,
+                'status', row.5,
+                'organizer_email', row.6
+            ), arraySlice(arrayReverseSort(groupArray(tuple(
+                toString(start_time),
+                toString(id),
+                title,
+                ifNull(toString(end_time), ''),
+                status,
+                organizer_email
+            ))), 1, 10))) AS recent
+        FROM system._account_meetings
+        WHERE isNotNull(account_id)
+        GROUP BY account_id
+        """
+    )
+
+
+def _account_slack_summaries_select() -> ast.SelectQuery | ast.SelectSetQuery:
+    return parse_select(
+        """
+        SELECT
+            account_id,
+            count() AS count,
+            max(generated_at) AS latest_generated_at,
+            toJSONString(arrayMap(row -> map(
+                'id', row.2,
+                'slack_channel_id', row.3,
+                'cadence', row.4,
+                'period_start', row.5,
+                'period_end', row.1,
+                'content', row.6,
+                'message_count', row.7,
+                'generated_at', row.8
+            ), arraySlice(arrayReverseSort(groupArray(tuple(
+                toString(period_end),
+                toString(id),
+                slack_channel_id,
+                cadence,
+                toString(period_start),
+                content,
+                toString(message_count),
+                toString(generated_at)
+            ))), 1, 10))) AS recent
+        FROM system._account_channel_summaries
+        GROUP BY account_id
+        """
+    )
+
+
+def _account_feature_requests_select() -> ast.SelectQuery | ast.SelectSetQuery:
+    return parse_select(
+        """
+        SELECT
+            link.account_id AS account_id,
+            count() AS count,
+            max(request.updated_at) AS last_updated_at,
+            toJSONString(arrayMap(row -> map(
+                'id', row.2,
+                'title', row.3,
+                'status', row.4,
+                'priority', row.5,
+                'updated_at', row.1
+            ), arraySlice(arrayReverseSort(groupArray(tuple(
+                toString(request.updated_at),
+                toString(request.id),
+                request.title,
+                request.status,
+                ifNull(request.priority, '')
+            ))), 1, 10))) AS recent
+        FROM system.feature_request_account_links AS link
+        INNER JOIN system.feature_requests AS request ON request.id = link.feature_request_id
+        WHERE isNull(request.archived_at)
+        GROUP BY link.account_id
+        """
+    )
+
+
+def _account_support_tickets_select() -> ast.SelectQuery | ast.SelectSetQuery:
+    return parse_select(
+        """
+        SELECT
+            account.id AS account_id,
+            count() AS count,
+            max(ticket.last_message_at) AS last_message_at,
+            toJSONString(arrayMap(row -> map(
+                'id', row.2,
+                'ticket_number', row.3,
+                'channel_source', row.4,
+                'status', row.5,
+                'priority', row.6,
+                'last_message_at', row.1
+            ), arraySlice(arrayReverseSort(groupArray(tuple(
+                toString(ifNull(ticket.last_message_at, ticket.created_at)),
+                ticket.id,
+                toString(ticket.ticket_number),
+                ticket.channel_source,
+                ticket.status,
+                ifNull(ticket.priority, '')
+            ))), 1, 10))) AS recent
+        FROM system.accounts AS account
+        INNER JOIN system.support_tickets AS ticket ON ticket.organization_id = account.external_id
+        WHERE isNotNull(account.external_id)
+        GROUP BY account.id
+        """
+    )
+
+
+def _account_email_threads_select() -> ast.SelectQuery | ast.SelectSetQuery:
+    return parse_select(
+        """
+        SELECT
+            toUUID(link.account_id) AS account_id,
+            count() AS count,
+            max(thread.last_message_at) AS last_message_at,
+            toJSONString(arrayMap(row -> map(
+                'id', row.2,
+                'subject', row.3,
+                'preview', row.4,
+                'first_message_at', row.5,
+                'last_message_at', row.1,
+                'message_count', row.6
+            ), arraySlice(arrayReverseSort(groupArray(tuple(
+                toString(ifNull(thread.last_message_at, thread.created_at)),
+                toString(thread.id),
+                thread.subject,
+                thread.preview,
+                ifNull(toString(thread.first_message_at), ''),
+                toString(thread.message_count)
+            ))), 1, 10))) AS recent
+        FROM system._account_email_thread_links AS link
+        INNER JOIN system._account_email_threads AS thread ON thread.id = link.thread_id
+        GROUP BY link.account_id
+        """
+    )
+
+
+def _require_ticket_access(context: HogQLContext, table_name: str) -> None:
+    database = context.database
+    if database is None or database.is_table_access_denied("system.support_tickets"):
+        raise TableAccessDeniedError(table_name)
+    if database.user_access_control and not database.user_access_control.check_access_level_for_resource(
+        "ticket", "viewer"
+    ):
+        raise TableAccessDeniedError(table_name)
+
+
 class _AccountTagsTable(LazyTable):
     description: str = (
         "Internal aggregating table backing `system.accounts.tags`: the distinct, sorted tag names per account."
@@ -475,6 +714,125 @@ class _AccountRelationshipsTable(LazyTable):
         return "account_relationships"
 
 
+class _AccountMeetingsTable(LazyTable):
+    description: str = "Meeting summaries for each account. `recent` contains the newest 10 meetings."
+    fields: dict[str, FieldOrTable] = {
+        "account_id": UUIDDatabaseField(name="account_id", description="Account the meetings belong to."),
+        "count": IntegerDatabaseField(name="count", description="Number of meetings linked to the account."),
+        "latest_start_time": DateTimeDatabaseField(
+            name="latest_start_time", nullable=True, description="Start time of the latest meeting."
+        ),
+        "recent": StringJSONDatabaseField(name="recent", description="Newest 10 meeting summaries."),
+    }
+
+    def lazy_select(
+        self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        return _account_meetings_select()
+
+    def to_printed_clickhouse(self, context: HogQLContext) -> str:
+        return "account_meetings"
+
+    def to_printed_hogql(self) -> str:
+        return "account_meetings"
+
+
+class _AccountSlackSummariesTable(LazyTable):
+    description: str = "Slack summaries for each account. `recent` contains the newest 10 summaries."
+    fields: dict[str, FieldOrTable] = {
+        "account_id": UUIDDatabaseField(name="account_id", description="Account the Slack summaries belong to."),
+        "count": IntegerDatabaseField(name="count", description="Number of Slack summaries for the account."),
+        "latest_generated_at": DateTimeDatabaseField(
+            name="latest_generated_at", nullable=True, description="When the latest Slack summary was generated."
+        ),
+        "recent": StringJSONDatabaseField(name="recent", description="Newest 10 Slack summaries."),
+    }
+
+    def lazy_select(
+        self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        return _account_slack_summaries_select()
+
+    def to_printed_clickhouse(self, context: HogQLContext) -> str:
+        return "account_slack_summaries"
+
+    def to_printed_hogql(self) -> str:
+        return "account_slack_summaries"
+
+
+class _AccountFeatureRequestsTable(LazyTable):
+    description: str = "Active feature requests linked to each account. `recent` contains the newest 10 requests."
+    fields: dict[str, FieldOrTable] = {
+        "account_id": UUIDDatabaseField(name="account_id", description="Account the feature requests are linked to."),
+        "count": IntegerDatabaseField(
+            name="count", description="Number of active feature requests linked to the account."
+        ),
+        "last_updated_at": DateTimeDatabaseField(
+            name="last_updated_at", nullable=True, description="When the latest linked feature request was updated."
+        ),
+        "recent": StringJSONDatabaseField(name="recent", description="Newest 10 active feature requests."),
+    }
+
+    def lazy_select(
+        self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        return _account_feature_requests_select()
+
+    def to_printed_clickhouse(self, context: HogQLContext) -> str:
+        return "account_feature_requests"
+
+    def to_printed_hogql(self) -> str:
+        return "account_feature_requests"
+
+
+class _AccountSupportTicketsTable(LazyTable):
+    description: str = "Support tickets linked to each account. `recent` contains the newest 10 tickets."
+    fields: dict[str, FieldOrTable] = {
+        "account_id": UUIDDatabaseField(name="account_id", description="Account the support tickets belong to."),
+        "count": IntegerDatabaseField(name="count", description="Number of support tickets linked to the account."),
+        "last_message_at": DateTimeDatabaseField(
+            name="last_message_at", nullable=True, description="When the latest support ticket message was sent."
+        ),
+        "recent": StringJSONDatabaseField(name="recent", description="Newest 10 support tickets."),
+    }
+
+    def lazy_select(
+        self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        _require_ticket_access(context, "system.support_tickets")
+        return _account_support_tickets_select()
+
+    def to_printed_clickhouse(self, context: HogQLContext) -> str:
+        return "account_support_tickets"
+
+    def to_printed_hogql(self) -> str:
+        return "account_support_tickets"
+
+
+class _AccountEmailThreadsTable(LazyTable):
+    description: str = "Email threads linked to each account. `recent` contains the newest 10 threads."
+    fields: dict[str, FieldOrTable] = {
+        "account_id": UUIDDatabaseField(name="account_id", description="Account the email threads are linked to."),
+        "count": IntegerDatabaseField(name="count", description="Number of email threads linked to the account."),
+        "last_message_at": DateTimeDatabaseField(
+            name="last_message_at", nullable=True, description="When the latest email message was sent."
+        ),
+        "recent": StringJSONDatabaseField(name="recent", description="Newest 10 email thread summaries."),
+    }
+
+    def lazy_select(
+        self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        _require_ticket_access(context, "system._account_email_threads")
+        return _account_email_threads_select()
+
+    def to_printed_clickhouse(self, context: HogQLContext) -> str:
+        return "account_email_threads"
+
+    def to_printed_hogql(self) -> str:
+        return "account_email_threads"
+
+
 def _join_on_account_id(select: ast.SelectQuery | ast.SelectSetQuery, join_to_add: LazyJoinToAdd) -> ast.JoinExpr:
     return ast.JoinExpr(
         alias=join_to_add.to_table,
@@ -527,6 +885,46 @@ def account_relationships_join(
     return _join_on_account_id(_account_relationships_select(join_to_add.fields_accessed), join_to_add)
 
 
+def account_meetings_join(join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery) -> ast.JoinExpr:
+    if not join_to_add.fields_accessed:
+        raise ResolutionError("No fields requested from `accounts.meetings`")
+    return _join_on_account_id(_account_meetings_select(), join_to_add)
+
+
+def account_slack_summaries_join(
+    join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery
+) -> ast.JoinExpr:
+    if not join_to_add.fields_accessed:
+        raise ResolutionError("No fields requested from `accounts.slack_summaries`")
+    return _join_on_account_id(_account_slack_summaries_select(), join_to_add)
+
+
+def account_feature_requests_join(
+    join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery
+) -> ast.JoinExpr:
+    if not join_to_add.fields_accessed:
+        raise ResolutionError("No fields requested from `accounts.feature_requests`")
+    return _join_on_account_id(_account_feature_requests_select(), join_to_add)
+
+
+def account_support_tickets_join(
+    join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery
+) -> ast.JoinExpr:
+    if not join_to_add.fields_accessed:
+        raise ResolutionError("No fields requested from `accounts.support_tickets`")
+    _require_ticket_access(context, "system.support_tickets")
+    return _join_on_account_id(_account_support_tickets_select(), join_to_add)
+
+
+def account_email_threads_join(
+    join_to_add: LazyJoinToAdd, context: HogQLContext, node: ast.SelectQuery
+) -> ast.JoinExpr:
+    if not join_to_add.fields_accessed:
+        raise ResolutionError("No fields requested from `accounts.email_threads`")
+    _require_ticket_access(context, "system._account_email_threads")
+    return _join_on_account_id(_account_email_threads_select(), join_to_add)
+
+
 account_tags_lazy_join: LazyJoin = LazyJoin(
     from_field=["id"],
     join_table=_AccountTagsTable(),
@@ -556,6 +954,36 @@ account_relationships_lazy_join: LazyJoin = LazyJoin(
     from_field=["id"],
     join_table=_AccountRelationshipsTable(),
     resolver=ACCOUNT_RELATIONSHIPS,
+)
+
+account_meetings_lazy_join: LazyJoin = LazyJoin(
+    from_field=["id"],
+    join_table=_AccountMeetingsTable(),
+    resolver=ACCOUNT_MEETINGS,
+)
+
+account_slack_summaries_lazy_join: LazyJoin = LazyJoin(
+    from_field=["id"],
+    join_table=_AccountSlackSummariesTable(),
+    resolver=ACCOUNT_SLACK_SUMMARIES,
+)
+
+account_feature_requests_lazy_join: LazyJoin = LazyJoin(
+    from_field=["id"],
+    join_table=_AccountFeatureRequestsTable(),
+    resolver=ACCOUNT_FEATURE_REQUESTS,
+)
+
+account_support_tickets_lazy_join: LazyJoin = LazyJoin(
+    from_field=["id"],
+    join_table=_AccountSupportTicketsTable(),
+    resolver=ACCOUNT_SUPPORT_TICKETS,
+)
+
+account_email_threads_lazy_join: LazyJoin = LazyJoin(
+    from_field=["id"],
+    join_table=_AccountEmailThreadsTable(),
+    resolver=ACCOUNT_EMAIL_THREADS,
 )
 
 
@@ -683,6 +1111,11 @@ accounts: PostgresTable = PostgresTable(
         "custom_properties": account_custom_properties_lazy_join,
         "custom_properties_history": account_custom_properties_history_lazy_join,
         "relationships": account_relationships_lazy_join,
+        "meetings": account_meetings_lazy_join,
+        "slack_summaries": account_slack_summaries_lazy_join,
+        "feature_requests": account_feature_requests_lazy_join,
+        "support_tickets": account_support_tickets_lazy_join,
+        "email_threads": account_email_threads_lazy_join,
     },
 )
 

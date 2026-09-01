@@ -3,6 +3,7 @@ import json
 import base64
 import zipfile
 from datetime import timedelta
+from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -10,8 +11,12 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db import connection
+from django.http import HttpResponse
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import serializers, status
 
 from posthog.constants import AvailableFeature
@@ -23,7 +28,7 @@ from posthog.models.utils import hash_key_value
 from products.access_control.backend.models.access_control import AccessControl
 
 from ...api.skill_serializers import validate_skill_file_path
-from ...api.skill_services import archive_skill
+from ...api.skill_services import archive_skill, set_skill_owners
 from ...marketplace import adapters
 from ...marketplace.adapters import build_team_marketplace_tree
 from ...marketplace.credentials import issue_marketplace_credential
@@ -89,6 +94,15 @@ class TestSkillZipExport(APIBaseTest):
     def test_export_missing_skill_404(self):
         assert self.client.get(self._url("nope")).status_code == status.HTTP_404_NOT_FOUND
 
+    def test_export_honors_a_zip_accept_header(self):
+        self._create_skill()
+
+        response = self.client.get(self._url("make-fractals"), HTTP_ACCEPT="application/zip")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response["Content-Type"] == "application/zip"
+        assert zipfile.is_zipfile(io.BytesIO(response.content))
+
     def test_export_then_reimport_round_trip(self):
         skill = LLMSkill.objects.create(
             team=self.team,
@@ -153,6 +167,348 @@ class TestSkillZipExport(APIBaseTest):
         response = self.client.get(self._url("too-long"))
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["problems"]
+
+
+SANDBOX_FLAG = "posthog.permissions.posthoganalytics.feature_enabled"
+
+
+class TestSkillBundle(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.other_user = User.objects.create_and_join(self.organization, "other@posthog.com", None)
+
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/llm_skills/bundle"
+
+    def _create_skill(self, name: str, *, created_by: User | None = None, **overrides: Any) -> LLMSkill:
+        fields = {
+            "team": self.team,
+            "name": name,
+            "description": f"{name} description.",
+            "body": f"# {name}\n",
+            "version": 1,
+            "is_latest": True,
+            "created_by": created_by or self.user,
+            **overrides,
+        }
+        return LLMSkill.objects.create(**fields)
+
+    def _fetch(
+        self,
+        *,
+        flag: bool | None = True,
+        authorization: str | None = None,
+        content: str | None = None,
+        limit: int | str | None = None,
+        accept: str | None = None,
+    ) -> HttpResponse:
+        query: dict[str, str] = {}
+        if content:
+            query["content"] = content
+        if limit is not None:
+            query["limit"] = str(limit)
+        headers = {name: value for name, value in {"Authorization": authorization, "Accept": accept}.items() if value}
+        with patch(SANDBOX_FLAG, return_value=flag):
+            return self.client.get(self._url(), query, headers=headers)
+
+    @staticmethod
+    def _skill_dirs(response: HttpResponse) -> set[str]:
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            return {name.split("/", 1)[0] for name in archive.namelist()}
+
+    def test_flag_off_is_404(self):
+        self._create_skill("mine")
+        assert self._fetch(flag=False).status_code == status.HTTP_404_NOT_FOUND
+
+    def test_flag_service_unavailable_is_503_not_404(self):
+        self._create_skill("mine")
+        assert self._fetch(flag=None).status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    def test_personal_api_key_with_read_scope_gets_the_bundle(self):
+        self._create_skill("mine")
+        self.client.logout()
+        _mint_pak(self.user, scopes=["llm_skill:read"])
+
+        response = self._fetch(authorization=f"Bearer {_PAK_TOKEN}")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert self._skill_dirs(response) == {"mine"}
+
+    def test_bundle_contains_only_skills_the_user_created_or_owns(self):
+        self._create_skill("mine")
+        LLMSkillFile.objects.create(skill=self._create_skill("with-file"), path="scripts/run.py", content="print(1)\n")
+        self._create_skill("owned", created_by=self.other_user)
+        set_skill_owners(self.team, "owned", [self.user])
+        self._create_skill("someone-elses", created_by=self.other_user)
+        self._create_skill("signals-scout-x", category="scout")
+        self._create_skill("archived", deleted=True)
+        self._create_skill("old-version", is_latest=False)
+        # The latest row carries the last editor; the creator of version 1 still gets the skill.
+        self._create_skill("edited-by-other", is_latest=False)
+        self._create_skill("edited-by-other", version=2, created_by=self.other_user)
+        self._create_skill("created-by-other-edited-by-me", created_by=self.other_user, is_latest=False)
+        self._create_skill("created-by-other-edited-by-me", version=2)
+
+        response = self._fetch(content="full")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response["Content-Type"] == "application/zip"
+        assert response["X-Skills-Included"] == "4"
+        assert response["X-Skills-Dropped"] == "0"
+        assert response["X-Skills-Skipped"] == "0"
+        assert self._skill_dirs(response) == {"mine", "with-file", "owned", "edited-by-other"}
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            assert "with-file/scripts/run.py" in archive.namelist()
+            assert "with-file/agents/openai.yaml" in archive.namelist()
+            assert "name: mine" in archive.read("mine/SKILL.md").decode()
+
+    @parameterized.expand(["stub", "full"])
+    def test_over_cap_keeps_newest_and_drops_the_rest(self, content: str):
+        base = timezone.now()
+        for index, name in enumerate(["oldest", "middle", "newest"]):
+            skill = self._create_skill(name)
+            LLMSkill.objects.filter(pk=skill.pk).update(updated_at=base + timedelta(minutes=index))
+
+        response = self._fetch(content=content, limit=2)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._skill_dirs(response) == {"newest", "middle"}
+        assert response["X-Skills-Dropped"] == "1"
+
+    def test_byte_cap_stops_at_the_first_skill_that_does_not_fit(self):
+        base = timezone.now()
+        for index, (name, body) in enumerate([("older-small", "x"), ("huge", "x" * 10_000), ("newest-small", "x")]):
+            skill = self._create_skill(name, body=body)
+            LLMSkill.objects.filter(pk=skill.pk).update(updated_at=base + timedelta(minutes=index))
+
+        with patch.object(adapters, "MAX_BUNDLE_BYTES", 5_000):
+            response = self._fetch(content="full")
+
+        assert self._skill_dirs(response) == {"newest-small"}
+        assert response["X-Skills-Dropped"] == "2"
+
+    @parameterized.expand(["stub", "full"])
+    def test_spec_invalid_skill_is_skipped_not_fatal(self, content: str):
+        self._create_skill("fine")
+        self._create_skill("too-long", description="x" * 1025)
+
+        response = self._fetch(content=content)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._skill_dirs(response) == {"fine"}
+        assert response["X-Skills-Skipped"] == "1"
+        assert response["X-Skills-Dropped"] == "0"
+
+    @parameterized.expand(
+        [
+            ("traversal", ["../escape.md"]),
+            ("not_canonical", ["refs\\guide.md"]),
+            ("case_collision", ["Refs/guide.md", "refs/Guide.md"]),
+            ("sidecar_case_variant", ["Agents/OpenAI.yaml"]),
+            ("file_where_a_directory_is_needed", ["assets", "assets/logo.png"]),
+            ("file_where_the_sidecar_directory_is_needed", ["agents"]),
+        ]
+    )
+    def test_skill_with_an_unsafe_legacy_path_is_skipped(self, _label: str, paths: list[str]):
+        self._create_skill("fine")
+        unsafe = self._create_skill("unsafe")
+        # Bypasses the serializer validation so the rows look like ones that predate it.
+        for path in paths:
+            LLMSkillFile.objects.create(skill=unsafe, path=path, content="x")
+        self._create_skill("Bad/Name")
+
+        response = self._fetch(content="full")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._skill_dirs(response) == {"fine"}
+        assert response["X-Skills-Skipped"] == "2"
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            assert not any(".." in name or name.startswith("/") for name in archive.namelist())
+
+    @parameterized.expand(
+        [
+            ("stub", "safe\n"),
+            ("stub", "bad--name"),
+            ("full", "safe\n"),
+            ("full", "bad--name"),
+        ]
+    )
+    def test_skill_with_a_malformed_legacy_name_is_skipped(self, content: str, name: str):
+        self._create_skill("fine")
+        # Bypasses the serializer validation so the row looks like one that predates it.
+        self._create_skill(name)
+
+        response = self._fetch(content=content)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert self._skill_dirs(response) == {"fine"}
+        assert response["X-Skills-Skipped"] == "1"
+
+    def test_zip_accept_header_gets_the_zip_and_errors_stay_json(self):
+        self._create_skill("mine")
+
+        response = self._fetch(accept="application/zip")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response["Content-Type"] == "application/zip"
+        assert self._skill_dirs(response) == {"mine"}
+
+        not_enabled = self._fetch(flag=False, accept="application/zip")
+        assert not_enabled.status_code == status.HTTP_404_NOT_FOUND
+        assert not_enabled["Content-Type"] == "application/json"
+        assert json.loads(not_enabled.content)["detail"] == "Not found."
+
+    def test_skipped_skills_page_at_a_fixed_size_not_the_limit(self):
+        def queries_with_skipped_rows(count: int) -> int:
+            while LLMSkill.objects.filter(team=self.team, name__startswith="too-long-").count() < count:
+                index = LLMSkill.objects.filter(team=self.team, name__startswith="too-long-").count()
+                self._create_skill(f"too-long-{index}", description="x" * 1025)
+            with CaptureQueriesContext(connection) as context:
+                response = self._fetch(limit=1)
+            assert response.status_code == status.HTTP_200_OK
+            assert response["X-Skills-Skipped"] == str(count)
+            return len(context.captured_queries)
+
+        self._create_skill("fine")
+        # The first request of a test warms per-process caches; compare only warm requests.
+        self._fetch(limit=1)
+
+        # Skipped rows do not count toward the limit, so a limit-sized page would add a query per row.
+        # Compare past the log-sample size too: the header must report the true skip count, not the
+        # bounded sample the walk retains.
+        assert queries_with_skipped_rows(1) == queries_with_skipped_rows(adapters._SKIPPED_LOG_SAMPLE_SIZE + 5)
+
+    def test_skill_archived_while_the_bundle_is_built_is_left_out_not_fatal(self):
+        self._create_skill("stays")
+        vanishing = self._create_skill("vanishing")
+        real_batches = adapters._candidate_batches
+
+        def archive_after_reading(rows: Any) -> Any:
+            for row in real_batches(rows):
+                if row["name"] == "vanishing":
+                    LLMSkill.objects.filter(pk=vanishing.pk).update(deleted=True)
+                yield row
+
+        with patch.object(adapters, "_candidate_batches", side_effect=archive_after_reading):
+            response = self._fetch(content="full")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert self._skill_dirs(response) == {"stays"}
+        assert response["X-Skills-Dropped"] == "0"
+
+    def test_a_bundled_sidecar_file_overrides_the_generated_one(self):
+        skill = self._create_skill("mine")
+        LLMSkillFile.objects.create(skill=skill, path="agents/openai.yaml", content="interface: custom\n")
+
+        response = self._fetch(content="full")
+
+        assert self._skill_dirs(response) == {"mine"}
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            assert archive.read("mine/agents/openai.yaml").decode() == "interface: custom\n"
+
+    def test_an_invalid_skill_ahead_of_the_byte_cap_is_skipped_not_capping(self):
+        base = timezone.now()
+        for index, (name, body, description) in enumerate(
+            [("older-valid", "x", "fine"), ("newest-invalid-and-huge", "x" * 10_000, "d" * 1025)]
+        ):
+            skill = self._create_skill(name, body=body, description=description)
+            LLMSkill.objects.filter(pk=skill.pk).update(updated_at=base + timedelta(minutes=index))
+
+        with patch.object(adapters, "MAX_BUNDLE_BYTES", 5_000):
+            response = self._fetch(content="full")
+
+        assert self._skill_dirs(response) == {"older-valid"}
+        assert response["X-Skills-Skipped"] == "1"
+        assert response["X-Skills-Dropped"] == "0"
+
+    def test_skill_the_user_is_blocked_from_reading_is_left_out(self):
+        cache.clear()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "member@posthog.com", None)
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="member"
+        )
+        # Resource default "none": the member reaches a skill only through an explicit object grant.
+        AccessControl.objects.create(team=self.team, resource="llm_skill", resource_id=None, access_level="none")
+        allowed = self._create_skill("allowed")
+        self._create_skill("blocked")
+        set_skill_owners(self.team, "allowed", [member])
+        set_skill_owners(self.team, "blocked", [member])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_skill",
+            resource_id=str(allowed.id),
+            access_level="viewer",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+        self.client.force_login(member)
+
+        response = self._fetch()
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert self._skill_dirs(response) == {"allowed"}
+
+    def test_default_bundle_is_stubs_that_point_at_the_mcp(self):
+        skill = self._create_skill("mine", description="Forecast quota usage.", body="# The real instructions\n")
+        LLMSkillFile.objects.create(skill=skill, path="scripts/run.py", content="print(1)\n")
+        self._create_skill("Bad/Name")
+
+        response = self._fetch()
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response["X-Skills-Included"] == "1"
+        assert response["X-Skills-Skipped"] == "1"
+        with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+            assert archive.namelist() == ["mine/SKILL.md"]
+            stub = archive.read("mine/SKILL.md").decode()
+        assert "name: mine" in stub
+        assert "description: Forecast quota usage." in stub
+        assert "source: posthog-skills-store" in stub
+        assert 'call skill-get {"skill_name": "mine"}' in stub
+        assert "body_next_offset" in stub
+        assert '"version": <version>' in stub
+        assert "The real instructions" not in stub
+
+    @parameterized.expand(
+        [
+            ("unknown_content", {"content": "partial"}),
+            ("limit_over_ceiling", {"limit": 101}),
+            ("limit_zero", {"limit": 0}),
+        ]
+    )
+    def test_bad_query_params_are_400(self, _label: str, query: dict[str, Any]):
+        self._create_skill("mine")
+
+        assert self._fetch(**query).status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_no_skills_is_an_empty_zip(self):
+        response = self._fetch()
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response["X-Skills-Included"] == "0"
+        assert self._skill_dirs(response) == set()
+
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch("products.skills.backend.api.skills.SkillBundleBurstThrottle.rate", new="1/minute")
+    def test_oauth_and_session_callers_are_throttled(self, *_args):
+        # The general Burst/Sustained throttles only count personal-API-key traffic, so an OAuth
+        # (or session) caller would otherwise hit this expensive zip endpoint unthrottled. The
+        # patched rate trips the second call; the test client uses session auth, the same
+        # "authenticated, no personal API key" class the sandbox's OAuth token falls into.
+        self._create_skill("mine")
+
+        first = self._fetch()
+        assert first.status_code == status.HTTP_200_OK, first.content
+
+        second = self._fetch()
+        assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+        # The bucket is per user, so one caller's burst does not 429 the rest of the project.
+        self.client.force_login(self.other_user)
+        assert self._fetch().status_code == status.HTTP_200_OK
 
 
 class TestSkillMarketplaceGit(APIBaseTest):

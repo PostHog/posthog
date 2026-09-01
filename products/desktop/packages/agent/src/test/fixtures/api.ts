@@ -70,7 +70,7 @@ export function createMockApiClient(
   return {
     uploadTaskArtifacts: vi
       .fn()
-      .mockResolvedValue([{ storage_path: "gs://bucket/handoff/test.pack" }]),
+      .mockResolvedValue([{ storage_path: "gs://bucket/artifacts/test.pack" }]),
     downloadArtifact: vi.fn(),
     getTaskRun: vi.fn(),
     fetchTaskRunLogs: vi.fn(),

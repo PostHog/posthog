@@ -6,7 +6,7 @@ import {
 } from "react";
 import { Tooltip } from "./Tooltip";
 
-export type ButtonProps = ComponentPropsWithoutRef<typeof RadixButton> & {
+type ButtonProps = ComponentPropsWithoutRef<typeof RadixButton> & {
   /** Primary tooltip explaining what the button does. */
   tooltipContent?: ReactNode;
   /**

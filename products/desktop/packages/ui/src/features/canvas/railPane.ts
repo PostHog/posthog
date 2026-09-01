@@ -16,7 +16,8 @@ export type NavRailPane =
   | "inbox"
   | "command-center"
   | "loops"
-  | "context";
+  | "context"
+  | "feeds";
 
 /**
  * The root path of each destination.
@@ -34,6 +35,7 @@ export const RAIL_PANE_ROOT: Readonly<Record<NavRailPane, string>> = {
   "command-center": "/command-center",
   loops: "/loops",
   context: "/spaces/context",
+  feeds: "/feeds",
 };
 
 // Spaces is absent: it takes everything nothing else claims, so listing it
@@ -46,6 +48,7 @@ const CLAIMED: readonly NavRailPane[] = [
   "command-center",
   "loops",
   "context",
+  "feeds",
 ];
 
 export function railPaneForPath(fullPath: string): NavRailPane {
@@ -67,17 +70,37 @@ export function railPaneForMatches(
 }
 
 /** Read the destination outside React (event handlers, imperative picks). */
+/** Not wired to a caller yet. The @public tag stops knip from reporting it. */
 export function getRailPane(): NavRailPane {
   return railPaneForMatches(getCurrentMatches());
 }
 
-// Home, Inbox, Command Center and Loops are whole-screen destinations: no
-// route under them may put a second nav on the screen. Spaces owns the space
-// tree, Activity owns the feed.
+const NON_RESTORABLE_ROOTS = [
+  "/settings",
+  "/folders",
+  "/skills",
+  "/mcp-servers",
+  "/usage",
+  "/inbox/agents",
+];
+
+export function isRestorableVisitHref(
+  pane: NavRailPane,
+  href: string,
+): boolean {
+  const path = href.replace(/[?#].*$/, "");
+  const blocked = NON_RESTORABLE_ROOTS.some(
+    (root) => path === root || path.startsWith(`${root}/`),
+  );
+  if (blocked) return false;
+  return railPaneForPath(path) === pane;
+}
+
 const PANES_WITH_SIDEBAR = new Set<NavRailPane>([
   "spaces",
   "activity",
   "canvases",
+  "feeds",
 ]);
 
 export function railPaneHasSidebar(pane: NavRailPane): boolean {

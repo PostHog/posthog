@@ -95,6 +95,58 @@ def stamp_pending_user_message_id(state: dict[str, Any], *, refresh: bool = Fals
     state["pending_user_message_id"] = str(uuid.uuid4())
 
 
+PENDING_FOLLOWUP_MESSAGES_STATE_KEY = "pending_followup_messages"
+MAX_PENDING_FOLLOWUP_MESSAGES = 20
+MAX_PENDING_FOLLOWUP_CONTENT_CHARS = 10_000
+MAX_PENDING_FOLLOWUP_MESSAGE_ID_CHARS = 128
+
+
+def _read_pending_followup_messages(state: dict[str, Any] | None) -> list[dict[str, Any]]:
+    entries = (state or {}).get(PENDING_FOLLOWUP_MESSAGES_STATE_KEY)
+    if not isinstance(entries, list):
+        return []
+    return [
+        entry
+        for entry in entries
+        if isinstance(entry, dict) and isinstance(entry.get("content"), str) and entry["content"].strip()
+    ]
+
+
+def _is_hidden_prompt_block(block: dict[str, Any]) -> bool:
+    meta = block.get("_meta")
+    ui = meta.get("ui") if isinstance(meta, dict) else None
+    return bool(ui.get("hidden")) if isinstance(ui, dict) else False
+
+
+def _session_prompt_texts(entries: list[dict]) -> list[str]:
+    texts: list[str] = []
+    for entry in entries:
+        notification = entry.get("notification")
+        if not isinstance(notification, dict) or notification.get("method") != "session/prompt":
+            continue
+        params = notification.get("params")
+        blocks = params.get("prompt") if isinstance(params, dict) else None
+        if not isinstance(blocks, list):
+            continue
+        visible = "\n".join(
+            block["text"]
+            for block in blocks
+            if isinstance(block, dict)
+            and block.get("type") == "text"
+            and isinstance(block.get("text"), str)
+            and not _is_hidden_prompt_block(block)
+        ).strip()
+        if visible:
+            texts.append(visible)
+    return texts
+
+
+def _followup_matches_prompt(content: str, prompt_text: str) -> bool:
+    if content == prompt_text:
+        return True
+    return len(content) >= MAX_PENDING_FOLLOWUP_CONTENT_CHARS and prompt_text.startswith(content)
+
+
 class TaskOwnershipChangedError(RuntimeError):
     pass
 
@@ -173,6 +225,11 @@ class Channel(TeamScopedRootMixin):
         db_default=[],
         blank=True,
         help_text="GitHub repositories inherited by new tasks in this channel",
+    )
+    auto_archive_after_days = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Archive inactive tasks in this channel after this many days. Null disables automatic archiving.",
     )
     deleted = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=django_timezone.now)
@@ -1995,7 +2052,7 @@ class TaskRun(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     # When the run last entered QUEUED. `created_at` can't stand in for it because
-    # `prepare_for_cloud_handoff` re-queues an existing run without resetting it, and
+    # `prepare_for_cloud_resume` re-queues an existing run without resetting it, and
     # `updated_at` can't either because any unrelated write to a still-queued run would
     # move it. Null on rows queued before this field existed; readers fall back to
     # `created_at`, which is exact for a run that was only ever queued once.
@@ -2078,11 +2135,11 @@ class TaskRun(models.Model):
             task_created_by_id=self.task.created_by_id,
         )
 
-    def prepare_for_cloud_handoff(self) -> None:
+    def prepare_for_cloud_resume(self) -> None:
         """
-        Restart this run in the cloud, resuming from its existing log/checkpoints.
+        Restart this cloud run from its existing log and sandbox snapshot.
 
-        The `handoff_resumed` flag tells the workflow and sandbox provisioning
+        The `same_run_resume` flag tells the workflow and sandbox provisioning
         to treat this as a resume of the same run (skip initial prompt, hydrate
         from the existing log) without overloading `resume_from_run_id`, which
         means "continue from a different run".
@@ -2097,7 +2154,7 @@ class TaskRun(models.Model):
         prior_snapshot_external_id = state.get("snapshot_external_id")
         prior_snapshot_kind = state.get("snapshot_kind")
         prior_snapshot_mount_path = state.get("snapshot_mount_path")
-        state["handoff_resumed"] = True
+        state["same_run_resume"] = True
         state["mode"] = "interactive"
         state.pop("pending_user_message", None)
         state.pop("pending_user_artifact_ids", None)
@@ -2107,14 +2164,14 @@ class TaskRun(models.Model):
         state.pop("sandbox_url", None)
         state.pop("sandbox_jwt_kid", None)
         state.pop("sandbox_connect_token", None)
-        # Drop the provider stamp too: the handed-off run re-resolves its backend from
+        # Drop the provider stamp because the resumed run re-resolves its backend from
         # scratch, so a stale `hogland` must not survive to outrank the EU guard, the
         # Modal-only fallbacks, or the flag kill switch on the next context resolution.
         state.pop("sandbox_backend", None)
         self.state = state
 
         logger.info(
-            "prepare_for_cloud_handoff",
+            "prepare_for_cloud_resume",
             run_id=str(self.id),
             task_id=str(self.task_id),
             prior_snapshot_external_id=prior_snapshot_external_id,
@@ -2261,6 +2318,27 @@ class TaskRun(models.Model):
         except Exception as e:
             logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))
 
+    def signal_agent_boot_milestone(
+        self, milestone: Literal["agent_command_dispatched", "agent_activity_observed"]
+    ) -> bool:
+        import asyncio
+
+        from posthog.temporal.common.client import sync_connect
+
+        try:
+            client = sync_connect()
+            handle = client.get_workflow_handle(self.workflow_id)
+            asyncio.run(handle.signal(milestone))
+            return True
+        except Exception as e:
+            logger.warning(
+                "task_run.agent_boot_milestone_failed",
+                task_run_id=str(self.id),
+                milestone=milestone,
+                error=str(e),
+            )
+            return False
+
     def signal_client_activity(self) -> None:
         from products.tasks.backend.redis import get_tasks_cache
 
@@ -2395,6 +2473,47 @@ class TaskRun(models.Model):
                     error=str(e),
                 )
 
+    def record_pending_followup_message(self, message_id: str, content: str, *, accepted_at: datetime) -> None:
+        record = {
+            "id": message_id[:MAX_PENDING_FOLLOWUP_MESSAGE_ID_CHARS],
+            "content": content[:MAX_PENDING_FOLLOWUP_CONTENT_CHARS],
+            "ts": accepted_at.isoformat(),
+        }
+
+        def _mutator(state: dict[str, Any]) -> None:
+            entries = [entry for entry in _read_pending_followup_messages(state) if entry.get("id") != record["id"]]
+            entries.append(record)
+            state[PENDING_FOLLOWUP_MESSAGES_STATE_KEY] = entries[-MAX_PENDING_FOLLOWUP_MESSAGES:]
+
+        self.state = TaskRun.mutate_state_atomic(self.id, _mutator)
+
+    def clear_echoed_followup_messages(self, entries: list[dict]) -> None:
+        if not _read_pending_followup_messages(self.state):
+            return
+        echoed = _session_prompt_texts(entries)
+        if not echoed:
+            return
+
+        def _mutator(state: dict[str, Any]) -> None:
+            unclaimed = list(echoed)
+            remaining = []
+            for entry in _read_pending_followup_messages(state):
+                content = entry["content"].strip()
+                claimed = next(
+                    (index for index, text in enumerate(unclaimed) if _followup_matches_prompt(content, text)),
+                    None,
+                )
+                if claimed is None:
+                    remaining.append(entry)
+                else:
+                    unclaimed.pop(claimed)
+            if remaining:
+                state[PENDING_FOLLOWUP_MESSAGES_STATE_KEY] = remaining
+            else:
+                state.pop(PENDING_FOLLOWUP_MESSAGES_STATE_KEY, None)
+
+        self.state = TaskRun.mutate_state_atomic(self.id, _mutator)
+
     def _mirror_logs_to_posthog_logs(self, entries: list[dict]) -> None:
         """Mirror persisted entries into the PostHog Logs product via stdout (dogfooding).
 
@@ -2430,12 +2549,18 @@ class TaskRun(models.Model):
                 error=str(e),
             )
 
-    def effective_rtk(self) -> bool | None:
-        """rtk posture for analytics: the launch-persisted effective value, falling
+    def _effective_toggle(self, name: str) -> bool | None:
+        """Toggle posture for analytics: the launch-persisted effective value, falling
         back to the user's explicit override for runs that never launched."""
         state = self.state if isinstance(self.state, dict) else {}
-        rtk = state.get("rtk_effective", state.get("rtk_enabled"))
-        return rtk if isinstance(rtk, bool) else None
+        value = state.get(f"{name}_effective", state.get(f"{name}_enabled"))
+        return value if isinstance(value, bool) else None
+
+    def effective_rtk(self) -> bool | None:
+        return self._effective_toggle("rtk")
+
+    def effective_benjamin(self) -> bool | None:
+        return self._effective_toggle("benjamin")
 
     def _analytics_usage_properties(self) -> dict:
         """Token usage and rtk posture for analytics events.
@@ -2462,6 +2587,12 @@ class TaskRun(models.Model):
         rtk = self.effective_rtk()
         if rtk is not None:
             props["rtk_enabled"] = rtk
+        benjamin = self.effective_benjamin()
+        if benjamin is not None:
+            props["benjamin_enabled"] = benjamin
+        benjamin_version = state.get("benjamin_version")
+        if isinstance(benjamin_version, str) and benjamin_version:
+            props["benjamin_version"] = benjamin_version
         return props
 
     def capture_event(
@@ -2628,7 +2759,7 @@ class TaskRun(models.Model):
         clear it would cost a whole run, so the marker is written straight to the log.
         Resume reads a chain's logs concatenated and rebuilds only the turns after the
         marker, so the next run continues the task with an empty conversation while its
-        checkpoints, artifacts, and visible history stay intact.
+        artifacts and visible history stay intact.
 
         The `/clear` message is recorded ahead of the marker, matching the agent, so the
         transcript shows what the user typed and rehydration drops it with everything

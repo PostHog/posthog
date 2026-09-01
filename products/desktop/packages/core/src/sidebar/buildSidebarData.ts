@@ -5,8 +5,6 @@ import { getRepositoryInfo } from "./groupTasks";
 import type { TaskData, TaskGroup } from "./sidebarData.types";
 
 export type SortMode = "updated" | "created";
-export type OrganizeMode = "by-project" | "chronological";
-
 export interface FullTask {
   id: string;
   title: string;
@@ -140,7 +138,7 @@ export function computeSidebarSessionSignature(
   return signature;
 }
 
-export interface TaskWorkspace {
+interface TaskWorkspace {
   folderId?: string | null;
   folderPath?: string | null;
   branchName?: string | null;
@@ -167,7 +165,7 @@ export interface DeriveTaskDataContext {
  * When a task last moved: the activity time the caller passes (the backend's, via
  * `taskActivityAt`), or local renderer activity where that has run ahead of the next poll.
  */
-export function taskLastActivityAt(
+function taskLastActivityAt(
   activityAt: string,
   timestamp: TaskTimestamp | undefined,
 ): number {

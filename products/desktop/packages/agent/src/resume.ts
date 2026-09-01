@@ -3,15 +3,12 @@
  *
  * Handles resuming a task from any point:
  * - Fetches log via the PostHog API
- * - Finds latest git_checkpoint event
  * - Rebuilds conversation from log events
- * - Restores working tree from checkpoint
  *
  * Uses Saga pattern for atomic operations with clear success/failure tracking.
  *
  * The log is the single source of truth for:
  * - Conversation history (user_message, agent_message_chunk, tool_call, tool_result)
- * - Working tree state (git_checkpoint events)
  * - Session metadata (device info, mode changes)
  */
 
@@ -20,15 +17,11 @@ import type { NativeGoalState } from "./acp-extensions";
 import { selectRecentTurns } from "./adapters/claude/session/jsonl-hydration";
 import type { PostHogAPIClient } from "./posthog-api";
 import { ResumeSaga } from "./sagas/resume-saga";
-import type { DeviceInfo, GitCheckpointEvent } from "./types";
 import { Logger } from "./utils/logger";
 
 export interface ResumeState {
   conversation: ConversationTurn[];
-  latestGitCheckpoint: GitCheckpointEvent | null;
-  latestGitCheckpoints?: GitCheckpointEvent[];
   interrupted: boolean;
-  lastDevice?: DeviceInfo;
   logEntryCount: number;
   sessionId: string | null;
   nativeGoal?: NativeGoalState | null;
@@ -58,7 +51,6 @@ export interface ResumeConfig {
 /**
  * Resume a task from its persisted log.
  * Returns the rebuilt state for the agent to continue from.
- * Checkpoint application happens in the agent server after SSE connects.
  */
 export async function resumeFromLog(
   config: ResumeConfig,
@@ -93,10 +85,7 @@ export async function resumeFromLog(
 
   return {
     conversation: result.data.conversation as ConversationTurn[],
-    latestGitCheckpoint: result.data.latestGitCheckpoint,
-    latestGitCheckpoints: result.data.latestGitCheckpoints,
     interrupted: result.data.interrupted,
-    lastDevice: result.data.lastDevice,
     logEntryCount: result.data.logEntryCount,
     sessionId: result.data.sessionId,
     nativeGoal: result.data.nativeGoal,

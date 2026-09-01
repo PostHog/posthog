@@ -1244,7 +1244,7 @@ export const getTasksListUrl = (projectId: string, params?: TasksListParams) => 
 }
 
 /**
- * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.
+ * Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, created_by, and the workflow (hog_flow_id) that created the task.
  * @summary List tasks
  */
 export const tasksList = async (
@@ -2022,7 +2022,7 @@ export const getTasksRunsClearConversationCreateUrl = (projectId: string, taskId
 }
 
 /**
- * Record a `/clear` boundary in a finished run's log so the next run in the chain starts with an empty conversation. Its checkpoints, artifacts, and visible history are unaffected. Only for a finished run: an active one has an agent that owns the clear, so send `/clear` to it as an ordinary message instead.
+ * Record a `/clear` boundary in a finished run's log so the next run in the chain starts with an empty conversation. Its artifacts and visible history are unaffected. Only for a finished run: an active one has an agent that owns the clear, so send `/clear` to it as an ordinary message instead.
  * @summary Clear conversation history
  */
 export const tasksRunsClearConversationCreate = async (
@@ -2130,6 +2130,26 @@ export const tasksRunsPeersMessageCreate = async (
             body: JSON.stringify(taskRunPeerMessageRequestApi),
         }
     )
+}
+
+export const getTasksRunsPreviewRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/preview/`
+}
+
+/**
+ * Redirects to the PostHog dev stack running inside this run's sandbox. A fresh sandbox access token is minted on every request and carried only in the redirect target, so it is never persisted or returned in a response body. When the run has no preview, or its sandbox has stopped, this renders a short HTML page instead.
+ * @summary Open the dev stack preview for a task run
+ */
+export const tasksRunsPreviewRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksRunsPreviewRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getTasksRunsRelayMessageCreateUrl = (projectId: string, taskId: string, id: string) => {

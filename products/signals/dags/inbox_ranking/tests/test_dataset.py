@@ -7,6 +7,7 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 import pyarrow as pa
 from parameterized import parameterized
 
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.signals.backend.models import SignalReport
 from products.signals.dags.inbox_ranking import common
 from products.signals.dags.inbox_ranking.dataset.dag import (
@@ -16,8 +17,10 @@ from products.signals.dags.inbox_ranking.dataset.dag import (
     spine_report_filter,
 )
 from products.signals.dags.inbox_ranking.dataset.queries import (
+    IMPRESSIONS_SQL,
     LABEL_DEFAULTS,
     LABEL_STREAMS,
+    LABELED_REPORT_IDS_SQL,
     STATUS_COLUMNS,
     STATUS_SQL,
     hogql_rows,
@@ -349,6 +352,27 @@ class TestSpineInclusion(BaseTest):
         assert in_spine == {promoted, born_visible}
         assert promoted_after_cutoff not in in_spine
         assert created_after_cutoff not in in_spine
+
+
+class TestImpressionsStream(ClickhouseTestMixin, BaseTest):
+    @parameterized.expand([("labeled_ids", LABELED_REPORT_IDS_SQL), ("impressions", IMPRESSIONS_SQL)])
+    def test_impressions_survive_a_numeric_property_definition(self, _name, sql):
+        # Another event in the same project sending `impressions` as a number types the project-wide
+        # definition as Numeric, which made HogQL cast the impressions array to Float64 and fail
+        # the query with a ClickHouse type error.
+        PropertyDefinition.objects.create(
+            team=self.team, name="impressions", property_type="Numeric", type=PropertyDefinition.Type.EVENT
+        )
+        _create_event(
+            team=self.team,
+            event="Inbox reports impressed",
+            distinct_id="user-1",
+            timestamp=T1,
+            properties={"impressions": [{"report_id": UUID_A, "rank": 1, "source_products": ["error_tracking"]}]},
+        )
+
+        rows = hogql_rows(sql, team=self.team, query_type="test", snapshot_end=SNAPSHOT_END)
+        assert [row[0] for row in rows] == [UUID_A]
 
 
 class TestStatusStream(ClickhouseTestMixin, BaseTest):

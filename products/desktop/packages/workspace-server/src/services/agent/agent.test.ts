@@ -150,6 +150,12 @@ vi.mock("./context-wiki", () => ({
   prepareContextWiki: mockPrepareContextWiki,
 }));
 
+vi.mock("./codex-home", () => ({
+  cleanupCodexHome: vi.fn().mockResolvedValue(undefined),
+  getCodexHomeDir: vi.fn(() => "/mock/codex-home"),
+  prepareCodexHome: vi.fn().mockResolvedValue("/mock/codex-home"),
+}));
+
 vi.mock("node:fs", async (importOriginal) => {
   const original = await importOriginal<typeof import("node:fs")>();
   return {
