@@ -616,6 +616,25 @@ class TestNotion:
                 "spec.pdf",
             ),
             ("empty_rich_text", {"type": "rich_text", "rich_text": []}, None),
+            # verification carries no name/id, so without its own branch it renders to null on every
+            # wiki page. `state` is the actionable field (verified / unverified / expired).
+            (
+                "verification_verified",
+                {
+                    "type": "verification",
+                    "verification": {
+                        "state": "verified",
+                        "verified_by": {"id": "u1", "name": "Ada"},
+                        "date": {"start": "2026-01-01T00:00:00.000Z"},
+                    },
+                },
+                "verified",
+            ),
+            (
+                "verification_unverified",
+                {"type": "verification", "verification": {"state": "unverified", "verified_by": None, "date": None}},
+                "unverified",
+            ),
             ("not_a_dict", "raw", None),
         ]
     )

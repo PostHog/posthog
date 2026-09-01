@@ -620,6 +620,11 @@ def _rendered_value(value_type: str | None, value: Any) -> str | None:
         return _rendered_value(inner_type, value.get(inner_type)) if isinstance(inner_type, str) else None
     if value_type in ("created_by", "last_edited_by"):
         return _reference_label(value)
+    if value_type == "verification":
+        # A wiki page's verification value holds {state, verified_by, date} and no name/id, so the
+        # generic dict branch below would render it to nothing. `state` (verified / unverified /
+        # expired) is the field a wiki team filters on.
+        return value.get("state") if isinstance(value, dict) else None
     if isinstance(value, list):
         # multi_select, people, relation, files, and array rollups.
         rendered = [_element_to_text(value_type, element) for element in value]
