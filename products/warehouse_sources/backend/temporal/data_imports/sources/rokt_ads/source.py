@@ -62,7 +62,12 @@ class RoktAdsSource(ResumableSource[RoktAdsSourceConfig, RoktAdsResumeConfig]):
         return {
             # Pinned to the Query API path so a 400 from the OAuth token endpoint (same host) is not
             # read as a report error and given credential-wrong copy about tables and the account ID.
-            "400 Client Error: Bad Request for url: https://api.rokt.com/v1/query/": "Rokt rejected this report request. The reason Rokt gave is in the sync logs. Please check the account ID and the selected tables, then reconnect.",
+            "400 Client Error: Bad Request for url: https://api.rokt.com/v1/query/": (
+                "Rokt rejected this report request. The reason Rokt gave is in the sync logs. This can happen if "
+                "the account type does not support advertiser campaigns, if the time zone or currency code is not "
+                "recognized, or if the account is not fully configured in One Platform. Check those settings, then "
+                "reconnect."
+            ),
             "401 Client Error: Unauthorized for url": "Rokt rejected these credentials. Please regenerate the app ID and app secret in One Platform and reconnect.",
             "403 Client Error: Forbidden for url": "These Rokt credentials cannot read this account. Please check the account ID and the app's permissions.",
             # A missing account or report resource never recovers on retry. The client wraps the
