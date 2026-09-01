@@ -191,6 +191,7 @@ const workflowsList = (): ToolBase<typeof WorkflowsListSchema, WithPostHogUrl<Sc
                     id: params.id,
                     limit: params.limit,
                     offset: params.offset,
+                    optimisation_enabled: params.optimisation_enabled,
                     search: params.search,
                     status: params.status,
                     trigger: params.trigger,
@@ -428,6 +429,7 @@ const workflowsStats = (): ToolBase<typeof WorkflowsStatsSchema, Schemas.AppMetr
                 interval: params.interval,
                 kind: params.kind,
                 name: params.name,
+                version: params.version,
             },
         })
         return result

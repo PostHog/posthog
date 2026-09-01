@@ -68,6 +68,7 @@ export const AGENT_USE_CASE_SCOPES = [
     'heatmap:write',
     'hog_flow:read',
     'hog_flow:write',
+    'hog_flow_proposal:write',
     'hog_function:read',
     'hog_function:write',
     'insight:read',
