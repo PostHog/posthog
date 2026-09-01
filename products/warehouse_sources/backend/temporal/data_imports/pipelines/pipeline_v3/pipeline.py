@@ -76,7 +76,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     S3BatchWriter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer import ParquetCompression
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import (
+    ResumableSourceManager,
+    resolve_resume_manager,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     ResumableData,
     SourceResponse,
@@ -195,7 +198,8 @@ class PipelineV3(Generic[ResumableData]):
         self._uses_delta_write_column_selection = source_uses_delta_write_column_selection(models.source.source_type)
         self._observed_columns: dict[str, dict[str, Any]] = {}
 
-        is_resume = resumable_source_manager is not None and resumable_source_manager.can_resume()
+        self._resumable_source_manager = resolve_resume_manager(resumable_source_manager, self._resource)
+        is_resume = self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
 
         self._pg_producer = PostgresProducer(
             database_url=WAREHOUSE_SOURCES_DATABASE_URL,
@@ -220,7 +224,6 @@ class PipelineV3(Generic[ResumableData]):
             workflow_run_id=current_workflow_run_id(),
         )
 
-        self._resumable_source_manager = resumable_source_manager
         # A source can shrink the batcher chunk (e.g. document sources with large rows) so the
         # source->Arrow conversion doesn't materialise an oversized table; None falls back to defaults.
         # Arrow coalescing keeps a driver's fetch size (e.g. a SQL cursor's 10k-row Arrow tables)

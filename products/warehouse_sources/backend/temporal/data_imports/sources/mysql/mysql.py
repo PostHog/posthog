@@ -33,6 +33,8 @@ from pymysql.constants import FIELD_TYPE
 from pymysql.cursors import Cursor, SSCursor
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
+
 # Module-level error-capture seam. This module's best-effort probes (get_rows_to_sync,
 # explain_query, fetch_average_row_size) deliberately do NOT report handled failures here;
 # their guard tests patch `mysql.capture_exception` to enforce that.
@@ -47,10 +49,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     table_from_iterator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     BacktickIdentifierQuoter,
     Column,
     InvalidIdentifierError,
+    SafeSQL,
     SelectQueryBuilder,
     Table,
     ValidatedRowFilter,
@@ -64,6 +68,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.incremental import (
     IncrementalFieldFilter,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import (
+    KeysetResumeState,
+    iter_keyset_pages,
+    resolve_keyset_eligibility,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import (
     normalize_namespace,
@@ -854,6 +863,22 @@ class MySQLColumn(Column):
         return pa.field(self.name, arrow_type, nullable=self.nullable)
 
 
+@frozen
+class _DiscoveredMetadata:
+    """Result of `MySQLImplementation.build_pipeline`'s metadata-discovery block.
+
+    A named result instead of a bare tuple so `primary_keys_are_declared` (added alongside keyset
+    eligibility) can't be silently swapped with another same-typed field at the call site.
+    """
+
+    primary_keys: list[str] | None
+    primary_keys_are_declared: bool
+    arrow_schema: pa.Schema
+    chunk_size: int
+    partition_settings: PartitionSettings | None
+    rows_to_sync: int
+
+
 class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Connection, Cursor]):
     """MySQL driver implementation paired with `MySQLSource`.
 
@@ -875,16 +900,18 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         config: MySQLSourceConfig,
         *,
         read_timeout: int | None = None,
+        autocommit: bool = False,
     ) -> Iterator[pymysql.Connection]:
         """Open a pymysql connection for the duration of the context.
 
         Opens the SSH tunnel (if configured), then connects with the
         MySQL-wide conventions: safe date/datetime converters, and a
         PlanetScale workload hint injected automatically when the host
-        resolves to a `*.psdb.cloud` address. Callers only vary one
-        thing — the streaming path sets `read_timeout=STATEMENT_TIMEOUT_SECONDS`
+        resolves to a `*.psdb.cloud` address. Callers vary two things —
+        the streaming path sets `read_timeout=STATEMENT_TIMEOUT_SECONDS`
         so multi-GB filesorts don't drop on middlebox timeouts before the
-        first rows are ready.
+        first rows are ready, and the keyset path sets `autocommit` so each
+        page is its own transaction (see `_keyset_get_rows`).
         """
         ssl_ca: str | None = None
         if config.using_ssl:
@@ -902,6 +929,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                 "connect_timeout": 10,
                 "ssl_ca": ssl_ca,
                 "conv": _MYSQL_SAFE_CONVERSIONS,
+                "autocommit": autocommit,
                 "init_command": "SET workload = 'OLAP';" if host.endswith("psdb.cloud") else None,
             }
             if read_timeout is not None:
@@ -1397,11 +1425,48 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             # `find_index_for_cursor`.
             logger.debug(f"EXPLAIN raised an exception: {e}", exc_info=e)
 
+    def check_keyset_page_plan(self, cursor: Cursor, page_sql: SafeSQL, logger: FilteringBoundLogger) -> None:
+        """Warn when a keyset page isn't reading the clustered index in key order.
+
+        A seek page is only cheap if the optimizer answers it as a range scan on `PRIMARY`: one
+        B-tree descent, then `LIMIT n` rows already in `ORDER BY` order. Row filters give it another
+        choice — take the filter's secondary index, lose the index ordering, and sort the whole
+        matched set — and that filesort runs *per page*, turning one table scan into thousands.
+
+        Diagnostics only: log a stable token so the bad-plan rate is greppable, and let the page run.
+        The streaming path's `FORCE INDEX` retry is the hammer if this turns out to be common.
+        """
+        try:
+            cursor.execute(f"EXPLAIN {page_sql.sql}", page_sql.params)
+            rows = cursor.fetchall()
+            column_names = [column[0] for column in cursor.description or []]
+            plans = [dict(zip(column_names, row)) for row in rows]
+        except Exception as e:
+            # Best-effort, exactly like `explain_query`: a failed EXPLAIN must never fail the page.
+            logger.debug(f"Keyset EXPLAIN raised an exception: {e}", exc_info=e)
+            return
+
+        for plan in plans:
+            index_used = plan.get("key")
+            extra = str(plan.get("Extra") or "")
+            sorts = "Using filesort" in extra or "Using temporary" in extra
+            if index_used == "PRIMARY" and not sorts:
+                continue
+            logger.warning(
+                f"Keyset page not served by the primary key: reason=bad_keyset_plan "
+                f"key={index_used} type={plan.get('type')} rows={plan.get('rows')} extra='{extra}'"
+            )
+
     # ------------------------------------------------------------------
     # Pipeline build — the dlt `SourceResponse` for a single table
     # ------------------------------------------------------------------
 
-    def build_pipeline(self, config: MySQLSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def build_pipeline(
+        self,
+        config: MySQLSourceConfig,
+        inputs: SourceInputs,
+        resumable_source_manager: ResumableSourceManager[KeysetResumeState] | None = None,
+    ) -> SourceResponse:
         location = resolve_source_location(
             inputs,
             config_namespace=_configured_schema(config),
@@ -1422,11 +1487,16 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         enabled_columns = inputs.enabled_columns
         row_filters = inputs.row_filters
 
-        def _discover_metadata() -> tuple[list[str] | None, pa.Schema, int, PartitionSettings | None, int]:
+        def _discover_metadata() -> _DiscoveredMetadata:
             with self.connect(config) as connection:
                 with connection.cursor() as cursor:
                     primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
                     full_table = self.get_table_metadata(cursor, schema, table_name)
+
+                    # Whether the database itself declared these as the primary key, as opposed to
+                    # the `id` guess below. Only a declared PK is guaranteed NOT NULL, which is what
+                    # keyset pagination needs to seek past every page (see `resolve_keyset_eligibility`).
+                    primary_keys_are_declared = primary_keys is not None
 
                     # Resolve PKs before the projection so probe/sample queries match the streaming SELECT.
                     if primary_keys is None and "id" in full_table:
@@ -1456,16 +1526,107 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         if should_use_incremental_field
                         else None
                     )
-            return primary_keys, arrow_schema, chunk_size, partition_settings, rows_to_sync
+            return _DiscoveredMetadata(
+                primary_keys=primary_keys,
+                primary_keys_are_declared=primary_keys_are_declared,
+                arrow_schema=arrow_schema,
+                chunk_size=chunk_size,
+                partition_settings=partition_settings,
+                rows_to_sync=rows_to_sync,
+            )
 
         # A PlanetScale/Vitess tablet can be momentarily unavailable even once the vtgate
         # handshake succeeds, so retry the whole metadata-discovery block (reopening the
         # connection) on a transient `code = Unavailable` rather than failing setup on the
         # first blip — see `_retry_on_transient_tablet_unavailable`.
-        primary_keys, arrow_schema, chunk_size, partition_settings, rows_to_sync = (
-            _retry_on_transient_tablet_unavailable(_discover_metadata, logger)
-        )
+        discovered = _retry_on_transient_tablet_unavailable(_discover_metadata, logger)
+        primary_keys = discovered.primary_keys
+        primary_keys_are_declared = discovered.primary_keys_are_declared
+        arrow_schema = discovered.arrow_schema
+        chunk_size = discovered.chunk_size
+        partition_settings = discovered.partition_settings
+        rows_to_sync = discovered.rows_to_sync
         binary_reporter = BinaryColumnReporter(logger)
+
+        # A full load over a single orderable primary key can page with keyset (seek) pagination
+        # instead of one long streaming cursor, which makes it resumable across pods. Incremental syncs
+        # already resume from their watermark, and keyless/composite/non-orderable tables fall through
+        # to the streaming path below.
+        eligibility = resolve_keyset_eligibility(
+            primary_keys=primary_keys,
+            arrow_schema=arrow_schema,
+            should_use_incremental_field=should_use_incremental_field,
+            primary_key_is_declared=primary_keys_are_declared,
+        )
+        keyset_column = eligibility.column
+        if keyset_column is None:
+            # Logged for every ineligible table so the ineligible share (and its breakdown) is
+            # measurable before keyset pagination is extended to the other SQL dialects.
+            logger.info(f"MySQL keyset resume unavailable: reason={eligibility.reason}")
+
+        if keyset_column is not None and resumable_source_manager is not None:
+            manager = resumable_source_manager
+
+            def _keyset_get_rows() -> Iterator[Any]:
+                initial_last_value = None
+                state = manager.load_state() if manager.can_resume() else None
+                if state is not None:
+                    initial_last_value = state.last_key
+                    logger.debug(f"MySQL keyset resume: {keyset_column} > {initial_last_value}")
+
+                # Autocommit: each page is its own transaction, so the load never holds a read view
+                # (and the metadata lock that blocks DDL) across the whole table the way the
+                # streaming cursor does. A resume on a fresh pod starts a new snapshot regardless, so
+                # there is no cross-page consistency here to give up — and the delta merge dedupes by
+                # primary key if a row shifts between pages.
+                with self.connect(config, read_timeout=STATEMENT_TIMEOUT_SECONDS, autocommit=True) as connection:
+                    plan_checked = False
+
+                    def _run_page(page_sql: SafeSQL) -> pa.Table | None:
+                        nonlocal plan_checked
+                        with connection.cursor() as cursor:
+                            # Check the first page that actually seeks — page 1 has no `pk >`
+                            # predicate, so its plan says nothing about how the walk will behave.
+                            seeks = isinstance(page_sql.params, dict) and "keyset_value" in page_sql.params
+                            if not plan_checked and seeks:
+                                plan_checked = True
+                                self.check_keyset_page_plan(cursor, page_sql, logger)
+
+                            cursor.execute(page_sql.sql, page_sql.params)
+                            rows = cursor.fetchall()
+                            if not rows:
+                                return None
+                            column_names = [column[0] for column in cursor.description or []]
+                            return table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
+
+                    def _checkpoint(last_key: Any) -> None:
+                        manager.save_state(KeysetResumeState(last_key=last_key))
+
+                    yield from iter_keyset_pages(
+                        builder=_QUERY_BUILDER,
+                        schema=schema,
+                        table_name=table_name,
+                        keyset_column=keyset_column,
+                        chunk_size=chunk_size,
+                        run_page=_run_page,
+                        initial_last_value=initial_last_value,
+                        checkpoint=_checkpoint,
+                        enabled_columns=enabled_columns,
+                        primary_keys=primary_keys,
+                        row_filters=row_filters,
+                    )
+
+                # Only reached when the walk exhausted the table. An abandoned generator (draining
+                # worker) unwinds at the yield above, leaving the checkpoint in place to resume from.
+                manager.clear_state()
+
+            return SourceResponse(
+                name=location.response_name,
+                items=_keyset_get_rows,
+                primary_keys=primary_keys,
+                rows_to_sync=rows_to_sync,
+                supports_resume=True,
+            )
 
         def _stream_with_optional_force_index(force_index_name: str | None) -> Iterator[Any]:
             """Open a fresh connection and stream rows.
@@ -1625,4 +1786,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
             partition_count=partition_settings.partition_count if partition_settings else None,
             partition_size=partition_settings.partition_size if partition_settings else None,
             rows_to_sync=rows_to_sync,
+            # The streaming path can't be resumed across pods (its cursor is bound to one connection),
+            # so this run is not cheaply resumable — treated as non-resumable for shutdown handling.
+            supports_resume=False,
         )

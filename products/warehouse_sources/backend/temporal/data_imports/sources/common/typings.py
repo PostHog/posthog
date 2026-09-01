@@ -82,6 +82,11 @@ class SourceResponse:
     """xmin syncs: full 64-bit `xid8` ceiling, the durable wraparound-safe cursor."""
     xmin_num_wraparound: Optional[int] = None
     """xmin syncs: epoch (high 32 bits of `xmin_ceiling_xid8`) at this run's ceiling."""
+    supports_resume: bool = True
+    """Whether *this run* can cheaply resume after a bail (source checkpoints, or an ascending
+    incremental watermark). Gated by the pipeline together with a non-None resumable-source manager,
+    so a resumable-source class whose current table isn't actually resumable (e.g. a SQL full load
+    with no orderable primary key) sets this False and is treated as non-resumable for shutdown."""
 
 
 # Not frozen: nothing mutates it in place today, so freezing it is plausible, but every source
