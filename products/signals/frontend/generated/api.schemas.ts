@@ -1979,6 +1979,10 @@ export interface SignalScoutSkillSummaryApi {
     readonly allowed_tools: readonly string[]
 }
 
+/**
+ * * `canonical` - canonical
+ * * `custom` - custom
+ */
 export type ScoutOriginEnumApi = (typeof ScoutOriginEnumApi)[keyof typeof ScoutOriginEnumApi]
 
 export const ScoutOriginEnumApi = {
@@ -3883,6 +3887,106 @@ export interface ForgetRequestApi {
 export interface ForgetResponseApi {
     /** Whether a row was actually removed (false if the key didn't exist). */
     deleted: boolean
+}
+
+/**
+ * * `fresh` - Fresh
+ * * `stale` - Stale
+ * * `failed` - Failed
+ * * `empty` - Empty
+ */
+export type ScoutSuggestionSetStatusEnumApi =
+    (typeof ScoutSuggestionSetStatusEnumApi)[keyof typeof ScoutSuggestionSetStatusEnumApi]
+
+export const ScoutSuggestionSetStatusEnumApi = {
+    Fresh: 'fresh',
+    Stale: 'stale',
+    Failed: 'failed',
+    Empty: 'empty',
+} as const
+
+export interface ScoutSuggestionProposedConfigApi {
+    /**
+     * Suggested five-field cron schedule in the project timezone, or null for an interval.
+     * @nullable
+     */
+    run_cron_schedule?: string | null
+    /**
+     * Suggested minutes between runs when no cron is given; null means the daily default.
+     * @nullable
+     */
+    run_interval_minutes?: number | null
+    /** Whether the suggested scout should write to the inbox (false = dry run). */
+    emit: boolean
+}
+
+/**
+ * * `high` - high
+ * * `medium` - medium
+ * * `low` - low
+ */
+export type ConfidenceTierEnumApi = (typeof ConfidenceTierEnumApi)[keyof typeof ConfidenceTierEnumApi]
+
+export const ConfidenceTierEnumApi = {
+    High: 'high',
+    Medium: 'medium',
+    Low: 'low',
+} as const
+
+export interface ScoutSuggestionItemApi {
+    /** Stable id of this suggestion within the batch; use it to dismiss. */
+    id: string
+    /** `canonical`: enable a PostHog-authored scout that exists but is off. `custom`: create a drafted scout.
+     *
+     * * `canonical` - canonical
+     * * `custom` - custom */
+    kind: ScoutOriginEnumApi
+    /** The scout's `signals-scout-*` skill name (existing for canonical, proposed for custom). */
+    skill_name: string
+    /** Short sentence-case title: what the scout watches. */
+    title: string
+    /** Project-specific evidence for this suggestion, in prose. */
+    why_here: string
+    /** Custom only: the one-line description the scout would be created with. */
+    description: string
+    /** Custom only: the complete skill body the scout would be created with. */
+    draft_body: string
+    /** Suggested schedule and emit posture. */
+    proposed_config: ScoutSuggestionProposedConfigApi
+    /** True when nothing in the current fleet covers this. */
+    gap: boolean
+    /** The producer's confidence.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high */
+    confidence: ConfidenceTierEnumApi
+}
+
+export interface ScoutSuggestionSetApi {
+    /** `fresh`: current batch. `stale`: the fleet changed since it was generated, or the batch aged past the refresh window. `failed`: the last refresh failed (items are the prior batch, if any). `empty`: nothing to suggest yet.
+     *
+     * * `fresh` - Fresh
+     * * `stale` - Stale
+     * * `failed` - Failed
+     * * `empty` - Empty */
+    status: ScoutSuggestionSetStatusEnumApi
+    /**
+     * When the current batch was generated; null before the first run.
+     * @nullable
+     */
+    generated_at: string | null
+    /** The model that produced the batch, when pinned. */
+    model: string
+    /** Skill names that were enabled when the batch was generated. */
+    fleet_snapshot: string[]
+    /** Suggestions not yet dismissed or created, best first. Up to 5. */
+    items: ScoutSuggestionItemApi[]
+}
+
+export interface ScoutSuggestionRefreshApi {
+    /** The dispatched refresh workflow id. */
+    workflow_id: string
 }
 
 /**

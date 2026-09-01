@@ -18677,6 +18677,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `high` - high
+     * * `medium` - medium
+     * * `low` - low
+     */
+    export type ConfidenceTierEnum = typeof ConfidenceTierEnum[keyof typeof ConfidenceTierEnum];
+
+
+    export const ConfidenceTierEnum = {
+      High: 'high',
+      Medium: 'medium',
+      Low: 'low',
+    } as const;
+
+    /**
      * * `boolean` - boolean
      * * `number` - number
      * * `string` - string
@@ -42219,14 +42233,14 @@ export namespace Schemas {
     }
 
     /**
-     * Test trigger payload, typically {event, person, groups}.
+     * Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or for an internal-event trigger an event named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, text, ts) and no person.
      */
     export type HogFlowInvocationGlobals = { [key: string]: unknown };
 
     export interface HogFlowInvocation {
       /** Optional override; omit to use saved definition. */
       configuration?: HogFlow;
-      /** Test trigger payload, typically {event, person, groups}. */
+      /** Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or for an internal-event trigger an event named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, text, ts) and no person. */
       globals?: HogFlowInvocationGlobals;
       /** True (default) mocks HTTP/email/SMS. False fires real side effects. */
       mock_async_functions?: boolean;
@@ -45601,20 +45615,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `high` - high
-     * * `medium` - medium
-     * * `low` - low
-     */
-    export type IdentityMatchingLinkTierEnum = typeof IdentityMatchingLinkTierEnum[keyof typeof IdentityMatchingLinkTierEnum];
-
-
-    export const IdentityMatchingLinkTierEnum = {
-      High: 'high',
-      Medium: 'medium',
-      Low: 'low',
-    } as const;
-
-    /**
      * The resolved person behind one side of a link, with a curated set of properties that mirror
      * the match signals (geo, device, campaign) so a reviewer can judge whether the link is plausible.
      */
@@ -45716,7 +45716,7 @@ export namespace Schemas {
        * * `high` - high
        * * `medium` - medium
        * * `low` - low */
-      tier: IdentityMatchingLinkTierEnum;
+      tier: ConfidenceTierEnum;
       /** When the link was computed (UTC). */
       computed_at: string;
       /** Distinct (IP, day) combinations both sides were seen on. */
@@ -53263,6 +53263,7 @@ export namespace Schemas {
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
+     * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
@@ -53288,6 +53289,7 @@ export namespace Schemas {
       Experiments: 'experiments',
       SignalReport: 'signal_report',
       SignalsScout: 'signals_scout',
+      ScoutSuggestions: 'scout_suggestions',
       SupportReply: 'support_reply',
       Hogdesk: 'hogdesk',
       ReviewHog: 'review_hog',
@@ -65289,9 +65291,9 @@ export namespace Schemas {
       onboarding_tasks?: unknown;
       /** @nullable */
       web_analytics_pre_aggregated_tables_enabled?: boolean | null;
-      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
+      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
       readonly event_retention_months?: number;
-      /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+      /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
       readonly events_retention_enforced?: boolean;
     }
 
@@ -67078,6 +67080,7 @@ export namespace Schemas {
        * * `experiments` - Experiments
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
+       * * `scout_suggestions` - Signals Scout Suggestions
        * * `support_reply` - Support Reply
        * * `hogdesk` - HogDesk
        * * `review_hog` - ReviewHog
@@ -67380,9 +67383,9 @@ export namespace Schemas {
       readonly product_intents?: readonly PatchedTeamProductIntentsItem[];
       readonly managed_viewsets?: PatchedTeamManagedViewsets;
       readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnum[];
-      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
+      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
       readonly event_retention_months?: number;
-      /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+      /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
       readonly events_retention_enforced?: boolean;
     }
 
@@ -69670,9 +69673,9 @@ export namespace Schemas {
       onboarding_tasks?: unknown;
       /** @nullable */
       web_analytics_pre_aggregated_tables_enabled?: boolean | null;
-      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
+      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
       readonly event_retention_months: number;
-      /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+      /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
       readonly events_retention_enforced: boolean;
     }
 
@@ -76054,6 +76057,10 @@ export namespace Schemas {
       config?: SignalScoutConfigOptions;
     }
 
+    /**
+     * * `canonical` - canonical
+     * * `custom` - custom
+     */
     export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
 
 
@@ -76451,6 +76458,93 @@ export namespace Schemas {
          * @maxItems 200
          */
       run_ids: string[];
+    }
+
+    export interface ScoutSuggestionProposedConfig {
+      /**
+         * Suggested five-field cron schedule in the project timezone, or null for an interval.
+         * @nullable
+         */
+      run_cron_schedule?: string | null;
+      /**
+         * Suggested minutes between runs when no cron is given; null means the daily default.
+         * @nullable
+         */
+      run_interval_minutes?: number | null;
+      /** Whether the suggested scout should write to the inbox (false = dry run). */
+      emit: boolean;
+    }
+
+    export interface ScoutSuggestionItem {
+      /** Stable id of this suggestion within the batch; use it to dismiss. */
+      id: string;
+      /** `canonical`: enable a PostHog-authored scout that exists but is off. `custom`: create a drafted scout.
+       *
+       * * `canonical` - canonical
+       * * `custom` - custom */
+      kind: ScoutOriginEnum;
+      /** The scout's `signals-scout-*` skill name (existing for canonical, proposed for custom). */
+      skill_name: string;
+      /** Short sentence-case title: what the scout watches. */
+      title: string;
+      /** Project-specific evidence for this suggestion, in prose. */
+      why_here: string;
+      /** Custom only: the one-line description the scout would be created with. */
+      description: string;
+      /** Custom only: the complete skill body the scout would be created with. */
+      draft_body: string;
+      /** Suggested schedule and emit posture. */
+      proposed_config: ScoutSuggestionProposedConfig;
+      /** True when nothing in the current fleet covers this. */
+      gap: boolean;
+      /** The producer's confidence.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high */
+      confidence: ConfidenceTierEnum;
+    }
+
+    export interface ScoutSuggestionRefresh {
+      /** The dispatched refresh workflow id. */
+      workflow_id: string;
+    }
+
+    /**
+     * * `fresh` - Fresh
+     * * `stale` - Stale
+     * * `failed` - Failed
+     * * `empty` - Empty
+     */
+    export type ScoutSuggestionSetStatusEnum = typeof ScoutSuggestionSetStatusEnum[keyof typeof ScoutSuggestionSetStatusEnum];
+
+
+    export const ScoutSuggestionSetStatusEnum = {
+      Fresh: 'fresh',
+      Stale: 'stale',
+      Failed: 'failed',
+      Empty: 'empty',
+    } as const;
+
+    export interface ScoutSuggestionSet {
+      /** `fresh`: current batch. `stale`: the fleet changed since it was generated, or the batch aged past the refresh window. `failed`: the last refresh failed (items are the prior batch, if any). `empty`: nothing to suggest yet.
+       *
+       * * `fresh` - Fresh
+       * * `stale` - Stale
+       * * `failed` - Failed
+       * * `empty` - Empty */
+      status: ScoutSuggestionSetStatusEnum;
+      /**
+         * When the current batch was generated; null before the first run.
+         * @nullable
+         */
+      generated_at: string | null;
+      /** The model that produced the batch, when pinned. */
+      model: string;
+      /** Skill names that were enabled when the batch was generated. */
+      fleet_snapshot: string[];
+      /** Suggestions not yet dismissed or created, best first. Up to 5. */
+      items: ScoutSuggestionItem[];
     }
 
     /**
@@ -83548,6 +83642,7 @@ export namespace Schemas {
        * * `experiments` - Experiments
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
+       * * `scout_suggestions` - Signals Scout Suggestions
        * * `support_reply` - Support Reply
        * * `hogdesk` - HogDesk
        * * `review_hog` - ReviewHog
@@ -84947,6 +85042,7 @@ export namespace Schemas {
        * * `experiments` - Experiments
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
+       * * `scout_suggestions` - Signals Scout Suggestions
        * * `support_reply` - Support Reply
        * * `hogdesk` - HogDesk
        * * `review_hog` - ReviewHog
@@ -85256,9 +85352,9 @@ export namespace Schemas {
       readonly product_intents: readonly TeamProductIntentsItem[];
       readonly managed_viewsets: TeamManagedViewsets;
       readonly available_setup_task_ids: readonly AvailableSetupTaskIdsEnum[];
-      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
+      /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
       readonly event_retention_months: number;
-      /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+      /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
       readonly events_retention_enforced: boolean;
     }
 
@@ -88884,10 +88980,10 @@ export namespace Schemas {
 
     export interface _MetricSamplesBody {
       /**
-         * Exact metric name to list raw emissions for (e.g. 'http.server.duration').
+         * Exact metric name to list raw emissions for (e.g. 'http.server.duration'). Omit to list emissions across all metric names — allowed only with traceId (the trace->metrics pivot).
          * @maxLength 255
          */
-      metricName: string;
+      metricName?: string;
       /** Lower bound (inclusive) for the sample window. ISO 8601. */
       dateFrom: string;
       /** Upper bound (exclusive) for the sample window. Defaults to now if omitted. */
@@ -88897,6 +88993,11 @@ export namespace Schemas {
          * @maxLength 255
          */
       traceId?: string;
+      /**
+         * Restrict to emissions recorded on this span (hex span id). Requires traceId, since a span id is only unique within its trace.
+         * @maxLength 255
+         */
+      spanId?: string;
       /** Constrain the emissions to one metric type. A name can exist as several types (e.g. a counter and a gauge); without this, emissions of every type sharing the name are listed together. Pass the same value used for the chart so both describe the same series.
        *
        * * `gauge` - gauge
@@ -98947,6 +99048,7 @@ export namespace Schemas {
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
+     * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
@@ -99081,6 +99183,7 @@ export namespace Schemas {
       Experiments: 'experiments',
       SignalReport: 'signal_report',
       SignalsScout: 'signals_scout',
+      ScoutSuggestions: 'scout_suggestions',
       SupportReply: 'support_reply',
       Hogdesk: 'hogdesk',
       ReviewHog: 'review_hog',

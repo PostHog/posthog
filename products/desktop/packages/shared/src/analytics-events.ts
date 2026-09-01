@@ -245,6 +245,11 @@ export interface DiffViewModeChangedProperties {
   to_mode: "split" | "unified";
 }
 
+export interface ReviewFileBrowserToggledProperties {
+  task_id: string;
+  collapsed: boolean;
+}
+
 // Workspace events
 export interface WorkspaceCreatedProperties {
   task_id: string;
@@ -1070,6 +1075,7 @@ type ChannelActionType =
   | "view_more_tasks"
   | "create"
   | "rename"
+  | "auto_archive_update"
   | "delete"
   | "star"
   | "unstar"
@@ -1119,6 +1125,8 @@ export interface ChannelActionProperties {
   tab?: string;
   /** Whether the underlying mutation resolved successfully. */
   success?: boolean;
+  /** For auto_archive_update: the selected inactivity window. Null disables it. */
+  inactivity_days?: number | null;
 }
 
 type DashboardActionType =
@@ -1505,6 +1513,7 @@ export const ANALYTICS_EVENTS = {
   FILE_DIFF_VIEWED: "File diff viewed",
   REVIEW_PANEL_VIEWED: "Review panel viewed",
   DIFF_VIEW_MODE_CHANGED: "Diff view mode changed",
+  REVIEW_FILE_BROWSER_TOGGLED: "Review file browser toggled",
 
   // Workspace events
   WORKSPACE_CREATED: "Workspace created",
@@ -1711,6 +1720,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.FILE_DIFF_VIEWED]: FileDiffViewedProperties;
   [ANALYTICS_EVENTS.REVIEW_PANEL_VIEWED]: ReviewPanelViewedProperties;
   [ANALYTICS_EVENTS.DIFF_VIEW_MODE_CHANGED]: DiffViewModeChangedProperties;
+  [ANALYTICS_EVENTS.REVIEW_FILE_BROWSER_TOGGLED]: ReviewFileBrowserToggledProperties;
 
   // Workspace events
   [ANALYTICS_EVENTS.WORKSPACE_CREATED]: WorkspaceCreatedProperties;

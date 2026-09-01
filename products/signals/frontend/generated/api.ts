@@ -49,6 +49,9 @@ import type {
     ScoutNoteApi,
     ScoutNoteCreateRequestApi,
     ScoutRunIdsBatchRequestApi,
+    ScoutSuggestionItemApi,
+    ScoutSuggestionRefreshApi,
+    ScoutSuggestionSetApi,
     ScratchpadEntryApi,
     SignalReportApi,
     SignalReportArtefactApi,
@@ -1423,6 +1426,61 @@ export const signalsScoutScratchpadForget = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(forgetRequestApi),
+    })
+}
+
+export const getSignalsScoutSuggestionsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/suggestions/`
+}
+
+/**
+ * Return the pre-computed scout suggestions for this project: up to five picks, best first, each either a PostHog-authored scout to turn on or a drafted custom scout. Dismissed and already-created suggestions are omitted. An empty `items` with status `empty` means no batch has been generated yet; the interactive `scout-chat-tasks` path still works.
+ * @summary Get suggested scouts for this project
+ */
+export const signalsScoutSuggestionsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ScoutSuggestionSetApi> => {
+    return apiMutator<ScoutSuggestionSetApi>(getSignalsScoutSuggestionsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsScoutSuggestionsDismissUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/scout/suggestions/${id}/dismiss/`
+}
+
+/**
+ * Hide one suggestion from this project's batch. Dismissal is remembered across refreshes by skill name, so the same suggestion is not shown again.
+ * @summary Dismiss a suggested scout
+ */
+export const signalsScoutSuggestionsDismiss = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ScoutSuggestionItemApi> => {
+    return apiMutator<ScoutSuggestionItemApi>(getSignalsScoutSuggestionsDismissUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getSignalsScoutSuggestionsRefreshUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/suggestions/refresh/`
+}
+
+/**
+ * Re-run the suggestion scan for this project now instead of waiting for the scheduled refresh. Runs headlessly; poll the list endpoint for the new batch (`generated_at` advances). Capped per project per day.
+ * @summary Refresh suggested scouts
+ */
+export const signalsScoutSuggestionsRefresh = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ScoutSuggestionRefreshApi> => {
+    return apiMutator<ScoutSuggestionRefreshApi>(getSignalsScoutSuggestionsRefreshUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 
