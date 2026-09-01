@@ -29,16 +29,6 @@ WHERE distinct_id IN {{distinct_ids}} AND timestamp > now() - INTERVAL 90 DAY
 GROUP BY distinct_id
 """
 
-# Resolve a distinct_id to the current email of the person it belongs to, via ClickHouse.
-# Runs on every widget poll, so it must not hit Postgres/personhog — person properties are
-# read from ClickHouse (the `persons` join off `person_distinct_ids` deduplicates to the
-# latest person row automatically).
-EMAILS_BY_DISTINCT_ID_QUERY = """
-SELECT DISTINCT lower(person.properties.email)
-FROM person_distinct_ids
-WHERE distinct_id = {distinct_id} AND person.properties.email != ''
-"""
-
 
 def _get_persons_by_email(
     team: Team,
@@ -117,28 +107,3 @@ def get_group_keys_by_email(*, team: Team, emails: list[str], group_type_index: 
         email: next(iter(group_keys)) if len(group_keys) == 1 else None
         for email, group_keys in group_keys_by_email.items()
     }
-
-
-def get_emails_for_distinct_id(team: Team, distinct_id: str) -> set[str]:
-    """Resolve the lowercased emails that belong to the person behind ``distinct_id``.
-
-    Used to bridge a verified widget viewer to tickets that other channels keyed on an
-    email string (Slack stores the requester email as the ticket ``distinct_id``). Only
-    ever call this with a distinct_id that was already HMAC-verified — the emails it
-    returns are treated as owned by the viewer for ticket access.
-
-    Resolves via ClickHouse rather than personhog/Postgres: this runs on every widget
-    poll, and person properties are served from ClickHouse.
-    """
-    if not distinct_id:
-        return set()
-
-    with tags_context(product=Product.CONVERSATIONS, feature=Feature.QUERY):
-        response = execute_hogql_query(
-            EMAILS_BY_DISTINCT_ID_QUERY,
-            placeholders={"distinct_id": ast.Constant(value=distinct_id)},
-            team=team,
-            query_type="conversations_emails_by_distinct_id",
-        )
-
-    return {email.lower() for (email,) in (response.results or []) if email}
