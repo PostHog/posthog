@@ -97,6 +97,29 @@ class TestWorkflowScoutRunsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         assert response.json() == {"scout": SCOUT, "workflow_id": "signals-scout-workflow-run-1"}
 
+    def test_a_retry_with_the_same_idempotency_key_does_not_dispatch_twice(self) -> None:
+        # A retry landing after the original Temporal workflow has already closed would otherwise
+        # start a second billable run: ALLOW_DUPLICATE lets a closed workflow's id be reused for a
+        # fresh execution, so Temporal's own id-conflict policy can't catch this the way it catches
+        # an in-flight collision.
+        started = WorkflowScoutRunStarted(skill_name=SCOUT, workflow_id="signals-scout-workflow-run-1")
+        with patch(_START_SCOUT, return_value=started) as start:
+            first = self._post({"idempotency_key": "invocation-1:action-1"})
+            second = self._post({"idempotency_key": "invocation-1:action-1"})
+
+        assert first.status_code == status.HTTP_202_ACCEPTED, first.json()
+        assert second.status_code == status.HTTP_202_ACCEPTED, second.json()
+        assert first.json() == second.json() == {"scout": SCOUT, "workflow_id": "signals-scout-workflow-run-1"}
+        start.assert_called_once_with(team_id=self.team.id, skill_name=SCOUT)
+
+    def test_a_different_idempotency_key_still_dispatches_its_own_run(self) -> None:
+        started = WorkflowScoutRunStarted(skill_name=SCOUT, workflow_id="signals-scout-workflow-run-1")
+        with patch(_START_SCOUT, return_value=started) as start:
+            self._post({"idempotency_key": "invocation-1:action-1"})
+            self._post({"idempotency_key": "invocation-2:action-1"})
+
+        assert start.call_count == 2
+
     def test_an_unrelated_collision_still_skips_since_nothing_is_confirmed_dispatched(self) -> None:
         # The pre-dispatch gate can also report in_flight_workflow_id, for a live run of this
         # scout from a different source or a different workflow's fire — nothing has actually

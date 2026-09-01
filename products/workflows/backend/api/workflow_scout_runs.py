@@ -10,6 +10,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
+from posthog.redis import get_client
 
 from products.signals.backend.facade.api import (
     ScoutRunRejectionKind,
@@ -20,6 +21,20 @@ from products.workflows.backend.models import HogFlow
 from products.workflows.backend.service_jwt import WORKFLOW_SCOUT_RUN_PURPOSE
 
 logger = structlog.get_logger(__name__)
+
+# Covers the whole retry window a staged fetch can span: the JWT that carries idempotency_key
+# lives 30 minutes (nodejs/src/cdp/async-functions/run-scout.ts), and this outlives that with
+# margin for engine backoff and queue lag. Temporal's own id-conflict policy only dedupes a
+# retry that lands while the original run is still open (ALLOW_DUPLICATE lets a closed run's id
+# be reused for a fresh, billable execution) — this cache is what catches a retry landing after
+# the original run has already finished.
+IDEMPOTENCY_KEY_TTL_SECONDS = 60 * 60
+
+
+def _idempotency_cache_key(hog_flow_id: uuid.UUID, idempotency_key: str) -> str:
+    # Scoped by workflow so one workflow's key can never replay another's dispatch.
+    return f"workflow_scout_run_idempotency:{hog_flow_id}:{idempotency_key}"
+
 
 # The step only treats 409 as a graceful skip, so every remaining backpressure kind (paused,
 # cooldown, budget, quota) maps onto it; a scout that cannot run at all fails the step so the
@@ -58,11 +73,7 @@ class WorkflowScoutRunCreateSerializer(serializers.Serializer):
     idempotency_key = serializers.CharField(
         max_length=128,
         required=False,
-        help_text=(
-            "Stable key for this invocation. Accepted for parity with the task-creation endpoint; "
-            "the scout path has no idempotency store of its own, since a retry deterministically "
-            "collides with the run its own earlier attempt started and gets the same run back."
-        ),
+        help_text="Stable key for this invocation. A retried request with the same key returns the run it dispatched, without spending another.",
     )
 
 
@@ -124,6 +135,22 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
         serializer = WorkflowScoutRunCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         skill_name = serializer.validated_data["skill_name"].strip()
+        idempotency_key = serializer.validated_data.get("idempotency_key")
+        cache_key = _idempotency_cache_key(hog_flow_id, idempotency_key) if idempotency_key else None
+
+        # A replay of an already-dispatched key returns that run before any other check, same as
+        # the task-creation endpoint's origin_key — no need to re-resolve the workflow or re-run
+        # the scout's gates for a request this key has already spent.
+        if cache_key is not None:
+            cached_workflow_id = get_client().get(cache_key)
+            if cached_workflow_id is not None:
+                workflow_id = (
+                    cached_workflow_id.decode() if isinstance(cached_workflow_id, bytes) else cached_workflow_id
+                )
+                return Response(
+                    WorkflowScoutRunResponseSerializer({"scout": skill_name, "workflow_id": workflow_id}).data,
+                    status=status.HTTP_202_ACCEPTED,
+                )
 
         # A token outlives the workflow it was minted for (its TTL covers the whole fetch retry
         # chain), so a deleted workflow must not still be able to spend scout runs.
@@ -148,6 +175,8 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
                     skill_name=skill_name,
                     workflow_id=error.in_flight_workflow_id,
                 )
+                if cache_key is not None:
+                    get_client().set(cache_key, error.in_flight_workflow_id, ex=IDEMPOTENCY_KEY_TTL_SECONDS)
                 return Response(
                     WorkflowScoutRunResponseSerializer(
                         {"scout": skill_name, "workflow_id": error.in_flight_workflow_id}
@@ -171,6 +200,8 @@ class WorkflowScoutRunViewSet(viewsets.GenericViewSet):
             skill_name=started.skill_name,
             workflow_id=started.workflow_id,
         )
+        if cache_key is not None:
+            get_client().set(cache_key, started.workflow_id, ex=IDEMPOTENCY_KEY_TTL_SECONDS)
         return Response(
             WorkflowScoutRunResponseSerializer({"scout": started.skill_name, "workflow_id": started.workflow_id}).data,
             status=status.HTTP_202_ACCEPTED,
