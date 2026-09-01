@@ -6703,3 +6703,31 @@ class TestPosthogConnectionListScoping:
     def test_creator_still_sees_their_connection(self, client: HttpClient):
         client.force_login(self.owner)
         assert self.connection.id in self._list_ids(client)
+
+
+class TestIntegrationSerializerFilesWriteRequestable(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("slack_requests_files_write", "slack", "chat:write,files:write", True),
+            ("slack_does_not_request_files_write", "slack", "chat:write", False),
+            ("non_slack_is_never_requestable", "github", "chat:write,files:write", False),
+        ]
+    )
+    def test_files_write_requestable(self, _name, kind, requested_scope, expected):
+        config = {"team": {"name": "Test Workspace"}} if kind == "slack" else {"installation_id": "12345"}
+        integration = Integration.objects.create(team=self.team, kind=kind, config=config)
+        with (
+            patch(
+                "posthog.models.integration.oauth.get_instance_settings",
+                return_value={
+                    "SLACK_APP_CLIENT_ID": "test-client-id",
+                    "SLACK_APP_CLIENT_SECRET": "test-client-secret",
+                    "SLACK_APP_SIGNING_SECRET": "test-signing-secret",
+                },
+            ),
+            patch("posthog.api.integration.POSTHOG_SLACK_SCOPE", requested_scope),
+        ):
+            response = self.client.get(f"/api/environments/{self.team.id}/integrations/{integration.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["files_write_requestable"] is expected
