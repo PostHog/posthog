@@ -3803,7 +3803,12 @@ class ProposalOutOfDateError(exceptions.APIException):
 # Fields a proposal replaces wholesale rather than merging into: carrying a stale copy of one of
 # these puts the workflow's older shape back. Harmless while the live version still matches what
 # the proposal was written against, which is what approve checks.
-PROPOSAL_WHOLE_LIST_FIELDS = ("actions", "edges", "abort_action")
+#
+# `variables` belongs here for the same reason as `actions`: it is a whole list, so a proposal that
+# changes one variable carries every other variable as it stood when the proposal was written, and
+# staging it drops any added since. The single-value fields (trigger, conversion, exit_condition)
+# are deliberately absent - replacing one of those is the proposal's stated purpose, not collateral.
+PROPOSAL_WHOLE_LIST_FIELDS = ("actions", "edges", "abort_action", "variables")
 
 
 def unstage_workflow_proposals(hog_flow: HogFlow) -> None:
