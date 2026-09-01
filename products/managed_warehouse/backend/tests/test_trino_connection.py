@@ -75,6 +75,17 @@ class TestResolveManagedWarehouseTrinoConnection:
                 {
                     "enabled": True,
                     "status": {
+                        "state": "ready",
+                        "trino_catalog_name": "catalog",
+                        "connection": {"host": "trino.postwh.com", "port": 8443, "username": "org_database"},
+                    },
+                },
+                status=200,
+            ),
+            Response(
+                {
+                    "enabled": True,
+                    "status": {
                         "org": "another-org",
                         "state": "ready",
                         "trino_catalog_name": "catalog",

@@ -29,7 +29,10 @@ import {
   useInboxReportArtefacts,
   useUpdateSuggestedReviewers,
 } from "@posthog/ui/features/inbox/hooks/useInboxReports";
-import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
+import {
+  useReportActionResultTracker,
+  useReportActionTracker,
+} from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
 import { useDeferredValue, useMemo, useState } from "react";
 
 function reviewerMatchesAvailable(
@@ -54,6 +57,7 @@ function reviewerMatchesAvailable(
 export function ReportReviewersHeader({ report }: { report: SignalReport }) {
   const client = useOptionalAuthenticatedClient();
   const fireAction = useReportActionTracker(report);
+  const trackResult = useReportActionResultTracker(report);
   const { data: currentUser } = useCurrentUser({ client, enabled: !!client });
   const { data: artefactsResp } = useInboxReportArtefacts(report.id);
   const artefact = selectSuggestedReviewersArtefact(
@@ -96,15 +100,26 @@ export function ReportReviewersHeader({ report }: { report: SignalReport }) {
     const existing = reviewers.find((r) => reviewerMatchesAvailable(r, option));
     if (existing) {
       const next = reviewers.filter((r) => r !== existing);
-      fireAction("remove_suggested_reviewer", {
-        suggested_reviewer_login: existing.github_login || undefined,
-        suggested_reviewer_uuid: existing.user?.uuid,
-      });
-      updateReviewers({
-        artefactId: artefact.id,
-        content: toSuggestedReviewerWriteContent(next),
-        optimisticReviewers: next,
-      });
+      const startedAt = Date.now();
+      fireAction("remove_suggested_reviewer");
+      updateReviewers(
+        {
+          artefactId: artefact.id,
+          content: toSuggestedReviewerWriteContent(next),
+          optimisticReviewers: next,
+        },
+        {
+          onSuccess: () =>
+            trackResult("remove_suggested_reviewer", "succeeded", startedAt),
+          onError: () =>
+            trackResult(
+              "remove_suggested_reviewer",
+              "failed",
+              startedAt,
+              "request_failed",
+            ),
+        },
+      );
       return;
     }
     const optimisticEntry: SuggestedReviewer = {
@@ -119,18 +134,29 @@ export function ReportReviewersHeader({ report }: { report: SignalReport }) {
         last_name: "",
       },
     };
-    fireAction("add_suggested_reviewer", {
-      suggested_reviewer_login: option.github_login || undefined,
-      suggested_reviewer_uuid: option.uuid,
-    });
-    updateReviewers({
-      artefactId: artefact.id,
-      content: [
-        ...toSuggestedReviewerWriteContent(reviewers),
-        { user_uuid: option.uuid },
-      ],
-      optimisticReviewers: [...reviewers, optimisticEntry],
-    });
+    const startedAt = Date.now();
+    fireAction("add_suggested_reviewer");
+    updateReviewers(
+      {
+        artefactId: artefact.id,
+        content: [
+          ...toSuggestedReviewerWriteContent(reviewers),
+          { user_uuid: option.uuid },
+        ],
+        optimisticReviewers: [...reviewers, optimisticEntry],
+      },
+      {
+        onSuccess: () =>
+          trackResult("add_suggested_reviewer", "succeeded", startedAt),
+        onError: () =>
+          trackResult(
+            "add_suggested_reviewer",
+            "failed",
+            startedAt,
+            "request_failed",
+          ),
+      },
+    );
   };
 
   return (
