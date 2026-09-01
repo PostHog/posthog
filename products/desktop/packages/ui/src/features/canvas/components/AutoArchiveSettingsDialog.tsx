@@ -9,11 +9,10 @@ import {
   DialogHeader,
   DialogTitle,
   Field,
+  FieldContent,
   FieldDescription,
   FieldLabel,
-  NumberFieldDecrement,
   NumberFieldGroup,
-  NumberFieldIncrement,
   NumberFieldInput,
   NumberFieldRoot,
   Select,
@@ -155,10 +154,15 @@ export function AutoArchiveSettingsDialog({
             </FieldDescription>
           </Field>
           {selection === CUSTOM && (
-            <Field>
-              <FieldLabel htmlFor="custom-auto-archive-days">
-                Custom threshold
-              </FieldLabel>
+            <Field orientation="horizontal">
+              <FieldContent>
+                <FieldLabel htmlFor="custom-auto-archive-days">
+                  Days of inactivity before auto-archive
+                </FieldLabel>
+                <FieldDescription>
+                  Choose a value from 1 to 365 days.
+                </FieldDescription>
+              </FieldContent>
               <NumberFieldRoot
                 id="custom-auto-archive-days"
                 value={customDays}
@@ -167,14 +171,12 @@ export function AutoArchiveSettingsDialog({
                 max={MAX_THRESHOLD_DAYS}
                 step={1}
                 disabled={isSaving}
+                className="w-24 shrink-0"
               >
                 <NumberFieldGroup>
-                  <NumberFieldDecrement />
-                  <NumberFieldInput placeholder="Number of days" />
-                  <NumberFieldIncrement />
+                  <NumberFieldInput placeholder="0" />
                 </NumberFieldGroup>
               </NumberFieldRoot>
-              <FieldDescription>Enter 1 to 365 days.</FieldDescription>
             </Field>
           )}
         </DialogBody>

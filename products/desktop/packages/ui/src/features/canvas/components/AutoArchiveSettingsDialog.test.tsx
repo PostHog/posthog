@@ -31,7 +31,9 @@ describe("AutoArchiveSettingsDialog", () => {
     );
     await user.click(await screen.findByRole("option", { name: "Custom…" }));
     await user.type(
-      screen.getByRole("spinbutton", { name: "Custom threshold" }),
+      screen.getByRole("spinbutton", {
+        name: "Days of inactivity before auto-archive",
+      }),
       "45",
     );
     await user.click(screen.getByRole("button", { name: "Save" }));
