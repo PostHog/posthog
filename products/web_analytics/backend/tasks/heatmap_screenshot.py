@@ -14,6 +14,8 @@ from celery import Task, shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 from prometheus_client import Counter, Gauge, Histogram
 
+from posthog.egress.browserless.transport import BrowserlessEgressBudgetExhausted, browserless_request
+from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
@@ -101,6 +103,8 @@ def _classify_failure(e: BaseException) -> str:
             return "not_configured"
         if e.cause in ("empty_body", "non_image", "non_jpeg", "oversized"):
             return "validation_error"
+        if e.cause == "egress_budget_exhausted":
+            return "egress_budget_exhausted"
         if e.cause == "request_exception":
             return "browserless_timeout"
         if e.status_code is not None:
@@ -414,7 +418,31 @@ def _browserless_screenshot(
     width_bucket = _width_bucket(width)
     started = time.monotonic()
     try:
-        response = requests.post(endpoint_url, json=body, timeout=timeout)
+        # NORMAL, not BATCH: somebody is waiting on this render. Background consumers of the same
+        # fleet ask as BATCH and are shed first, which is what leaves headroom for this call.
+        response = browserless_request(
+            "POST",
+            endpoint_url,
+            token=settings.HEATMAP_BROWSERLESS_TOKEN,
+            source="heatmap_screenshot",
+            endpoint="screenshot",
+            priority=Priority.NORMAL,
+            json=body,
+            timeout=timeout,
+        )
+    except BrowserlessEgressBudgetExhausted as e:
+        # Transient by nature: the budget refills on its own, so the existing retry path is the
+        # right answer. Given its own cause so a starved fleet is not read as a broken one.
+        elapsed = time.monotonic() - started
+        HEATMAP_BROWSERLESS_REQUEST_SECONDS.labels(outcome="error", width_bucket=width_bucket).observe(elapsed)
+        logger.warning(
+            "heatmap_screenshot.browserless_request",
+            width=width,
+            outcome="error",
+            cause="egress_budget_exhausted",
+            latency_ms=round(elapsed * 1000),
+        )
+        raise BrowserlessTransientError(str(e), cause="egress_budget_exhausted") from None
     except Exception as e:
         elapsed = time.monotonic() - started
         HEATMAP_BROWSERLESS_REQUEST_SECONDS.labels(outcome="error", width_bucket=width_bucket).observe(elapsed)

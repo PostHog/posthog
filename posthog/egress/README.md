@@ -81,6 +81,18 @@ One scrape is one credit, so those numbers cap a bill as much as a rate; they ar
 Every Firecrawl call runs on a sheddable lane: what gets scraped is derived from user-supplied input and callers can do without the scrape, so nothing in this domain runs `CRITICAL`.
 `FIRECRAWL_API_KEY` authenticates every call as a bearer token; an instance without one makes no request at all (`FirecrawlNotConfigured`).
 
+Browserless (`browserless/`) meters **concurrent sessions**, not requests, and a session is held for the whole page load: a few seconds for a screenshot, tens of seconds for a Lighthouse audit.
+So its budget counts browser loads asked of one fleet, and the ceilings are small next to an API budget: `BROWSERLESS_EGRESS_PER_MINUTE_BUDGET` (default 120) and `BROWSERLESS_EGRESS_HOURLY_BUDGET` (default 2,000).
+Browserless publishes no rate-limit headers at all — its `X-Response-*` headers describe the page it fetched, not the API's budget — so, like logo.dev and Firecrawl, the budgets are static operator ceilings and the rate-limit gauges stay unset.
+
+The identity is the **fleet**: a hash of host and token together.
+Either alone is wrong. The same credential against a different host is a different set of workers, and a self-hosted fleet often carries no token, which would collapse every such deployment onto one budget if the token were the whole identity.
+The fleet is also what actually runs out: two callers pointed at one Browserless draw from one pool of workers whatever product they serve, so a narrower key would let each stay inside its own limit and still exhaust the fleet between them.
+
+This domain is where priority earns its keep, because its callers differ sharply in urgency.
+Heatmap screenshots run `NORMAL` — somebody is watching a spinner — while background consumers such as the Signals scout's Lighthouse audits run `BATCH` and are shed first, which is what leaves headroom for the render a person is waiting on.
+A denied call raises `BrowserlessEgressBudgetExhausted`; the heatmap caller maps it to its existing retryable error, under its own failure cause so a busy fleet is not read as a broken one.
+
 ### Priority lanes
 
 Priority (`CRITICAL` / `NORMAL` / `BATCH`) controls how sheddable a call is when the budget gets tight.

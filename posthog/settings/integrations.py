@@ -181,6 +181,13 @@ PANDADOC_DPA_TEMPLATE_ID = get_from_env("PANDADOC_DPA_TEMPLATE_ID", "")
 UNLAYER_API_KEY = get_from_env("UNLAYER_API_KEY", "")
 UNLAYER_API_BASE_URL = get_from_env("UNLAYER_API_BASE_URL", "https://api.unlayer.com")
 
+# Outbound budget for one Browserless fleet, shared by every caller pointed at it. Browserless
+# meters concurrent sessions, and a session is held for the whole page load, so these count
+# browser loads rather than API calls. Sized above normal draw: the budget is there to stop one
+# consumer exhausting the fleet, not to pace healthy traffic.
+BROWSERLESS_EGRESS_PER_MINUTE_BUDGET = get_from_env("BROWSERLESS_EGRESS_PER_MINUTE_BUDGET", 120, type_cast=int)
+BROWSERLESS_EGRESS_HOURLY_BUDGET = get_from_env("BROWSERLESS_EGRESS_HOURLY_BUDGET", 2000, type_cast=int)
+
 HEATMAP_BROWSERLESS_URL = get_from_env("HEATMAP_BROWSERLESS_URL", "")
 HEATMAP_BROWSERLESS_TOKEN = get_from_env("HEATMAP_BROWSERLESS_TOKEN", "")
 # Browserless /screenshot session cap (ms); must stay under the plan's max-timeout.
