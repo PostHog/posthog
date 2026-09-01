@@ -32,73 +32,45 @@
       "types": "./dist/extensions/auto-publish/index.d.ts",
       "import": "./dist/extensions/auto-publish/index.js"
     },
-    "./extensions/auto-publish/*": {
-      "types": "./dist/extensions/auto-publish/*.d.ts",
-      "import": "./dist/extensions/auto-publish/*.js"
-    },
     "./extensions/hog-branding": {
-      "types": "./dist/extensions/hog-branding/extension.d.ts",
-      "import": "./dist/extensions/hog-branding/extension.js"
-    },
-    "./extensions/hog-branding/*": {
-      "types": "./dist/extensions/hog-branding/*.d.ts",
-      "import": "./dist/extensions/hog-branding/*.js"
+      "types": "./dist/extensions/hog-branding/index.d.ts",
+      "import": "./dist/extensions/hog-branding/index.js"
     },
     "./extensions/posthog-provider": {
-      "types": "./dist/extensions/posthog-provider/extension.d.ts",
-      "import": "./dist/extensions/posthog-provider/extension.js"
+      "types": "./dist/extensions/posthog-provider/index.d.ts",
+      "import": "./dist/extensions/posthog-provider/index.js"
     },
-    "./extensions/posthog-provider/*": {
-      "types": "./dist/extensions/posthog-provider/*.d.ts",
-      "import": "./dist/extensions/posthog-provider/*.js"
+    "./extensions/posthog-provider/model-catalog": {
+      "types": "./dist/extensions/posthog-provider/model-catalog.d.ts",
+      "import": "./dist/extensions/posthog-provider/model-catalog.js"
     },
     "./extensions/product-engineer": {
       "types": "./dist/extensions/product-engineer/index.d.ts",
       "import": "./dist/extensions/product-engineer/index.js"
     },
-    "./extensions/product-engineer/*": {
-      "types": "./dist/extensions/product-engineer/*.d.ts",
-      "import": "./dist/extensions/product-engineer/*.js"
-    },
     "./extensions/web-access": {
-      "types": "./dist/extensions/web-access/extension.d.ts",
-      "import": "./dist/extensions/web-access/extension.js"
+      "types": "./dist/extensions/web-access/index.d.ts",
+      "import": "./dist/extensions/web-access/index.js"
     },
-    "./extensions/web-access/*": {
-      "types": "./dist/extensions/web-access/*.d.ts",
-      "import": "./dist/extensions/web-access/*.js"
-    },
-    "./extensions/subagent": {
-      "types": "./dist/extensions/subagent/extension.d.ts",
-      "import": "./dist/extensions/subagent/extension.js"
-    },
-    "./extensions/subagent/*": {
-      "types": "./dist/extensions/subagent/*.d.ts",
-      "import": "./dist/extensions/subagent/*.js"
-    },
-    "./extensions/workflow": {
-      "types": "./dist/extensions/workflow/extension.d.ts",
-      "import": "./dist/extensions/workflow/extension.js"
-    },
-    "./extensions/workflow/*": {
-      "types": "./dist/extensions/workflow/*.d.ts",
-      "import": "./dist/extensions/workflow/*.js"
+    "./extensions/orchestration": {
+      "types": "./dist/extensions/orchestration/index.d.ts",
+      "import": "./dist/extensions/orchestration/index.js"
     },
     "./extensions/mcp": {
-      "types": "./dist/extensions/mcp/extension.d.ts",
-      "import": "./dist/extensions/mcp/extension.js"
+      "types": "./dist/extensions/mcp/index.d.ts",
+      "import": "./dist/extensions/mcp/index.js"
     },
-    "./extensions/mcp/*": {
-      "types": "./dist/extensions/mcp/*.d.ts",
-      "import": "./dist/extensions/mcp/*.js"
+    "./extensions/mcp/config": {
+      "types": "./dist/extensions/mcp/config.d.ts",
+      "import": "./dist/extensions/mcp/config.js"
+    },
+    "./extensions/mcp/schema": {
+      "types": "./dist/extensions/mcp/schema.d.ts",
+      "import": "./dist/extensions/mcp/schema.js"
     },
     "./extensions/footer-focus-demo": {
-      "types": "./dist/extensions/footer-focus-demo/extension.d.ts",
-      "import": "./dist/extensions/footer-focus-demo/extension.js"
-    },
-    "./extensions/footer-focus-demo/*": {
-      "types": "./dist/extensions/footer-focus-demo/*.d.ts",
-      "import": "./dist/extensions/footer-focus-demo/*.js"
+      "types": "./dist/extensions/footer-focus-demo/index.d.ts",
+      "import": "./dist/extensions/footer-focus-demo/index.js"
     }
   },
   "scripts": {
