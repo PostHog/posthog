@@ -22,6 +22,7 @@ from posthog.hogql.direct_sql.pgwire import (
     postgres_oid_to_clickhouse_type,
 )
 from posthog.hogql.direct_sql.postgres_adapter import (
+    PostgresAdapter,
     direct_postgres_session_setup_sql,
     get_runtime_direct_postgres_connection_metadata,
 )
@@ -2051,3 +2052,26 @@ class TestDirectPostgresQuery(APIBaseTest):
 
         self.assertIn("Invalid connectionId", str(ctx.exception))
         mock_connect.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("empty", {}),
+            ("partial", {"host": "localhost", "schema": "public"}),
+        ]
+    )
+    def test_validate_source_config_raises_exposed_error_for_incomplete_job_inputs(self, _name: str, job_inputs: dict):
+        # A direct-capable Postgres source with missing connection credentials must surface a clean
+        # ExposedHogQLError, not a raw TypeError from config building that leaks to error tracking.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+            job_inputs=job_inputs,
+        )
+
+        with self.assertRaises(ExposedHogQLError):
+            PostgresAdapter().validate_source_config(source, self.team)

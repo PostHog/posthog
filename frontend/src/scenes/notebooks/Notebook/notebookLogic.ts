@@ -88,7 +88,7 @@ import type {
 } from '../Nodes/notebookNodeContent'
 import type { notebookNodeLogicType } from '../Nodes/notebookNodeLogic'
 import { NotebookNodeType, NotebookSyncStatus, NotebookTarget, NotebookType } from '../types'
-import type { NotebookListItemType } from '../types'
+import type { NotebookListItemType, NotebookVariableApi } from '../types'
 import { updateContentHeading } from '../utils'
 import { NotebookArtifactApplyMode } from './markdownNotebookRuntime'
 import {
@@ -125,8 +125,12 @@ import {
     NotebookVariable,
     getNotebookVariableConflictNames,
     getNotebookVariableErrors,
+    droppedSavedNotebookVariables,
     getRunnableNotebookVariables,
+    getSavableNotebookVariables,
+    isNotebookVariableDraft,
     parseNotebookVariables,
+    sameNotebookVariables,
 } from './notebookVariables'
 
 /** Save debounce for local-only notebooks (scratchpad, canvas), which don't sync to the server. */
@@ -316,6 +320,7 @@ export interface notebookLogicValues {
     frameNodeSummaries: NotebookFrameNodeSummary[]
     getSharedCachedInlineQueryResults: (nodeId: string | null | undefined) => AnyResponseType | null
     getSharedCachedInsight: (shortId: string | null | undefined) => InsightModel | null
+    hasUnsavedVariables: boolean
     hogqlSqlNodeIndices: Map<string, number>
     hogqlSqlNodeSummaries: HogqlSqlNodeSummary[]
     isEditable: boolean
@@ -487,6 +492,9 @@ export interface notebookLogicActions {
             value: true
         }
     }
+    notebookVariablesSaved: (variables: NotebookVariableApi[]) => {
+        variables: NotebookVariableApi[]
+    }
     openShareModal: () => {
         value: true
     }
@@ -651,13 +659,14 @@ export interface notebookLogicMeta {
         markdownEditorNodeId: (content: JSONContent) => string
         markdownEditorValue: (markdownEditorDraft: string | null, markdownEditorMarkdown: string) => string
         title: (notebook: NotebookType | null, content: JSONContent) => string
+        hasUnsavedVariables: (localVariables: NotebookVariable[] | null, notebook: NotebookType | null) => boolean
         syncStatus: (
             notebook: NotebookType | null,
             notebookLoading: boolean,
             localContent: JSONContent | null,
             isLocalOnly: boolean,
             previewContent: JSONContent | null,
-            localVariables: NotebookVariable[] | null
+            hasUnsavedVariables: boolean
         ) => NotebookSyncStatus
         editingNodeLogics: (
             editingNodeIds: Record<string, true>,
@@ -772,6 +781,7 @@ export const notebookLogic = kea<notebookLogicType>([
         clearLocalContent: true,
         setVariables: (variables: NotebookVariable[]) => ({ variables }),
         clearLocalVariables: true,
+        notebookVariablesSaved: (variables: NotebookVariableApi[]) => ({ variables }),
         setPreviewContent: (jsonContent: JSONContent) => ({ jsonContent }),
         clearPreviewContent: true,
         loadNotebook: true,
@@ -1207,6 +1217,10 @@ export const notebookLogic = kea<notebookLogicType>([
             saveNotebookSuccess: (state, { notebook }) => keepNewestNotebookResponse(state, notebook),
             applyRemoteNotebookContent: (state, { content, version }) =>
                 state && version > state.version ? { ...state, content, version } : state,
+            // A variables-only PATCH leaves `version` alone server-side, so only this field is
+            // newer. Merging it lets the local copy be dropped without the bar snapping back to
+            // the list the notebook was loaded with.
+            notebookVariablesSaved: (state, { variables }) => (state ? { ...state, variables } : state),
         },
     }),
     selectors({
@@ -1310,15 +1324,36 @@ export const notebookLogic = kea<notebookLogicType>([
                 return getMarkdownNotebookTitle(content) || notebook?.title || 'Untitled'
             },
         ],
+        /**
+         * Whether the bar holds an edit the server does not have yet. Compared on the savable
+         * declarations only, so a draft row the person has not named cannot leave the notebook
+         * reporting unsaved work forever.
+         */
+        hasUnsavedVariables: [
+            (s) => [s.localVariables, s.notebook],
+            (localVariables: NotebookVariable[] | null, notebook: NotebookType | null): boolean =>
+                localVariables !== null &&
+                !sameNotebookVariables(
+                    getSavableNotebookVariables(localVariables),
+                    parseNotebookVariables(notebook?.variables)
+                ),
+        ],
         syncStatus: [
-            (s) => [s.notebook, s.notebookLoading, s.localContent, s.isLocalOnly, s.previewContent, s.localVariables],
+            (s) => [
+                s.notebook,
+                s.notebookLoading,
+                s.localContent,
+                s.isLocalOnly,
+                s.previewContent,
+                s.hasUnsavedVariables,
+            ],
             (
                 notebook: NotebookType | null,
                 notebookLoading: boolean,
                 localContent: JSONContent | null,
                 isLocalOnly: boolean,
                 previewContent: JSONContent | null,
-                localVariables: NotebookVariable[] | null
+                hasUnsavedVariables: boolean
             ): NotebookSyncStatus => {
                 if (previewContent || notebook?.is_template) {
                     return 'synced'
@@ -1329,7 +1364,7 @@ export const notebookLogic = kea<notebookLogicType>([
                 }
                 // Variables save on their own PATCH, so an edit to them is unsaved work even
                 // when the document itself is clean.
-                if (!notebook || (!localContent && !localVariables)) {
+                if (!notebook || (!localContent && !hasUnsavedVariables)) {
                     return 'synced'
                 }
 
@@ -1388,7 +1423,9 @@ export const notebookLogic = kea<notebookLogicType>([
             // oxlint-disable-next-line @typescript-eslint/no-unused-vars
             (nodeLogics: Record<string, BuiltLogic<notebookNodeLogicType>>, _content: JSONContent) => {
                 // NOTE: _content is not but is needed to retrigger as it could mean the children have changed
-                return Object.values(nodeLogics).filter((nodeLogic) => nodeLogic.props.attributes?.children)
+                return Object.values(nodeLogics).filter((nodeLogic) =>
+                    Array.isArray(nodeLogic.props.attributes?.children)
+                )
             },
         ],
 
@@ -1434,8 +1471,12 @@ export const notebookLogic = kea<notebookLogicType>([
         ],
         variableErrors: [
             (s) => [s.variables, s.content],
-            (variables: NotebookVariable[], content: JSONContent): (string | null)[] =>
-                getNotebookVariableErrors(variables, getNotebookVariableConflictNames(content)),
+            (variables: NotebookVariable[], content: JSONContent): (string | null)[] => {
+                const errors = getNotebookVariableErrors(variables, getNotebookVariableConflictNames(content))
+                // A row that was just added has no name yet. Reporting that back before the
+                // person can type is noise, not feedback.
+                return errors.map((error, index) => (isNotebookVariableDraft(variables[index]) ? null : error))
+            },
         ],
         // Only valid, unique declarations are safe to bind into a run.
         runnableVariables: [
@@ -1560,19 +1601,56 @@ export const notebookLogic = kea<notebookLogicType>([
                 return
             }
             await breakpoint(500)
+
+            // Adding a row, or typing a name the API would reject, changes nothing the server can
+            // store. Saving anyway returned a 400 and an error toast for a row the person had not
+            // finished filling in.
+            if (!values.hasUnsavedVariables) {
+                return
+            }
+
+            // Send only what the API accepts. One unnamed row would fail the whole PATCH and take
+            // the valid declarations with it.
+            const savable = getSavableNotebookVariables(values.variables)
+            const saved = parseNotebookVariables(values.notebook?.variables)
+            const heldBack = savable.length !== values.variables.length
+
+            // A row that is still on screen but too invalid to send is withheld from the payload,
+            // and a PATCH replaces the whole list. Sending it would delete the saved variable
+            // behind that row, so a typo in a name would drop the value it holds. Hold the whole
+            // save instead: the bar keeps the edit and goes on reporting unsaved work. A row the
+            // person actually removed leaves nothing behind, so a real deletion still saves.
+            if (heldBack && droppedSavedNotebookVariables(savable, saved).length > 0) {
+                return
+            }
+
+            let response: NotebookType
             try {
-                const response = await api.notebooks.update(props.shortId, { variables: values.variables })
-                actions.receiveNotebookUpdate(response)
-                // Only drop the local copy when it still matches what we just saved — a keystroke
-                // that landed during the request is newer and must survive to its own save.
-                if (values.localVariables === variables) {
-                    actions.clearLocalVariables()
-                }
+                response = await api.notebooks.update(props.shortId, { variables: savable })
             } catch (error) {
                 // The bar keeps the edit, so the next change retries it. Losing a value silently
                 // would be worse than an error the user can act on.
                 lemonToast.error('Could not save notebook variables')
                 posthog.captureException(error)
+                return
+            }
+
+            // The debounce holds the next request but does not cancel one already in flight, so
+            // two saves can overlap. Applying this older response would revert the bar to the list
+            // the newer save replaced. Outside the catch above: this throws to abort, not to fail.
+            breakpoint()
+
+            actions.receiveNotebookUpdate(response)
+            // notebooksModel only holds list rows, so the notebook this logic renders from needs
+            // the saved list too. Without it the bar drops back to the copy the page loaded with
+            // and the row the person just named disappears. An absent field falls back to what we
+            // sent, which the server accepted, rather than to "no variables".
+            actions.notebookVariablesSaved(response.variables ?? savable)
+            // Only drop the local copy when it still matches what we just saved — a keystroke that
+            // landed during the request is newer and must survive to its own save. A draft that
+            // was held back lives only in the local copy, so that copy has to stay.
+            if (values.localVariables === variables && !heldBack) {
+                actions.clearLocalVariables()
             }
         },
         connectMarkdownUpdateStream: () => {

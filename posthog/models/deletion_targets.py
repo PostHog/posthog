@@ -85,6 +85,12 @@ class DeletionTarget:
     # Anything that may live elsewhere must also be ``optional``, since that is what makes the
     # storage table's presence a question rather than an assumption.
     cluster_setting: str = "CLICKHOUSE_CLUSTER"
+    # The hostClusterRole owning this table's shards on the cluster named above. `data` on the main
+    # cluster, but a cluster can shard across another role: the events cluster carries
+    # sharded_events_json on nodes whose role is `events`, and a handle built for `data` there reads
+    # no shard numbers at all, so it has nothing to dispatch over and matches no probe. Only used
+    # when building that cluster's handle; the handle in hand is always probed on its own role.
+    node_role: NodeRole = NodeRole.DATA
     # Guarded on system.tables: the table sits behind a migration that may not have run everywhere.
     optional: bool = False
     # The schema a HogQL predicate compiles against here, None where no HogQL table definition
@@ -153,6 +159,7 @@ EVENTS_JSON = DeletionTarget(
     read_table=DISTRIBUTED_EVENTS_JSON_TABLE,
     optional=True,
     cluster_setting="CLICKHOUSE_EVENTS_CLUSTER",
+    node_role=NodeRole.EVENTS,
     hogql_schema=HogQLSchema.NATIVE_JSON,
     accepts_property_rewrite=True,
     # Dual-written from the same events, so its uuids are the legacy table's.
@@ -236,13 +243,18 @@ def _assert_no_rows_behind_the_proxy(cluster: ClickhouseCluster, target: Deletio
     )
 
 
-def _any_data_node_has(cluster: ClickhouseCluster, table: str) -> bool:
-    """Whether any data node of ``cluster`` carries ``table``.
+def _any_node_has(cluster: ClickhouseCluster, table: str) -> bool:
+    """Whether any shard-bearing node of ``cluster`` carries ``table``.
+
+    Probed with the handle's own shard role rather than the target's. The handle in hand shards
+    over ``data`` even for a table that lives on ``events`` nodes elsewhere, which is the dev, CI
+    and self-hosted case where events_json sits on the main cluster; the sibling is built for the
+    target's role, so probing it picks that role up on its own.
 
     ``any`` rather than ``all``: on a partially-migrated cluster the mutation fails loudly on the
     hosts missing the table, which is preferable to silently skipping a deletion.
     """
-    results = cluster.map_hosts_by_role(partial(_table_exists, table=table), NodeRole.DATA).result()
+    results = cluster.map_hosts_by_role(partial(_table_exists, table=table), cluster.shard_role).result()
     return any(results.values())
 
 
@@ -251,14 +263,14 @@ def _sibling_holding(cluster: ClickhouseCluster, target: DeletionTarget) -> Clic
     if target.cluster_name == cluster.data_cluster_name:
         return None
     try:
-        sibling = cluster.sibling(target.cluster_name)
+        sibling = cluster.sibling(target.cluster_name, target.node_role)
     except ServerException as exc:
         if exc.code != _CLUSTER_DOESNT_EXIST:
             raise
         # No such cluster here, which is every deployment the split that moves this table has not
         # reached: local, CI, self-hosted. Leave the verdict to the proxy check.
         return None
-    return sibling if _any_data_node_has(sibling, target.data_table) else None
+    return sibling if _any_node_has(sibling, target.data_table) else None
 
 
 def placement_for(cluster: ClickhouseCluster, target: DeletionTarget) -> TargetPlacement | None:
@@ -268,7 +280,7 @@ def placement_for(cluster: ClickhouseCluster, target: DeletionTarget) -> TargetP
     cover the same nodes, which is what the dev stack and CI do. So the handle in hand is tried
     first, and a sibling is built only for a table it does not carry.
     """
-    if not target.optional or _any_data_node_has(cluster, target.data_table):
+    if not target.optional or _any_node_has(cluster, target.data_table):
         return TargetPlacement(target=target, cluster=cluster)
 
     sibling = _sibling_holding(cluster, target)

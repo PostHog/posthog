@@ -1277,7 +1277,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 config=config,
             )
 
-            if hog_fn_result.error or not hog_fn_result.hog_function:
+            if hog_fn_result.error or hog_fn_result.hog_function_id is None:
                 raise ValidationError(
                     f"Failed to set up webhook: {hog_fn_result.error or 'Unknown error'}. "
                     "You can set up the webhook manually from the Webhook tab."

@@ -96,6 +96,8 @@ DENIAL_BRAKE_CONSUMED_REQUEST_ID_KEY = "followup_denial_brake_request_id"
 SEND_FOLLOWUP_MAX_ATTEMPTS = 3
 SEND_FOLLOWUP_HEARTBEAT_INTERVAL_SECONDS = 15
 STEER_DECLINED_OUTCOME = "steer_declined"
+STEER_DECLINE_REASON_UNREPORTED = "unreported"
+STEER_DECLINE_REASON_ACTOR_MISMATCH = "actor_mismatch"
 
 
 @dataclass
@@ -275,6 +277,16 @@ def _is_steer_declined(result_data: dict[str, Any] | None) -> bool:
     return isinstance(result, dict) and result.get("steered") is False
 
 
+def _steer_decline_reason(result_data: dict[str, Any] | None) -> str:
+    if not isinstance(result_data, dict):
+        return STEER_DECLINE_REASON_UNREPORTED
+    result = result_data.get("result")
+    if not isinstance(result, dict):
+        return STEER_DECLINE_REASON_UNREPORTED
+    reason = result.get("reason")
+    return reason if isinstance(reason, str) and reason else STEER_DECLINE_REASON_UNREPORTED
+
+
 def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
     peer_message_id = peer_message_id_from_context(input.context)
     try:
@@ -334,6 +346,11 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
                 actor_user_id=input.actor_user_id,
                 resolved_user_id=actor_user.id if actor_user is not None else None,
                 bound_user_id=bound_user_id,
+            )
+            logger.info(
+                "send_followup_steer_declined",
+                run_id=input.run_id,
+                reason=STEER_DECLINE_REASON_ACTOR_MISMATCH,
             )
             return STEER_DECLINED_OUTCOME
 
@@ -439,7 +456,11 @@ def _deliver_followup(input: SendFollowupToSandboxInput) -> str | None:
             logger.info("send_followup_steered", run_id=input.run_id)
             return None
         if input.steer and _is_steer_declined(result.data):
-            logger.info("send_followup_steer_declined", run_id=input.run_id)
+            logger.info(
+                "send_followup_steer_declined",
+                run_id=input.run_id,
+                reason=_steer_decline_reason(result.data),
+            )
             return STEER_DECLINED_OUTCOME
         _write_turn_complete(input.run_id, _get_stop_reason(result.data), run_uses_dedicated_stream(task_run.state))
         logger.info("send_followup_delivered", run_id=input.run_id)
@@ -710,6 +731,7 @@ def _refresh_sandbox_mcp(
         scopes=scopes,
         interaction_origin=(state or {}).get("interaction_origin"),
         task_id=str(task_run.task_id),
+        origin_product=task_run.task.origin_product,
     )
     user_mcp_configs = get_user_mcp_server_configs(
         token=access_token,

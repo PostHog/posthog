@@ -78,6 +78,15 @@ SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR = (
     "organization that contains your store and create the app there."
 )
 
+# Raised on a 4xx whose body reports `error: app_not_installed`. The client ID and secret are
+# valid, but the app is not installed on this store, so Shopify refuses to mint a token for it.
+# Re-entering the credentials cannot fix that; the user must install the app on the store first.
+# Surfaced separately so the message points at installing the app rather than the credentials.
+SHOPIFY_ACCESS_TOKEN_APP_NOT_INSTALLED_ERROR = (
+    "This Shopify app isn't installed on your store, so PostHog can't get an access token. "
+    "Install the app on your store, then re-enter the client ID and secret here."
+)
+
 # Raised when the OAuth token endpoint returns 404 — there is no store at
 # `<store-id>.myshopify.com`, so the store id is wrong or the store no longer exists.
 # Reconnecting the app can't fix a bad store id, so this is surfaced separately from the
@@ -389,6 +398,8 @@ def _access_token_auth_error_message(error_code: str | None) -> str:
         return SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR
     if error_code == "shop_not_permitted":
         return SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR
+    if error_code == "app_not_installed":
+        return SHOPIFY_ACCESS_TOKEN_APP_NOT_INSTALLED_ERROR
     return SHOPIFY_ACCESS_TOKEN_AUTH_ERROR
 
 

@@ -6,9 +6,11 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
+import { RecordingsQuery } from '~/queries/schema/schema-general'
 import { StartupProgramLabel } from '~/types'
 
 import type {
+    DraftScannerResponseApi,
     ObservationStatsApi,
     ReplayObservationApi,
     ReplayScannerApi,
@@ -18,6 +20,8 @@ import type {
     VisionActionApi,
     VisionQuotaApi,
 } from '../generated/api.schemas'
+import { replayScannerLogic } from './replayScannerLogic'
+import type { SamplingMode, ScannerConfig, ScannerType } from './types'
 
 const alice: UserBasicApi = {
     id: 1,
@@ -688,5 +692,70 @@ export const StartupProgramCap: StoryObj = {
                 '/api/billing/': { ...billingJson, startup_program_label: StartupProgramLabel.YC },
             },
         }),
+    ],
+}
+
+// The goal-based creation flow's two questions replace the template gallery when the flag's test
+// variant is on.
+export const ScannerEditorGoalFlow: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerTemplate('new'),
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW]: 'test' },
+    },
+}
+
+const goalDraft: DraftScannerResponseApi = {
+    name: 'Billing give-up monitor',
+    description: 'Flags sessions where a user reaches billing and leaves without finishing.',
+    scanner_type: 'monitor',
+    scanner_config: {
+        prompt: 'Did the user reach a billing page and leave without completing what they started there? Answer yes or no with a one-sentence reason.',
+        allow_inconclusive: true,
+    },
+    rationale:
+        'You want to catch people who give up around billing, so this watches sessions that touch your billing pages and asks a yes/no question about each one. Giving up looks unremarkable, so it watches all matching replays rather than only the eventful ones.',
+    query: {
+        kind: 'RecordingsQuery',
+        properties: [
+            {
+                type: 'recording',
+                key: 'visited_page',
+                value: ['/organization/billing/overview', '/organization/billing/plans', '/checkout'],
+                operator: 'icontains',
+            },
+        ],
+    },
+    sampling_mode: 'comprehensive',
+    sampling_rate: 0.25,
+    model: 'gemini-3-flash-preview',
+    credit_limit: 5000,
+    estimated_monthly_observations: 1000,
+}
+
+// The landing step after a goal draft: the whole config ordered by comprehension, each section
+// deep-linking into the wizard step that edits it. Seeded through the same action the loader fires.
+export const ScannerEditorGoalOverview: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerOverview('new'),
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW]: 'test' },
+    },
+    decorators: [
+        (StoryFn) => {
+            const logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            // The success listener's stale-navigation guard sees the overview URL and skips its own
+            // reset + redirect, so only the goalDraft reducer applies; the form is seeded by hand.
+            logic.actions.draftScannerFromGoalSuccess(goalDraft)
+            logic.actions.setScannerValues({
+                name: goalDraft.name,
+                description: goalDraft.description,
+                scanner_type: goalDraft.scanner_type as ScannerType,
+                scanner_config: goalDraft.scanner_config as ScannerConfig,
+                query: goalDraft.query as RecordingsQuery,
+                sampling_mode: goalDraft.sampling_mode as SamplingMode,
+                sampling_rate: goalDraft.sampling_rate ?? 1,
+            })
+            return <StoryFn />
+        },
     ],
 }

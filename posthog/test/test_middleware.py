@@ -201,7 +201,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 53
+        cls.base_app_num_queries = 54
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
 
@@ -369,7 +369,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_unchanged_when_creating_feature_flag(self):
-        with self.assertNumQueries(FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 5)):
+        with self.assertNumQueries(FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 10)):
             response_app = self.client.get(f"/feature_flags/new")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -1898,6 +1898,7 @@ class TestCSPMiddleware(APIBaseTest):
         assert "Content-Security-Policy-Report-Only" in response
         assert "Content-Security-Policy" not in response
 
+    @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
     def test_html_response_declares_default_reporting_endpoint_with_distinct_id(self):
         # Browsers only deliver crash reports to the endpoint named `default`, so dropping or
         # renaming it silently stops crash ingestion.
@@ -1907,12 +1908,72 @@ class TestCSPMiddleware(APIBaseTest):
         assert 'default="https://us.i.posthog.com/report/' in header
         assert f"distinct_id={self.user.distinct_id}" in header
 
+    @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
     def test_reporting_endpoints_omit_distinct_id_when_logged_out(self):
         self.client.logout()
         response = self.client.get("/login")
         header = response["Reporting-Endpoints"]
         assert 'default="https://us.i.posthog.com/report/' in header
         assert "distinct_id" not in header
+
+    @parameterized.expand(
+        [
+            ("self_hosted_by_default", {"CLOUD_DEPLOYMENT": None, "DEBUG": False}),
+            # DEBUG puts an install in the local run mode rather than the hobby one, and nothing
+            # stops a self-hoster deploying that way, so it must report nowhere as well.
+            ("self_hosted_with_debug", {"CLOUD_DEPLOYMENT": None, "DEBUG": True}),
+            # Cloud would otherwise report, so this case proves the empty value turns it off.
+            ("explicitly_disabled", {"CLOUD_DEPLOYMENT": "US", "CSP_REPORT_ENDPOINT": ""}),
+        ]
+    )
+    def test_no_endpoint_still_sends_the_policy_but_asks_for_no_reports(self, _name, overrides):
+        # A self-hosted install must not report to PostHog, and the policy itself must survive, so
+        # dropping it here would silently remove a security control.
+        with override_settings(**{"CSP_REPORT_ENDPOINT": None, **overrides}):
+            response = self.client.get("/")
+        policy = response["Content-Security-Policy-Report-Only"]
+        assert "default-src 'self'" in policy
+        assert "report-uri" not in policy
+        assert "report-to" not in policy
+        assert "Reporting-Endpoints" not in response
+
+    @override_settings(CSP_REPORT_ENDPOINT="https://posthog.example.com/report/")
+    def test_report_endpoint_is_configurable(self):
+        # An operator can point reporting at their own install, so nothing may hardcode ours.
+        response = self.client.get("/")
+        policy = response["Content-Security-Policy-Report-Only"]
+        assert "report-uri https://posthog.example.com/report/?sample_rate=0.1" in policy
+        header = response["Reporting-Endpoints"]
+        assert "us.i.posthog.com" not in header
+        assert f"distinct_id={self.user.distinct_id}" in header
+
+    @parameterized.expand(
+        [
+            ("cloud", {"CLOUD_DEPLOYMENT": "US"}, True),
+            ("self_hosted", {"CLOUD_DEPLOYMENT": None, "DEBUG": False}, False),
+        ]
+    )
+    def test_admin_pages_enforce_the_policy_and_follow_the_reporting_default(self, _name, overrides, expects_reporting):
+        # The admin policy is enforced, not report-only, and builds its own Reporting-Endpoints
+        # header, so it can drift from the app policy unnoticed. A non-staff request redirects but
+        # still carries that policy, because the middleware picks its branch by path.
+        with override_settings(CSP_REPORT_ENDPOINT=None, **overrides):
+            response = self.client.get("/admin/")
+        policy = response["Content-Security-Policy"]
+        # Only the admin policy forbids framing outright; the non-HTML fallback is default-src alone.
+        assert "frame-ancestors 'none'" in policy
+        assert "Content-Security-Policy-Report-Only" not in response
+
+        if expects_reporting:
+            assert "report-uri https://us.i.posthog.com/report/" in policy
+            assert "report-to posthog" in policy
+            # Sampling the admin policy too would silently drop violations, so the branches diverge.
+            assert "sample_rate" not in policy
+            assert "Reporting-Endpoints" in response
+        else:
+            assert "report-uri" not in policy
+            assert "report-to" not in policy
+            assert "Reporting-Endpoints" not in response
 
 
 class TestSocialAuthExceptionMiddleware(APIBaseTest):

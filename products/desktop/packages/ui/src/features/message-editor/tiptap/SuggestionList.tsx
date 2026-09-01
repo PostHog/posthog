@@ -24,7 +24,7 @@ export interface SuggestionListRef {
   onKeyDown: (props: { event: KeyboardEvent }) => boolean;
 }
 
-export interface SuggestionListProps {
+interface SuggestionListProps {
   items: SuggestionItem[];
   command: (item: SuggestionItem) => void;
   renderItem?: (item: SuggestionItem) => ReactNode;

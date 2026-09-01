@@ -21,6 +21,7 @@ from products.engineering_analytics.backend.presentation.serializers.suite_healt
     QuarantineFileSerializer,
     QuarantineRequestResultSerializer,
     QuarantineRequestSerializer,
+    TrunkQuarantineDebtSerializer,
 )
 from products.engineering_analytics.backend.presentation.views._base import (
     _DATE_TO,
@@ -34,7 +35,7 @@ from products.engineering_analytics.backend.presentation.views._base import (
 
 
 class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
-    READ_ACTIONS = ["flaky_tests", "broken_tests", "quarantine"]
+    READ_ACTIONS = ["flaky_tests", "broken_tests", "quarantine", "trunk_quarantine"]
     WRITE_ACTIONS = ["quarantine_request"]
 
     @extend_schema(
@@ -182,6 +183,36 @@ class SuiteHealthActionsMixin(EngineeringAnalyticsViewSetBase):
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid repo or source_id")
         return Response(QuarantineFileSerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_trunk_quarantine",
+        summary="Trunk quarantine debt by owning team",
+        parameters=[_SOURCE_ID, _REPO],
+        responses={
+            200: TrunkQuarantineDebtSerializer,
+            400: OpenApiResponse(description="Invalid repo or source_id."),
+        },
+        description=(
+            "The standing Trunk quarantine debt: every test Trunk currently quarantines (failures "
+            "suppressed in CI), attributed to its owning team from the per-test CI spans, aged against a "
+            "TTL, and rolled up per team with the most indebted first. A quarantine only masks a test; it "
+            "never fixes it, so this is the work queue of tests someone still has to repair or delete. "
+            "`available` is false when no TrunkIo source has the QuarantinedTests endpoint synced — that "
+            "is not an error."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="trunk_quarantine", pagination_class=None)
+    def trunk_quarantine(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.get_trunk_quarantine(
+                team=self.team,
+                source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid repo or source_id")
+        return Response(TrunkQuarantineDebtSerializer(instance=result).data)
 
     @validated_request(
         request_serializer=QuarantineRequestSerializer,

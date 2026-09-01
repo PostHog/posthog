@@ -42,7 +42,7 @@ repos outside this monorepo, resolve a local checkout via
 | --------------------------------- | ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Product / dashboard**           | `PostHog/posthog` (this repo) | `products/mcp_analytics/` — Django/DRF + HogQL query runners + Temporal, Kea frontend, the `query-mcp-*` tool registry, and the analysis skills                                                                                                                                               |
 | **Self-instrumented server**      | `PostHog/posthog` (this repo) | `services/mcp/` — PostHog's own MCP server (Hono); the dogfood event producer. Also hosts the _generated_ `query-mcp-*` handlers                                                                                                                                                              |
-| **Shared query reference**        | `PostHog/posthog` (this repo) | `products/posthog_ai/skills/querying-posthog-data/references/models-mcp.md`                                                                                                                                                                                                                   |
+| **Shared query reference**        | `PostHog/posthog` (this repo) | [`models-mcp.md`](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md) — `products/posthog_ai/skills/querying-posthog-data/references/`                                                                                                                                 |
 | **TypeScript SDK** `@posthog/mcp` | `PostHog/posthog-js`          | `packages/mcp/` — the library customers install. Vocabulary source of truth: `src/extensions/constants.ts`. `docs/ARCHITECTURE.md` now covers conversation anchoring (ADR-0004) but trails the newest era handling — where it and `CHANGELOG.md` disagree, trust the changelog and the source |
 | **Python SDK** `posthog.mcp`      | `PostHog/posthog-python`      | `posthog/mcp/` — mirrors `posthog.ai`. Ships inside `posthog` (`pip install posthog`); `mcp`/`fastmcp` are lazily-imported peer deps, **no `[mcp]` extra**. At TS parity since 7.40.0-7.42.1 — MCP Python SDK v2, conversation anchoring, typed errors, client UA/vendor                      |
 | **Docs**                          | `PostHog/posthog.com`         | `contents/docs/mcp-analytics/` (incl. `surfaces/`), plus `src/hooks/productData/mcp_analytics.tsx` and the `mcp_analytics` entry in `src/data/tools.ts`                                                                                                                                       |
@@ -91,7 +91,7 @@ These are the failure modes that produce a plausible-looking answer rather than 
 4. **`harness` is derived, and its logic exists in three places that must move in lockstep:**
    `products/mcp_analytics/backend/mcp_harness.py` (source of truth — see its module
    docstring), `products/mcp_analytics/frontend/dashboard/harnessRegistry.ts`, and
-   `products/posthog_ai/skills/querying-posthog-data/references/models-mcp.md`.
+   [`models-mcp.md`](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md).
 5. **Check which SDK version the dogfood server is on before trusting dogfood data.**
    `services/mcp` consumes the SDK through an alias in its `package.json` and has historically
    lagged the published version, so version-dependent properties (typed error types, `$lib`
@@ -180,8 +180,8 @@ is absent from the tool calls that follow, so on its own it leaves most traffic
 unattributed; `mcp_session_client_name` is the session-pinned fallback the token chain
 reaches for next.
 
-For hand-written SQL, `models-mcp.md` (linked in the Repos table) carries the property
-reference and worked query examples.
+For hand-written SQL, [`models-mcp.md`](../../../posthog_ai/skills/querying-posthog-data/references/models-mcp.md)
+carries the property reference and worked query examples.
 
 ## The pipeline, and where each stage breaks
 
@@ -218,8 +218,9 @@ reference and worked query examples.
    _Breaks:_ no `$mcp_intent` captured at all (the agent never filled the injected `context`
    argument and no `intentFallback` was configured), so there is nothing to summarize; LLM
    key or quota problems.
-6. **Intent clustering** -> embed (cached in `MCPIntentEmbeddingCache`) -> agglomerative
-   clustering (cosine, average linkage, `DEFAULT_DISTANCE_THRESHOLD`) -> JSONB
+6. **Intent clustering** (behind `mcp-analytics-intent-routing`) -> embed (cached in
+   `MCPIntentEmbeddingCache`) -> agglomerative clustering (cosine, average linkage,
+   `DEFAULT_DISTANCE_THRESHOLD`) -> JSONB
    `MCPIntentClusterSnapshot`. **Temporal end-to-end, no Celery.** On-demand recompute
    (`trigger_intent_cluster_recompute`, serialized with `select_for_update()` and a
    deterministic per-team workflow id) and the `cluster_mcp_intents` management command both
@@ -242,12 +243,16 @@ reference and worked query examples.
    (router in `backend/presentation/urls.py`) plus custom actions
    (`sessions/{id}/tool_calls`, `sessions/{id}/generate_intent`, `sessions/intent_digest`,
    `sessions/activity_overview`, `intent_clusters/recompute`). Parallel surface: step 4's
-   runners, exposed to agents as the `query-mcp-*` tools.
+   runners, exposed to agents as the `query-mcp-*` tools. The intent-cluster read and
+   recompute endpoints require `mcp-analytics-intent-routing`; the other endpoints use
+   `mcp-analytics`.
 8. **Frontend** -> Kea scene `MCPAnalyticsScene.tsx`, with tabs enumerated by
    `MCPAnalyticsTab` in `mcpAnalyticsSceneLogic.ts`: activity, dashboard, sessions,
    tool quality, intent clustering, notifications. The landing tab is volume-gated by
    `dashboardStage` in `mcpAnalyticsOnboardingLogic.ts` and applies only to the bare
    `/mcp-analytics` redirect — deep links and explicit tab clicks are never overridden.
+   The intent clustering tab, dashboard KPI, and tool-detail cluster section are all gated by
+   `mcp-analytics-intent-routing`; a direct unflagged link renders the standard not-found page.
    - **Activity** (`earlyData/`): live tool-call feed plus the intent-**themes** card.
      "Theme" (the LLM digest, Activity tab) is **not** "cluster" (the embedding clustering,
      its own tab). Conflating the two is the most common mistake here.

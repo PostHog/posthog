@@ -29,9 +29,10 @@ export interface BrowserTabsClient {
   setTabTarget(
     input: TabLocationInput & { tabId: string; activate?: boolean },
   ): Promise<TabsSnapshot>;
-  close(tabId: string): Promise<TabsSnapshot>;
+  close(tabId: string, newTabId: string): Promise<TabsSnapshot>;
   closeMany(input: {
     tabIds: string[];
+    newTabId: string;
     focusTabId?: string | null;
   }): Promise<TabsSnapshot>;
   setOrder(input: {

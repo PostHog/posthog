@@ -1770,24 +1770,25 @@ def _validate_column_descriptions(column_descriptions: Any, mapped_columns: set[
     return cleaned
 
 
-def _enqueue_custom_property_sync(team_id: int, saved_query_id: str) -> None:
-    """Dispatch the sync task by name. Enqueue failure must not fail the originating write, so it's swallowed."""
+def _send_initial_account_property_sync(team_id: int, saved_query_id: str) -> None:
     try:
         current_app.send_task(
             "customer_analytics.process_custom_property_sync",
             kwargs={"team_id": team_id, "saved_query_id": saved_query_id},
         )
-    except Exception as e:
-        capture_exception(e)
+    except Exception as error:
+        capture_exception(error)
 
 
-def _enqueue_sync_if_enabled(source: CustomPropertySource) -> None:
-    """Run an initial sync after the source is saved so its values populate immediately rather than
-    waiting for the next materialization. Skips disabled sources and ones whose view was deleted."""
-    if not source.is_enabled or source.saved_query_id is None:
+def _enqueue_initial_account_property_sync(source: CustomPropertySource) -> None:
+    if (
+        not source.is_enabled
+        or source.saved_query_id is None
+        or source.definition.target_type != TargetType.ACCOUNT.value
+    ):
         return
     team_id, saved_query_id = source.team_id, str(source.saved_query_id)
-    transaction.on_commit(lambda: _enqueue_custom_property_sync(team_id, saved_query_id))
+    transaction.on_commit(lambda: _send_initial_account_property_sync(team_id, saved_query_id))
 
 
 # Targets fed by the warehouse staging/sync pipeline (person + group), as opposed to the account
@@ -2194,7 +2195,7 @@ def create_custom_property_source(
         if "unique" not in str(exc).lower() and "duplicate" not in str(exc).lower():
             raise
         raise CustomPropertySourceValidationError("This custom property already has a source.")
-    _enqueue_sync_if_enabled(source)
+    _enqueue_initial_account_property_sync(source)
     _start_person_backfill_if_enabled(source)
     return _to_custom_property_source_view(source, user_access_control)
 
@@ -2229,7 +2230,7 @@ def update_custom_property_source(
     source.save()
     # Only re-sync on a change that affects what gets written — not on every (possibly no-op) PATCH.
     if reenabling or columns_changed:
-        _enqueue_sync_if_enabled(source)
+        _enqueue_initial_account_property_sync(source)
         _start_person_backfill_if_enabled(source)
     return _to_custom_property_source_view(source, user_access_control)
 
@@ -2714,6 +2715,9 @@ def _validate_account_table_definitions(
     sort: contracts.AccountTableSort | None,
 ) -> dict[UUID, DisplayType]:
     relationship_ids = set(selection.relationship_definition_ids)
+    relationship_ids.update(
+        filter_.definition_id for filter_ in filters if isinstance(filter_, contracts.AccountTableRelationshipFilter)
+    )
     if sort and sort.kind == contracts.AccountTableSortKind.RELATIONSHIP:
         if sort.definition_id is None:
             raise InvalidAccountTableColumn("Relationship sorting requires a definition.")
@@ -3562,6 +3566,14 @@ def get_accessible_account_id(team_id: int, account_id: str, user_access_control
     return str(account.id) if account is not None else None
 
 
+def get_editable_account_id(team_id: int, account_id: str, user_access_control: "UserAccessControl") -> str | None:
+    """The account_id when the caller can edit that account, else None."""
+    account = _resolve_accessible_account(team_id, user_access_control, account_id=account_id)
+    if account is None or not user_access_control.check_access_level_for_object(account, required_level="editor"):
+        return None
+    return str(account.id)
+
+
 def list_account_channel_summaries(
     team_id: int,
     account_id: str,
@@ -3918,13 +3930,26 @@ def _parse_datetime(value: str | None) -> datetime | None:
         return None
 
 
-def trigger_calendar_sync(team_id: int, integration_id: int) -> str | None:
+def trigger_calendar_sync(
+    team_id: int,
+    integration_id: int,
+    *,
+    user_id: int | None,
+    has_management_access: bool,
+) -> str | None:
     """Start the calendar-sync workflow for one connected calendar, outside the hourly
     schedule. Returns 'started', 'already_running' (a sync for this calendar is in
     flight; the workflow id is deterministic per integration), or None when the
     integration doesn't exist for this team (→ 404)."""
-    if not Integration.objects.filter(id=integration_id, team_id=team_id, kind="google-calendar").exists():
+    integration = (
+        Integration.objects.only("id", "kind", "created_by_id")
+        .filter(id=integration_id, team_id=team_id, kind=Integration.IntegrationKind.GOOGLE_CALENDAR)
+        .first()
+    )
+    if integration is None:
         return None
+    if not has_management_access and not integration.can_be_managed_by_creator(user_id):
+        raise ResourceForbiddenError
 
     from posthog.temporal.common.client import sync_connect  # noqa: PLC0415 — keeps temporal off the import path
 
@@ -4412,6 +4437,25 @@ def end_account_relationship(
     except _relationships_logic.AccountRelationshipNotFound:
         return None
     return _to_account_relationship(relationship)
+
+
+def delete_account_relationship(
+    *,
+    team_id: int,
+    account_id: str | UUID,
+    relationship_id: str | UUID,
+    actor: "User | None" = None,
+) -> bool:
+    try:
+        _relationships_logic.delete_relationship(
+            team_id=team_id,
+            account_id=account_id,
+            relationship_id=str(relationship_id),
+            actor=actor,
+        )
+    except _relationships_logic.AccountRelationshipNotFound:
+        return False
+    return True
 
 
 # --- EventStream ---

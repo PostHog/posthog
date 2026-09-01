@@ -48,6 +48,11 @@ const config: StorybookConfig = {
     staticDirs: [
         'public',
         { from: '../../../frontend/public', to: '/static' },
+        // Web workers the app loads by fixed URL from /static (Monaco, HogQL parser). Django
+        // serves them from frontend/dist; here `pnpm build:workers` builds them into .workers.
+        // Without them, every `new Worker(...)` 404s, and the resulting error event fails any
+        // story whose play function is still running when it fires.
+        { from: '../.workers', to: '/static' },
         { from: '../../../frontend/node_modules/@posthog/hedgehog-mode/assets', to: '/static/hedgehog-mode' },
     ],
 

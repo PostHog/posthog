@@ -12,6 +12,9 @@ use uuid::Uuid;
 
 use crate::{
     core::analytics::{capture_symbol_set_deleted, capture_symbol_set_saved},
+    core::write_attribution::{
+        record_symbol_set_write, PostgresMutation, SymbolSetWriteOutcome, SymbolSetWritePurpose,
+    },
     error::{FrameError, ResolveError, UnhandledError},
     metric_consts::{
         FRAME_RESOLUTION_RESULTS_DELETED, SAVED_SYMBOL_SET_ERROR_RETURNED, SAVED_SYMBOL_SET_LOADED,
@@ -178,14 +181,33 @@ impl<F> Saving<F> {
         }
         // We just saved new data for this symbol set, which invalidates all our previous stack frame resolution results,
         // so delete them
-        let deleted: u64 = sqlx::query_scalar!(
+        let deleted_result = sqlx::query_scalar!(
             r#"WITH deleted AS (DELETE FROM posthog_errortrackingstackframe WHERE symbol_set_id = $1 RETURNING *) SELECT count(*) from deleted"#,
             record.id // The call to save() above ensures that this id is correct
         )
         .fetch_one(&self.pool)
-        .await.expect("Got at least one row back").map_or(0, |v| {
-            v.max(0) as u64
-        });
+        .await;
+        if deleted_result.is_err() {
+            record_symbol_set_write(
+                SymbolSetWritePurpose::Invalidation,
+                SymbolSetWriteOutcome::Error,
+                PostgresMutation::Delete,
+                0,
+            );
+        }
+        let deleted: u64 = deleted_result
+            .expect("Got at least one row back")
+            .map_or(0, |v| v.max(0) as u64);
+        record_symbol_set_write(
+            SymbolSetWritePurpose::Invalidation,
+            if deleted > 0 {
+                SymbolSetWriteOutcome::Written
+            } else {
+                SymbolSetWriteOutcome::Skipped
+            },
+            PostgresMutation::Delete,
+            deleted,
+        );
 
         debug!(
             team_id,
@@ -490,18 +512,48 @@ impl SymbolSetRecord {
             .map(|l| Utc::now() - l < Duration::hours(12))
             .unwrap_or_default()
         {
+            record_symbol_set_write(
+                SymbolSetWritePurpose::LastUsed,
+                SymbolSetWriteOutcome::Skipped,
+                PostgresMutation::Update,
+                0,
+            );
             return Ok(());
         }
 
         let now = Utc::now();
 
-        sqlx::query!(
+        let result = sqlx::query!(
             r#"UPDATE posthog_errortrackingsymbolset SET last_used = $2 WHERE id = $1"#,
             self.id,
             now
         )
         .execute(e)
-        .await?;
+        .await;
+
+        let rows_affected = match result {
+            Ok(result) => result.rows_affected(),
+            Err(error) => {
+                record_symbol_set_write(
+                    SymbolSetWritePurpose::LastUsed,
+                    SymbolSetWriteOutcome::Error,
+                    PostgresMutation::Update,
+                    0,
+                );
+                return Err(error.into());
+            }
+        };
+
+        record_symbol_set_write(
+            SymbolSetWritePurpose::LastUsed,
+            if rows_affected > 0 {
+                SymbolSetWriteOutcome::Written
+            } else {
+                SymbolSetWriteOutcome::Skipped
+            },
+            PostgresMutation::Update,
+            rows_affected,
+        );
 
         self.last_used = Some(now);
 
@@ -565,13 +617,39 @@ impl SymbolSetRecord {
         .bind(&self.content_hash)
         .bind(self.last_used)
         .fetch_optional(e)
-        .await?;
+        .await;
+
+        let id = match id {
+            Ok(id) => id,
+            Err(error) => {
+                record_symbol_set_write(
+                    SymbolSetWritePurpose::Data,
+                    SymbolSetWriteOutcome::Error,
+                    PostgresMutation::Upsert,
+                    0,
+                );
+                return Err(error.into());
+            }
+        };
 
         if let Some(id) = id {
             self.id = id;
             metrics::counter!(SYMBOL_SET_SAVED).increment(1);
+            record_symbol_set_write(
+                SymbolSetWritePurpose::Data,
+                SymbolSetWriteOutcome::Written,
+                PostgresMutation::Upsert,
+                1,
+            );
             return Ok(true);
         }
+
+        record_symbol_set_write(
+            SymbolSetWritePurpose::Data,
+            SymbolSetWriteOutcome::Skipped,
+            PostgresMutation::Upsert,
+            0,
+        );
 
         Ok(false)
     }
@@ -586,7 +664,7 @@ impl SymbolSetRecord {
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
         let truncated_ref = truncate_ref(&self.set_ref);
-        if let Some(id) = sqlx::query_scalar::<_, Uuid>(
+        let id = sqlx::query_scalar::<_, Uuid>(
             r#"
             INSERT INTO posthog_errortrackingsymbolset (id, team_id, ref, storage_ptr, failure_reason, created_at, content_hash, last_used)
             VALUES ($1, $2, $3, NULL, $4, $5, NULL, $6)
@@ -603,12 +681,39 @@ impl SymbolSetRecord {
         .bind(self.created_at)
         .bind(self.last_used)
         .fetch_optional(e)
-        .await?
-        {
+        .await;
+
+        let id = match id {
+            Ok(id) => id,
+            Err(error) => {
+                record_symbol_set_write(
+                    SymbolSetWritePurpose::AutomaticFailure,
+                    SymbolSetWriteOutcome::Error,
+                    PostgresMutation::Upsert,
+                    0,
+                );
+                return Err(error.into());
+            }
+        };
+
+        if let Some(id) = id {
             self.id = id;
             metrics::counter!(SYMBOL_SET_SAVED).increment(1);
+            record_symbol_set_write(
+                SymbolSetWritePurpose::AutomaticFailure,
+                SymbolSetWriteOutcome::Written,
+                PostgresMutation::Upsert,
+                1,
+            );
             return Ok(true);
         }
+
+        record_symbol_set_write(
+            SymbolSetWritePurpose::AutomaticFailure,
+            SymbolSetWriteOutcome::Skipped,
+            PostgresMutation::Upsert,
+            0,
+        );
 
         Ok(false)
     }
@@ -617,7 +722,7 @@ impl SymbolSetRecord {
     where
         E: sqlx::Executor<'c, Database = sqlx::Postgres>,
     {
-        let _ignored = sqlx::query!(
+        let result = sqlx::query!(
             r#"
             DELETE FROM posthog_errortrackingsymbolset WHERE id = $1
             "#,
@@ -625,6 +730,28 @@ impl SymbolSetRecord {
         )
         .execute(e)
         .await; // We don't really care if this fails, since it's a robustness thing anyway
+
+        match result {
+            Ok(result) => {
+                let rows_affected = result.rows_affected();
+                record_symbol_set_write(
+                    SymbolSetWritePurpose::Cleanup,
+                    if rows_affected > 0 {
+                        SymbolSetWriteOutcome::Written
+                    } else {
+                        SymbolSetWriteOutcome::Skipped
+                    },
+                    PostgresMutation::Delete,
+                    rows_affected,
+                );
+            }
+            Err(_) => record_symbol_set_write(
+                SymbolSetWritePurpose::Cleanup,
+                SymbolSetWriteOutcome::Error,
+                PostgresMutation::Delete,
+                0,
+            ),
+        }
 
         capture_symbol_set_deleted(self.team_id, &self.set_ref, self.storage_ptr.as_deref());
 

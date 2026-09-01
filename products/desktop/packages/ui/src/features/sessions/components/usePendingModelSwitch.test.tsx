@@ -4,6 +4,9 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { usePendingModelSwitch } from "./usePendingModelSwitch";
 
+const { trackMock } = vi.hoisted(() => ({ trackMock: vi.fn() }));
+vi.mock("@posthog/ui/shell/analytics", () => ({ track: trackMock }));
+
 function modelOption(): SessionConfigOption {
   return {
     type: "select",
@@ -20,7 +23,7 @@ function modelOption(): SessionConfigOption {
 
 interface Props {
   taskId: string | undefined;
-  onApply: (configId: string, value: string) => void;
+  onApply: (configId: string, value: string) => Promise<boolean>;
   hasConversationStarted: boolean;
 }
 
@@ -37,17 +40,24 @@ function setup(
         hasConversationStarted: props.hasConversationStarted,
         onApply: props.onApply,
       }),
-    { initialProps: { taskId, onApply, hasConversationStarted } },
+    {
+      initialProps: {
+        taskId,
+        onApply,
+        hasConversationStarted,
+      },
+    },
   );
 }
 
 describe("usePendingModelSwitch", () => {
   beforeEach(() => {
+    trackMock.mockClear();
     useSettingsStore.setState({ warnOnMidSessionModelSwitch: true });
   });
 
-  it("queues a mid-session switch and applies it on confirm", () => {
-    const onApply = vi.fn();
+  it("queues a mid-session switch and applies it on confirm", async () => {
+    const onApply = vi.fn().mockResolvedValue(true);
     const { result } = setup("task-a", onApply);
 
     let intercepted = false;
@@ -60,13 +70,31 @@ describe("usePendingModelSwitch", () => {
     expect(intercepted).toBe(true);
     expect(result.current.pendingModelSwitch?.value).toBe("claude-sonnet-5");
 
-    act(() => result.current.confirmModelSwitch());
+    await act(() => result.current.confirmModelSwitch());
     expect(onApply).toHaveBeenCalledWith("model", "claude-sonnet-5");
     expect(result.current.pendingModelSwitch).toBeNull();
   });
 
+  it("keeps the dialog open when the switch does not reach the agent", async () => {
+    const onApply = vi.fn().mockResolvedValue(false);
+    const { result } = setup("task-a", onApply);
+
+    act(() => {
+      result.current.interceptModelSwitch("model", "claude-sonnet-5");
+    });
+
+    let confirmResult: boolean | undefined;
+    await act(async () => {
+      confirmResult = await result.current.confirmModelSwitch();
+    });
+
+    expect(onApply).toHaveBeenCalledWith("model", "claude-sonnet-5");
+    expect(confirmResult).toBe(false);
+    expect(result.current.pendingModelSwitch).not.toBeNull();
+  });
+
   it("does not queue a switch before the conversation has started", () => {
-    const onApply = vi.fn();
+    const onApply = vi.fn().mockResolvedValue(true);
     const { result } = setup("task-a", onApply, false);
 
     let intercepted = true;
@@ -81,8 +109,8 @@ describe("usePendingModelSwitch", () => {
     expect(onApply).not.toHaveBeenCalled();
   });
 
-  it("drops the queued switch when the task changes so confirm cannot apply it to another session", () => {
-    const onApply = vi.fn();
+  it("drops the queued switch when the task changes so confirm cannot apply it to another session", async () => {
+    const onApply = vi.fn().mockResolvedValue(true);
     const { result, rerender } = setup("task-a", onApply);
 
     act(() => {
@@ -91,10 +119,14 @@ describe("usePendingModelSwitch", () => {
     expect(result.current.pendingModelSwitch).not.toBeNull();
 
     // The view swaps to another task without remounting.
-    rerender({ taskId: "task-b", onApply, hasConversationStarted: true });
+    rerender({
+      taskId: "task-b",
+      onApply,
+      hasConversationStarted: true,
+    });
     expect(result.current.pendingModelSwitch).toBeNull();
 
-    act(() => result.current.confirmModelSwitch());
+    await act(() => result.current.confirmModelSwitch());
     expect(onApply).not.toHaveBeenCalled();
   });
 });
