@@ -182,14 +182,19 @@ def _gate_condition_ok(condition: object) -> bool:
     return any(NOT_CANCELLED.fullmatch(term.strip()) for term in normalized.split("||"))
 
 
-def _step_runs_whenever_gate_runs(condition: object) -> bool:
+def _step_runs_whenever_gate_runs(job: Job, step: Step) -> bool:
     """Guards only count in steps that execute on every path the gate takes.
 
-    A step condition of ``always()`` or ``!cancelled()`` both qualify: either
-    runs the step whenever the enclosing job runs, so a guard placed there is
-    as trustworthy as one with no ``if`` at all.
+    No ``if`` and ``always()`` both run the step whenever the enclosing job
+    runs. A step-level ``!cancelled()`` only covers every path when the job
+    itself is bare ``!cancelled()``: an OR-widened gate dispatches specifically
+    while ``cancelled()`` is true, and there the step is skipped — its guard
+    would certify nothing on the one path the widening exists for.
     """
-    return _condition_matches(condition, ALWAYS) or _uses_only_not_cancelled(condition)
+    condition = step.raw.get("if")
+    if condition is None or _condition_matches(condition, ALWAYS):
+        return True
+    return _uses_only_not_cancelled(condition) and _uses_only_not_cancelled(job.raw.get("if"))
 
 
 def _without_heredocs(bash: str) -> str:
@@ -316,7 +321,7 @@ def _trace_step(job: Job, step: Step) -> tuple[set[str], dict[str, set[str]]]:
         loops = _loop_names(scope.body)
         lines = scope.body.splitlines()
 
-        if step.raw.get("if") is None or _step_runs_whenever_gate_runs(step.raw.get("if")):
+        if _step_runs_whenever_gate_runs(job, step):
             for index in range(len(lines)):
                 guard_operand = _guard_operand(lines, index)
                 if guard_operand is not None:

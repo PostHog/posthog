@@ -1432,6 +1432,11 @@ class TestRequiredGateCheck:
             ENV_LOOP_GATE,
             _gate(SAFE_BODY, step_condition="${{ !cancelled() }}"),
             _gate(SAFE_BODY, condition="${{ !cancelled() || needs.build.outputs.deterministic_failure == 'true' }}"),
+            _gate(
+                SAFE_BODY,
+                condition="${{ !cancelled() || needs.build.outputs.deterministic_failure == 'true' }}",
+                step_condition="always()",
+            ),
         ],
         ids=[
             "inline-allowlist",
@@ -1444,6 +1449,7 @@ class TestRequiredGateCheck:
             "env-block-loop",
             "step-level-not-cancelled",
             "not-cancelled-or-deterministic-failure",
+            "always-step-in-or-widened-gate",
         ],
     )
     def test_passes_when_every_dependency_is_allowlisted(self, tmp_path: Path, content: str) -> None:
@@ -1487,6 +1493,11 @@ class TestRequiredGateCheck:
             _gate(INVERTED_ALLOWLIST_BODY),
             _gate(LOGGED_ONLY_BODY),
             _gate(SAFE_BODY, step_condition="${{ always() && false }}"),
+            _gate(
+                SAFE_BODY,
+                condition="${{ !cancelled() || needs.build.outputs.deterministic_failure == 'true' }}",
+                step_condition="${{ !cancelled() }}",
+            ),
         ],
         ids=[
             "failure-only-helper",
@@ -1496,6 +1507,7 @@ class TestRequiredGateCheck:
             "inverted-allowlist",
             "results-only-logged",
             "guards-in-conditional-step",
+            "not-cancelled-step-in-or-widened-gate",
         ],
     )
     def test_flags_gate_whose_results_reach_no_fail_closed_guard(self, tmp_path: Path, content: str) -> None:
