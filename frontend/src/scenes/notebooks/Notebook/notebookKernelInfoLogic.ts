@@ -118,7 +118,9 @@ const findClosestOptionIndex = (options: number[], value?: number | null): numbe
 export interface notebookKernelInfoLogicValues {
     actionInFlight: KernelActionInFlight
     code: string
+    computeBlockedReason: 'Compute rates are unavailable. Refresh to try again.' | 'Loading compute rates' | null
     computeOptions: NotebookComputeOptionsResponseApi | null
+    computeOptionsFailed: boolean
     computeOptionsLoading: boolean
     computePresets: NotebookComputePresetApi[]
     cpuIndex: number
@@ -189,10 +191,10 @@ export interface notebookKernelInfoLogicActions {
         errorObject?: any
     }
     loadComputeOptionsSuccess: (
-        computeOptions: NotebookComputeOptionsResponseApi | null,
+        computeOptions: NotebookComputeOptionsResponseApi,
         payload?: any
     ) => {
-        computeOptions: NotebookComputeOptionsResponseApi | null
+        computeOptions: NotebookComputeOptionsResponseApi
         payload?: any
     }
     loadKernelInfo: () => any
@@ -288,8 +290,14 @@ export interface notebookKernelInfoLogicMeta {
         selectedHourlyPrice: (
             computeOptions: NotebookComputeOptionsResponseApi | null,
             selectedCpu: number | null,
-            selectedMemory: number | null
+            selectedMemory: number | null,
+            kernelInfo: NotebookKernelInfo | null
         ) => number | null
+        computeBlockedReason: (
+            isModalKernel: boolean,
+            computeOptions: NotebookComputeOptionsResponseApi | null,
+            computeOptionsLoading: boolean
+        ) => 'Compute rates are unavailable. Refresh to try again.' | 'Loading compute rates' | null
         selectedPresetKey: (
             computePresets: NotebookComputePresetApi[],
             selectedCpu: number | null,
@@ -373,6 +381,14 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
                 setConfigFromKernelInfo: (_, { config }) => config.idleTimeoutSeconds,
             },
         ],
+        computeOptionsFailed: [
+            false,
+            {
+                loadComputeOptions: () => false,
+                loadComputeOptionsSuccess: () => false,
+                loadComputeOptionsFailure: () => true,
+            },
+        ],
         isEditingConfig: [
             false,
             {
@@ -428,12 +444,11 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
         computeOptions: [
             null as NotebookComputeOptionsResponseApi | null,
             {
+                // Deliberately unguarded: a swallowed failure is indistinguishable from the
+                // null the loader starts with, which left the panel quietly unpriced while
+                // every control that spends money stayed live.
                 loadComputeOptions: async () => {
-                    try {
-                        return await notebooksKernelComputeOptionsRetrieve(String(ApiConfig.getCurrentTeamId()))
-                    } catch {
-                        return null
-                    }
+                    return await notebooksKernelComputeOptionsRetrieve(String(ApiConfig.getCurrentTeamId()))
                 },
             },
         ],
@@ -554,19 +569,44 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
         ],
         /** Price of the shape the user currently has selected, whether they picked it or tuned it. */
         selectedHourlyPrice: [
-            (s) => [s.computeOptions, s.selectedCpu, s.selectedMemory],
+            (s) => [s.computeOptions, s.selectedCpu, s.selectedMemory, s.kernelInfo],
             (
                 computeOptions: NotebookComputeOptionsResponseApi | null,
                 selectedCpu: number | null,
-                selectedMemory: number | null
+                selectedMemory: number | null,
+                kernelInfo: NotebookKernelInfo | null
             ) => {
-                if (!computeOptions || selectedCpu == null || selectedMemory == null) {
+                if (selectedCpu == null || selectedMemory == null) {
                     return null
                 }
-                return (
-                    selectedCpu * computeOptions.cpu_rate_per_core_hour +
-                    selectedMemory * computeOptions.memory_rate_per_gb_hour
-                )
+                if (computeOptions) {
+                    return (
+                        selectedCpu * computeOptions.cpu_rate_per_core_hour +
+                        selectedMemory * computeOptions.memory_rate_per_gb_hour
+                    )
+                }
+                // Without the rates a tuned shape cannot be priced, but the status endpoint
+                // already quoted the shape the notebook has. Keep that while the user has not
+                // moved it, rather than blanking a price we do know.
+                const shapeUnchanged =
+                    kernelInfo?.cpu_cores != null &&
+                    kernelInfo.memory_gb != null &&
+                    Math.abs(kernelInfo.cpu_cores - selectedCpu) < 1e-6 &&
+                    Math.abs(kernelInfo.memory_gb - selectedMemory) < 1e-6
+                return shapeUnchanged ? (kernelInfo?.hourly_price ?? null) : null
+            },
+        ],
+        /**
+         * Why compute configuration is blocked, or null when it is allowed. A Modal sandbox is
+         * charged, so it may not be started or resized while the rates are unknown.
+         */
+        computeBlockedReason: [
+            (s) => [s.isModalKernel, s.computeOptions, s.computeOptionsLoading],
+            (isModalKernel: boolean, computeOptions: NotebookComputeOptionsResponseApi | null, loading: boolean) => {
+                if (!isModalKernel || computeOptions) {
+                    return null
+                }
+                return loading ? 'Loading compute rates' : 'Compute rates are unavailable. Refresh to try again.'
             },
         ],
         selectedPresetKey: [
