@@ -1,11 +1,13 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from rest_framework import status
 
 from posthog.schema import RecordingsQuery
 
-from posthog.models import PersonalAPIKey
+from posthog.models import EventDefinition, PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import AIBurstRateThrottle
 
@@ -15,15 +17,18 @@ from products.replay_vision.backend.queries.scanner_candidate_query import MIN_S
 from products.replay_vision.backend.queries.scanner_volume_estimate import ScannerVolumeEstimate
 from products.replay_vision.backend.queries.visited_paths import VisitedPath
 from products.replay_vision.backend.scanner_draft import (
+    _MAX_BASELINE_EVENTS,
     DraftError,
     ScannerDraft,
     _build_user_content,
     _business_context,
+    _events_for_goal,
     _existing_scanners,
     _ExistingScanner,
     _finalize,
     _finalize_v2,
     _generate,
+    _goal_terms,
     _LlmDraft,
     _LlmDraftV2,
     _solve_budget,
@@ -587,10 +592,65 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
         assert resp.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
 
+class TestGoalTerms:
+    def test_keeps_the_words_that_carry_intent_longest_first(self):
+        # Longest first because only the first terms are looked up, and a specific word is a better
+        # event-name lookup than a vague one.
+        assert _goal_terms("watch users who answered the Onboarding feedback survey") == [
+            "onboarding",
+            "answered",
+            "feedback",
+            "survey",
+        ]
+
+    @pytest.mark.parametrize(
+        "goal",
+        [
+            "what do users want to see",  # all stopwords
+            "who is on it",  # all below the length floor
+            "",
+        ],
+    )
+    def test_a_goal_with_no_usable_words_looks_nothing_up(self, goal):
+        # No terms means the baseline alone, not an unfiltered scan of every event name.
+        assert _goal_terms(goal) == []
+
+
+class TestEventsForGoal(_VisionAPITestCase):
+    def _event(self, name: str):
+        return EventDefinition.objects.create(team=self.team, name=name, last_seen_at=timezone.now())
+
+    def test_a_rare_event_named_in_the_goal_is_surfaced_ahead_of_the_baseline(self):
+        # The regression this exists for: a relevant event too rare to sit in any baseline. The old
+        # briefing showed a fixed recency slice, so a goal naming this event saw nothing to filter on.
+        self._event("survey sent")
+        for i in range(_MAX_BASELINE_EVENTS + 10):
+            self._event(f"filler_event_{i:03d}")
+
+        events = _events_for_goal(self.team, "watch people who answered the pricing survey")
+
+        assert "survey sent" in events
+        # Matched events lead, so the one the goal points at is not buried under the sample.
+        assert events[0] == "survey sent"
+
+    def test_internal_events_stay_excluded_even_when_the_goal_names_them(self):
+        # `$`-prefixed events are PostHog internals, not product categories, on both paths.
+        self._event("$pageview")
+
+        assert _events_for_goal(self.team, "watch the pageview funnel") == []
+
+    def test_a_goal_matching_nothing_still_returns_the_baseline(self):
+        self._event("checkout_started")
+
+        events = _events_for_goal(self.team, "understand the zzzz nonexistent flow")
+
+        assert events == ["checkout_started"]
+
+
 class TestV2Query:
     def test_pages_become_one_multi_value_property(self):
         # Separate properties would AND and match almost nothing: measured 68 sessions where the
-        # one-property shape matched 44,523.
+        # one-property shape matched 44,523. A page with no id is a plain regex of itself.
         query = _v2_query(["/billing", "/checkout", "/payment"], [])
 
         assert query is not None
@@ -599,7 +659,7 @@ class TestV2Query:
             "type": "recording",
             "key": "visited_page",
             "value": ["/billing", "/checkout", "/payment"],
-            "operator": "icontains",
+            "operator": "regex",
         }
         assert "events" not in query
 
@@ -624,25 +684,52 @@ class TestV2Query:
     def test_no_pages_and_no_events_is_no_query(self):
         assert _v2_query([], []) is None
 
-    def test_collapsed_id_pages_filter_by_their_prefix(self):
-        # The grounding list says "/invoice/:id" but real URLs hold real IDs, so the literal value
-        # would match zero sessions. The prefix still matches every such URL.
+    def test_a_collapsed_id_becomes_a_wildcard(self):
+        # The grounding list says "/invoice/:id" but real URLs hold real IDs. The regex wildcards the
+        # id so it matches "/invoice/<any>" without matching a bare "/invoices-archive".
         query = _v2_query(["/invoice/:id", "/billing"], [])
 
         assert query is not None
-        assert query["properties"][0]["value"] == ["/invoice/", "/billing"]
+        assert query["properties"][0]["value"] == ["/invoice/[^/]+", "/billing"]
 
     @pytest.mark.parametrize("pathname", ["/", "/:id", "/a/:id/b"])
     def test_a_page_that_cannot_narrow_is_dropped(self, pathname):
-        # "/a/:id/b" prefixes to "/a/", two non-slash chars: icontains on it matches nearly every
+        # "/a/:id/b" has two one-character static segments: any pattern from it matches nearly every
         # URL, so it reads as a narrowing filter while narrowing nothing.
         assert _v2_query([pathname], []) is None
 
-    def test_prefix_collisions_are_deduped(self):
+    def test_an_id_prefixed_route_keeps_the_whole_path(self):
+        # When the id sits before the distinctive segment, the whole-path regex keeps
+        # "/replay-vision/scanners" instead of collapsing to the "/project/" prefix in front.
+        query = _v2_query(["/project/:id/replay-vision/scanners"], [])
+
+        assert query is not None
+        assert query["properties"][0]["value"] == ["/project/[^/]+/replay\\-vision/scanners"]
+
+    def test_a_route_with_ids_on_both_sides_wildcards_each(self):
+        # "/project/:id/replay-home/:id" is ambiguous for a substring rule, but the full-path regex
+        # keeps "replay-home" between two wildcards, so it stays specific to that page.
+        query = _v2_query(["/project/:id/replay-home/:id"], [])
+
+        assert query is not None
+        assert query["properties"][0]["value"] == ["/project/[^/]+/replay\\-home/[^/]+"]
+
+    def test_a_generic_looking_path_is_still_kept(self):
+        # "/project/:id" reads like a routing container in PostHog, but a scanner watches the
+        # customer's product, where "/project/<id>" may be a real page. So keep it as a wildcarded
+        # regex rather than assuming any team's URL shape.
+        query = _v2_query(["/project/:id"], [])
+
+        assert query is not None
+        assert query["properties"][0]["value"] == ["/project/[^/]+"]
+
+    def test_paths_that_differ_only_after_the_id_stay_distinct(self):
+        # The whole path is matched, so "/invoice/:id" and "/invoice/:id/edit" produce different
+        # regexes rather than collapsing to a shared prefix.
         query = _v2_query(["/invoice/:id", "/invoice/:id/edit"], [])
 
         assert query is not None
-        assert query["properties"][0]["value"] == ["/invoice/"]
+        assert query["properties"][0]["value"] == ["/invoice/[^/]+", "/invoice/[^/]+/edit"]
 
 
 class TestFinalizeV2:

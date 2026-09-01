@@ -69,7 +69,7 @@ class FakeSession:
     def _next(self) -> FakeResponse:
         index = len(self.calls) - 1
         if callable(self._responses):
-            return self._responses(index)
+            return self._responses(index)  # ty: ignore[invalid-return-type]
         return self._responses.pop(0)
 
     def request(

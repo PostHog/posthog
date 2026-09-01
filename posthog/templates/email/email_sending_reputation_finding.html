@@ -1,47 +1,44 @@
 {% extends "email/base.html" %}
-
 {% block heading %}{% if high_impact %}Email sending is at risk of being paused{% else %}Reputation warning for your email sending{% endif %}{% endblock %}
 {% block section %}
-<!-- prettier-ignore -->
-<p>
-    Our email provider has raised {% if high_impact %}<b>high-impact</b>{% else %}low-impact{% endif %} reputation findings against workflow email sending in project <b>{{ team }}</b>.
-</p>
-{% if high_impact %}
-<p>
-    At this level, email sending for your project can be <b>paused automatically</b> to protect deliverability. Fix the findings below to avoid an interruption.
-</p>
-{% else %}
-<p>
-    Sending still works, but if these findings are not fixed they can escalate and email sending for your project can be paused.
-</p>
-{% endif %}
-{% if findings %}
-<p><b>What the provider flagged</b></p>
-<ul>
-    {% for finding in findings %}
-    <li>{{ finding.description }}</li>
-    {% endfor %}
-</ul>
-{% endif %}
-<p>
-    Common fixes: remove old or purchased addresses from your lists, and stop sending to recipients who never engage. The Reputation tab shows which workflows have the highest bounce and spam complaint rates.
-</p>
-<div class="mb mt text-center">
-    <a class="button" href="{% absolute_uri reputation_path %}">View sending health</a>
-</div>
-<div class="mt">
+    <!-- prettier-ignore -->
     <p>
-        If the button above doesn't work, paste this link into your browser:<br />
-        <a href="{% absolute_uri reputation_path %}">{% absolute_uri reputation_path %}</a>
+        Our email provider has raised {% if high_impact %}<b>high-impact</b>{% else %}low-impact{% endif %} reputation findings against workflow email sending in project <b>{{ team }}</b>.
     </p>
-</div>
+    {% if high_impact %}
+        <p>
+            At this level, email sending for your project can be <b>paused automatically</b> to protect deliverability. Fix the findings below to avoid an interruption.
+        </p>
+    {% else %}
+        <p>
+            Sending still works, but if these findings are not fixed they can escalate and email sending for your project can be paused.
+        </p>
+    {% endif %}
+    {% if findings %}
+        <p><b>What the provider flagged</b></p>
+        <ul>
+            {% for finding in findings %}
+                <li>{{ finding.description }}</li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+    <p>
+        Common fixes: remove old or purchased addresses from your lists, and stop sending to recipients who never engage. The Reputation tab shows which workflows have the highest bounce and spam complaint rates.
+    </p>
+    <div class="mb mt text-center">
+        <a class="button" href="{% absolute_uri reputation_path %}">View sending health</a>
+    </div>
+    <div class="mt">
+        <p>
+            If the button above doesn't work, paste this link into your browser:
+            <br />
+            <a href="{% absolute_uri reputation_path %}">{% absolute_uri reputation_path %}</a>
+        </p>
+    </div>
 {% endblock %}
-
 {% block footer %}
-Need help?
-<a href="https://posthog.com/questions?{{ utm_tags }}"
-    target="_blank"><b>Contact support</b></a>
-or
-<a href="https://posthog.com/docs?{{ utm_tags }}"
-    target="_blank"><b>read our documentation</b></a>.
+    Need help?
+    <a href="https://posthog.com/questions?{{ utm_tags }}" target="_blank"><b>Contact support</b></a>
+    or
+    <a href="https://posthog.com/docs?{{ utm_tags }}" target="_blank"><b>read our documentation</b></a>.
 {% endblock %}

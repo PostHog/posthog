@@ -52,6 +52,7 @@ from posthog.schema import (
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
     MCPHarnessBreakdownQuery,
+    MCPMissingCapabilitiesQuery,
     MCPToolCallBreakdownQuery,
     MCPToolCallsAndErrorsQuery,
     MCPToolCategoriesQuery,
@@ -474,6 +475,7 @@ RunnableQueryNode = Union[
     MCPToolDescriptionsQuery,
     MCPToolSampleIntentsQuery,
     MCPToolNeighborsQuery,
+    MCPMissingCapabilitiesQuery,
 ]
 
 
@@ -1160,6 +1162,17 @@ def get_query_runner(
 
         return MCPHarnessBreakdownQueryRunner(
             query=cast(MCPHarnessBreakdownQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPMissingCapabilitiesQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPMissingCapabilitiesQueryRunner
+
+        return MCPMissingCapabilitiesQueryRunner(
+            query=cast(MCPMissingCapabilitiesQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
