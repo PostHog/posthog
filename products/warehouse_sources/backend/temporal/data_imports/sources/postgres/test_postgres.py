@@ -3848,6 +3848,35 @@ class TestValidateCredentialsErrorMapping:
         assert host not in (error or "")
         assert "hostname" in (error or "")
 
+    @pytest.mark.parametrize(
+        "host",
+        [
+            "db.example.com:5432",  # host:port pasted into the host field
+            "db.example.com:",  # trailing colon with an empty port
+        ],
+    )
+    def test_port_in_host_field_rejected_before_dns(self, source, host):
+        config = source.parse_config(
+            {
+                "host": host,
+                "port": 5432,
+                "database": "postgres",
+                "user": "postgres",
+                "password": "postgres",
+                "schema": "public",
+            }
+        )
+        with (
+            mock.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None)),
+            mock.patch.object(source, "is_database_host_valid", side_effect=AssertionError("should not resolve")),
+            mock.patch.object(source, "get_schemas", side_effect=AssertionError("should not connect")),
+        ):
+            valid, error = source.validate_credentials(config, team_id=1)
+
+        assert valid is False
+        assert host not in (error or "")
+        assert "port field" in (error or "")
+
 
 class TestPostgresSchemaDiscovery:
     def _mock_connection(self, *fetchall_results: list[tuple[object, ...]]):
