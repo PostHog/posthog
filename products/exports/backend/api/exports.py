@@ -475,12 +475,22 @@ class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.Mode
             # Swallow workflow failures so the API always returns a 201 with the
             # ExportedAsset record. export_asset_direct populates the exception
             # field before re-raising, so callers (frontend toast, sharing
-            # endpoint) can inspect the failure on the asset itself.
+            # endpoint) can inspect the failure on the asset itself. A dispatch
+            # failure (Temporal unreachable, workflow never started) runs no
+            # activity, so nothing records a reason and the row would poll as a
+            # healthy job no process can finish — record one here, matching
+            # create_export_asset_async. The guard keeps an activity-written
+            # reason when the workflow did run and fail.
             logger.info(
                 "export_workflow_failed_gracefully",
                 asset_id=instance.id,
                 error=str(e),
             )
+            instance.refresh_from_db()
+            if not instance.exception:
+                instance.exception = "The export could not be started. Try again."
+                instance.exception_type = type(e).__name__
+                instance.save(update_fields=["exception", "exception_type"])
             return
 
         logger.info(

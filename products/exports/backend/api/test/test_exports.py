@@ -1846,6 +1846,25 @@ class TestExports(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertFalse(response.json()["has_content"])
 
+    @patch("products.exports.backend.api.exports.async_connect", new_callable=AsyncMock)
+    def test_dispatch_failure_records_exception_on_asset(self, mock_async_connect) -> None:
+        # A dispatch failure (start_workflow raises before any activity runs) records no reason on
+        # the asset on its own, so the create response must write one — otherwise the row polls as a
+        # healthy job no process can finish.
+        mock_client = AsyncMock()
+        mock_client.start_workflow = AsyncMock(side_effect=Exception("temporal unreachable"))
+        mock_async_connect.return_value = mock_client
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": "text/csv", "insight": self.insight.id},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        body = response.json()
+        self.assertFalse(body["has_content"])
+        self.assertEqual(body["exception"], "The export could not be started. Try again.")
+
     @override_settings(EXPORT_SYNC_MAX_WAIT_SECONDS=0.01)
     @patch("products.exports.backend.api.exports.async_connect", new_callable=AsyncMock)
     def test_slow_render_returns_pending_asset_instead_of_blocking(self, mock_async_connect) -> None:
