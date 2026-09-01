@@ -280,11 +280,17 @@ def execute_lighthouse_audit(prepared: PreparedAudit) -> LighthouseAudit:
             "The report does not say which page it ended on, so it cannot be attributed to the "
             "requested url. Nothing was returned."
         )
-    if not _host_allowed(final_url):
-        raise InvalidLighthouseTargetError(
-            f"{target} redirected to {final_url}, which is outside the allowed hosts — "
-            "the audit would describe that page instead. Pages behind a login cannot be audited."
-        )
+    # Every hop the document went through, not only where it ended. Browserless follows redirects
+    # itself, so a chain that leaves the allowlist and comes back passes on its endpoints alone.
+    # This cannot prevent the request that already happened, since Lighthouse has no setting to
+    # refuse a redirect, but it does stop that page's numbers being returned under the requested
+    # url's name, and it makes the detour visible instead of silent.
+    for hop in _document_chain_urls(report):
+        if not _host_allowed(hop):
+            raise InvalidLighthouseTargetError(
+                f"{target} went through {hop}, which is outside the allowed hosts. The audit "
+                "would describe that page instead, and pages behind a login cannot be audited."
+            )
 
     audit = _reduce_report(report, requested_url=target, final_url=final_url, form_factor=form_factor)
     if not audit.metrics:
@@ -512,6 +518,46 @@ def _final_url(report: dict[str, Any]) -> str | None:
         if isinstance(value, str) and value:
             return value
     return None
+
+
+def _document_chain_urls(report: dict[str, Any]) -> list[str]:
+    """Every url the main document itself passed through, in the order Lighthouse saw them.
+
+    The `redirects` audit lists the hops; the url fields give the endpoints, and are read too
+    because a report with no redirect carries no `redirects` items at all.
+
+    Deliberately the document chain only. A page's subresources — its images, fonts, and
+    third-party scripts — are the site's business rather than the caller's choice, and
+    allowlisting them would reject every real page.
+
+    A Lighthouse that stopped emitting `redirects` would narrow this back to the endpoints, which
+    is where the check stood before. That is worth knowing but not worth failing closed over: the
+    audit is standard output, and refusing every report over its absence would trade a rare
+    detour for a permanent outage.
+    """
+    urls: list[str] = []
+    for key in ("requestedUrl", "mainDocumentUrl", "finalUrl", "finalDisplayedUrl"):
+        value = report.get(key)
+        if isinstance(value, str) and value:
+            urls.append(value)
+
+    audits = report.get("audits")
+    redirects = audits.get("redirects") if isinstance(audits, dict) else None
+    details = redirects.get("details") if isinstance(redirects, dict) else None
+    if isinstance(details, dict):
+        for item in details.get("items") or []:
+            if isinstance(item, dict) and isinstance(item.get("url"), str) and item["url"]:
+                urls.append(item["url"])
+
+    # Order-preserving dedupe, so the rejection names the first hop that left the allowlist
+    # rather than whichever one a set happened to yield.
+    seen: set[str] = set()
+    ordered: list[str] = []
+    for url in urls:
+        if url not in seen:
+            seen.add(url)
+            ordered.append(url)
+    return ordered
 
 
 def _reduce_report(

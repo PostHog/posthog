@@ -1174,9 +1174,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "exhausted budget."
                 )
             ),
-            404: OpenApiResponse(
-                description="No such run in this project, or the run belongs to a different scout."
-            ),
+            404: OpenApiResponse(description="No such run in this project, or the run belongs to a different scout."),
             429: OpenApiResponse(description="Audit rate limit exceeded; retry later."),
             501: OpenApiResponse(description="Lighthouse audits are not configured on this deployment."),
         },

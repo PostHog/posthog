@@ -1801,13 +1801,35 @@ class TestLighthouseAudit:
             with _no_flag_payload(), pytest.raises(InvalidLighthouseTargetError):
                 run_lighthouse_audit(team_id=_AUDIT_TEAM_ID, url="https://posthog.com/pricing")
 
-    def test_rejects_a_page_that_redirected_off_the_allowlist(self) -> None:
-        # The login-wall case: the audit ran, but on the sign-in screen. Returning it would put
-        # that page's LCP in a report under the requested url's name.
-        payload = _lighthouse_payload(finalDisplayedUrl="https://auth.example.com/login")
-
+    @parameterized.expand(
+        [
+            ("ends_off_allowlist", {"finalDisplayedUrl": "https://auth.example.com/login"}),
+            (
+                "leaves_and_returns_mid_chain",
+                {
+                    "audits": {
+                        "largest-contentful-paint": {"numericValue": 4553.2},
+                        "redirects": {
+                            "details": {
+                                "type": "opportunity",
+                                "items": [
+                                    {"url": "https://posthog.com/pricing"},
+                                    {"url": "http://169.254.169.254/latest/meta-data/"},
+                                    {"url": "https://posthog.com/pricing"},
+                                ],
+                            }
+                        },
+                    }
+                },
+            ),
+        ]
+    )
+    def test_rejects_a_document_that_left_the_allowlist(self, _name: str, overrides: dict) -> None:
+        # First is the login-wall case: the audit ran, but on the sign-in screen. Second is the
+        # one the endpoints alone miss, since it starts and ends on an allowed host. Either way
+        # the report would carry another page's LCP under the requested url's name.
         with pytest.raises(InvalidLighthouseTargetError):
-            self._audit(payload)
+            self._audit(_lighthouse_payload(**overrides))
 
     def test_rejects_a_report_that_does_not_say_where_it_ended(self) -> None:
         # Fails closed: this is the only check on where the browser actually went, since
