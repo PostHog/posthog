@@ -9,11 +9,14 @@ from django.db import migrations
 
 # Keep the most recently updated row in each conflicting group and rename the
 # rest, so the unique build can succeed without losing a saved view. The suffix
-# uses a fragment of the row id, which is unique, so the new names cannot collide
-# inside the group. `left(name, 240)` keeps the result within the 255-char limit.
-# Shared views collide per team; private views collide per creator. Private rows
-# with a null `created_by_id` are excluded: Postgres treats nulls as distinct in
-# a unique index, so they never conflict and must not be renamed.
+# uses the full row id, which is globally unique, so two renamed rows in the same
+# group cannot collide. An 8-character id prefix is not enough: `id` is a UUIDv7
+# whose leading characters are only high timestamp bits, so rows created in the
+# same ~65-second window share them and would be renamed to the same string.
+# `left(name, 216)` leaves room for the 39-char ' (<uuid>)' suffix within the
+# 255-char limit. Shared views collide per team; private views collide per
+# creator. Private rows with a null `created_by_id` are excluded: Postgres treats
+# nulls as distinct in a unique index, so they never conflict and must not be renamed.
 DEDUPE_CONFLICTS = """
     -- migration-analyzer: safe reason=small saved-views table; only conflicting duplicate rows (rn > 1) are renamed
     WITH ranked AS (
@@ -26,7 +29,7 @@ DEDUPE_CONFLICTS = """
         WHERE visibility = 'shared'
     )
     UPDATE posthog_columnconfiguration c
-    SET name = left(c.name, 240) || ' (' || left(c.id::text, 8) || ')'
+    SET name = left(c.name, 216) || ' (' || c.id::text || ')'
     FROM ranked
     WHERE c.id = ranked.id AND ranked.rn > 1;
 
@@ -40,7 +43,7 @@ DEDUPE_CONFLICTS = """
         WHERE visibility = 'private' AND created_by_id IS NOT NULL
     )
     UPDATE posthog_columnconfiguration c
-    SET name = left(c.name, 240) || ' (' || left(c.id::text, 8) || ')'
+    SET name = left(c.name, 216) || ' (' || c.id::text || ')'
     FROM ranked
     WHERE c.id = ranked.id AND ranked.rn > 1;
 """
