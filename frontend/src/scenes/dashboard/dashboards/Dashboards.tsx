@@ -1,11 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import * as chartPng from '@posthog/brand/hoggies/png/chart'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -26,17 +23,15 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { dashboardsEmptyState } from 'products/dashboards/frontend/emptyState/dashboardsEmptyState'
+
 import { DashboardsTableContainer } from './DashboardsTable'
-import { FeaturedTemplatesChooser } from './templates/FeaturedTemplatesChooser'
-
-const HedgehogChart = pngHoggie(chartPng)
-
-const DASHBOARD_DOCS_URL = 'https://posthog.com/docs/product-analytics/dashboards'
 
 export const scene: SceneExport = {
     component: Dashboards,
     logic: dashboardsLogic,
     productKey: ProductKey.PRODUCT_ANALYTICS,
+    emptyState: dashboardsEmptyState,
 }
 
 export function Dashboards(): JSX.Element {
@@ -110,22 +105,7 @@ export function Dashboards(): JSX.Element {
                     <DashboardTemplatesTable />
                 ) : dashboardsLoading || dashboards.length > 0 || isFiltering ? (
                     <DashboardsTableContainer />
-                ) : (
-                    <ProductIntroduction
-                        productName="Dashboards"
-                        thingName="dashboard"
-                        titleOverride="Your home for what you actually care about"
-                        description="Keep analytics, session replay, logs, and the rest of your PostHog stack in one place. Below are customer-favorite dashboards to get you started quickly. Or skip them and start blank, up to you."
-                        isEmpty={true}
-                        docsURL={DASHBOARD_DOCS_URL}
-                        customHog={HedgehogChart}
-                        hogLayout="responsive"
-                        useMainContentContainerQueries={true}
-                        contentClassName="max-w-[1000px]"
-                        actionElementOverride={<FeaturedTemplatesChooser />}
-                        mcpSurfaceKey="dashboards.create"
-                    />
-                )}
+                ) : null}
             </div>
         </SceneContent>
     )

@@ -675,6 +675,7 @@ use limiters::token_dropper::TokenDropper;
 use crate::config::CaptureMode;
 use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
+use crate::outputs::{Output, OutputRegistry};
 use crate::quota_limiters::CaptureQuotaLimiter;
 use crate::router::{self, HistoricalConfig};
 use crate::sinks;
@@ -915,8 +916,9 @@ impl TestStateBuilder {
         let v1_router = v1_sinks::Router::new(SinkName::Msk, sinks_map);
 
         // Legacy sink — no-op since V1 tests go through v1_sink_router
-        let legacy_sink: Arc<dyn sinks::Event + Send + Sync> =
-            Arc::new(crate::sinks::noop::NoOpSink::new());
+        let legacy_sink: Arc<dyn sinks::Event + Send + Sync> = Arc::new(OutputRegistry::new(
+            Output::single(crate::sinks::noop::NoOpSink::new()),
+        ));
 
         let timesource: Arc<dyn TimeSource + Send + Sync> = Arc::new(crate::time::SystemTime {});
 
