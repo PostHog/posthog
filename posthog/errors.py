@@ -136,6 +136,8 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         name == "SYNTAX_ERROR" and "query size exceeded" in err.message
     ):  # Handle syntax error when "max query size exceeded" in the message
         return ClickHouseQuerySizeExceeded()
+    elif name == "SYNTAX_ERROR":
+        return CHQueryErrorSyntaxError(err.message, code=err.code, code_name="syntax_error")
     elif name == "TOO_SLOW":
         # Return a 512 error for queries which would time out
         detail = "Estimated query execution time is too long"
@@ -251,6 +253,17 @@ class CHQueryErrorS3FileChangedDuringRead(ExposedCHQueryError):
     """A file backing a warehouse table was overwritten or deleted while ClickHouse was reading it."""
 
     pass
+
+
+class CHQueryErrorSyntaxError(InternalCHQueryError):
+    """ClickHouse could not parse the SQL we sent it.
+
+    `generated_sql` holds that SQL, because ClickHouse truncates the query in its own message and
+    nothing else keeps a copy. Almost every occurrence is a bug in the HogQL printer, which is only
+    diagnosable from the statement that failed.
+    """
+
+    generated_sql: Optional[str] = None
 
 
 class CHQueryErrorTableIsReadOnly(InternalCHQueryError):
