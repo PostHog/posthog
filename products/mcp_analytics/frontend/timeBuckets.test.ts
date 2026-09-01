@@ -154,24 +154,34 @@ describe('timeBuckets', () => {
             ['-1y', 'day', 'day'], // 367 daily buckets: fits, and beats the auto-choice
             ['-1y', null, 'month'], // nothing pinned: the auto-choice
         ])('groups a %s window pinned to %s by %s', (dateFrom, pinned, expected) => {
-            expect(resolveInterval(dateFrom, null, 'UTC', pinned as IntervalType | null)).toBe(expected)
+            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
+            try {
+                expect(resolveInterval(dateFrom, null, 'UTC', pinned as IntervalType | null)).toBe(expected)
+            } finally {
+                jest.useRealTimers()
+            }
         })
     })
 
     describe('intervalOptionsForWindow', () => {
         it('disables the intervals that would smear or collapse the window', () => {
-            expect(intervalOptionsForWindow('-1y', null, 'UTC')).toEqual([
-                { value: 'hour', label: 'Hour', disabledReason: 'Range too long' },
-                { value: 'day', label: 'Day', disabledReason: null },
-                { value: 'week', label: 'Week', disabledReason: null },
-                { value: 'month', label: 'Month', disabledReason: null },
-            ])
-            expect(intervalOptionsForWindow('-7d', null, 'UTC')).toEqual([
-                { value: 'hour', label: 'Hour', disabledReason: null },
-                { value: 'day', label: 'Day', disabledReason: null },
-                { value: 'week', label: 'Week', disabledReason: null },
-                { value: 'month', label: 'Month', disabledReason: 'Range too short' },
-            ])
+            jest.useFakeTimers().setSystemTime(new Date('2026-06-18T12:00:00Z'))
+            try {
+                expect(intervalOptionsForWindow('-1y', null, 'UTC')).toEqual([
+                    { value: 'hour', label: 'Hour', disabledReason: 'Range too long' },
+                    { value: 'day', label: 'Day', disabledReason: null },
+                    { value: 'week', label: 'Week', disabledReason: null },
+                    { value: 'month', label: 'Month', disabledReason: null },
+                ])
+                expect(intervalOptionsForWindow('-7d', null, 'UTC')).toEqual([
+                    { value: 'hour', label: 'Hour', disabledReason: null },
+                    { value: 'day', label: 'Day', disabledReason: null },
+                    { value: 'week', label: 'Week', disabledReason: null },
+                    { value: 'month', label: 'Month', disabledReason: 'Range too short' },
+                ])
+            } finally {
+                jest.useRealTimers()
+            }
         })
     })
 })
