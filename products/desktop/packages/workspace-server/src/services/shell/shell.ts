@@ -63,9 +63,6 @@ function getShellArgs(shell: string): string[] {
   return ["-l"];
 }
 
-// The flag a shell uses to run a command string. POSIX shells use `-c`,
-// cmd.exe uses `/c`, and PowerShell uses `-Command`. A single `-c` breaks
-// auth terminals on Windows.
 function getCommandShellArgs(shell: string, command: string): string[] {
   if (platform() === "win32") {
     const lower = shell.toLowerCase();

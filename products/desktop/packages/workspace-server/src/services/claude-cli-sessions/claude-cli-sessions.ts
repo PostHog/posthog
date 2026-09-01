@@ -52,9 +52,6 @@ interface ScannedSession {
 }
 
 function claudeCliDir(): string {
-  // The host always reads transcripts from the user's ~/.claude. Machine
-  // auth pins CLAUDE_CONFIG_DIR for the child process env, but the host
-  // reads from the same default location the CLI writes to in both modes.
   return path.join(os.homedir(), ".claude");
 }
 

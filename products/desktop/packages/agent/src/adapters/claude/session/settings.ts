@@ -9,9 +9,6 @@ import { resolveMainRepoPath } from "./repo-path";
 
 const ACP_TOOL_NAME_PREFIX = "mcp__acp__";
 
-// Variables a repository settings file can set to redirect the CLI off the
-// user subscription. Mirrors MACHINE_AUTH_STRIPPED_KEYS so the filter stays
-// in sync with the strip list.
 const MACHINE_AUTH_REJECTED_ENV_KEYS = new Set<string>(
   MACHINE_AUTH_STRIPPED_KEYS,
 );
@@ -364,11 +361,6 @@ export class SettingsManager {
         }
       }
       if (settings.env) {
-        // Repository-controlled settings can restore gateway variables
-        // that machine auth stripped, redirecting requests carrying the
-        // user OAuth token. Drop auth, endpoint, proxy, and telemetry keys
-        // from project and local layers during machine-auth sessions
-        //. User and enterprise layers stay trusted.
         let env = settings.env;
         if (this.machineAuth && (layer === "project" || layer === "local")) {
           env = filterMachineAuthEnv(env);

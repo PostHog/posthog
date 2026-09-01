@@ -93,10 +93,6 @@ export function applyModelAccess(
   const spec = SPECS[adapter];
   const state = useSettingsStore.getState();
   const prev = spec.readAccess(state);
-  // Always sync the connected super property. Only the setting write and
-  // the SETTING_CHANGED event are gated on an access change, because a
-  // login/logout transition can flip `connected` while `ModelAccess` stays
-  // the same.
   if (prev !== next) {
     spec.writeAccess(state, next);
     track(ANALYTICS_EVENTS.SETTING_CHANGED, {
@@ -119,8 +115,6 @@ export async function registerSubscriptionAtBoot(
     : "posthog-gateway";
   registerAdapterSubscription(adapter, { access, connected: false });
   const status = await fetchStatus();
-  // Re-read the setting after the probe. A user can change the toggle while
-  // the status check is in flight; the earlier `access` value is stale.
   const freshAccess = flagEnabled
     ? SPECS[adapter].readAccess(useSettingsStore.getState())
     : "posthog-gateway";
@@ -158,9 +152,6 @@ export function useAdapterSubscription(adapter: Adapter): AdapterSubscription {
   const modelAccess = useSettingsStore(spec.readAccess);
   const { localWorkspaces } = useHostCapabilities();
   const hostTRPC = useHostTRPC();
-  // Short stale time so a login or logout between actions does not stick. The
-  // desktop client default is five minutes, which can route a task through the
-  // wrong billing source after the user changes state.
   const { data: status } = useQuery({
     ...hostTRPC.agent[spec.statusProcedure].queryOptions(),
     enabled: flagEnabled && localWorkspaces,

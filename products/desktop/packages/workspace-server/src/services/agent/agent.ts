@@ -555,8 +555,6 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
   async getClaudeAuthTerminal(
     action: ClaudeAuthAction,
   ): Promise<ClaudeAuthTerminal> {
-    // A logout invalidates the credentials every active subscription session
-    // holds, so stop them before the command can run. Login needs no guard.
     if (action === "logout") {
       await this.prepareClaudeAccountChange();
     }
@@ -1006,11 +1004,6 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
         adapter === "codex" && config.codexModelAccess === "own-subscription";
       let claudeSubscription =
         adapter === "claude" && config.claudeModelAccess === "own-subscription";
-      // Re-verify the Claude login before honoring the own-subscription
-      // preference. The client can send a stale access value after the user
-      // signed out in another terminal, and reconnect replays the stored
-      // value without a fresh check. Downgrade to the gateway
-      // so the session starts with PostHog credentials instead of no auth.
       if (claudeSubscription) {
         const loginState = await hasClaudeLogin({
           claudeCliPath: this.getClaudeCliPath(),

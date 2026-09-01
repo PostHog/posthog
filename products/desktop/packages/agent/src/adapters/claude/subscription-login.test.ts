@@ -194,8 +194,6 @@ describe("hasClaudeLogin", () => {
           string[],
           { env: NodeJS.ProcessEnv },
         ];
-        // When no explicit configDir is set, machine auth pins the child to
-        // the user's ~/.claude so the probe and the session agree.
         expect(spawnOptions.env.CLAUDE_CONFIG_DIR).toBe(expected);
       } finally {
         delete process.env.CLAUDE_CONFIG_DIR;

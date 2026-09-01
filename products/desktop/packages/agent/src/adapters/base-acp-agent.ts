@@ -140,6 +140,10 @@ export abstract class BaseAcpAgent implements Agent {
     throw new Error("Method not implemented.");
   }
 
+  protected usesMachineAuth(): boolean {
+    return false;
+  }
+
   async getModelConfigOptions(
     currentModelOverride?: string,
     gatewayUrl?: string,
@@ -191,13 +195,8 @@ export abstract class BaseAcpAgent implements Agent {
 
     let currentModelId = currentModelOverride ?? DEFAULT_GATEWAY_MODEL;
 
-    // Subscription mode: no gateway URL means fetchGatewayModels returned an
-    // empty list, so `options` is empty and the picker cannot validate the
-    // saved id. A gateway-only id (Cloudflare, Modal, Deepseek, GLM) saved
-    // from a gateway session survives here and fails on the first turn
-    //. Fall back to the Anthropic default in that case.
     if (
-      adapterModels.length === 0 &&
+      this.usesMachineAuth() &&
       currentModelId !== DEFAULT_GATEWAY_MODEL &&
       !isAnthropicModelId(currentModelId)
     ) {

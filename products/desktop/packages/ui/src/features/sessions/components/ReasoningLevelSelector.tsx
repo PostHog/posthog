@@ -74,9 +74,7 @@ interface ReasoningLevelSelectorProps {
   onMenuOpenChange?: (open: boolean) => void;
   disabled?: boolean;
   isLoading?: boolean;
-  /** Billing source the next run uses. Models it cannot run show as unavailable. */
   modelAccess?: ModelAccess;
-  /** Shows the billing submenu. Off for harnesses that have no subscription. */
   showBillingMenu?: boolean;
 }
 
@@ -142,8 +140,6 @@ export function ReasoningLevelSelector({
   const modelSelect =
     displayModel?.type === "select" ? displayModel : undefined;
 
-  // A first-party Claude plan runs Anthropic models only. The gateway-routed
-  // models stay listed so the picker can say why they are out of reach.
   const onOwnSubscription =
     adapter === "claude" && modelAccess === "own-subscription";
   const unavailableReason = (modelId: string): string | undefined =>

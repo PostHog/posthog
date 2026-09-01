@@ -14,8 +14,6 @@ export interface ClaudeAuthTerminalCommand {
 }
 
 function shellQuote(value: string): string {
-  // POSIX single quotes do not quote paths on Windows. Use double quotes
-  // there, escaping embedded double quotes.
   if (process.platform === "win32") {
     return `"${value.replaceAll('"', '\\"')}"`;
   }
@@ -52,10 +50,6 @@ export interface ClaudeLoginCheckOptions {
   timeoutMs?: number;
 }
 
-// Three-state result so callers can tell a confirmed logout from an
-// operational failure (missing binary, spawn error, timeout, unparseable
-// output). Treating a failed probe as "logged out" can route later sessions
-// through the gateway and spend PostHog credits by accident.
 export type ClaudeLoginResult = "logged-in" | "logged-out" | "unknown";
 
 interface ClaudeAuthStatusJson {
@@ -65,10 +59,6 @@ interface ClaudeAuthStatusJson {
   subscriptionType?: unknown;
 }
 
-// A first-party Claude subscription login. `claude.ai` OAuth (Pro/Max/Team/
-// Enterprise) and a long-lived `oauth_token` both bill against the user plan.
-// `api_key` and `third_party` (Bedrock, Vertex, Foundry, Mantle) do not, so
-// they must not be reported as a subscription login.
 function isSubscriptionLogin(status: ClaudeAuthStatusJson): boolean {
   if (status.loggedIn !== true) return false;
   const method = status.authMethod;
@@ -83,9 +73,7 @@ function parseAuthStatusJson(stdout: string): ClaudeAuthStatusJson | null {
     if (parsed && typeof parsed === "object") {
       return parsed as ClaudeAuthStatusJson;
     }
-  } catch {
-    // Fall through; non-JSON output means the CLI is older or errored.
-  }
+  } catch {}
   return null;
 }
 
@@ -156,10 +144,6 @@ export async function hasClaudeLogin(
         finish("logged-in");
         return;
       }
-      // Exit 0 with a parsed status that is not a subscription login means a
-      // third-party provider or API key is active. Exit non-zero with no JSON
-      // means the CLI confirmed no login. Either way the user is not on their
-      // Claude subscription.
       if (status || code === 0) {
         finish("logged-out");
         return;

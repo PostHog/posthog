@@ -116,9 +116,6 @@ export function ClaudeAuthTerminalDialog({
     onClose();
   }, [sessionId, onClose]);
 
-  // A route or flag change can unmount the dialog without a close callback.
-  // Destroy the auth terminal and its server pty on unmount so the sensitive
-  // process does not survive the component.
   useEffect(() => {
     return () => {
       destroyTerminalSession(sessionId);

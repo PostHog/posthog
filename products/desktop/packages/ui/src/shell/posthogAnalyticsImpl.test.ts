@@ -150,8 +150,6 @@ describe("registerAdapterSubscription", () => {
       await loadAnalytics();
     initializePostHog();
 
-    // The toggle is on but the login is not active. The session uses the
-    // gateway, so the super property must say so for correct billing.
     registerAdapterSubscription("claude", {
       access: "own-subscription",
       connected: false,

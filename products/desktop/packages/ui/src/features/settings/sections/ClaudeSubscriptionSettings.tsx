@@ -34,9 +34,6 @@ export function ClaudeSubscriptionSettings(): ReactElement | null {
   const statusUnknown = status?.loginState === "unknown";
   const settled = !isPending && !isError && !statusUnknown;
 
-  // Track connection state for analytics only. The toggle stays the source
-  // of truth for the billing preference; a status observation must not write
-  // the setting.
   useEffect(() => {
     if (
       useSettingsPageStore.getState().initialAction ===
@@ -58,8 +55,6 @@ export function ClaudeSubscriptionSettings(): ReactElement | null {
     } else {
       track(ANALYTICS_EVENTS.CLAUDE_SUBSCRIPTION_SIGNED_OUT);
     }
-    // Keep the connected super property in sync with the login state without
-    // touching the access preference.
     registerAdapterSubscription("claude", {
       access: subscription.subscriptionOn
         ? "own-subscription"
@@ -76,9 +71,6 @@ export function ClaudeSubscriptionSettings(): ReactElement | null {
     void queryClient.invalidateQueries({ queryKey: statusQuery.queryKey });
   };
 
-  // The summary reflects the effective billing source, which needs both
-  // the login and the toggle. A logged-in account with the switch
-  // off still bills PostHog credits.
   const usingSubscription = loggedIn && subscription.subscriptionOn;
   const summary = usingSubscription
     ? "Local and worktree Claude sessions run on your Claude plan instead of PostHog credits. Cloud tasks always use PostHog credits"

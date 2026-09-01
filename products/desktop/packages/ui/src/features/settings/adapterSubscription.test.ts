@@ -172,7 +172,6 @@ describe("adapter subscription gating", () => {
         claudeModelAccess: "own-subscription",
       });
       const fetchStatus = vi.fn((): Promise<SubscriptionStatus> => {
-        // Simulate the user flipping the toggle while the probe runs.
         useSettingsStore.setState({ claudeModelAccess: "posthog-gateway" });
         return Promise.resolve({ loginState: "logged-in" });
       });

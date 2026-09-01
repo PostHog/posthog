@@ -678,7 +678,7 @@ describe("ReasoningLevelSelector", () => {
       name: /GLM 5\.2/,
     });
 
-    await user.click(gatewayOnly);
+    fireEvent.click(gatewayOnly);
     expect(onModelChange).not.toHaveBeenCalled();
   }, 20000);
 
@@ -701,7 +701,7 @@ describe("ReasoningLevelSelector", () => {
       screen.getByRole("button", { name: /^Model and reasoning/ }),
     );
     await openSub(user, /^Model/);
-    await user.click(
+    fireEvent.click(
       await screen.findByRole("menuitemradio", { name: /GLM 5\.2/ }),
     );
 

@@ -69,10 +69,6 @@ function subscriptionProperties(
   adapter: Adapter,
   { access, connected }: AdapterSubscriptionState,
 ): Record<string, string | boolean> {
-  // Report the effective billing source, not the saved preference. A
-  // logged-out session with the toggle on still uses the gateway, so the
-  // super property must say so to keep billing attribution correct
-  //.
   const effectiveAccess = connected ? access : "posthog-gateway";
   return {
     [`${adapter}_model_access`]: effectiveAccess,

@@ -260,10 +260,6 @@ export type CodexSubscriptionStatus = z.infer<
 >;
 
 export const claudeSubscriptionStatusOutput = z.object({
-  // "logged-in": the CLI reports a first-party Claude subscription.
-  // "logged-out": the CLI confirmed no subscription login.
-  // "unknown": the probe failed (missing binary, spawn error, timeout), so
-  // the saved preference must not change.
   loginState: z.enum(["logged-in", "logged-out", "unknown"]),
 });
 

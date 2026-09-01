@@ -96,10 +96,6 @@ export class Agent {
       : await this._resolveGatewayConfig(options.gatewayUrl);
     this.taskRunId = taskRunId;
 
-    // Task attribution and the user node only feed the gateway auth headers.
-    // Subscription sessions have no gateway env, so the requests are unused.
-    // Skip them to avoid a slow PostHog fetch delaying a direct Claude session
-    //.
     const needsAttribution = !claudeSubscription && gatewayConfig !== null;
     const taskPromise =
       needsAttribution && this.posthogAPI && taskId !== "__preview__"
@@ -199,10 +195,6 @@ export class Agent {
     if (!sanitizedModel && options.adapter !== "codex" && !claudeSubscription) {
       sanitizedModel = DEFAULT_GATEWAY_MODEL;
     }
-    // A first-party Claude subscription can only run Anthropic models. A
-    // saved gateway-only id (Cloudflare, Modal, Deepseek, GLM) survives the
-    // skip of the gateway model fetch and then fails on the first turn
-    //. Fall back to the Anthropic default so the session starts.
     if (
       claudeSubscription &&
       sanitizedModel &&

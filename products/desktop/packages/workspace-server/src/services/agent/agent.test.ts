@@ -355,8 +355,6 @@ describe("AgentService", () => {
 
       await service.getClaudeAuthTerminal("logout");
 
-      // Only the subscription session is cleaned up; the gateway session is
-      // left alone.
       expect(cleanedUp).toEqual(["run-sub-1"]);
     });
   });

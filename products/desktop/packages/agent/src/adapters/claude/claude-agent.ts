@@ -349,6 +349,10 @@ export interface ClaudeAcpAgentOptions {
 }
 
 export class ClaudeAcpAgent extends BaseAcpAgent {
+  protected override usesMachineAuth(): boolean {
+    return !!this.options?.machineAuth;
+  }
+
   readonly adapterName = "claude";
   declare session: Session;
   toolUseCache: ToolUseCache;
