@@ -198,7 +198,7 @@ def prepare_ast_for_printing(
         raise TrinoLoweringError(
             "TRINO_RESTRICTED_PROPERTIES_UNSUPPORTED",
             "property-level access control",
-            node,
+            node if isinstance(node, ast.Expr) else None,
             detail="Trino compilation is unavailable when property-level access restrictions apply.",
         )
 
