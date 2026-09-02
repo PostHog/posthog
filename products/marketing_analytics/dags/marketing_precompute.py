@@ -388,6 +388,14 @@ class _TeamWarmPlan(NamedTuple):
         return bool(self.conversion_goals)
 
 
+class _WarmCounts(NamedTuple):
+    """Per-team warming outcome: teams whose conversion / cost block completed, and per-chunk failures."""
+
+    conversion_teams: int
+    costs_teams: int
+    failures: int
+
+
 def _plan_team(team: Team) -> _TeamWarmPlan | None:
     """Main-thread setup: read config, flags and goals so worker threads do no Django ORM. None on failure.
 
@@ -422,7 +430,7 @@ def _plan_team(team: Team) -> _TeamWarmPlan | None:
         return None
 
 
-def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: datetime) -> tuple[int, int, int]:
+def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: datetime) -> _WarmCounts:
     """Warm one planned team's precomputes over the rolling window.
 
     Returns (conversion_teams, costs_teams, failures) increments. Runs in a worker thread of the op's
@@ -474,7 +482,7 @@ def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: da
                 failures += 1
     finally:
         connections.close_all()
-    return conversion_teams, costs_teams, failures
+    return _WarmCounts(conversion_teams, costs_teams, failures)
 
 
 @dagster.op
