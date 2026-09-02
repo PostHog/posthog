@@ -265,7 +265,12 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             team=self.team, key="active_flag", name="active flag", archived=False, created_by=self.user
         )
         await FeatureFlag.objects.acreate(
-            team=self.team, key="archived_flag", name="archived flag", archived=True, created_by=self.user
+            team=self.team,
+            key="archived_flag",
+            name="archived flag",
+            active=False,
+            archived=True,
+            created_by=self.user,
         )
 
         results, _ = await self.context.search_entities({"feature_flag"}, "flag")
