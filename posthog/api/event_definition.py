@@ -347,7 +347,7 @@ class EventDefinitionViewSet(
             # `posthog_eventdef_team_seen_idx` does not serve this predicate: it leads on
             # `team_id`, while the scope filter below is on `COALESCE(project_id, team_id)`.
             # That is acceptable here — the project scope narrows the row set per tenant
-            # first, the response is paginated, and the ORDER BY needs a sort either way,
+            # first, and the ORDER BY needs a sort either way,
             # so a matching index would only save heap fetches for the excluded rows.
             search_query = (
                 search_query
