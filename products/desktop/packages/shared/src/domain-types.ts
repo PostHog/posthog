@@ -1,10 +1,7 @@
 import { z } from "zod";
 import type { Adapter } from "./adapter";
 import type { AgentRuntime } from "./agent-runtime";
-import type {
-  DismissalReasonOptionValue,
-  ReportStateReason,
-} from "./dismissal-reasons";
+import type { ReportStateReason } from "./dismissal-reasons";
 import type { StoredLogEntry } from "./session-events";
 import type { UploadableSkillSource } from "./skills";
 
@@ -859,14 +856,14 @@ export interface SuggestedReviewersArtefact extends SignalReportArtefactBase {
   content: SuggestedReviewer[];
 }
 
-/** Artefact with `type: "dismissal"` — captures the user's rationale when suppressing a report. */
+/** Artefact with `type: "dismissal"` — captures the user's rationale when suppressing or resolving a report. */
 export interface DismissalArtefact extends SignalReportArtefactBase {
   type: "dismissal";
   content: DismissalContent;
 }
 
 export interface DismissalContent {
-  reason: DismissalReasonOptionValue;
+  reason: ReportStateReason;
   /** Optional free-form detail provided alongside the reason. */
   note: string;
   /** PostHog numeric user id of the dismisser, when available. */

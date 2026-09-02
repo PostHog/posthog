@@ -2378,6 +2378,34 @@ describe("PostHogAPIClient", () => {
       expect(results[0].task_id).toBe("t1");
     });
 
+    // A resolve stores its rationale as a `dismissal` artefact, so resolve-only
+    // reasons must normalize as dismissals rather than degrade to a raw preview.
+    it.each([["fixed_outside_posthog"], ["pr_merged"]])(
+      "keeps a resolve reason %s as a dismissal row",
+      async (reason) => {
+        const rows = [
+          {
+            id: "d1",
+            type: "dismissal",
+            content: { reason, note: "", user_id: 1, user_uuid: null },
+            created_at: "2026-06-01T00:00:00Z",
+          },
+        ];
+        const fetch = vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ count: rows.length, results: rows }),
+        });
+        const client = makeClient(fetch);
+
+        const { results } = await client.getSignalReportArtefacts("r1");
+
+        expect(results).toHaveLength(1);
+        expect(results[0].type).toBe("dismissal");
+        expect(results[0].degraded).toBeFalsy();
+        expect((results[0].content as { reason: string }).reason).toBe(reason);
+      },
+    );
+
     it.each([
       [
         "asks for the full log when a caller reads every row",
