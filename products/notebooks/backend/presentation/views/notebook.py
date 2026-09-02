@@ -1882,7 +1882,38 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             finish_node_run(run, NotebookNodeRun.Status.FAILED, error="Failed to start run.")
             return Response({"detail": "Failed to start run."}, status=503)
 
-        return Response({"run_id": str(run.id)})
+        # Whether this run has to build a sandbox, decided here rather than inferred by a client
+        # from a kernel status poll that can be ten seconds old. That cache could stay silent
+        # through a sandbox that timed out between polls, which is the one case worth disclosing.
+        uses_sandbox = plan.node_type != "hogql"
+        live_runtime = (
+            KernelRuntime.objects.filter(
+                team_id=self.team_id,
+                notebook_short_id=notebook.short_id,
+                user=user if isinstance(user, User) else None,
+                status__in=(KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING),
+            )
+            .order_by("-last_used_at")
+            .first()
+            if uses_sandbox
+            else None
+        )
+        starts_sandbox = uses_sandbox and not (
+            live_runtime is not None and self._sandbox_is_running(notebook, user, live_runtime)
+        )
+        sandbox_config = build_notebook_sandbox_config(notebook) if starts_sandbox else None
+        run_payload = {
+            "run_id": str(run.id),
+            "starts_sandbox": starts_sandbox,
+            # Only a modal sandbox is charged, so a docker kernel carries no price to disclose.
+            "sandbox_hourly_price": (
+                get_compute_rates().hourly_price(cpu_cores=sandbox_config.cpu_cores, memory_gb=sandbox_config.memory_gb)
+                if sandbox_config is not None
+                and get_kernel_runtime(notebook, user).service._get_backend() == KernelRuntime.Backend.MODAL
+                else None
+            ),
+        }
+        return Response(NotebookSQLV2RunResponseSerializer(run_payload).data)
 
     @extend_schema(
         parameters=[
