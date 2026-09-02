@@ -115,13 +115,16 @@ function StepFooterRow({
     stepFooter: (stepIndex: number) => React.ReactNode
 }): React.ReactElement {
     // One gutter column before each band column, so cells sit in normal flow (the row grows to
-    // the tallest cell) while staying pixel-aligned with the bars above.
+    // the tallest cell) while staying pixel-aligned with the bars above. Each cell also spans
+    // the gutter to its right (the last one a trailing 1fr), so footer content can use the
+    // dead space between bands; `pr-3` keeps neighbouring cells from touching.
     const columns: string[] = []
     let cursor = 0
     for (const band of bands) {
         columns.push(`${Math.max(0, band.left - cursor)}px`, `${band.width}px`)
         cursor = band.left + band.width
     }
+    columns.push('1fr')
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div
@@ -133,8 +136,8 @@ function StepFooterRow({
                 // eslint-disable-next-line react/forbid-dom-props
                 <div
                     key={stepIndex}
-                    className="min-w-0"
-                    style={{ gridColumn: 2 * stepIndex + 2, gridRow: 1 }}
+                    className="min-w-0 pr-3"
+                    style={{ gridColumn: `${2 * stepIndex + 2} / span 2`, gridRow: 1 }}
                     data-attr="hog-funnel-step-footer-cell"
                 >
                     {stepFooter(stepIndex)}
