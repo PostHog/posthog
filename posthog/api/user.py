@@ -1553,18 +1553,23 @@ class UserViewSet(
         product_key = serializer.validated_data["product_key"]
 
         instance = self.get_object()
-        seen_for = instance.has_seen_product_intro_for or {}
 
-        if product_key not in seen_for and len(seen_for) >= MAX_PRODUCT_INTROS_SEEN:
-            raise serializers.ValidationError(
-                f"Cannot track more than {MAX_PRODUCT_INTROS_SEEN} product intros",
-                code="invalid_input",
-            )
+        with transaction.atomic():
+            # Lock the user row so concurrent dismissals from separate tabs merge into the map instead of
+            # overwriting it wholesale, and so the size cap counts committed keys rather than a stale read.
+            locked = User.objects.select_for_update().get(pk=instance.pk)
+            seen_for = locked.has_seen_product_intro_for or {}
 
-        instance.has_seen_product_intro_for = {**seen_for, product_key: serializer.validated_data["seen"]}
-        instance.save(update_fields=["has_seen_product_intro_for"])
+            if product_key not in seen_for and len(seen_for) >= MAX_PRODUCT_INTROS_SEEN:
+                raise serializers.ValidationError(
+                    f"Cannot track more than {MAX_PRODUCT_INTROS_SEEN} product intros",
+                    code="invalid_input",
+                )
 
-        return Response(instance.has_seen_product_intro_for)
+            locked.has_seen_product_intro_for = {**seen_for, product_key: serializer.validated_data["seen"]}
+            locked.save(update_fields=["has_seen_product_intro_for"])
+
+        return Response(locked.has_seen_product_intro_for)
 
     @action(
         methods=["GET", "PATCH"],
