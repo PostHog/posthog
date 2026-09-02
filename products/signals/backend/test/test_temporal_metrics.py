@@ -100,6 +100,17 @@ class TestCounterHelpers:
 
         assert _sample("signals_scout_coordinator_ticks_total") == before + 1
 
+    def test_coordinator_tick_warms_both_dispatch_outcome_series(self):
+        # A stall is a run of zero-plan ticks that never dispatch. The dispatch series must exist
+        # anyway, or a zero-rate alert on it reads "no data" instead of zero and stays silent.
+        metrics.increment_coordinator_tick(0)
+
+        for outcome in (metrics.COORDINATOR_DISPATCH_STARTED, metrics.COORDINATOR_DISPATCH_DEDUPED):
+            assert (
+                REGISTRY.get_sample_value("signals_scout_coordinator_dispatched_total", {"outcome": outcome})
+                is not None
+            )
+
     def test_ch_wait_timeout_counter(self):
         meter = _mock_meter()
         with (

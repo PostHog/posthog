@@ -192,6 +192,12 @@ def increment_coordinator_tick(planned_count: int) -> None:
     # Zero is the reading that matters, so the series is kept alive rather than guarded away.
     SCOUT_COORDINATOR_PLANNED.inc(planned_count)
     _otel.record_counter_twin(SCOUT_COORDINATOR_PLANNED, planned_count, {})
+    # A labeled counter has no child series until code calls .labels(), and the dispatch counter is
+    # only touched after a dispatch. So warm both outcomes to zero every tick. A stall is a run of
+    # zero-plan ticks that never dispatch, which is exactly when the dispatch series would otherwise
+    # be absent, so a zero-rate alert on it would read "no data" instead of zero and stay silent.
+    for outcome in (COORDINATOR_DISPATCH_STARTED, COORDINATOR_DISPATCH_DEDUPED):
+        increment_coordinator_dispatch(outcome, 0)
 
 
 def increment_coordinator_dispatch(outcome: str, count: int) -> None:
