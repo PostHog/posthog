@@ -129,6 +129,14 @@ def _reindex_leftovers(schema_editor, index_name: str) -> list[tuple[str, bool]]
 
     Postgres appends those suffixes to the index name itself during REINDEX
     INDEX CONCURRENTLY, and adds a counter when the name is already taken.
+
+    Limit: Postgres first clips the base name so the whole copy name fits in 63
+    bytes, so the copy of a base longer than 57 bytes is truncated (for example
+    `<first 57 bytes>_ccnew`). This match needs the full base name, so it does
+    not find the copies of an index whose name is longer than 57 bytes; drop
+    such a copy by hand with `DROP INDEX CONCURRENTLY`. No sweep caller reaches
+    that length today: the state-aware helpers cap index names at 30 bytes, and
+    the one longer name in the tree sits on a create path, which never sweeps.
     """
     with schema_editor.connection.cursor() as cursor:
         cursor.execute(
@@ -379,6 +387,10 @@ class DropReindexLeftovers(Operation):
     instead of taking them as arguments. It changes no Django state, does
     nothing when the table is clean, and so is safe to retry. The reverse is
     also a no-op — an orphan copy is never worth recreating.
+
+    Names longer than 57 bytes are the one gap: Postgres truncates the copy
+    name, so the sweep cannot match it (see `_reindex_leftovers`). Drop such a
+    copy by hand.
 
     The Migration class needs `atomic = False`.
     """
