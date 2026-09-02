@@ -18,10 +18,8 @@ import type {
     DataCatalogMetricBulkNamesRequestApi,
     DataCatalogMetricRunApi,
     DataCatalogMetricRunRequestApi,
-    DataCatalogMetricSearchResultApi,
     DataCatalogMetricsListParams,
     DataCatalogMetricsRunCreateParams,
-    DataCatalogMetricsSearchListParams,
     DataCatalogRelationshipProposalApi,
     DataCatalogRelationshipProposalsListParams,
     PaginatedDataCatalogCertificationListApi,
@@ -415,36 +413,6 @@ export const dataCatalogMetricsBulkDeleteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dataCatalogMetricBulkNamesRequestApi),
-    })
-}
-
-export const getDataCatalogMetricsSearchListUrl = (projectId: string, params?: DataCatalogMetricsSearchListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/data_catalog/metrics/search/?${stringifiedParams}`
-        : `/api/projects/${projectId}/data_catalog/metrics/search/`
-}
-
-/**
- * Search governed business and telemetry metrics before querying data.
- */
-export const dataCatalogMetricsSearchList = async (
-    projectId: string,
-    params?: DataCatalogMetricsSearchListParams,
-    options?: RequestInit
-): Promise<DataCatalogMetricSearchResultApi[]> => {
-    return apiMutator<DataCatalogMetricSearchResultApi[]>(getDataCatalogMetricsSearchListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
     })
 }
 

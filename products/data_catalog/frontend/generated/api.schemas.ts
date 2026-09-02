@@ -467,75 +467,6 @@ export interface DataCatalogMetricBulkDeleteApi {
     skipped: DataCatalogMetricBulkSkipApi[]
 }
 
-/**
- * Stored metric definition. Inspect it before adapting a similar metric; for raw SQL metrics, the HogQL is also available in hogql.
- * @nullable
- */
-export type DataCatalogMetricSearchResultApiDefinition = { [key: string]: unknown } | null
-
-/**
- * * `proposed` - proposed
- * * `approved` - approved
- */
-export type DataCatalogMetricSearchResultStatusEnumApi =
-    (typeof DataCatalogMetricSearchResultStatusEnumApi)[keyof typeof DataCatalogMetricSearchResultStatusEnumApi]
-
-export const DataCatalogMetricSearchResultStatusEnumApi = {
-    Proposed: 'proposed',
-    Approved: 'approved',
-} as const
-
-/**
- * The discovery fields an agent needs before running a catalog metric.
- */
-export interface DataCatalogMetricSearchResultApi {
-    /**
-     * Identifier-safe run handle, unique among the team's live metrics. Renaming or deleting a metric frees its name for reuse; references to the old name stop resolving.
-     * @maxLength 128
-     * @pattern ^[A-Za-z][A-Za-z0-9_]*$
-     */
-    name: string
-    /**
-     * Human-friendly label. Mutable, unlike name.
-     * @maxLength 255
-     */
-    display_name?: string
-    /** What the metric means and what it serves, in 1-3 short sentences. The load-bearing text. Query mechanics live in the definition; query rationale in reasoning. */
-    description: string
-    /**
-     * Stored metric definition. Inspect it before adapting a similar metric; for raw SQL metrics, the HogQL is also available in hogql.
-     * @nullable
-     */
-    readonly definition: DataCatalogMetricSearchResultApiDefinition
-    /**
-     * Raw HogQL for a HogQLQuery metric, or null when the metric uses a structured definition.
-     * @nullable
-     */
-    readonly hogql: string | null
-    /** Persisted lifecycle state. drifted is computed at read time, not stored here.
-     *
-     * * `proposed` - proposed
-     * * `approved` - approved */
-    status?: DataCatalogMetricSearchResultStatusEnumApi
-    /** True when the definition has drifted from its linked source insight. */
-    readonly is_drifted: boolean
-    /**
-     * Unit of the result, e.g. usd, percent, cents.
-     * @maxLength 64
-     */
-    unit?: string
-    /**
-     * Query kind of the definition, or null for a description-only metric.
-     * @nullable
-     */
-    readonly definition_kind: string | null
-    /**
-     * exact for a literal match or exact name lookup; similar for a typo-tolerant trigram fallback.
-     * @nullable
-     */
-    readonly search_match_type: string | null
-}
-
 export interface DataCatalogRelationshipProposalApi {
     readonly id: string
     /**
@@ -656,21 +587,6 @@ export const DataCatalogMetricsRunCreateRefresh = {
     ForceAsync: 'force_async',
     ForceCache: 'force_cache',
 } as const
-
-export type DataCatalogMetricsSearchListParams = {
-    /**
-     * Exact metric name to retrieve instead of performing a text search.
-     * @minLength 1
-     * @maxLength 128
-     */
-    name?: string
-    /**
-     * Text to match against a metric's name, display name, or description. Literal matches return first; when none exist, typo-tolerant trigram matches return instead. This does not match synonyms.
-     * @minLength 1
-     * @maxLength 200
-     */
-    query?: string
-}
 
 export type DataCatalogRelationshipProposalsListParams = {
     /**
