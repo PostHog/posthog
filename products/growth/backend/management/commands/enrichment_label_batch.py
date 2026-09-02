@@ -22,23 +22,51 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import get_llm_client
+from posthog.ph_client import ph_scoped_capture
+from posthog.utils import get_instance_region
 
 from products.growth.backend.enrichment.labels import (
     PromptConfigError,
     ai_processing_approved,
     classify_payload,
     get_active_config,
+    has_usable_payload,
     is_unknown_output,
     latest_fetches_qs,
     signup_domain_for_organization,
     validate_input_fields,
     validate_output_fields,
 )
+from products.growth.backend.enrichment.pages import ensure_pages_fetched, page_types_from_input_fields
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 logger = structlog.get_logger(__name__)
 
 _ID_BATCH_SIZE = 500
+
+# So an "absence of this event" alert can catch the label pipeline going silent, mirroring
+# icp_reenrichment_sweep_completed's report_sweep_run_activity (reenrichment.py).
+LABEL_BATCH_RUN_EVENT = "ai_enrichment_label_batch_completed"
+
+
+def _report_batch_run(*, label: str, version: str, counts: dict[str, int]) -> None:
+    region = get_instance_region()
+    if region not in ("US", "EU"):
+        return
+    with ph_scoped_capture(region=region) as capture:
+        capture(
+            distinct_id="ai-enrichment-label-batch",
+            event=LABEL_BATCH_RUN_EVENT,
+            properties={
+                "label": label,
+                "version": version,
+                "attempted": counts["attempted"],
+                "succeeded": counts["succeeded"],
+                "failed": counts["failures"],
+                "pages_fetched": counts["pages_fetched"],
+                "pages_failed": counts["pages_failed"],
+            },
+        )
 
 
 def _advisory_lock_key(label: str) -> int:
@@ -134,6 +162,9 @@ class Command(BaseCommand):
         # internal retries underneath would multiply that budget nine-fold per fetch and actively
         # worsen a 429 the tenacity layer is already backing off from.
         client = get_llm_client(product="growth").with_options(max_retries=0)
+        # Computed once: config.input_fields doesn't change mid-run, and an empty set here means
+        # every org below skips page-fetching entirely.
+        page_types = page_types_from_input_fields(config.input_fields)
 
         counts: dict[str, int] = {
             "attempted": 0,
@@ -144,6 +175,8 @@ class Command(BaseCommand):
             "failures": 0,
             "prompt_tokens": 0,
             "completion_tokens": 0,
+            "pages_fetched": 0,
+            "pages_failed": 0,
             # Enumerated (counted into "attempted") but never processed because the circuit
             # breaker had already tripped — excluded from success_rate's denominator below so an
             # aborted run's ratio reflects what was actually tried, not what was merely queued.
@@ -208,7 +241,17 @@ class Command(BaseCommand):
                         counts["consent_revoked_after_attempt"] += 1
                     return
                 signup_domain = signup_domain_for_organization(fetch.organization)
-                output = classify_payload(config, fetch.payload, signup_domain, client)
+                pages = None
+                # Skipped when has_usable_payload is False: classify_payload discards such a
+                # fetch before ever reading `pages`, so fetching here would just spend Firecrawl
+                # budget on orgs whose verdict is already "unknown" regardless.
+                if page_types and has_usable_payload(fetch.payload):
+                    pages = ensure_pages_fetched(fetch.organization_id, signup_domain, page_types)
+                    page_failures = sum(1 for page in pages.values() if page.get("error"))
+                    with counts_lock:
+                        counts["pages_fetched"] += len(pages) - page_failures
+                        counts["pages_failed"] += page_failures
+                output = classify_payload(config, fetch.payload, signup_domain, client, pages=pages)
                 # Popped rather than left inline: output is stored as-is, and duplicating the
                 # inputs snapshot inside it would double-store and bloat every row.
                 inputs = output.pop("inputs", {})
@@ -347,6 +390,7 @@ class Command(BaseCommand):
             f"skipped_existing {counts['skipped_existing']}, "
             f"skipped_no_ai_consent {counts['skipped_no_ai_consent']}, unknown {counts['unknown']}, "
             f"failures {counts['failures']}, aborted {counts['aborted']}, "
+            f"pages_fetched {counts['pages_fetched']}, pages_failed {counts['pages_failed']}, "
             f"prompt_tokens {counts['prompt_tokens']}, completion_tokens {counts['completion_tokens']}, "
             f"elapsed_seconds {elapsed_seconds:.1f}"
         )
@@ -358,6 +402,9 @@ class Command(BaseCommand):
             elapsed_seconds=elapsed_seconds,
             **counts,
         )
+        # Emitted unconditionally too, before any failure decision below: an absence-of-event
+        # alert must see a run that aborted or failed its ratio check, not just a clean one.
+        _report_batch_run(label=label, version=config.version, counts=counts)
         # Written unconditionally, before any failure decision below: a wrapper parsing stdout
         # for these counts needs them most on the run that fails, not just on a clean one.
         self.stdout.write(summary)

@@ -17,12 +17,14 @@ from products.growth.backend.enrichment.labels import (
     ai_processing_approved,
     classify_payload,
     get_active_config,
+    has_usable_payload,
     recent_latest_fetches_qs,
     signup_domain_for_organization,
     validate_input_fields,
     validate_output_fields,
     verdict_field_key,
 )
+from products.growth.backend.enrichment.pages import ensure_pages_fetched, page_types_from_input_fields
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig
 
 _COMPANY_WIDTH = 30
@@ -97,6 +99,7 @@ class Command(BaseCommand):
         # A custom output schema's pass/fail key differs from `label` - see
         # verdict_field_key's docstring.
         verdict_key = verdict_field_key(config)
+        page_types = page_types_from_input_fields(config.input_fields)
 
         # Columns come from the schema, not from hardcoded key names: a config whose keys aren't
         # named confidence/reasoning used to print 0.00 and blanks as if they were the answer.
@@ -137,7 +140,10 @@ class Command(BaseCommand):
                 # already tolerates this) must print one ERROR row, not kill the whole sample.
                 company = fetch.payload.get("name") or fetch.organization.name
                 signup_domain = signup_domain_for_organization(fetch.organization)
-                output = classify_payload(config, fetch.payload, signup_domain, client)
+                pages = None
+                if page_types and has_usable_payload(fetch.payload):
+                    pages = ensure_pages_fetched(fetch.organization_id, signup_domain, page_types)
+                output = classify_payload(config, fetch.payload, signup_domain, client, pages=pages)
             except Exception as e:
                 errors += 1
                 company = fetch.organization.name

@@ -197,10 +197,11 @@ class EnrichmentPromptConfig(UUIDModel):
     def __str__(self) -> str:
         return f"{self.name} {self.version}"
 
-    # Bumped whenever the set of fields below changes. Stored results keep the prefix they were
-    # stamped with, so adding a sixth behavior-defining field stays a readable migration rather
-    # than silently making every historical prompt_hash unrecomputable.
-    CONTENT_HASH_VERSION = "v1"
+    # Bumped whenever the set of fields below changes, or when this module starts interpreting
+    # one of them differently. v2: an input_fields path with a "pages." prefix now resolves via
+    # the page store (enrichment/pages.py) instead of a dotted path into the archived Harmonic
+    # payload — a behavior change with no visible diff in this row's own fields.
+    CONTENT_HASH_VERSION = "v2"
 
     @property
     def content_hash(self) -> str:

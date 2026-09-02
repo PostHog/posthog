@@ -742,6 +742,61 @@ class TestAIEnrichmentRunClassification(NonAtomicAPIBaseTest):
         self.assertEqual(summary_row["summary"], {"classified": 0, "unknown": 0, "errors": 1})
         mock_capture.assert_called_once()
 
+    def test_run_fetches_the_pages_a_draft_config_names_and_feeds_them_to_the_classifier(self):
+        OrganizationEnrichmentFetch.objects.create(
+            organization=self.organization,
+            provider="harmonic",
+            payload={"name": "Acme", "companyFound": True},
+        )
+        client = MagicMock()
+        client.with_options.return_value = client
+        llm_response = MagicMock()
+        llm_response.choices[0].message.content = json.dumps(
+            {
+                "is_ai": True,
+                "confidence": 0.9,
+                "reasoning": "ships an llm product",
+                "evidence_url": "https://acme.example/pricing",
+            }
+        )
+        client.chat.completions.create.return_value = llm_response
+        page_store = {
+            "home": {
+                "url": "https://acme.example",
+                "markdown": "We build developer tools.",
+                "fetched_at": "2026-09-02T00:00:00+00:00",
+                "domain": "acme.example",
+            }
+        }
+
+        with (
+            patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=client),
+            patch(
+                "products.growth.backend.enrichment.lab.ensure_pages_fetched", return_value=page_store
+            ) as fetch_pages,
+        ):
+            response = self.client.post(
+                "/api/growth_ai_enrichment/run/",
+                {
+                    "label": "unsaved_label",
+                    "prompt_text": "judge from the homepage.",
+                    "model": "gpt-5-mini",
+                    "input_fields": ["name", "pages.home.markdown"],
+                    "output_fields": [*_OUTPUT_FIELDS, {"key": "evidence_url", "type": "string", "description": ""}],
+                    "sample": 5,
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            # Drained inside the patch: classification runs lazily as the stream is consumed.
+            rows = _drain_ndjson(response.streaming_content)  # type: ignore[attr-defined]
+
+        (verdict_row,) = [row for row in rows if "summary" not in row]
+        fetch_pages.assert_called_once()
+        self.assertEqual(fetch_pages.call_args.args[2], {"home"})
+        self.assertEqual(verdict_row["inputs"]["pages.home.markdown"], "We build developer tools.")
+        self.assertEqual(verdict_row["outputs"]["evidence_url"], "https://acme.example/pricing")
+
 
 class TestRunError(SimpleTestCase):
     """No DB needed: _run_error is pure string formatting plus a capture_exception call."""

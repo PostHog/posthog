@@ -19,9 +19,14 @@ from products.growth.backend.enrichment.labels import (
     MAX_INPUT_VALUE_CHARS,
     UNKNOWN,
     OutputParseError,
+    PromptConfigError,
     build_messages,
     classify_payload,
+    extract_input_fields,
+    has_usable_payload,
     signup_domain_for_organization,
+    validate_input_fields,
+    validate_output_fields,
 )
 from products.growth.backend.management.commands import enrichment_label_batch as batch_command_module
 from products.growth.backend.models import EnrichmentLabelResult, EnrichmentPromptConfig, OrganizationEnrichmentFetch
@@ -139,6 +144,161 @@ class TestClassifyPayloadEmailReduction(SimpleTestCase):
         rendered = json.dumps(sent) + json.dumps(result["inputs"])
         assert "alice.secret" not in rendered.lower()
         assert "rowco.com" in rendered
+
+
+class TestHasUsablePayload(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("none_payload", None, False),
+            ("empty_payload", {}, False),
+            ("not_found", {"companyFound": False}, False),
+            ("sparse_matched", {"companyFound": True}, True),
+            ("no_company_found_key", {"name": "Acme"}, True),
+        ]
+    )
+    def test_matches_classify_payloads_own_short_circuit(self, _name, payload, expected):
+        assert has_usable_payload(payload) is expected
+
+
+class TestExtractInputFieldsPagesNamespace(SimpleTestCase):
+    def test_resolves_pages_prefixed_paths_from_the_page_store_not_the_payload(self):
+        pages = {"home": {"markdown": "We build developer tools.", "url": "https://acme.example"}}
+        payload = {"name": "Acme"}
+
+        result = extract_input_fields(payload, ["name", "pages.home.markdown"], pages=pages)
+
+        assert result == {"name": "Acme", "pages.home.markdown": "We build developer tools."}
+
+    def test_a_pages_path_with_no_matching_page_or_key_is_omitted(self):
+        result = extract_input_fields({}, ["pages.pricing.markdown"], pages={"home": {"markdown": "x"}})
+
+        assert result == {}
+
+    def test_a_pages_path_is_omitted_without_a_page_store(self):
+        result = extract_input_fields({}, ["pages.home.markdown"], pages=None)
+
+        assert result == {}
+
+    def test_page_markdown_is_not_reduced_through_to_domain(self):
+        # Public page copy is exempt from the Harmonic-payload email-redaction path on purpose -
+        # see enrichment/pages.py's module docstring.
+        pages = {"home": {"markdown": "Contact us at hello@acme.example for a demo."}}
+
+        result = extract_input_fields({}, ["pages.home.markdown"], pages=pages)
+
+        assert result["pages.home.markdown"] == "Contact us at hello@acme.example for a demo."
+
+
+class TestValidateInputFieldsPagesShape(SimpleTestCase):
+    def _config(self, input_fields: list[str]) -> EnrichmentPromptConfig:
+        return EnrichmentPromptConfig(
+            name="test_label", version="v1", prompt_text="x", model="gpt-5-mini", input_fields=input_fields
+        )
+
+    @parameterized.expand(
+        [("too_short", "pages.home"), ("no_type_or_key", "pages."), ("too_long", "pages.home.markdown.extra")]
+    )
+    def test_a_malformed_pages_path_is_rejected(self, _name, path):
+        with self.assertRaises(PromptConfigError):
+            validate_input_fields(self._config([path]))
+
+    def test_a_bare_field_named_pages_is_not_treated_as_the_namespace(self):
+        # No trailing dot, so this isn't the pages.* namespace at all - just a literal field
+        # name, same as any other dotted path into the Harmonic payload.
+        validate_input_fields(self._config(["pages"]))  # does not raise
+
+    def test_a_well_formed_pages_path_passes(self):
+        validate_input_fields(self._config(["pages.home.markdown"]))  # does not raise
+
+
+class TestValidateOutputFieldsEvidenceUrl(SimpleTestCase):
+    def _config(self, input_fields: list[str], output_fields: list[dict]) -> EnrichmentPromptConfig:
+        return EnrichmentPromptConfig(
+            name="test_label",
+            version="v1",
+            prompt_text="judge it.",
+            model="gpt-5-mini",
+            input_fields=input_fields,
+            output_fields=output_fields,
+        )
+
+    def test_a_pages_input_without_an_evidence_url_output_is_rejected(self):
+        config = self._config(
+            input_fields=["pages.home.markdown"],
+            output_fields=[{"key": "is_ai", "type": "boolean", "description": ""}],
+        )
+
+        with self.assertRaises(PromptConfigError):
+            validate_output_fields(config)
+
+    def test_a_pages_input_with_a_non_string_evidence_url_is_rejected(self):
+        config = self._config(
+            input_fields=["pages.home.markdown"],
+            output_fields=[
+                {"key": "is_ai", "type": "boolean", "description": ""},
+                {"key": "evidence_url", "type": "boolean", "description": ""},
+            ],
+        )
+
+        with self.assertRaises(PromptConfigError):
+            validate_output_fields(config)
+
+    def test_a_pages_input_with_a_string_evidence_url_passes(self):
+        config = self._config(
+            input_fields=["pages.home.markdown"],
+            output_fields=[
+                {"key": "is_ai", "type": "boolean", "description": ""},
+                {"key": "evidence_url", "type": "string", "description": ""},
+            ],
+        )
+
+        validate_output_fields(config)  # does not raise
+
+    def test_a_config_without_pages_input_does_not_require_evidence_url(self):
+        config = self._config(
+            input_fields=["name"], output_fields=[{"key": "is_ai", "type": "boolean", "description": ""}]
+        )
+
+        validate_output_fields(config)  # does not raise
+
+
+class TestClassifyPayloadPages(SimpleTestCase):
+    def _config(self) -> EnrichmentPromptConfig:
+        return EnrichmentPromptConfig(
+            name="test_label",
+            version="v1",
+            prompt_text="judge it. Email: {email}",
+            model="gpt-5-mini",
+            input_fields=["name", "pages.home.markdown"],
+            output_fields=[
+                {"key": "is_ai", "type": "boolean", "description": ""},
+                {"key": "evidence_url", "type": "string", "description": ""},
+            ],
+        )
+
+    def test_page_content_reaches_the_prompt_and_the_stored_inputs(self):
+        config = self._config()
+        client = MagicMock()
+        response = MagicMock()
+        response.choices[0].message.content = json.dumps({"is_ai": True, "evidence_url": "https://acme.example"})
+        client.chat.completions.create.return_value = response
+        pages = {"home": {"markdown": "We build developer tools.", "url": "https://acme.example"}}
+
+        result = classify_payload(config, {"name": "Acme"}, "example.com", client, pages=pages)
+
+        sent = client.chat.completions.create.call_args.kwargs["messages"][1]["content"]
+        assert "We build developer tools." in sent
+        assert result["inputs"]["fields"]["pages.home.markdown"] == "We build developer tools."
+
+    def test_pages_are_ignored_when_the_payload_is_not_found(self):
+        config = self._config()
+        client = MagicMock()
+        pages = {"home": {"markdown": "We build developer tools."}}
+
+        result = classify_payload(config, {"companyFound": False}, "example.com", client, pages=pages)
+
+        assert result["is_ai"] == UNKNOWN
+        client.chat.completions.create.assert_not_called()
 
 
 class TestConfigurableOutputFields(SimpleTestCase):

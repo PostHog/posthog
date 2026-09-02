@@ -9,7 +9,7 @@ import re
 import json
 import math
 from collections.abc import Callable
-from typing import Any, Literal, cast
+from typing import Any, Literal, TypeIs, cast
 
 from django.db.models import QuerySet
 
@@ -23,6 +23,10 @@ from posthog.models.organization import Organization, OrganizationMembership
 from products.growth.backend.models import EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 UNKNOWN: Literal["unknown"] = "unknown"
+
+# Namespace prefix for an input_fields path resolved from the page store (enrichment/pages.py)
+# rather than a dotted path into the archived Harmonic payload, e.g. "pages.home.markdown".
+PAGES_INPUT_PREFIX = "pages."
 
 # Keys the stored output dict uses for provenance (see classify_payload below).
 # validate_output_fields rejects any configured output field that shadows one of these.
@@ -113,8 +117,24 @@ def to_domain(value: Any, depth: int = 0) -> Any:
     return value
 
 
-def extract_input_fields(payload: dict[str, Any], input_fields: list[str]) -> dict[str, Any]:
-    """Resolve dotted paths (e.g. "funding.fundingStage") into the archived payload.
+def _page_field_value(pages: dict[str, Any] | None, path: str) -> Any:
+    """Resolve one `pages.<type>.<key>` path against the page store enrichment/pages.py already
+    fetched. A malformed path (validate_input_fields rejects these before a config can run) and
+    an absent page or key both resolve to None, same as a missing Harmonic path below."""
+    parts = path.split(".")
+    if pages is None or len(parts) != 3:
+        return None
+    _, page_type, key = parts
+    page = pages.get(page_type)
+    return page.get(key) if isinstance(page, dict) else None
+
+
+def extract_input_fields(
+    payload: dict[str, Any], input_fields: list[str], pages: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Resolve dotted paths (e.g. "funding.fundingStage") into the archived payload, or — for a
+    `pages.<type>.<key>` path — into `pages`, the page store enrichment/pages.py already fetched
+    for this org (see classify_payload).
 
     Keyed by the full dotted path so the LLM prompt shows provenance. Missing paths,
     None values, and paths that traverse through a non-dict are omitted rather than
@@ -122,6 +142,13 @@ def extract_input_fields(payload: dict[str, Any], input_fields: list[str]) -> di
     """
     result: dict[str, Any] = {}
     for path in input_fields:
+        if path.startswith(PAGES_INPUT_PREFIX):
+            page_value = _page_field_value(pages, path)
+            if page_value is not None:
+                # Public page copy skips to_domain's email reduction on purpose — see
+                # enrichment/pages.py's module docstring.
+                result[path] = page_value
+            continue
         value: Any = payload
         for part in path.split("."):
             if not isinstance(value, dict):
@@ -286,6 +313,9 @@ def validate_input_fields(config: EnrichmentPromptConfig) -> None:
             f"enrichment config declares {len(config.input_fields)} input fields, "
             f"more than the {MAX_INPUT_COLUMNS} that reach the prompt"
         )
+    for path in config.input_fields:
+        if path.startswith(PAGES_INPUT_PREFIX) and len(path.split(".")) != 3:
+            raise PromptConfigError(f"enrichment input field {path!r} must have the form 'pages.<type>.<key>'")
 
 
 def validate_output_fields(config: EnrichmentPromptConfig) -> None:
@@ -316,6 +346,15 @@ def validate_output_fields(config: EnrichmentPromptConfig) -> None:
                 raise PromptConfigError(f"enrichment output field {key!r} has a non-numeric range") from e
             if low > high:
                 raise PromptConfigError(f"enrichment output field {key!r} has min {low} above max {high}")
+
+    if any(path.startswith(PAGES_INPUT_PREFIX) for path in config.input_fields):
+        # A page-derived claim without a link back to its source page can't be checked, so a
+        # config that reads page content must also ask the model to cite where it read it.
+        evidence_field = next((field for field in config.output_fields if field.get("key") == "evidence_url"), None)
+        if evidence_field is None:
+            raise PromptConfigError("enrichment config reads pages.* input but declares no 'evidence_url' output field")
+        if evidence_field.get("type") != "string":
+            raise PromptConfigError("enrichment config's 'evidence_url' output field must be type 'string'")
 
 
 def _parse_custom_output(config: EnrichmentPromptConfig, data: dict[str, Any]) -> dict[str, Any]:
@@ -438,19 +477,36 @@ def is_unknown_output(output: dict[str, Any]) -> bool:
     return bool(output.get("meta", {}).get("skipped"))
 
 
+def has_usable_payload(payload: dict[str, Any] | None) -> TypeIs[dict[str, Any]]:
+    """Whether classify_payload will look at payload's fields at all, rather than
+    short-circuiting straight to unknown_output for a missing or not-found archived fetch.
+    Not-found fetches archive core.py's _MISS_PAYLOAD ({"companyFound": False}); that's evidence
+    of absence, not a thin signal to guess from.
+
+    Exposed so a caller can skip page-fetching work (Firecrawl calls) for an org classify_payload
+    will discard anyway — see enrichment_label_batch.py / enrichment_label_dry_run.py.
+    """
+    if not payload:
+        return False
+    return payload.get("companyFound") is not False
+
+
 def classify_payload(
-    config: EnrichmentPromptConfig, payload: dict[str, Any] | None, signup_domain: str | None, client: OpenAI
+    config: EnrichmentPromptConfig,
+    payload: dict[str, Any] | None,
+    signup_domain: str | None,
+    client: OpenAI,
+    *,
+    pages: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     validate_input_fields(config)
     validate_output_fields(config)
-    # Not-found fetches archive core.py's _MISS_PAYLOAD ({"companyFound": False}); that's
-    # evidence of absence, not a thin signal to guess from, so skip the LLM entirely.
-    if not payload or payload.get("companyFound") is False:
+    if not has_usable_payload(payload):
         return unknown_output(config, signup_domain, "missing or empty archived payload")
 
     # Checked after resolving, not before: a payload that's present but has none of the configured
     # paths would otherwise bill a call to ask the model about "Company data: {}".
-    extracted = extract_input_fields(payload, config.input_fields)
+    extracted = extract_input_fields(payload, config.input_fields, pages=pages)
     inputs = bound_inputs(extracted)
     if not inputs:
         return unknown_output(config, signup_domain, "archived payload has none of the configured input fields")

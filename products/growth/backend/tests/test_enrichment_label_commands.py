@@ -463,6 +463,164 @@ class TestDryRunFixes(BaseTest):
                 call_command("enrichment_label_dry_run", label="test_label", sample=1)
 
 
+class TestBatchCommandPagesFetching(_BatchCommandTestCase):
+    def _pages_config(self, **overrides: Any) -> EnrichmentPromptConfig:
+        params: dict[str, Any] = {
+            "input_fields": ["name", "pages.home.markdown"],
+            "output_fields": [*_OUTPUT_FIELDS, {"key": "evidence_url", "type": "string", "description": ""}],
+        }
+        params.update(overrides)
+        return self._config(**params)
+
+    def _pages_response(self) -> MagicMock:
+        content = json.dumps(
+            {"is_ai": True, "confidence": 0.9, "reasoning": "x", "evidence_url": "https://acme.example"}
+        )
+        return _response(content)
+
+    def test_pages_are_fetched_before_classifying_and_passed_through(self):
+        self._pages_config()
+        self._fetch()
+        client = _mock_llm_client()
+        client.chat.completions.create.return_value = self._pages_response()
+        page_store = {"home": {"markdown": "We build developer tools.", "url": "https://acme.example"}}
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.ensure_pages_fetched", return_value=page_store) as ensure_pages,
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        ensure_pages.assert_called_once_with(self.organization.id, "posthog.com", {"home"})
+        result = EnrichmentLabelResult.objects.get(label_name="test_label")
+        assert result.inputs["fields"]["pages.home.markdown"] == "We build developer tools."
+
+    def test_pages_are_not_fetched_when_the_config_has_no_pages_fields(self):
+        self._config()
+        self._fetch()
+        client = _mock_llm_client()
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.ensure_pages_fetched") as ensure_pages,
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        ensure_pages.assert_not_called()
+
+    def test_pages_are_not_fetched_for_an_org_with_no_usable_payload(self):
+        self._pages_config()
+        self._fetch(payload={"companyFound": False})
+        client = _mock_llm_client()
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.ensure_pages_fetched") as ensure_pages,
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        ensure_pages.assert_not_called()
+
+    def test_pages_fetched_and_failed_counts_reach_the_summary(self):
+        self._pages_config()
+        self._fetch()
+        client = _mock_llm_client()
+        client.chat.completions.create.return_value = self._pages_response()
+        page_store = {"home": {"markdown": None, "domain": "posthog.com", "fetched_at": "x", "error": "unreachable"}}
+        out = StringIO()
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.ensure_pages_fetched", return_value=page_store),
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
+
+        assert "pages_fetched 0" in out.getvalue()
+        assert "pages_failed 1" in out.getvalue()
+
+    def test_a_page_fetch_problem_does_not_count_toward_the_circuit_breaker(self):
+        # ensure_pages_fetched never raises in production (pages.py degrades internally); this
+        # confirms the batch command's own wiring doesn't turn a degraded page fetch into an
+        # exception that would trip failure_streak.
+        self._pages_config()
+        for i in range(3):
+            self._fetch(organization=Organization.objects.create(name=f"org-{i}"))
+        client = _mock_llm_client()
+        client.chat.completions.create.return_value = self._pages_response()
+        page_store = {"home": {"markdown": None, "domain": "x", "fetched_at": "x", "error": "unreachable"}}
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.ensure_pages_fetched", return_value=page_store),
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1, max_failures=1)
+
+        assert EnrichmentLabelResult.objects.count() == 3
+
+
+class TestBatchRunReportEvent(_BatchCommandTestCase):
+    def test_emits_one_event_with_the_run_counts(self):
+        self._config()
+        self._fetch()
+        client = _mock_llm_client()
+        capture = MagicMock()
+        scoped_capture = MagicMock()
+        scoped_capture.__enter__.return_value = capture
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.get_instance_region", return_value="EU"),
+            patch(f"{_BATCH_COMMAND_MODULE}.ph_scoped_capture", return_value=scoped_capture) as scoped_capture_factory,
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        scoped_capture_factory.assert_called_once_with(region="EU")
+        event = capture.call_args.kwargs
+        assert event["event"] == "ai_enrichment_label_batch_completed"
+        assert event["properties"] == {
+            "label": "test_label",
+            "version": "v1",
+            "attempted": 1,
+            "succeeded": 1,
+            "failed": 0,
+            "pages_fetched": 0,
+            "pages_failed": 0,
+        }
+
+    def test_skips_outside_a_cloud_region(self):
+        self._config()
+        self._fetch()
+        client = _mock_llm_client()
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.get_instance_region", return_value=None),
+            patch(f"{_BATCH_COMMAND_MODULE}.ph_scoped_capture") as scoped_capture_factory,
+        ):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        scoped_capture_factory.assert_not_called()
+
+    def test_emits_even_when_the_run_fails(self):
+        self._config()
+        self._fetch()
+        client = _mock_llm_client()
+        client.chat.completions.create.return_value = _bad_response()
+        scoped_capture = MagicMock()
+        scoped_capture.__enter__.return_value = MagicMock()
+
+        with (
+            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.capture_exception"),
+            patch(f"{_BATCH_COMMAND_MODULE}.get_instance_region", return_value="US"),
+            patch(f"{_BATCH_COMMAND_MODULE}.ph_scoped_capture", return_value=scoped_capture) as scoped_capture_factory,
+        ):
+            with self.assertRaises(CommandError):
+                call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        scoped_capture_factory.assert_called_once()
+
+
 class TestAiProcessingConsent(_BatchCommandTestCase):
     def test_a_declined_org_is_never_sent_to_the_llm(self):
         self._config()

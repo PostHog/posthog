@@ -25,8 +25,10 @@ from products.growth.backend.enrichment.labels import (
     bound_inputs,
     classify_payload,
     extract_input_fields,
+    has_usable_payload,
     unknown_output,
 )
+from products.growth.backend.enrichment.pages import ensure_pages_fetched, page_types_from_input_fields
 from products.growth.backend.models import EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 logger = structlog.get_logger(__name__)
@@ -104,7 +106,9 @@ def classify_fetch_for_run(
     # Mirrors classify_payload's own short-circuit for a missing/not-found archived payload
     # (`{"companyFound": False}`, or no payload at all): it never extracts from one, so a row for
     # one must not display inputs the classifier never touched.
-    if not fetch.payload or fetch.payload.get("companyFound") is False:
+    page_types = page_types_from_input_fields(config.input_fields)
+    pages: dict[str, Any] | None = None
+    if not has_usable_payload(fetch.payload):
         inputs: dict[str, Any] = {}
     else:
         inputs = bound_inputs(extract_input_fields(fetch.payload, config.input_fields))
@@ -120,7 +124,10 @@ def classify_fetch_for_run(
         if not ai_processing_approved(fetch.organization_id):
             output = unknown_output(config, signup_domain, "AI processing consent was revoked mid-run")
             return company, signup_domain, output, None, {}
-        output = classify_payload(config, fetch.payload, signup_domain, client)
+        if page_types and has_usable_payload(fetch.payload):
+            pages = ensure_pages_fetched(fetch.organization_id, signup_domain, page_types)
+            inputs = bound_inputs(extract_input_fields(fetch.payload, config.input_fields, pages=pages))
+        output = classify_payload(config, fetch.payload, signup_domain, client, pages=pages)
     except Exception as e:
         return company, signup_domain, None, _run_error(config, e, "classify_fetch_for_run"), inputs
     finally:
