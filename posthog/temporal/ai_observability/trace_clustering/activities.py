@@ -246,6 +246,14 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
         labels_list = hdbscan_result.labels
         centroids_list = hdbscan_result.centroids
 
+        logger.info(
+            "perform_clustering_compute_hdbscan_result",
+            num_clusters=len(centroids_list),
+            num_noise_points=num_noise_points,
+            cluster_selection_method=hdbscan_result.cluster_selection_method,
+            analysis_level=inputs.analysis_level,
+        )
+
         # Step 3: Compute distance matrix (in clustering space)
         distances_matrix = calculate_distances_to_cluster_means(
             clustering_embeddings,

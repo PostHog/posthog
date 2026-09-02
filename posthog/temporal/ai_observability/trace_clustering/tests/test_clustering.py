@@ -25,6 +25,7 @@ skip_without_umap = pytest.mark.skipif(not umap_available, reason="UMAP threadin
 
 
 from posthog.temporal.ai_observability.trace_clustering.clustering import (  # noqa: E402
+    _is_degenerate_split,
     calculate_distances_to_cluster_means,
     calculate_trace_distances,
     compute_2d_coordinates,
@@ -78,6 +79,51 @@ class TestPerformHDBSCANClustering:
     def test_empty_embeddings_raises_error(self):
         with pytest.raises(ValueError, match="Cannot cluster empty"):
             perform_hdbscan_clustering(np.array([]).reshape(0, 10))
+
+    def test_falls_back_to_leaf_when_eom_collapses(self):
+        # Six sub-groups inside two macro groups. Excess of Mass sees the two macro groups and
+        # stops there, which puts every item in one of two clusters; leaf selection keeps the
+        # sub-groups.
+        np.random.seed(42)
+        sub_groups = []
+        for macro_offset in (0.0, 60.0):
+            for sub_offset in (0.0, 3.0, 6.0):
+                center = np.zeros(10)
+                center[0] = macro_offset + sub_offset
+                sub_groups.append(np.random.randn(40, 10) * 0.4 + center)
+        embeddings = np.vstack(sub_groups)
+
+        result = perform_hdbscan_clustering(embeddings, min_cluster_size_fraction=0.05, min_samples=5)
+
+        assert result.cluster_selection_method == "leaf"
+        assert len(result.centroids) == 6
+
+    def test_keeps_eom_result_when_data_has_no_finer_structure(self):
+        # Two well-separated blobs and nothing inside them: leaf selection finds the same two, so
+        # the fallback must not replace the original result.
+        np.random.seed(42)
+        cluster1 = np.random.randn(40, 10) + np.array([20, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+        cluster2 = np.random.randn(40, 10) + np.array([-20, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+        embeddings = np.vstack([cluster1, cluster2])
+
+        result = perform_hdbscan_clustering(embeddings, min_cluster_size_fraction=0.1, min_samples=3)
+
+        assert result.cluster_selection_method == "eom"
+        assert len(result.centroids) == 2
+
+
+class TestIsDegenerateSplit:
+    @parameterized.expand(
+        [
+            ("two_clusters_only", [0] * 50 + [1] * 50, True),
+            ("one_cluster_holds_most", [0] * 80 + [1] * 10 + [2] * 10, True),
+            ("everything_is_noise", [-1] * 100, True),
+            ("balanced_split", [0] * 40 + [1] * 30 + [2] * 30, False),
+            ("noise_does_not_count_as_a_cluster", [-1] * 40 + [0] * 30 + [1] * 30, True),
+        ]
+    )
+    def test_degenerate_detection(self, _name: str, labels: list[int], expected: bool):
+        assert _is_degenerate_split(labels, len(labels)) is expected
 
 
 class TestCalculateTraceDistances:

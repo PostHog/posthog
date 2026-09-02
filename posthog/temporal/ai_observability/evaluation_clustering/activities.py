@@ -300,6 +300,13 @@ def _compute_sync(inputs: EvaluationClusteringComputeInputs) -> EvaluationCluste
         else np.zeros((0, clustering_embeddings.shape[1]))
     )
 
+    logger.info(
+        "evaluation_clustering_hdbscan_result",
+        num_clusters=len(hdbscan_result.centroids),
+        num_noise_points=hdbscan_result.num_noise_points,
+        cluster_selection_method=hdbscan_result.cluster_selection_method,
+    )
+
     distances_matrix = calculate_distances_to_cluster_means(clustering_embeddings, labels_array, centroids_array)
     coords_2d, centroid_coords_2d = compute_2d_coordinates(
         clustering_embeddings,

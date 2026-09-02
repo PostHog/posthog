@@ -17,6 +17,7 @@ import platform
 if sys.platform == "linux" and platform.machine() == "x86_64":
     os.environ.setdefault("NUMBA_THREADING_LAYER", "tbb")
 
+from collections import Counter
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -312,11 +313,32 @@ def perform_hdbscan_clustering(
     # Adjust min_samples if needed
     effective_min_samples = min(min_samples, min_cluster_size)
 
+    result = _fit_hdbscan(embeddings, min_cluster_size, effective_min_samples, "eom")
+
+    # Excess of Mass selects clusters near the root of the condensed tree. When no sub-cluster is
+    # stable - which a fresh random sample of the same traffic can cause from one run to the next -
+    # it returns the root split: every item in one or two buckets, no noise. Leaf selection takes
+    # the fine-grained clusters instead. Keep it only when it actually splits the data.
+    if _is_degenerate_split(result.labels, n_samples):
+        leaf_result = _fit_hdbscan(embeddings, min_cluster_size, effective_min_samples, "leaf")
+        if not _is_degenerate_split(leaf_result.labels, n_samples):
+            return leaf_result
+
+    return result
+
+
+def _fit_hdbscan(
+    embeddings: np.ndarray,
+    min_cluster_size: int,
+    min_samples: int,
+    cluster_selection_method: Literal["eom", "leaf"],
+) -> HDBSCANResult:
+    """Run HDBSCAN once with the given selection method."""
     clusterer = HDBSCAN(
         min_cluster_size=min_cluster_size,
-        min_samples=effective_min_samples,
+        min_samples=min_samples,
         metric="euclidean",
-        cluster_selection_method="eom",  # Excess of Mass - good for varying densities
+        cluster_selection_method=cluster_selection_method,
     )
 
     labels = clusterer.fit_predict(embeddings)
@@ -338,7 +360,28 @@ def perform_hdbscan_clustering(
         centroids=centroids,
         probabilities=probabilities.tolist(),
         num_noise_points=num_noise_points,
+        cluster_selection_method=cluster_selection_method,
     )
+
+
+def _is_degenerate_split(labels: list[int], n_samples: int) -> bool:
+    """Whether a clustering result says nothing about the data.
+
+    Too few clusters, or one cluster holding most of the items, both read as "clustering is
+    broken" on the clusters page - the run produced a couple of cards covering everything.
+    """
+    from posthog.temporal.ai_observability.trace_clustering.constants import (
+        DEGENERATE_DOMINANT_CLUSTER_FRACTION,
+        DEGENERATE_MIN_CLUSTERS,
+        NOISE_CLUSTER_ID,
+    )
+
+    cluster_sizes = Counter(label for label in labels if label != NOISE_CLUSTER_ID)
+
+    if len(cluster_sizes) < DEGENERATE_MIN_CLUSTERS:
+        return True
+
+    return max(cluster_sizes.values()) / n_samples >= DEGENERATE_DOMINANT_CLUSTER_FRACTION
 
 
 def calculate_distances_to_cluster_means(

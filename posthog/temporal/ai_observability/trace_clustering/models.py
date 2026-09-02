@@ -220,6 +220,7 @@ class HDBSCANResult:
     centroids: list[list[float]]  # Cluster centroids (mean of members), excludes noise
     probabilities: list[float]  # Cluster membership probability per sample (0 for noise)
     num_noise_points: int  # Count of points assigned to noise cluster (-1)
+    cluster_selection_method: str = "eom"  # HDBSCAN selection method the result came from
 
 
 @dataclass

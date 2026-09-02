@@ -127,6 +127,10 @@ DEFAULT_MIN_CLUSTER_SIZE_FRACTION = 0.02  # 2% of samples as minimum cluster siz
 MIN_CLUSTER_SIZE_FRACTION_MIN = 0.02  # Minimum allowed value for min_cluster_size_fraction
 MIN_CLUSTER_SIZE_FRACTION_MAX = 0.5  # Maximum allowed value for min_cluster_size_fraction
 DEFAULT_HDBSCAN_MIN_SAMPLES = 5  # Minimum samples in neighborhood for core points
+# A run that puts (almost) every item in one cluster tells the reader nothing, so we re-run it
+# with leaf selection before accepting it
+DEGENERATE_MIN_CLUSTERS = 3  # Fewer real clusters than this counts as a failed split
+DEGENERATE_DOMINANT_CLUSTER_FRACTION = 0.7  # One cluster holding this share counts as a failed split
 DEFAULT_UMAP_N_COMPONENTS = 100  # Dimensionality for clustering (not visualization)
 DEFAULT_UMAP_N_NEIGHBORS = 15  # UMAP neighborhood size
 DEFAULT_UMAP_MIN_DIST = 0.0  # Tighter packing for clustering (vs 0.1 for visualization)
