@@ -3415,64 +3415,47 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("flag_off_no_breakdown", False, None, False),
+            ("no_breakdown", None, False),
             (
-                "flag_off_session_multi",
-                False,
-                BreakdownFilter(breakdowns=[Breakdown(type=MultipleBreakdownType.SESSION, property="$channel_type")]),
-                False,
-            ),
-            ("flag_on_no_breakdown", True, None, False),
-            (
-                "flag_on_event_multi",
-                True,
+                "event_multi",
                 BreakdownFilter(breakdowns=[Breakdown(type=MultipleBreakdownType.EVENT, property="$browser")]),
                 False,
             ),
             (
-                "flag_on_session_multi",
-                True,
+                "session_multi",
                 BreakdownFilter(breakdowns=[Breakdown(type=MultipleBreakdownType.SESSION, property="$channel_type")]),
                 True,
             ),
             (
-                "flag_on_session_legacy",
-                True,
+                "session_legacy",
                 BreakdownFilter(breakdown_type=BreakdownType.SESSION, breakdown="$channel_type"),
                 True,
             ),
             (
-                "flag_on_event_legacy",
-                True,
+                "event_legacy",
                 BreakdownFilter(breakdown_type=BreakdownType.EVENT, breakdown="$browser"),
                 False,
             ),
         ]
     )
-    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.feature_enabled_or_false")
     def test_session_property_pre_aggregation_modifier_gate(
         self,
         _name: str,
-        flag_enabled: bool,
         breakdown_filter: Optional[BreakdownFilter],
         expected: bool,
-        patch_feature_enabled,
     ):
-        patch_feature_enabled.return_value = flag_enabled
         runner = TrendsQueryRunner(
             team=self.team,
             query=TrendsQuery(series=[EventsNode(event="$pageview")], breakdownFilter=breakdown_filter),
         )
         assert runner.modifiers.sessionPropertyPreAggregation is expected
 
-    @patch("posthog.hogql_queries.insights.trends.trends_query_runner.feature_enabled_or_false")
-    def test_session_property_pre_aggregation_modifier_clears_on_dashboard_reapply(self, patch_feature_enabled):
+    def test_session_property_pre_aggregation_modifier_clears_on_dashboard_reapply(self):
         # apply_dashboard_filters re-runs __post_init__. The modifier must reflect the *current*
         # query state, not the initial one — so a session-breakdown query that gets overridden
         # with an event breakdown must clear the modifier back to False.
         from posthog.schema import DashboardFilter
 
-        patch_feature_enabled.return_value = True
         runner = TrendsQueryRunner(
             team=self.team,
             query=TrendsQuery(
