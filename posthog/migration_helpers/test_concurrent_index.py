@@ -16,6 +16,7 @@ from django.db.migrations.state import ModelState, ProjectState
 from posthog.migration_helpers import (
     CreateIndexConcurrently,
     DropIndexConcurrently,
+    DropReindexLeftovers,
     SafeAddIndexConcurrently,
     SafeRemoveIndexConcurrently,
 )
@@ -48,6 +49,25 @@ def _index_exists(index_name: str) -> bool:
     with connection.cursor() as cursor:
         cursor.execute("SELECT 1 FROM pg_class WHERE relname = %s", [index_name])
         return cursor.fetchone() is not None
+
+
+def _plant_index(table: str, index_name: str, valid: bool = True) -> None:
+    """Build an index, optionally marking it invalid.
+
+    Postgres only leaves an invalid index behind when a CONCURRENTLY build is
+    cancelled mid-flight, which a test cannot arrange; marking a finished index
+    invalid by hand is the closest portable stand-in.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(f'CREATE INDEX "{index_name}" ON "{table}" (col)')
+        if not valid:
+            cursor.execute(
+                """
+                UPDATE pg_index SET indisvalid = false
+                WHERE indexrelid = (SELECT oid FROM pg_class WHERE relname = %s)
+                """,
+                [index_name],
+            )
 
 
 def _index_is_valid(index_name: str) -> bool:
@@ -97,20 +117,7 @@ def test_create_index_concurrently_recovers_from_invalid_leftover(temp_table, ca
     a hard requirement, not nice-to-have.
     """
     idx_name = f"{temp_table}_col_idx"
-
-    # Fake an interrupted CONCURRENTLY build by inserting an invalid index row.
-    # Postgres only lets you do this via CREATE INDEX with a deliberately
-    # poisoned predicate that fails after the catalog row is laid down — the
-    # cleanest portable way is to mark a freshly-built index invalid by hand.
-    with connection.cursor() as cursor:
-        cursor.execute(f'CREATE INDEX "{idx_name}" ON "{temp_table}" (col)')
-        cursor.execute(
-            """
-            UPDATE pg_index SET indisvalid = false
-            WHERE indexrelid = (SELECT oid FROM pg_class WHERE relname = %s)
-            """,
-            [idx_name],
-        )
+    _plant_index(temp_table, idx_name, valid=False)
 
     assert _index_exists(idx_name)
     assert not _index_is_valid(idx_name)
@@ -137,6 +144,49 @@ def test_no_recovery_breadcrumb_when_no_invalid_leftover(temp_table, capsys):
 
     captured = capsys.readouterr()
     assert "invalid state by a prior interrupted build" not in captured.out
+
+
+@pytest.mark.django_db(transaction=True)
+def test_drop_reindex_leftovers_drops_only_the_invalid_copies(temp_table, capsys):
+    """A failed REINDEX INDEX CONCURRENTLY leaves copies Postgres named itself.
+
+    They carry no declaration, so nothing else finds them. The sweep must drop
+    the invalid ones, keep a valid one (it still holds real index data), keep
+    the declared index, and not touch an index that merely shares the prefix.
+    """
+    idx_name = f"{temp_table}_col_idx"
+    _plant_index(temp_table, idx_name)
+    _plant_index(temp_table, f"{idx_name}_ccnew", valid=False)
+    _plant_index(temp_table, f"{idx_name}_ccnew1", valid=False)
+    _plant_index(temp_table, f"{idx_name}_ccold")
+    _plant_index(temp_table, f"{idx_name}_ccnewish")
+    op = DropReindexLeftovers(index_name=idx_name)
+
+    _apply(op)
+    _apply(op)  # idempotent: nothing left to drop
+
+    assert not _index_exists(f"{idx_name}_ccnew")
+    assert not _index_exists(f"{idx_name}_ccnew1")
+    assert _index_exists(f"{idx_name}_ccold")
+    assert _index_exists(f"{idx_name}_ccnewish")
+    assert _index_is_valid(idx_name)
+
+    captured = capsys.readouterr()
+    assert "an invalid copy left behind" in captured.out
+    assert f"{idx_name}_ccold" in captured.out  # reported, not dropped
+
+
+@pytest.mark.django_db(transaction=True)
+def test_drop_index_concurrently_also_drops_reindex_leftovers(temp_table):
+    """Dropping an index must take its orphaned copies with it."""
+    idx_name = f"{temp_table}_col_idx"
+    _plant_index(temp_table, idx_name)
+    _plant_index(temp_table, f"{idx_name}_ccnew", valid=False)
+
+    _apply(DropIndexConcurrently(index_name=idx_name, table_name=temp_table, columns="(col)"))
+
+    assert not _index_exists(idx_name)
+    assert not _index_exists(f"{idx_name}_ccnew")
 
 
 @pytest.mark.django_db(transaction=True)
@@ -167,8 +217,7 @@ def test_create_index_concurrently_unique_partial_with_using(temp_table):
 @pytest.mark.django_db(transaction=True)
 def test_drop_index_concurrently_removes_index(temp_table):
     idx_name = f"{temp_table}_col_idx"
-    with connection.cursor() as cursor:
-        cursor.execute(f'CREATE INDEX "{idx_name}" ON "{temp_table}" (col)')
+    _plant_index(temp_table, idx_name)
     assert _index_exists(idx_name)
 
     op = DropIndexConcurrently(index_name=idx_name, table_name=temp_table, columns="(col)")
@@ -330,15 +379,7 @@ def test_safe_add_index_concurrently_is_idempotent(temp_model):
 def test_safe_add_index_concurrently_recovers_from_invalid_leftover(temp_model, capsys):
     table, state = temp_model
     idx_name = f"{table}_col_idx"
-    with connection.cursor() as cursor:
-        cursor.execute(f'CREATE INDEX "{idx_name}" ON "{table}" (col)')
-        cursor.execute(
-            """
-            UPDATE pg_index SET indisvalid = false
-            WHERE indexrelid = (SELECT oid FROM pg_class WHERE relname = %s)
-            """,
-            [idx_name],
-        )
+    _plant_index(table, idx_name, valid=False)
     assert _index_exists(idx_name)
     assert not _index_is_valid(idx_name)
 

@@ -940,6 +940,10 @@ class DropIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
     operation_type = "DropIndexConcurrently"
 
 
+class DropReindexLeftoversAnalyzer(_SafeConcurrentIndexAnalyzer):
+    operation_type = "DropReindexLeftovers"
+
+
 class SafeAddIndexConcurrentlyAnalyzer(_SafeConcurrentIndexAnalyzer):
     operation_type = "SafeAddIndexConcurrently"
 

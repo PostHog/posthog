@@ -54,10 +54,18 @@ can't model):
     )
 
 The Migration class still needs `atomic = False`.
+
+`DropReindexLeftovers` cleans up after a failed `REINDEX INDEX CONCURRENTLY`.
+A reindex is a maintenance command, not a migration, so the copies it leaves
+behind carry names no migration declares. The two drop operations sweep for
+those copies as well, so removing an index also removes them.
 """
+
+import re
 
 from django.contrib.postgres.operations import AddIndexConcurrently, RemoveIndexConcurrently
 from django.db import migrations
+from django.db.migrations.operations.base import Operation
 
 import structlog
 
@@ -114,6 +122,69 @@ def _log_and_drop_invalid_index(schema_editor, index_name: str, op_name: str) ->
         "investigate why the prior build was cancelled."
     )
     schema_editor.execute(_build_drop_sql(index_name))
+
+
+def _reindex_leftovers(schema_editor, index_name: str) -> list[tuple[str, bool]]:
+    """`(name, indisvalid)` for every `_ccnew` / `_ccold` sibling of this index.
+
+    Postgres appends those suffixes to the index name itself during REINDEX
+    INDEX CONCURRENTLY, and adds a counter when the name is already taken.
+
+    Limit: Postgres first clips the base name so the whole copy name fits in 63
+    bytes, so the copy of a base longer than 57 bytes is truncated (for example
+    `<first 57 bytes>_ccnew`). This match needs the full base name, so it does
+    not find the copies of an index whose name is longer than 57 bytes; drop
+    such a copy by hand with `DROP INDEX CONCURRENTLY`. No sweep caller reaches
+    that length today: the state-aware helpers cap index names at 30 bytes, and
+    the one longer name in the tree sits on a create path, which never sweeps.
+    """
+    with schema_editor.connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT c.relname, i.indisvalid
+            FROM pg_class c
+            JOIN pg_index i ON c.oid = i.indexrelid
+            WHERE c.relname ~ %s
+            """,
+            [f"^{re.escape(index_name)}_cc(new|old)[0-9]*$"],
+        )
+        return cursor.fetchall()
+
+
+def _drop_reindex_leftovers(schema_editor, index_name: str, op_name: str) -> None:
+    """Drop the invalid copies a failed `REINDEX INDEX CONCURRENTLY` left behind.
+
+    Nothing else does this. The names come from Postgres, not from a migration,
+    so `_index_validity` never sees them and every `Safe*` operation walks past
+    them. They then survive every deploy while each write to the table keeps
+    them current.
+
+    A leftover that is still valid holds real index data, so this only reports
+    it and leaves the decision to a person.
+    """
+    for name, valid in _reindex_leftovers(schema_editor, index_name):
+        if valid:
+            logger.warning(
+                "concurrent_index_valid_reindex_leftover",
+                index_name=name,
+                operation=op_name,
+            )
+            print(  # noqa: T201
+                f"[{op_name}] index {name!r} looks like a leftover from an "
+                f"interrupted REINDEX INDEX CONCURRENTLY of {index_name!r}, but it "
+                "is valid; leaving it in place. Drop it by hand if it is redundant."
+            )
+            continue
+        logger.warning(
+            "concurrent_index_dropping_reindex_leftover",
+            index_name=name,
+            operation=op_name,
+        )
+        print(  # noqa: T201
+            f"[{op_name}] dropping index {name!r}: an invalid copy left behind by "
+            f"an interrupted REINDEX INDEX CONCURRENTLY of {index_name!r}."
+        )
+        schema_editor.execute(_build_drop_sql(name))
 
 
 def _build_create_sql(
@@ -287,6 +358,7 @@ class DropIndexConcurrently(_ConcurrentIndexOp):
 
     def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:
         _disable_timeouts(schema_editor)
+        _drop_reindex_leftovers(schema_editor, self.index_name, type(self).__name__)
         schema_editor.execute(self.sql)
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
@@ -297,6 +369,49 @@ class DropIndexConcurrently(_ConcurrentIndexOp):
 
     def describe(self) -> str:
         return f"Concurrently drop index {self.index_name} on {self.table_name}"
+
+
+class DropReindexLeftovers(Operation):
+    """Drop the invalid index copies a failed `REINDEX INDEX CONCURRENTLY` left behind.
+
+    A reindex is a maintenance command, not a migration, so no file in this
+    repository declares the copies it makes. Postgres names them itself —
+    `<index>_ccnew`, `<index>_ccold`, plus a counter on a repeat attempt — and
+    a build that dies part way leaves them in place for good.
+
+    Use this when a monitoring tool reports such an orphan on a table:
+
+        DropReindexLeftovers(index_name="my_idx")
+
+    The exact names are only known at run time, so the operation finds them
+    instead of taking them as arguments. It changes no Django state, does
+    nothing when the table is clean, and so is safe to retry. The reverse is
+    also a no-op — an orphan copy is never worth recreating.
+
+    Names longer than 57 bytes are the one gap: Postgres truncates the copy
+    name, so the sweep cannot match it (see `_reindex_leftovers`). Drop such a
+    copy by hand.
+
+    The Migration class needs `atomic = False`.
+    """
+
+    reduces_to_sql = False
+
+    def __init__(self, *, index_name: str) -> None:
+        self.index_name = index_name
+
+    def state_forwards(self, app_label, state) -> None:
+        pass
+
+    def database_forwards(self, app_label, schema_editor, from_state, to_state) -> None:
+        _disable_timeouts(schema_editor)
+        _drop_reindex_leftovers(schema_editor, self.index_name, type(self).__name__)
+
+    def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
+        pass
+
+    def describe(self) -> str:
+        return f"Concurrently drop failed-reindex leftovers of {self.index_name}"
 
 
 class SafeAddIndexConcurrently(AddIndexConcurrently):
@@ -366,6 +481,7 @@ class SafeRemoveIndexConcurrently(RemoveIndexConcurrently):
         if not self.allow_migrate_model(schema_editor.connection.alias, model):
             return
         _disable_timeouts(schema_editor)
+        _drop_reindex_leftovers(schema_editor, self.name, type(self).__name__)
         if _index_validity(schema_editor, self.name) is None:
             return  # already dropped; a bin/migrate retry is a no-op
         from_model_state = from_state.models[app_label, self.model_name_lower]
