@@ -195,7 +195,10 @@ Naming a column `properties` does not opt a table in.
 The printer checks the column name against `RESTRICTABLE_JSON_BLOB_COLUMNS` before it consults the dispatch, so a new table can pass that check on the name alone and still return its blob unmasked.
 A table that exposes person, event, or group properties has to be added to the dispatch when it is added to the catalog.
 
-`posthog/hogql/test/test_restricted_properties.py` enforces this: it walks the catalog and fails on a table that exposes one of those blob columns without a matching branch.
+`posthog/hogql/test/test_restricted_properties.py` enforces this: it walks the catalog and asserts that the set of tables exposing one of those blob columns with no matching branch equals a small allowlist of explicit exemptions.
+A table added to the catalog later without a branch is not on the allowlist, so it fails the test.
+The allowlist is not a statement of full coverage: `accounts.properties` and `pg_embeddings.properties` are name collisions masked nowhere by design, and `ai_events.properties` carries event properties but has no branch yet, so its blob is still returned unmasked.
+Covering a table means removing its exemption, so the list cannot keep a stale entry.
 
 ### No user: default rules apply
 
