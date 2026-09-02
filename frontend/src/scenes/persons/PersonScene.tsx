@@ -16,6 +16,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import { openInAdminPanel } from 'lib/utils/person-actions'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
@@ -137,7 +138,7 @@ export function PersonScene(): JSX.Element | null {
     const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
-        <SceneContent>
+        <SceneContent fullHeight>
             <SceneTitleSection
                 name="Person"
                 resourceType={{
@@ -197,6 +198,11 @@ export function PersonScene(): JSX.Element | null {
                     navigateToTab(tab as PersonsTabType)
                 }}
                 data-attr="persons-tabs"
+                className="grow"
+                contentClassName={cn({
+                    'flex flex-col grow': currentTab === PersonsTabType.SESSION_RECORDINGS,
+                })}
+                sceneInset
                 tabs={[
                     feedEnabled
                         ? {
@@ -252,14 +258,12 @@ export function PersonScene(): JSX.Element | null {
                                         </LemonBanner>
                                     </div>
                                 ) : null}
-                                <div className="SessionRecordingPlaylistHeightWrapper">
-                                    <SessionRecordingsPlaylist
-                                        logicKey={`person-scene-${person.uuid}`}
-                                        personUUID={person.uuid}
-                                        distinctIds={person.distinct_ids}
-                                        updateSearchParams
-                                    />
-                                </div>
+                                <SessionRecordingsPlaylist
+                                    logicKey={`person-scene-${person.uuid}`}
+                                    personUUID={person.uuid}
+                                    distinctIds={person.distinct_ids}
+                                    updateSearchParams
+                                />
                             </>
                         ),
                     },

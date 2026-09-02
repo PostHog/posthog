@@ -40,6 +40,7 @@ export interface LemonTabsProps<T extends string | number> {
     sceneInset?: boolean
     /** Pass in JSX to be sticky to the right of the tabs. */
     rightSlot?: React.ReactNode
+    contentClassName?: string
 }
 
 interface LemonTabsCSSProperties extends React.CSSProperties {
@@ -57,6 +58,7 @@ export function LemonTabs<T extends string | number>({
     'data-attr': dataAttr,
     sceneInset = false,
     rightSlot,
+    contentClassName,
 }: LemonTabsProps<T>): JSX.Element {
     const { containerRef, selectionRef, sliderWidth, sliderOffset, transitioning } = useSliderPositioning<
         HTMLUListElement,
@@ -144,7 +146,7 @@ export function LemonTabs<T extends string | number>({
                 )}
             </ul>
             {activeTab && 'content' in activeTab && (
-                <div className={cn('LemonTabs__content', sceneInset && 'p-4')} key={activeKey}>
+                <div className={cn('LemonTabs__content', sceneInset && 'p-4', contentClassName)} key={activeKey}>
                     {activeTab.content}
                 </div>
             )}

@@ -88,7 +88,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
     }
 
     return (
-        <div>
+        <>
             <ScenePanel>
                 <ScenePanelInfoSection>
                     <SceneFile dataAttrKey={RESOURCE_TYPE} />
@@ -116,7 +116,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                 </ScenePanelActionsSection>
             </ScenePanel>
 
-            <SceneContent className="SessionRecordingPlaylistHeightWrapper">
+            <SceneContent className="SessionRecordingPlaylistHeightWrapper" fullHeight>
                 <SceneTitleSection
                     name={playlist.name || ''}
                     description={playlist.description || ''}
@@ -131,7 +131,8 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     }}
                     canEdit
                     forceEdit={isNewPlaylist}
-                    renameDebounceMs={1000}
+                    renameDebounceMs={0}
+                    saveOnBlur
                     actions={
                         <LemonButton
                             type="primary"
@@ -164,6 +165,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     type="collection"
                 />
             </SceneContent>
-        </div>
+        </>
     )
 }

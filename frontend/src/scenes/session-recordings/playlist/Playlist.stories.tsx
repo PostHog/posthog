@@ -25,14 +25,16 @@ const Template: StoryFn<typeof Playlist> = (props: Partial<PlaylistProps>) => {
     )
 
     return (
-        <div className="h-96 min-w-[40rem]">
-            <Playlist
-                title="Title"
-                sections={[]}
-                listEmptyState={<div>No items</div>}
-                content={mainContent}
-                {...props}
-            />
+        <div className="flex flex-col grow min-w-[40rem]">
+            <div className="grow">
+                <Playlist
+                    title="Title"
+                    sections={[]}
+                    listEmptyState={<div>No items</div>}
+                    content={mainContent}
+                    {...props}
+                />
+            </div>
         </div>
     )
 }

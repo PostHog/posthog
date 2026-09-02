@@ -96,14 +96,12 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
 
             <div
                 className={cn(
-                    'relative p-4 bg-[var(--scene-layout-background)] min-h-[calc(100vh-var(--scene-layout-header-height))]',
+                    'flex flex-col relative p-4 bg-[var(--scene-layout-background)] min-h-[calc(100vh-var(--scene-layout-header-height))]',
                     scenePanelIsPresent &&
                         scenePanelIsRelative &&
                         !forceScenePanelClosedWhenRelative &&
                         'col-start-1 col-span-1 w-[calc(100%-var(--scene-layout-panel-width))]',
-                    sceneConfig?.layout === 'app-raw-no-header' || (sceneConfig?.layout === 'app-raw' && 'p-0'),
-                    sceneConfig?.layout === 'app-full-scene-height' &&
-                        'h-[calc(100vh-var(--scene-layout-header-height))]'
+                    sceneConfig?.layout === 'app-raw-no-header' || (sceneConfig?.layout === 'app-raw' && 'p-0')
                 )}
             >
                 {children}
