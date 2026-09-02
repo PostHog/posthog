@@ -263,6 +263,8 @@ class TestOauthIntegrationModel(BaseTest):
 
     @patch("posthog.models.integration.oauth.requests.post")
     def test_integration_errors_if_id_cannot_be_generated(self, mock_post):
+        # A missing account identifier must surface as a ValidationError (→ 400 with an actionable
+        # message) rather than the bare Exception (→ 500) the guard used to raise.
         with self.settings(**self.mock_settings):
             mock_post.return_value.status_code = 200
             mock_post.return_value.json.return_value = {
@@ -272,7 +274,7 @@ class TestOauthIntegrationModel(BaseTest):
                 "expires_in": 3600,
             }
 
-            with pytest.raises(Exception):
+            with pytest.raises(ValidationError, match="try connecting again"):
                 OauthIntegration.integration_from_oauth_response(
                     "salesforce",
                     self.team.id,
@@ -281,6 +283,21 @@ class TestOauthIntegrationModel(BaseTest):
                         "code": "code",
                         "state": "next=/projects/test",
                     },
+                )
+
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_oauth_token_exchange_transport_error_raises_validation_error(self, mock_post):
+        # A network failure reaching the provider's token endpoint must surface a ValidationError
+        # (→ 400) so the frontend toast asks the user to retry, not a bare 500.
+        with self.settings(**self.mock_settings):
+            mock_post.side_effect = requests.ConnectionError("connection reset")
+
+            with pytest.raises(ValidationError, match="Could not reach"):
+                OauthIntegration.integration_from_oauth_response(
+                    "salesforce",
+                    self.team.id,
+                    self.user,
+                    {"code": "code", "state": "next=/projects/test"},
                 )
 
     @patch("posthog.models.integration.oauth.requests.post")

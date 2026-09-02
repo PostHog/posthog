@@ -78,6 +78,17 @@ def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn
     raise ValidationError(f"{kind} OAuth failed (status {res.status_code}). Please try again.")
 
 
+def _raise_oauth_transport_error(kind: str, error: Exception) -> NoReturn:
+    """Raise a ValidationError for a token exchange that never reached the provider.
+
+    A network failure (timeout, DNS, connection reset) reaching the provider's token endpoint is
+    recoverable by retrying. Convert it to the same ValidationError -> 400 path a non-200 response
+    uses, so the frontend toast asks the user to retry instead of surfacing an unhelpful 500.
+    """
+    logger.warning("oauth_token_exchange_transport_error", kind=kind, error=str(error))
+    raise ValidationError(f"Could not reach the {kind} authorization server. Please try connecting again.") from error
+
+
 # Instagram API with Facebook Login: the professional account is reached through the Facebook Page
 # it is linked to, so the grant needs the page permissions as well as the Instagram ones. These are
 # the Facebook Login permission names. The `instagram_business_*` names belong to Instagram Login, a
@@ -840,73 +851,78 @@ class OauthIntegration:
                 if kind == "posthog":
                     raise ValidationError("Remote authorization failed: missing PKCE verifier. Please retry.")
 
-        # Reddit uses HTTP Basic Auth https://github.com/reddit-archive/reddit/wiki/OAuth2 and requires a User-Agent header
-        if kind == "reddit-ads":
-            res = requests.post(
-                oauth_config.token_url,
-                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
-                data={
-                    "code": params["code"],
-                    "redirect_uri": OauthIntegration.redirect_uri(kind),
-                    "grant_type": "authorization_code",
-                },
-                headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
-                timeout=10,
-            )
-        # Pinterest uses HTTP Basic Auth for token exchange (base64-encoded client_id:client_secret)
-        elif kind == "pinterest-ads":
-            res = requests.post(
-                oauth_config.token_url,
-                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
-                data={
-                    "code": params["code"],
-                    "redirect_uri": OauthIntegration.redirect_uri(kind),
-                    "grant_type": "authorization_code",
-                },
-                timeout=10,
-            )
-        elif kind == "tiktok-ads":
-            # TikTok Ads uses JSON request body instead of form data and maps 'code' to 'auth_code'
-            res = requests.post(
-                oauth_config.token_url,
-                json={
-                    "app_id": oauth_config.client_id,
-                    "secret": oauth_config.client_secret,
-                    "auth_code": params["code"],
-                },
-                headers={"Content-Type": "application/json"},
-                timeout=10,
-            )
-        elif kind == "stripe":
-            # Stripe Apps OAuth authenticates with the developer secret key as HTTP Basic
-            # username and does not accept client_id/redirect_uri in the token-exchange body.
-            # Connect OAuth (client_id+client_secret in body) is a different system.
-            res = requests.post(
-                oauth_config.token_url,
-                auth=HTTPBasicAuth(oauth_config.client_secret, ""),
-                data={
-                    "code": params["code"],
-                    "grant_type": "authorization_code",
-                },
-                timeout=10,
-            )
-        else:
-            redirect_uri = OauthIntegration.redirect_uri(kind)
-            res = requests.post(
-                oauth_config.token_url,
-                data={
-                    "client_id": oauth_config.client_id,
-                    "client_secret": oauth_config.client_secret,
-                    "code": params["code"],
-                    "redirect_uri": redirect_uri,
-                    "grant_type": "authorization_code",
-                    **({"code_verifier": code_verifier} if code_verifier else {}),
-                },
-                timeout=10,
-                # allow_redirects=False so a misconfigured/compromised token endpoint can't 30x us
-                # into resending client_secret + authorization code to another origin.
-                allow_redirects=False,
-            )
+        # A transport failure reaching the provider (timeout, DNS, reset) is recoverable by retrying,
+        # so convert it to a 400 with an actionable message instead of letting it escape as a 500.
+        try:
+            # Reddit uses HTTP Basic Auth https://github.com/reddit-archive/reddit/wiki/OAuth2 and requires a User-Agent header
+            if kind == "reddit-ads":
+                res = requests.post(
+                    oauth_config.token_url,
+                    auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
+                    data={
+                        "code": params["code"],
+                        "redirect_uri": OauthIntegration.redirect_uri(kind),
+                        "grant_type": "authorization_code",
+                    },
+                    headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
+                    timeout=10,
+                )
+            # Pinterest uses HTTP Basic Auth for token exchange (base64-encoded client_id:client_secret)
+            elif kind == "pinterest-ads":
+                res = requests.post(
+                    oauth_config.token_url,
+                    auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
+                    data={
+                        "code": params["code"],
+                        "redirect_uri": OauthIntegration.redirect_uri(kind),
+                        "grant_type": "authorization_code",
+                    },
+                    timeout=10,
+                )
+            elif kind == "tiktok-ads":
+                # TikTok Ads uses JSON request body instead of form data and maps 'code' to 'auth_code'
+                res = requests.post(
+                    oauth_config.token_url,
+                    json={
+                        "app_id": oauth_config.client_id,
+                        "secret": oauth_config.client_secret,
+                        "auth_code": params["code"],
+                    },
+                    headers={"Content-Type": "application/json"},
+                    timeout=10,
+                )
+            elif kind == "stripe":
+                # Stripe Apps OAuth authenticates with the developer secret key as HTTP Basic
+                # username and does not accept client_id/redirect_uri in the token-exchange body.
+                # Connect OAuth (client_id+client_secret in body) is a different system.
+                res = requests.post(
+                    oauth_config.token_url,
+                    auth=HTTPBasicAuth(oauth_config.client_secret, ""),
+                    data={
+                        "code": params["code"],
+                        "grant_type": "authorization_code",
+                    },
+                    timeout=10,
+                )
+            else:
+                redirect_uri = OauthIntegration.redirect_uri(kind)
+                res = requests.post(
+                    oauth_config.token_url,
+                    data={
+                        "client_id": oauth_config.client_id,
+                        "client_secret": oauth_config.client_secret,
+                        "code": params["code"],
+                        "redirect_uri": redirect_uri,
+                        "grant_type": "authorization_code",
+                        **({"code_verifier": code_verifier} if code_verifier else {}),
+                    },
+                    timeout=10,
+                    # allow_redirects=False so a misconfigured/compromised token endpoint can't 30x us
+                    # into resending client_secret + authorization code to another origin.
+                    allow_redirects=False,
+                )
+        except requests.RequestException as e:
+            _raise_oauth_transport_error(kind, e)
 
         if kind == "slack":
             record_slack_api_response(
@@ -936,18 +952,21 @@ class OauthIntegration:
             # Hack to try getting sandbox auth token instead of their salesforce production account
             if kind == "salesforce":
                 oauth_config = cls.oauth_config_for_kind("salesforce-sandbox")
-                res = requests.post(
-                    oauth_config.token_url,
-                    data={
-                        "client_id": oauth_config.client_id,
-                        "client_secret": oauth_config.client_secret,
-                        "code": params["code"],
-                        "redirect_uri": OauthIntegration.redirect_uri(kind),
-                        "grant_type": "authorization_code",
-                        **({"code_verifier": code_verifier} if code_verifier else {}),
-                    },
-                    timeout=10,
-                )
+                try:
+                    res = requests.post(
+                        oauth_config.token_url,
+                        data={
+                            "client_id": oauth_config.client_id,
+                            "client_secret": oauth_config.client_secret,
+                            "code": params["code"],
+                            "redirect_uri": OauthIntegration.redirect_uri(kind),
+                            "grant_type": "authorization_code",
+                            **({"code_verifier": code_verifier} if code_verifier else {}),
+                        },
+                        timeout=10,
+                    )
+                except requests.RequestException as e:
+                    _raise_oauth_transport_error(kind, e)
 
                 try:
                     config = res.json()
@@ -976,23 +995,26 @@ class OauthIntegration:
 
         if oauth_config.token_info_url:
             # If token info url is given we call it and check the integration id from there
-            if oauth_config.token_info_graphql_query:
-                token_info_res = requests.post(
-                    oauth_config.token_info_url,
-                    headers={"Authorization": f"Bearer {config['access_token']}"},
-                    json={"query": oauth_config.token_info_graphql_query},
-                    timeout=10,
-                    # This call carries the access token; don't let a misconfigured/compromised
-                    # provider 30x us into resending it to another origin (matches the exchange/refresh/revoke calls).
-                    allow_redirects=False,
-                )
-            else:
-                token_info_res = requests.get(
-                    oauth_config.token_info_url.replace(":access_token", config["access_token"]),
-                    headers={"Authorization": f"Bearer {config['access_token']}"},
-                    timeout=10,
-                    allow_redirects=False,
-                )
+            try:
+                if oauth_config.token_info_graphql_query:
+                    token_info_res = requests.post(
+                        oauth_config.token_info_url,
+                        headers={"Authorization": f"Bearer {config['access_token']}"},
+                        json={"query": oauth_config.token_info_graphql_query},
+                        timeout=10,
+                        # This call carries the access token; don't let a misconfigured/compromised
+                        # provider 30x us into resending it to another origin (matches the exchange/refresh/revoke calls).
+                        allow_redirects=False,
+                    )
+                else:
+                    token_info_res = requests.get(
+                        oauth_config.token_info_url.replace(":access_token", config["access_token"]),
+                        headers={"Authorization": f"Bearer {config['access_token']}"},
+                        timeout=10,
+                        allow_redirects=False,
+                    )
+            except requests.RequestException as e:
+                _raise_oauth_transport_error(kind, e)
 
             if token_info_res.status_code == 200:
                 data = token_info_res.json()
@@ -1143,7 +1165,11 @@ class OauthIntegration:
             integration_id = ",".join(str(item) for item in integration_id)
 
         if not isinstance(integration_id, str):
-            raise Exception(f"Oauth error: failed to extract integration ID for {kind}")
+            # A missing account identifier is not a server fault, so raise the same ValidationError
+            # -> 400 path the token exchange uses. A bare Exception would surface as an unhelpful 500.
+            raise ValidationError(
+                f"Could not read your {kind} account from the authorization response. Please try connecting again."
+            )
 
         # Handle TikTok's nested response format
         if kind == "tiktok-ads":

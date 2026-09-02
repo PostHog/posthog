@@ -281,5 +281,80 @@ describe('integrationsLogic', () => {
                 expect(requestedTeamIds).toEqual([String(MOCK_TEAM_ID)])
             })
         })
+
+        describe('connection failure handling', () => {
+            const state = 'next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations&token=csrf-tok'
+
+            beforeEach(() => {
+                document.cookie = 'ph_oauth_state=csrf-tok'
+            })
+
+            afterEach(() => {
+                document.cookie = 'ph_oauth_state=; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+            })
+
+            it('handles each authorization code once, so a replayed callback does not create twice', async () => {
+                createSpy.mockResolvedValue({ id: 7, kind: 'slack' } as IntegrationType)
+                const errorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
+
+                await expectLogic(logic, () => {
+                    logic.actions.handleOauthCallback('slack' as IntegrationKind, { state, code: 'dup-code' })
+                    logic.actions.handleOauthCallback('slack' as IntegrationKind, { state, code: 'dup-code' })
+                }).toFinishAllListeners()
+
+                expect(createSpy).toHaveBeenCalledTimes(1)
+                expect(errorSpy).not.toHaveBeenCalled()
+            })
+
+            const slack = (id: number): IntegrationType => ({ id, kind: 'slack' }) as IntegrationType
+
+            // After a create fails the callback compares the integrations present now against a
+            // baseline it read before the attempt. It must report success only for an integration
+            // that appeared since that baseline — a pre-existing one of the same kind (a common
+            // reconnect of an expired grant) must not mask a genuine failure as success.
+            it.each<[string, IntegrationType[], IntegrationType[], boolean]>([
+                ['a new integration appears after the failed create', [], [slack(7)], true],
+                ['only a pre-existing integration of the kind is present', [slack(7)], [slack(7)], false],
+                ['no integration of the kind is connected', [], [], false],
+            ])('reports the outcome correctly when %s', async (_desc, baseline, afterAttempt, expectSuccess) => {
+                createSpy.mockRejectedValue(new ApiError('Bad request', 400))
+                // First list() is the baseline read before the create; every later call (recovery
+                // check and the post-attempt reload) sees the state after the attempt.
+                jest.spyOn(apiReal.integrations, 'list')
+                    .mockResolvedValue({ results: afterAttempt })
+                    .mockResolvedValueOnce({ results: baseline })
+                const successSpy = jest.spyOn(lemonToast, 'success').mockImplementation(() => 'toast')
+                const errorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
+
+                await expectLogic(logic, () => {
+                    logic.actions.handleOauthCallback('slack' as IntegrationKind, { state, code: 'fail-code' })
+                }).toFinishAllListeners()
+
+                expect(successSpy.mock.calls).toEqual(expectSuccess ? [['Integration successful.']] : [])
+                expect(errorSpy).toHaveBeenCalledTimes(expectSuccess ? 0 : 1)
+            })
+
+            it('reads the baseline and recovery lists against the team that started the flow', async () => {
+                // The create targets the initiating team, so both reads that decide "did a new
+                // integration appear?" must query that same team. A read against the current team
+                // would miss a create that succeeded in the initiating team and toast an error over
+                // a working connection.
+                const scopedState =
+                    'next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations&token=csrf-tok&team_id=228502'
+                createSpy.mockRejectedValue(new ApiError('Bad request', 400))
+                const listSpy = jest.spyOn(apiReal.integrations, 'list').mockResolvedValue({ results: [] })
+                jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
+
+                await expectLogic(logic, () => {
+                    logic.actions.handleOauthCallback('slack' as IntegrationKind, {
+                        state: scopedState,
+                        code: 'scoped-code',
+                    })
+                }).toFinishAllListeners()
+
+                // Baseline (before the create) and recovery (after the failed create) both hit 228502.
+                expect(listSpy.mock.calls.filter((call) => call[0] === 228502)).toHaveLength(2)
+            })
+        })
     })
 })

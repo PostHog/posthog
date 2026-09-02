@@ -1079,38 +1079,90 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return
             }
 
-            try {
-                if (source === 'mcp_store') {
-                    replaceUrl += `${replaceUrl.includes('?') ? '&' : '?'}code=${encodeURIComponent(code)}&server_id=${encodeURIComponent(server_id)}&state_token=${encodeURIComponent(token)}`
-                    lemonToast.success('Authorization successful.')
-                } else {
-                    // The callback URL is not project-scoped, so after this full-page round-trip
-                    // the SPA may have re-resolved to the user's default team. Target the team
-                    // that started the flow (carried through the OAuth state) so the integration
-                    // lands on the project the user actually chose.
-                    const parsedTeamId = Number(team_id)
-                    const initiatingTeamId = Number.isFinite(parsedTeamId) ? parsedTeamId : undefined
-                    const integration = await api.integrations.create(
-                        {
-                            kind: resolvedKind,
-                            config: { state, code },
-                        },
-                        initiatingTeamId
-                    )
-
-                    // Add the integration ID to the replaceUrl so that the landing page can use it
-                    const url = new URL(replaceUrl, window.location.origin)
-                    url.searchParams.set('integration_id', String(integration.id))
-                    replaceUrl = url.pathname + url.search + url.hash
-
-                    actions.loadIntegrations()
-                    lemonToast.success(`Integration successful.`)
-                }
-            } catch (e) {
-                toastApiError(e)
-            } finally {
+            if (source === 'mcp_store') {
+                replaceUrl += `${replaceUrl.includes('?') ? '&' : '?'}code=${encodeURIComponent(code)}&server_id=${encodeURIComponent(server_id)}&state_token=${encodeURIComponent(token)}`
+                lemonToast.success('Authorization successful.')
                 router.actions.replace(replaceUrl)
+                return
             }
+
+            // An authorization code is single-use, so the provider rejects a replay. The router can
+            // dispatch this callback twice for the same code; a second create would 400 on the reused
+            // code and toast a failure over the first attempt's success. Handle each code once.
+            cache.handledOauthCodes = cache.handledOauthCodes ?? new Set<string>()
+            if (code) {
+                if (cache.handledOauthCodes.has(code)) {
+                    return
+                }
+                cache.handledOauthCodes.add(code)
+            }
+
+            // The callback URL is not project-scoped, so after this full-page round-trip the SPA may
+            // have re-resolved to the user's default team. Target the team that started the flow
+            // (carried through the OAuth state) so the integration lands on the project the user chose.
+            const parsedTeamId = Number(team_id)
+            const initiatingTeamId = Number.isFinite(parsedTeamId) ? parsedTeamId : undefined
+
+            // Snapshot the integrations of this kind that exist before this attempt, so a failed
+            // create can tell a newly connected integration from one that already existed. This is a
+            // fresh full-page mount, so values.integrations is usually still null here (the initial
+            // load is racing) — read the server directly instead of trusting the loader. Scope the
+            // read to the team that started the flow (the team the create targets), so both sides of
+            // the comparison describe the same project even when the SPA re-resolved to a different
+            // current team. If the baseline read fails we leave it null, and a later create failure
+            // stays a failure rather than a false success.
+            let priorIds: Set<IntegrationType['id']> | null = null
+            try {
+                const priorList = await api.integrations.list(initiatingTeamId)
+                priorIds = new Set(priorList.results.filter((i) => i.kind === resolvedKind).map((i) => i.id))
+            } catch {
+                priorIds = null
+            }
+
+            // Only the create is the connection. Keep it alone in the try so post-create bookkeeping
+            // can't fail into the catch and toast an error over a working connection.
+            let integration: IntegrationType
+            try {
+                integration = await api.integrations.create(
+                    {
+                        kind: resolvedKind,
+                        config: { state, code },
+                    },
+                    initiatingTeamId
+                )
+            } catch (e) {
+                // The create can fail on the client after the server already connected the
+                // integration (a lost response, or a racing dispatch). Report success only when a
+                // new integration of this kind appeared since the baseline, so a working connection
+                // never shows an error and a genuine failure is never hidden as a success.
+                let connected = false
+                if (priorIds) {
+                    const baseline = priorIds
+                    try {
+                        const res = await api.integrations.list(initiatingTeamId)
+                        connected = res.results.some((i) => i.kind === resolvedKind && !baseline.has(i.id))
+                    } catch {
+                        // Fall through to the original error if we can't confirm.
+                    }
+                }
+                actions.loadIntegrations()
+                if (connected) {
+                    lemonToast.success(`Integration successful.`)
+                } else {
+                    toastApiError(e)
+                }
+                router.actions.replace(replaceUrl)
+                return
+            }
+
+            // Add the integration ID to the replaceUrl so that the landing page can use it
+            const url = new URL(replaceUrl, window.location.origin)
+            url.searchParams.set('integration_id', String(integration.id))
+            replaceUrl = url.pathname + url.search + url.hash
+
+            actions.loadIntegrations()
+            lemonToast.success(`Integration successful.`)
+            router.actions.replace(replaceUrl)
         },
 
         deleteIntegration: async ({ id }) => {
