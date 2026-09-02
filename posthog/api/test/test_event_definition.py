@@ -7,7 +7,9 @@ from freezegun.api import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 import dateutil.parser
@@ -234,6 +236,24 @@ class TestEventDefinitionAPI(APIBaseTest):
             assert response.json()["count"] == 306
             assert len(response.json()["results"]) == (100 if i < 2 else 6)  # Each page has 100 except the last one
             assert response.json()["results"][0]["name"] == f"z_event_{event_checkpoints[i]}"
+
+    def test_list_reads_only_the_requested_page_from_postgres(self):
+        EventDefinition.objects.bulk_create(
+            [EventDefinition(team=self.demo_team, name=f"z_event_{i}") for i in range(1, 301)]
+        )
+
+        with CaptureQueriesContext(connection) as captured:
+            response = self.client.get("/api/projects/@current/event_definitions/?limit=10")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 306
+        page_fetches = [
+            query["sql"]
+            for query in captured.captured_queries
+            if "FROM posthog_eventdefinition" in query["sql"] and "ORDER BY" in query["sql"]
+        ]
+        assert page_fetches
+        assert all("LIMIT 10" in sql for sql in page_fetches)
 
     def test_cant_see_event_definitions_for_another_team(self):
         org = Organization.objects.create(name="Separate Org")

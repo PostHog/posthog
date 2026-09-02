@@ -5,7 +5,7 @@ from collections import defaultdict
 from typing import Any, Literal, Optional, cast
 
 from django.core.cache import cache
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connections, transaction
 from django.db.models import Manager, Prefetch
 from django.http import Http404
 from django.utils import timezone
@@ -20,6 +20,7 @@ from posthog.api.event_definition_generators.base import EventDefinitionGenerato
 from posthog.api.event_definition_generators.golang import GolangGenerator
 from posthog.api.event_definition_generators.python import PythonGenerator
 from posthog.api.event_definition_generators.typescript import TypeScriptGenerator
+from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import (
@@ -49,11 +50,62 @@ from posthog.utils import get_safe_cache, relative_date_parse
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
 
 
+def _event_definitions_source_sql(
+    event_type: EventDefinitionType,
+    is_enterprise: bool,
+    conditions: str,
+) -> str:
+    """FROM/JOIN/WHERE shared by the page fetch and the count that pages it."""
+    # LEFT, not FULL OUTER. The two return the same rows here, on two independent grounds:
+    # `eventdefinition_ptr_id` is the child's primary key and a validated NOT NULL foreign key, so an
+    # enterprise row without a base row cannot be committed; and even if one existed, the scope
+    # filter below reads base-table columns, so that row's `COALESCE(project_id, team_id)` would be
+    # NULL and it would be filtered out regardless of join type.
+    # The join type does change the plan. A full join can be neither a nested loop nor a filter
+    # pushed into the scan, which leaves a sequential scan of the whole table available to the
+    # planner — and it picked that plan in production once statistics shifted.
+    enterprise_join = (
+        "LEFT JOIN ee_enterpriseeventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id"
+        if is_enterprise
+        else ""
+    )
+
+    if event_type == EventDefinitionType.EVENT_CUSTOM:
+        conditions += " AND posthog_eventdefinition.name NOT LIKE %(is_posthog_event)s"
+    if event_type == EventDefinitionType.EVENT_POSTHOG:
+        conditions += " AND posthog_eventdefinition.name LIKE %(is_posthog_event)s"
+
+    # COALESCE(project_id, team_id) is the leading expression of the unique index
+    # `event_definition_proj_uniq`, so the planner can seek that index for the project scope and
+    # for any `name` equality in `conditions`. The equivalent form
+    # `project_id = X OR (project_id IS NULL AND team_id = X)` matches no index at all.
+    return f"""
+            FROM posthog_eventdefinition
+            {enterprise_join}
+            WHERE COALESCE(project_id, team_id) = %(project_id)s
+            {conditions}
+        """
+
+
+def create_event_definitions_count_sql(
+    event_type: EventDefinitionType,
+    is_enterprise: bool = False,
+    conditions: str = "",
+) -> str:
+    """Counts the rows `create_event_definitions_sql` pages over.
+
+    Selecting no column lets Postgres drop the enterprise join whenever `conditions` reads only
+    base-table columns, so the common count is an index-only scan.
+    """
+    return f"SELECT count(*) {_event_definitions_source_sql(event_type, is_enterprise, conditions)}"
+
+
 def create_event_definitions_sql(
     event_type: EventDefinitionType,
     is_enterprise: bool = False,
     conditions: str = "",
     order_expressions: Optional[list[tuple[str, Literal["ASC", "DESC"]]]] = None,
+    paginated: bool = True,
 ) -> str:
     if order_expressions is None:
         order_expressions = []
@@ -78,25 +130,6 @@ def create_event_definitions_sql(
     # split this query's load across hundreds of fingerprints and none of them looks expensive.
     selected_fields = sorted(event_definition_fields)
 
-    # LEFT, not FULL OUTER. The two return the same rows here, on two independent grounds:
-    # `eventdefinition_ptr_id` is the child's primary key and a validated NOT NULL foreign key, so an
-    # enterprise row without a base row cannot be committed; and even if one existed, the scope
-    # filter below reads base-table columns, so that row's `COALESCE(project_id, team_id)` would be
-    # NULL and it would be filtered out regardless of join type.
-    # The join type does change the plan. A full join can be neither a nested loop nor a filter
-    # pushed into the scan, which leaves a sequential scan of the whole table available to the
-    # planner — and it picked that plan in production once statistics shifted.
-    enterprise_join = (
-        "LEFT JOIN ee_enterpriseeventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id"
-        if is_enterprise
-        else ""
-    )
-
-    if event_type == EventDefinitionType.EVENT_CUSTOM:
-        conditions += " AND posthog_eventdefinition.name NOT LIKE %(is_posthog_event)s"
-    if event_type == EventDefinitionType.EVENT_POSTHOG:
-        conditions += " AND posthog_eventdefinition.name LIKE %(is_posthog_event)s"
-
     additional_ordering = []
     for order_expression, order_direction in order_expressions:
         if order_expression:
@@ -104,17 +137,16 @@ def create_event_definitions_sql(
                 f"{order_expression} {order_direction} NULLS {'FIRST' if order_direction == 'ASC' else 'LAST'}"
             )
 
-    # COALESCE(project_id, team_id) is the leading expression of the unique index
-    # `event_definition_proj_uniq`, so the planner can seek that index for the project scope and
-    # for any `name` equality in `conditions`. The equivalent form
-    # `project_id = X OR (project_id IS NULL AND team_id = X)` matches no index at all.
+    # A `RawQuerySet` has no `count()`, so DRF's paginator counts it with `len()` and slices the
+    # result in Python. Without this clause one page of 100 costs a read of every event definition
+    # the project has, wide columns included.
+    limit_clause = "LIMIT %(limit)s OFFSET %(offset)s" if paginated else ""
+
     return f"""
             SELECT {",".join(selected_fields)}
-            FROM posthog_eventdefinition
-            {enterprise_join}
-            WHERE COALESCE(project_id, team_id) = %(project_id)s
-            {conditions}
+            {_event_definitions_source_sql(event_type, is_enterprise, conditions)}
             ORDER BY {",".join(additional_ordering)}
+            {limit_clause}
         """
 
 
@@ -309,6 +341,7 @@ class EventDefinitionViewSet(
     serializer_class = EventDefinitionSerializer
     lookup_field = "id"
     filter_backends = [TermSearchFilterBackend]
+    pagination_class = PrecountedLimitOffsetPagination
     queryset = EventDefinition.objects.all()
 
     search_fields = ["name"]
@@ -381,30 +414,46 @@ class EventDefinitionViewSet(
             search_query = search_query + " AND posthog_eventdefinition.name = ANY(%(names)s)"
             params["names"] = list(set(names))
 
+        tags_list = self._tags_filter_from_request()
         sql = create_event_definitions_sql(
             event_type,
             is_enterprise=EE_AVAILABLE,
             conditions=search_query,
             order_expressions=order_expressions,
+            paginated=not tags_list,
         )
-        queryset = event_definition_object_manager.raw(sql, params=params)
 
-        # Apply tags filter if provided
+        if tags_list:
+            # The tags filter has to see every match before it can page, so this path keeps the
+            # unbounded fetch and lets the paginator page the resulting ORM queryset instead.
+            ids = [obj.id for obj in event_definition_object_manager.raw(sql, params=params)]
+            return event_definition_object_manager.filter(id__in=ids, tagged_items__tag__name__in=tags_list).distinct()
+
+        paginator = cast(PrecountedLimitOffsetPagination, self.paginator)
+        params["limit"] = paginator.get_limit(self.request)
+        params["offset"] = paginator.get_offset(self.request)
+
+        count_sql = create_event_definitions_count_sql(
+            event_type,
+            is_enterprise=EE_AVAILABLE,
+            conditions=search_query,
+        )
+        # The count has to run on the connection the page fetch will use, or it describes a
+        # different row set than the one it bounds.
+        with connections[event_definition_object_manager.db].cursor() as cursor:
+            cursor.execute(count_sql, params)
+            paginator.set_count(cursor.fetchone()[0])
+
+        return event_definition_object_manager.raw(sql, params=params)
+
+    def _tags_filter_from_request(self) -> list[str]:
         tags = self.request.GET.get("tags")
-        if tags:
-            try:
-                tags_list = orjson.loads(tags)
-                if tags_list:
-                    # Convert raw queryset to regular queryset for filtering
-                    ids = [obj.id for obj in queryset]
-                    queryset = event_definition_object_manager.filter(  # type: ignore[assignment]
-                        id__in=ids, tagged_items__tag__name__in=tags_list
-                    ).distinct()
-            except (orjson.JSONDecodeError, TypeError):
-                # If the JSON is invalid, ignore the filter
-                pass
-
-        return queryset
+        if not tags:
+            return []
+        try:
+            return orjson.loads(tags) or []
+        except (orjson.JSONDecodeError, TypeError):
+            return []
 
     def _ordering_params_from_request(
         self,
