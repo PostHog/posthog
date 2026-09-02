@@ -2259,11 +2259,55 @@ describe("CodexAppServerAgent", () => {
       prompt: [{ type: "text", text: "go" }],
     } as unknown as PromptRequest);
     // willRetry:false must reject the turn rather than hang until stream close.
-    stub.emit("error", { willRetry: false, error: { message: "boom" } });
+    stub.emit("error", {
+      willRetry: false,
+      error: { message: "unexpected status 400 Bad Request: tool shape" },
+    });
 
+    // The rejection message is the only text the recorded failure gets, so it
+    // must name the upstream cause and not just the friendly sentence.
     await expect(done).rejects.toThrow(
-      "The agent stopped before completing this request. Please try again.",
+      "The agent stopped before completing this request. Please try again. " +
+        "Cause: unexpected status 400 Bad Request: tool shape",
     );
+  });
+
+  it("carries a retried error's cause into a later failed turn", async () => {
+    vi.useFakeTimers();
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    // codex retries, then gives up with a bare failed completion carrying no text.
+    stub.emit("error", {
+      willRetry: true,
+      error: { message: "unexpected status 503 Service Unavailable" },
+    });
+    stub.emit("turn/completed", { turn: { status: "failed" } });
+
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(done).resolves.toMatchObject({ stopReason: "refusal" });
+    expect(sessionUpdates).toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text:
+            "The agent stopped before completing this request. Please try again. " +
+            "Cause: unexpected status 503 Service Unavailable",
+        },
+      },
+    });
+    vi.useRealTimers();
   });
 
   it("renders a non-retried policy error as agent output", async () => {
