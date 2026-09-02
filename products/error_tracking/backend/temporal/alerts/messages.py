@@ -39,6 +39,26 @@ def root_headline(event: str) -> str:
     return ROOT_HEADLINES.get(event, DEFAULT_HEADLINE)
 
 
+def _number(value: str | None) -> float | None:
+    try:
+        return float(value) if value is not None else None
+    except ValueError:
+        return None
+
+
+def spike_summary(extra: dict[str, str] | None) -> str | None:
+    """Shared by the spiking root and reply so both surfaces describe the spike the same way."""
+    current = _number((extra or {}).get("current_bucket_value"))
+    if current is None or current <= 0:
+        return None
+    # The detector reports a zero baseline when the issue has no history yet; that is
+    # a missing comparison, not a real baseline to compare against.
+    baseline = _number((extra or {}).get("computed_baseline"))
+    if baseline is None or baseline <= 0:
+        return f"{current:g} events in the last window, no baseline yet"
+    return f"{current:g} events in the last window vs baseline {baseline:g}"
+
+
 def _link_block(inputs: AlertDeliveryWorkflowInputs) -> dict:
     return {
         "type": "actions",
@@ -79,6 +99,10 @@ def _build_blocks(inputs: AlertDeliveryWorkflowInputs, *, headline: str) -> list
                 "elements": [{"type": "mrkdwn", "text": f"Status: {escape_slack_text(inputs.status)}"}],
             }
         )
+    if inputs.event == "$error_tracking_issue_spiking":
+        summary = spike_summary(inputs.extra)
+        if summary:
+            blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": summary}]})
     blocks.append(_link_block(inputs))
     return blocks
 
@@ -119,13 +143,8 @@ def build_reply_text(inputs: AlertDeliveryWorkflowInputs) -> str | None:
             # opener; the root already tells the story.
             return None
         case "$error_tracking_issue_spiking":
-            current = extra.get("current_bucket_value")
-            baseline = extra.get("computed_baseline")
-            if current and baseline:
-                return (
-                    f"📈 Spiking again: {escape_slack_text(current)} events vs baseline {escape_slack_text(baseline)}"
-                )
-            return "📈 Spiking again"
+            summary = spike_summary(extra)
+            return f"📈 Spiking again: {summary}" if summary else "📈 Spiking again"
         case "$error_tracking_issue_merged":
             merged_count = extra.get("merged_count")
             issues = f"{merged_count} issues" if merged_count and merged_count != "1" else "an issue"
