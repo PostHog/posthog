@@ -11,6 +11,12 @@ export interface HostCapabilities {
    * (connected-GitHub-org) repositories and cloud workspaces.
    */
   readonly localWorkspaces: boolean;
+  /**
+   * Whether the host can paint a live embedded browser view (a native web
+   * view layered over the shared UI). Desktop (Electron) can; the web and
+   * mobile hosts cannot, so the UI hides the browser panel entirely.
+   */
+  readonly embeddedBrowser: boolean;
 }
 
 export const HOST_CAPABILITIES = Symbol.for(

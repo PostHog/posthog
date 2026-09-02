@@ -30,6 +30,7 @@ import {
   CONTEXT_MENU_CONTROLLER,
   CONTEXT_MENU_EXTERNAL_APPS_SERVICE,
 } from "@posthog/core/context-menu/identifiers";
+import { embeddedBrowserCoreModule } from "@posthog/core/embedded-browser/embedded-browser.module";
 import { FocusHostService } from "@posthog/core/focus/focus-service";
 import { FocusServiceEvent } from "@posthog/core/focus/identifiers";
 import { gitHostModule } from "@posthog/core/git/git-host.module";
@@ -109,6 +110,7 @@ import { DEEP_LINK_SERVICE } from "@posthog/platform/deep-link";
 import { DEV_HOST_ACTIONS_SERVICE } from "@posthog/platform/dev-host-actions";
 import { DIALOG_SERVICE } from "@posthog/platform/dialog";
 import { DISK_CACHE_SERVICE } from "@posthog/platform/disk-cache";
+import { EMBEDDED_BROWSER } from "@posthog/platform/embedded-browser";
 import { FILE_ICON_SERVICE } from "@posthog/platform/file-icon";
 import { IMAGE_PROCESSOR_SERVICE } from "@posthog/platform/image-processor";
 import { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
@@ -239,6 +241,7 @@ import { ElectronContextMenu } from "../platform-adapters/electron-context-menu"
 import { ElectronCrypto } from "../platform-adapters/electron-crypto";
 import { ElectronDevHostActions } from "../platform-adapters/electron-dev-host-actions";
 import { ElectronDialog } from "../platform-adapters/electron-dialog";
+import { ElectronEmbeddedBrowser } from "../platform-adapters/electron-embedded-browser";
 import { ElectronFileIcon } from "../platform-adapters/electron-file-icon";
 import { ElectronImageProcessor } from "../platform-adapters/electron-image-processor";
 import { ElectronMainWindow } from "../platform-adapters/electron-main-window";
@@ -354,6 +357,7 @@ container.bind(ANALYTICS_SERVICE).toConstantValue(posthogNodeAnalytics);
 container.bind(FILE_ICON_SERVICE).to(ElectronFileIcon);
 container.bind(SECURE_STORAGE_SERVICE).to(ElectronSecureStorage);
 container.bind(MAIN_WINDOW_SERVICE).to(ElectronMainWindow);
+container.bind(EMBEDDED_BROWSER).to(ElectronEmbeddedBrowser);
 container.bind(APP_LIFECYCLE_SERVICE).to(ElectronAppLifecycle);
 container.bind(POWER_MANAGER_SERVICE).to(ElectronPowerManager);
 container.bind(UPDATER_SERVICE).to(ElectronUpdater);
@@ -808,6 +812,10 @@ container.bind(QUICK_ASK_RUN_DEFAULTS).toConstantValue(() => {
 // Browser tabs for the Channels canvas surface. Authoritative sqlite-backed
 // service in the main process; resolved by the host-router browserTabs router.
 container.load(browserTabsModule);
+
+// Embedded browser: the URL-policy service (core) over the Electron
+// WebContentsView adapter, resolved by the host-router embeddedBrowser router.
+container.load(embeddedBrowserCoreModule);
 
 container.bind(MAIN_DEV_FLAGS_SERVICE).to(DevFlagsService);
 container.bind(MAIN_DEV_METRICS_SERVICE).to(DevMetricsService);

@@ -1,5 +1,10 @@
 import { useDroppable } from "@dnd-kit/react";
-import { Plus, SquareSplitHorizontalIcon, X } from "@phosphor-icons/react";
+import {
+  Globe,
+  Plus,
+  SquareSplitHorizontalIcon,
+  X,
+} from "@phosphor-icons/react";
 import { useHostTRPCClient } from "@posthog/host-router/react";
 import { CONTENT_CHROME_RIGHT_VAR } from "@posthog/ui/features/navigation/rightPanelSide";
 import { PanelDropZones } from "@posthog/ui/features/panels/components/PanelDropZones";
@@ -70,6 +75,7 @@ interface TabbedPanelProps {
   draggingTabPanelId?: string | null;
   allowPanelSplit?: boolean;
   onAddTerminal?: () => void;
+  onAddBrowser?: () => void;
   onSplitPanel?: (direction: SplitDirection) => void;
   onClosePanel?: () => void;
   rightContent?: React.ReactNode;
@@ -89,6 +95,7 @@ export const TabbedPanel: React.FC<TabbedPanelProps> = ({
   draggingTabPanelId = null,
   allowPanelSplit = true,
   onAddTerminal,
+  onAddBrowser,
   onSplitPanel,
   onClosePanel,
   rightContent,
@@ -268,6 +275,13 @@ export const TabbedPanel: React.FC<TabbedPanelProps> = ({
               <Tooltip content="New terminal" side="bottom">
                 <TabBarButton ariaLabel="Add terminal" onClick={onAddTerminal}>
                   <Plus size={14} />
+                </TabBarButton>
+              </Tooltip>
+            )}
+            {content.droppable && onAddBrowser && (
+              <Tooltip content="New browser" side="bottom">
+                <TabBarButton ariaLabel="Add browser" onClick={onAddBrowser}>
+                  <Globe size={14} />
                 </TabBarButton>
               </Tooltip>
             )}

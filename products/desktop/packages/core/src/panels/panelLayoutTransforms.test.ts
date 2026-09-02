@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  addBrowserTab,
   addRecentFile,
   closeTab,
   createInitialTaskLayout,
   openTab,
+  updateBrowserTabUrl,
 } from "./panelLayoutTransforms";
 import { createFileTabId, resetPanelIdCounter } from "./panelStoreHelpers";
 import { findTabInTree } from "./panelTree";
@@ -72,6 +74,67 @@ describe("panelLayoutTransforms", () => {
       );
 
       expect(findTabInTree(closed.panelTree, tabId)).toBeNull();
+    });
+  });
+
+  describe("addBrowserTab", () => {
+    it("adds an empty-url browser tab and activates it", () => {
+      const layout = createInitialTaskLayout();
+      const added = applyUpdates(layout, addBrowserTab(layout, "main-panel"));
+
+      expect(added.panelTree.type).toBe("leaf");
+      if (added.panelTree.type !== "leaf") return;
+      const tab = added.panelTree.content.tabs.at(-1);
+      expect(tab?.data).toEqual({
+        type: "browser",
+        browserId: tab?.id,
+        url: "",
+      });
+      expect(tab?.closeable).toBe(true);
+      expect(added.panelTree.content.activeTabId).toBe(tab?.id);
+    });
+
+    it("does nothing for an unknown panel", () => {
+      const layout = createInitialTaskLayout();
+      const result = applyUpdates(layout, addBrowserTab(layout, "nope"));
+      expect(result.panelTree).toEqual(layout.panelTree);
+    });
+  });
+
+  describe("updateBrowserTabUrl", () => {
+    it("persists the current page into the tab data", () => {
+      const layout = createInitialTaskLayout();
+      const added = applyUpdates(layout, addBrowserTab(layout, "main-panel"));
+      const tabId =
+        added.panelTree.type === "leaf"
+          ? (added.panelTree.content.tabs.at(-1)?.id ?? "")
+          : "";
+
+      const updated = applyUpdates(
+        added,
+        updateBrowserTabUrl(added, tabId, "http://localhost:8000/app"),
+      );
+      const tab = findTabInTree(updated.panelTree, tabId)?.tab;
+      expect(tab?.data).toEqual({
+        type: "browser",
+        browserId: tabId,
+        url: "http://localhost:8000/app",
+      });
+    });
+
+    it("ignores unknown tabs and non-browser tabs", () => {
+      const layout = createInitialTaskLayout();
+      expect(updateBrowserTabUrl(layout, "nope", "https://x.example")).toEqual(
+        {},
+      );
+      // "logs" exists but is not a browser tab — its data must not change.
+      const updated = applyUpdates(
+        layout,
+        updateBrowserTabUrl(layout, "logs", "https://x.example"),
+      );
+      expect(findTabInTree(updated.panelTree, "logs")?.tab.data).toEqual({
+        type: "logs",
+      });
     });
   });
 

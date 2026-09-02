@@ -103,6 +103,10 @@
     "./disk-cache": {
       "types": "./dist/disk-cache.d.ts",
       "import": "./dist/disk-cache.js"
+    },
+    "./embedded-browser": {
+      "types": "./dist/embedded-browser.d.ts",
+      "import": "./dist/embedded-browser.js"
     }
   },
   "scripts": {

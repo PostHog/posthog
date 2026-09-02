@@ -15,6 +15,7 @@ import { contextMenuRouter } from "./routers/context-menu.router";
 import { dashboardsRouter } from "./routers/dashboards.router";
 import { deepLinkRouter } from "./routers/deep-link.router";
 import { diskCacheRouter } from "./routers/disk-cache.router";
+import { embeddedBrowserRouter } from "./routers/embedded-browser.router";
 import { enrichmentRouter } from "./routers/enrichment.router";
 import { environmentRouter } from "./routers/environment.router";
 import { externalAppsRouter } from "./routers/external-apps.router";
@@ -69,6 +70,7 @@ export const hostRouter = router({
   deepLink: deepLinkRouter,
   diskCache: diskCacheRouter,
   enrichment: enrichmentRouter,
+  embeddedBrowser: embeddedBrowserRouter,
   environment: environmentRouter,
   externalApps: externalAppsRouter,
   fileWatcher: fileWatcherRouter,
