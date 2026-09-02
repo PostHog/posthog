@@ -21,7 +21,6 @@ from posthog.hogql import ast
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.test.utils import pretty_print_in_tests
-from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models import PropertyDefinition
 from posthog.models.team.team_marketing_analytics_config import MAX_ATTRIBUTION_WINDOW_DAYS
@@ -607,6 +606,64 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         self.assertEqual(response.totalConversions, 2)
         self.assertEqual(response.unattributedConversions, 1)
 
+    def test_a_session_credits_by_its_start_not_by_when_its_pageview_landed(self):
+        # A touchpoint is keyed on the session start, so the per-person bounds have to be judged there
+        # too. Judging them on the pageview's own timestamp drops a session that opened before the
+        # conversion and only recorded its pageview afterwards.
+        create_person(team=self.team, distinct_ids=["p1"])
+        session_id = str(uuid7(ONE_DAY_BEFORE))
+        # The session opens on a click, which is what sets `$start_timestamp`.
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id="p1",
+            timestamp=ONE_DAY_BEFORE,
+            properties={
+                "$session_id": session_id,
+                "$current_url": "https://example.com/",
+                "$pathname": "/",
+                "$referring_domain": "$direct",
+                "utm_campaign": "late-pageview",
+            },
+        )
+        self._conversion("p1", CONVERSION_AT)
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2023-01-10T13:00:00Z",
+            properties={
+                "$session_id": session_id,
+                "$current_url": "https://example.com/",
+                "$pathname": "/",
+                "$referring_domain": "$direct",
+                "utm_campaign": "late-pageview",
+            },
+        )
+
+        response = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN)
+
+        by_campaign = self._by_breakdown(response)
+        self.assertAlmostEqual(by_campaign["late-pageview"][AttributionMode.LAST_TOUCH], 1.0, places=4)
+
+    @patch(
+        "products.marketing_analytics.backend.hogql_queries.attribution_base.MAX_CONVERSIONS_PER_PERSON",
+        2,
+    )
+    def test_the_conversion_ceiling_leaves_the_reported_total_exact(self):
+        # The footer publishes "N of M" as an exact count. Counting the ceiling-truncated array would
+        # under-report M for a person above the ceiling, and no field tells a client it happened.
+        create_person(team=self.team, distinct_ids=["p1"])
+        self._session("p1", THREE_DAYS_BEFORE, utm_campaign="a")
+        self._conversion("p1", TWO_DAYS_BEFORE)
+        self._conversion("p1", ONE_DAY_BEFORE)
+        self._conversion("p1", CONVERSION_AT)
+
+        response = self._run(MarketingAnalyticsAttributionBreakdown.CAMPAIGN, allow_multiple_conversions=True)
+
+        self.assertEqual(response.totalConversions, 3)
+        self.assertEqual(response.unattributedConversions, 1)
+
     def test_value_columns_are_populated_only_for_revenue_goals(self):
         # `hasValue` gates the value columns in the table. If the flag and the numbers disagree the UI
         # either hides real revenue or shows a column of nulls.
@@ -641,18 +698,17 @@ class TestMarketingAnalyticsAttributionQueryRunner(ClickhouseTestMixin, BaseTest
         person_arrays = ctes["person_arrays"].expr
         assert isinstance(person_arrays, ast.SelectQuery)
 
-        class FindSubqueryIn(TraversingVisitor):
-            def __init__(self) -> None:
-                self.found = False
-
-            def visit_compare_operation(self, node: ast.CompareOperation) -> None:
-                if node.op == ast.CompareOperationOp.In and isinstance(node.right, ast.SelectQuery):
-                    self.found = True
-                super().visit_compare_operation(node)
-
-        finder = FindSubqueryIn()
-        finder.visit(person_arrays.where)
-        self.assertTrue(finder.found, "person_arrays must restrict the events scan to converting persons")
+        # The restriction is a join against the converters subquery. Asserting on the join rather than
+        # on a bare `IN` keeps the test about the property (only converters are scanned) instead of the
+        # operator that happens to express it.
+        join = person_arrays.select_from
+        assert join is not None
+        restrictions = []
+        while join is not None:
+            if isinstance(join.table, ast.SelectQuery):
+                restrictions.append(join)
+            join = join.next_join
+        self.assertTrue(restrictions, "person_arrays must restrict the events scan to converting persons")
 
     def test_action_goals_credit_the_events_the_action_matches(self):
         # The action branch resolves the goal through Postgres and `action_to_expr` rather than a plain

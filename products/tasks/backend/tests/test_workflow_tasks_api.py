@@ -261,6 +261,9 @@ class TestWorkflowTasksAPI(APIBaseTest):
             ("no_header", "none"),
             ("wrong_signing_key", "wrong_key"),
             ("wrong_audience", "wrong_audience"),
+            # Same signing key as the scout-run step, distinct audience: that token must not
+            # spend a task creation, even though both mint from TASKS_CREATE_JWT_SECRETS.
+            ("scout_run_audience", "scout_run_audience"),
             ("expired", "expired"),
             ("missing_workflow_claim", "no_flow_claim"),
         ]
@@ -271,6 +274,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
             "none": None,
             "wrong_key": _token(self.team.id, flow_id, signing_key="not-the-secret"),
             "wrong_audience": _token(self.team.id, flow_id, audience=PosthogJwtAudience.RECORDING_API),
+            "scout_run_audience": _token(self.team.id, flow_id, audience=PosthogJwtAudience.WORKFLOW_SCOUT_RUN),
             "expired": _token(self.team.id, flow_id, expiry=timedelta(minutes=-1)),
             "no_flow_claim": _token(self.team.id, None),
         }[kind]

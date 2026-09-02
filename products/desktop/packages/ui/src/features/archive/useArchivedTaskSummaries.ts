@@ -2,7 +2,7 @@ import type { Schemas } from "@posthog/api-client";
 import { useAuthenticatedInfiniteQuery } from "@posthog/ui/hooks/useAuthenticatedInfiniteQuery";
 import { useMemo } from "react";
 
-export const ARCHIVED_TASKS_PAGE_SIZE = 50;
+const ARCHIVED_TASKS_PAGE_SIZE = 50;
 
 export interface ArchivedTaskSummaryPage {
   results: Schemas.TaskSummary[];

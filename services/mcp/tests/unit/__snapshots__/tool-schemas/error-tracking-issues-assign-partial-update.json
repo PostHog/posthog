@@ -1,0 +1,40 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "assignee": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "id": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "string"
+                                }
+                            ],
+                            "description": "User ID or role UUID to assign the issue to."
+                        },
+                        "type": {
+                            "description": "Assignment target type: user or role.\n\n* `user` - user\n* `role` - role",
+                            "enum": ["user", "role"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["id", "type"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Assignment target. Set to null or omit to remove the current assignment."
+        },
+        "id": {
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

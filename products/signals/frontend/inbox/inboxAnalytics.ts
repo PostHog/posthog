@@ -30,7 +30,6 @@ export const INBOX_EVENTS = {
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
     REPORT_OPENED: 'Inbox report opened',
-    SECTION_TOGGLED: 'Inbox section toggled',
     REPORT_CLOSED: 'Inbox report closed',
     REPORT_SCROLLED: 'Inbox report scrolled',
     REPORT_ACTION: 'Inbox report action',
@@ -55,8 +54,14 @@ export const INBOX_EVENTS = {
 
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
 
-/** Action surface an `Inbox report action` fired from. */
-export type InboxReportActionSurface = 'detail_pane' | 'detail_footer' | 'list_row' | 'bulk_bar' | 'triage_mode'
+/** Action surface an `Inbox report action` fired from. `context_menu` is the right-click menu on a list row. */
+export type InboxReportActionSurface =
+    | 'detail_pane'
+    | 'detail_footer'
+    | 'list_row'
+    | 'bulk_bar'
+    | 'triage_mode'
+    | 'context_menu'
 
 /** How a report detail was opened. `triage` is the open-report shortcut in triage mode. */
 export type InboxReportOpenMethod = 'click' | 'deeplink' | 'triage' | 'unknown'
@@ -72,13 +77,15 @@ export type InboxReportFeedbackSentiment = 'positive' | 'negative'
 
 /**
  * Report actions cloud actually emits. Names match the desktop enum one-for-one (so the
- * `action_type` breakdown reads the same across clients), plus cloud-only `restore` (Archive tab),
- * `view_diff`, `show_more` (a list section widening its window), and the section expand/collapse
- * pair (desktop splits those per section instead).
+ * `action_type` breakdown reads the same across clients), plus cloud-only `restore` (Dismissed
+ * section), `resolve` (marking a report done without an inbox PR), `view_diff`, `show_more` (a list
+ * section widening its window), and the section expand/collapse pair (desktop splits those per
+ * section instead).
  * Desktop-only variants we don't fire yet are intentionally omitted.
  */
 export type InboxReportActionType =
     | 'dismiss'
+    | 'resolve'
     | 'discuss'
     | 'restore'
     | 'create_pr'
@@ -129,7 +136,16 @@ export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limi
 export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings' | 'triage'
 
 /** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
-export type InboxQueryChange = 'scope' | 'sort' | 'source_product' | 'scout' | 'priority' | 'search' | 'clear' | 'url'
+export type InboxQueryChange =
+    | 'scope'
+    | 'sort'
+    | 'source_product'
+    | 'scout'
+    | 'priority'
+    | 'state'
+    | 'search'
+    | 'clear'
+    | 'url'
 
 /** Surface a scout-management event fired from. Matches the desktop values. */
 export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'replay_vision_scanner'
@@ -137,7 +153,7 @@ export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'repl
 /**
  * Scout-management actions. The first block matches desktop's enum; the trailing block is
  * cloud-only, covering affordances desktop doesn't have (creating and deleting scouts, the
- * scratchpad callout, and the roster's on/off filter and search).
+ * scratchpad callout, and the roster's on/off filter, owner filter, and search).
  */
 export type ScoutActionType =
     | 'open_settings'
@@ -161,6 +177,7 @@ export type ScoutActionType =
     | 'delete_scout'
     | 'open_memory'
     | 'filter_enabled'
+    | 'filter_owner'
     | 'search_scouts'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
@@ -235,35 +252,24 @@ function actionabilityBreakdown(reports: SignalReport[]): Record<string, number>
     }
 }
 
-/** Which welcome takeover a user saw: the original stacked card or the redesigned hero. */
-export type InboxWelcomeVariant = 'control' | 'redesign'
-
 /** Where a wizard-command copy happened: the full welcome takeover or the re-enable banner. */
 export type InboxWelcomeCopySurface = 'takeover' | 'banner'
 
 /**
  * The self-driving welcome takeover rendered. `Inbox viewed` never fires for un-set-up teams (the
- * takeover replaces the report list), so this is the top-of-funnel event for setup conversion, and
- * the exposure marker for welcome-page experiments (`variant` mirrors the experiment arm).
+ * takeover replaces the report list), so this is the top-of-funnel event for setup conversion.
  */
-export function captureInboxWelcomeViewed(params: { variant: InboxWelcomeVariant }): void {
-    captureInboxEvent(INBOX_EVENTS.WELCOME_VIEWED, {
-        variant: params.variant,
-    })
+export function captureInboxWelcomeViewed(): void {
+    captureInboxEvent(INBOX_EVENTS.WELCOME_VIEWED, {})
 }
 
 /**
  * The wizard setup command was copied. Previously only recoverable from autocapture (and
  * unreliably: `$el_text` is null on about half of clicks), so the setup funnel's first
- * conversion step gets its own event. `variant` is null on the banner, which shows one
- * fixed layout regardless of the welcome experiment.
+ * conversion step gets its own event.
  */
-export function captureInboxWelcomeCommandCopied(params: {
-    variant: InboxWelcomeVariant | null
-    surface: InboxWelcomeCopySurface
-}): void {
+export function captureInboxWelcomeCommandCopied(params: { surface: InboxWelcomeCopySurface }): void {
     captureInboxEvent(INBOX_EVENTS.WELCOME_COMMAND_COPIED, {
-        variant: params.variant,
         surface: params.surface,
     })
 }
@@ -273,12 +279,10 @@ export function captureInboxWelcomeCommandCopied(params: {
  * {@link captureInboxWelcomeCommandCopied} as the other exit from the welcome page, so the two
  * together say how a team chose to set self-driving up. Without it a manual setup is invisible:
  * the wizard copy never fires, and the sources and scouts that follow look like they came from
- * nowhere. `variant` mirrors the welcome experiment arm, so the split is readable per arm.
+ * nowhere.
  */
-export function captureInboxWelcomeManualSetupClicked(params: { variant: InboxWelcomeVariant }): void {
-    captureInboxEvent(INBOX_EVENTS.WELCOME_MANUAL_SETUP_CLICKED, {
-        variant: params.variant,
-    })
+export function captureInboxWelcomeManualSetupClicked(): void {
+    captureInboxEvent(INBOX_EVENTS.WELCOME_MANUAL_SETUP_CLICKED, {})
 }
 
 /**
@@ -297,6 +301,8 @@ export function captureInboxViewed(params: {
     hasActiveFilters: boolean
     sourceProductFilter: string[]
     priorityFilter: string[]
+    /** Selected report states on the flat Reports list; [] (every state) on other surfaces. */
+    stateFilter?: string[]
     scope: string
 }): void {
     captureInboxEvent(INBOX_EVENTS.VIEWED, {
@@ -309,6 +315,7 @@ export function captureInboxViewed(params: {
         has_active_filters: params.hasActiveFilters,
         source_product_filter: params.sourceProductFilter,
         priority_filter: params.priorityFilter,
+        state_filter: params.stateFilter ?? [],
         scope: params.scope,
         ...priorityBreakdown(params.reports),
         ...actionabilityBreakdown(params.reports),
@@ -374,18 +381,6 @@ export function captureInboxReportOpened(params: {
         rank: params.rank,
         list_size: params.listSize,
         section: params.section,
-    })
-}
-
-/**
- * A Reports list section was expanded or collapsed. Resolved and Not actionable start collapsed,
- * so without this a reader who scrolls down to the resolved work is invisible until a card in it
- * impresses. Cloud-only: the desktop app has no collapsible sections.
- */
-export function captureInboxSectionToggled(params: { section: InboxReportSectionKey; isOpen: boolean }): void {
-    captureInboxEvent(INBOX_EVENTS.SECTION_TOGGLED, {
-        section: params.section,
-        is_open: params.isOpen,
     })
 }
 
@@ -597,6 +592,7 @@ export function captureInboxQueryChanged(params: {
     sourceProductFilter: string[]
     scoutFilter: string[]
     priorityFilter: string[]
+    stateFilter: string[]
     searchQuery: string
     hasActiveFilters: boolean
 }): void {
@@ -610,6 +606,7 @@ export function captureInboxQueryChanged(params: {
         source_product_filter: params.sourceProductFilter,
         scout_filter: params.scoutFilter,
         priority_filter: params.priorityFilter,
+        state_filter: params.stateFilter,
         has_search: search.length > 0,
         search_length: search.length,
         has_active_filters: params.hasActiveFilters,
@@ -650,12 +647,30 @@ function settingValueProperties(key: string, value: unknown): Record<string, unk
     return { [key]: value ?? null, [`${key}_size`]: null }
 }
 
+/**
+ * How the fleet materialization that preceded this view ended. The roster keeps its existing list
+ * when the sync is refused, so without this an `is_empty: true` view from a viewer who cannot write
+ * looks exactly like one from a project whose fleet genuinely failed to arrive.
+ */
+export type ScoutFleetSyncOutcome =
+    /** The sync ran and answered with the fleet. */
+    | 'synced'
+    /** No sync was issued — the roster opened before a project was resolved. */
+    | 'not_attempted'
+    /** 403: a member without `signal_scout:write`. The roster shows whatever the list read returned. */
+    | 'skipped_permission'
+    /** 404: a stale project id, usually left in the URL by a project switch. */
+    | 'not_found'
+    /** Anything else, including a 5xx. */
+    | 'failed'
+
 /** Roster shape at the moment the scout troop list was opened. Mirrors desktop's `Scout fleet viewed`. */
 export function captureScoutFleetViewed(params: {
     scoutCount: number
     enabledCount: number
     customCount: number
     dryRunCount: number
+    syncOutcome: ScoutFleetSyncOutcome
 }): void {
     captureInboxEvent(INBOX_EVENTS.SCOUT_FLEET_VIEWED, {
         scout_count: params.scoutCount,
@@ -663,6 +678,7 @@ export function captureScoutFleetViewed(params: {
         custom_count: params.customCount,
         dry_run_count: params.dryRunCount,
         is_empty: params.scoutCount === 0,
+        sync_outcome: params.syncOutcome,
     })
 }
 

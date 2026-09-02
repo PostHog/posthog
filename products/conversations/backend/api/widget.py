@@ -29,7 +29,7 @@ from posthog.event_usage import report_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.comment import Comment
-from posthog.rate_limit import WidgetTeamThrottle, WidgetUserBurstThrottle
+from posthog.rate_limit import WIDGET_POLL_THROTTLES, WIDGET_WRITE_THROTTLES
 
 from products.conversations.backend.api.serializers import (
     WIDGET_TICKETS_DEFAULT_LIMIT,
@@ -153,7 +153,7 @@ class WidgetMessageView(APIView):
 
     authentication_classes = [WidgetAuthentication]
     permission_classes = [AllowAny]
-    throttle_classes = [WidgetUserBurstThrottle, WidgetTeamThrottle]
+    throttle_classes = WIDGET_WRITE_THROTTLES
 
     def post(self, request: Request) -> Response:
         """Handle incoming message from widget."""
@@ -349,7 +349,7 @@ class WidgetMessagesView(APIView):
 
     authentication_classes = [WidgetAuthentication]
     permission_classes = [AllowAny]
-    throttle_classes = [WidgetUserBurstThrottle, WidgetTeamThrottle]
+    throttle_classes = WIDGET_POLL_THROTTLES
 
     def get(self, request: Request, ticket_id: str) -> Response:
         """Get messages for a ticket."""
@@ -479,7 +479,7 @@ class WidgetTicketsView(APIView):
 
     authentication_classes = [WidgetAuthentication]
     permission_classes = [AllowAny]
-    throttle_classes = [WidgetUserBurstThrottle, WidgetTeamThrottle]
+    throttle_classes = WIDGET_POLL_THROTTLES
 
     def get(self, request: Request) -> Response:
         """List tickets for a widget_session_id."""
@@ -573,7 +573,7 @@ class WidgetMarkReadView(APIView):
 
     authentication_classes = [WidgetAuthentication]
     permission_classes = [AllowAny]
-    throttle_classes = [WidgetUserBurstThrottle, WidgetTeamThrottle]
+    throttle_classes = WIDGET_WRITE_THROTTLES
 
     def post(self, request: Request, ticket_id: str) -> Response:
         """Mark ticket messages as read by customer."""

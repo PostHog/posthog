@@ -62,6 +62,9 @@ _SPEC_BY_HANDLE = {spec.handle: spec for spec in BUILT_IN_AGENTS}
 _TASK_ORIGIN_TO_AGENT: dict[str, BuiltInAgentKey] = {
     "support_reply": "support",
     "signals_scout": "scout",
+    # The headless suggestion scan runs as the Scout agent with an empty server allowlist, so it
+    # mounts nothing from the Store rather than the team's shared connectors.
+    "scout_suggestions": "scout",
     "workflow": "workflow",
 }
 # Signal report tasks may be created through the public Tasks API, so they

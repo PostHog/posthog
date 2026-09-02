@@ -368,13 +368,17 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                         const newerThanTs = newerThan.getTime() / 1000
 
                         if (eventTs > newerThanTs) {
-                            // Streamed events arrive raw, so the same cleaning the backfill query
-                            // does server-side has to happen here for both to land on one key.
+                            // Prefer the livestream service's RE2-cleaned pathname — it matches the
+                            // backfill query exactly. The client-side mirror stays as a fallback for
+                            // livestream deploys that don't send it yet.
                             const rawPathname = event.properties?.$pathname
+                            const serverCleanedPathname = event.properties?.$virt_cleaned_pathname
                             const pathname =
-                                typeof rawPathname === 'string'
-                                    ? applyPathCleaning(rawPathname, pathCleaningFilters)
-                                    : rawPathname
+                                typeof serverCleanedPathname === 'string'
+                                    ? serverCleanedPathname
+                                    : typeof rawPathname === 'string'
+                                      ? applyPathCleaning(rawPathname, pathCleaningFilters)
+                                      : rawPathname
                             const deviceType = event.properties?.$device_type
                             const deviceId = event.properties?.$device_id
                             const browser = event.properties?.$browser
@@ -863,6 +867,11 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             const recordingColumn = values.currentTeam?.session_recording_opt_in ? ',$session_id' : ''
             url.searchParams.append('columns', `${baseColumns}${cityColumns}${recordingColumn}`)
             appendFilterParams(url, values.streamFilters)
+            if (values.pathCleaningFilters.length > 0) {
+                // The livestream service cleans server-side with RE2 (the engine the backfill
+                // query uses) and returns $virt_cleaned_pathname alongside the raw value.
+                url.searchParams.append('pathCleaning', JSON.stringify(values.pathCleaningFilters))
+            }
 
             cache.batch = cache.batch ?? ([] as LiveEvent[])
 

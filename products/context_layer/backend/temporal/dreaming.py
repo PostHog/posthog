@@ -33,6 +33,7 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
 
+from products.context_layer.backend.dreams import DREAM_AI_STAGE
 from products.context_layer.backend.facade import api as context_layer_facade
 from products.context_layer.backend.models import ContextLayerConfig
 
@@ -206,6 +207,7 @@ async def dispatch_dream_run(input: DispatchDreamRunInput) -> DispatchDreamRunOu
                 initial_permission_mode="bypassPermissions",
             ),
             step_name="context-layer-dream",
+            ai_stage=DREAM_AI_STAGE,
             internal=True,
             workflow_id_prefix="context-layer-dream",
         )
