@@ -332,6 +332,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     scannerId={observation.scanner_id}
                                     sessionId={observation.session_id}
                                     distinctId={observation.distinct_id}
+                                    analysisAvailable={observation.status === 'succeeded' && !!result}
                                 />
                             }
                         />
