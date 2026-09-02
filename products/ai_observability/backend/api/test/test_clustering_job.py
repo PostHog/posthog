@@ -295,6 +295,22 @@ class TestClusteringJobViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("not found or deleted", str(response.json()))
 
+    @parameterized.expand(
+        [
+            ("bare_string", "not-a-list"),
+            ("list_of_strings", ["not-a-dict"]),
+            ("single_filter_object", {"key": "$ai_model", "value": "gpt-4", "type": "event"}),
+        ]
+    )
+    def test_create_rejects_malformed_event_filters(self, _name, event_filters):
+        response = self.client.post(
+            self._url(),
+            {"name": "Bad Shape", "analysis_level": "trace", "event_filters": event_filters},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(ClusteringJob.objects.filter(team=self.team).count(), 0)
+
     def test_partial_update_rejects_missing_cohort_filter(self):
         job = self._create_job(name="Will be broken")
         response = self.client.patch(
