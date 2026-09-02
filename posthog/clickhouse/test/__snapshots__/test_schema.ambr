@@ -3832,13 +3832,14 @@
       `namespace` LowCardinality(String),
       `environment` LowCardinality(String),
       `severity_text` LowCardinality(String),
+      `pattern_version` UInt8,
       `pattern` String,
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_pattern_buckets', '{replica}-{shard}')
   PARTITION BY toDate(time_bucket)
-  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern)
-  PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text)
+  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern)
+  PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version)
   TTL time_bucket + INTERVAL 42 DAY
   SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
   
@@ -10784,13 +10785,14 @@
       `namespace` LowCardinality(String),
       `environment` LowCardinality(String),
       `severity_text` LowCardinality(String),
+      `pattern_version` UInt8,
       `pattern` String,
       `log_count` SimpleAggregateFunction(sum, UInt64)
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.logs_pattern_buckets', '{replica}-{shard}')
   PARTITION BY toDate(time_bucket)
-  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern)
-  PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text)
+  ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern)
+  PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version)
   TTL time_bucket + INTERVAL 42 DAY
   SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
   

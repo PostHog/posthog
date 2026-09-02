@@ -747,8 +747,8 @@ SQL
   }
 
   table "logs_pattern_buckets" {
-    primary_key  = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text"]
-    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern"]
+    primary_key  = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version"]
+    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version", "pattern"]
     partition_by = "toDate(time_bucket)"
     ttl          = "time_bucket + toIntervalDay(42)"
     settings = {
@@ -773,6 +773,9 @@ SQL
     }
     column "severity_text" {
       type = "LowCardinality(String)"
+    }
+    column "pattern_version" {
+      type = "UInt8"
     }
     column "pattern" {
       type = "String"
@@ -805,6 +808,9 @@ SQL
     }
     column "severity_text" {
       type = "LowCardinality(String)"
+    }
+    column "pattern_version" {
+      type = "UInt8"
     }
     column "pattern" {
       type = "String"

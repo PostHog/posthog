@@ -727,8 +727,8 @@ database "posthog" {
   }
 
   table "logs_pattern_buckets" {
-    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern"]
-    primary_key  = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text"]
+    order_by     = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version", "pattern"]
+    primary_key  = ["team_id", "time_bucket", "service_name", "namespace", "environment", "severity_text", "pattern_version"]
     partition_by = "toDate(time_bucket)"
     ttl          = "time_bucket + toIntervalDay(42)"
     settings = {
@@ -753,6 +753,9 @@ database "posthog" {
     }
     column "severity_text" {
       type = "LowCardinality(String)"
+    }
+    column "pattern_version" {
+      type = "UInt8"
     }
     column "pattern" {
       type = "String"
@@ -785,6 +788,9 @@ database "posthog" {
     }
     column "severity_text" {
       type = "LowCardinality(String)"
+    }
+    column "pattern_version" {
+      type = "UInt8"
     }
     column "pattern" {
       type = "String"

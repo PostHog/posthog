@@ -30,6 +30,10 @@ from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, 
 # two rows. A reader that ignores severity can still collapse them, but a reader
 # that keeps it can tell an escalation from a new shape.
 #
+# `pattern_version` sits in the grain, just before `pattern`. Two patterns only
+# mean the same shape when the masker version that produced them matches, so a
+# masking change must start a new series rather than merge into the old one.
+#
 # TTL is 42 days (6 weekly samples per time-of-week slot), independent of raw
 # log retention. Nothing caps patterns per series yet, so until something does,
 # row count here is bounded only by how many distinct shapes a service emits.
@@ -47,13 +51,14 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     `namespace` LowCardinality(String),
     `environment` LowCardinality(String),
     `severity_text` LowCardinality(String),
+    `pattern_version` UInt8,
     `pattern` String,
     `log_count` SimpleAggregateFunction(sum, UInt64)
 )
 ENGINE = {AggregatingMergeTree(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED)}
 PARTITION BY toDate(time_bucket)
-ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern)
-PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text)
+ORDER BY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern)
+PRIMARY KEY (team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version)
 TTL time_bucket + INTERVAL 42 DAY
 SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1
 """
