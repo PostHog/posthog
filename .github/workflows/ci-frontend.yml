@@ -14,9 +14,21 @@ on:
     push:
         branches:
             - master
+    schedule:
+        # Where master's jest coverage and its Trunk flaky-test baseline come from.
+        # The merge queue's trunk-merge/** run gates every commit before it lands, so
+        # the push lane does not repeat the suite. Typecheck, format and bundle size
+        # run on every push instead, being cheap and per-commit meaningful.
+        # Offset from the other hourly CI crons so the runs do not all fire at once.
+        - cron: '7 * * * *'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # The hourly lane gets its own group, so it queues behind itself rather than
+    # behind master pushes. Sharing the ref group would let a slow hourly run hold
+    # the group while pushes pile up pending, and GitHub keeps only the newest
+    # pending run per group — so the older push, and its per-commit checks, would
+    # be dropped.
+    group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'scheduled' || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -81,7 +93,11 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
+              # Skipped on master push and on the hourly schedule: every output then
+              # defaults to true. See "The hourly master lane" in
+              # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
+              # diff, and what breaks if this guard is dropped.
+              if: github.event_name != 'push' && github.event_name != 'schedule'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   list-files: 'escape'
@@ -194,11 +210,11 @@ jobs:
             # above is inline YAML — paths-filter takes one or the other. The exclude-only
             # filter is true only when some changed file lives OUTSIDE every excluded dir.
             - name: Derive Node-only product workspace exclusions
-              if: github.event_name != 'push'
+              if: github.event_name != 'push' && github.event_name != 'schedule'
               run: bin/frontend-exclude-filter > "$RUNNER_TEMP/frontend-exclude.yml"
             - uses: ./.github/actions/paths-filter
               id: exclude
-              if: github.event_name != 'push'
+              if: github.event_name != 'push' && github.event_name != 'schedule'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: ${{ runner.temp }}/frontend-exclude.yml
@@ -342,7 +358,9 @@ jobs:
     frontend-format:
         name: Frontend formatting
         needs: changes
-        if: needs.changes.outputs.frontend == 'true'
+        # Not on the hourly cron: that lane exists for jest only, and formatting
+        # already ran on the push that landed each commit.
+        if: needs.changes.outputs.frontend == 'true' && github.event_name != 'schedule'
         runs-on: ubuntu-latest
         timeout-minutes: 10
         steps:
@@ -424,7 +442,9 @@ jobs:
     frontend-bundle-size:
         name: Frontend bundle size
         needs: [changes]
-        if: needs.changes.outputs.frontend_code == 'true'
+        # Not on the hourly cron: the vs-base comparison build is pull_request-only,
+        # so a cron run measures an absolute size with nothing to compare it against.
+        if: needs.changes.outputs.frontend_code == 'true' && github.event_name != 'schedule'
         runs-on: ubuntu-latest
         timeout-minutes: 10
         steps:
@@ -672,7 +692,9 @@ jobs:
     frontend-typescript-checks:
         name: Frontend typechecking
         needs: [changes]
-        if: needs.changes.outputs.frontend_code == 'true'
+        # Not on the hourly cron: that lane exists for jest only, and typechecking
+        # already ran on the push that landed each commit.
+        if: needs.changes.outputs.frontend_code == 'true' && github.event_name != 'schedule'
         # tsgo peaks ~12 GB type-checking the whole frontend, which OOM-kills it on a 16 GB
         # runner (ubuntu-latest and depot-ubuntu-24.04-4 alike). Peak tracks the type graph,
         # not parallelism or lib checking: skipLibCheck is already on, GOMAXPROCS and
@@ -769,9 +791,13 @@ jobs:
         # A status function is required because select-jest-tests is skipped on ready
         # PRs and master pushes, and a skipped need would otherwise cascade a skip here.
         # !cancelled() rather than always() so a superseded run's shards stop promptly.
+        # Skipped on master push: the merge queue already ran the full matrix for every
+        # landed commit, and the hourly scheduled run keeps master's jest coverage and
+        # its Trunk flaky baseline.
         if: |
             !cancelled() && needs.changes.outputs.frontend_code == 'true'
             && needs.select-jest-tests.outputs.should_run != 'false'
+            && github.event_name != 'push'
         name: Jest test (${{ matrix.segment }} - ${{ matrix.chunk }})
         strategy:
             # If one test fails, still run the others
@@ -779,8 +805,9 @@ jobs:
             # On draft PRs, select-jest-tests may narrow this to two jobs
             # running only the tests reachable from changed frontend source files,
             # or skip jest entirely (should_run=false) when selection can't be
-            # trusted. On ready PRs and master pushes it's skipped, so
-            # we fall back to the full four-chunk fanout (the merge gate).
+            # trusted. On ready PRs and the hourly scheduled run it's skipped, so
+            # we fall back to the full four-chunk fanout. Master pushes do not
+            # reach here at all (see the `if` above).
             # `segment` is a single fixed value: it survives only as the naming
             # token for job, JUnit file and artifact, which the timings reporter
             # parses as `junit-results-frontend-<segment>-<chunk>`. There used to
