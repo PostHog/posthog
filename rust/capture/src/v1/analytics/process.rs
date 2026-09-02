@@ -851,7 +851,13 @@ fn drop_non_ai_events(state: &router::State, context: &Context, events: &mut [Wr
     let mut single_offender: Option<(String, Uuid)> = None;
 
     for event in events.iter_mut() {
-        if event.result != EventResult::Ok || event.destination == Destination::AiEvents {
+        // Gate on the event name, not the destination: `on_ai_lane` documents
+        // why the destination is the wrong question. `should_publish` rather
+        // than `result == Ok` so a Warning event -- which also publishes --
+        // cannot ride an analytics lane out of an AI deployment. Neither case
+        // is reachable at this point today; both make the gate correct on its
+        // own terms rather than on its position in the pipeline.
+        if !event.should_publish() || on_ai_lane(event) {
             continue;
         }
         event.result = EventResult::Drop;
@@ -4482,6 +4488,61 @@ mod tests {
         }
         ts.mock_producer
             .with_records(|records| assert_eq!(records.len(), 3));
+    }
+
+    /// The gate keys on the event name, not the destination, so a restriction
+    /// that has already retargeted an AI event cannot smuggle it into the
+    /// non-AI drop. `force_overflow` sends it to `AiEventsOverflow`,
+    /// `redirect_to_topic` to `Custom`, a DLQ restriction to `Dlq` -- all three
+    /// are still the AI lane.
+    ///
+    /// `apply_restrictions` runs after the gate today, so none of this is
+    /// reachable through `process_batch`. That is exactly why it is worth
+    /// pinning directly: the ordering is the only thing that made the previous
+    /// destination-based check correct, and nothing else would fail if it moved.
+    #[rstest::rstest]
+    #[case::force_overflow(Destination::AiEventsOverflow)]
+    #[case::redirect_to_topic(Destination::Custom("some_other_topic".to_string()))]
+    #[case::redirect_to_dlq(Destination::Dlq)]
+    #[tokio::test]
+    async fn ai_lane_events_survive_the_gate_wherever_restrictions_pointed_them(
+        #[case] destination: Destination,
+    ) {
+        let ts = TestStateBuilder::new()
+            .with_capture_mode(CaptureMode::Ai)
+            .build();
+        let ctx = test_utils::test_analytics_context();
+        let mut events = vec![test_utils::wrapped_event("$ai_generation", "user-1")
+            .with_destination(destination.clone())];
+
+        drop_non_ai_events(&ts.state, &ctx, &mut events);
+
+        assert_eq!(
+            events[0].result,
+            EventResult::Ok,
+            "an allowlisted AI event stays on the lane wherever it was pointed"
+        );
+        assert_eq!(events[0].destination, destination);
+        assert_eq!(events[0].details, None);
+    }
+
+    /// The other direction: being pointed *at* `AiEvents` does not make a
+    /// non-AI event welcome. Under the old destination-based check this event
+    /// would have been waved through.
+    #[tokio::test]
+    async fn a_non_ai_event_pointed_at_the_ai_destination_is_still_dropped() {
+        let ts = TestStateBuilder::new()
+            .with_capture_mode(CaptureMode::Ai)
+            .build();
+        let ctx = test_utils::test_analytics_context();
+        let mut events = vec![test_utils::wrapped_event("$pageview", "user-1")
+            .with_destination(Destination::AiEvents)];
+
+        drop_non_ai_events(&ts.state, &ctx, &mut events);
+
+        assert_eq!(events[0].result, EventResult::Drop);
+        assert_eq!(events[0].destination, Destination::Drop);
+        assert_eq!(events[0].details, Some(DETAIL_NON_AI_EVENT));
     }
 
     #[tokio::test]
