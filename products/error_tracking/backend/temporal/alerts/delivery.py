@@ -139,7 +139,21 @@ def _opener_filter_matches(planned: list[PlannedDelivery], inputs: AlertDelivery
         return {}
     exception_properties: dict[str, object] = {}
     if any(has_configured_filters(alert) for alert in opener_alerts.values()):
-        exception_properties = fetch_exception_properties(inputs)
+        try:
+            exception_properties = fetch_exception_properties(inputs)
+        except Exception:
+            # Filtered openers cannot be decided without the properties, but that
+            # must not hold back alerts that never needed them: those deliver now,
+            # the undecided ones fail the activity so the retry evaluates them.
+            logger.exception(
+                "error_tracking_alert_exception_properties_unavailable",
+                team_id=inputs.team_id,
+                issue_id=inputs.issue_id,
+                notification_id=inputs.notification_id,
+            )
+            return {
+                alert_id: (None if has_configured_filters(alert) else True) for alert_id, alert in opener_alerts.items()
+            }
     return {
         alert_id: alert_filters_match(alert, inputs, exception_properties) for alert_id, alert in opener_alerts.items()
     }
@@ -151,10 +165,17 @@ def deliver_alert_notifications(inputs: AlertDeliveryWorkflowInputs) -> int:
     delivered = 0
     failures = 0
     for delivery in planned:
-        if delivery.is_opener and not filter_matches.get(delivery.alert.id, True):
-            # A filtered-out opener leaves no thread behind, so later replies for
-            # this issue stay unclaimed and a matching opener can still root one.
-            continue
+        if delivery.is_opener:
+            verdict = filter_matches.get(delivery.alert.id, True)
+            if verdict is None:
+                # Undecided: the exception properties could not be fetched. Counted
+                # as a failure so the activity retries once the rest has delivered.
+                failures += 1
+                continue
+            if not verdict:
+                # A filtered-out opener leaves no thread behind, so later replies for
+                # this issue stay unclaimed and a matching opener can still root one.
+                continue
         try:
             if _deliver_one(delivery, inputs):
                 delivered += 1

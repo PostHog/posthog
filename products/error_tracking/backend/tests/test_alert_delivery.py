@@ -523,6 +523,60 @@ class TestAlertFilterEvaluation(AlertTestMixin):
         with team_scope(self.team.id):
             assert not ErrorTrackingAlertThread.objects.filter(issue=self.issue).exists()
 
+    def test_exception_timestamp_filter_sees_the_lifecycle_value(self):
+        # Spiking carries the detection time as exception_timestamp on the lifecycle
+        # event; the exception's own time is only the fetch anchor. Filters must see
+        # the same value the CDP path sees.
+        client = self._mock_slack()
+        self._create_filtered_alert(
+            {"properties": [{"key": "exception_timestamp", "value": "2026-07-21T15:00:00+00:00", "type": "event"}]},
+            triggers=["issue_spiking"],
+        )
+        self._patch_exception_properties({})
+
+        delivered = deliver_alert_notifications(
+            self._inputs(
+                "$error_tracking_issue_spiking",
+                event_timestamp="2026-07-21T14:00:00+00:00",
+                lifecycle_timestamp="2026-07-21T15:00:00+00:00",
+            )
+        )
+
+        assert delivered == 1
+        client.chat_postMessage.assert_called_once()
+
+    def test_exception_timestamp_filter_falls_back_to_the_event_time(self):
+        # Payloads from before lifecycle_timestamp existed still evaluate the filter.
+        client = self._mock_slack()
+        self._create_filtered_alert(
+            {"properties": [{"key": "exception_timestamp", "value": "2026-07-21T14:00:00+00:00", "type": "event"}]}
+        )
+        self._patch_exception_properties({})
+
+        delivered = deliver_alert_notifications(
+            self._inputs("$error_tracking_issue_created", event_timestamp="2026-07-21T14:00:00+00:00")
+        )
+
+        assert delivered == 1
+        client.chat_postMessage.assert_called_once()
+
+    def test_property_fetch_failure_does_not_block_unfiltered_alerts(self):
+        client = self._mock_slack()
+        self._create_alert(triggers=["issue_created"])
+        self._create_filtered_alert(self.ENVIRONMENT_FILTER)
+        fetcher = self._patch_exception_properties({"environment": "production"})
+        fetcher.side_effect = RuntimeError("clickhouse unavailable")
+        inputs = self._inputs("$error_tracking_issue_created")
+
+        # The unfiltered alert posts now; the activity still fails so the filtered one is retried.
+        with self.assertRaises(AlertDeliveryError):
+            deliver_alert_notifications(inputs)
+        assert client.chat_postMessage.call_count == 1
+
+        fetcher.side_effect = None
+        assert deliver_alert_notifications(inputs) == 1
+        assert client.chat_postMessage.call_count == 2
+
     def test_issue_field_filter_evaluates_from_the_lifecycle_snapshot(self):
         client = self._mock_slack()
         self._create_filtered_alert({"properties": [{"key": "severity", "value": "critical", "type": "event"}]})

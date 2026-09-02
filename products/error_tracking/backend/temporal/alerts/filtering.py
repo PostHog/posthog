@@ -63,7 +63,9 @@ def alert_filters_match(
         key: value
         for key, value in {
             **{key: _coerce_numeric(value) for key, value in (inputs.extra or {}).items()},
-            "exception_timestamp": inputs.event_timestamp,
+            # Older in-flight payloads predate lifecycle_timestamp; the exception time
+            # is the right value for created/reopened and the previous one for spiking.
+            "exception_timestamp": inputs.lifecycle_timestamp or inputs.event_timestamp,
             "name": inputs.issue_name,
             "description": inputs.issue_description,
             "issue_description": inputs.issue_description,

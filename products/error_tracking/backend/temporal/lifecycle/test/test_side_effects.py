@@ -217,6 +217,7 @@ def test_internal_event_reraises_non_size_kafka_errors() -> None:
     start_delivery.assert_called_once()
     assert start_delivery.call_args.kwargs["event_uuid"] == inputs.event_uuid
     assert start_delivery.call_args.kwargs["event_timestamp"] == inputs.event_timestamp
+    assert start_delivery.call_args.kwargs["lifecycle_timestamp"] == "2026-07-21T12:30:00+00:00"
 
 
 @pytest.mark.asyncio
