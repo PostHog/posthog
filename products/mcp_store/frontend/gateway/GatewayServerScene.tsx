@@ -24,6 +24,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { MCPAuthTypeEnumApi, MCPToolApprovalStateEnumApi, ResolvedToolPolicyApi } from '../generated/api.schemas'
 import { ServerIcon } from '../scene/icons'
+import { GatewayConnectionModal } from './GatewayConnectionModal'
 import { isPolicyStateAllowedByCeiling } from './gatewayPolicyUtils'
 import { GatewayRouteGuard } from './GatewayRouteGuard'
 import { GatewayAccessSection } from './GatewayServerAccess'
@@ -120,6 +121,8 @@ export function GatewayServerScene({
 
     return (
         <SceneContent className="mx-auto w-full max-w-[1200px]">
+            <GatewayConnectionModal />
+
             <LemonButton size="small" type="tertiary" icon={<IconArrowLeft />} onClick={goBack}>
                 Back to servers
             </LemonButton>
