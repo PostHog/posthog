@@ -16,7 +16,7 @@ delivery is trigger-only.
 """
 
 import dataclasses
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from django.db import IntegrityError
 from django.db.models import Q
@@ -61,8 +61,9 @@ ROOT_EDIT_EVENTS = {
 
 DELIVERED_NOTIFICATION_IDS_CAP = 200
 # A send claim older than this belongs to a holder that died between posting and
-# saving (Temporal retries would have reclaimed it sooner); the next delivery takes over.
-PENDING_CLAIM_TTL = timedelta(minutes=5)
+# saving; the next delivery takes over. Longer than a Slack call can take, shorter
+# than the activity retry schedule so a busy loser is still retrying when it expires.
+PENDING_CLAIM_TTL = timedelta(seconds=60)
 
 
 class AlertThreadBusyError(Exception):
@@ -174,8 +175,7 @@ def _deliver_one(delivery: PlannedDelivery, inputs: AlertDeliveryWorkflowInputs)
     thread = delivery.thread
     if thread is None:
         # Planner guarantee: only openers arrive without a thread. The unique
-        # constraint is the concurrency primitive; the insert-race loser reuses
-        # the winner's row.
+        # constraint dedupes the row; the insert-race loser reuses the winner's.
         try:
             thread, _ = ErrorTrackingAlertThread.objects.for_team(delivery.alert.team_id, canonical=True).get_or_create(
                 alert=delivery.alert,
@@ -186,9 +186,6 @@ def _deliver_one(delivery: PlannedDelivery, inputs: AlertDeliveryWorkflowInputs)
         except IntegrityError:
             # The issue row is gone (merged away or deleted): nothing to alert on.
             return False
-
-    if inputs.notification_id in (thread.delivered_notification_ids or []):
-        return False
 
     client = _slack_client(delivery.destination)
     if client is None:
@@ -203,61 +200,81 @@ def _deliver_one(delivery: PlannedDelivery, inputs: AlertDeliveryWorkflowInputs)
         )
         return False
 
-    opening = not thread.external_ref.get("ts")
-    if opening:
-        if not delivery.is_opener:
-            # The row exists but was never rooted (a previous root post failed):
-            # leave this notification unclaimed so a later opener still roots.
-            return False
-        channel = delivery.destination.config.get("channel")
-        if not channel:
-            return False
-        message = build_root_message(inputs)
-    else:
-        reply = build_reply_text(inputs)
-        if reply is None:
-            return False
-
-    _claim_thread(thread, inputs)
+    claimed_at = _claim_thread(thread, inputs)
     try:
-        if opening:
-            response = client.chat_postMessage(channel=channel, blocks=message["blocks"], text=message["text"])
-            thread.external_ref = {"channel": response["channel"], "ts": response["ts"]}
-            thread.root_headline = message["headline"]
-        else:
-            # Replies stay in the thread's own channel: a provider thread cannot move,
-            # so a repointed destination only applies to newly opened threads.
-            client.chat_postMessage(
-                channel=thread.external_ref["channel"],
-                thread_ts=thread.external_ref["ts"],
-                text=reply,
-            )
-            _maybe_edit_root(client, thread, inputs)
+        # Everything below reads row state written by whoever held the claim last.
+        thread.refresh_from_db()
+        posted = _post_claimed(client, thread, delivery, inputs, claimed_at)
     except Exception:
         # A failed post frees the thread for whoever comes next; this notification's
         # retry then lands wherever the thread is by that time.
         _release_thread(thread, inputs)
         raise
+    if not posted:
+        _release_thread(thread, inputs)
+    return posted
 
-    thread.delivered_notification_ids = [*(thread.delivered_notification_ids or []), inputs.notification_id][
+
+def _post_claimed(
+    client: WebClient,
+    thread: ErrorTrackingAlertThread,
+    delivery: PlannedDelivery,
+    inputs: AlertDeliveryWorkflowInputs,
+    claimed_at: datetime,
+) -> bool:
+    if inputs.notification_id in (thread.delivered_notification_ids or []):
+        return False
+
+    external_ref = thread.external_ref
+    root_headline = thread.root_headline
+    if not external_ref.get("ts"):
+        if not delivery.is_opener:
+            # The row exists but was never rooted (a previous root post failed):
+            # leave this notification undelivered so a later opener still roots.
+            return False
+        channel = delivery.destination.config.get("channel")
+        if not channel:
+            return False
+        message = build_root_message(inputs)
+        response = client.chat_postMessage(channel=channel, blocks=message["blocks"], text=message["text"])
+        external_ref = {"channel": response["channel"], "ts": response["ts"]}
+        root_headline = message["headline"]
+    else:
+        reply = build_reply_text(inputs)
+        if reply is None:
+            return False
+        # Replies stay in the thread's own channel: a provider thread cannot move,
+        # so a repointed destination only applies to newly opened threads.
+        client.chat_postMessage(channel=external_ref["channel"], thread_ts=external_ref["ts"], text=reply)
+        _maybe_edit_root(client, thread, inputs)
+
+    delivered_ids = [*(thread.delivered_notification_ids or []), inputs.notification_id][
         -DELIVERED_NOTIFICATION_IDS_CAP:
     ]
-    thread.pending_notification_id = None
-    thread.pending_claimed_at = None
-    thread.save(
-        update_fields=[
-            "external_ref",
-            "root_headline",
-            "delivered_notification_ids",
-            "pending_notification_id",
-            "pending_claimed_at",
-            "updated_at",
-        ]
+    # Fenced on the claim time: a holder that outlived the TTL and was superseded
+    # must not overwrite the successor's state or clear the successor's claim.
+    finalized = (
+        ErrorTrackingAlertThread.objects.for_team(thread.team_id, canonical=True)
+        .filter(id=thread.id, pending_notification_id=inputs.notification_id, pending_claimed_at=claimed_at)
+        .update(
+            external_ref=external_ref,
+            root_headline=root_headline,
+            delivered_notification_ids=delivered_ids,
+            pending_notification_id=None,
+            pending_claimed_at=None,
+            updated_at=timezone.now(),
+        )
     )
+    if not finalized:
+        logger.warning(
+            "error_tracking_alert_thread_claim_superseded",
+            thread_id=str(thread.id),
+            notification_id=inputs.notification_id,
+        )
     return True
 
 
-def _claim_thread(thread: ErrorTrackingAlertThread, inputs: AlertDeliveryWorkflowInputs) -> None:
+def _claim_thread(thread: ErrorTrackingAlertThread, inputs: AlertDeliveryWorkflowInputs) -> datetime:
     now = timezone.now()
     claimed = (
         ErrorTrackingAlertThread.objects.for_team(thread.team_id, canonical=True)
@@ -272,6 +289,7 @@ def _claim_thread(thread: ErrorTrackingAlertThread, inputs: AlertDeliveryWorkflo
     )
     if not claimed:
         raise AlertThreadBusyError(f"thread {thread.id} is being posted to by another notification")
+    return now
 
 
 def _release_thread(thread: ErrorTrackingAlertThread, inputs: AlertDeliveryWorkflowInputs) -> None:
