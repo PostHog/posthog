@@ -121,14 +121,15 @@ class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
     def _hidden_check_ids(self, checks: list[DataQualityCheck]) -> set[UUID]:
         # The same rule the information_schema loaders apply, so REST and SQL cannot come to
         # different answers about the same check.
-        return api.hidden_check_ids(self.team_id, checks, self._denial_context())
+        visible = api.visible_checks(self.team_id, checks, self._denial_context())
+        return {check.id for check in checks} - {check.id for check in visible}
 
     def _readable_runs(self, runs: QuerySet[DataQualityCheckRun]) -> QuerySet[DataQualityCheckRun]:
         # Excluded in SQL rather than per page, so a run that read a subject out of reach is gone
         # before the window that bounds what is served.
         if not self._can_be_object_denied():
             return runs
-        return runs.exclude(api.unreadable_runs_q(self._denial_context()))
+        return api.without_denied_runs(runs, self._denial_context())
 
     def _require_referenced_subject_access(self, check_type: str, config: dict) -> None:
         """403 a definition that reads a subject the caller cannot be shown to be allowed.

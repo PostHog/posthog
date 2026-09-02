@@ -40,6 +40,7 @@ from django.db.models import (
     Func,
     IntegerField,
     Min,
+    Model,
     OuterRef,
     Q,
     QuerySet,
@@ -1269,7 +1270,7 @@ def _gauge_rows(values_qs, value_key: str, *, with_status: bool, now=None) -> li
         rows.append(
             contracts.TaskRunGaugeRow(
                 environment=row["environment"],
-                origin_product=row["task__origin_product"] or "unknown",
+                origin_product=row["origin_product"] or "unknown",
                 value=value,
                 status=row["status"] if with_status else None,
             )
@@ -1288,7 +1289,7 @@ def collect_task_run_state_metrics(
 
     The caller (a core celery task) owns which statuses count as open/age/terminal and the
     recency window; this returns the raw numbers grouped by (status, environment,
-    parent origin_product) so no ORM leaks across the boundary.
+    origin_product) so no ORM leaks across the boundary.
 
     A QUEUED run's age counts from ``queued_at``, not from row creation:
     ``prepare_for_cloud_resume`` re-queues an existing run without resetting ``created_at``,
@@ -1307,14 +1308,14 @@ def collect_task_run_state_metrics(
     return contracts.TaskRunStateMetricsDTO(
         runs_in_status=_gauge_rows(
             TaskRun.objects.filter(status__in=open_statuses)
-            .values("status", "environment", "task__origin_product")
+            .values("status", "environment", "origin_product")
             .annotate(count=Count("id")),
             "count",
             with_status=True,
         ),
         oldest_open_age_seconds=_gauge_rows(
             TaskRun.objects.filter(status__in=age_statuses)
-            .values("status", "environment", "task__origin_product")
+            .values("status", "environment", "origin_product")
             .annotate(oldest_waiting_since=Min(age_anchor)),
             "oldest_waiting_since",
             with_status=True,
@@ -1322,14 +1323,14 @@ def collect_task_run_state_metrics(
         ),
         created_recently=_gauge_rows(
             TaskRun.objects.filter(created_at__gte=window_start)
-            .values("environment", "task__origin_product")
+            .values("environment", "origin_product")
             .annotate(count=Count("id")),
             "count",
             with_status=False,
         ),
         terminal_recently=_gauge_rows(
             TaskRun.objects.filter(status__in=terminal_statuses, updated_at__gte=window_start)
-            .values("status", "environment", "task__origin_product")
+            .values("status", "environment", "origin_product")
             .annotate(count=Count("id")),
             "count",
             with_status=True,
@@ -2165,12 +2166,13 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "wizard_head_branch",
         "use_modal_directory_resume_snapshots",
         "use_modal_vm_sandbox",
-        # Rollout stamps written once at dispatch by _capture_run_feature_flags; a PATCHable
-        # value would let a task controller bypass the org feature flags (for telemetry, that
-        # means injecting the internal OTLP capture token into their sandbox and re-enabling
-        # the run-log mirror with the rollout off).
+        # Rollout stamps written once at dispatch by _capture_run_feature_flags or at run
+        # creation; a PATCHable value would let a task controller bypass the org feature flags
+        # (for telemetry, that means injecting the internal OTLP capture token into their
+        # sandbox and re-enabling the run-log mirror with the rollout off).
         AGENT_OTEL_TELEMETRY_STATE_KEY,
         "sandbox_event_ingest_enabled",
+        "stream_presence_gated",
         PR_LOOP_ENABLED_STATE_KEY,
         "snapshot_external_id",
         "snapshot_kind",
@@ -7236,6 +7238,26 @@ def _temporal_workflow_url(workflow_id: str | None) -> str | None:
     return f"{base.rstrip('/')}/namespaces/{namespace}/workflows/{workflow_id}"
 
 
+def _slack_queue_workflow_id(slack_workspace_id: str | None, channel: str, thread_ts: str) -> str | None:
+    """The per-conversation queue workflow (`slack-app-mention-…`) that fronts every
+    per-message mention workflow. A message can stall or be deduped there before any
+    run exists, so the debug view links it at the thread level."""
+    from products.slack_app.backend.helpers import slack_app_mention_queue_workflow_id  # noqa: PLC0415
+
+    if not slack_workspace_id:
+        return None
+    return slack_app_mention_queue_workflow_id(slack_workspace_id, channel, thread_ts)
+
+
+def _admin_change_url(instance: Model, *, build_url) -> str:
+    """Django admin change-page URL for a model row, built from the stable admin URL
+    layout instead of `reverse` — the admin URLconf is only mounted when
+    ``ADMIN_PORTAL_ENABLED``, and this endpoint only serves PostHog Cloud US, where the
+    portal is always on."""
+    meta = instance._meta
+    return build_url(f"/admin/{meta.app_label}/{meta.model_name}/{instance.pk}/change/")
+
+
 def _slack_repo_research_dto(
     team_id: int, state: dict, repo_research_runs_by_id: dict, *, build_task_view_url
 ) -> contracts.SlackThreadContextRepoResearchDTO | None:
@@ -7299,14 +7321,27 @@ def resolve_slack_thread_context(
         .first()
     )
     if mapping is None:
+        # No run may exist because the message is still stuck (or was deduped) in the
+        # per-conversation queue workflow, so derive its handle anyway. Only possible
+        # when the team maps to a single Slack workspace — with several, the guess
+        # could point at another workspace's workflow.
+        workspace_ids = list(
+            Integration.objects.filter(team_id=team_id, kind="slack")
+            .values_list("integration_id", flat=True)
+            .distinct()[:2]
+        )
+        workspace_id = workspace_ids[0] if len(workspace_ids) == 1 else None
+        queue_workflow_id = _slack_queue_workflow_id(workspace_id, channel, thread_ts)
         return contracts.SlackThreadContextResult(
             outcome="no_mapping",
             no_mapping_thread=contracts.SlackThreadContextThreadDTO(
                 url=url,
                 channel=channel,
                 thread_ts=thread_ts,
-                slack_workspace_id=None,
+                slack_workspace_id=workspace_id,
                 mentioning_slack_user_id=None,
+                queue_workflow_id=queue_workflow_id,
+                queue_workflow_url=_temporal_workflow_url(queue_workflow_id),
             ),
         )
 
@@ -7351,9 +7386,11 @@ def resolve_slack_thread_context(
                 repo_research=_slack_repo_research_dto(
                     task.team_id, state, repo_research_runs_by_id, build_task_view_url=build_url
                 ),
+                admin_url=_admin_change_url(run, build_url=build_url),
             )
         )
 
+    queue_workflow_id = _slack_queue_workflow_id(mapping.slack_workspace_id, channel, thread_ts)
     context = contracts.SlackThreadContextDTO(
         thread=contracts.SlackThreadContextThreadDTO(
             url=url,
@@ -7361,6 +7398,9 @@ def resolve_slack_thread_context(
             thread_ts=thread_ts,
             slack_workspace_id=mapping.slack_workspace_id,
             mentioning_slack_user_id=mapping.mentioning_slack_user_id,
+            queue_workflow_id=queue_workflow_id,
+            queue_workflow_url=_temporal_workflow_url(queue_workflow_id),
+            mapping_admin_url=_admin_change_url(mapping, build_url=build_url),
         ),
         task=contracts.SlackThreadContextTaskDTO(
             id=str(task.id),
@@ -7370,6 +7410,7 @@ def resolve_slack_thread_context(
             origin_product=task.origin_product,
             created_at=task.created_at,
             url=task_url,
+            admin_url=_admin_change_url(task, build_url=build_url),
         ),
         runs=run_dtos,
     )

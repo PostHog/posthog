@@ -2,9 +2,8 @@
 name: signals-scout-data-pipelines
 description: >
   Signals scout for PostHog data pipelines — CDP destinations and transformations, batch
-  exports, and hog flows. Watches for delivery failures, degraded functions, and stalled
-  exports against each pipeline's baseline, and files each validated delivery contradiction
-  as a report in the inbox.
+  exports, and hog flows. Watches for delivery failures, degraded functions, and stalled exports
+  against each pipeline's baseline.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the CDP function, batch

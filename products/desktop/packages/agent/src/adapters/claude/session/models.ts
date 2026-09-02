@@ -26,10 +26,14 @@ export function resolveFallbackModel(modelId: string): string | undefined {
 export function rerootedModelOptions(
   modelId: string | undefined,
   existingFallbackModel?: string,
+  machineAuth?: boolean,
 ):
   | { model: string; fallbackModel: string | undefined }
   | Record<string, never> {
   if (!modelId) return {};
+  if (machineAuth) {
+    return { model: modelId, fallbackModel: undefined };
+  }
   const fallbackModel =
     existingFallbackModel && existingFallbackModel !== modelId
       ? existingFallbackModel
@@ -44,6 +48,7 @@ const MODELS_WITH_1M_CONTEXT = new Set([
   "claude-sonnet-4-6",
   "claude-sonnet-5",
   "claude-fable-5",
+  "claude-fable-5-1",
 ]);
 
 export function supports1MContext(modelId: string): boolean {
@@ -87,6 +92,7 @@ const MODEL_EFFORT_LEVELS: Readonly<Record<string, readonly EffortLevel[]>> = {
   "claude-sonnet-4-6": STANDARD_EFFORT_LEVELS,
   "claude-sonnet-5": EXTENDED_EFFORT_LEVELS,
   "claude-fable-5": EXTENDED_EFFORT_LEVELS,
+  "claude-fable-5-1": EXTENDED_EFFORT_LEVELS,
   "@cf/zai-org/glm-5.2": ["high", "max"],
   "zai-org/glm-5.3": ["high", "max"],
   "zai-org/glm-5.3-flash": ["high", "max"],
