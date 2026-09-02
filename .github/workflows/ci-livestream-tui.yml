@@ -1,6 +1,12 @@
 name: Livestream TUI
 
 on:
+    push:
+        branches:
+            - master
+        paths:
+            - '.github/workflows/ci-livestream-tui.yml'
+            - 'livestream/**'
     pull_request:
         paths:
             - '.github/workflows/ci-livestream-tui.yml'
@@ -15,6 +21,7 @@ permissions:
 
 jobs:
     lint-and-test:
+        if: github.event_name == 'pull_request'
         runs-on: ubuntu-24.04
         timeout-minutes: 10
 
