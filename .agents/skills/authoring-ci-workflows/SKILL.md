@@ -92,18 +92,42 @@ concurrency:
 The "gate" is the collate job that emits the required status check by reading `needs.*.result`.
 By convention its display name ends in `Pass` (`Django Tests Pass`, `Visual regression tests pass`), but `WF007` also finds gates structurally when a step reads `needs.<dep>.result`, because the convention is not universally followed.
 A job that inspects results without gating anything opts out with `# hogli-lint: not-a-required-gate — <reason>` above the job key.
-Gates and the workers they inspect need **opposite** conditions:
+Gates and the workers they inspect share the **same** condition:
 
-| Job     | Condition          | Why                                                                           |
-| ------- | ------------------ | ----------------------------------------------------------------------------- |
-| Gate    | `if: always()`     | It must run and emit an explicit verdict, even when everything upstream died. |
-| Workers | `if: !cancelled()` | So a superseded run actually stops instead of holding the concurrency slot.   |
+| Job     | Condition                 | Why                                                                                                           |
+| ------- | ------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Gate    | `if: ${{ !cancelled() }}` | It emits an explicit verdict on every completed run, and a superseded run records `cancelled`, not `failure`. |
+| Workers | `if: !cancelled()`        | So a superseded run actually stops instead of holding the concurrency slot.                                   |
 
-The gate condition must be exactly `always()`, with optional `${{ }}` wrapping.
-Adding another predicate can skip the required check, so `always() && <condition>` is rejected.
+The gate condition must contain `!cancelled()`, with optional `${{ }}` wrapping.
+`always()` is rejected: it is identical to `!cancelled()` on any run that is not cancelled, but on a superseded run it runs the gate after the cancel and reports `failure`, which inflates every CI failure-rate metric with runs a developer merely pushed over.
 
-`!cancelled()` is identical to `always()` on any run that is not cancelled, so failure-path reporting still works; only cancelled runs skip.
-Measured on a live superseded run ([evidence](https://github.com/PostHog/posthog/actions/runs/29765284128)): an `always()` worker dispatched and ran to completion _after_ the cancel, while the `!cancelled()` worker never started and reported `cancelled` (not `skipped`), so the gate still fails closed.
+**Extra predicates may only be OR-ed on, never AND-ed.**
+This is a correctness rule, not a style one.
+A conjunction gives the gate a second way to be false, and a job skipped by its own condition records `skipped`, which branch protection reads as a pass.
+Both conclusions occur in the same cancelled run: in [run 33496887370](https://github.com/PostHog/posthog/actions/runs/33496887370) `Calculate running time` recorded `cancelled` while `Backend coverage report` recorded `skipped`, because an AND-ed predicate of its own was already false.
+A disjunction cannot be false while `!cancelled()` is true, so cancellation stays the gate's one false predicate and the conclusion stays `cancelled`.
+
+Cancellation still fails closed.
+A gate on `!cancelled()` that never starts records conclusion `cancelled`, never `skipped`.
+Measured on a superseded run ([evidence](https://github.com/PostHog/posthog/actions/runs/33513529762)): the gate recorded `cancelled` with zero steps, while the `always()` control ran after the cancel and recorded `failure`.
+GitHub's [status checks reference](https://docs.github.com/en/pull-requests/reference/status-checks) lists `success`/`neutral`/`skipped` as passing and never places `cancelled` among them, and a commit whose only checks are cancelled rolls up to `FAILURE` ([evidence](https://github.com/PostHog/posthog/actions/runs/33513732017)).
+That is inference rather than a documented guarantee, which is the reason for the next rule.
+
+**A workflow that cancels its own run must OR that signal onto its gate.**
+`ci-backend` cancels itself when repo checks or OpenAPI types fail deterministically, to stop paying for runners on a failure a retry cannot fix.
+Under a bare `!cancelled()` those real failures would report `cancelled` too, which both hides them from the failure-rate metric and rests merge safety on the inference above.
+OR-ing the deterministic-failure output back on keeps the honest verdict, because the disjunct is true, so the gate dispatches despite the cancel:
+
+```yaml
+if: >
+  !cancelled()
+  || needs.repo-checks.outputs.deterministic_failure == 'true'
+  || needs.check-openapi-types.outputs.deterministic_failure == 'true'
+```
+
+Measured on a self-cancelled run ([evidence](https://github.com/PostHog/posthog/actions/runs/33513529687)): the bare `!cancelled()` gate recorded `cancelled`, the OR-ed gate ran and recorded `failure`.
+Only superseded runs then report `cancelled`, and every real failure keeps a `failure` conclusion.
 
 Four rules for the gate body:
 
@@ -120,7 +144,7 @@ Four rules for the gate body:
    Comparisons in another step, comments, logs, or branches that do not exit nonzero prove nothing and are rejected.
    A result whose guard `WF007` cannot follow is reported rather than assumed safe, so an unusual routing may need the checks moved inline.
 
-`WF007` enforces 1, 4, and the `always()` condition, and it takes the dependency list from `needs:` as well as the step body, so a job you wired into `needs:` and then forgot to test is reported rather than silently trusted.
+`WF007` enforces 1, 4, and the `!cancelled()` condition, and it takes the dependency list from `needs:` as well as the step body, so a job you wired into `needs:` and then forgot to test is reported rather than silently trusted.
 The half of rule 2 it cannot check is whether you named the right jobs in `needs:` to begin with: "reporting job" and "coverage job" look identical to a linter, so that one is on you and the reviewer.
 
 ## Checkout / clone — sparse first, then shallow
