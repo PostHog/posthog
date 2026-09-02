@@ -54,6 +54,7 @@ const fakeEditor = {
     off: jest.fn(),
     isDestroyed: false,
     isInitialized: true,
+    schema: { nodes: {} as Record<string, unknown> },
     editorView: {
         dom: document.createElement('div'),
     },
@@ -81,6 +82,7 @@ describe('RichMarkdownEditor', () => {
         jest.clearAllMocks()
         fakeEditor.editorView.dom = document.createElement('div')
         fakeEditor.chain = () => fakeChain
+        fakeEditor.schema = { nodes: {} }
     })
 
     afterEach(() => {
@@ -123,6 +125,31 @@ describe('RichMarkdownEditor', () => {
         for (const label of expectedHidden) {
             expect(screen.queryByText(label)).not.toBeInTheDocument()
         }
+    })
+
+    it('shows the word art button only when the editor schema has the wordArt node', () => {
+        const { rerender } = render(
+            <RichMarkdownEditor
+                value=""
+                extensions={[]}
+                markdownToDoc={() => ({ type: 'doc', content: [] })}
+                docToMarkdown={() => ''}
+            />
+        )
+
+        expect(screen.queryByLabelText('Word art')).not.toBeInTheDocument()
+
+        fakeEditor.schema = { nodes: { wordArt: {} } }
+        rerender(
+            <RichMarkdownEditor
+                value=" "
+                extensions={[]}
+                markdownToDoc={() => ({ type: 'doc', content: [] })}
+                docToMarkdown={() => ' '}
+            />
+        )
+
+        expect(screen.getByLabelText('Word art')).toBeInTheDocument()
     })
 
     it('exposes strikethrough in the write toolbar', () => {

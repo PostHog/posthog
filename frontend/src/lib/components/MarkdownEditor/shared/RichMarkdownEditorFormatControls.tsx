@@ -5,7 +5,6 @@ import { IconCode, IconList, IconMinus, IconPalette } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonMenu } from '@posthog/lemon-ui'
 
 import { WordArtModal } from 'lib/components/Cards/TextCard/WordArt/WordArtModal'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconBold, IconItalic, IconLink, IconTextSize } from 'lib/lemon-ui/icons'
 import { Popover } from 'lib/lemon-ui/Popover'
 
@@ -59,7 +58,7 @@ export function RichMarkdownEditorFormatControls({
 }: RichMarkdownEditorFormatControlsProps): JSX.Element {
     const hasExistingLink = editor?.isActive('link') ?? false
     const [showWordArtModal, setShowWordArtModal] = useState(false)
-    const wordArtAvailable = useFeatureFlag('TEXT_CARD_WORD_ART') && !!editor?.schema.nodes.wordArt
+    const wordArtAvailable = !!editor?.schema.nodes.wordArt
 
     const setLink = (): void => {
         if (!linkUrl || !editor) {
