@@ -1,4 +1,5 @@
 import type { AcpMessage } from "@posthog/shared";
+import { isNotification, POSTHOG_NOTIFICATIONS } from "./acpNotifications";
 import { createAppendOnlyTracker } from "./appendOnlyTracker";
 
 export interface ContextBreakdown {
@@ -26,6 +27,7 @@ type ContextUsageAggregate = Omit<ContextUsage, "breakdown" | "cost">;
 export function extractContextUsage(events: AcpMessage[]): ContextUsage | null {
   let aggregate: ContextUsageAggregate | null = null;
   let breakdown: ContextBreakdown | null = null;
+  let breakdownSealed = false;
   let costAmount: number | null = null;
   let costCurrency = "USD";
 
@@ -33,6 +35,10 @@ export function extractContextUsage(events: AcpMessage[]): ContextUsage | null {
   // aggregate/breakdown is found — it walks the full log.
   for (let i = events.length - 1; i >= 0; i--) {
     const msg = events[i].message;
+    // A compaction rebuilds the context, so a breakdown from before it no
+    // longer describes what is resident. Stop borrowing older breakdowns once
+    // the walk reaches the latest boundary.
+    if (isCompactBoundary(msg)) breakdownSealed = true;
     const cost = extractCost(msg);
     if (cost) {
       costAmount = (costAmount ?? 0) + cost.amount;
@@ -45,7 +51,7 @@ export function extractContextUsage(events: AcpMessage[]): ContextUsage | null {
       const older = extractAggregate(msg);
       if (older) aggregate = withCarriedSize(aggregate, older);
     }
-    if (!breakdown) {
+    if (!breakdown && !breakdownSealed) {
       breakdown = extractBreakdown(msg);
     }
   }
@@ -71,6 +77,9 @@ export function createContextUsageTracker() {
     }),
     processEvent: (state, event) => {
       const msg = event.message;
+      // Drop the pre-compaction breakdown; it overstates a context the
+      // compaction just shrank. A fresh usage_update repopulates it.
+      if (isCompactBoundary(msg)) state.breakdown = null;
       const next = extractAggregate(msg);
       if (next) {
         state.aggregate = withCarriedSize(next, state.aggregate);
@@ -113,6 +122,13 @@ function withCarriedSize(
     size,
     percentage: Math.min(100, Math.round((next.used / size) * 100)),
   };
+}
+
+function isCompactBoundary(msg: AcpMessage["message"]): boolean {
+  return (
+    "method" in msg &&
+    isNotification(msg.method, POSTHOG_NOTIFICATIONS.COMPACT_BOUNDARY)
+  );
 }
 
 function extractAggregate(
