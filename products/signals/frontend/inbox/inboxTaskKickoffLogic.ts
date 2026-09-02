@@ -68,11 +68,12 @@ export function buildDiscussReportPrompt(report: SignalReport, reportUrl: string
     // The task is already linked to the report, but including the URL lets the agent open and read
     // the full report itself. The user's message follows after a blank line for clear separation.
     //
-    // A suppressed report never earned (or lost) the inbox's judgment — safety suppression means the
-    // report's own prose carries the instructions the judge rejected — so the agent is pinned to
-    // answering about it rather than told to carry actions from it out. Restoring the report is the
-    // route back to action prompts.
-    if (report.status === SignalReportStatus.SUPPRESSED) {
+    // A suppressed or failed report never earned (or lost) the inbox's judgment: safety suppression
+    // means a scout report's own prose carries the instructions the judge rejected, and the pipeline
+    // marks its safety rejections FAILED (`failure_reason="safety_judge_rejected"`) — so the agent is
+    // pinned to answering about such a report rather than told to carry actions from it out.
+    // Restoring the report is the route back to action prompts.
+    if (report.status === SignalReportStatus.SUPPRESSED || report.status === SignalReportStatus.FAILED) {
         return `Answer this question about the PostHog Inbox report at ${reportUrl}:\n\n${question.trim()}`
     }
     // Framed as question-or-action because a report's suggested prompts include next-step requests
