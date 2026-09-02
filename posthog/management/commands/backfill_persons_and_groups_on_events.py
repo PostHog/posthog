@@ -21,10 +21,6 @@ from posthog.settings.data_stores import CLICKHOUSE_PASSWORD
 """
 WARNING: This script is in Alpha! Make sure you know what you're doing before running it with --live-run set.
 
-Pre-requisites:
-
-- `allow_nondeterministic_mutations` should be set to 1 on the current user's profile
-
 Approach:
 
 1. Create dictionaries for groups, persons, and person distinct ID tables
@@ -123,7 +119,7 @@ LIMIT 1
 query_number = 0
 
 
-def print_and_execute_query(sql: str, name: str, dry_run: bool, timeout=180, query_args=None) -> Any:
+def print_and_execute_query(sql: str, name: str, dry_run: bool, timeout=180, query_args=None, extra_settings=None) -> Any:
     if query_args is None:
         query_args = {}
     global query_number
@@ -136,7 +132,8 @@ def print_and_execute_query(sql: str, name: str, dry_run: bool, timeout=180, que
     query_number = query_number + 1
 
     if not dry_run:
-        res = sync_execute(sql, settings={"max_execution_time": timeout}, args=query_args)
+        query_settings = {"max_execution_time": timeout, **(extra_settings or {})}
+        res = sync_execute(sql, settings=query_settings, args=query_args)
         return res
 
     return None
@@ -167,6 +164,9 @@ def run_backfill(options):
         dry_run,
         0,
         {"team_id": options["team_id"], "id": backfill_query_id},
+        # The backfill assignments use dictGet, which ClickHouse treats as
+        # non-deterministic and blocks on replicated tables without this flag.
+        {"allow_nondeterministic_mutations": 1},
     )
     reset_query_tags()
 

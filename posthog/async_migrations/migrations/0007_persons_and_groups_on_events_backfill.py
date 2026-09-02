@@ -449,7 +449,7 @@ class Migration(AsyncMigrationDefinition):
                 {where_clause}
             """,
             where_clause_params,
-            settings={"max_execution_time": 0},
+            settings={"max_execution_time": 0, "allow_nondeterministic_mutations": 1},
             per_shard=True,
             query_id=query_id,
         )
