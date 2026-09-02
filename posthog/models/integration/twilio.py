@@ -1,10 +1,22 @@
 """Twilio integration."""
 
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ErrorDetail, ValidationError
 
-from products.workflows.backend.providers import TwilioProvider
+from products.workflows.backend.providers import TwilioCredentialsRejectedError, TwilioProvider
 
 from . import model
+
+# Twilio does not tell us which of the two keys is wrong, so the message points at both.
+CREDENTIALS_REJECTED_MESSAGE = "Twilio rejected these keys. Check your Account SID and auth token, then try again."
+# Stable machine code for a handled credential rejection. The frontend keeps this out of error
+# tracking, since the setup modal and phone-number picker already show it to the user. Keep in sync
+# with HANDLED_VALIDATION_CODES in frontend/src/lib/api-error.ts.
+CREDENTIALS_REJECTED_CODE = "twilio_credentials_rejected"
+
+
+def _credentials_rejected_error() -> ValidationError:
+    # Keyed on "accountSid", the field the setup modal renders.
+    return ValidationError({"accountSid": ErrorDetail(CREDENTIALS_REJECTED_MESSAGE, code=CREDENTIALS_REJECTED_CODE)})
 
 
 class TwilioIntegration:
@@ -21,18 +33,19 @@ class TwilioIntegration:
         )
 
     def list_twilio_phone_numbers(self) -> list[dict]:
-        twilio_phone_numbers = self.twilio_provider.get_phone_numbers()
-
-        if not twilio_phone_numbers:
-            raise Exception(f"There was an internal error")
-
-        return twilio_phone_numbers
+        try:
+            return self.twilio_provider.get_phone_numbers()
+        except TwilioCredentialsRejectedError:
+            raise _credentials_rejected_error()
 
     def integration_from_keys(self) -> model.Integration:
-        account_info = self.twilio_provider.get_account_info()
+        try:
+            account_info = self.twilio_provider.get_account_info()
+        except TwilioCredentialsRejectedError:
+            raise _credentials_rejected_error()
 
         if not account_info.get("sid"):
-            raise ValidationError({"account_info": "Failed to get account info"})
+            raise _credentials_rejected_error()
 
         integration, created = model.Integration.objects.update_or_create(
             team_id=self.integration.team_id,

@@ -41,6 +41,15 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
 ])
 
 /**
+ * Codes on a validation failure the owning UI already shows to the user, so the response is
+ * expected feedback rather than a defect. `twilio_credentials_rejected` — the workflows Twilio
+ * channel setup modal and phone-number picker report the rejection inline and ask the user to fix
+ * the keys, and the picker re-requests on every focus, so reporting it would file a fresh issue per
+ * attempt. Keep in sync with CREDENTIALS_REJECTED_CODE in posthog/models/integration/twilio.py.
+ */
+const HANDLED_VALIDATION_CODES: ReadonlySet<string> = new Set(['twilio_credentials_rejected'])
+
+/**
  * Whether a failed request is worth filing as an error tracking issue. A response the app asked
  * for and recovers from itself is not a defect, and reporting it buries the ones that are: every
  * `ApiError` is built in this file, so they all share one stack, and grouping ignores the message
@@ -54,6 +63,8 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
  * - 403 auth gates — `apiStatusLogic` opens 2FA setup, re-verification, or a re-auth prompt.
  * - 409 carrying a `change_request_id` — the approvals UI shows the change request it created.
  * - 502/503/504 — the gateway couldn't reach the backend, so application code is not at fault.
+ * - a handled validation `code` (see `HANDLED_VALIDATION_CODES`) — the owning UI shows the message
+ *   inline, e.g. a rejected Twilio credential in the workflows channel setup.
  *
  * Each of these still toasts wherever it did before, and `client_request_failure` still records
  * every non-OK response with its status and pathname, so failure rates stay queryable even where
@@ -79,6 +90,9 @@ export function shouldReportApiFailure(error: unknown): boolean {
         return false
     }
     if (status === 403 && failure.code != null && HANDLED_AUTH_GATE_CODES.has(failure.code)) {
+        return false
+    }
+    if (failure.code != null && HANDLED_VALIDATION_CODES.has(failure.code)) {
         return false
     }
     return !isApprovalRequiredError(failure)

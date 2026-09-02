@@ -11,7 +11,7 @@ from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.db import connection
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.test.client import Client as HttpClient
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -51,6 +51,7 @@ from posthog.models.integration import (
     Integration,
     SlackIntegration,
     StripeIntegration,
+    TwilioIntegration,
     github_account_type,
 )
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
@@ -67,6 +68,7 @@ from products.batch_exports.backend.models import BatchExport, BatchExportDestin
 from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.workflows.backend.models import HogFlow
+from products.workflows.backend.providers.twilio import TwilioCredentialsRejectedError
 
 
 class TestSlackIntegration:
@@ -1218,6 +1220,40 @@ class TestSnowflakeIntegration:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert expected_error_message in response.json()["detail"]
+
+
+class TestTwilioIntegration(SimpleTestCase):
+    """Credential rejection raises before any DB write, so these need no database."""
+
+    def _build_integration(self) -> Integration:
+        return Integration(
+            kind="twilio",
+            config={"account_sid": "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"},
+            sensitive_config={"auth_token": "secret-token"},
+        )
+
+    @patch("posthog.models.integration.twilio.TwilioProvider.get_account_info")
+    def test_rejected_keys_surface_as_a_field_the_modal_renders(self, mock_get_account_info):
+        mock_get_account_info.side_effect = TwilioCredentialsRejectedError()
+
+        with pytest.raises(ValidationError) as exc:
+            TwilioIntegration(self._build_integration()).integration_from_keys()
+
+        # Keyed on a field the setup modal renders, not the hidden "account_info" key.
+        assert "accountSid" in exc.value.detail
+        # Stable code lets the frontend keep this handled rejection out of error tracking.
+        assert exc.value.get_codes()["accountSid"] == "twilio_credentials_rejected"
+
+    @patch("posthog.models.integration.twilio.TwilioProvider.get_phone_numbers")
+    def test_rejected_keys_when_listing_phone_numbers_raise_field_error(self, mock_get_phone_numbers):
+        mock_get_phone_numbers.side_effect = TwilioCredentialsRejectedError()
+
+        with pytest.raises(ValidationError) as exc:
+            TwilioIntegration(self._build_integration()).list_twilio_phone_numbers()
+
+        assert "accountSid" in exc.value.detail
+        # Stable code lets the frontend keep this handled rejection out of error tracking.
+        assert exc.value.get_codes()["accountSid"] == "twilio_credentials_rejected"
 
 
 class TestIntegrationAPIKeyAccess:

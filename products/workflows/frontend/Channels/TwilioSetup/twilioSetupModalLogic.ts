@@ -1,4 +1,4 @@
-import { MakeLogicType, connect, kea, path, props } from 'kea'
+import { MakeLogicType, connect, kea, listeners, path, props } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 
@@ -142,10 +142,28 @@ export const twilioSetupModalLogic = kea<twilioSetupModalLogicType>([
                     lemonToast.success('Twilio channel created successfully!')
                     props.onComplete(integration.id)
                 } catch (error: any) {
+                    // A 400 means Twilio rejected the keys. Flag both fields, since Twilio does not
+                    // say which one is wrong.
+                    if (error.status === 400) {
+                        actions.setTwilioIntegrationManualErrors({
+                            accountSid: 'Rejected by Twilio',
+                            authToken: 'Rejected by Twilio',
+                        })
+                    }
                     lemonToast.error(error.detail || 'Failed to create Twilio channel')
                     throw error
                 }
             },
+        },
+    })),
+    listeners(({ actions, values }) => ({
+        setTwilioIntegrationValue: () => {
+            // Kea Forms keeps manual errors until a field is touched, and includes them in the
+            // form's error gate. A rejection flags both keys, so editing one field would leave the
+            // other's error and block the next submit. Clear both as soon as either field changes.
+            if (Object.keys(values.twilioIntegrationManualErrors).length > 0) {
+                actions.setTwilioIntegrationManualErrors({})
+            }
         },
     })),
 ])
