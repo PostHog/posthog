@@ -5048,11 +5048,6 @@
                 "label_replay_vision_observation",
                 "analyze_replay_vision_impact",
                 "suggest_replay_vision_tags",
-                "read_replay_vision_actions",
-                "update_replay_vision_action",
-                "delete_replay_vision_action",
-                "run_replay_vision_action",
-                "create_replay_vision_action",
                 "upsert_account",
                 "upsert_account_notebook",
                 "open_account"

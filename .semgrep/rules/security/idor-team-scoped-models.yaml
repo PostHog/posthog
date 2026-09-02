@@ -378,8 +378,6 @@ rules:
                               |UserInterview
                               |UserInterviewTopic
                               |UserRepoPreference
-                              |VisionAction
-                              |VisionActionRun
                               |VisionAlertConfiguration
                               |VisionAlertMatch
                               |WarehouseColumnAnnotation
@@ -758,8 +756,6 @@ rules:
                         |UserInterview
                         |UserInterviewTopic
                         |UserRepoPreference
-                        |VisionAction
-                        |VisionActionRun
                         |VisionAlertConfiguration
                         |VisionAlertMatch
                         |WarehouseColumnAnnotation
