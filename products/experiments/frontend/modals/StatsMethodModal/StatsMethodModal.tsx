@@ -3,22 +3,21 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonInput, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 import { LemonModal } from '@posthog/lemon-ui'
 
-import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
-
-import { ExperimentStatsMethod } from '~/types'
-
-import { CONFIDENCE_LEVEL_OPTIONS } from 'products/experiments/frontend/constants'
-
-import { StatsMethodSelector } from '../components/StatsMethodSelector'
-import { experimentLogic } from '../experimentLogic'
-import { modalsLogic } from '../modalsLogic'
+import { StatsMethodSelector } from 'scenes/experiments/components/StatsMethodSelector'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import {
     DEFAULT_SEQUENTIAL_TUNING_PARAMETER,
     MAX_SEQUENTIAL_TUNING_PARAMETER,
     SequentialSelection,
     getSequentialSelection,
     resolveSequentialTuningParameter,
-} from './sequential'
+} from 'scenes/experiments/ExperimentView/sequential'
+import { modalsLogic } from 'scenes/experiments/modalsLogic'
+import { experimentsConfigLogic } from 'scenes/settings/environment/experimentsConfigLogic'
+
+import { ExperimentStatsMethod } from '~/types'
+
+import { CONFIDENCE_LEVEL_OPTIONS } from 'products/experiments/frontend/constants'
 
 export function StatsMethodModal(): JSX.Element {
     const { experiment, statsMethod } = useValues(experimentLogic)
