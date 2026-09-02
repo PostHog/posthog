@@ -90,6 +90,12 @@ def get_insights_to_migrate(inputs: GetInsightsToMigrateActivityInputs) -> GetIn
     # without it each run walks the whole table again to prove there is nothing left to do.
     after_id = inputs.after_id if inputs.after_id is not None else _read_cursor()
 
+    # Read the boundary before the scan. A MAX(id) read after the scan sees its own later snapshot,
+    # so it counts insights that committed while the scan ran but were invisible to it. Parking
+    # there would skip those rows on every later run. A boundary read first is never above a row the
+    # scan could not have seen.
+    boundary = _max_insight_id()
+
     after_clause = "" if after_id is None else f"\nAND id > {after_id}"
     where_body = ("\n   OR  ").join(clauses)
     sql = f"""
@@ -111,11 +117,10 @@ def get_insights_to_migrate(inputs: GetInsightsToMigrateActivityInputs) -> GetIn
         _write_cursor(ids[-1])
         return GetInsightsToMigrateActivityResult(insight_ids=ids, last_id=ids[-1])
 
-    # The sweep is complete. Park the cursor at the top of the table so the next run reads only
-    # the rows written since.
-    high_water_mark = _max_insight_id()
-    if high_water_mark is not None:
-        _write_cursor(high_water_mark)
+    # The sweep is complete up to the boundary read before the scan. Park there so the next run
+    # reads only the rows written since, without skipping any that committed mid-scan.
+    if boundary is not None:
+        _write_cursor(boundary)
 
     return GetInsightsToMigrateActivityResult(insight_ids=[], last_id=after_id)
 
