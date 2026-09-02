@@ -167,6 +167,115 @@ describe('outbound 429 handling', () => {
         })
     })
 
+    describe('ApiClient on gateway timeout', () => {
+        const buildTimeout = (status: number): Response => new Response('error code: 522', { status, statusText: '' })
+
+        const buildClient = (): ApiClient => new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+
+        beforeEach(() => {
+            vi.useFakeTimers()
+        })
+
+        afterEach(() => {
+            vi.useRealTimers()
+        })
+
+        it('retries a read (POST /query/) after a 522 and succeeds', async () => {
+            const mockFetch = vi.fn()
+            mockFetch.mockResolvedValueOnce(buildTimeout(522))
+            mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({ results: [] }), { status: 200 }))
+            vi.stubGlobal('fetch', mockFetch)
+
+            const resultPromise = buildClient().insights({ projectId: '2' }).query({ query: {} })
+            await vi.runAllTimersAsync()
+            const result = await resultPromise
+
+            expect(result.success).toBe(true)
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+        })
+
+        it.each([
+            {
+                label: 'a non-narrowable read (users/me) gets generic retry guidance',
+                call: (c: ApiClient): Promise<Result<unknown>> => c.users().me(),
+                expectNarrow: false,
+            },
+            {
+                label: 'a narrowable query (POST /query/) gets narrow-and-retry advice',
+                call: (c: ApiClient): Promise<Result<unknown>> => c.insights({ projectId: '2' }).query({ query: {} }),
+                expectNarrow: true,
+            },
+        ])(
+            'returns an actionable message instead of the proxy body after exhausting retries: $label',
+            async ({ call, expectNarrow }) => {
+                // Fresh Response per call, so each retry can read its own body (real fetch never
+                // hands back an already-read Response).
+                const mockFetch = vi.fn().mockImplementation(() => Promise.resolve(buildTimeout(522)))
+                vi.stubGlobal('fetch', mockFetch)
+
+                const resultPromise = call(buildClient())
+                await vi.runAllTimersAsync()
+                const result = await resultPromise
+
+                expect(result.success).toBe(false)
+                if (result.success) {
+                    throw new Error('expected failure')
+                }
+                expect(result.error).toBeInstanceOf(PostHogApiError)
+                expect((result.error as PostHogApiError).status).toBe(522)
+                expect(result.error.message).not.toContain('error code: 522')
+                if (expectNarrow) {
+                    expect(result.error.message).toContain('Narrow the request')
+                } else {
+                    expect(result.error.message).not.toContain('Narrow the request')
+                }
+                expect(mockFetch).toHaveBeenCalledTimes(4)
+            }
+        )
+
+        it('does not retry a mutating request and reports the write may have applied', async () => {
+            const mockFetch = vi.fn().mockResolvedValue(buildTimeout(504))
+            vi.stubGlobal('fetch', mockFetch)
+
+            const result = await buildClient()
+                .insights({ projectId: '2' })
+                .create({ data: { name: 'x' } })
+
+            expect(result.success).toBe(false)
+            if (result.success) {
+                throw new Error('expected failure')
+            }
+            expect((result.error as PostHogApiError).status).toBe(504)
+            expect(result.error.message).toContain('may have already been applied')
+            expect(result.error.message).not.toContain('error code: 504')
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+        })
+
+        it('surfaces a structured API error (503) without retrying and keeps its detail', async () => {
+            // A ClickHouse capacity 503 (and query-timeout 504) is a structured API error, not an
+            // edge timeout: it must reach the agent with its detail and must not be retried.
+            const detail = 'Queries are a little too busy right now. Please try again later.'
+            const mockFetch = vi.fn().mockResolvedValue(
+                new Response(JSON.stringify({ type: 'server_error', code: 'clickhouse_at_capacity', detail }), {
+                    status: 503,
+                    statusText: 'Service Unavailable',
+                })
+            )
+            vi.stubGlobal('fetch', mockFetch)
+
+            const result = await buildClient().insights({ projectId: '2' }).query({ query: {} })
+
+            expect(result.success).toBe(false)
+            if (result.success) {
+                throw new Error('expected failure')
+            }
+            expect((result.error as PostHogApiError).status).toBe(503)
+            expect(result.error.message).toContain(detail)
+            expect(result.error.message).not.toContain('Narrow the request')
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+        })
+    })
+
     describe('handleToolError on PostHogRateLimitError', () => {
         it('returns the retry hint to the agent without capturing an exception', () => {
             const error = new PostHogRateLimitError({

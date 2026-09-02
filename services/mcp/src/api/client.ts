@@ -38,6 +38,79 @@ const RATE_LIMIT_MAX_RETRIES = 3
 const RATE_LIMIT_BASE_BACKOFF_MS = 2000
 const RATE_LIMIT_TOTAL_WAIT_BUDGET_MS = 30_000
 
+// Gateway-timeout retry policy. When the origin is slow or does not respond, the
+// edge proxy returns a 5xx with an opaque body (e.g. `error code: 522`) that the
+// agent cannot act on. These failures are usually transient, so we retry with
+// jittered backoff and, once retries are exhausted, hand back an actionable
+// message instead of the proxy body: narrowing advice for query endpoints that
+// can be narrowed, a plain retry hint otherwise. 520/522/524 are Cloudflare edge
+// statuses; 502/503/504 are standard gateway errors. Not every status is a
+// timeout (502/503/520 signal an absent or unavailable origin), so the message
+// does not claim a specific cause the status cannot prove.
+const GATEWAY_TIMEOUT_STATUSES = new Set([502, 503, 504, 520, 522, 524])
+const GATEWAY_TIMEOUT_MAX_RETRIES = 3
+const GATEWAY_TIMEOUT_BASE_BACKOFF_MS = 1000
+
+// One shared attempt counter bounds both retry policies together. A mixed
+// sequence of 429s and gateway timeouts draws down a single retry budget, so
+// the second failure type can see fewer retries. This is deliberate: separate
+// counters would raise the total fetch count and let gateway backoff sleeps
+// (which the 429 wait budget does not track) stack on the rate-limit budget,
+// which would then need a new overall cap to bound.
+const MAX_FETCH_RETRIES = Math.max(RATE_LIMIT_MAX_RETRIES, GATEWAY_TIMEOUT_MAX_RETRIES)
+
+// POST endpoints that read rather than write. The /query/ endpoint runs a
+// (read-only) query, so replaying it after a timeout is safe.
+const RETRYABLE_POST_PATH_FRAGMENTS = ['/query/']
+
+// A gateway timeout on a write may mean the origin already applied it before the
+// edge gave up, so replaying could duplicate the write. Retry only requests with
+// no side effects: idempotent methods, plus the read-only POST endpoints above.
+function isGatewayTimeoutRetryable(method: string, url: string): boolean {
+    if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
+        return true
+    }
+    return RETRYABLE_POST_PATH_FRAGMENTS.some((fragment) => url.includes(fragment))
+}
+
+// Only query endpoints accept a date range, breakdowns, or filters, so only they
+// can act on narrowing advice. A user or project read, or an OAuth introspection,
+// has nothing to narrow, so telling it to shorten a date range is a dead end.
+function isNarrowableRequest(url: string): boolean {
+    return url.includes('/query/')
+}
+
+function buildGatewayTimeoutMessage(status: number, method: string, url: string, retryable: boolean): string {
+    const base =
+        `The PostHog API gateway returned HTTP ${status} on ${method} ${url}. ` +
+        `The upstream server was slow or did not respond. This is usually temporary.`
+    if (!retryable) {
+        return `${base} This request was not retried automatically because it may have already been applied. Check whether the change took effect before sending it again.`
+    }
+    if (isNarrowableRequest(url)) {
+        return `${base} It was retried automatically and still failed. Narrow the request (shorten the date range, drop breakdowns, or tighten filters), then try again.`
+    }
+    return `${base} It was retried automatically and still failed. Try again in a few moments.`
+}
+
+// PostHog's API renders application-level failures as a JSON object (a DRF exception
+// body), so some gateway-timeout statuses double as real API errors: ClickHouseAtCapacity
+// returns 503 and ClickHouseQueryTimeOut returns 504, each with an actionable detail.
+// An edge or proxy gateway timeout instead returns an opaque body, such as `error code:
+// 522`, an HTML error page, or nothing. A JSON-object body at one of these statuses is
+// therefore an API error to surface as-is, not a timeout to retry.
+function isStructuredApiErrorBody(body: string): boolean {
+    if (!body) {
+        return false
+    }
+    try {
+        const parsed = JSON.parse(body)
+        return parsed !== null && typeof parsed === 'object'
+    } catch {
+        return false
+    }
+}
+
 // Default overall timeout for an SSE stream (wall-clock cap from connect to close).
 // Sized to comfortably cover the slowest known caller (session summarization, ~5 min
 // average) with headroom for cold-cache LLM calls.
@@ -457,9 +530,50 @@ export class ApiClient {
         const method = options?.method ?? 'GET'
         let waitBudgetMs = RATE_LIMIT_TOTAL_WAIT_BUDGET_MS
 
-        for (let attempt = 0; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
+        for (let attempt = 0; attempt <= MAX_FETCH_RETRIES; attempt++) {
             try {
                 const response = await this.fetch(url, options)
+
+                if (GATEWAY_TIMEOUT_STATUSES.has(response.status)) {
+                    const bodyText = await response.text()
+
+                    // A structured API error at one of these statuses (e.g. a ClickHouse
+                    // capacity 503 or query-timeout 504) is not an edge timeout. Retrying it
+                    // adds load to an already-strained backend, and the generic gateway
+                    // message would bury the API's own actionable detail, so route it through
+                    // the normal error path instead.
+                    if (isStructuredApiErrorBody(bodyText)) {
+                        throw this.buildApiError(response, bodyText, url, method)
+                    }
+
+                    const retryable = isGatewayTimeoutRetryable(method, url)
+
+                    if (retryable && attempt < GATEWAY_TIMEOUT_MAX_RETRIES) {
+                        const backoffMs = GATEWAY_TIMEOUT_BASE_BACKOFF_MS * 2 ** attempt
+                        // Equal jitter so concurrent timeouts don't retry in lockstep.
+                        const delayMs = backoffMs / 2 + Math.random() * (backoffMs / 2)
+                        console.warn(
+                            `[API] Gateway timeout (${response.status}) on ${method} ${url}. Retrying in ${Math.round(delayMs)}ms (attempt ${attempt + 1}/${GATEWAY_TIMEOUT_MAX_RETRIES})`
+                        )
+                        await new Promise((resolve) => setTimeout(resolve, delayMs))
+                        continue
+                    }
+
+                    console.error(
+                        `[API] Gateway timeout (${response.status}) not retried (retryable=${retryable}) on ${method} ${url}`
+                    )
+                    return {
+                        success: false,
+                        error: new PostHogApiError({
+                            status: response.status,
+                            statusText: response.statusText || 'Gateway Timeout',
+                            body: bodyText,
+                            url,
+                            method,
+                            message: buildGatewayTimeoutMessage(response.status, method, url, retryable),
+                        }),
+                    }
+                }
 
                 if (response.status === 429) {
                     const retryAfterSeconds = parseRetryAfterSeconds(response.headers.get('Retry-After'))

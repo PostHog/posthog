@@ -136,7 +136,15 @@ export class RequestContext {
 
     getDistinctId(): Promise<string> {
         if (!this.distinctIdPromise) {
-            this.distinctIdPromise = this.resolveDistinctId()
+            // Don't memoize a rejected promise. This memo lives on the per-request
+            // context, so a failure cannot persist across requests, but caching the
+            // rejection would make every later call within this request replay it
+            // instead of retrying. Clear it on rejection so a subsequent call re-runs.
+            // Concurrent callers still share the one in-flight promise.
+            this.distinctIdPromise = this.resolveDistinctId().catch((error) => {
+                this.distinctIdPromise = undefined
+                throw error
+            })
         }
         return this.distinctIdPromise
     }
