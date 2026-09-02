@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional
 
 # Above this many assigned signals, an already-researched (READY/RESOLVED) report stops
@@ -15,6 +15,20 @@ RERESEARCH_MAX_SIGNALS = int(os.getenv("SIGNAL_RERESEARCH_MAX_SIGNALS", "10"))
 # run then covers the whole burst. Applies to a report's first research too, so sibling signals join
 # that run rather than forcing an immediate re-research. 0 disables the wait.
 RESEARCH_DEBOUNCE_SECONDS = int(os.getenv("SIGNAL_RESEARCH_DEBOUNCE_SECONDS", "0"))
+
+# How long a report waits after research settles (READY, no pending signals) before its
+# implementation task starts. A report re-promotes on every new signal, so a signal landing just
+# after research finishes would otherwise ship a PR for a summary that's about to be rewritten by
+# the re-research. The wait lets that late signal fold into a re-research run instead. The waiting
+# run still owns the report's workflow ID, so a signal arriving during the wait collapses into it
+# (see the WorkflowAlreadyStartedError handler in grouping) and re-promotes the report to CANDIDATE;
+# the run then loops to re-research rather than implement. 0 disables the wait.
+IMPLEMENTATION_DEBOUNCE_SECONDS = int(os.getenv("SIGNAL_IMPLEMENTATION_DEBOUNCE_SECONDS", "900"))
+
+# Orgs new to self-driving skip the implementation buffer: a team whose signals config was created
+# within this window implements without the extra wait, so the product feels responsive while
+# they're still evaluating it. Measured against SignalTeamConfig.created_at.
+NEW_SELF_DRIVING_GRACE = timedelta(hours=24)
 
 
 @dataclass

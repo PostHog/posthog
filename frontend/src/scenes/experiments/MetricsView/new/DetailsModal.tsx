@@ -14,9 +14,6 @@ interface DetailsModalProps {
 }
 
 export function DetailsModal({ isOpen, onClose, metric, result, experiment }: DetailsModalProps): JSX.Element {
-    // :KLUDGE: workaround until we pass metric into the Frequentist result response
-    result.metric = metric
-
     return (
         <LemonModal
             isOpen={isOpen}

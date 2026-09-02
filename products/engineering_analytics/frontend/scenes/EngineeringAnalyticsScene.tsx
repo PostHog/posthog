@@ -9,6 +9,8 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { doraLogic } from './doraLogic'
+import { EngineeringAnalyticsHealth } from './EngineeringAnalyticsHealth'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { EngineeringAnalyticsPullRequests } from './EngineeringAnalyticsPullRequests'
 import {
@@ -26,12 +28,36 @@ export const scene: SceneExport = {
     logic: engineeringAnalyticsSceneLogic,
 }
 
-export function EngineeringAnalyticsScene(): JSX.Element {
-    const { searchParams: linkParams } = useValues(router)
-    const { activeView } = useValues(engineeringAnalyticsSceneLogic)
+function RefreshButton({ extraLoading = false }: { extraLoading?: boolean }): JSX.Element {
     const logic = engineeringAnalyticsLogic()
     const { anyLoading } = useValues(logic)
     const { refresh } = useActions(logic)
+    const loading = anyLoading || extraLoading
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            onClick={refresh}
+            loading={loading}
+            disabledReason={loading ? 'Loading…' : undefined}
+        >
+            Refresh
+        </LemonButton>
+    )
+}
+
+// Rendered only while the Health tab is active, where its content keeps doraLogic mounted —
+// subscribing here adds no eager DORA load on the other tabs. The DORA loading state can't
+// join anyLoading directly: doraLogic already connects from engineeringAnalyticsLogic, and a
+// reverse connect would make the two logics circular.
+function HealthRefreshButton(): JSX.Element {
+    const { doraLoading } = useValues(doraLogic)
+    return <RefreshButton extraLoading={doraLoading} />
+}
+
+export function EngineeringAnalyticsScene(): JSX.Element {
+    const { searchParams: linkParams } = useValues(router)
+    const { activeView } = useValues(engineeringAnalyticsSceneLogic)
 
     // The general areas of the product. Drill-down pages (workflow, run, PR) live below the Overview.
     const tabs: LemonTab<EngineeringAnalyticsView>[] = [
@@ -70,6 +96,13 @@ export function EngineeringAnalyticsScene(): JSX.Element {
             link: combineUrl(urls.engineeringAnalyticsTestHealth(), linkParams).url,
             'data-attr': 'engineering-analytics-test-health-tab',
         },
+        {
+            key: 'health',
+            label: 'Health',
+            content: <EngineeringAnalyticsHealth />,
+            link: combineUrl(urls.engineeringAnalyticsHealth(), linkParams).url,
+            'data-attr': 'engineering-analytics-health-tab',
+        },
     ]
 
     return (
@@ -79,17 +112,7 @@ export function EngineeringAnalyticsScene(): JSX.Element {
                     name="Engineering analytics"
                     description={VIEW_DESCRIPTIONS[activeView]}
                     resourceType={{ type: 'health' }}
-                    actions={
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={refresh}
-                            loading={anyLoading}
-                            disabledReason={anyLoading ? 'Loading…' : undefined}
-                        >
-                            Refresh
-                        </LemonButton>
-                    }
+                    actions={activeView === 'health' ? <HealthRefreshButton /> : <RefreshButton />}
                 />
                 <LemonBanner type="info" dismissKey="engineering-analytics-alpha">
                     Engineering analytics is in alpha. Metrics are limited to CI events, and details may change.

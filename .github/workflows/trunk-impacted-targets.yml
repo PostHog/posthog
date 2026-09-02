@@ -80,6 +80,15 @@ jobs:
                   node-version-file: .nvmrc
                   token: ${{ github.token }}
 
+            # The target script runs .github/scripts/tach_map.py under `uv run
+            # --no-project` to find a changed product's importers; the script pins
+            # tach, so no Python project sync is needed. A missing uv widens those
+            # products to every backend lane rather than failing the job.
+            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              continue-on-error: true
+              with:
+                  version: '0.11.28' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+
             # Split from the computation below so the cargo steps can be skipped
             # on the PRs that do not need them, which is nearly all of them.
             - name: Resolve the changed files
@@ -100,7 +109,10 @@ jobs:
                       exit 0
                   fi
 
-                  if ! changed="$(git diff --name-only "$merge_base" HEAD)"; then
+                  # --no-renames lists a renamed file as its old path and its new
+                  # one. The old path is what the target script reads as deleted,
+                  # and it widens on that: the tach map has no importer edge for it.
+                  if ! changed="$(git diff --name-only --no-renames "$merge_base" HEAD)"; then
                       echo "::warning::Could not diff against the merge base; reporting ALL."
                       echo 'resolved=false' >> "$GITHUB_OUTPUT"
                       exit 0
@@ -269,8 +281,14 @@ jobs:
             # The key is the write-only token from hogli.yaml's telemetry block:
             # it cannot read data, which is why it is committed rather than a
             # secret, and why this works on fork PRs too.
+            #
+            # Only human PRs against this repository are recorded. The queue's
+            # trunk-merge/** batch PRs run this workflow too and nearly all of
+            # them widen, so counting them doubles every widening figure on the
+            # lane dashboard. A fork running the workflow on its own repository
+            # has no diff to compute and would report a degraded lane here.
             - name: Record lane telemetry
-              if: ${{ !cancelled() }}
+              if: ${{ !cancelled() && github.repository == 'PostHog/posthog' && !startsWith(github.head_ref, 'trunk-merge/') }}
               continue-on-error: true
               env:
                   POSTHOG_TELEMETRY_HOST: https://us.i.posthog.com

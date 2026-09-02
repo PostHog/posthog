@@ -1,5 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -80,6 +81,11 @@ export const IframeExample: Story = {
             // Wait for heatmap canvas to be ready with data loaded
             waitForSelector: '.heatmaps-ready',
             waitForLoadersToDisappear: true,
+            // The overlay is 800px tall until the heatmap data arrives, then grows to fit the lowest
+            // point. The app shell fixes its own height before the fetch resolves, so at the default
+            // 720px viewport the page height depended on which of the two won the race. A viewport at
+            // least as tall as the loaded overlay makes both states resolve to the same height.
+            viewport: { width: 1280, height: 1300 },
         },
     },
     decorators: [
@@ -108,6 +114,14 @@ export const IframeExample: Story = {
             },
         }),
     ],
+}
+
+export const IframeExampleWithEventFilter: Story = {
+    parameters: {
+        ...IframeExample.parameters,
+        featureFlags: [FEATURE_FLAGS.HEATMAPS_EVENT_FILTER],
+    },
+    decorators: IframeExample.decorators,
 }
 
 export const New: Story = {

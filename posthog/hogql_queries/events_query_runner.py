@@ -25,8 +25,8 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.element import ElementSerializer
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
-from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_runner
 from posthog.hogql_queries.utils.person_display_name import person_display_name_property_exprs
 from posthog.models import Person, PropertyDefinition
@@ -184,10 +184,15 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 return str(row[i])
         return None
 
-    def _raise_on_restricted_property_select(self, select: list[ast.Expr]) -> None:
+    def _raise_on_restricted_property_select(self) -> None:
         # User-authored ``select`` entries that explicitly reference a restricted event or person
         # property must fail loudly — the printer's silent JSONDropKeys strip would otherwise turn
         # the request into an empty string, which is surprising when the field name was typed by hand.
+        #
+        # Check the raw user columns, not the expanded select list. PostHog's own pseudo-columns
+        # (``person``, ``person_display_name``) expand to expressions that reference restricted
+        # person properties such as ``email``; those values are masked elsewhere, so walking the
+        # expansion here would wrongly fail the whole query instead of degrading gracefully.
         from posthog.hogql.errors import ResolutionError
         from posthog.hogql.visitor import TraversingVisitor
 
@@ -222,8 +227,12 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     raise ResolutionError(f"Access to property '{chain[2]}' is restricted")
 
         checker = _Checker()
-        for expr in select:
-            checker.visit(expr)
+        for col in self.select_input_raw():
+            stripped = col.split("--")[0].strip()
+            # Skip PostHog-generated pseudo-columns; their expansion is masked, not restricted.
+            if col == "*" or stripped in ("person", "person_display_name"):
+                continue
+            checker.visit(map_virtual_properties(parse_expr(col, timings=self.timings)))
 
     def to_query(self) -> ast.SelectQuery:
         # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
@@ -231,7 +240,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             # columns & group_by
             with self.timings.measure("columns"):
                 select_input, select = self.select_cols()
-                self._raise_on_restricted_property_select(select)
+                self._raise_on_restricted_property_select()
 
             with self.timings.measure("aggregations"):
                 group_by: list[ast.Expr] = [column for column in select if not has_aggregation(column)]
@@ -488,6 +497,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             modifiers=self.modifiers,
             limit_context=self.limit_context,
             user=self.user,
+            context=self.build_hogql_context(),
         )
 
         # Convert star field from tuple to dict in each result
@@ -696,6 +706,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             query_type="EventsQuerySessionRecordingsCheck",
             timings=self.timings,
             modifiers=self.modifiers,
+            context=self.build_hogql_context(),
         )
 
         # Return set of session IDs that exist

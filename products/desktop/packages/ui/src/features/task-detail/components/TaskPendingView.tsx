@@ -1,7 +1,28 @@
+import { ChatCircle } from "@phosphor-icons/react";
+import {
+  Button,
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  Spinner,
+} from "@posthog/quill";
 import { NEW_TASK_COMPOSER_FADE_MS } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
+import {
+  discardPendingPrompt,
+  recoverPendingPrompt,
+} from "@posthog/ui/features/task-detail/pendingPromptActions";
+import { openTaskInput } from "@posthog/ui/router/useOpenTask";
 import { motion } from "framer-motion";
-import { usePendingTaskPrompt } from "../../../shell/pendingTaskPromptStore";
+import { useCallback, useEffect } from "react";
+import {
+  usePendingTaskPrompt,
+  usePendingTaskPromptStore,
+} from "../../../shell/pendingTaskPromptStore";
 import { PendingChatView } from "../../sessions/components/PendingChatView";
+import { InterruptedPromptView } from "./InterruptedPromptView";
 
 interface TaskPendingViewProps {
   pendingTaskKey: string;
@@ -9,6 +30,26 @@ interface TaskPendingViewProps {
 
 export function TaskPendingView({ pendingTaskKey }: TaskPendingViewProps) {
   const pending = usePendingTaskPrompt(pendingTaskKey);
+  const pendingHandoff = usePendingTaskPromptStore(
+    (state) => state.handoffs[pendingTaskKey],
+  );
+  // The store persists through async host storage, so the first render always
+  // sees an empty map. Without gating on hydration a reload straight onto this
+  // route would flash "no longer available" over a record that is still on disk.
+  const hasHydrated = usePendingTaskPromptStore((state) => state._hasHydrated);
+  const clearHandoff = usePendingTaskPromptStore((state) => state.clearHandoff);
+  const displayedPending = pending ?? pendingHandoff;
+
+  useEffect(() => {
+    return () => clearHandoff(pendingTaskKey);
+  }, [clearHandoff, pendingTaskKey]);
+
+  const handleRecover = useCallback(() => {
+    recoverPendingPrompt(pendingTaskKey);
+  }, [pendingTaskKey]);
+  const handleDiscard = useCallback(() => {
+    discardPendingPrompt(pendingTaskKey);
+  }, [pendingTaskKey]);
 
   return (
     // Picks up where the new-task composer's fade-out left off, so submitting
@@ -22,10 +63,48 @@ export function TaskPendingView({ pendingTaskKey }: TaskPendingViewProps) {
       }}
       className="relative h-full w-full bg-background"
     >
-      <PendingChatView
-        promptText={pending?.promptText ?? ""}
-        attachments={pending?.attachments}
-      />
+      {displayedPending?.interruptReason ? (
+        <InterruptedPromptView
+          promptText={displayedPending.promptText}
+          attachments={displayedPending.attachments}
+          reason={displayedPending.interruptReason}
+          onRecover={handleRecover}
+          onDiscard={handleDiscard}
+        />
+      ) : displayedPending ? (
+        <PendingChatView
+          promptText={displayedPending.promptText}
+          attachments={displayedPending.attachments}
+        />
+      ) : !hasHydrated ? (
+        <div className="absolute inset-0 flex items-center justify-center p-6">
+          <Spinner className="h-6 w-6" />
+        </div>
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center p-6">
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <ChatCircle />
+              </EmptyMedia>
+              <EmptyTitle>This prompt is no longer available</EmptyTitle>
+              <EmptyDescription>
+                It was already sent or discarded. Start a new task to keep
+                going.
+              </EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button
+                variant="primary"
+                size="default"
+                onClick={() => openTaskInput()}
+              >
+                Start a new task
+              </Button>
+            </EmptyContent>
+          </Empty>
+        </div>
+      )}
     </motion.div>
   );
 }

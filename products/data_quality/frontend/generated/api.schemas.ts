@@ -133,11 +133,7 @@ export type DataQualityOverviewCheckApiConfig = { [key: string]: unknown }
  */
 export interface DataQualityOverviewCheckApi {
     readonly id: string
-    /**
-     * Optional identifier-safe handle, unique per project. Omit to address the check by id.
-     * @maxLength 128
-     * @pattern ^[A-Za-z][A-Za-z0-9_]*$
-     */
+    /** Optional identifier-safe handle, unique per project. Omit to address the check by id. */
     name?: string
     /** Why this check exists and what a failure means. */
     description?: string
@@ -386,11 +382,7 @@ export type DataQualityCheckApiConfig = { [key: string]: unknown }
  */
 export interface DataQualityCheckApi {
     readonly id: string
-    /**
-     * Optional identifier-safe handle, unique per project. Omit to address the check by id.
-     * @maxLength 128
-     * @pattern ^[A-Za-z][A-Za-z0-9_]*$
-     */
+    /** Optional identifier-safe handle, unique per project. Omit to address the check by id. */
     name?: string
     /** Why this check exists and what a failure means. */
     description?: string
@@ -498,11 +490,7 @@ export type PatchedDataQualityCheckApiConfig = { [key: string]: unknown }
  */
 export interface PatchedDataQualityCheckApi {
     readonly id?: string
-    /**
-     * Optional identifier-safe handle, unique per project. Omit to address the check by id.
-     * @maxLength 128
-     * @pattern ^[A-Za-z][A-Za-z0-9_]*$
-     */
+    /** Optional identifier-safe handle, unique per project. Omit to address the check by id. */
     name?: string
     /** Why this check exists and what a failure means. */
     description?: string

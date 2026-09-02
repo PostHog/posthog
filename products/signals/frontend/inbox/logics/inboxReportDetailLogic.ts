@@ -716,8 +716,12 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 // Org members with a linked GitHub identity who can be added as reviewers.
                 // Filtered server-side via `query` (the backend ranks + caps at 100) so the picker
                 // isn't limited to the alphabetical first page. Empty query loads the default page.
-                loadAvailableReviewers: async ({ query }: { query?: string } = {}) => {
-                    return await api.signalReports.availableReviewers(query)
+                loadAvailableReviewers: async ({ query }: { query?: string } = {}, breakpoint) => {
+                    const reviewers = await api.signalReports.availableReviewers(query)
+                    // Discard this result if a newer search superseded it while the request was in
+                    // flight, so a slower earlier response cannot overwrite the newer rows.
+                    breakpoint()
+                    return reviewers
                 },
             },
         ],

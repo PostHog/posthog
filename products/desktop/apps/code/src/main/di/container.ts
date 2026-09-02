@@ -1,6 +1,7 @@
 import "reflect-metadata";
 
 import { readFile as fsReadFile, stat as fsStat } from "node:fs/promises";
+import { join } from "node:path";
 import { TypedContainer } from "@inversifyjs/strongly-typed";
 import { DEFAULT_GATEWAY_MODEL } from "@posthog/agent/gateway-models";
 import {
@@ -107,6 +108,7 @@ import { CRYPTO_SERVICE } from "@posthog/platform/crypto";
 import { DEEP_LINK_SERVICE } from "@posthog/platform/deep-link";
 import { DEV_HOST_ACTIONS_SERVICE } from "@posthog/platform/dev-host-actions";
 import { DIALOG_SERVICE } from "@posthog/platform/dialog";
+import { DISK_CACHE_SERVICE } from "@posthog/platform/disk-cache";
 import { FILE_ICON_SERVICE } from "@posthog/platform/file-icon";
 import { IMAGE_PROCESSOR_SERVICE } from "@posthog/platform/image-processor";
 import { MAIN_WINDOW_SERVICE } from "@posthog/platform/main-window";
@@ -266,6 +268,7 @@ import { DevLogsService } from "../services/dev-logs/service";
 import { DevMetricsService } from "../services/dev-metrics/service";
 import { DevNetworkService } from "../services/dev-network/service";
 import { DiscordPresenceService } from "../services/discord-presence/service";
+import { DiskCache } from "../services/disk-cache/service";
 import { EncryptionService } from "../services/encryption/service";
 import { SecureStoreService } from "../services/secure-store/service";
 import { settingsStore } from "../services/settingsStore";
@@ -734,6 +737,21 @@ container
   .to(SecureStoreService)
   .inSingletonScope();
 container.bind(SECURE_STORE_SERVICE).toService(MAIN_SECURE_STORE_SERVICE);
+container
+  .bind(DISK_CACHE_SERVICE)
+  .toDynamicValue(
+    (ctx) =>
+      new DiskCache({
+        // Not "cache": userData already holds Chromium's "Cache" directory, and
+        // case-insensitive file systems (default macOS, Windows) treat the two
+        // as one path, so clear() would delete the live browser cache.
+        rootDir: join(
+          ctx.get<ElectronStoragePaths>(STORAGE_PATHS_SERVICE).appDataPath,
+          "disk-cache",
+        ),
+      }),
+  )
+  .inSingletonScope();
 container
   .bind(SPEECH_SYNTHESIZER_SERVICE)
   .to(ElevenLabsSpeechService)

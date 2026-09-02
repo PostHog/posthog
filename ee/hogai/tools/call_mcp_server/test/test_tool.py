@@ -37,7 +37,7 @@ class TestCallMCPServerTool(BaseTest):
         self.context_manager = AssistantContextManager(self.team, self.user, {})
         self.node_path = (NodePath(name="test_node", tool_call_id="test_call", message_id="test"),)
         # Bypass SSRF DNS resolution for fake test domains
-        patcher = patch("ee.hogai.tools.call_mcp_server.tool.is_url_allowed", return_value=(True, None))
+        patcher = patch("products.mcp_store.backend.url_policy.is_url_allowed", return_value=(True, None))
         self.mock_is_url_allowed = patcher.start()
         self.addCleanup(patcher.stop)
 

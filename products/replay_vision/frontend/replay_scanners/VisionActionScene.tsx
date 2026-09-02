@@ -13,7 +13,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import type { VisionActionApi } from '../generated/api.schemas'
-import { DeliveryTargetTypeEnumApi, VisionActionModeEnumApi } from '../generated/api.schemas'
+import { DeliveryTargetTypeEnumApi, ActionModeEnumApi } from '../generated/api.schemas'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { humanizeCadence, parseRruleToCadence } from './cadence'
 import { VisionActionRuns } from './components/VisionActionRuns'
@@ -66,7 +66,7 @@ function ConfigCard({
     scheduleLabel: string | null
     noun: string
 }): JSX.Element {
-    const isAlert = action.mode === VisionActionModeEnumApi.Alert
+    const isAlert = action.mode === ActionModeEnumApi.Alert
     const guidance = action.synthesis_config?.prompt_guide?.trim()
 
     return (
@@ -106,7 +106,7 @@ function ActionOverview({
     action: VisionActionApi
     scheduleLabel: string | null
 }): JSX.Element {
-    const isAlert = action.mode === VisionActionModeEnumApi.Alert
+    const isAlert = action.mode === ActionModeEnumApi.Alert
     // `action.scanner` is only the id — the action's own user_access_level would just reflect the
     // replay_scanner resource default, not a per-scanner object grant, so load the scanner itself.
     const { scanner } = useValues(replayScannerLogic({ id: action.scanner }))

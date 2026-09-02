@@ -2,14 +2,14 @@ import type { ChangedFile } from "@posthog/shared/domain-types";
 import { TreeDirectoryRow } from "@posthog/ui/primitives/TreeDirectoryRow";
 import { useCallback, useMemo, useState } from "react";
 
-export interface TreeNode {
+interface TreeNode {
   name: string;
   path: string;
   children: Map<string, TreeNode>;
   files: ChangedFile[];
 }
 
-export function buildChangesTree(files: ChangedFile[]): TreeNode {
+function buildChangesTree(files: ChangedFile[]): TreeNode {
   const root: TreeNode = { name: "", path: "", children: new Map(), files: [] };
   for (const file of files) {
     const parts = file.path.split("/");
@@ -34,7 +34,7 @@ export function buildChangesTree(files: ChangedFile[]): TreeNode {
 }
 
 /** Collapse single-child directory chains into one node (e.g. "src/utils") */
-export function compactTree(node: TreeNode): TreeNode {
+function compactTree(node: TreeNode): TreeNode {
   const compacted = new Map<string, TreeNode>();
   for (const [key, child] of node.children) {
     let current = child;

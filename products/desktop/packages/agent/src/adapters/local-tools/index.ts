@@ -18,7 +18,6 @@ export {
   type LocalTool,
   type LocalToolCtx,
   type LocalToolGateMeta,
-  type LocalToolResult,
   qualifiedLocalToolName,
 } from "./registry";
 

@@ -87,7 +87,7 @@ export function ToolRow({
     const iconNode = leading ?? (isLoading ? <Spinner /> : <IconComp />);
     return (
       <ChatMarker
-        body={content ?? undefined}
+        body={content ? <div className="pt-1.5">{content}</div> : undefined}
         defaultOpen={defaultOpen}
         open={open}
         onOpenChange={onOpenChange}
@@ -97,6 +97,10 @@ export function ToolRow({
         // these rows.
         className={cn(
           "mx-0 px-0 opacity-50 hover:bg-transparent focus-visible:bg-transparent",
+          // Breathing room between the header row and the nested content below:
+          // quill's marker panel has no top padding of its own, so expanded
+          // bodies sit flush against the trigger.
+          "[&_[data-slot=marker-panel]]:pt-2 [&_[data-slot=marker-panel]]:pb-1",
           // quill 0.3.0-beta.24 parks the chevron at the row's far end with
           // `margin-inline-start: auto`, which strands it from the text it opens.
           "[&>svg:last-child]:ms-0",

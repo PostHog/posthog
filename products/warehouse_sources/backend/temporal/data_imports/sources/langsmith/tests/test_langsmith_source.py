@@ -6,6 +6,9 @@ from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.langsmith import (
     LangSmithSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.langsmith import (
+    RESPONSE_TOO_LARGE_ERROR,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.langsmith.source import LangSmithSource
 
 
@@ -102,6 +105,12 @@ class TestLangSmithSource:
         _, kwargs = langsmith_source.call_args
         # A stale watermark must not leak into a full-refresh run.
         assert kwargs["db_incremental_field_last_value"] is None
+
+    def test_oversized_response_is_non_retryable(self):
+        # Retrying an oversized page re-requests the same data and hits the same cap every time,
+        # so the error must be registered as non-retryable to stop immediately.
+        non_retryable = self.source.get_non_retryable_errors()
+        assert any(RESPONSE_TOO_LARGE_ERROR in key for key in non_retryable)
 
     def test_documented_tables_render_from_static_catalog(self):
         # lists_tables_without_credentials must expose the table catalog (+ canonical descriptions)

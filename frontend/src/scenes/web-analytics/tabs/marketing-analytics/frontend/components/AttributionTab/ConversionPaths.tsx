@@ -20,12 +20,12 @@ import {
 } from '~/queries/schema/schema-general'
 
 import {
-    BREAKDOWN_LABELS,
     MARKETING_ANALYTICS_ATTRIBUTION_COLLECTION_ID,
     PATHS_ROW_LIMIT,
     PathTouchpointFilter,
     marketingAttributionLogic,
 } from '../../logic/marketingAttributionLogic'
+import { BREAKDOWN_LABELS } from '../../logic/marketingBreakdown'
 import { ConversionPathChips } from './ConversionPathChips'
 
 // The segmented control offers exact lengths up to this, then an open-ended "N+" bucket.

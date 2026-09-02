@@ -1,6 +1,6 @@
 import { EnvelopeSimpleIcon } from "@phosphor-icons/react";
 import { isInboxDetailPath } from "@posthog/core/inbox/reportMembership";
-import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
+import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { useReportsInboxEnabled } from "@posthog/ui/features/feature-flags/useReportsInboxEnabled";
 import { InboxPageHeader } from "@posthog/ui/features/inbox/components/InboxPageHeader";
 import { ReportsInboxView } from "@posthog/ui/features/inbox/components/ReportsInboxView";
@@ -44,13 +44,12 @@ export function InboxView() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const isDetailView = isInboxDetailPath(pathname);
 
-  const channelReportsEnabled = useChannelReportsEnabled();
+  const inboxAvailable = useInboxAvailable();
   // The global reports inbox replaces the pipeline tabs with one sectioned,
   // keyboard-triageable page, and reclaims the inbox slot from the spaces
   // redirect below. Detail routes keep their own bodies.
   const reportsInboxEnabled = useReportsInboxEnabled();
-  const listEnabled =
-    !isDetailView && (reportsInboxEnabled || !channelReportsEnabled);
+  const listEnabled = !isDetailView && inboxAvailable;
   const legacyListEnabled = listEnabled && !reportsInboxEnabled;
   const { counts } = useInboxAllReports({
     enabled: legacyListEnabled,
@@ -69,7 +68,7 @@ export function InboxView() {
   // List tabs reached through stale history or bookmarks land on the spaces
   // index; detail URLs keep working (deep links and old history still carry
   // them, and the in-space route can't be derived from a bare report URL here).
-  if (channelReportsEnabled && !reportsInboxEnabled && !isDetailView) {
+  if (!inboxAvailable && !isDetailView) {
     return <Navigate replace to="/website" />;
   }
 

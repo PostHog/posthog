@@ -10,9 +10,7 @@ import {
     LemonInputSelect,
     LemonSelect,
     LemonSwitch,
-    LemonTag,
     SpinnerOverlay,
-    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
@@ -27,10 +25,10 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { urls } from 'scenes/urls'
 
+import type { MetricsDisplayType } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -45,8 +43,11 @@ import { traceUrl } from 'products/tracing/frontend/traceLinks'
 import { getMetricsInsightEditorDisabledReason } from '../metricsAccess'
 import { MetricNameFilter } from './MetricNameFilter'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
+import { MetricsAnomalyPanel } from './MetricsAnomalyPanel'
+import { MetricsChartSettings } from './MetricsChartSettings'
 import { type MetricsExemplar } from './MetricsExemplarMarkers'
 import { MetricsLogsSourceTag } from './MetricsLogsSourceTag'
+import { MetricsRelatedMenu } from './MetricsRelatedMenu'
 import { metricsSamplesLogic } from './metricsSamplesLogic'
 import { MetricsSamplesPanel } from './MetricsSamplesPanel'
 import { MetricsSeriesChart } from './MetricsSeriesChart'
@@ -57,15 +58,23 @@ import {
     LIVE_REFRESH_MS,
     METRIC_FILTER_OPERATOR_ALLOWLIST,
     MetricAggregation,
-    MetricsAnomalyBadge,
     metricsViewerLogic,
     RECOMMENDED_AGGREGATION_BY_TYPE,
 } from './metricsViewerLogic'
+
+// `stat` is in the schema but has no renderer yet, so the picker doesn't offer it.
+const DISPLAY_TYPE_OPTIONS: { value: MetricsDisplayType; label: string }[] = [
+    { value: 'line', label: 'Line' },
+    { value: 'area', label: 'Area' },
+    { value: 'bar', label: 'Bar' },
+]
 
 const AGGREGATION_OPTIONS: { value: MetricAggregation; label: string }[] = [
     { value: 'sum', label: 'Sum' },
     { value: 'avg', label: 'Average' },
     { value: 'count', label: 'Series count' },
+    { value: 'min', label: 'Min' },
+    { value: 'max', label: 'Max' },
     { value: 'p95', label: 'p95' },
     { value: 'rate', label: 'Rate (/s)' },
     { value: 'increase', label: 'Increase' },
@@ -126,13 +135,15 @@ export const MetricsViewer = (): JSX.Element => {
         chartSeries,
         anomalyBadge,
         liveRefresh,
-        queryResultsLoading,
+        queryLoading,
         queryError,
         savedInsightLoading,
         savedInsight,
         isAddToDashboardModalOpen,
         hasMetricName,
         hasResults,
+        displayType,
+        metricsDisplay,
     } = useValues(logic)
     const {
         setMetricName,
@@ -147,6 +158,7 @@ export const MetricsViewer = (): JSX.Element => {
         saveAsInsight,
         addToDashboard,
         closeAddToDashboardModal,
+        setDisplayType,
     } = useActions(logic)
     const { items: pickerItems } = useValues(pickerLogic)
     const { traceExemplars, errorSpikes, showErrorSpikes } = useValues(metricsSamplesLogic)
@@ -317,7 +329,17 @@ export const MetricsViewer = (): JSX.Element => {
                             disabledReason={metricsViewerDisabledReason}
                         />
                         <MetricsGroupByButton disabledReason={metricsViewerDisabledReason} />
-                        {anomalyBadge && <MetricsAnomalyTag anomaly={anomalyBadge} />}
+                        <LemonSelect
+                            size="small"
+                            value={displayType}
+                            options={DISPLAY_TYPE_OPTIONS}
+                            onChange={setDisplayType}
+                            data-attr="metrics-viewer-display-type"
+                            disabledReason={metricsViewerDisabledReason}
+                        />
+                        <MetricsChartSettings />
+                        <MetricsRelatedMenu />
+                        {anomalyBadge && <MetricsAnomalyPanel anomaly={anomalyBadge} />}
                         <MetricsLogsSourceTag metricName={metricName} />
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -389,14 +411,15 @@ export const MetricsViewer = (): JSX.Element => {
                             <MetricsSeriesChart
                                 series={chartSeries}
                                 fallbackName={metricName}
+                                display={metricsDisplay}
                                 exemplars={chartMarkers}
                             />
-                        ) : !queryResultsLoading ? (
+                        ) : !queryLoading ? (
                             <div className="h-full flex items-center justify-center text-secondary text-sm">
                                 No data for this metric in the selected range.
                             </div>
                         ) : null}
-                        {queryResultsLoading && <SpinnerOverlay />}
+                        {queryLoading && <SpinnerOverlay />}
                     </div>
                 </div>
                 {hasMetricName && (
@@ -411,17 +434,6 @@ export const MetricsViewer = (): JSX.Element => {
 
 // How the recent slice of the window compares against the rest of it, sitting next to the
 // controls that define the window rather than over the chart, where it would fight the legend.
-const MetricsAnomalyTag = ({ anomaly }: { anomaly: MetricsAnomalyBadge }): JSX.Element => (
-    <Tooltip
-        title={`Baseline ${humanFriendlyNumber(anomaly.baselineMean)} → recent ${humanFriendlyNumber(
-            anomaly.anomalyMean
-        )}${anomaly.onsetTime ? `, onset ${dayjs(anomaly.onsetTime).format('D MMM HH:mm')}` : ''}`}
-    >
-        <LemonTag type="warning" data-attr="metrics-viewer-anomaly-badge">
-            {anomaly.direction === 'up' ? '▲' : '▼'} {anomaly.percent}% vs baseline
-        </LemonTag>
-    </Tooltip>
-)
 
 // Filter chips + "Add filter" button, mirroring the logs viewer's applied-filters row: picking an
 // attribute opens the chip for value selection, with suggestions fed by the metrics attribute endpoints.

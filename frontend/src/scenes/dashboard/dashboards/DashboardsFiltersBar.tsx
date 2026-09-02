@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useDebouncedCallback } from 'use-debounce'
 
 import { IconChevronDown, IconFolder, IconPin, IconPinFilled, IconShare, IconX } from '@posthog/icons'
 import { LemonInput, Popover } from '@posthog/lemon-ui'
@@ -17,11 +16,6 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
     const { setFilters, setTagSearch, setShowTagPopover, setSearch } = useActions(dashboardsLogic)
 
     const createdByIds = filters.createdBy === 'All users' ? [] : filters.createdBy
-
-    const debouncedSetSearch = useDebouncedCallback((value: string) => {
-        setSearch(value)
-    }, 300)
-
     const handleTagToggle = (tag: string): void => {
         const selected = new Set(filters.tags || [])
         if (selected.has(tag)) {
@@ -34,15 +28,7 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
 
     return (
         <div className="flex justify-between gap-2 flex-wrap mb-4">
-            <LemonInput
-                type="search"
-                placeholder="Search for dashboards"
-                onChange={(value) => {
-                    setFilters({ search: value })
-                    debouncedSetSearch(value)
-                }}
-                value={filters.search}
-            />
+            <LemonInput type="search" placeholder="Search for dashboards" onChange={setSearch} value={filters.search} />
             <div className="flex items-center gap-2 flex-wrap">
                 <div className="flex items-center gap-2 flex-wrap">
                     <span>Filter to:</span>
@@ -164,7 +150,11 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                 {currentTab !== DashboardsTab.Yours && (
                     <MemberSelectMultiplePopover
                         value={createdByIds}
-                        onChange={(ids) => setFilters({ createdBy: ids.length > 0 ? ids : 'All users' })}
+                        onChange={(ids) =>
+                            setFilters({
+                                createdBy: ids.length > 0 ? ids : 'All users',
+                            })
+                        }
                     />
                 )}
                 {extraActions}

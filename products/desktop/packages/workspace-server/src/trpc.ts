@@ -154,24 +154,6 @@ import type { WatcherService } from "./services/watcher/service";
 
 const t = initTRPC.create({ transformer: superjson });
 
-export {
-  type FocusBranchRenamedEvent,
-  type FocusForeignBranchCheckoutEvent,
-  type FocusResult,
-  type FocusSession,
-  focusBranchRenamedEventSchema,
-  focusForeignBranchCheckoutEventSchema,
-  focusResultSchema,
-  focusSessionSchema,
-  type StashResult,
-  stashResultSchema,
-} from "./services/focus/schemas";
-export { type DiffStats, diffStatsSchema } from "./services/git/schemas";
-export {
-  type FileWatcherEvent,
-  FileWatcherEventKind,
-} from "./services/watcher/schemas";
-
 export interface WorkspaceServerServices {
   focusService: FocusService;
   focusSyncService: FocusSyncService;

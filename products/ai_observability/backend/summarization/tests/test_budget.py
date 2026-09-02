@@ -1,8 +1,10 @@
 from parameterized import parameterized
 
 from products.ai_observability.backend.summarization.budget import (
+    BATCH_TEXT_REPR_MAX_CHARS,
     MODEL_CONTEXT_TOKENS,
     RESERVED_TOKENS,
+    batch_text_repr_budget,
     bounded_text_repr,
     text_repr_budget,
 )
@@ -24,6 +26,14 @@ class TestTextReprBudget:
 
     def test_a_narrow_window_model_gets_a_smaller_budget_than_a_wide_one(self):
         assert text_repr_budget(OpenAIModel.GPT_4O) < text_repr_budget(OpenAIModel.GPT_4_1_MINI)
+
+
+class TestBatchTextReprBudget:
+    def test_wide_window_model_is_capped_below_its_full_budget(self):
+        # The nano window is ~1M tokens, so its full budget never bounds a typical trace.
+        # The batch cap must bring it down to the cost-conscious ceiling.
+        assert batch_text_repr_budget(OpenAIModel.GPT_4_1_NANO) == BATCH_TEXT_REPR_MAX_CHARS
+        assert BATCH_TEXT_REPR_MAX_CHARS < text_repr_budget(OpenAIModel.GPT_4_1_NANO)
 
 
 class TestBoundedTextRepr:

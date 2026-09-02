@@ -67,6 +67,8 @@ export interface ExportedData extends SharingConfigurationSettings {
      */
     query?: QuerySchema
     query_results?: AnyResponseType
+    /** Optional title shown inside an ad-hoc query image export. */
+    query_title?: string
     autoplay?: boolean
     /** Player adds border by default - we want to remove it **/
     noBorder?: boolean

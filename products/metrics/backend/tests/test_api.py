@@ -22,7 +22,7 @@ from products.access_control.backend.facade.user_access_control import (
     AccessControlLevelResource,
 )
 from products.access_control.backend.models.access_control import AccessControl
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSpikeEvent
+from products.error_tracking.backend.facade.testing import create_issue, create_spike_event
 
 
 def test_metrics_app_is_installed():
@@ -50,15 +50,9 @@ class TestMetricsValuesApi(APIBaseTest):
 
 class TestMetricsErrorSpikesApi(APIBaseTest):
     def test_returns_spikes_from_error_tracking_in_the_window(self) -> None:
-        issue = ErrorTrackingIssue.objects.create(team=self.team, name="Boom")
+        issue_id = create_issue(team_id=self.team.id, name="Boom")
         now = timezone.now()
-        ErrorTrackingSpikeEvent.objects.create(
-            team=self.team,
-            issue=issue,
-            detected_at=now,
-            computed_baseline=1.0,
-            current_bucket_value=10,
-        )
+        create_spike_event(team_id=self.team.id, issue_id=issue_id, detected_at=now)
 
         # The overlay is a staff-only PoC behind its own flag, on top of the
         # `metrics` gate the conftest already enables — turn both on here.
@@ -71,7 +65,7 @@ class TestMetricsErrorSpikesApi(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
         assert len(results) == 1
-        assert results[0]["issue_id"] == str(issue.id)
+        assert results[0]["issue_id"] == str(issue_id)
         assert results[0]["issue_name"] == "Boom"
 
     def test_is_forbidden_when_only_the_metrics_flag_is_enabled(self) -> None:

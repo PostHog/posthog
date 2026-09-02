@@ -822,14 +822,17 @@ def _calculate_experiment_metric_for_recalculation_sync(
             message = str(e)[:_MAX_ERROR_MESSAGE_LENGTH]
             error_type = classify_experiment_query_error(e)
             is_permanent = error_type in NON_RETRYABLE_ERROR_TYPES or isinstance(e, ValueError)
-            capture_exception(
-                e,
-                additional_properties={
-                    "experiment_id": experiment_id,
-                    "metric_uuid": metric_uuid,
-                    "recalculation_id": recalculation_id,
-                },
-            )
+            # validation_error = the user's metric config is broken (e.g. HogQL referencing a
+            # column outside an aggregate) — a stored failure, not a platform error to track.
+            if error_type != "validation_error":
+                capture_exception(
+                    e,
+                    additional_properties={
+                        "experiment_id": experiment_id,
+                        "metric_uuid": metric_uuid,
+                        "recalculation_id": recalculation_id,
+                    },
+                )
             if is_final_attempt or is_permanent:
                 _store_result(
                     experiment_id=experiment_id,

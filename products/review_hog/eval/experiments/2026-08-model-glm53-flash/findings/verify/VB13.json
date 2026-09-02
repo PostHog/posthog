@@ -1,0 +1,6 @@
+{
+    "id": "VB13",
+    "real": false,
+    "source": "fresh",
+    "reasoning": "Refuted. A qualifying signal run is reachable only via the pr_url leg: auto_start.py:253 sets branch=base_branch, so the branch leg (webhooks.py:64-77) can never match it against a PR head ref. The pr_url leg (webhooks.py:36-56) is repo-scoped and one GitHub PR URL is held by one run — writes go through team-scoped set_task_run_output or the branch-matched, fork-guarded backstop (webhooks.py:172-185), neither of which duplicates a URL across teams or task types. So no unrelated row can outrank a qualifying run; when an unrelated row matches by branch, the qualifying run was unreachable anyway. Other-team None is the documented fail-closed contract (facade/api.py:490-496), rechecked by the caller (stamphog tasks.py:197-200). Matches prior refuted verdict KA5 (cluster 39)."
+}

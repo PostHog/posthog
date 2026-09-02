@@ -128,8 +128,51 @@ describe('formatPropertyLabel() for behavioral filters', () => {
             'Performed action 42 in the last 30\u00a0days',
             noActions,
         ],
+        [
+            'API-created negated filter includes its nested event filters',
+            {
+                negation: true,
+                event_filters: [
+                    { type: PropertyFilterType.Event, key: 'source', operator: PropertyOperator.Exact, value: ['web'] },
+                ],
+            },
+            'Did not perform signed_up where Source = web in the last 30\u00a0days',
+            noActions,
+        ],
+        [
+            'multiple nested event filters join with and',
+            {
+                event_filters: [
+                    { type: PropertyFilterType.Event, key: 'source', operator: PropertyOperator.Exact, value: ['web'] },
+                    { type: PropertyFilterType.Person, key: 'email', operator: PropertyOperator.IsSet, value: null },
+                ],
+            },
+            'Performed signed_up where Source = web and Email address ✓ is set in the last 30\u00a0days',
+            noActions,
+        ],
     ])('%s', (_name, overrides, expected, actionsById) => {
         expect(formatPropertyLabel({ ...base, ...overrides }, {}, undefined, actionsById)).toEqual(expected)
+    })
+})
+
+describe('formatPropertyLabel() for account date filters', () => {
+    it.each([
+        ['-14d', 'created_at > 14 days ago'],
+        [['-14d'], 'created_at > 14 days ago'],
+        ['14d', 'created_at > 14 days from now'],
+        ['+1w', 'created_at > 1 week from now'],
+    ])('formats %s as %s', (value, expected) => {
+        expect(
+            formatPropertyLabel(
+                {
+                    key: 'created_at',
+                    value,
+                    type: PropertyFilterType.Account,
+                    operator: PropertyOperator.IsDateAfter,
+                } as unknown as AnyPropertyFilter,
+                {}
+            ).trim()
+        ).toBe(expected)
     })
 })
 

@@ -32,7 +32,7 @@ const breakdownQuery: RetentionQuery = {
 
 const breakdownRows = [
     cohortRow('2024-01-01T00:00:00Z', 'Chrome'),
-    cohortRow('2024-01-02T00:00:00Z', 'Chrome'),
+    cohortRow('2025-01-01T00:00:00Z', 'Chrome'),
     cohortRow('2024-01-01T00:00:00Z', BREAKDOWN_OTHER_STRING_LABEL),
 ]
 
@@ -102,6 +102,7 @@ describe('retentionGraphLogic', () => {
             ['Chrome', 'Chrome'],
             [BREAKDOWN_OTHER_DISPLAY, BREAKDOWN_OTHER_STRING_LABEL],
         ])
+        expect(logic.values.xAxisLabels).toEqual(['2024-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z'])
     })
 
     it('per-cohort series keep rawBreakdownValue unset when filtered to one breakdown value', async () => {

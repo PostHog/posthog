@@ -13,10 +13,6 @@ a half-set row reads as "no preference" rather than half-applying.
 stale effort from a previous model choice can't silently stick. Unset keys
 stay `None` so the task layer applies its own defaults rather than
 duplicating them here.
-
-Gated by the `slack-app-home` feature flag: when off the resolver returns
-the empty object, preserving pre-Home-tab behaviour for workspaces that
-haven't opted in.
 """
 
 from __future__ import annotations
@@ -24,7 +20,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from products.slack_app.backend.feature_flags import is_slack_app_home_enabled
 from products.slack_app.backend.models import UntaggedFollowupMode
 from products.slack_app.backend.services.model_catalogue import filter_unsupported_effort
 
@@ -60,7 +55,7 @@ def resolve_ai_preferences(integration: Integration, slack_user_id: str | None) 
     resolved model doesn't support it.
     """
 
-    if not slack_user_id or not is_slack_app_home_enabled(integration):
+    if not slack_user_id:
         return _EMPTY
 
     from products.slack_app.backend.models import SlackSettings

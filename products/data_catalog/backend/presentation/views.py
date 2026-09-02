@@ -70,7 +70,11 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Metric.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[Metric]) -> QuerySet[Metric]:
-        return queryset.filter(team_id=self.team_id, deleted=False).order_by("-created_at")
+        return api.metrics_visible_to_user(
+            self.team,
+            cast(User, self.request.user),
+            self.user_access_control,
+        )
 
     def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
         if getattr(view, "action", None) not in ("create", "update", "partial_update"):
@@ -277,8 +281,16 @@ class CertificationViewSet(
         return api.certifications_for_team(self.team)
 
     def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
-        if getattr(view, "action", None) == "destroy":
+        action = getattr(view, "action", None)
+        if action == "destroy":
             return ["data_catalog_approval:write", "data_catalog:read"]
+        if action == "create" and isinstance(request.data, dict):
+            scopes = ["data_catalog:write"]
+            if request.data.get("table_id") or request.data.get("table_name"):
+                scopes.append("warehouse_table:read")
+            if request.data.get("saved_query_id") or request.data.get("view_name"):
+                scopes.append("warehouse_view:read")
+            return scopes if len(scopes) > 1 else None
         return None
 
     @extend_schema(request=CertificationCreateSerializer, responses={201: CertificationSerializer})

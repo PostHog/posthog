@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, renderHook, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
@@ -14,8 +14,9 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { __clearTaxonomicResourceCache } from '../hooks/useTaxonomicResource'
 import { recentTaxonomicFiltersLogic } from '../recentTaxonomicFiltersLogic'
+import { taxonomicFilterPinnedPropertiesLogic } from '../taxonomicFilterPinnedPropertiesLogic'
 import { TaxonomicFilterGroupType } from '../types'
-import { TaxonomicFilterHeadless } from './index'
+import { TaxonomicFilterHeadless, useTaxonomicAutocompleteShortcutItems } from './index'
 
 jest.mock('~/queries/query', () => ({
     performQuery: jest.fn(),
@@ -246,5 +247,33 @@ describe('TaxonomicFilterHeadless integration', () => {
         expect(screen.getByTestId('taxonomic-row-recent_filters-1').textContent).toMatch(/Chrome/)
 
         recents.unmount()
+    })
+
+    // A pin outlives the picker it was made in, so without this the shortcut row is another door
+    // to selecting a value the exclusion forbids.
+    it.each([
+        ['$exception', false],
+        ['checkout_started', true],
+    ])('offers the pinned shortcut %p: %p', (pinnedName, expected) => {
+        const pinnedLogic = taxonomicFilterPinnedPropertiesLogic.build()
+        pinnedLogic.mount()
+        pinnedLogic.actions.togglePin(TaxonomicFilterGroupType.Events, 'Events', pinnedName, { name: pinnedName })
+
+        const { result } = renderHook(() => useTaxonomicAutocompleteShortcutItems(), {
+            wrapper: ({ children }) => (
+                <Provider>
+                    <TaxonomicFilterHeadless.Root
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                        onChange={onChangeMock}
+                        excludedProperties={{ [TaxonomicFilterGroupType.Events]: ['$exception'] }}
+                    >
+                        {children}
+                    </TaxonomicFilterHeadless.Root>
+                </Provider>
+            ),
+        })
+
+        expect(result.current.pinned.some((e) => e.name === pinnedName)).toBe(expected)
+        pinnedLogic.unmount()
     })
 })

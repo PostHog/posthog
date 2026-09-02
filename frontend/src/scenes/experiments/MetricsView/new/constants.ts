@@ -17,8 +17,5 @@ export const SIGNIFICANT_ROW_BG_ALPHA = '14'
 
 // Axis
 export const TICK_PANEL_HEIGHT = 20
-export const TICK_FONT_SIZE = 9
+export const TICK_FONT_SIZE = 11
 export const MAX_AXIS_RANGE = 1.5 // Cap at ±150% to prevent outliers from squishing other charts
-
-// New temporary values until the new table have been fully rolled out
-export const TICK_FONT_SIZE_NEW = 11

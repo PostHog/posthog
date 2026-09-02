@@ -121,7 +121,10 @@ const LEGACY_FLAGS = {
 }
 
 export const Legacy: Story = {
-    parameters: { featureFlags: LEGACY_FLAGS },
+    parameters: {
+        featureFlags: LEGACY_FLAGS,
+        testOptions: { waitForLoadersToDisappear: true },
+    },
     decorators: [routeTo(urls.inbox('pulls'))],
 }
 
@@ -207,30 +210,8 @@ export const InstallingSelfDriving: Story = {
     ],
 }
 
-// Fresh project: nothing watching and nothing in the inbox → the single-command takeover.
+// Fresh project: nothing watching and nothing in the inbox → the full-pane welcome page (no tab row).
 export const SelfDrivingOnboarding: Story = {
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
-                '/api/projects/:id/signals/source_configs': () => [200, { results: [], count: 0 }],
-                '/api/projects/:id/signals/scout/configs': () => [200, []],
-            },
-        }),
-    ],
-}
-
-// The same fresh-project state with the welcome-redesign experiment's test arm pinned → the
-// full-pane hero welcome (no tab row) instead of the locked "Welcome" tab.
-export const SelfDrivingOnboardingRedesign: Story = {
-    parameters: {
-        // Story parameters replace the meta's, so the meta-level flag is re-listed here.
-        featureFlags: {
-            [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
-            [FEATURE_FLAGS.INBOX_WELCOME_REDESIGN]: 'test',
-            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
-        },
-    },
     decorators: [
         mswDecorator({
             get: {

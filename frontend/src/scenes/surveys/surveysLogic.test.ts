@@ -1,5 +1,8 @@
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import api, { CountedPaginatedResponse } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
@@ -32,22 +35,43 @@ const createTestSurvey = (id: string, name: string): Survey => ({
     user_access_level: AccessControlLevel.Editor,
 })
 
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+    let resolve!: (value: T) => void
+    const promise = new Promise<T>((promiseResolve) => {
+        resolve = promiseResolve
+    })
+    return { promise, resolve }
+}
+
 describe('surveysLogic', () => {
     describe('search functionality', () => {
         let logic: ReturnType<typeof surveysLogic.build>
+        let surveyListRequests: URL[]
+        let responseCountRequests: URL[]
 
         beforeEach(async () => {
             initKeaTests()
+            surveyListRequests = []
+            responseCountRequests = []
             logic = surveysLogic()
-            logic.mount()
 
             useMocks({
                 get: {
-                    '/api/projects/:team/surveys/': () => [200, { count: 0, results: [], next: null, previous: null }],
-                    '/api/projects/:team/surveys/responses_count': () => [200, {}],
+                    '/api/projects/:team/surveys/': ({ request }) => {
+                        surveyListRequests.push(new URL(request.url))
+                        return [200, { count: 0, results: [], next: null, previous: null }]
+                    },
+                    '/api/projects/:team/surveys/responses_count': ({ request }) => {
+                        const url = new URL(request.url)
+                        responseCountRequests.push(url)
+                        const requestedSurveyIds = url.searchParams.get('survey_ids')?.split(',') ?? []
+
+                        return [200, requestedSurveyIds.includes('survey-1') ? { 'survey-1': 12 } : {}]
+                    },
                 },
             })
 
+            logic.mount()
             await expectLogic(logic).toFinishAllListeners()
         })
 
@@ -133,6 +157,76 @@ describe('surveysLogic', () => {
                 }),
                 hasNextPage: false,
             })
+        })
+
+        it('filters on the server before paginating', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSurveysFilters({
+                    created_by: 42,
+                    status: 'running',
+                    type: SurveyType.Widget,
+                })
+            }).toFinishAllListeners()
+
+            const params = surveyListRequests.at(-1)?.searchParams
+            expect(params?.get('archived')).toEqual('false')
+            expect(params?.get('created_by')).toEqual('42')
+            expect(params?.get('status')).toEqual('running')
+            expect(params?.get('type')).toEqual(SurveyType.Widget)
+            expect(params?.get('limit')).toEqual('100')
+        })
+
+        it('keeps the latest filtered results when requests finish out of order', async () => {
+            const olderRequest = deferred<CountedPaginatedResponse<Survey>>()
+            const newerRequest = deferred<CountedPaginatedResponse<Survey>>()
+            const olderSurvey = createTestSurvey('older', 'Older filter result')
+            const newerSurvey = createTestSurvey('newer', 'Newer filter result')
+            const listSpy = jest
+                .spyOn(api.surveys, 'list')
+                .mockImplementationOnce(() => olderRequest.promise)
+                .mockImplementationOnce(() => newerRequest.promise)
+
+            logic.actions.setSurveysFilters({ created_by: 41 })
+            logic.actions.setSurveysFilters({ created_by: 42 })
+
+            expect(listSpy).toHaveBeenNthCalledWith(1, expect.objectContaining({ created_by: 41 }))
+            expect(listSpy).toHaveBeenNthCalledWith(2, expect.objectContaining({ created_by: 42 }))
+
+            newerRequest.resolve({ count: 1, results: [newerSurvey] })
+            await waitFor(() => expect(logic.values.data.surveys).toEqual([newerSurvey]))
+
+            olderRequest.resolve({ count: 1, results: [olderSurvey] })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.data.surveys).toEqual([newerSurvey])
+        })
+
+        it('loads response counts for each page and merges them', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/surveys/': ({ request }) => {
+                        const offset = new URL(request.url).searchParams.get('offset')
+                        const survey =
+                            offset === '1'
+                                ? createTestSurvey('survey-2', 'Second survey')
+                                : createTestSurvey('survey-1', 'First survey')
+
+                        return [200, { count: 2, results: [survey], next: null, previous: null }]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => logic.actions.loadSurveys()).toFinishAllListeners()
+
+            expect(responseCountRequests).toHaveLength(1)
+            expect(responseCountRequests[0].searchParams.get('survey_ids')).toEqual('survey-1')
+            expect(logic.values.surveysResponsesCount).toEqual({ 'survey-1': 12 })
+
+            await expectLogic(logic, () => logic.actions.loadNextPage()).toFinishAllListeners()
+
+            expect(responseCountRequests).toHaveLength(2)
+            expect(responseCountRequests[1].searchParams.get('survey_ids')).toEqual('survey-2')
+            expect(logic.values.surveysResponsesCount).toEqual({ 'survey-1': 12, 'survey-2': 0 })
         })
     })
 

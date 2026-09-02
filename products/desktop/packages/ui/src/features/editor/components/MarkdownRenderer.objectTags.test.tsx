@@ -1,4 +1,5 @@
 import { Theme } from "@radix-ui/themes";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -28,19 +29,25 @@ vi.mock("../../../hooks/useAuthenticatedQuery", () => ({
 
 import { MarkdownRenderer } from "./MarkdownRenderer";
 
+const queryClient = new QueryClient();
+
 function renderMarkdown(content: string) {
   return render(
-    <Theme>
-      <MarkdownRenderer content={content} renderObjectTags />
-    </Theme>,
+    <QueryClientProvider client={queryClient}>
+      <Theme>
+        <MarkdownRenderer content={content} renderObjectTags />
+      </Theme>
+    </QueryClientProvider>,
   );
 }
 
 function renderUntrustedMarkdown(content: string) {
   return render(
-    <Theme>
-      <MarkdownRenderer content={content} />
-    </Theme>,
+    <QueryClientProvider client={queryClient}>
+      <Theme>
+        <MarkdownRenderer content={content} />
+      </Theme>
+    </QueryClientProvider>,
   );
 }
 

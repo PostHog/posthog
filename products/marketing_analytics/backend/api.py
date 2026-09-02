@@ -5,7 +5,7 @@ from operator import or_
 from typing import Any, Optional, cast
 
 from django.core.cache import cache
-from django.db import transaction
+from django.db import models, transaction
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -186,16 +186,22 @@ class CampaignAuditResultSerializer(serializers.Serializer):
     issues = UtmIssueSerializer(many=True, help_text="List of detected UTM configuration issues")
 
 
+class SourceMatch(models.TextChoices):
+    NONE = "none", "none"
+    AUTO = "auto", "auto"
+    MAPPED = "mapped", "mapped"
+
+
 class UtmEventSerializer(serializers.Serializer):
     utm_campaign = serializers.CharField(help_text="UTM campaign value from pageview events")
     utm_source = serializers.CharField(help_text="UTM source value from pageview events")
     event_count = serializers.IntegerField(help_text="Number of pageview events with this UTM combination")
     campaign_match = serializers.ChoiceField(
-        choices=["none", "auto", "mapped"],
+        choices=SourceMatch.choices,
         help_text="How utm_campaign matched: none, auto (direct name/id), or mapped (manual mapping)",
     )
     source_match = serializers.ChoiceField(
-        choices=["none", "auto", "mapped"],
+        choices=SourceMatch.choices,
         help_text="How utm_source matched: none, auto (default source), or mapped (custom mapping)",
     )
     matched_campaign = serializers.CharField(allow_null=True, help_text="Name of the matched campaign, if any")

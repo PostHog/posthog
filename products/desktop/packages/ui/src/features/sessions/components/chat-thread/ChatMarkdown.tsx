@@ -26,6 +26,7 @@ import {
   looksLikeBareFilename,
 } from "@posthog/ui/features/sessions/components/session-update/fileLinkChips";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
+import { Spin } from "@posthog/ui/primitives/Spinner";
 import { useCopy } from "@posthog/ui/primitives/useCopy";
 import { parseArtifactLink } from "@posthog/ui/utils/artifactLinks";
 import {
@@ -91,7 +92,9 @@ const components: Components = {
           aria-label="Link loading"
         >
           {children}
-          <CircleNotch className="size-3 animate-spin" aria-hidden="true" />
+          <Spin>
+            <CircleNotch size={12} aria-hidden="true" />
+          </Spin>
         </output>
       );
     }

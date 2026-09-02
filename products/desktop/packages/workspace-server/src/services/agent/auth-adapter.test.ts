@@ -275,6 +275,56 @@ describe("AgentAuthAdapter", () => {
     ]);
   });
 
+  it("describes runtime servers so an agent finds them before connecting", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            results: [
+              {
+                id: "inst-linear",
+                url: "https://mcp.linear.app/mcp",
+                proxy_url: "https://proxy.posthog.com/inst-linear/",
+                name: "Linear",
+                display_name: "Linear",
+                description: "Manage Linear issues, projects, and workflows.",
+                auth_type: "oauth",
+                is_enabled: true,
+                pending_oauth: false,
+                needs_reauth: false,
+              },
+            ],
+          }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            results: [
+              { tool_name: "create_issue", approval_state: "needs_approval" },
+            ],
+          }),
+      });
+
+    const { servers } = await adapter.getMcpRuntimeConfiguration();
+
+    expect(
+      servers.find((server) => server.name === "Linear")?.description,
+    ).toBe("Manage Linear issues, projects, and workflows.");
+    expect(
+      servers.find((server) => server.name === "posthog")?.description,
+    ).toMatch(/insight/i);
+  });
+
+  it("keeps descriptions out of the servers handed to the ACP adapters", async () => {
+    // Only pi understands a server description; claude and codex receive this list as ACP
+    // session params, which reject fields their schema does not declare.
+    const { servers } = await adapter.buildMcpServers(baseCredentials);
+
+    expect(servers.every((server) => !("description" in server))).toBe(true);
+  });
+
   it("omits runtime servers whose tool policies cannot be loaded", async () => {
     mockFetch
       .mockResolvedValueOnce({

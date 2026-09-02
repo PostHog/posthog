@@ -227,8 +227,8 @@ class TestOAuthApplicationAdmin(BaseTest):
         ]
     )
     def test_cimd_identity_fields_are_not_editable(self, _name, change):
-        # An operator who could turn on is_cimd_client, or set a metadata URL, would hand the
-        # next metadata refresh an app that no partner registered.
+        # An operator who could turn on is_cimd_client would hand the next metadata refresh
+        # an app that no partner registered.
         app = OAuthApplication(is_cimd_client=False) if change else None
         request = RequestFactory().get("/")
         # A user without change permission gets an empty change form, which would pass this
@@ -237,7 +237,5 @@ class TestOAuthApplicationAdmin(BaseTest):
         request.user = self.user
         form_class = self.admin.get_form(request, app, change=change)
         assert "name" in form_class.base_fields
-        editable = [
-            name for name in ("is_cimd_client", "is_dcr_client", "cimd_metadata_url") if name in form_class.base_fields
-        ]
+        editable = [name for name in ("is_cimd_client", "is_dcr_client") if name in form_class.base_fields]
         assert editable == []

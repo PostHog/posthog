@@ -14,6 +14,8 @@ import type {
     ContextLayerAgentPagesRetrieveParams,
     ContextLayerPagesRetrieveParams,
     ContextLayerStatusApi,
+    DreamRunDetailApi,
+    DreamRunListApi,
     WikiExportApi,
     WikiHealthReportApi,
     WikiPageApi,
@@ -66,6 +68,43 @@ export const contextLayerCommitsCreate = async (
         ...options,
         method: 'POST',
         body: formData,
+    })
+}
+
+export const getContextLayerDreamsListUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/context_layer/dreams/`
+}
+
+/**
+ * The active dreaming task, when present, plus every landed run newest first. A landed run is one merge commit `dream: <date>` whose body is the summary; its changes are on the detail read.
+ * @summary List dream runs
+ */
+export const contextLayerDreamsList = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<DreamRunListApi> => {
+    return apiMutator<DreamRunListApi>(getContextLayerDreamsListUrl(organizationId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getContextLayerDreamsRetrieveUrl = (organizationId: string, sha: string) => {
+    return `/api/organizations/${organizationId}/context_layer/dreams/${sha}/`
+}
+
+/**
+ * One dreaming run with the per-file unified patches it landed.
+ * @summary Read one dream run
+ */
+export const contextLayerDreamsRetrieve = async (
+    organizationId: string,
+    sha: string,
+    options?: RequestInit
+): Promise<DreamRunDetailApi> => {
+    return apiMutator<DreamRunDetailApi>(getContextLayerDreamsRetrieveUrl(organizationId, sha), {
+        ...options,
+        method: 'GET',
     })
 }
 
