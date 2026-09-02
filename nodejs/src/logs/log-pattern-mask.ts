@@ -53,6 +53,10 @@ const MONTH = '(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)'
 const WEEKDAY = '(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)'
 const DAY_OF_MONTH = '(?:0?[1-9]|[12]\\d|3[01])'
 const TIME_OF_DAY = '\\d{2}:\\d{2}:\\d{2}'
+// A real year, not any four digits. `ctime` reads the field after an optional zone, and a bare
+// `\d{4}` lets a severity word pass as the zone and the count behind it pass as the year, which
+// takes both out of the pattern and merges an ERROR line with a WARN one.
+const YEAR = '(?:19|2\\d)\\d{2}'
 
 export const MASK_RULES: readonly MaskRule[] = [
     {
@@ -93,29 +97,31 @@ export const MASK_RULES: readonly MaskRule[] = [
     //
     // The name also guards the match: nothing here claims a bare number followed by a time of day.
     //
-    // Order matters between these rules and is asserted by the sequential-chain corpus. `ctime` and
-    // `httpdate` open on a weekday and `syslogtime` opens on a month, so on a ctime line the month
-    // rule starts later in the string. A single pass takes the leftmost match and drops the weekday,
-    // but a rule-at-a-time chain would let the month rule cut the line first and strand the weekday.
-    // Listing the weekday forms first makes both orders agree.
+    // Order matters between these rules and is asserted by the sequential-chain corpus. A ctime line
+    // matches `ctime` and `syslogtime` at the same offset, and only `ctime` reaches the year. Listing
+    // it first is what makes a single pass and a rule-at-a-time chain agree: the single pass prefers
+    // the earlier alternative on a tie, and the chain runs `ctime` first.
     {
         name: 'clftime',
-        pattern: `\\b\\d{2}/${MONTH}/\\d{4}:${TIME_OF_DAY}(?: [+-]\\d{4})?`,
+        pattern: `\\b\\d{2}/${MONTH}/${YEAR}:${TIME_OF_DAY}(?: [+-]\\d{4})?`,
         replacement: '<TIMESTAMP>',
     },
     {
         name: 'ctime',
-        pattern: `\\b${WEEKDAY} ${MONTH} {1,2}${DAY_OF_MONTH} ${TIME_OF_DAY}(?: [A-Z]{2,5})? \\d{4}`,
+        pattern: `\\b${WEEKDAY} ${MONTH} {1,2}${DAY_OF_MONTH} ${TIME_OF_DAY}(?: [A-Z]{2,5})? ${YEAR}`,
         replacement: '<TIMESTAMP>',
     },
     {
         name: 'httpdate',
-        pattern: `\\b${WEEKDAY}, \\d{1,2} ${MONTH} \\d{4} ${TIME_OF_DAY}(?: GMT| UTC| [+-]\\d{4})?`,
+        pattern: `\\b${WEEKDAY}, ${DAY_OF_MONTH} ${MONTH} ${YEAR} ${TIME_OF_DAY}(?: GMT| UTC| [+-]\\d{4})?`,
         replacement: '<TIMESTAMP>',
     },
     {
+        // The weekday is optional here as well as in `ctime`, because a line can carry one without
+        // carrying a year. Without it such a line falls to the month rule, which leaves the weekday
+        // behind as a literal and splits the line seven ways over a week.
         name: 'syslogtime',
-        pattern: `\\b${MONTH} {1,2}${DAY_OF_MONTH} ${TIME_OF_DAY}`,
+        pattern: `\\b(?:${WEEKDAY} )?${MONTH} {1,2}${DAY_OF_MONTH} ${TIME_OF_DAY}`,
         replacement: '<TIMESTAMP>',
     },
     {

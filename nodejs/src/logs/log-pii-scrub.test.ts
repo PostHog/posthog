@@ -1,7 +1,10 @@
+import RE2 from 're2'
+
 import { parseJSON } from '~/common/utils/json-parse'
 
 import {
     PII_REDACTED,
+    PII_RULES,
     encodeAttributeCell,
     scrubLogRecord,
     scrubPlainString,
@@ -248,5 +251,21 @@ describe('log-pii-scrub', () => {
             expect(r.observed_timestamp).toBe(1_700_000_000_000_001)
             expect(r.body).toBe(PII_REDACTED)
         })
+    })
+
+    // The redaction loop reads the fired rule off the capture-group index, so a rule that adds a
+    // group of its own shifts every rule after it and applies the wrong replacement. That failure is
+    // silent: an email would redact as `Bearer {{REDACTED}}`, or a real credential would not redact
+    // at all. `MASK_RULES` carries the same ratchet.
+    describe('RE2 ratchet', () => {
+        it.each(PII_RULES.map((rule) => [rule.name, rule.pattern] as const))(
+            'rule %s compiles under RE2 and uses no lookaround, backreference, or capture group',
+            (_name, pattern) => {
+                expect(() => new RE2(pattern, 'g')).not.toThrow()
+                expect(pattern).not.toMatch(/\(\?=|\(\?!|\(\?</)
+                expect(pattern).not.toMatch(/\\[1-9]/)
+                expect(pattern.replace(/\\\(/g, '')).not.toMatch(/\((?!\?)/)
+            }
+        )
     })
 })

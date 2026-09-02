@@ -91,6 +91,19 @@ describe('log-pattern-mask', () => {
             ['a month name without a time', 'Jan 2 rows written', 'Jan <N> rows written'],
             ['a weekday with a time but no date', 'Mon 03:04:05 tick', 'Mon <N>:<N>:<N> tick'],
             ['a day of month above 31', 'Jan 32 03:04:05 x', 'Jan <N> <N>:<N>:<N> x'],
+            // A severity word fits the optional zone slot, so a bare four-digit year would let
+            // `ctime` swallow the severity and the count behind it, merging an ERROR line with a
+            // WARN one.
+            [
+                'a severity word and the count behind it',
+                'Mon Jan  2 03:04:05 ERROR 1234 connections',
+                '<TIMESTAMP> ERROR <N> connections',
+            ],
+            [
+                'an impossible day in an http date',
+                'Mon, 99 Jan 2026 03:04:05 GMT open',
+                'Mon, <N> Jan <N> <N>:<N>:<N> GMT open',
+            ],
         ])('date rules do not claim %s', (_name, input, expected) => {
             expect(maskString(input).masked).toEqual(expected)
         })
@@ -336,7 +349,7 @@ describe('log-pattern-mask', () => {
          */
         const SHAPE_DIGESTS: Record<number, string> = {
             3: 'd7b045b1054244d1',
-            4: '240811af07be640e',
+            4: 'a8c98220e1e99e88',
         }
 
         /**
