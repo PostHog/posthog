@@ -2373,8 +2373,7 @@ class TestRunLocalEvaluationActivity:
         capture_kwargs = mock_capture.call_args.kwargs
         assert capture_kwargs["event_name"] == "$ai_evaluation"
         assert capture_kwargs["properties"]["$ai_evaluation_result"] is True
-        # A retried emit only deduplicates when the timestamp is stable across attempts.
-        assert capture_kwargs["timestamp"] == start_time
+        assert capture_kwargs["properties"]["$ai_evaluation_start_time"] == start_time.isoformat()
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -2443,24 +2442,3 @@ class TestRunLocalEvaluationActivity:
         assert outcome.result["skip_reason"] == "no_user_messages"
         mock_capture.assert_called_once()
         assert mock_capture.call_args.kwargs["properties"]["$ai_evaluation_skipped"] is True
-
-    @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
-    async def test_emit_event_uuid_is_stable_across_activity_attempts(self, setup_data):
-        from temporalio.testing import ActivityEnvironment
-
-        team = setup_data["team"]
-        evaluation = await sync_to_async(self._create_hog_evaluation)(team, "return true")
-        inputs = self._inputs(evaluation, team, datetime.now(UTC))
-
-        env = ActivityEnvironment()
-        with patch(
-            "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_for_team"
-        ) as mock_capture:
-            await env.run(run_local_evaluation_activity, inputs)
-            await env.run(run_local_evaluation_activity, inputs)
-
-        first_uuid = mock_capture.call_args_list[0].kwargs["event_uuid"]
-        second_uuid = mock_capture.call_args_list[1].kwargs["event_uuid"]
-        assert first_uuid is not None
-        assert first_uuid == second_uuid

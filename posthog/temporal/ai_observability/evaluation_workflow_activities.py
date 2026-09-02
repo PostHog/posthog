@@ -1,7 +1,6 @@
 import json
-import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from django.conf import settings
@@ -45,7 +44,7 @@ class RunEvaluationInputs:
 
 
 def fetch_evaluation(evaluation_id: str, team_id: int) -> dict[str, Any]:
-    """Fetch evaluation config from Postgres. Shared by the fetch and merged local-eval activities."""
+    """Fetch evaluation config from Postgres."""
     try:
         evaluation = Evaluation.objects.select_related(
             "model_configuration",
@@ -279,33 +278,15 @@ def build_evaluation_event_properties(
     return properties
 
 
-def _evaluation_event_uuid() -> str | None:
-    """Deterministic $ai_evaluation event uuid for the current workflow run.
-
-    Each run-evaluation workflow emits at most one $ai_evaluation, so the run id identifies the
-    event. Activity retries reuse it, which lets capture-side deduplication classify a re-emit
-    after a lost activity completion as a retry instead of a second result.
-    """
-    if not temporalio.activity.in_activity():
-        return None
-    run_id = temporalio.activity.info().workflow_run_id
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"posthog://ai-evaluation/{run_id}"))
-
-
 async def emit_generation_evaluation_event(
     evaluation: dict[str, Any],
     event_data: dict[str, Any],
     result: EvaluationActivityResult,
     start_time: datetime,
 ) -> None:
-    """Emit the $ai_evaluation event for a generation-target result via capture_internal.
-
-    Routes through the ingestion pipeline for cost calculation. Shared by the standalone emit
-    activity and the merged local-eval activity. The event timestamp is the workflow start time
-    rather than emit time: capture-side deduplication keys on (timestamp, event, distinct_id,
-    token), so a stable timestamp is what makes a retried emit collapse into the original.
-    A billing-limited capture drops the event without failing the caller.
-    """
+    """Emit the $ai_evaluation event via capture_internal so it routes through the ingestion
+    pipeline for cost calculation. A billing-limited capture drops the event without failing
+    the caller."""
 
     def _emit() -> None:
         source_props = (
@@ -335,9 +316,8 @@ async def emit_generation_evaluation_event(
             event_name="$ai_evaluation",
             event_source="llm_analytics_evaluation",
             distinct_id=event_data["distinct_id"],
-            timestamp=start_time,
+            timestamp=datetime.now(UTC),
             properties=properties,
-            event_uuid=_evaluation_event_uuid(),
         )
 
     try:
@@ -438,12 +418,10 @@ class LocalEvaluationOutcome:
 
 @temporalio.activity.defn
 async def run_local_evaluation_activity(inputs: RunLocalEvaluationInputs) -> LocalEvaluationOutcome:
-    """Fetch the evaluation and, for local runtimes, execute it and emit its event in one activity.
-
-    Hog and sentiment evaluations need no external LLM call, so splitting them into fetch,
-    execute, and emit activities bought no isolation and tripled the Temporal Cloud actions on
-    ~90% of evaluation volume. Terminal user errors skip the emit and return to the workflow,
-    which owns disabling the evaluation and notifying the team.
+    """Fetch the evaluation and, for hog and sentiment, execute it and emit its event in one
+    activity. These runtimes make no external call, so one activity replaces three Temporal
+    Cloud actions. llm_judge returns after the fetch: the judge needs its own activity and
+    retry policy. Terminal user errors skip the emit; the workflow owns disable and notify.
     """
     bind_contextvars(team_id=inputs.event_data.get("team_id"), evaluation_id=inputs.evaluation_id)
     evaluation = await database_sync_to_async(fetch_evaluation)(inputs.evaluation_id, inputs.event_data["team_id"])

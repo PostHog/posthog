@@ -336,10 +336,7 @@ def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = F
 
 
 async def run_hog_eval_for_event(evaluation: dict[str, Any], event_data: dict[str, Any]) -> EvaluationActivityResult:
-    """Execute Hog code to evaluate the target event.
-
-    Shared by the standalone activity and the merged local-evaluation activity.
-    """
+    """Execute Hog code to evaluate the target event."""
     if evaluation["evaluation_type"] != "hog":
         raise ApplicationError(
             f"Unsupported evaluation type: {evaluation['evaluation_type']}",

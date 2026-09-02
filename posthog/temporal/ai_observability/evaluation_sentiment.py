@@ -61,10 +61,7 @@ def _build_sentiment_activity_result(
 
 
 async def run_sentiment_eval(evaluation: dict[str, Any], event_data: dict[str, Any]) -> EvaluationActivityResult:
-    """Classify sentiment for the target event's user messages.
-
-    Shared by the standalone activity and the merged local-evaluation activity.
-    """
+    """Classify sentiment for the target event's user messages."""
     if evaluation["evaluation_type"] != "sentiment":
         raise ApplicationError(
             f"Unsupported evaluation type: {evaluation['evaluation_type']}",
