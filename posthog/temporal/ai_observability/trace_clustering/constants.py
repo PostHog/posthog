@@ -127,6 +127,9 @@ DEFAULT_MIN_CLUSTER_SIZE_FRACTION = 0.02  # 2% of samples as minimum cluster siz
 MIN_CLUSTER_SIZE_FRACTION_MIN = 0.02  # Minimum allowed value for min_cluster_size_fraction
 MIN_CLUSTER_SIZE_FRACTION_MAX = 0.5  # Maximum allowed value for min_cluster_size_fraction
 DEFAULT_HDBSCAN_MIN_SAMPLES = 5  # Minimum samples in neighborhood for core points
+# Excess of Mass selection can stop at the root split and return one cluster that holds most of
+# the sample. A cluster above this fraction is refused, so selection descends into its sub-clusters.
+DEFAULT_MAX_CLUSTER_SIZE_FRACTION = 0.4
 DEFAULT_UMAP_N_COMPONENTS = 100  # Dimensionality for clustering (not visualization)
 DEFAULT_UMAP_N_NEIGHBORS = 15  # UMAP neighborhood size
 DEFAULT_UMAP_MIN_DIST = 0.0  # Tighter packing for clustering (vs 0.1 for visualization)

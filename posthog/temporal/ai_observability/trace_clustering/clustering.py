@@ -275,6 +275,7 @@ def perform_hdbscan_clustering(
     embeddings: np.ndarray,
     min_cluster_size_fraction: float = 0.02,
     min_samples: int = 5,
+    max_cluster_size_fraction: float = 0.4,
 ) -> HDBSCANResult:
     """
     Perform HDBSCAN clustering on embeddings.
@@ -286,6 +287,9 @@ def perform_hdbscan_clustering(
         embeddings: Array of embedding vectors (ideally UMAP-reduced)
         min_cluster_size_fraction: Minimum cluster size as fraction of total samples
         min_samples: Minimum samples in neighborhood for core points
+        max_cluster_size_fraction: Maximum cluster size as fraction of total samples. A cluster
+            above this is not selected; its sub-clusters are selected instead, or its points
+            become noise when no sub-cluster reaches min_cluster_size.
 
     Returns:
         HDBSCANResult with labels, centroids, probabilities, and noise count
@@ -305,9 +309,13 @@ def perform_hdbscan_clustering(
             f"min_cluster_size_fraction must be between {MIN_CLUSTER_SIZE_FRACTION_MIN} and {MIN_CLUSTER_SIZE_FRACTION_MAX}"
         )
 
+    if not min_cluster_size_fraction <= max_cluster_size_fraction <= 1.0:
+        raise ValueError("max_cluster_size_fraction must be between min_cluster_size_fraction and 1.0")
+
     # Calculate min_cluster_size from fraction, with minimum of 5 but capped at n_samples
     # HDBSCAN requires min_cluster_size <= n_samples
     min_cluster_size = min(n_samples, max(5, int(n_samples * min_cluster_size_fraction)))
+    max_cluster_size = max(min_cluster_size, int(n_samples * max_cluster_size_fraction))
 
     # Adjust min_samples if needed
     effective_min_samples = min(min_samples, min_cluster_size)
@@ -315,6 +323,7 @@ def perform_hdbscan_clustering(
     clusterer = HDBSCAN(
         min_cluster_size=min_cluster_size,
         min_samples=effective_min_samples,
+        max_cluster_size=max_cluster_size,
         metric="euclidean",
         cluster_selection_method="eom",  # Excess of Mass - good for varying densities
     )

@@ -79,6 +79,35 @@ class TestPerformHDBSCANClustering:
         with pytest.raises(ValueError, match="Cannot cluster empty"):
             perform_hdbscan_clustering(np.array([]).reshape(0, 10))
 
+    def test_max_cluster_size_splits_root_level_clusters(self):
+        # Six sub-groups inside two macro groups. Without a cap, Excess of Mass keeps the two macro
+        # groups, which is the collapsed result seen on the clusters page.
+        np.random.seed(42)
+        sub_groups = []
+        for macro_offset in (0.0, 60.0):
+            for sub_offset in (0.0, 3.0, 6.0):
+                center = np.zeros(10)
+                center[0] = macro_offset + sub_offset
+                sub_groups.append(np.random.randn(40, 10) * 0.4 + center)
+        embeddings = np.vstack(sub_groups)
+
+        uncapped = perform_hdbscan_clustering(
+            embeddings, min_cluster_size_fraction=0.05, min_samples=5, max_cluster_size_fraction=1.0
+        )
+        capped = perform_hdbscan_clustering(
+            embeddings, min_cluster_size_fraction=0.05, min_samples=5, max_cluster_size_fraction=0.4
+        )
+
+        assert len(uncapped.centroids) == 2
+        assert len(capped.centroids) == 6
+        assert capped.num_noise_points == 0
+
+    def test_max_cluster_size_fraction_below_min_raises_error(self):
+        with pytest.raises(ValueError, match="max_cluster_size_fraction"):
+            perform_hdbscan_clustering(
+                np.random.randn(20, 5), min_cluster_size_fraction=0.2, max_cluster_size_fraction=0.1
+            )
+
 
 class TestCalculateTraceDistances:
     def test_distance_matrix_shape(self):

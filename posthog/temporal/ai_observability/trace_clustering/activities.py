@@ -230,10 +230,14 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
             "min_cluster_size_fraction", constants.DEFAULT_MIN_CLUSTER_SIZE_FRACTION
         )
         min_samples = clustering_params.get("min_samples", constants.DEFAULT_HDBSCAN_MIN_SAMPLES)
+        max_cluster_size_fraction = clustering_params.get(
+            "max_cluster_size_fraction", constants.DEFAULT_MAX_CLUSTER_SIZE_FRACTION
+        )
         hdbscan_result = perform_hdbscan_clustering(
             clustering_embeddings,
             min_cluster_size_fraction=min_cluster_size_fraction,
             min_samples=min_samples,
+            max_cluster_size_fraction=max_cluster_size_fraction,
         )
         labels_array = np.array(hdbscan_result.labels)
         centroids_array = (
