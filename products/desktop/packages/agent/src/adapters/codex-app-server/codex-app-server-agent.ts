@@ -304,8 +304,11 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   private jsonSchema?: Record<string, unknown>;
   /** Final assistant message text for the in-flight turn (structured output). */
   private lastAgentMessage = "";
-  /** Newest upstream error text for the in-flight turn, retried ones included. */
-  private lastTurnErrorMessage = "";
+  /**
+   * Newest upstream error for the in-flight turn, retried ones included, bound to
+   * its turn id so a steer that rotates the id cannot borrow the wrong cause.
+   */
+  private lastTurnError?: { turnId?: string; message: string };
   /** True between a contextCompaction item's start and its boundary (dedupes the boundary). */
   private compactionActive = false;
   /** Maps the host's taskRunId to this session, replayed for cloud notifications. */
@@ -1180,7 +1183,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   /** Start one codex turn and await its completion. */
   private async runTurn(input: CodexUserInput[]): Promise<PromptResponse> {
     this.lastAgentMessage = "";
-    this.lastTurnErrorMessage = "";
+    this.lastTurnError = undefined;
     this.resetUsage();
     this.planProposal = undefined;
     this.streamedPlanToolCallId = undefined;
@@ -1751,7 +1754,13 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       const message = typeof error?.message === "string" ? error.message : "";
       // Keep the newest cause even while codex retries: when the retries run out the
       // turn dies through `turn/completed`, which carries no error text of its own.
-      if (message) this.lastTurnErrorMessage = message;
+      // Bind it to the turn so a later steered turn cannot inherit this cause.
+      if (message) {
+        this.lastTurnError = {
+          turnId: turnId ?? this.turns.activeTurnId,
+          message,
+        };
+      }
       if (willRetry === false) {
         this.logger.warn("codex app-server fatal error notification", {
           params,
@@ -2141,8 +2150,16 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         return;
       }
       if (!this.turns.isPending) return;
+      const saved = this.lastTurnError;
+      // A saved cause bound to a different turn (e.g. a retry before a steer
+      // rotated the id) is not this turn's cause; ignore it.
+      const mismatched =
+        saved?.turnId !== undefined &&
+        turnId !== undefined &&
+        saved.turnId !== turnId;
+      const savedCause = saved && !mismatched ? saved.message : "";
       this.refuseTurnWithMessage(
-        describeFatalError(terminalCause || this.lastTurnErrorMessage),
+        describeFatalError(terminalCause || savedCause),
       );
     }, 250);
   }

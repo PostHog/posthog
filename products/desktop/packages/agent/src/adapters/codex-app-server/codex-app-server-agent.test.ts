@@ -2595,6 +2595,60 @@ describe("CodexAppServerAgent", () => {
     vi.useRealTimers();
   });
 
+  it("does not attribute a pre-steer retry cause to a steered turn", async () => {
+    vi.useFakeTimers();
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/started", { turn: { id: "turn_1" } });
+    // turn_1 hits a transient provider error that codex will retry.
+    stub.emit("error", {
+      turnId: "turn_1",
+      willRetry: true,
+      error: { message: "API Error: 503 Service Unavailable" },
+    });
+    // A steer rotates the active turn id to turn_2 (the continuation turn).
+    stub.emit("turn/started", { turn: { id: "turn_2" } });
+    // turn_2 then fails through a bare completion with no cause of its own.
+    stub.emit("turn/completed", {
+      turn: { id: "turn_2", status: "failed" },
+    });
+
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(done).resolves.toMatchObject({ stopReason: "refusal" });
+    // turn_1's transient cause must not be reported as turn_2's failure.
+    expect(sessionUpdates).toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "The agent stopped before completing this request. Please try again.",
+        },
+      },
+    });
+    expect(sessionUpdates).not.toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "The agent stopped before completing this request: API Error: 503 Service Unavailable",
+        },
+      },
+    });
+    vi.useRealTimers();
+  });
+
   it("does not let an ID-less failed completion refuse a later prompt", async () => {
     vi.useFakeTimers();
     const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
