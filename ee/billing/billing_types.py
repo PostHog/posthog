@@ -61,7 +61,7 @@ USAGE_TYPE_OPTIONS: tuple[UsageTypeOption, ...] = (
     {"label": "Destinations trigger events", "value": "cdp_billable_invocations_in_period"},
     {"label": "Rows exported", "value": "rows_exported_in_period"},
     {"label": "PostHog AI", "value": "ai_credits_used_in_period"},
-    {"label": "Inbox credits", "value": "signals_credits_used_in_period"},
+    {"label": "Self-driving inbox credits", "value": "signals_credits_used_in_period"},
     {"label": "PostHog Desktop credits", "value": "posthog_code_credits_used_in_period"},
     {"label": "PostHog Desktop token credits", "value": "posthog_code_token_credits_used_in_period"},
     {"label": "Sandbox compute credits", "value": "sandbox_compute_credits_used_in_period"},

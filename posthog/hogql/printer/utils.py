@@ -160,16 +160,18 @@ def prepare_ast_for_printing(
             normalize_trino_ast,
         )
         from posthog.hogql.transforms.trino.validate import (  # noqa: PLC0415 — breaks validator → printer package cycle
+            validate_trino_context,
             validate_trino_source_ast,
         )
 
+        with context.timings.measure("validate_trino_context"):
+            validate_trino_context(context)
         with context.timings.measure("validate_trino_source_ast"):
             validate_trino_source_ast(node)
 
-    # Load property-level access control restrictions onto the context. They are enforced only on the ClickHouse path —
-    # the printer wraps the JSON blob in JSONDropKeys, and property resolution declines backing columns (and reads a
-    # restricted property as NULL). The warehouse (Postgres / DuckDB) dialects only compile external data-warehouse
-    # sources, which carry no restrictable event/person properties, so they need no enforcement here.
+    # Load restrictions before type resolution because ClickHouse removes restricted fields while resolving properties.
+    # Trino rejects the entire compilation because partial masking could miss indirect reads through expanded queries.
+    # Postgres and DuckDB compile external warehouse sources, which do not contain restrictable event/person properties.
     if context.team_id is not None and context.restricted_properties is None:
         # Deferred: a Django-side load at the prepare boundary (same seam as Database.create_for and
         # load_property_metadata) — keeping it behind the call is what lets the printer package import
@@ -187,6 +189,18 @@ def prepare_ast_for_printing(
                 context.restricted_properties = get_restricted_properties_with_group_type_index_for_team(
                     user=context.user, team_id=context.team_id
                 )
+
+    if dialect == "trino" and context.restricted_properties:
+        from posthog.hogql.transforms.trino.errors import (  # noqa: PLC0415 -- load the optional backend only for Trino compilation
+            TrinoLoweringError,
+        )
+
+        raise TrinoLoweringError(
+            "TRINO_RESTRICTED_PROPERTIES_UNSUPPORTED",
+            "property-level access control",
+            node if isinstance(node, ast.Expr) else None,
+            detail="Trino compilation is unavailable when property-level access restrictions apply.",
+        )
 
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
         with context.timings.measure("resolve_in_cohorts_conjoined"):

@@ -1,5 +1,6 @@
 import { WorkerPoolContextProvider } from "@pierre/diffs/react";
 import { useService } from "@posthog/di/react";
+import { cn } from "@posthog/quill";
 import type { Task } from "@posthog/shared/domain-types";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useCloudPrUrl } from "@posthog/ui/features/git-interaction/useCloudPrUrl";
@@ -53,19 +54,24 @@ const SIDEBAR_MIN_WIDTH = 200;
 const SIDEBAR_MAX_WIDTH = 500;
 const SIDEBAR_DEFAULT_WIDTH = 280;
 
-function FileBrowser({ task }: { task: Task }) {
+function FileBrowser({ task, collapsed }: { task: Task; collapsed: boolean }) {
   const reviewHost = useService<ReviewHost>(REVIEW_HOST);
   const [width, setWidth] = useState(SIDEBAR_DEFAULT_WIDTH);
   const [isResizing, setIsResizing] = useState(false);
   const boxRef = useRef<HTMLDivElement | null>(null);
   const rightRef = useRef(0);
 
+  // Hide with display:none instead of unmounting so the resized width and the
+  // tree's folded directories survive a collapse-and-show toggle.
   return (
     <Flex
       ref={boxRef}
       direction="column"
       style={{ width: `${width}px`, minWidth: `${SIDEBAR_MIN_WIDTH}px` }}
-      className="relative shrink-0 border-l border-l-(--gray-6) bg-(--color-background)"
+      className={cn(
+        "relative shrink-0 border-l border-l-(--gray-6) bg-(--color-background)",
+        collapsed && "hidden",
+      )}
     >
       {reviewHost.renderFileBrowser(task)}
       <ResizeHandle
@@ -173,9 +179,12 @@ export function ReviewShell({
 
   // The room the review was given, not the mode it was opened in: the same
   // review is a column, a widened panel, and a scene of its own.
-  const showFileBrowser = useIsWiderThan(
+  const hasRoomForFileBrowser = useIsWiderThan(
     shellRef,
     REVIEW_FILE_BROWSER_MIN_WIDTH,
+  );
+  const fileBrowserCollapsed = useReviewNavigationStore(
+    (s) => s.fileBrowserCollapsed[taskId] ?? false,
   );
 
   const viewedCount = useMemo(() => {
@@ -423,6 +432,8 @@ export function ReviewShell({
             commentedFileCount={commentedFileCount}
             unresolvedCommentedFileCount={unresolvedCommentedFileCount}
             commentFilter={activeCommentFilter}
+            hasFileBrowserRoom={hasRoomForFileBrowser}
+            fileBrowserCollapsed={fileBrowserCollapsed}
             onCommentFilterChange={
               commentedFilePaths && unresolvedCommentedFilePaths
                 ? (filter) => setCommentFileFilter(taskId, filter)
@@ -455,7 +466,11 @@ export function ReviewShell({
               <PendingReviewBar taskId={taskId} />
             </Flex>
 
-            {showFileBrowser && <FileBrowser task={task} />}
+            {/* Width auto-hides the browser (unmounts). An explicit collapse
+                keeps it mounted but hidden so its state persists. */}
+            {hasRoomForFileBrowser && (
+              <FileBrowser task={task} collapsed={fileBrowserCollapsed} />
+            )}
           </Flex>
         </Flex>
       </ReviewViewedContext.Provider>

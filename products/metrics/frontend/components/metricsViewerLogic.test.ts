@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { NEW_QUERY_STARTED_ERROR_MESSAGE } from 'lib/utils/kea-logic-builders'
 import { insightsApi } from 'scenes/insights/utils/api'
 
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -22,7 +23,7 @@ import {
 } from 'products/metrics/frontend/generated/api'
 
 import { metricNamePickerLogic } from './metricNamePickerLogic'
-import { metricsViewerLogic, NEW_QUERY_STARTED_ERROR_MESSAGE } from './metricsViewerLogic'
+import { metricsViewerLogic } from './metricsViewerLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
@@ -217,6 +218,49 @@ describe('metricsViewerLogic', () => {
         logic.actions.addToDashboard()
         await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess', 'openAddToDashboardModal'])
         expect(insightsApi.create).toHaveBeenCalledTimes(2)
+    })
+
+    // Chart settings are presentation, but a tile configured differently is still a different
+    // tile. Excluding `display` from the reuse check (as the result cache correctly does) would
+    // silently give the second tile the first one's chart type.
+    it('add to dashboard saves a fresh insight after only the chart settings change', async () => {
+        jest.mocked(insightsApi.create).mockImplementation(
+            async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any
+        )
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.addToDashboard()
+        await expectLogic(logic).toDispatchActions(['openAddToDashboardModal'])
+
+        logic.actions.closeAddToDashboardModal()
+        logic.actions.setDisplayType('bar')
+        logic.actions.addToDashboard()
+        await expectLogic(logic).toDispatchActions(['saveAsInsightSuccess', 'openAddToDashboardModal'])
+        expect(insightsApi.create).toHaveBeenCalledTimes(2)
+    })
+
+    it('carries the configured chart settings onto the saved node', () => {
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setDisplayType('bar')
+        logic.actions.addGoalLine()
+        logic.actions.updateGoalLine(0, 'value', 99.9)
+        logic.actions.updateGoalLine(0, 'label', 'SLO')
+        logic.actions.setYAxisSetting('scale', 'log')
+
+        expect(logic.values.metricsQueryNode?.display).toEqual({
+            type: 'bar',
+            goalLines: [{ label: 'SLO', value: 99.9 }],
+            yAxis: { scale: 'log' },
+        })
+    })
+
+    // Emptying a bound must clear it, not persist an explicit undefined that the chart ignores
+    // while the settings count still sees a value.
+    it('clears a y-axis bound rather than persisting an undefined', () => {
+        logic.actions.setMetricName('queue_depth')
+        logic.actions.setYAxisSetting('max', 100)
+        logic.actions.setYAxisSetting('max', undefined)
+
+        expect(logic.values.metricsQueryNode?.display).toBeUndefined()
     })
 
     // A failed add-to-dashboard save must not leave the flow armed: a later plain

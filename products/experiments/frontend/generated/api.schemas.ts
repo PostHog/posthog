@@ -2042,9 +2042,10 @@ export interface ExperimentFlagCleanupTaskApi {
  * * `experiment_stop` - Experiment Stop
  * * `experiment_update` - Experiment Update
  */
-export type TriggerEnumApi = (typeof TriggerEnumApi)[keyof typeof TriggerEnumApi]
+export type ExperimentMetricsRecalculationTriggerEnumApi =
+    (typeof ExperimentMetricsRecalculationTriggerEnumApi)[keyof typeof ExperimentMetricsRecalculationTriggerEnumApi]
 
-export const TriggerEnumApi = {
+export const ExperimentMetricsRecalculationTriggerEnumApi = {
     Manual: 'manual',
     AgentMcp: 'agent_mcp',
     ColdRun: 'cold_run',
@@ -2075,7 +2076,7 @@ export interface RecalculateMetricsRequestApi {
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
      * * `experiment_update` - Experiment Update */
-    trigger?: TriggerEnumApi
+    trigger?: ExperimentMetricsRecalculationTriggerEnumApi
 }
 
 /**
@@ -2193,7 +2194,7 @@ export interface ExperimentMetricsRecalculationApi {
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
      * * `experiment_update` - Experiment Update */
-    readonly trigger: TriggerEnumApi
+    readonly trigger: ExperimentMetricsRecalculationTriggerEnumApi
     /** When the job was created */
     readonly created_at: string
     /**

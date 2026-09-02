@@ -393,6 +393,40 @@ describe('customPropertyDefinitionsLogic', () => {
         expect(logic.values.serializedColumnDescriptions).toEqual({ plan: 'The plan tier' })
     })
 
+    it.each([
+        ['nothing is mapped', [{ column: '', property: '', description: '' }], 'Map at least one column to a property'],
+        [
+            'every complete row is the key column',
+            [{ column: 'org_id', property: 'org_id', description: '' }],
+            'Map a column other than the distinct ID column',
+        ],
+        [
+            'a column other than the key column is mapped',
+            [{ column: 'mrr', property: 'mrr', description: '' }],
+            undefined,
+        ],
+    ] as [string, Record<string, string>[], string | undefined][])(
+        'gates creating a person source when %s',
+        async (_, columnMappings, expectedReason) => {
+            // The submit button reads this. A row on the key column is dropped from
+            // column_property_map, so rows alone can look complete while the request carries an
+            // empty map, which the backend rejects once the definition is already created.
+            useMocks(defaultMocks())
+            mountLogic()
+            await expectLogic(logic, () => logic.actions.openCreateModal()).toDispatchActions([
+                'loadWarehouseTablesSuccess',
+            ])
+            logic.actions.setCustomPropertyFormValues({
+                targetType: 'person',
+                warehouseSource: 'table:table-1',
+                keyColumn: 'org_id',
+                columnMappings,
+            })
+
+            expect(logic.values.profileMappingDisabledReason).toEqual(expectedReason)
+        }
+    )
+
     describe('mapping every column at once', () => {
         const openWithColumns = async (formValues: Record<string, any>): Promise<void> => {
             // oxlint-disable-next-line react-hooks/rules-of-hooks
@@ -455,16 +489,21 @@ describe('customPropertyDefinitionsLogic', () => {
             expect(logic.values.mappableColumns).toEqual([])
         })
 
-        it('never serializes the key column as a property, even after the key changes', async () => {
+        it('never serializes the key column as a property, and says so on the row', async () => {
             // Bulk mapping excludes whatever key column is set at the time, but the key can change
             // afterwards. The column_property_map is create-only, so writing the new identifier column as
-            // a property would be unrecoverable, and it must be dropped from the payload.
+            // a property would be unrecoverable, and it must be dropped from the payload. The row has to
+            // report that, otherwise the mapping looks saved and then disappears.
             await mapAll({ keyColumn: 'org_id' })
             expect(logic.values.serializedColumnPropertyMap).toEqual({ mrr: 'mrr' })
+            expect(logic.values.columnMappingWarnings).toEqual([null])
 
             logic.actions.setCustomPropertyFormValue('keyColumn', 'mrr')
 
             expect(logic.values.serializedColumnPropertyMap).toEqual({})
+            expect(logic.values.columnMappingWarnings).toEqual([
+                `"mrr" is the distinct ID column, so this mapping isn't saved. Map a different column.`,
+            ])
         })
 
         it('leaves the key column mappable until one is chosen', async () => {
