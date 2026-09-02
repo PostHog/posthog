@@ -113,6 +113,24 @@ const POLICY_ERROR_MESSAGE =
   "This request was blocked by a safety policy. Revise the request and try again.";
 const GENERIC_FATAL_ERROR_MESSAGE =
   "The agent stopped before completing this request. Please try again.";
+/** Keeps a verbose upstream payload out of the chat bubble and the run's error field. */
+const MAX_FATAL_CAUSE_LENGTH = 400;
+
+/**
+ * Frame an unclassified fatal error for the reader, keeping the upstream cause.
+ *
+ * Without the cause every unclassified failure reads the same, so a burst of them
+ * cannot be told apart in the run's error field or in analytics.
+ */
+function describeFatalError(upstream: string): string {
+  const cause = upstream.trim();
+  if (!cause) return GENERIC_FATAL_ERROR_MESSAGE;
+  const shown =
+    cause.length > MAX_FATAL_CAUSE_LENGTH
+      ? `${cause.slice(0, MAX_FATAL_CAUSE_LENGTH)}...`
+      : cause;
+  return `The agent stopped before completing this request: ${shown}`;
+}
 
 type ApprovalRequestDetail = {
   itemId?: string;
@@ -286,6 +304,8 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   private jsonSchema?: Record<string, unknown>;
   /** Final assistant message text for the in-flight turn (structured output). */
   private lastAgentMessage = "";
+  /** Newest upstream error text for the in-flight turn, retried ones included. */
+  private lastTurnErrorMessage = "";
   /** True between a contextCompaction item's start and its boundary (dedupes the boundary). */
   private compactionActive = false;
   /** Maps the host's taskRunId to this session, replayed for cloud notifications. */
@@ -1160,6 +1180,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   /** Start one codex turn and await its completion. */
   private async runTurn(input: CodexUserInput[]): Promise<PromptResponse> {
     this.lastAgentMessage = "";
+    this.lastTurnErrorMessage = "";
     this.resetUsage();
     this.planProposal = undefined;
     this.streamedPlanToolCallId = undefined;
@@ -1705,20 +1726,24 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     }
 
     if (method === APP_SERVER_NOTIFICATIONS.ERROR) {
-      // A non-retried fatal error: resolve the turn so prompt() returns rather than hangs.
+      // Every error carries a cause worth keeping. A non-retried one also resolves
+      // the turn, so prompt() returns rather than hangs.
       const { willRetry, turnId, error } = (params ?? {}) as {
         willRetry?: boolean;
         turnId?: string;
         error?: { message?: unknown; codexErrorInfo?: unknown };
       };
+      if (turnId && turnId !== this.turns.activeTurnId) {
+        return;
+      }
+      const message = typeof error?.message === "string" ? error.message : "";
+      // Keep the newest cause even while codex retries: when the retries run out the
+      // turn dies through `turn/completed`, which carries no error text of its own.
+      if (message) this.lastTurnErrorMessage = message;
       if (willRetry === false) {
-        if (turnId && turnId !== this.turns.activeTurnId) {
-          return;
-        }
         this.logger.warn("codex app-server fatal error notification", {
           params,
         });
-        const message = typeof error?.message === "string" ? error.message : "";
         const codexErrorInfo =
           typeof error?.codexErrorInfo === "string"
             ? error.codexErrorInfo
@@ -1756,7 +1781,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         void this.failTurn(
           new RequestError(
             ACP_INTERNAL_ERROR_CODE,
-            GENERIC_FATAL_ERROR_MESSAGE,
+            describeFatalError(message),
           ),
         );
       }
@@ -2103,7 +2128,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         return;
       }
       if (!this.turns.isPending) return;
-      this.refuseTurnWithMessage(GENERIC_FATAL_ERROR_MESSAGE);
+      this.refuseTurnWithMessage(describeFatalError(this.lastTurnErrorMessage));
     }, 250);
   }
 
