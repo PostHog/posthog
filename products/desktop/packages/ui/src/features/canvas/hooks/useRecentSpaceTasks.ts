@@ -2,6 +2,10 @@ import {
   buildChannelItems,
   type ChannelItemModel,
 } from "@posthog/core/canvas/channelItems";
+import {
+  liveUuidsFromTasks,
+  NO_LIVE_UUIDS,
+} from "@posthog/core/canvas/presence";
 import type { Task, UserBasic } from "@posthog/shared/domain-types";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
@@ -281,6 +285,8 @@ export function usePrefetchSpaceTasks(): (spaceId: string) => void {
 export interface SpaceOverview {
   /** Who has been working here, creator first. Capped by `peopleLimit`. */
   people: UserBasic[];
+  /** Of `people`, whoever is working right now — their faces pulse. */
+  liveUuids: ReadonlySet<string>;
   /**
    * Sessions in the space, by the same reckoning the tree's total uses, or
    * `null` until the page arrives — a space's count is not zero just because
@@ -289,7 +295,11 @@ export interface SpaceOverview {
   total: number | null;
 }
 
-const NO_OVERVIEW: SpaceOverview = { people: [], total: null };
+const NO_OVERVIEW: SpaceOverview = {
+  people: [],
+  liveUuids: NO_LIVE_UUIDS,
+  total: null,
+};
 
 /**
  * A space's people and its session count, off the same page the tree draws its
@@ -321,6 +331,9 @@ export function useSpaceOverview(
     const live = data.tasks.filter((task) => !archivedTaskIds.has(task.id));
     return {
       people: spacePeople(live, createdBy, peopleLimit),
+      // Which of those faces are working right now. Reads the wall clock, so it
+      // resolves afresh each time the page repolls (every 30s).
+      liveUuids: liveUuidsFromTasks(live, Date.now()),
       // A page that came back short is the whole space, so the count is exact
       // once the archived ones are dropped. A full page falls back to the
       // server's total, which excludes archived tasks — bar any this device has
