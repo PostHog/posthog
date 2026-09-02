@@ -95,14 +95,21 @@ const ORG_LIMIT_PATTERNS = [
  * credentials were rejected (`provider_credentials_rejected`), not because the
  * caller ran out of credits. The raw provider wording reads like an account
  * problem, so without this the failure is indistinguishable from a usage limit.
- * The provider codes are kept as a fallback for a gateway that has not shipped
- * the classification yet.
+ * The provider codes and prose are kept as a fallback for a gateway that has not
+ * shipped the typed classification yet, and mirror the gateway's rejection
+ * signals (_CREDENTIAL_REJECTION_CODES / _CREDENTIAL_REJECTION_SIGNATURES in
+ * services/llm-gateway/src/llm_gateway/api/handler.py). A revoked or mistyped key
+ * fails with `invalid_api_key` / "incorrect api key provided", as routine an
+ * event as an organization mismatch.
  */
 const PROVIDER_CREDENTIAL_PATTERNS = [
   "provider_credentials_rejected",
   "credentials were rejected",
   "invalid_organization",
+  "invalid_api_key",
   "organization tied to the api key",
+  "no such organization",
+  "incorrect api key provided",
 ] as const;
 
 const FATAL_SESSION_ERROR_PATTERNS = [

@@ -175,6 +175,14 @@ describe("classifyPromptFailure", () => {
       "provider_credentials",
       false,
     ],
+    // A revoked key in the pre-classification wording, wrapped by the ACP layer.
+    // Without the key signals it matches "internal error" and becomes fatal.
+    [
+      `Internal error: API Error: 401 {"error":{"message":"Incorrect API key provided: sk-***.","code":"invalid_api_key"}}`,
+      undefined,
+      "provider_credentials",
+      false,
+    ],
     ["process exited", undefined, "fatal_session", true],
     ["invalid model", undefined, "unknown", false],
   ] as const)("classifies %j as %s", (message, errorType, kind, retryable) => {
@@ -225,13 +233,12 @@ describe("isFatalSessionError", () => {
     ).toBe(false);
   });
 
-  it("does not treat a rejected gateway credential as fatal", () => {
+  it.each([
     // Tearing the session down and resending would just hit the same refusal.
-    expect(
-      isFatalSessionError(
-        `Internal error: API Error: 401 {"error":{"code":"invalid_organization"}}`,
-      ),
-    ).toBe(false);
+    `Internal error: API Error: 401 {"error":{"code":"invalid_organization"}}`,
+    `Internal error: API Error: 401 {"error":{"code":"invalid_api_key"}}`,
+  ])("does not treat a rejected gateway credential %j as fatal", (message) => {
+    expect(isFatalSessionError(message)).toBe(false);
   });
 
   it("does not treat a no-response diagnostic as fatal", () => {
