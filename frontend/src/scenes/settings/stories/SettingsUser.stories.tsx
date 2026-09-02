@@ -36,6 +36,26 @@ const meta: Meta<StoryProps> = {
                     realm: 'cloud',
                 },
                 '/api/projects/:id/integrations': { results: [] },
+                '/api/users/@me/login_sessions/': [
+                    {
+                        id: '0190a1b2-0000-7000-8000-000000000001',
+                        device: 'Chrome 113 on Mac OS X 13.4',
+                        location: 'San Francisco, United States',
+                        login_method: 'password',
+                        created_at: '2023-05-20T10:00:00Z',
+                        last_activity: '2023-05-25T09:00:00Z',
+                        is_current: true,
+                    },
+                    {
+                        id: '0190a1b2-0000-7000-8000-000000000002',
+                        device: 'Firefox 113 on Windows 11',
+                        location: 'London, United Kingdom',
+                        login_method: 'google-oauth2',
+                        created_at: '2023-05-10T10:00:00Z',
+                        last_activity: '2023-05-24T09:00:00Z',
+                        is_current: false,
+                    },
+                ],
             },
             patch: {
                 '/api/projects/:id': async ({ request }) => {
