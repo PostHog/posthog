@@ -20,13 +20,17 @@ class Migration(migrations.Migration):
         # never existed. The index is dead, so the reverse stays a no-op.
         # IF EXISTS makes the drop idempotent under bin/migrate retries and a no-op where
         # the schema is absent. The timeouts are off so lock_timeout cannot cancel it.
+        #
+        # sql is a list, not one string: the PostgreSQL backend's prepare_sql_script does
+        # not split statements, so a multi-statement string reaches the driver as a single
+        # cursor.execute. Postgres then wraps it in an implicit transaction block and rejects
+        # DROP INDEX CONCURRENTLY. A list makes Django run each statement on its own.
         migrations.RunSQL(
-            sql="""
-                SET lock_timeout = 0;
-                SET statement_timeout = 0;
-                DROP INDEX CONCURRENTLY IF EXISTS
-                    graphile_worker.jobs_priority_run_at_id_locked_at_without_failures_idx;
-            """,
+            sql=[
+                "SET lock_timeout = 0;",
+                "SET statement_timeout = 0;",
+                "DROP INDEX CONCURRENTLY IF EXISTS graphile_worker.jobs_priority_run_at_id_locked_at_without_failures_idx;",
+            ],
             reverse_sql=migrations.RunSQL.noop,
         ),
     ]
