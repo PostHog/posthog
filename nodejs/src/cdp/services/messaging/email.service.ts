@@ -203,9 +203,6 @@ export interface EmailServiceConfig {
     teamEmailCapMode?: TeamEmailCapMode
     teamEmailTierHourlyCaps?: number[]
     teamEmailTierDailyCaps?: number[]
-    // ISO date. When set, only teams created on or after it are capped, so the caps can be turned
-    // on for new projects without touching established ones. Empty means every team.
-    teamEmailCapTeamsCreatedAfter?: string
 }
 
 /**
@@ -585,7 +582,7 @@ export class EmailService {
         }
 
         const teamTier = await this.teamWorkflowsConfigService.getEmailSendingTier(invocation.teamId)
-        if (!teamTier || !this.teamEmailCapApplies(teamTier.teamCreatedAt)) {
+        if (teamTier === null) {
             return null
         }
 
@@ -599,7 +596,7 @@ export class EmailService {
         if (topTier < 0) {
             return null
         }
-        const tier = Math.min(Math.max(teamTier.tier, 0), topTier)
+        const tier = Math.min(Math.max(teamTier, 0), topTier)
 
         const buckets = teamEmailCapBuckets(invocation.teamId, hourlyCaps[tier], dailyCaps[tier])
         // Clamped to the smaller capacity: a send with more copies than a whole allowance could
@@ -650,25 +647,6 @@ export class EmailService {
             })
         }
         return null
-    }
-
-    /** Whether the cap applies to a team, given the optional created-after cutoff. */
-    private teamEmailCapApplies(teamCreatedAt: string | null): boolean {
-        const cutoff = this.sesConfig.teamEmailCapTeamsCreatedAfter?.trim()
-        if (!cutoff) {
-            return true
-        }
-        const cutoffMs = Date.parse(cutoff)
-        if (Number.isNaN(cutoffMs)) {
-            // An unparseable cutoff caps nobody. The cutoff exists to spare established teams, so
-            // a bad value must fail towards leaving every team alone.
-            return false
-        }
-        if (!teamCreatedAt) {
-            return false
-        }
-        const createdMs = Date.parse(teamCreatedAt)
-        return !Number.isNaN(createdMs) && createdMs >= cutoffMs
     }
 
     // Returns a human-readable log string when any destination address is suppressed for the team,
