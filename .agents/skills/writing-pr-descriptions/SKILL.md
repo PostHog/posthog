@@ -93,7 +93,9 @@ Video (mp4, mov, webm) renders as a player and takes no alt text.
 Accepts png, jpg, gif, webp, svg, and video, up to 10 MB.
 
 `--attach` needs gh 2.99.0 or later (`gh --version`) and write access to the repo.
-On older gh, upload with `hogli pr:upload-image <file>` and paste the markdown it prints, re-running with `--yes` to confirm.
+It also needs an OAuth login, a classic PAT, or a fine-grained PAT.
+A GitHub App user token (`ghu_`), which is what cloud task sandboxes carry, is rejected with `unsupported authentication type`.
+When either applies, upload with `hogli pr:upload-image <file>` and paste the markdown it prints, re-running with `--yes` to confirm.
 
 Attachments are public and permanent, so never attach customer data, customer names, secrets, or internal info.
 
