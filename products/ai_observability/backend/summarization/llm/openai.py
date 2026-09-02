@@ -1,10 +1,10 @@
 """OpenAI provider for LLM summarization, routed through the internal Go ai-gateway
 when configured, else the Python LLM gateway."""
 
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 import structlog
-from openai import APIConnectionError, InternalServerError, RateLimitError
+from openai import APIConnectionError, InternalServerError, Omit, RateLimitError, omit
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from rest_framework import exceptions
 
@@ -30,17 +30,14 @@ FLEX_CAPABLE_MODELS: frozenset[OpenAIModel] = frozenset({OpenAIModel.GPT_5_NANO,
 
 # Strict json_schema keeps the model's output parseable by SummarizationResponse without a
 # repair step.
-SUMMARIZATION_RESPONSE_FORMAT: Any = cast(
-    Any,
-    {
-        "type": "json_schema",
-        "json_schema": {
-            "name": "summarization_response",
-            "strict": True,
-            "schema": SummarizationResponse.model_json_schema(),
-        },
+SUMMARIZATION_RESPONSE_FORMAT: Any = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "summarization_response",
+        "strict": True,
+        "schema": SummarizationResponse.model_json_schema(),
     },
-)
+}
 
 
 def summarize_with_openai(
@@ -65,24 +62,23 @@ def summarize_with_openai(
         {"role": "user", "content": load_summarization_template("prompts/user.djt", {"text_repr": text_repr})},
     ]
 
-    extra: dict[str, Any] = {}
-    if _is_gpt5_model(model):
-        # gpt-5 models spend hidden reasoning tokens that bill as output. Minimal effort removes
-        # them without changing the visible summary volume. Family-wide on purpose, unlike the
-        # flex allowlist: every gpt-5 reasoning model wants minimal effort for this task, and a
-        # new one silently paying reasoning tokens is the costlier default mistake.
-        extra["reasoning_effort"] = "minimal"
+    # gpt-5 models spend hidden reasoning tokens that bill as output. Minimal effort removes
+    # them without changing the visible summary volume. Family-wide on purpose, unlike the
+    # flex allowlist: every gpt-5 reasoning model wants minimal effort for this task, and a
+    # new one silently paying reasoning tokens is the costlier default mistake.
+    # Both kwargs go through the SDK's typed signature; `omit` leaves the field out of the
+    # request entirely, where None would send an explicit null.
+    reasoning_effort: Literal["minimal"] | Omit = "minimal" if _is_gpt5_model(model) else omit
 
-    def _create(service_tier: Literal["flex"] | None, timeout: float) -> ChatCompletion:
-        tier: dict[str, Any] = {"service_tier": service_tier} if service_tier else {}
+    def _create(service_tier: Literal["flex"] | Omit, timeout: float) -> ChatCompletion:
         return client.chat.completions.create(
             model=str(model),
             messages=messages,
             user=resolved_distinct_id,
             timeout=timeout,
             response_format=SUMMARIZATION_RESPONSE_FORMAT,
-            **extra,
-            **tier,
+            reasoning_effort=reasoning_effort,
+            service_tier=service_tier,
         )
 
     try:
@@ -94,9 +90,9 @@ def summarize_with_openai(
                 # past the client deadline or be reset by an intermediary (APIConnectionError,
                 # which covers its APITimeoutError subclass), or die at the gateway's response
                 # ceiling (5xx). Retry once at the standard tier so the window gets its summary.
-                response = _create(None, SUMMARIZATION_TIMEOUT)
+                response = _create(omit, SUMMARIZATION_TIMEOUT)
         else:
-            response = _create(None, SUMMARIZATION_TIMEOUT)
+            response = _create(omit, SUMMARIZATION_TIMEOUT)
 
         content = response.choices[0].message.content
         if not content:

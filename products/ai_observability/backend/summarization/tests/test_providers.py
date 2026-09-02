@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import httpx
-from openai import APIConnectionError, InternalServerError, RateLimitError
+from openai import APIConnectionError, InternalServerError, RateLimitError, omit
 from rest_framework import exceptions
 
 from products.ai_observability.backend.summarization.constants import SUMMARIZATION_FLEX_TIMEOUT, SUMMARIZATION_TIMEOUT
@@ -187,9 +187,9 @@ class TestSummarizeWithOpenAI:
         "model,flex,expected_tier,expected_effort,expected_timeout",
         [
             (OpenAIModel.GPT_5_NANO, True, "flex", "minimal", SUMMARIZATION_FLEX_TIMEOUT),
-            (OpenAIModel.GPT_5_NANO, False, None, "minimal", SUMMARIZATION_TIMEOUT),
+            (OpenAIModel.GPT_5_NANO, False, omit, "minimal", SUMMARIZATION_TIMEOUT),
             # gpt-4.1 rejects service_tier, so a flex request must not forward it
-            (OpenAIModel.GPT_4_1_MINI, True, None, None, SUMMARIZATION_TIMEOUT),
+            (OpenAIModel.GPT_4_1_MINI, True, omit, omit, SUMMARIZATION_TIMEOUT),
         ],
     )
     def test_flex_and_reasoning_effort_apply_only_to_gpt5(
@@ -239,7 +239,7 @@ class TestSummarizeWithOpenAI:
             assert isinstance(result, SummarizationResponse)
             assert mock_client.chat.completions.create.call_count == 2
             retry_kwargs = mock_client.chat.completions.create.call_args_list[1][1]
-            assert "service_tier" not in retry_kwargs
+            assert retry_kwargs.get("service_tier") == omit
             assert retry_kwargs["timeout"] == SUMMARIZATION_TIMEOUT
 
     def test_standard_tier_rate_limit_does_not_retry(self):
