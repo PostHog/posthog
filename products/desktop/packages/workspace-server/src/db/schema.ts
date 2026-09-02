@@ -63,6 +63,7 @@ export const taskMetadata = sqliteTable("task_metadata", {
   archivedTitle: text(),
   archivedTaskCreatedAt: text(),
   archivedRepository: text(),
+  serverArchiveScope: text(),
   piSessionFile: text(),
   createdAt: createdAt(),
   updatedAt: updatedAt(),

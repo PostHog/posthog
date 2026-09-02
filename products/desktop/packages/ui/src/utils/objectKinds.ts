@@ -14,6 +14,7 @@ import {
   ShieldCheckIcon,
   SparkleIcon,
   SquaresFourIcon,
+  TrayIcon,
   UserIcon,
   UsersThreeIcon,
 } from "@phosphor-icons/react";
@@ -112,6 +113,12 @@ const OBJECT_KINDS: Record<string, ObjectKindDef> = {
     kindLabel: "Support tickets",
     source: "Conversations",
     webPath: (id) => `/support/tickets/${id}`,
+  },
+  report: {
+    icon: TrayIcon,
+    kindLabel: "Inbox report",
+    source: "Inbox",
+    webPath: (id) => `/inbox/${id}`,
   },
   trace: {
     icon: SparkleIcon,

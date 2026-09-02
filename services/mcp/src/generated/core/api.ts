@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 5 enabled ops
+ * PostHog API - MCP 8 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -2669,6 +2669,61 @@ export const ProductEnablementCreateBody = /* @__PURE__ */ zod.object({
         )
         .min(1)
         .describe('Products to turn on for this project, each enabled with server-owned conservative defaults.'),
+})
+
+/**
+ * List images in the media library. Requires a `purpose` filter — the library is scoped per consumer (e.g. `email`), so browsing without one would mix in unrelated uploads (dashboard images, toolbar screenshots, ...).
+ */
+export const UploadedMediaListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const UploadedMediaListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    purpose: zod.enum(['email']).describe('The library to list.'),
+})
+
+/**
+ * Step 2 of the presigned upload flow: verifies the object POSTed to the upload_url, sniffs its real content type, and activates it — after this it appears in the library and is publicly servable.
+ */
+export const UploadedMediaCompleteUploadCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this uploaded media.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Step 1 of the presigned upload flow: reserves a pending image and returns a presigned URL to POST the file to directly, bytes never pass through this API. Call complete_upload with the returned id once the upload finishes.
+ */
+export const UploadedMediaStartUploadCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const uploadedMediaStartUploadCreateBodyNameMax = 1000
+
+export const uploadedMediaStartUploadCreateBodyPurposeMax = 100
+
+export const UploadedMediaStartUploadCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(uploadedMediaStartUploadCreateBodyNameMax)
+        .describe("The file's display name, e.g. 'logo.png'."),
+    purpose: zod
+        .string()
+        .max(uploadedMediaStartUploadCreateBodyPurposeMax)
+        .describe("Library to add this image to once uploaded, e.g. 'email'."),
 })
 
 /**

@@ -372,12 +372,12 @@ impl SeederOrchestrator {
                 continue;
             };
             match prepared {
-                PreparedRun::Behavioral(run) => {
+                PreparedRun::Behavioral(prepared) => {
                     record_claim(kind, RunKind::Behavioral);
                     let ctx = ChunkTaskContext {
                         chunk,
                         lease,
-                        run: run.clone(),
+                        prepared: prepared.clone(),
                         store: self.store.clone(),
                         scanner: self.scanner.clone(),
                         producer: self.producer.clone(),
