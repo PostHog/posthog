@@ -302,6 +302,9 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     // Gates the empty-val recovery reload: LemonInputSelect's setInputValue('') on blur and
     // after-select would otherwise flicker the "first page of channels" hint on every focus cycle.
     const hasActiveSearchRef = useRef(false)
+    // The refresh action must keep the active query: without it the reload returns the first
+    // unfiltered page, which drops a searched-for channel out of the list entirely.
+    const activeSearchRef = useRef('')
 
     const channelRefreshButtonDisabledReason = getChannelRefreshButtonDisabledReason()
     // 1s tick while the cooldown is active so the countdown updates; otherwise idle the rerender (60s, picker is short-lived).
@@ -401,11 +404,13 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                             // resolve to a name after blur.
                             loadAllSlackChannels(false, val)
                             hasActiveSearchRef.current = true
+                            activeSearchRef.current = val
                         }
                         setLocalValue(val)
                     } else if (hasActiveSearchRef.current) {
                         loadAllSlackChannels()
                         hasActiveSearchRef.current = false
+                        activeSearchRef.current = ''
                     }
                 }}
                 value={modifiedValue ? [modifiedValue] : []}
@@ -416,7 +421,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 placeholder="Select a channel..."
                 action={{
                     children: <span className="Link">Refresh channels</span>,
-                    onClick: () => loadAllSlackChannels(true),
+                    onClick: () => loadAllSlackChannels(true, activeSearchRef.current),
                     disabledReason: channelRefreshButtonDisabledReason,
                 }}
                 emptyStateComponent={
@@ -446,19 +451,21 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
 
             {showSlackMembershipWarning ? (
                 <LemonBanner type="info">
-                    <div className="flex gap-2 items-center">
+                    <div className="flex gap-2 items-center flex-wrap">
                         <span>
-                            The PostHog Slack App is not in this channel. Please add it to the channel otherwise
-                            Subscriptions will fail to be delivered.{' '}
+                            PostHog is not in this channel yet, so messages will not be delivered. In Slack, send{' '}
+                            <code>/invite @PostHog</code> in the channel, then check again.{' '}
                             <Link to="https://posthog.com/docs/webhooks/slack" target="_blank">
-                                See the Docs for more information
+                                See the docs for more information
                             </Link>
                         </span>
                         <LemonButton
                             type="secondary"
-                            disabledReason={getChannelRefreshButtonDisabledReason()}
-                            onClick={() => loadAllSlackChannels(true)}
-                            loading={allSlackChannelsLoading}
+                            // Checks this one channel live rather than reloading the first page of the
+                            // channel list: the saved channel is often outside that page, so a list
+                            // refresh cannot see the membership change the user just made.
+                            onClick={() => value && loadSlackChannelById(slackChannelId(value), true)}
+                            loading={slackChannelByIdLoading}
                         >
                             Check again
                         </LemonButton>

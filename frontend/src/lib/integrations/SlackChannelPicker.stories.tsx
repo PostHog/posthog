@@ -14,12 +14,12 @@ import { slackIntegrationLogic } from './slackIntegrationLogic'
 
 const integration = mockIntegration
 
-const channel = (id: string, name: string): SlackChannelType => ({
+const channel = (id: string, name: string, is_member: boolean = true): SlackChannelType => ({
     id,
     name,
     is_private: false,
     is_ext_shared: false,
-    is_member: true,
+    is_member,
     is_private_without_access: false,
 })
 
@@ -98,4 +98,23 @@ export const Alphabetical: Story = {
 // (most recent first); everything else stays alphabetical below them.
 export const RecentlySubscribedFirst: Story = {
     args: { recentlySubscribedChannelIds: ['C4', 'C1'] },
+}
+
+// The saved channel the PostHog app was never invited to. The warning has to name the next step
+// and keep its action on screen at the width a docked side panel leaves.
+export const NotInChannel: Story = {
+    render: () => {
+        const notJoined = [channel('C1', 'alerts', false)]
+        useStorybookMocks({
+            get: {
+                '/api/projects/:id/integrations/:intId/channels': { channels: notJoined },
+                '/api/environments/:id/integrations/:intId/channels': { channels: notJoined },
+            },
+        })
+        return (
+            <div className="p-4 max-w-md">
+                <SlackChannelPicker integration={integration} value="C1|#alerts" onChange={() => {}} />
+            </div>
+        )
+    },
 }

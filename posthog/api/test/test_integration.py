@@ -2509,6 +2509,48 @@ class TestIntegrationAPIKeyAccess:
         assert results[0]["kind"] == "twilio"
 
 
+class TestSlackChannelByIdForceRefresh(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_BYID",
+            config={"authed_user": {"id": "test_user_id"}},
+            sensitive_config={"access_token": "test-token"},
+            created_by=self.user,
+        )
+        self.cache_key = f"slack/{self.integration.id}/True/channels"
+        self.stale_channel = {
+            "id": "C1",
+            "name": "alerts",
+            "is_private": False,
+            "is_member": False,
+            "is_ext_shared": False,
+            "is_private_without_access": False,
+        }
+        cache.set(self.cache_key, {"channels": [self.stale_channel], "lastRefreshedAt": "2026-01-01T00:00:00Z"}, 60)
+        self.addCleanup(cache.delete, self.cache_key)
+
+    @parameterized.expand([("cached", "", False), ("forced", "&force_refresh=true", True)])
+    @patch("posthog.api.integration.SlackIntegration")
+    def test_by_id_lookup_reaches_slack_only_when_forced(
+        self, _name: str, query_suffix: str, expect_live: bool, mock_slack_class
+    ):
+        fresh_channel = {**self.stale_channel, "is_member": True}
+        mock_slack_class.return_value.get_channel_by_id.return_value = fresh_channel
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/integrations/{self.integration.id}/channels/?channel_id=C1{query_suffix}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["channels"][0]["is_member"] is expect_live
+        # The corrected membership has to land in the list cache too, or the next list read
+        # serves the stale copy again and the picker's warning comes straight back.
+        assert cache.get(self.cache_key)["channels"][0]["is_member"] is expect_live
+
+
 class TestGithubAccountTypeHelper:
     @parameterized.expand(
         [

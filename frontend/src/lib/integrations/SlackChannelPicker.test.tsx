@@ -296,6 +296,70 @@ describe('SlackChannelPicker', () => {
     })
 })
 
+describe('SlackChannelPicker — membership warning', () => {
+    // The warned-about channel sits outside the page the bulk endpoint returns, which is the case
+    // that used to dead-end: reloading that page can never see the membership change, so the stale
+    // by-id copy answered the check forever and no button in the app could clear the banner.
+    let botIsInChannel = false
+    let forcedLookups: string[] = []
+
+    beforeEach(() => {
+        botIsInChannel = false
+        forcedLookups = []
+        useMocks({
+            get: {
+                '/api/environments/:team_id/integrations/:id/channels': ({ request }) => {
+                    const url = new URL(request.url)
+                    const channelId = url.searchParams.get('channel_id')
+                    if (channelId) {
+                        const forced = url.searchParams.get('force_refresh') === 'true'
+                        if (forced) {
+                            forcedLookups.push(channelId)
+                        }
+                        // Only a forced lookup reaches Slack; an unforced one is served from the
+                        // backend's channel-list cache, which still says the bot is absent.
+                        return [200, { channels: [{ ...OFF_PAGE_CHANNEL, is_member: forced && botIsInChannel }] }]
+                    }
+                    return [200, { channels: CHANNELS, lastRefreshedAt: '2026-01-01T00:00:00Z', has_more: false }]
+                },
+            },
+        })
+        initKeaTests()
+    })
+
+    afterEach(() => {
+        cleanup()
+    })
+
+    it('clears the warning once "Check again" finds the app in the channel', async () => {
+        render(
+            <Provider>
+                <SlackChannelPicker
+                    integration={INTEGRATION}
+                    value={`${OFF_PAGE_CHANNEL.id}|#${OFF_PAGE_CHANNEL.name}`}
+                    onChange={jest.fn()}
+                />
+            </Provider>
+        )
+
+        await waitFor(() => expect(screen.getByText(/PostHog is not in this channel yet/)).toBeInTheDocument(), {
+            timeout: 2000,
+        })
+
+        // The user adds PostHog in Slack, then comes back and clicks the button.
+        botIsInChannel = true
+        await userEvent.click(screen.getByText('Check again'))
+
+        await waitFor(
+            () => {
+                expect(screen.queryByText(/PostHog is not in this channel yet/)).not.toBeInTheDocument()
+            },
+            { timeout: 2000 }
+        )
+        expect(forcedLookups).toEqual([OFF_PAGE_CHANNEL.id])
+    })
+})
+
 describe('SlackChannelPicker — inactive integration banner', () => {
     // Reconnecting is an overwrite, which the API reserves for project admins. Offering the OAuth
     // link to a member sends them through the whole flow only to be rejected on the final write.

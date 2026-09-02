@@ -1462,6 +1462,25 @@ class IntegrationViewSet(
         }
 
     @staticmethod
+    def _replace_cached_slack_channel(key: str, channel: dict) -> None:
+        """Write a live-fetched channel over its cached copy.
+
+        Without this the corrected membership only lives in the by-id response, and the next
+        list read serves the stale copy again from the same cache entry.
+        """
+        data = cache.get(key)
+        if data is None:
+            return
+        channels = data["channels"]
+        for index, cached in enumerate(channels):
+            if cached["id"] == channel["id"]:
+                if cached == channel:
+                    return
+                channels[index] = channel
+                cache.set(key, data, 60 * 60)
+                return
+
+    @staticmethod
     def _filter_slack_channels_for_search(channels: list[dict], search: str) -> list[dict]:
         visible = [channel for channel in channels if not channel.get("is_private_without_access")]
         query = search.strip()
@@ -1501,17 +1520,24 @@ class IntegrationViewSet(
 
         channel_id = request.query_params.get("channel_id")
         if channel_id:
-            data = cache.get(key)
-            if data is not None:
-                for channel in data["channels"]:
-                    if channel["id"] == channel_id:
-                        return Response({"channels": [channel]})
+            # A forced refresh must reach Slack. The cached copy is what makes a membership
+            # change invisible for up to an hour, so serving it here would leave the picker
+            # showing "PostHog is not in this channel" after the user has just added it.
+            if not force_refresh:
+                data = cache.get(key)
+                if data is not None:
+                    for channel in data["channels"]:
+                        if channel["id"] == channel_id:
+                            return Response({"channels": [channel]})
             try:
                 channel = slack.get_channel_by_id(channel_id, should_include_private_channels, authed_user)
             except SlackApiError as e:
                 _reraise_slack_api_error(e)
             if channel:
-                return Response({"channels": [self._serialize_slack_channel(channel)]})
+                serialized = self._serialize_slack_channel(channel)
+                if force_refresh:
+                    self._replace_cached_slack_channel(key, serialized)
+                return Response({"channels": [serialized]})
             return Response({"channels": []})
 
         query_serializer = SlackChannelsQuerySerializer(data=request.query_params)

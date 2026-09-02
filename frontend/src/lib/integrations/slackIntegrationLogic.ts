@@ -117,8 +117,12 @@ export interface slackIntegrationLogicActions {
             search: string
         }
     }
-    loadSlackChannelById: (channelId: string) => {
+    loadSlackChannelById: (
+        channelId: string,
+        forceRefresh?: boolean
+    ) => {
         channelId: string
+        forceRefresh: boolean
     }
     loadSlackChannelByIdFailure: (
         error: string,
@@ -131,11 +135,13 @@ export interface slackIntegrationLogicActions {
         slackChannelById: SlackChannelType | null,
         payload?: {
             channelId: string
+            forceRefresh: boolean
         }
     ) => {
         slackChannelById: SlackChannelType | null
         payload?: {
             channelId: string
+            forceRefresh: boolean
         }
     }
     loadSlackUserById: (userId: string) => {
@@ -219,7 +225,7 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         loadAllSlackChannels: (forceRefresh: boolean = false, search: string = '') => ({ forceRefresh, search }),
         loadAllSlackUsers: (forceRefresh: boolean = false, search: string = '') => ({ forceRefresh, search }),
         loadSlackUserById: (userId: string) => ({ userId }),
-        loadSlackChannelById: (channelId: string) => ({ channelId }),
+        loadSlackChannelById: (channelId: string, forceRefresh: boolean = false) => ({ channelId, forceRefresh }),
         setRecentlySubscribedChannelIds: (channelIds: string[]) => ({ channelIds }),
         setSlackIntegrationInactive: (message: string | null) => ({ message }),
     }),
@@ -310,13 +316,15 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
         slackChannelById: [
             null as SlackChannelType | null,
             {
-                loadSlackChannelById: async ({ channelId }, breakpoint) => {
+                loadSlackChannelById: async ({ channelId, forceRefresh }, breakpoint) => {
                     await breakpoint(500)
                     try {
-                        const res = await api.integrations.slackChannelsById(props.id, channelId)
-                        // The by-id endpoint always calls Slack live, so a success is real proof
-                        // the connection works again.
-                        actions.setSlackIntegrationInactive(null)
+                        const res = await api.integrations.slackChannelsById(props.id, channelId, forceRefresh)
+                        if (forceRefresh) {
+                            // Matches the channels loader: a plain lookup can be answered from the
+                            // backend cache, so only a forced one proves the connection works again.
+                            actions.setSlackIntegrationInactive(null)
+                        }
                         return res.channels[0] || null
                     } catch (e: any) {
                         if (e?.code === SLACK_INTEGRATION_INACTIVE_ERROR_CODE) {
@@ -337,6 +345,13 @@ export const slackIntegrationLogic = kea<slackIntegrationLogicType>([
                 // allSlackChannels is null when an inactive-integration load resolves with the
                 // (empty) prior state instead of throwing — keep the existing channels in that case.
                 loadAllSlackChannelsSuccess: (prev, { allSlackChannels }) => allSlackChannels?.channels ?? prev,
+                // A by-id lookup also corrects the listed copy. The `slackChannels` selector reads
+                // the list first, so a stale listed entry would otherwise outrank the fresh one and
+                // keep answering the membership check.
+                loadSlackChannelByIdSuccess: (prev, { slackChannelById }) =>
+                    slackChannelById
+                        ? prev.map((channel) => (channel.id === slackChannelById.id ? slackChannelById : channel))
+                        : prev,
             },
         ],
         _fetchedSlackChannelById: [
