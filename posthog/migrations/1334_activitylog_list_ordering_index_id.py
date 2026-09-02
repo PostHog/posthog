@@ -22,16 +22,16 @@ class Migration(migrations.Migration):
                 name="idx_alog_org_created_at_id",
             ),
         ),
+        SafeRemoveIndexConcurrently(
+            model_name="activitylog",
+            name="idx_alog_org_created_at",
+        ),
         SafeAddIndexConcurrently(
             model_name="activitylog",
             index=models.Index(
                 fields=["team_id", "-created_at", "-id"],
                 name="idx_alog_team_created_at_id",
             ),
-        ),
-        SafeRemoveIndexConcurrently(
-            model_name="activitylog",
-            name="idx_alog_org_created_at",
         ),
         SafeRemoveIndexConcurrently(
             model_name="activitylog",
