@@ -179,7 +179,7 @@ export const buttonPrimitiveVariants = cva({
             false: '',
         },
         disabled: {
-            true: 'disabled:opacity-50',
+            true: 'opacity-50',
             false: '',
         },
         inert: {
