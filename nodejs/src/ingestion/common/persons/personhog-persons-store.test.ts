@@ -15,7 +15,6 @@ import {
     PersonhogUnsupportedFieldError,
     personhogStoreFlushCounter,
     personhogStoreMergeDrainCounter,
-    personhogStoreRereadAfterPurgeCounter,
     personhogStoreShadowShedCounter,
 } from './personhog-persons-store'
 
@@ -498,8 +497,7 @@ describe('PersonhogPersonsStore', () => {
             expect(repository.mergePersons).toHaveBeenCalledTimes(1)
         })
 
-        it('later fetches of the merged ids re-resolve and read the leader, and are counted', async () => {
-            personhogStoreRereadAfterPurgeCounter.reset()
+        it('later fetches of the merged ids re-resolve and read the leader', async () => {
             const bound = store.forBatch(0)
             await bound.fetchForUpdate(1, 'd1')
             const result = await bound.mergePersons({
@@ -536,7 +534,6 @@ describe('PersonhogPersonsStore', () => {
             const viaTarget = await bound.fetchForUpdate(1, 'd1')
             expect(viaTarget?.version).toBe(5)
             expect(repository.resolvePersonsByDistinctIds).toHaveBeenCalledTimes(1)
-            expect(await counterTotal(personhogStoreRereadAfterPurgeCounter)).toBeGreaterThan(0)
         })
 
         it.each([
@@ -1157,7 +1154,7 @@ describe('PersonhogPersonsStore', () => {
             const other = { ...person, id: '9' }
             // d1 belongs to 9 and its document was dropped, so the fold has
             // to read rather than trust the caller's copy of person 7.
-            ;(store as any).recordResolution(0, '1:d1', '1:9')
+            ;(store as any).setDistinctIdToPersonId('1:d1', '1:9')
             repository.resolvePersonsByDistinctIds.mockResolvedValue([
                 { teamId: 1, distinctId: 'd1', person: other },
             ] as never)
@@ -1203,7 +1200,7 @@ describe('PersonhogPersonsStore', () => {
             expect(afterOne.properties).toEqual({})
             // A redirect on another lane drops this person's document while
             // that op is still unsent.
-            ;(store as any).dropProjection('1:7', 'redirect_survivor')
+            ;(store as any).clearPersonCacheForPersonId('1:7', 'redirect_survivor')
 
             // The caller folds again holding the view it was just given: the
             // composed view already resolved the k pair, so folding over it
@@ -1297,7 +1294,7 @@ describe('PersonhogPersonsStore', () => {
             // The lane holds k='A' unsent while the leader still answers the
             // value it replaces.
             await bound.applyEventOps(person, ops({ $set: { k: 'A' } }), 'd1')
-            ;(store as any).dropProjection('1:7', 'redirect_survivor')
+            ;(store as any).clearPersonCacheForPersonId('1:7', 'redirect_survivor')
             repository.resolvePersonsByDistinctIds.mockResolvedValue([{ teamId: 1, distinctId: 'd1', person }] as never)
             repository.fetchPersonById.mockResolvedValue({
                 ...person,
@@ -1993,7 +1990,7 @@ describe('PersonhogPersonsStore', () => {
                 fallback.properties.stamped = 'by-caller'
             }
 
-            expect((store as any).checkDocuments.get('1:8')?.properties.stamped).toBeUndefined()
+            expect((store as any).personCheckCache.get('1:8')?.properties.stamped).toBeUndefined()
         })
 
         it('derives a valid op uuid from any event uuid string', async () => {

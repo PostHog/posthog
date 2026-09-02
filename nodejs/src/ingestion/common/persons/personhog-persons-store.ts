@@ -35,11 +35,6 @@ export const personhogStoreCachePurgeCounter = new Counter({
     labelNames: ['reason'],
 })
 
-export const personhogStoreRereadAfterPurgeCounter = new Counter({
-    name: 'personhog_store_reread_after_purge_total',
-    help: 'Fetches that went back to the service because a purge discarded their cached answer',
-})
-
 export const personhogStoreMergeDrainCounter = new Counter({
     name: 'personhog_store_merge_drain_total',
     help: 'What the pre-merge drain did with each affected lane, by action',
@@ -123,13 +118,6 @@ const REDIRECT_MAX_ATTEMPTS = 3
 const FLUSH_MAX_WAIT_ROUNDS = 3
 const FLUSH_WAIT_ROUND_MS = 1_000
 
-/**
- * Keys the reread-after-purge marker set may hold before it resets. The
- * counter under-reports past the reset; unbounded growth would trade a
- * metric for a leak on merge-heavy teams.
- */
-const PURGED_KEY_MARKER_LIMIT = 50_000
-
 /** A redirect failure that already incremented its own flush outcome. */
 class CountedRedirectError extends Error {}
 
@@ -184,41 +172,37 @@ export class PersonhogPersonsStore implements PersonsStore {
      */
     private prefetchingBatches: Set<number> = new Set()
 
-    /**
-     * Distinct-id resolution, `${teamId}:${distinctId}` to a person key or
-     * null for known-absent; shared across batches and refcounted per batch.
-     */
+    // The cache mirrors BatchWritingPersonsCache structure for structure,
+    // with two differences the names carry: `projections` holds a whole
+    // projected person rather than a PersonUpdate diff (the diffs live in
+    // the lanes as raw ops for the leader), and `resolutions` is tri-state
+    // (person key, null for known-absent, missing for never-resolved).
+
+    /** ↔ distinctIdToPersonId. `${teamId}:${distinctId}` to a person key, or null for known-absent. */
     private resolutions: Map<string, string | null> = new Map()
     /**
-     * The projected person per `${teamId}:${personId}`: the last
-     * update-grade service answer with the lanes' folded ops applied in
-     * place, the way the Postgres cache accumulates a PersonUpdate.
+     * ↔ personUpdateCache. The projected person per `${teamId}:${personId}`:
+     * the last update-grade service answer with the lanes' folded ops
+     * applied in place.
      */
     private projections: Map<string, InternalPerson> = new Map()
     /**
-     * Identity-resolve documents per person key, for repeat checking reads.
-     * Kept apart from projections so the update path never trusts a
-     * document that lags the leader, mirroring the Postgres store's split
-     * between its check and update caches.
+     * ↔ personCheckCache, keyed by person rather than distinct id.
+     * Identity-resolve documents for repeat checking reads, kept apart so
+     * the update path never trusts a document that lags the leader.
      */
-    private checkDocuments: Map<string, InternalPerson> = new Map()
-    /**
-     * How many live resolutions name each person; a counter because
-     * scanning resolutions per drop would be linear.
-     */
-    private personRefCount: Map<string, number> = new Map()
-    /** Distinct keys each open batch referenced; a key is live while any batch counts it. */
+    private personCheckCache: Map<string, InternalPerson> = new Map()
+    /** ↔ batchDistinctKeys. Distinct keys each open batch referenced. */
     private batchDistinctKeys: Map<number, Set<string>> = new Map()
-    /** Batches per distinct key, decremented at release; zero frees the edge. */
+    /** ↔ distinctKeyRefCount. Batches per distinct key; zero at release evicts the key. */
     private distinctKeyRefCount: Map<string, number> = new Map()
     /**
-     * The single staleness guard: bumped on every purge. A read stamps it
-     * before its first await and declines to record on mismatch, so a
-     * response from before the purge cannot refill what the purge dropped.
+     * The single staleness guard, with no Postgres counterpart: bumped on
+     * every purge. A read stamps it before its first await and declines to
+     * record on mismatch, so a response from before the purge cannot
+     * refill what the purge dropped.
      */
     private teamGeneration: Map<number, number> = new Map()
-    /** Distinct keys a purge dropped, so the next miss counts as a purge-caused re-read. */
-    private purgedDistinctKeys: Set<string> = new Set()
 
     /** Serializes flush passes; see flush(). */
     private flushChain: Promise<void> = Promise.resolve()
@@ -279,7 +263,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             return this.snapshot(projection)
         }
         if (grade === 'check') {
-            const checkDocument = this.checkDocuments.get(personKey)
+            const checkDocument = this.personCheckCache.get(personKey)
             if (checkDocument !== undefined) {
                 return this.snapshot(checkDocument)
             }
@@ -287,19 +271,22 @@ export class PersonhogPersonsStore implements PersonsStore {
         return undefined
     }
 
-    /** Records a resolution edge and this batch's reference to its distinct key. */
-    private recordResolution(batchId: number, distinctKey: string, personKey: string | null): void {
+    /**
+     * ↔ setDistinctIdToPersonId. An edge moving off a person takes that
+     * person's documents with it: over-eviction only costs a re-read,
+     * while a document no edge names any longer would never be freed.
+     */
+    private setDistinctIdToPersonId(distinctKey: string, personKey: string | null): void {
         const previous = this.resolutions.get(distinctKey)
-        if (previous !== personKey) {
-            // The edge moved, so the person refcounts move with it.
-            if (previous != null) {
-                this.releasePersonReference(previous)
-            }
-            if (personKey !== null) {
-                this.personRefCount.set(personKey, (this.personRefCount.get(personKey) ?? 0) + 1)
-            }
-            this.resolutions.set(distinctKey, personKey)
+        if (previous != null && previous !== personKey) {
+            this.projections.delete(previous)
+            this.personCheckCache.delete(previous)
         }
+        this.resolutions.set(distinctKey, personKey)
+    }
+
+    /** ↔ trackBatchEntry. Records this batch's reference to a distinct key for the release refcount. */
+    private trackBatchEntry(batchId: number, distinctKey: string): void {
         let keys = this.batchDistinctKeys.get(batchId)
         if (!keys) {
             keys = new Set()
@@ -311,45 +298,22 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
-    /** Forgets one resolution edge and its claim on the person's documents. Idempotent. */
-    private dropEdge(distinctKey: string): void {
+    /**
+     * ↔ evictDistinctKey. Frees an edge whose last batch released, and the
+     * mapped person's documents with it: a sibling id still naming the
+     * person pays one re-read, as it does under the Postgres cache. Lanes
+     * are not documents and keep their own lifecycle.
+     */
+    private evictDistinctKey(distinctKey: string): void {
         const personKey = this.resolutions.get(distinctKey)
         if (personKey === undefined) {
             return
         }
         this.resolutions.delete(distinctKey)
         if (personKey !== null) {
-            this.releasePersonReference(personKey)
+            this.projections.delete(personKey)
+            this.personCheckCache.delete(personKey)
         }
-    }
-
-    /** Frees a person's documents once no live resolution names it. */
-    private releasePersonReference(personKey: string): void {
-        const refs = (this.personRefCount.get(personKey) ?? 1) - 1
-        if (refs > 0) {
-            this.personRefCount.set(personKey, refs)
-            return
-        }
-        this.personRefCount.delete(personKey)
-        this.projections.delete(personKey)
-        this.checkDocuments.delete(personKey)
-    }
-
-    /**
-     * Repoints an existing resolution at another person, moving the
-     * refcounts with the edge. A key no batch recorded is left alone:
-     * creating it here would add a mapping nothing ever releases.
-     */
-    private repointResolution(distinctKey: string, personKey: string): void {
-        const previous = this.resolutions.get(distinctKey)
-        if (previous === undefined || previous === personKey) {
-            return
-        }
-        if (previous !== null) {
-            this.releasePersonReference(previous)
-        }
-        this.personRefCount.set(personKey, (this.personRefCount.get(personKey) ?? 0) + 1)
-        this.resolutions.set(distinctKey, personKey)
     }
 
     /**
@@ -373,68 +337,41 @@ export class PersonhogPersonsStore implements PersonsStore {
     }
 
     /**
-     * Forgets a projection because something it cannot account for
-     * happened; any lane keeps its unsent ops and the next reader re-reads.
+     * ↔ clearPersonCacheForPersonId. Forgets a person's documents because
+     * something they cannot account for happened; any lane keeps its
+     * unsent ops and the next reader re-reads.
      */
-    private dropProjection(personKey: string, reason: string): void {
+    private clearPersonCacheForPersonId(personKey: string, reason: string): void {
         if (this.projections.delete(personKey)) {
             personhogStoreCachePurgeCounter.inc({ reason })
         }
-        this.checkDocuments.delete(personKey)
-    }
-
-    /** Marks a purged key so the fetch that pays the re-read can be counted. */
-    private markPurged(distinctKey: string): void {
-        if (this.purgedDistinctKeys.size >= PURGED_KEY_MARKER_LIMIT) {
-            this.purgedDistinctKeys.clear()
-        }
-        this.purgedDistinctKeys.add(distinctKey)
-    }
-
-    private countRereadIfPurged(distinctKey: string): void {
-        if (this.purgedDistinctKeys.delete(distinctKey)) {
-            personhogStoreRereadAfterPurgeCounter.inc()
-        }
+        this.personCheckCache.delete(personKey)
     }
 
     /**
-     * Purges one distinct id, the analog of the Postgres cache's
-     * removeDistinctIdFromCache: the edge goes and the next touch
+     * ↔ removeDistinctIdFromCache. The edge goes and the next touch
      * re-resolves through identity.
      */
-    private purgeDistinctId(teamId: number, distinctId: string, reason: string): void {
-        const distinctKey = `${teamId}:${distinctId}`
-        if (this.resolutions.has(distinctKey)) {
-            this.dropEdge(distinctKey)
-            this.markPurged(distinctKey)
+    private removeDistinctIdFromCache(teamId: number, distinctId: string, reason: string): void {
+        if (this.resolutions.delete(`${teamId}:${distinctId}`)) {
             personhogStoreCachePurgeCounter.inc({ reason })
         }
     }
 
     /**
-     * Purges a person entirely, the analog of the Postgres cache's
-     * clearAllCachesForPersonId: its documents and every sibling distinct
-     * id that resolves to it, which reaches ids the caller never named.
+     * ↔ clearAllCachesForPersonId. The person's documents and every
+     * sibling distinct id that resolves to it, which reaches ids the
+     * caller never named.
      */
-    private purgePerson(teamId: number, personId: string, reason: string): void {
+    private clearAllCachesForPersonId(teamId: number, personId: string, reason: string): void {
         const personKey = `${teamId}:${personId}`
-        // Collected first: dropEdge edits the map this loop walks.
-        const siblingKeys: string[] = []
         for (const [distinctKey, mapped] of this.resolutions) {
             if (mapped === personKey) {
-                siblingKeys.push(distinctKey)
+                this.resolutions.delete(distinctKey)
+                personhogStoreCachePurgeCounter.inc({ reason })
             }
         }
-        for (const distinctKey of siblingKeys) {
-            this.dropEdge(distinctKey)
-            this.markPurged(distinctKey)
-            personhogStoreCachePurgeCounter.inc({ reason })
-        }
-        if (this.projections.delete(personKey)) {
-            personhogStoreCachePurgeCounter.inc({ reason })
-        }
-        this.checkDocuments.delete(personKey)
-        this.personRefCount.delete(personKey)
+        this.clearPersonCacheForPersonId(personKey, reason)
     }
 
     /**
@@ -459,7 +396,8 @@ export class PersonhogPersonsStore implements PersonsStore {
             // must not overwrite presence.
             const existing = this.resolutions.get(distinctKey)
             if (existing === undefined || existing === null) {
-                this.recordResolution(batchId, distinctKey, null)
+                this.setDistinctIdToPersonId(distinctKey, null)
+                this.trackBatchEntry(batchId, distinctKey)
             }
             // The best available view, projection or check document: the
             // live mapping stands, so absence is not the answer.
@@ -477,7 +415,8 @@ export class PersonhogPersonsStore implements PersonsStore {
             }
             return standingEdge !== null ? (this.lookup(teamId, distinctId, options.grade) ?? null) : null
         }
-        this.recordResolution(batchId, distinctKey, personKey)
+        this.setDistinctIdToPersonId(distinctKey, personKey)
+        this.trackBatchEntry(batchId, distinctKey)
         this.installDocument(personKey, fetched, options.grade)
         return this.lookup(teamId, distinctId, options.grade) ?? this.snapshot(fetched)
     }
@@ -490,7 +429,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         // A projection is at least as fresh as any identity answer; the
         // check document only serves persons the update path never read.
         if (!this.projections.has(personKey)) {
-            this.checkDocuments.set(personKey, this.snapshot(doc))
+            this.personCheckCache.set(personKey, this.snapshot(doc))
         }
     }
 
@@ -500,7 +439,6 @@ export class PersonhogPersonsStore implements PersonsStore {
         if (cached !== undefined) {
             return cached
         }
-        this.countRereadIfPurged(`${teamId}:${distinctId}`)
         const generation = this.generationOf(teamId)
         const [resolved] = await this.repository.resolvePersonsByDistinctIds([{ teamId, distinctId }], CALLER_TAG)
         return this.recordFetch(teamId, distinctId, resolved?.person ?? null, batchId, { grade: 'check', generation })
@@ -522,7 +460,6 @@ export class PersonhogPersonsStore implements PersonsStore {
             const person = await this.repository.fetchPersonById(teamId, edge.slice(edge.indexOf(':') + 1), CALLER_TAG)
             return this.recordFetch(teamId, distinctId, person, batchId, { grade: 'update', generation })
         }
-        this.countRereadIfPurged(`${teamId}:${distinctId}`)
         const [resolved] = await this.repository.resolvePersonsByDistinctIds([{ teamId, distinctId }], CALLER_TAG)
         if (!resolved?.person) {
             return this.recordFetch(teamId, distinctId, null, batchId, { grade: 'update', generation })
@@ -570,7 +507,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             // answer and the redirect heals any ops folded onto it.
             const leaderDoc = await this.repository.fetchPersonById(teamId, person.id, CALLER_TAG)
             if (leaderDoc === null) {
-                this.dropProjection(`${teamId}:${person.id}`, 'stale_write_answer')
+                this.clearPersonCacheForPersonId(`${teamId}:${person.id}`, 'stale_write_answer')
                 return { success: true, person: this.snapshot(person), messages: [], created }
             }
             person = leaderDoc
@@ -664,7 +601,8 @@ export class PersonhogPersonsStore implements PersonsStore {
         // it replaces the projection outright; every id of this person
         // sees the change pre-flush.
         this.projections.set(personKey, this.snapshot(projected))
-        this.recordResolution(batchId, `${person.team_id}:${distinctId}`, personKey)
+        this.setDistinctIdToPersonId(`${person.team_id}:${distinctId}`, personKey)
+        this.trackBatchEntry(batchId, `${person.team_id}:${distinctId}`)
         return [this.snapshot(projected), []]
     }
 
@@ -906,10 +844,10 @@ export class PersonhogPersonsStore implements PersonsStore {
      */
     private purgeAfterMerge(teamId: number, distinctIds: string[], personKeys: Set<string>, reason: string): void {
         for (const personKey of personKeys) {
-            this.purgePerson(teamId, personKey.slice(personKey.indexOf(':') + 1), reason)
+            this.clearAllCachesForPersonId(teamId, personKey.slice(personKey.indexOf(':') + 1), reason)
         }
         for (const distinctId of distinctIds) {
-            this.purgeDistinctId(teamId, distinctId, reason)
+            this.removeDistinctIdFromCache(teamId, distinctId, reason)
         }
         this.bumpGeneration(teamId)
     }
@@ -973,14 +911,15 @@ export class PersonhogPersonsStore implements PersonsStore {
             // past whatever we held; drop the projection so the next reader
             // re-reads. Without an applied write it is a genuine no-op.
             if (applied) {
-                this.dropProjection(personKey, 'stale_write_answer')
+                this.clearPersonCacheForPersonId(personKey, 'stale_write_answer')
             }
             return [person, [], false]
         }
         // A generation moved by a purge means this answer predates it and
         // must not refill what the purge dropped.
         if (generation === this.generationOf(person.team_id)) {
-            this.recordResolution(batchId, `${person.team_id}:${distinctId}`, personKey)
+            this.setDistinctIdToPersonId(`${person.team_id}:${distinctId}`, personKey)
+            this.trackBatchEntry(batchId, `${person.team_id}:${distinctId}`)
             this.installProjection(personKey, updated)
         }
         // No ClickHouse message: the leader's changelog is the person feed.
@@ -1300,7 +1239,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 // The call returned without throwing, so the write applied
                 // and the leader moved past what we held; the next reader
                 // re-reads.
-                this.dropProjection(`${entry.teamId}:${personId}`, 'stale_write_answer')
+                this.clearPersonCacheForPersonId(`${entry.teamId}:${personId}`, 'stale_write_answer')
             }
         }
     }
@@ -1324,8 +1263,8 @@ export class PersonhogPersonsStore implements PersonsStore {
         if (survivorId === undefined || survivorId === entry.personId) {
             // Release the edge so the redelivered events re-resolve rather
             // than folding onto the corpse again.
-            this.dropEdge(`${entry.teamId}:${entry.distinctId}`)
-            this.dropProjection(`${entry.teamId}:${entry.personId}`, 'redirect_gone')
+            this.removeDistinctIdFromCache(entry.teamId, entry.distinctId, 'redirect_gone')
+            this.clearPersonCacheForPersonId(`${entry.teamId}:${entry.personId}`, 'redirect_gone')
             personhogStoreFlushCounter.inc({ outcome: 'redirect_gone' })
             throw new CountedRedirectError(
                 `person ${entry.personId} in team ${entry.teamId} vanished and ${entry.distinctId} resolves to ` +
@@ -1338,13 +1277,18 @@ export class PersonhogPersonsStore implements PersonsStore {
         // Skipped when a purge moved the generation mid-resolve: the purge
         // already dropped the edge, and this answer predates it.
         if (generation === this.generationOf(entry.teamId)) {
-            this.repointResolution(`${entry.teamId}:${entry.distinctId}`, `${entry.teamId}:${survivorId}`)
+            const distinctKey = `${entry.teamId}:${entry.distinctId}`
+            // A key no batch recorded is left alone: creating it here would
+            // add a mapping nothing ever releases.
+            if (this.resolutions.has(distinctKey)) {
+                this.setDistinctIdToPersonId(distinctKey, `${entry.teamId}:${survivorId}`)
+            }
         }
-        this.dropProjection(`${entry.teamId}:${entry.personId}`, 'redirect_survivor')
+        this.clearPersonCacheForPersonId(`${entry.teamId}:${entry.personId}`, 'redirect_survivor')
         // Ops travel as they stand, deletions included, matching Postgres.
         await this.writeSegments(entry, survivorId, progress)
         // The survivor's projection cannot know about these ops.
-        this.dropProjection(`${entry.teamId}:${survivorId}`, 'redirect_survivor')
+        this.clearPersonCacheForPersonId(`${entry.teamId}:${survivorId}`, 'redirect_survivor')
     }
 
     /**
@@ -1368,7 +1312,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             }
             this.entries.delete(personKey)
         }
-        this.releaseCacheBatch(batchId)
+        this.releaseBatchId(batchId)
     }
 
     /**
@@ -1398,11 +1342,11 @@ export class PersonhogPersonsStore implements PersonsStore {
             }
             this.entries.delete(personKey)
         }
-        this.releaseCacheBatch(batchId)
+        this.releaseBatchId(batchId)
     }
 
     /** Drops a batch's distinct-key references, freeing edges no other batch holds. */
-    private releaseCacheBatch(batchId: number): void {
+    private releaseBatchId(batchId: number): void {
         const keys = this.batchDistinctKeys.get(batchId)
         this.batchDistinctKeys.delete(batchId)
         for (const distinctKey of keys ?? []) {
@@ -1412,7 +1356,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 continue
             }
             this.distinctKeyRefCount.delete(distinctKey)
-            this.dropEdge(distinctKey)
+            this.evictDistinctKey(distinctKey)
         }
     }
 
