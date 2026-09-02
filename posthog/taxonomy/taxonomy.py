@@ -33,13 +33,15 @@ def visible_definitions(group: str) -> Iterator[tuple[str, CoreFilterDefinition]
             yield name, definition
 
 
-# Generic property names that PostHog's own internal events use, kept out of the core taxonomy.
-# The taxonomy is global, so a core entry relabels every property of that name in every project:
-# it wins the label, the PostHog logo and the example values, even where the team has written its
-# own description. These names are common enough in customer schemas that the cost of describing
-# PostHog's internal meaning outweighs the benefit. Document such a property under a $-prefixed
-# name instead.
-RESERVED_UNPREFIXED_INTERNAL_PROPERTIES: frozenset[str] = frozenset(
+# Property names that only PostHog's own internal analytics sets. No PostHog SDK writes them into
+# a customer's project, so this taxonomy has nothing true to say about a property of that name.
+# The taxonomy is global and has no per-team scoping, so an entry wins the label, the PostHog logo
+# and the example values on every property of that name in every project, even where the team
+# wrote its own description. These names are common in customer schemas, so an entry relabels the
+# team's own property with PostHog's internal meaning.
+# The test is whether a PostHog SDK can put the property in customer data, not whether the name
+# carries a $ prefix: utm_source, gclid, revenue and version are unprefixed and belong here.
+POSTHOG_INTERNAL_ONLY_PROPERTIES: frozenset[str] = frozenset(
     {"source", "tool_name", "resource_name", "duration_ms", "is_error"}
 )
 
@@ -2994,11 +2996,9 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         # in-tree trackEvent path). They overlap with the $mcp_*-prefixed core properties above
         # and will be retired once @posthog/mcp reaches general availability — they are not yet
         # deprecated, because @posthog/mcp is still in internal testing.
-        # Only names inside the "mcp_" namespace belong here. A core entry wins the label, the
-        # PostHog logo and the example values on every property of that name in every project, so
-        # a generic name relabels a customer's own property with PostHog's internal meaning. The
-        # $mcp_*-prefixed entries above document these events for the people who query them; see
-        # RESERVED_UNPREFIXED_INTERNAL_PROPERTIES for the names kept out on purpose.
+        # Only names inside the "mcp_" namespace belong here. A name a customer could plausibly
+        # use for their own data does not, however internal its meaning is to us — see
+        # POSTHOG_INTERNAL_ONLY_PROPERTIES for the names kept out on purpose.
         "mcp_client_name": {
             "label": "MCP client name (unprefixed)",
             "description": "Older unprefixed variant of $mcp_client_name. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_client_name for new dashboards.",
