@@ -107,8 +107,11 @@ function contextWindowOption(): SessionConfigOption {
 
 function Harness({
   workspaceMode,
+  subscriptionOn = false,
 }: {
   workspaceMode?: WorkspaceModeForAccess;
+  /** Provider picked in the Billing menu; true reveals the logged-out login note. */
+  subscriptionOn?: boolean;
 }): ReactElement {
   const [adapter, setAdapter] = useState<AgentAdapter>("claude");
   const [model, setModel] = useState("claude-opus-5");
@@ -131,19 +134,19 @@ function Harness({
         onConfigOptionChange={() => {}}
         showBillingMenu={workspaceMode !== undefined}
         workspaceMode={workspaceMode}
-        // Logged out in Storybook (the status query never resolves) with
-        // PostHog selected, so the login note stays hidden.
+        // Logged out in Storybook (the status query never resolves); the
+        // login note shows only when the provider is the picked billing.
         modelAccess={
           workspaceMode === undefined
             ? undefined
             : subscriptionModelAccess(
                 {
                   flagEnabled: true,
-                  subscriptionOn: false,
+                  subscriptionOn,
                   status: undefined,
                   loggedIn: false,
                   loginState: "unknown",
-                  needsConnection: false,
+                  needsConnection: subscriptionOn,
                   setSubscriptionOn: () => {},
                 },
                 workspaceMode,
@@ -202,6 +205,10 @@ function BillingHarnessCloud(): ReactElement {
   return <Harness workspaceMode="cloud" />;
 }
 
+function BillingHarnessLoginPrompt(): ReactElement {
+  return <Harness workspaceMode="local" subscriptionOn />;
+}
+
 export const LocalBilling: StoryObj<typeof BillingHarnessLocal> = {
   render: () => <BillingHarnessLocal />,
   play: async ({ canvas, canvasElement, userEvent }): Promise<void> => {
@@ -209,6 +216,16 @@ export const LocalBilling: StoryObj<typeof BillingHarnessLocal> = {
     const body = within(canvasElement.ownerDocument.body);
     await body.findByRole("menuitemradio", { name: "PostHog" });
     await body.findByRole("menuitemradio", { name: "Anthropic" });
+  },
+};
+
+export const LoginPromptBilling: StoryObj<typeof BillingHarnessLoginPrompt> = {
+  render: () => <BillingHarnessLoginPrompt />,
+  play: async ({ canvas, canvasElement, userEvent }): Promise<void> => {
+    await openBillingSubmenu(canvas, canvasElement, userEvent);
+    const body = within(canvasElement.ownerDocument.body);
+    await body.findByText(/Log in to Claude Code to use Anthropic billing/);
+    await body.findByRole("button", { name: "Log in" });
   },
 };
 
