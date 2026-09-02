@@ -606,7 +606,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         if not self.context["allow_oversized_liquid_templates"]:
             base_inputs = result.get("inputs") or {}
             mappings = result.get("mappings")
-            if mappings is None and liquid_configuration_activated:
+            if mappings is None and liquid_configuration_activated and instance is not None:
                 mappings = instance.mappings
             mappings = mappings or []
             possible_inputs = [base_inputs, *({**base_inputs, **(mapping.get("inputs") or {})} for mapping in mappings)]
