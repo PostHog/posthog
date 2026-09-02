@@ -199,6 +199,10 @@ class TestSplitMarkdownBySections(SimpleTestCase):
             ("bold_run_inside_a_paragraph", "Some text **bold** more text.\n\nAnd **bold** again here."),
             # Without a blank line before it, the bold run continues the paragraph above it.
             ("bold_line_continuing_a_paragraph", "Lead line.\n**Evidence**\nbody"),
+            # Four spaces or a tab of indent make the line indented code, not a label (CommonMark),
+            # so a bold-looking line in a code snippet does not split the snippet across replies.
+            ("bold_line_indented_four_spaces_is_code", "Intro.\n\n    **Evidence**\n    config value"),
+            ("bold_line_indented_with_a_tab_is_code", "Intro.\n\n\t**Evidence**\n\tconfig value"),
         ]
     )
     def test_bold_run_that_is_not_a_section_label_is_not_a_seam(self, _name: str, summary: str) -> None:

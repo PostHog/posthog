@@ -135,8 +135,10 @@ _MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+\S")
 _MARKDOWN_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 # A bold run opening a line, as in `**Evidence**` or `__Evidence__`. Scouts mark a section with a
 # bold label far more often than with a heading, so a bold label is a seam too. Each delimiter
-# closes on its own kind, and a run cannot open on a space, as CommonMark requires.
-_BOLD_RUN_RE = re.compile(r"^[ \t]*(?:\*\*(?!\s)((?:[^*\n]|\*(?!\*))+)\*\*|__(?!\s)((?:[^_\n]|_(?!_))+)__)")
+# closes on its own kind, and a run cannot open on a space, as CommonMark requires. Only zero to
+# three leading spaces are allowed, because four spaces or a tab make the line indented code rather
+# than a label, the same 0-3 space rule `_CHART_REF_DEFINITION_RE` above applies.
+_BOLD_RUN_RE = re.compile(r"^[ ]{0,3}(?:\*\*(?!\s)((?:[^*\n]|\*(?!\*))+)\*\*|__(?!\s)((?:[^_\n]|_(?!_))+)__)")
 # What follows the bold run of a section label that carries its prose on the same line. A separator
 # is required, so a bold word that only opens a sentence (`**31** organizations reported …`) is
 # prose rather than a label.
