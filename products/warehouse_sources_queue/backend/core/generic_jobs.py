@@ -588,6 +588,41 @@ class JobsTable:
             {"owner": owner_token},
         )
 
+    @staticmethod
+    async def try_acquire_sentinel_slot(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        lane: str,
+        group_key: str,
+        owner_token: str,
+        ttl_seconds: float,
+    ) -> bool:
+        """Claim a fleet-wide single-flight slot; True means this pod runs the work.
+
+        A sentinel row in the job-lease table, CAS-acquired only when expired,
+        transplanted from ``BatchQueue.try_acquire_reconcile_sweep_slot``. There
+        is deliberately no release and no same-owner re-entrancy clause: the TTL
+        *is* the fleet-wide cadence, so at most one winner starts per TTL no
+        matter how many pods race for it, and a crashed winner's slot frees
+        itself at expiry.
+        """
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                INSERT INTO {JOB_LEASE_TABLE} (lane, group_key, owner_token, expires_at, acquired_at, updated_at)
+                VALUES (%(lane)s, %(group_key)s, %(owner)s, now() + make_interval(secs => %(ttl)s), now(), now())
+                ON CONFLICT (lane, group_key) DO UPDATE
+                    SET owner_token = excluded.owner_token,
+                        expires_at = excluded.expires_at,
+                        acquired_at = now(),
+                        updated_at = now()
+                    WHERE {JOB_LEASE_TABLE}.expires_at <= now()
+                RETURNING id
+                """,
+                {"lane": lane, "group_key": group_key, "owner": owner_token, "ttl": ttl_seconds},
+            )
+            return await cur.fetchone() is not None
+
     # -- sweeps and gauges -------------------------------------------------------
 
     @staticmethod
