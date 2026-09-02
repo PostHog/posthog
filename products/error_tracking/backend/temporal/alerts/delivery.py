@@ -282,12 +282,10 @@ def _claim_thread(thread: ErrorTrackingAlertThread, inputs: AlertDeliveryWorkflo
     claimed = (
         ErrorTrackingAlertThread.objects.for_team(thread.team_id, canonical=True)
         .filter(id=thread.id)
-        .filter(
-            Q(pending_notification_id__isnull=True)
-            # The holder's own retry (crash after the post, before the save) must proceed.
-            | Q(pending_notification_id=inputs.notification_id)
-            | Q(pending_claimed_at__lt=now - PENDING_CLAIM_TTL)
-        )
+        # A live claim is busy for everyone, this notification's own retry included:
+        # a timed-out attempt may still be mid-post when Temporal starts the retry.
+        # The retry of a holder that crashed waits for the claim to go stale instead.
+        .filter(Q(pending_notification_id__isnull=True) | Q(pending_claimed_at__lt=now - PENDING_CLAIM_TTL))
         .update(pending_notification_id=inputs.notification_id, pending_claimed_at=now)
     )
     if not claimed:
