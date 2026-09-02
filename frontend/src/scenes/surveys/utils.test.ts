@@ -35,6 +35,7 @@ import {
     getSurveyEndDateForQuery,
     getSurveyResponse,
     getSurveyStartDateForQuery,
+    clampPreviewPageIndex,
     isSimpleSurveyAudienceTargeting,
     sanitizeColor,
     sanitizeSurvey,
@@ -373,6 +374,18 @@ describe('survey utils', () => {
 
         it('falls back to a positional label when the question is empty or whitespace', () => {
             expect(getExpressionCommentForQuestion(makeQuestion('   '), 2)).toBe('Question 3')
+        })
+    })
+
+    describe('clampPreviewPageIndex', () => {
+        it.each([
+            ['keeps the intro page while the intro is enabled', -1, true, -1],
+            ['falls back to question 0 when the intro is disabled', -1, false, 0],
+            ['keeps question pages regardless of the toggle', 2, false, 2],
+            ['maps a null page index to question 0', null, true, 0],
+        ] as const)('%s', (_name, pageIndex, displayIntroScreen, expected) => {
+            const survey = { appearance: { displayIntroScreen } }
+            expect(clampPreviewPageIndex(pageIndex, survey)).toBe(expected)
         })
     })
 

@@ -61,6 +61,15 @@ export function getSurveyWithTranslatedContent<TSurvey extends Survey | NewSurve
     if (translation.thankYouMessageCloseButtonText) {
         appearanceUpdates.thankYouMessageCloseButtonText = translation.thankYouMessageCloseButtonText
     }
+    if (translation.introScreenHeader) {
+        appearanceUpdates.introScreenHeader = translation.introScreenHeader
+    }
+    if (translation.introScreenDescription) {
+        appearanceUpdates.introScreenDescription = translation.introScreenDescription
+    }
+    if (translation.introScreenButtonText) {
+        appearanceUpdates.introScreenButtonText = translation.introScreenButtonText
+    }
     if (translation.submitButtonText) {
         appearanceUpdates.submitButtonText = translation.submitButtonText
     }

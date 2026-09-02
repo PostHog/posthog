@@ -52990,10 +52990,25 @@
                 "buttonTextColor": {
                     "type": "string"
                 },
+                "displayIntroScreen": {
+                    "type": "boolean"
+                },
                 "inputBackground": {
                     "type": "string"
                 },
                 "inputTextColor": {
+                    "type": "string"
+                },
+                "introScreenButtonText": {
+                    "type": "string"
+                },
+                "introScreenDescription": {
+                    "type": "string"
+                },
+                "introScreenDescriptionContentType": {
+                    "$ref": "#/definitions/SurveyQuestionDescriptionContentType"
+                },
+                "introScreenHeader": {
                     "type": "string"
                 },
                 "maxWidth": {

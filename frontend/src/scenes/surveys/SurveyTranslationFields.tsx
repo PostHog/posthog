@@ -132,6 +132,38 @@ export function SurveyTranslationFields({ activeLanguage }: { activeLanguage: st
 
     return (
         <div className="space-y-6">
+            {appearance.displayIntroScreen ? (
+                <section className="space-y-3">
+                    <h4 className="m-0 text-xs font-semibold uppercase tracking-wide text-muted">Intro screen</h4>
+                    <GuidedTranslationInput
+                        label="Header"
+                        value={translations[activeLanguage]?.introScreenHeader || ''}
+                        source={appearance.introScreenHeader}
+                        aiGenerated={isGeneratedSurveyField('introScreenHeader')}
+                        onChange={(introScreenHeader) => updateSurveyTranslation({ introScreenHeader })}
+                    />
+                    {appearance.introScreenDescription ? (
+                        <GuidedTranslationInput
+                            label="Description"
+                            value={translations[activeLanguage]?.introScreenDescription || ''}
+                            source={appearance.introScreenDescription}
+                            aiGenerated={isGeneratedSurveyField('introScreenDescription')}
+                            onChange={(introScreenDescription) => updateSurveyTranslation({ introScreenDescription })}
+                            multiline
+                        />
+                    ) : null}
+                    {appearance.introScreenButtonText ? (
+                        <GuidedTranslationInput
+                            label="Button text"
+                            value={translations[activeLanguage]?.introScreenButtonText || ''}
+                            source={appearance.introScreenButtonText}
+                            aiGenerated={isGeneratedSurveyField('introScreenButtonText')}
+                            onChange={(introScreenButtonText) => updateSurveyTranslation({ introScreenButtonText })}
+                        />
+                    ) : null}
+                </section>
+            ) : null}
+
             {survey.questions.map((question, questionIndex) => {
                 const questionTranslation = question.translations?.[activeLanguage] ?? {}
                 const ratingQuestion = isRatingQuestion(question) ? question : null

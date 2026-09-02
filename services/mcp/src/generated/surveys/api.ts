@@ -802,6 +802,32 @@ export const SurveysCreateBody = () => zod.object({
                     .optional()
                     .describe('\* `html` - html\n\* `text` - text'),
                 thankYouMessageCloseButtonText: zod.string().optional(),
+                displayIntroScreen: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether to show an intro screen before the first question. Defaults to false. The intro screen is not a question: dismissing it records no response and does not count toward completion or partial-response metrics.'
+                    ),
+                introScreenHeader: zod.string().optional().describe('Headline shown on the intro screen.'),
+                introScreenDescription: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        'Description shown on the intro screen. Rendered as text or HTML depending on introScreenDescriptionContentType.'
+                    ),
+                introScreenDescriptionContentType: zod
+                    .enum(['html', 'text'])
+                    .describe('\* `html` - html\n\* `text` - text')
+                    .optional()
+                    .describe(
+                        "How to render the intro screen description: 'text' (plain text) or 'html'.\n\n\* `html` - html\n\* `text` - text"
+                    ),
+                introScreenButtonText: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        "Label for the button that dismisses the intro screen and shows the first question. Defaults to 'Get started'."
+                    ),
                 borderColor: zod.string().optional(),
                 placeholder: zod.string().optional(),
                 shuffleQuestions: zod.boolean().optional(),
@@ -1681,6 +1707,32 @@ export const SurveysPartialUpdateBody = () => zod.object({
                     .optional()
                     .describe('\* `html` - html\n\* `text` - text'),
                 thankYouMessageCloseButtonText: zod.string().optional(),
+                displayIntroScreen: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether to show an intro screen before the first question. Defaults to false. The intro screen is not a question: dismissing it records no response and does not count toward completion or partial-response metrics.'
+                    ),
+                introScreenHeader: zod.string().optional().describe('Headline shown on the intro screen.'),
+                introScreenDescription: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        'Description shown on the intro screen. Rendered as text or HTML depending on introScreenDescriptionContentType.'
+                    ),
+                introScreenDescriptionContentType: zod
+                    .enum(['html', 'text'])
+                    .describe('\* `html` - html\n\* `text` - text')
+                    .optional()
+                    .describe(
+                        "How to render the intro screen description: 'text' (plain text) or 'html'.\n\n\* `html` - html\n\* `text` - text"
+                    ),
+                introScreenButtonText: zod
+                    .string()
+                    .optional()
+                    .describe(
+                        "Label for the button that dismisses the intro screen and shows the first question. Defaults to 'Get started'."
+                    ),
                 borderColor: zod.string().optional(),
                 placeholder: zod.string().optional(),
                 shuffleQuestions: zod.boolean().optional(),

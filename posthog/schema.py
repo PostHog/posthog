@@ -7495,8 +7495,13 @@ class SurveyAppearanceSchema(BaseModel):
     borderColor: str | None = None
     buttonColor: str | None = None
     buttonTextColor: str | None = None
+    displayIntroScreen: bool | None = None
     inputBackground: str | None = None
     inputTextColor: str | None = None
+    introScreenButtonText: str | None = None
+    introScreenDescription: str | None = None
+    introScreenDescriptionContentType: SurveyQuestionDescriptionContentType | None = None
+    introScreenHeader: str | None = None
     maxWidth: str | None = None
     placeholder: str | None = None
     position: SurveyPosition | None = None

@@ -108,7 +108,8 @@ body.PostHogHostedSurvey {
     gap: 1.5rem;
 }
 
-.PostHogHostedSurvey .thank-you-message {
+.PostHogHostedSurvey .thank-you-message,
+.PostHogHostedSurvey .intro-screen {
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
@@ -117,7 +118,8 @@ body.PostHogHostedSurvey {
 }
 
 .PostHogHostedSurvey .survey-question,
-.PostHogHostedSurvey .thank-you-message-header {
+.PostHogHostedSurvey .thank-you-message-header,
+.PostHogHostedSurvey .intro-screen-header {
     margin: 0;
     font-size: clamp(1.5rem, 2.4vw, 1.875rem);
     font-weight: 600;
@@ -128,7 +130,8 @@ body.PostHogHostedSurvey {
 }
 
 .PostHogHostedSurvey .survey-question-description,
-.PostHogHostedSurvey .thank-you-message-body {
+.PostHogHostedSurvey .thank-you-message-body,
+.PostHogHostedSurvey .intro-screen-body {
     margin: 0;
     font-size: 0.975rem;
     line-height: 1.6;
@@ -136,7 +139,8 @@ body.PostHogHostedSurvey {
 }
 
 .PostHogHostedSurvey .survey-question-description strong,
-.PostHogHostedSurvey .thank-you-message strong {
+.PostHogHostedSurvey .thank-you-message strong,
+.PostHogHostedSurvey .intro-screen strong {
     color: var(--ph-survey-text-primary-color, #111);
 }
 
@@ -535,7 +539,8 @@ body.PostHogHostedSurvey {
 }
 
 .PostHogHostedSurvey #posthog-survey-container:has(.question-container) .loading,
-.PostHogHostedSurvey #posthog-survey-container:has(.thank-you-message) .loading {
+.PostHogHostedSurvey #posthog-survey-container:has(.thank-you-message) .loading,
+.PostHogHostedSurvey #posthog-survey-container:has(.intro-screen) .loading {
     display: none;
 }
 
@@ -624,7 +629,8 @@ body.PostHogHostedSurvey {
     }
 
     .PostHogHostedSurvey .survey-question,
-    .PostHogHostedSurvey .thank-you-message-header {
+    .PostHogHostedSurvey .thank-you-message-header,
+    .PostHogHostedSurvey .intro-screen-header {
         font-size: 1.5rem;
     }
 

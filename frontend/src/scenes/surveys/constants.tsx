@@ -58,6 +58,11 @@ export const SURVEY_RATING_SCALE = {
 
 export type SurveyRatingScaleValue = (typeof SURVEY_RATING_SCALE)[keyof typeof SURVEY_RATING_SCALE]
 
+// Page index sentinel for the intro screen in editor navigation and posthog-js previews.
+// The confirmation message uses questions.length as its trailing sentinel; the intro screen is
+// the leading page, so it sits at -1 and question indices stay untouched.
+export const INTRO_SCREEN_PAGE_INDEX = -1
+
 // Create SurveyMatchTypeLabels using allOperatorsMapping
 export const SurveyMatchTypeLabels = {
     [SurveyMatchType.Exact]: allOperatorsMapping[SurveyMatchType.Exact],

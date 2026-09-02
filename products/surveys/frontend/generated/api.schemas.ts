@@ -1229,6 +1229,19 @@ export interface SurveyAppearanceSchemaApi {
     thankYouMessageDescription?: string
     thankYouMessageDescriptionContentType?: DescriptionContentTypeEnumApi
     thankYouMessageCloseButtonText?: string
+    /** Whether to show an intro screen before the first question. Defaults to false. The intro screen is not a question: dismissing it records no response and does not count toward completion or partial-response metrics. */
+    displayIntroScreen?: boolean
+    /** Headline shown on the intro screen. */
+    introScreenHeader?: string
+    /** Description shown on the intro screen. Rendered as text or HTML depending on introScreenDescriptionContentType. */
+    introScreenDescription?: string
+    /** How to render the intro screen description: 'text' (plain text) or 'html'.
+     *
+     * * `html` - html
+     * * `text` - text */
+    introScreenDescriptionContentType?: DescriptionContentTypeEnumApi
+    /** Label for the button that dismisses the intro screen and shows the first question. Defaults to 'Get started'. */
+    introScreenButtonText?: string
     borderColor?: string
     placeholder?: string
     shuffleQuestions?: boolean
@@ -1948,6 +1961,12 @@ export interface GeneratedSurveyRootTranslationApi {
     thankYouMessageDescription?: string
     /** Translated thank-you close button text. */
     thankYouMessageCloseButtonText?: string
+    /** Translated intro screen header. */
+    introScreenHeader?: string
+    /** Translated intro screen description. */
+    introScreenDescription?: string
+    /** Translated intro screen button text. */
+    introScreenButtonText?: string
 }
 
 /**

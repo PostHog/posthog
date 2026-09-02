@@ -319,6 +319,73 @@ function QuestionOptions({ question, onUpdate }: QuestionOptionsProps): JSX.Elem
     return null
 }
 
+interface IntroScreenEditorProps {
+    appearance: SurveyAppearance
+    onUpdate: (updates: Partial<SurveyAppearance>) => void
+}
+
+function IntroScreenEditor({ appearance, onUpdate }: IntroScreenEditorProps): JSX.Element {
+    const isEnabled = appearance.displayIntroScreen ?? false
+
+    return (
+        <div className="border border-border rounded-lg bg-bg-light overflow-hidden">
+            {/* Always visible header with toggle */}
+            <div className="flex items-center justify-between gap-2 px-3 py-2.5">
+                <span className="text-sm font-medium">Intro screen</span>
+                <LemonSwitch checked={isEnabled} onChange={(checked) => onUpdate({ displayIntroScreen: checked })} />
+            </div>
+
+            {/* Animated expandable content */}
+            <AnimatePresence initial={false}>
+                {isEnabled && (
+                    <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2, ease: [0.25, 1, 0.5, 1] }}
+                    >
+                        <div className="px-3 pb-3 space-y-2 border-t border-border pt-2.5">
+                            <EditableField
+                                name="intro-header"
+                                value={appearance.introScreenHeader || ''}
+                                onSave={(text) => onUpdate({ introScreenHeader: text })}
+                                placeholder="Help us improve"
+                                className="font-medium text-sm"
+                                saveOnBlur
+                                clickToEdit
+                                compactIcon
+                                showEditIconOnHover
+                            />
+                            <EditableField
+                                name="intro-description"
+                                value={appearance.introScreenDescription || ''}
+                                onSave={(text) => onUpdate({ introScreenDescription: text })}
+                                placeholder="Add a description (optional)"
+                                className="text-secondary text-xs"
+                                saveOnBlur
+                                clickToEdit
+                                compactIcon
+                                showEditIconOnHover
+                            />
+                            <EditableField
+                                name="intro-button-text"
+                                value={appearance.introScreenButtonText || ''}
+                                onSave={(text) => onUpdate({ introScreenButtonText: text })}
+                                placeholder="Get started"
+                                className="text-secondary text-xs"
+                                saveOnBlur
+                                clickToEdit
+                                compactIcon
+                                showEditIconOnHover
+                            />
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    )
+}
+
 interface ConfirmationScreenEditorProps {
     appearance: SurveyAppearance
     onUpdate: (updates: Partial<SurveyAppearance>) => void
@@ -601,6 +668,12 @@ export function QuestionsStep({ editingLanguage, setEditingLanguage }: Questions
                     ) : null
                 }
             />
+            {/* Intro screen editor, mounted before the questions it precedes */}
+            <IntroScreenEditor
+                appearance={{ ...defaultSurveyAppearance, ...survey.appearance }}
+                onUpdate={(updates) => setSurveyValue('appearance', { ...survey.appearance, ...updates })}
+            />
+
             <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
                 <SortableContext items={sortedItemIds} strategy={verticalListSortingStrategy} disabled={!canReorder}>
                     <div className="space-y-3">

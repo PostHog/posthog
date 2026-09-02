@@ -20,9 +20,11 @@ import {
 interface HostedSurveySettingsPanelProps {
     /** Active page in the canvas — used to pick the question to render settings for. */
     activePageIndex: number
+    isIntro: boolean
     isConfirmation: boolean
     viewport: 'desktop' | 'mobile'
     onViewportChange: (viewport: 'desktop' | 'mobile') => void
+    onRemoveIntro: () => void
     onRemoveConfirmation: () => void
 }
 
@@ -41,9 +43,11 @@ const QUESTION_TYPE_OPTIONS = [
  */
 export function HostedSurveySettingsPanel({
     activePageIndex,
+    isIntro,
     isConfirmation,
     viewport,
     onViewportChange,
+    onRemoveIntro,
     onRemoveConfirmation,
 }: HostedSurveySettingsPanelProps): JSX.Element {
     const { survey } = useValues(surveyLogic)
@@ -99,16 +103,27 @@ export function HostedSurveySettingsPanel({
     return (
         <aside className="flex min-w-0 flex-col gap-4 rounded border bg-surface-primary p-4">
             <SettingsSection
-                title={isConfirmation ? 'End screen' : `Question ${activePageIndex + 1}`}
+                title={isIntro ? 'Intro screen' : isConfirmation ? 'End screen' : `Question ${activePageIndex + 1}`}
                 subtitle={
-                    isConfirmation
-                        ? 'Shown after the final answer.'
-                        : question
-                          ? SurveyQuestionLabel[question.type]
-                          : 'No question selected'
+                    isIntro
+                        ? 'Shown before the first question.'
+                        : isConfirmation
+                          ? 'Shown after the final answer.'
+                          : question
+                            ? SurveyQuestionLabel[question.type]
+                            : 'No question selected'
                 }
                 actions={
-                    isConfirmation ? (
+                    isIntro ? (
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            status="danger"
+                            icon={<IconTrash />}
+                            onClick={onRemoveIntro}
+                            tooltip="Remove the intro screen"
+                        />
+                    ) : isConfirmation ? (
                         <LemonButton
                             type="tertiary"
                             size="small"
@@ -121,7 +136,7 @@ export function HostedSurveySettingsPanel({
                 }
             />
 
-            {!isConfirmation && question ? (
+            {!isIntro && !isConfirmation && question ? (
                 <>
                     <LabelledControl label="Type">
                         <LemonSelect

@@ -118,6 +118,9 @@ export function useSurveyTranslationsForm({
                 thankYouMessageHeader: survey.appearance?.thankYouMessageHeader || '',
                 thankYouMessageDescription: survey.appearance?.thankYouMessageDescription || '',
                 thankYouMessageCloseButtonText: survey.appearance?.thankYouMessageCloseButtonText || '',
+                introScreenHeader: survey.appearance?.introScreenHeader || '',
+                introScreenDescription: survey.appearance?.introScreenDescription || '',
+                introScreenButtonText: survey.appearance?.introScreenButtonText || '',
             },
         })
         setEditingLanguage(language)

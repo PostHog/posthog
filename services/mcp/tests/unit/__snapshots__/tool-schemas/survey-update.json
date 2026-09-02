@@ -31,10 +31,31 @@
                         "disabledButtonOpacity": {
                             "type": "string"
                         },
+                        "displayIntroScreen": {
+                            "description": "Whether to show an intro screen before the first question. Defaults to false. The intro screen is not a question: dismissing it records no response and does not count toward completion or partial-response metrics.",
+                            "type": "boolean"
+                        },
                         "displayThankYouMessage": {
                             "type": "boolean"
                         },
                         "fontFamily": {
+                            "type": "string"
+                        },
+                        "introScreenButtonText": {
+                            "description": "Label for the button that dismisses the intro screen and shows the first question. Defaults to 'Get started'.",
+                            "type": "string"
+                        },
+                        "introScreenDescription": {
+                            "description": "Description shown on the intro screen. Rendered as text or HTML depending on introScreenDescriptionContentType.",
+                            "type": "string"
+                        },
+                        "introScreenDescriptionContentType": {
+                            "description": "How to render the intro screen description: 'text' (plain text) or 'html'.\n\n* `html` - html\n* `text` - text",
+                            "enum": ["html", "text"],
+                            "type": "string"
+                        },
+                        "introScreenHeader": {
+                            "description": "Headline shown on the intro screen.",
                             "type": "string"
                         },
                         "maxWidth": {

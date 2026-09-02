@@ -67,7 +67,12 @@ import {
 import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
 import { SurveyPublicContentNotice } from './components/SurveyPublicContentNotice'
 import { SurveyUrlAudienceEstimate } from './components/SurveyUrlAudienceEstimate'
-import { SURVEY_TYPE_LABEL_MAP, SurveyMatchTypeLabels, defaultSurveyFieldValues } from './constants'
+import {
+    INTRO_SCREEN_PAGE_INDEX,
+    SURVEY_TYPE_LABEL_MAP,
+    SurveyMatchTypeLabels,
+    defaultSurveyFieldValues,
+} from './constants'
 import { COMMON_LANGUAGES, getBaseLanguage, getSurveyLanguageName } from './language'
 import { SurveyAPIEditor } from './SurveyAPIEditor'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
@@ -244,6 +249,9 @@ function formatFieldName(field: string): string {
         thankYouMessageHeader: 'Thank you message header',
         thankYouMessageDescription: 'Thank you message description',
         thankYouMessageCloseButtonText: 'Thank you close button text',
+        introScreenHeader: 'Intro screen header',
+        introScreenDescription: 'Intro screen description',
+        introScreenButtonText: 'Intro screen button text',
         question: 'Question text',
         buttonText: 'Button text',
         lowerBoundLabel: 'Lower bound label',
@@ -336,7 +344,8 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         [survey, activeEditingLanguage]
     )
     const sortedItemIds = survey.questions.map((_, idx) => idx.toString())
-    const { thankYouMessageDescriptionContentType = null } = survey.appearance ?? {}
+    const { thankYouMessageDescriptionContentType = null, introScreenDescriptionContentType = null } =
+        survey.appearance ?? {}
     useMountedLogic(actionsModel)
 
     const [showFlowModal, setShowFlowModal] = useState(false)
@@ -414,6 +423,20 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
             count++
         }
         if (getFieldError('thankYouMessageCloseButtonText')) {
+            count++
+        }
+        return count
+    }
+
+    const getIntroScreenErrors = (): number => {
+        let count = 0
+        if (getFieldError('introScreenHeader')) {
+            count++
+        }
+        if (getFieldError('introScreenDescription')) {
+            count++
+        }
+        if (getFieldError('introScreenButtonText')) {
             count++
         }
         return count
@@ -789,6 +812,344 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                             setSelectedPageIndex(index)
                                                         }}
                                                         panels={[
+                                                            ...(survey.appearance?.displayIntroScreen
+                                                                ? [
+                                                                      {
+                                                                          key: INTRO_SCREEN_PAGE_INDEX,
+                                                                          dataAttr: 'survey-intro-screen-panel',
+                                                                          header: (
+                                                                              <div className="flex flex-row w-full items-center justify-between">
+                                                                                  <b>Intro screen</b>
+                                                                                  <div className="flex items-center gap-1">
+                                                                                      {(() => {
+                                                                                          const introErrors =
+                                                                                              getIntroScreenErrors()
+                                                                                          return introErrors > 0 ? (
+                                                                                              <Tooltip
+                                                                                                  title={`${introErrors} translation validation issue${
+                                                                                                      introErrors > 1
+                                                                                                          ? 's'
+                                                                                                          : ''
+                                                                                                  }`}
+                                                                                              >
+                                                                                                  <IconWarning className="text-warning" />
+                                                                                              </Tooltip>
+                                                                                          ) : null
+                                                                                      })()}
+                                                                                      <LemonButton
+                                                                                          icon={<IconTrash />}
+                                                                                          data-attr="delete-survey-intro-screen"
+                                                                                          size="xsmall"
+                                                                                          onClick={(e) => {
+                                                                                              e.stopPropagation()
+                                                                                              setSelectedPageIndex(0)
+                                                                                              setSurveyValue(
+                                                                                                  'appearance',
+                                                                                                  {
+                                                                                                      ...survey.appearance,
+                                                                                                      displayIntroScreen: false,
+                                                                                                  }
+                                                                                              )
+                                                                                          }}
+                                                                                          tooltipPlacement="top-end"
+                                                                                      />
+                                                                                  </div>
+                                                                              </div>
+                                                                          ),
+                                                                          content: (
+                                                                              <>
+                                                                                  <p className="text-secondary text-xs mb-2">
+                                                                                      The survey counts as shown while
+                                                                                      the intro is on screen, so
+                                                                                      response rates include people who
+                                                                                      never start the questions.
+                                                                                  </p>
+                                                                                  <LemonField.Pure
+                                                                                      label={getFieldLabel(
+                                                                                          'Intro header',
+                                                                                          'introScreenHeader'
+                                                                                      )}
+                                                                                  >
+                                                                                      {(() => {
+                                                                                          const fieldError =
+                                                                                              getFieldError(
+                                                                                                  'introScreenHeader'
+                                                                                              )
+                                                                                          return (
+                                                                                              <Tooltip
+                                                                                                  title={
+                                                                                                      fieldError?.error ||
+                                                                                                      ''
+                                                                                                  }
+                                                                                                  placement="top"
+                                                                                              >
+                                                                                                  <LemonInput
+                                                                                                      value={
+                                                                                                          activeEditingLanguage
+                                                                                                              ? (survey
+                                                                                                                    .translations?.[
+                                                                                                                    activeEditingLanguage
+                                                                                                                ]
+                                                                                                                    ?.introScreenHeader ??
+                                                                                                                '')
+                                                                                                              : (survey
+                                                                                                                    .appearance
+                                                                                                                    .introScreenHeader ??
+                                                                                                                '')
+                                                                                                      }
+                                                                                                      onChange={(
+                                                                                                          val
+                                                                                                      ) => {
+                                                                                                          if (
+                                                                                                              activeEditingLanguage
+                                                                                                          ) {
+                                                                                                              clearAiGeneratedTranslationField(
+                                                                                                                  `translations.${activeEditingLanguage}.introScreenHeader`
+                                                                                                              )
+                                                                                                              setSurveyValue(
+                                                                                                                  'translations',
+                                                                                                                  {
+                                                                                                                      ...surveyTranslations,
+                                                                                                                      [activeEditingLanguage]:
+                                                                                                                          {
+                                                                                                                              ...survey
+                                                                                                                                  .translations?.[
+                                                                                                                                  activeEditingLanguage
+                                                                                                                              ],
+                                                                                                                              introScreenHeader:
+                                                                                                                                  val,
+                                                                                                                          },
+                                                                                                                  }
+                                                                                                              )
+                                                                                                          } else {
+                                                                                                              setSurveyValue(
+                                                                                                                  'appearance',
+                                                                                                                  {
+                                                                                                                      ...survey.appearance,
+                                                                                                                      introScreenHeader:
+                                                                                                                          val,
+                                                                                                                  }
+                                                                                                              )
+                                                                                                          }
+                                                                                                      }}
+                                                                                                      placeholder={
+                                                                                                          activeEditingLanguage
+                                                                                                              ? survey
+                                                                                                                    .appearance
+                                                                                                                    .introScreenHeader
+                                                                                                              : 'ex: Help us improve'
+                                                                                                      }
+                                                                                                      className={getFieldErrorClass(
+                                                                                                          'introScreenHeader'
+                                                                                                      )}
+                                                                                                  />
+                                                                                              </Tooltip>
+                                                                                          )
+                                                                                      })()}
+                                                                                  </LemonField.Pure>
+                                                                                  <LemonField.Pure
+                                                                                      label={getFieldLabel(
+                                                                                          'Intro description',
+                                                                                          'introScreenDescription'
+                                                                                      )}
+                                                                                      className="mt-3"
+                                                                                  >
+                                                                                      {(() => {
+                                                                                          const fieldError =
+                                                                                              getFieldError(
+                                                                                                  'introScreenDescription'
+                                                                                              )
+                                                                                          return (
+                                                                                              <Tooltip
+                                                                                                  title={
+                                                                                                      fieldError?.error ||
+                                                                                                      ''
+                                                                                                  }
+                                                                                                  placement="top"
+                                                                                              >
+                                                                                                  <HTMLEditor
+                                                                                                      value={
+                                                                                                          activeEditingLanguage
+                                                                                                              ? (survey
+                                                                                                                    .translations?.[
+                                                                                                                    activeEditingLanguage
+                                                                                                                ]
+                                                                                                                    ?.introScreenDescription ??
+                                                                                                                '')
+                                                                                                              : (survey
+                                                                                                                    .appearance
+                                                                                                                    .introScreenDescription ??
+                                                                                                                '')
+                                                                                                      }
+                                                                                                      onChange={(
+                                                                                                          val
+                                                                                                      ) => {
+                                                                                                          if (
+                                                                                                              activeEditingLanguage
+                                                                                                          ) {
+                                                                                                              clearAiGeneratedTranslationField(
+                                                                                                                  `translations.${activeEditingLanguage}.introScreenDescription`
+                                                                                                              )
+                                                                                                              setSurveyValue(
+                                                                                                                  'translations',
+                                                                                                                  {
+                                                                                                                      ...surveyTranslations,
+                                                                                                                      [activeEditingLanguage]:
+                                                                                                                          {
+                                                                                                                              ...survey
+                                                                                                                                  .translations?.[
+                                                                                                                                  activeEditingLanguage
+                                                                                                                              ],
+                                                                                                                              introScreenDescription:
+                                                                                                                                  val,
+                                                                                                                          },
+                                                                                                                  }
+                                                                                                              )
+                                                                                                          } else {
+                                                                                                              setSurveyValue(
+                                                                                                                  'appearance',
+                                                                                                                  {
+                                                                                                                      ...survey.appearance,
+                                                                                                                      introScreenDescription:
+                                                                                                                          val,
+                                                                                                                      introScreenDescriptionContentType,
+                                                                                                                  }
+                                                                                                              )
+                                                                                                          }
+                                                                                                      }}
+                                                                                                      onTabChange={(
+                                                                                                          key
+                                                                                                      ) => {
+                                                                                                          if (
+                                                                                                              activeEditingLanguage
+                                                                                                          ) {
+                                                                                                              return
+                                                                                                          }
+                                                                                                          const updatedAppearance =
+                                                                                                              {
+                                                                                                                  ...survey.appearance,
+                                                                                                                  introScreenDescriptionContentType:
+                                                                                                                      key ===
+                                                                                                                      'html'
+                                                                                                                          ? 'html'
+                                                                                                                          : 'text',
+                                                                                                              }
+                                                                                                          setSurveyValue(
+                                                                                                              'appearance',
+                                                                                                              updatedAppearance
+                                                                                                          )
+                                                                                                      }}
+                                                                                                      activeTab={
+                                                                                                          introScreenDescriptionContentType ??
+                                                                                                          'text'
+                                                                                                      }
+                                                                                                      textPlaceholder={
+                                                                                                          activeEditingLanguage
+                                                                                                              ? survey
+                                                                                                                    .appearance
+                                                                                                                    .introScreenDescription
+                                                                                                              : 'ex: This takes less than a minute.'
+                                                                                                      }
+                                                                                                      disableTabSwitching={
+                                                                                                          !!activeEditingLanguage
+                                                                                                      }
+                                                                                                      className={getFieldErrorClass(
+                                                                                                          'introScreenDescription'
+                                                                                                      )}
+                                                                                                  />
+                                                                                              </Tooltip>
+                                                                                          )
+                                                                                      })()}
+                                                                                  </LemonField.Pure>
+                                                                                  <LemonField.Pure
+                                                                                      className="mt-2"
+                                                                                      label={getFieldLabel(
+                                                                                          'Button text',
+                                                                                          'introScreenButtonText'
+                                                                                      )}
+                                                                                  >
+                                                                                      {(() => {
+                                                                                          const fieldError =
+                                                                                              getFieldError(
+                                                                                                  'introScreenButtonText'
+                                                                                              )
+                                                                                          return (
+                                                                                              <Tooltip
+                                                                                                  title={
+                                                                                                      fieldError?.error ||
+                                                                                                      ''
+                                                                                                  }
+                                                                                                  placement="top"
+                                                                                              >
+                                                                                                  <LemonInput
+                                                                                                      value={
+                                                                                                          activeEditingLanguage
+                                                                                                              ? (survey
+                                                                                                                    .translations?.[
+                                                                                                                    activeEditingLanguage
+                                                                                                                ]
+                                                                                                                    ?.introScreenButtonText ??
+                                                                                                                '')
+                                                                                                              : (survey
+                                                                                                                    .appearance
+                                                                                                                    .introScreenButtonText ??
+                                                                                                                '')
+                                                                                                      }
+                                                                                                      onChange={(
+                                                                                                          val
+                                                                                                      ) => {
+                                                                                                          if (
+                                                                                                              activeEditingLanguage
+                                                                                                          ) {
+                                                                                                              clearAiGeneratedTranslationField(
+                                                                                                                  `translations.${activeEditingLanguage}.introScreenButtonText`
+                                                                                                              )
+                                                                                                              setSurveyValue(
+                                                                                                                  'translations',
+                                                                                                                  {
+                                                                                                                      ...surveyTranslations,
+                                                                                                                      [activeEditingLanguage]:
+                                                                                                                          {
+                                                                                                                              ...survey
+                                                                                                                                  .translations?.[
+                                                                                                                                  activeEditingLanguage
+                                                                                                                              ],
+                                                                                                                              introScreenButtonText:
+                                                                                                                                  val,
+                                                                                                                          },
+                                                                                                                  }
+                                                                                                              )
+                                                                                                          } else {
+                                                                                                              setSurveyValue(
+                                                                                                                  'appearance',
+                                                                                                                  {
+                                                                                                                      ...survey.appearance,
+                                                                                                                      introScreenButtonText:
+                                                                                                                          val,
+                                                                                                                  }
+                                                                                                              )
+                                                                                                          }
+                                                                                                      }}
+                                                                                                      placeholder={
+                                                                                                          activeEditingLanguage
+                                                                                                              ? survey
+                                                                                                                    .appearance
+                                                                                                                    .introScreenButtonText
+                                                                                                              : 'example: Get started'
+                                                                                                      }
+                                                                                                      className={getFieldErrorClass(
+                                                                                                          'introScreenButtonText'
+                                                                                                      )}
+                                                                                                  />
+                                                                                              </Tooltip>
+                                                                                          )
+                                                                                      })()}
+                                                                                  </LemonField.Pure>
+                                                                              </>
+                                                                          ),
+                                                                      },
+                                                                  ]
+                                                                : []),
                                                             ...survey.questions.map(
                                                                 (
                                                                     question:
@@ -1290,6 +1651,23 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                         </LemonButton>
                                                     )}
                                                 </div>
+                                                {!survey.appearance?.displayIntroScreen && (
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        className="w-max mt-2"
+                                                        icon={<IconPlus />}
+                                                        data-attr="add-intro-screen"
+                                                        onClick={() => {
+                                                            setSurveyValue('appearance', {
+                                                                ...survey.appearance,
+                                                                displayIntroScreen: true,
+                                                            })
+                                                            setSelectedPageIndex(INTRO_SCREEN_PAGE_INDEX)
+                                                        }}
+                                                    >
+                                                        Add intro screen
+                                                    </LemonButton>
+                                                )}
                                                 {!survey.appearance?.displayThankYouMessage && (
                                                     <LemonButton
                                                         type="secondary"

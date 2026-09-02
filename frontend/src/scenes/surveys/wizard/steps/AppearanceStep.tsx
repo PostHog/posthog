@@ -21,6 +21,7 @@ import {
 } from '~/types'
 
 import {
+    INTRO_SCREEN_PAGE_INDEX,
     NewSurvey,
     SurveyTheme,
     WEB_SAFE_FONTS,
@@ -73,6 +74,7 @@ export function AppearanceStep(): JSX.Element {
     } as NewSurvey
 
     const totalPreviewPages = survey.questions.length + (appearance.displayThankYouMessage ? 1 : 0)
+    const minPreviewIndex = appearance.displayIntroScreen ? INTRO_SCREEN_PAGE_INDEX : 0
 
     return (
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
@@ -272,6 +274,12 @@ export function AppearanceStep(): JSX.Element {
                             survey={previewSurvey}
                             previewPageIndex={previewPageIndex}
                             onPreviewSubmit={(response) => {
+                                // The intro screen is not a question, so getNextSurveyStep cannot
+                                // resolve it: its button always advances to question 0.
+                                if (previewPageIndex === INTRO_SCREEN_PAGE_INDEX) {
+                                    setPreviewPageIndex(0)
+                                    return
+                                }
                                 const next = getNextSurveyStep(previewSurvey, previewPageIndex, response)
                                 if (next === SurveyQuestionBranchingType.End && !appearance.displayThankYouMessage) {
                                     return
@@ -284,19 +292,21 @@ export function AppearanceStep(): JSX.Element {
                     </div>
 
                     {/* Preview navigation */}
-                    {totalPreviewPages > 1 && (
+                    {(totalPreviewPages > 1 || appearance.displayIntroScreen) && (
                         <div className="flex items-center justify-center gap-2">
                             <LemonButton
                                 type="secondary"
                                 size="small"
                                 icon={<IconChevronLeft />}
-                                onClick={() => setPreviewPageIndex(Math.max(0, previewPageIndex - 1))}
-                                disabledReason={previewPageIndex === 0 ? 'First question' : undefined}
+                                onClick={() => setPreviewPageIndex(Math.max(minPreviewIndex, previewPageIndex - 1))}
+                                disabledReason={previewPageIndex <= minPreviewIndex ? 'First screen' : undefined}
                             />
                             <span className="text-muted text-sm min-w-[80px] text-center">
-                                {previewPageIndex < survey.questions.length
-                                    ? `${previewPageIndex + 1} of ${survey.questions.length}`
-                                    : 'Thank you'}
+                                {previewPageIndex === INTRO_SCREEN_PAGE_INDEX
+                                    ? 'Intro'
+                                    : previewPageIndex < survey.questions.length
+                                      ? `${previewPageIndex + 1} of ${survey.questions.length}`
+                                      : 'Thank you'}
                             </span>
                             <LemonButton
                                 type="secondary"

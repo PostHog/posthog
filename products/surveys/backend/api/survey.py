@@ -128,6 +128,9 @@ SURVEY_API_TRANSLATION_FIELDS = frozenset(
         "thankYouMessageHeader",
         "thankYouMessageDescription",
         "thankYouMessageCloseButtonText",
+        "introScreenHeader",
+        "introScreenDescription",
+        "introScreenButtonText",
     ]
 )
 FIELDS_NOT_APPLICABLE_TO_EXTERNAL_SURVEYS = [
@@ -139,6 +142,9 @@ SURVEY_TRANSLATION_DRAFT_APPEARANCE_FIELDS = (
     "thankYouMessageHeader",
     "thankYouMessageDescription",
     "thankYouMessageCloseButtonText",
+    "introScreenHeader",
+    "introScreenDescription",
+    "introScreenButtonText",
 )
 SURVEY_TRANSLATION_DRAFT_QUESTION_FIELDS = (
     "id",
@@ -203,6 +209,15 @@ class GeneratedSurveyRootTranslationSerializer(serializers.Serializer):
     )
     thankYouMessageCloseButtonText = serializers.CharField(
         required=False, allow_blank=True, help_text="Translated thank-you close button text."
+    )
+    introScreenHeader = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated intro screen header."
+    )
+    introScreenDescription = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated intro screen description."
+    )
+    introScreenButtonText = serializers.CharField(
+        required=False, allow_blank=True, help_text="Translated intro screen button text."
     )
 
 
@@ -553,6 +568,31 @@ class SurveyAppearanceSchemaSerializer(serializers.Serializer):
         required=False,
     )
     thankYouMessageCloseButtonText = serializers.CharField(required=False)
+    displayIntroScreen = serializers.BooleanField(
+        required=False,
+        help_text="Whether to show an intro screen before the first question. Defaults to false. "
+        "The intro screen is not a question: dismissing it records no response and does not count "
+        "toward completion or partial-response metrics.",
+    )
+    introScreenHeader = serializers.CharField(
+        required=False,
+        help_text="Headline shown on the intro screen.",
+    )
+    introScreenDescription = serializers.CharField(
+        required=False,
+        help_text="Description shown on the intro screen. Rendered as text or HTML depending on "
+        "introScreenDescriptionContentType.",
+    )
+    introScreenDescriptionContentType = serializers.ChoiceField(
+        choices=["html", "text"],
+        required=False,
+        help_text="How to render the intro screen description: 'text' (plain text) or 'html'.",
+    )
+    introScreenButtonText = serializers.CharField(
+        required=False,
+        help_text="Label for the button that dismisses the intro screen and shows the first question. "
+        "Defaults to 'Get started'.",
+    )
     borderColor = serializers.CharField(required=False)
     placeholder = serializers.CharField(required=False)
     shuffleQuestions = serializers.BooleanField(required=False)
@@ -1011,6 +1051,22 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if thank_you_description_content_type and thank_you_description_content_type not in ["text", "html"]:
             raise serializers.ValidationError("thankYouMessageDescriptionContentType must be one of ['text', 'html']")
 
+        intro_screen_header = value.get("introScreenHeader")
+        if intro_screen_header and nh3.is_html(intro_screen_header):
+            value["introScreenHeader"] = nh3_clean_with_allow_list(intro_screen_header)
+
+        intro_screen_description = value.get("introScreenDescription")
+        if intro_screen_description and nh3.is_html(intro_screen_description):
+            value["introScreenDescription"] = nh3_clean_with_allow_list(intro_screen_description)
+
+        intro_screen_button_text = value.get("introScreenButtonText")
+        if intro_screen_button_text and nh3.is_html(intro_screen_button_text):
+            value["introScreenButtonText"] = nh3_clean_with_allow_list(intro_screen_button_text)
+
+        intro_screen_description_content_type = value.get("introScreenDescriptionContentType")
+        if intro_screen_description_content_type and intro_screen_description_content_type not in ["text", "html"]:
+            raise serializers.ValidationError("introScreenDescriptionContentType must be one of ['text', 'html']")
+
         survey_popup_delay_seconds = value.get("surveyPopupDelaySeconds")
         if survey_popup_delay_seconds and survey_popup_delay_seconds < 0:
             raise serializers.ValidationError("Survey popup delay seconds must be a positive integer")
@@ -1141,6 +1197,9 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 "thankYouMessageHeader",
                 "thankYouMessageDescription",
                 "thankYouMessageCloseButtonText",
+                "introScreenHeader",
+                "introScreenDescription",
+                "introScreenButtonText",
             ]:
                 if field in translation_data:
                     if not isinstance(translation_data[field], str):
@@ -2122,6 +2181,7 @@ class SurveyFilterSet(FilterSet):
 
 @extend_schema_view(
     create=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
+    update=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
     partial_update=extend_schema(request=SurveySerializerCreateUpdateOnlySchema),
     list=extend_schema(
         parameters=[
@@ -2142,10 +2202,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
     filterset_class = SurveyFilterSet
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
-        if self.request.method == "POST" or self.request.method == "PATCH":
+        if self.request.method in {"POST", "PUT", "PATCH"}:
             return SurveySerializerCreateUpdateOnly
-        else:
-            return SurveySerializer
+        return SurveySerializer
 
     def safely_get_queryset(self, queryset):
         queryset = queryset.exclude(product_tour__isnull=False)
@@ -3375,7 +3434,7 @@ def get_survey_api_translations(
             continue
 
         safe_translation = {
-            field: value
+            field: sanitize_html_for_sdk(value)
             for field, value in translation.items()
             if field in SURVEY_API_TRANSLATION_FIELDS and isinstance(value, str)
         }
@@ -3383,6 +3442,76 @@ def get_survey_api_translations(
             safe_translations[normalized] = safe_translation
 
     return safe_translations or None
+
+
+# Appearance text fields SDK renderers can output as HTML. They are sanitized on write, but
+# appearance JSON stored before a field's write-path validation existed (unknown keys used to
+# pass through unchanged) was never cleaned, so SDK payloads re-sanitize on the way out.
+SDK_RENDERED_APPEARANCE_TEXT_FIELDS = (
+    "thankYouMessageHeader",
+    "thankYouMessageDescription",
+    "thankYouMessageCloseButtonText",
+    "introScreenHeader",
+    "introScreenDescription",
+    "introScreenButtonText",
+)
+SDK_RENDERED_QUESTION_TEXT_FIELDS = (
+    "question",
+    "description",
+    "buttonText",
+    "lowerBoundLabel",
+    "upperBoundLabel",
+)
+
+
+def sanitize_html_for_sdk(value: Any) -> Any:
+    if isinstance(value, str) and value and nh3.is_html(value):
+        return nh3_clean_with_allow_list(value)
+    return value
+
+
+def is_safe_link_for_sdk(value: Any) -> bool:
+    if value is None or value == "":
+        return True
+    if not isinstance(value, str):
+        return False
+    parsed_url = urlparse(value)
+    if parsed_url.scheme == "https":
+        return bool(parsed_url.netloc)
+    if parsed_url.scheme == "mailto":
+        return re.match(EMAIL_REGEX, value) is not None
+    return False
+
+
+def sanitize_question_content_for_sdk(question: dict[str, Any]) -> dict[str, Any]:
+    sanitized = dict(question)
+    for field in SDK_RENDERED_QUESTION_TEXT_FIELDS:
+        if field in sanitized:
+            sanitized[field] = sanitize_html_for_sdk(sanitized[field])
+
+    choices = sanitized.get("choices")
+    if isinstance(choices, list):
+        sanitized["choices"] = [sanitize_html_for_sdk(choice) for choice in choices]
+
+    if "link" in sanitized and not is_safe_link_for_sdk(sanitized["link"]):
+        sanitized.pop("link")
+    return sanitized
+
+
+def sanitize_appearance_for_sdk(appearance: Any) -> Any:
+    """Return appearance with SDK-rendered text fields HTML-sanitized, copying only when needed."""
+    if not isinstance(appearance, dict):
+        return appearance
+    sanitized = appearance
+    for field in SDK_RENDERED_APPEARANCE_TEXT_FIELDS:
+        text = appearance.get(field)
+        if isinstance(text, str):
+            cleaned = sanitize_html_for_sdk(text)
+            if cleaned != text:
+                if sanitized is appearance:
+                    sanitized = dict(appearance)
+                sanitized[field] = cleaned
+    return sanitized
 
 
 class SurveyAPISerializer(serializers.ModelSerializer):
@@ -3451,13 +3580,16 @@ class SurveyAPISerializer(serializers.ModelSerializer):
             if not isinstance(question, dict):
                 cleaned.append(question)
                 continue
-            next_question = dict(question)
+            next_question = sanitize_question_content_for_sdk(question)
             next_question.pop("isNpsQuestion", None)
             inline_translations = question.get("translations")
             if isinstance(inline_translations, dict):
                 filtered = _strip_invalid_translation_keys(inline_translations, normalized_base)
                 if filtered:
-                    next_question["translations"] = filtered
+                    next_question["translations"] = {
+                        language: sanitize_question_content_for_sdk(translation)
+                        for language, translation in filtered.items()
+                    }
                 else:
                     next_question.pop("translations", None)
             cleaned.append(next_question)
@@ -3465,6 +3597,8 @@ class SurveyAPISerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: Survey) -> dict[str, Any]:
         data = super().to_representation(instance)
+        data["name"] = sanitize_html_for_sdk(data.get("name"))
+        data["appearance"] = sanitize_appearance_for_sdk(data.get("appearance"))
         if data.get("translations") is None:
             data.pop("translations", None)
         return data

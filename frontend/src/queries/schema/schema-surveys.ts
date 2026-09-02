@@ -96,6 +96,11 @@ export interface SurveyAppearanceSchema {
     thankYouMessageDescription?: string
     thankYouMessageDescriptionContentType?: SurveyQuestionDescriptionContentType
     thankYouMessageCloseButtonText?: string
+    displayIntroScreen?: boolean
+    introScreenHeader?: string
+    introScreenDescription?: string
+    introScreenDescriptionContentType?: SurveyQuestionDescriptionContentType
+    introScreenButtonText?: string
     shuffleQuestions?: boolean
     surveyPopupDelaySeconds?: number
     allowGoBack?: boolean

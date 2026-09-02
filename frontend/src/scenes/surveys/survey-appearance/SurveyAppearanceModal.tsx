@@ -8,7 +8,7 @@ import { LemonButton, LemonDivider, LemonModal, LemonSelect, LemonSwitch, LemonT
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { defaultSurveyAppearance } from 'scenes/surveys/constants'
+import { defaultSurveyAppearance, INTRO_SCREEN_PAGE_INDEX } from 'scenes/surveys/constants'
 import {
     SurveyColorsAppearance,
     SurveyContainerAppearance,
@@ -19,6 +19,7 @@ import { AvailableFeature, SurveyQuestionBranchingType, SurveyType } from '~/typ
 
 import { SurveyAppearancePreview } from '../SurveyAppearancePreview'
 import { surveysLogic } from '../surveysLogic'
+import { clampPreviewPageIndex } from '../utils'
 
 type PreviewScreenSize = 'mobile' | 'tablet' | 'desktop'
 
@@ -37,6 +38,8 @@ function SurveyPreview({
     const [surveyPreviewBackground, setSurveyPreviewBackground] = useState<'light' | 'dark'>('light')
 
     const currentDimensions = screenDimensions[activeScreenSize]
+    // A page index left on the intro after the toggle turns off falls back to question 0.
+    const effectivePageIndex = clampPreviewPageIndex(selectedPageIndex, survey)
     return (
         <div className="flex flex-[1.5] flex-col items-center justify-start rounded overflow-hidden gap-2">
             <LemonTabs
@@ -59,9 +62,17 @@ function SurveyPreview({
                         <LemonSelect
                             onChange={(pageIndex) => setSelectedPageIndex(pageIndex)}
                             className="whitespace-nowrap max-w-fit"
-                            value={selectedPageIndex || 0}
+                            value={effectivePageIndex}
                             id="survey-preview-question-select"
                             options={[
+                                ...(survey.appearance?.displayIntroScreen
+                                    ? [
+                                          {
+                                              label: 'Intro screen',
+                                              value: INTRO_SCREEN_PAGE_INDEX,
+                                          },
+                                      ]
+                                    : []),
                                 ...survey.questions.map((question, index) => ({
                                     label: `${index + 1}. ${question.question || 'Untitled Question'}`,
                                     value: index,
@@ -100,12 +111,18 @@ function SurveyPreview({
             >
                 <SurveyAppearancePreview
                     survey={survey}
-                    previewPageIndex={selectedPageIndex || 0}
+                    previewPageIndex={effectivePageIndex}
                     positionStyles={{
                         position: 'absolute',
                     }}
                     onPreviewSubmit={(response) => {
-                        const nextStep = getNextSurveyStep(survey, selectedPageIndex, response)
+                        // The intro screen is not a question, so getNextSurveyStep cannot resolve
+                        // it: its button always advances to question 0.
+                        if (effectivePageIndex === INTRO_SCREEN_PAGE_INDEX) {
+                            setSelectedPageIndex?.(0)
+                            return
+                        }
+                        const nextStep = getNextSurveyStep(survey, effectivePageIndex, response)
                         if (
                             nextStep === SurveyQuestionBranchingType.End &&
                             !survey.appearance?.displayThankYouMessage

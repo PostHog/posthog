@@ -55,7 +55,7 @@
         "mobile-replay:web:schema:build:json": "ts-json-schema-generator -f ./tsconfig.json --path 'node_modules/posthog-js/dist/rrweb-types.d.ts' --type 'eventWithTime' --expose all --no-top-ref --no-type-check --out ./src/scenes/session-recordings/mobile-replay/schema/web/rr-web-schema.json && oxfmt ./src/scenes/session-recordings/mobile-replay/schema/web/rr-web-schema.json",
         "mobile-replay:mobile:schema:build:json": "ts-json-schema-generator -f ./tsconfig.json --path './src/scenes/session-recordings/mobile-replay/mobile.types.ts' --type 'mobileEventWithTime' --expose all --no-top-ref --no-type-check --out ./src/scenes/session-recordings/mobile-replay/schema/mobile/rr-mobile-schema.json && oxfmt ./src/scenes/session-recordings/mobile-replay/schema/mobile/rr-mobile-schema.json",
         "mobile-replay:schema:build:json": "pnpm mobile-replay:web:schema:build:json && pnpm mobile-replay:mobile:schema:build:json",
-        "build:survey-sdk-docs": "ts-node -r tsconfig-paths/register --transpile-only ./bin/docs/build-survey-sdk-docs.ts"
+        "build:survey-sdk-docs": "TS_NODE_BASEURL=.. ts-node -r tsconfig-paths/register --transpile-only -O '{\"rootDir\":\".\"}' ./bin/docs/build-survey-sdk-docs.ts"
     },
     "dependencies": {
         "@base-ui/react": "catalog:",
