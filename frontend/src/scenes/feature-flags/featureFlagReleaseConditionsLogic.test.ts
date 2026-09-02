@@ -1893,6 +1893,17 @@ describe('the feature flag release conditions logic', () => {
             expect(withResolvedGroupKeyNames([teamFilter], groupTypes, groupKeyNameCache)[0]).toBe(teamFilter)
         })
 
+        it('drops a stale name when a value no longer resolves to a group', () => {
+            // A saved filter can carry names from an earlier resolve. If the group later loses its
+            // name or is removed, the value must fall back to its raw id, not keep the old name.
+            const stale = {
+                ...personFilter('organization_id', 'org-nameless'),
+                group_key_names: { 'org-nameless': 'Old Name AB' },
+            } as AnyPropertyFilter
+            const [result] = withResolvedGroupKeyNames([stale], groupTypes, groupKeyNameCache)
+            expect('group_key_names' in result).toBe(false)
+        })
+
         it('re-resolves over names that round-tripped through onChange', () => {
             // The editable PropertyFilters writes the injected names back into state, so a renamed
             // group must be overridden rather than kept.

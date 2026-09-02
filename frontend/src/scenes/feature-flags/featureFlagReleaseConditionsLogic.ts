@@ -135,7 +135,13 @@ export function withResolvedGroupKeyNames(
             }
         }
         if (Object.keys(groupKeyNames).length === 0) {
-            return property
+            // Nothing resolves now. Drop a `group_key_names` map the filter kept from an earlier
+            // save so a value that no longer names a group falls back to its raw id.
+            if (!('group_key_names' in property)) {
+                return property
+            }
+            const { group_key_names: _stale, ...rest } = property
+            return rest as AnyPropertyFilter
         }
         // The cast narrows the spread of the property union back to AnyPropertyFilter.
         return { ...property, group_key_names: groupKeyNames } as AnyPropertyFilter
