@@ -713,7 +713,12 @@ Pick the single type that best fits the goal, then draft the scanner:
   - filter_pages: the pages list is what the product actually calls things, so map the goal's words
     onto their closest real pages, including synonyms: someone saying "money" or "payments" means the
     billing pages. Pick up to 5, each copied EXACTLY from the briefing's pages list. They OR together:
-    a session that visited ANY of them is scanned, so cover the flow rather than picking one page.
+    a session that visited ANY of them is scanned. Pick the MOST SPECIFIC page that matches the goal.
+    Do NOT also add a parent of a page you already picked: "/experiments/new" is the creation page, so
+    adding "/experiments" as well widens the scan to everyone browsing the experiments section, which
+    a goal about creation does not want. Use several pages only when the goal genuinely spans distinct
+    pages (a checkout moving through cart, shipping, and payment), never to add a broader page around a
+    specific one.
   - filter_events: when a specific action is the sharpest signal for the goal, pick the one or two
     custom events that mark it, each copied EXACTLY from the briefing's events list. An event is often
     more precise than a page for "did the user DO X" (e.g. an event fired when a flow starts).

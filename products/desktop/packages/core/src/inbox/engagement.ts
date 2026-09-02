@@ -107,6 +107,10 @@ interface DesktopInboxViewedFilterState extends InboxViewedFilterStateBase {
   searchQuery: string;
   /** Canonical scope value. Teammate UUIDs must not enter analytics. */
   scope: InboxReviewerScope;
+  /** Selected report-state filter keys shown above the list. */
+  reportStateFilter: readonly string[];
+  /** Default report-state selection, used to detect a non-default filter. */
+  defaultReportStateFilter: readonly string[];
 }
 
 interface MobileInboxViewedFilterState extends InboxViewedFilterStateBase {
@@ -137,13 +141,24 @@ export type BuildInboxViewedInput =
       tabCounts?: never;
     });
 
+/** Whether a filter selection differs from its default set (order-insensitive). */
+function differsFromDefault(
+  selected: readonly string[],
+  defaults: readonly string[],
+): boolean {
+  return (
+    selected.length !== defaults.length ||
+    selected.some((value) => !defaults.includes(value))
+  );
+}
+
 /**
  * Build the property payload for the `Inbox viewed` analytics event from the
  * v2 inbox state. Pure so it can be unit-tested and reused across hosts.
  *
- * v2 dropped the per-status and per-reviewer filter UI, so `status_filter_count`
- * is always 0 and `has_active_filters` is derived from the surviving source /
- * priority / search filters plus a non-default reviewer scope.
+ * `status_filter_count` and `has_active_filters` reflect each surface's own
+ * status control: the mobile status filter or the desktop report-state filter,
+ * alongside the shared source / priority / search filters and a non-default scope.
  */
 export function buildInboxViewedProperties(
   input: BuildInboxViewedInput,
@@ -180,11 +195,12 @@ export function buildInboxViewedProperties(
   }
 
   const statusFiltered =
-    filters.surface === "mobile" &&
-    (filters.statusFilter.length !== filters.defaultStatusFilter.length ||
-      filters.statusFilter.some(
-        (status) => !filters.defaultStatusFilter.includes(status),
-      ));
+    filters.surface === "mobile"
+      ? differsFromDefault(filters.statusFilter, filters.defaultStatusFilter)
+      : differsFromDefault(
+          filters.reportStateFilter,
+          filters.defaultReportStateFilter,
+        );
   const hasActiveFilters =
     filters.sourceProductFilter.length > 0 ||
     filters.priorityFilter.length > 0 ||
@@ -201,7 +217,9 @@ export function buildInboxViewedProperties(
     has_active_filters: hasActiveFilters,
     source_product_filter: filters.sourceProductFilter,
     status_filter_count:
-      filters.surface === "mobile" ? filters.statusFilter.length : 0,
+      filters.surface === "mobile"
+        ? filters.statusFilter.length
+        : filters.reportStateFilter.length,
     is_empty: totalCount === 0,
     priority_p0_count: priorityCounts.P0,
     priority_p1_count: priorityCounts.P1,

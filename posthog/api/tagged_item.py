@@ -187,6 +187,12 @@ class TaggedItemSerializerMixin(serializers.Serializer):
 BULK_UPDATE_TAGS_MAX_IDS = 500
 
 
+class BulkUpdateTagsAction(models.TextChoices):
+    ADD = "add", "add"
+    REMOVE = "remove", "remove"
+    SET = "set", "set"
+
+
 class BulkUpdateTagsRequestSerializer(serializers.Serializer):
     ids = serializers.ListField(
         child=serializers.IntegerField(),
@@ -195,7 +201,7 @@ class BulkUpdateTagsRequestSerializer(serializers.Serializer):
         help_text="List of object IDs to update tags on.",
     )
     action = serializers.ChoiceField(
-        choices=["add", "remove", "set"],
+        choices=BulkUpdateTagsAction.choices,
         help_text="'add' merges with existing tags, 'remove' deletes specific tags, 'set' replaces all tags.",
     )
     tags = serializers.ListField(

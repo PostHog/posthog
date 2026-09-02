@@ -1,5 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
+import * as scientistPng from '@posthog/brand/hoggies/png/scientist'
 import { IconChevronRight, IconEllipsis } from '@posthog/icons'
 import {
     LemonBanner,
@@ -14,8 +15,8 @@ import {
     Spinner,
 } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
-import { urls } from 'scenes/urls'
 
 import { CheckEditorModal } from '../CheckEditorModal'
 import { CheckRunsTable } from '../CheckRunsTable'
@@ -25,7 +26,7 @@ import { DataQualityCheckEditorLogicProps, dataQualityCheckEditorLogic } from '.
 import type { DataQualityOverviewCheckApi } from '../generated/api.schemas'
 import { DataQualityGateToggle } from './DataQualityGateToggle'
 import {
-    BROWSE_ACTION_ID,
+    NEW_CHECK_ACTION_ID,
     OverviewStatusFilter,
     SubjectGroup,
     dataQualityOverviewLogic,
@@ -41,7 +42,7 @@ const STATUS_FILTERS: { value: OverviewStatusFilter; label: string }[] = [
     { value: 'never_run', label: 'Not run yet' },
 ]
 
-const NEW_CHECK_ACTION_ID = 'data-quality-overview-new-check'
+const HedgehogScientist = pngHoggie(scientistPng)
 
 function focusFirstAvailable(elementIds: string[]): void {
     // Runs after the removed row has left the DOM, so the first id that still resolves wins.
@@ -209,20 +210,17 @@ export function DataQualityOverview(): JSX.Element {
 
 function NoChecksYet({ onAddCheck }: { onAddCheck: () => void }): JSX.Element {
     return (
-        <div className="border rounded p-4 flex flex-col items-start gap-2">
-            <h4 className="mb-0">No checks yet</h4>
-            <p className="mb-0 text-secondary">Add a check here, or browse tables and views first.</p>
+        <div
+            data-attr="data-quality-overview-empty-state"
+            className="border rounded px-4 py-8 flex flex-col items-center text-center mx-auto"
+        >
+            <HedgehogScientist width="128" height="128" className="mb-4" />
+            <h2 className="text-xl leading-tight">No checks yet</h2>
+            <p className="mb-4 text-sm text-balance text-tertiary">
+                Create a check to spot issues in your data before they affect your analysis.
+            </p>
             <LemonButton type="primary" size="small" onClick={onAddCheck} data-attr="data-quality-overview-first-check">
                 Add your first check
-            </LemonButton>
-            <LemonButton
-                id={BROWSE_ACTION_ID}
-                type="secondary"
-                size="small"
-                to={urls.database()}
-                data-attr="data-quality-overview-browse"
-            >
-                Browse tables and views
             </LemonButton>
         </div>
     )

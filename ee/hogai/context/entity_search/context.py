@@ -440,7 +440,7 @@ class EntitySearchContext:
         return f"{max(percentages)}%" if percentages else None
 
     async def _search_accounts(self, query: str) -> tuple[list[dict[str, Any]], int]:
-        """Search accounts by name or external id."""
+        """Search accounts by name, external id, known email, or email domain."""
         return await database_sync_to_async(self._search_accounts_sync, thread_sensitive=False)(query)
 
     def _search_accounts_sync(self, query: str) -> tuple[list[dict[str, Any]], int]:

@@ -687,6 +687,8 @@ export type InboxReportCloseMethod =
 
 export type InboxReportActionType =
   | "dismiss"
+  | "resolve"
+  | "restore"
   | "snooze"
   | "delete"
   | "reingest"
@@ -713,6 +715,7 @@ export type InboxReportActionSurface =
   | "toolbar"
   | "keyboard"
   | "list_row"
+  | "context_menu"
   | "triage";
 
 export type InboxReportActionOutcome = "succeeded" | "failed";
@@ -856,6 +859,8 @@ export interface InboxReportActionProperties {
   signal_section?: "relevant_code" | "data_queried";
   why_field?: "priority" | "actionability";
   task_section?: "research" | "implementation";
+  suggested_reviewer_login?: string;
+  suggested_reviewer_uuid?: string;
   // True when the user submitted Discuss with a first question via the popover.
   has_question?: boolean;
   // True when the user submitted Create PR with extra feedback via the popover.

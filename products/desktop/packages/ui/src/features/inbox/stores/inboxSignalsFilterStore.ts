@@ -18,6 +18,17 @@ type SignalSortDirection = "asc" | "desc";
 /** Whether to show every report, only PR-backed ones, or only PR-less ones. */
 export type InboxPrFilter = "all" | "with_pr" | "without_pr";
 
+export type InboxReportStateFilter =
+  | "review_and_merge"
+  | "needs_decision"
+  | "resolved"
+  | "dismissed";
+
+export const DEFAULT_INBOX_REPORT_STATE_FILTER: InboxReportStateFilter[] = [
+  "review_and_merge",
+  "needs_decision",
+];
+
 interface InboxSignalsFilterState {
   sortField: SignalSortField;
   sortDirection: SignalSortDirection;
@@ -26,6 +37,7 @@ interface InboxSignalsFilterState {
   sourceProductFilter: SourceProduct[];
   /** Empty array means "all priorities" (no filter). */
   priorityFilter: SignalReportPriority[];
+  reportStateFilter: InboxReportStateFilter[];
   prFilter: InboxPrFilter;
 }
 
@@ -36,6 +48,8 @@ interface InboxSignalsFilterActions {
   setSourceProductFilter: (sources: SourceProduct[]) => void;
   togglePriority: (priority: SignalReportPriority) => void;
   setPriorityFilter: (priorities: SignalReportPriority[]) => void;
+  toggleReportState: (state: InboxReportStateFilter) => void;
+  setReportStateFilter: (states: InboxReportStateFilter[]) => void;
   setPrFilter: (prFilter: InboxPrFilter) => void;
   /** Clear the source filter back to "Any" (empty = all sources). */
   clearSourceProductFilter: () => void;
@@ -56,14 +70,28 @@ type InboxSignalsFilterStore = InboxSignalsFilterState &
  */
 export function hasActiveInboxFilters(
   state: InboxSignalsFilterState,
-  options?: { includePrFilter?: boolean; includeSourceFilter?: boolean },
+  options?: {
+    includePrFilter?: boolean;
+    includeSourceFilter?: boolean;
+    includeReportStateFilter?: boolean;
+    includeSearchFilter?: boolean;
+  },
 ): boolean {
   const includePrFilter = options?.includePrFilter ?? true;
   const includeSourceFilter = options?.includeSourceFilter ?? true;
+  const includeReportStateFilter = options?.includeReportStateFilter ?? false;
+  const includeSearchFilter = options?.includeSearchFilter ?? true;
+  const stateFilterChanged =
+    state.reportStateFilter.length !==
+      DEFAULT_INBOX_REPORT_STATE_FILTER.length ||
+    state.reportStateFilter.some(
+      (value) => !DEFAULT_INBOX_REPORT_STATE_FILTER.includes(value),
+    );
   return (
-    state.searchQuery.trim().length > 0 ||
+    (includeSearchFilter && state.searchQuery.trim().length > 0) ||
     (includeSourceFilter && state.sourceProductFilter.length > 0) ||
     state.priorityFilter.length > 0 ||
+    (includeReportStateFilter && stateFilterChanged) ||
     (includePrFilter && state.prFilter !== "all")
   );
 }
@@ -77,11 +105,12 @@ export function hasActiveInboxFilters(
 export const useInboxSignalsFilterStore = create<InboxSignalsFilterStore>()(
   persist(
     (set) => ({
-      sortField: "priority",
-      sortDirection: "asc",
+      sortField: "created_at",
+      sortDirection: "desc",
       searchQuery: "",
       sourceProductFilter: [],
       priorityFilter: [],
+      reportStateFilter: DEFAULT_INBOX_REPORT_STATE_FILTER,
       prFilter: "all",
       setSort: (sortField, sortDirection) => set({ sortField, sortDirection }),
       setSearchQuery: (searchQuery) => set({ searchQuery }),
@@ -107,6 +136,14 @@ export const useInboxSignalsFilterStore = create<InboxSignalsFilterStore>()(
         set({
           priorityFilter: Array.from(new Set(priorities)),
         }),
+      toggleReportState: (reportState) =>
+        set((state) => ({
+          reportStateFilter: state.reportStateFilter.includes(reportState)
+            ? state.reportStateFilter.filter((value) => value !== reportState)
+            : [...state.reportStateFilter, reportState],
+        })),
+      setReportStateFilter: (states) =>
+        set({ reportStateFilter: Array.from(new Set(states)) }),
       setPrFilter: (prFilter) => set({ prFilter }),
       clearSourceProductFilter: () => set({ sourceProductFilter: [] }),
       resetFilters: () =>
@@ -114,29 +151,35 @@ export const useInboxSignalsFilterStore = create<InboxSignalsFilterStore>()(
           searchQuery: "",
           sourceProductFilter: [],
           priorityFilter: [],
+          reportStateFilter: DEFAULT_INBOX_REPORT_STATE_FILTER,
           prFilter: "all",
         }),
     }),
     {
       name: "inbox-signals-filter-storage",
-      version: 2,
+      version: 3,
       migrate: (persisted, version) => {
-        if (version >= 2) return persisted;
         if (!persisted || typeof persisted !== "object") return persisted;
+        const next = persisted as Record<string, unknown>;
+        if (version >= 3) return next;
         const {
           statusFilter: _statusFilter,
           suggestedReviewerFilter: _suggestedReviewerFilter,
           hasInitializedSuggestedReviewerFilter:
             _hasInitializedSuggestedReviewerFilter,
           ...rest
-        } = persisted as Record<string, unknown>;
-        return rest;
+        } = next;
+        return {
+          ...rest,
+          reportStateFilter: DEFAULT_INBOX_REPORT_STATE_FILTER,
+        };
       },
       partialize: (state) => ({
         sortField: state.sortField,
         sortDirection: state.sortDirection,
         sourceProductFilter: state.sourceProductFilter,
         priorityFilter: state.priorityFilter,
+        reportStateFilter: state.reportStateFilter,
         prFilter: state.prFilter,
       }),
     },
