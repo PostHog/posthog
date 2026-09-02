@@ -403,30 +403,13 @@ class TestCohortUtils(BaseTest):
 
     def test_print_cohort_hogql_query_includes_settings(self):
         """Test that cohort queries include HogQL global settings"""
-        # Create a cohort with a HogQL query (simulating a funnel-to-cohort conversion)
+        # The settings come from the printer, so any actors-shaped cohort query reaches them.
         cohort = Cohort.objects.create(
             team=self.team,
-            name="Test Funnel Cohort",
+            name="Test Actors Cohort",
             query={
                 "kind": "ActorsQuery",
-                "source": {
-                    "kind": "FunnelsActorsQuery",
-                    "source": {
-                        "kind": "FunnelsQuery",
-                        "series": [
-                            {"kind": "EventsNode", "event": "$pageview"},
-                            {"kind": "EventsNode", "event": "$identify"},
-                        ],
-                        "interval": "day",
-                        "dateRange": {"date_from": "-30d"},
-                        "funnelsFilter": {
-                            "funnelVizType": "steps",
-                            "funnelWindowInterval": 1,
-                            "funnelWindowIntervalUnit": "day",
-                        },
-                    },
-                    "funnelStep": 2,
-                },
+                "source": {"kind": "HogQLQuery", "query": "SELECT id AS actor_id FROM persons"},
             },
         )
 
