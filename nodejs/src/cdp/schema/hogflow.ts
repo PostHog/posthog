@@ -312,6 +312,9 @@ export const HogFlowSchema = z.object({
         .nullable(),
     conversion: z
         .object({
+            // Preferred form, matching how delay steps express a duration: `7d`, `12h`, `90d`.
+            window: z.string().nullable().optional(),
+            // Deprecated: a bare integer whose unit lives only in the field name.
             window_minutes: z.number().nullable(),
             filters: z.any(),
             bytecode: z.array(z.union([z.string(), z.number()])),

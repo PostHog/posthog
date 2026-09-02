@@ -7,6 +7,7 @@ import { CyclotronJobInvocationHogFlow } from '../../types'
 import {
     DEFAULT_CONVERSION_WINDOW_MINUTES,
     MAX_CONVERSION_WINDOW_MINUTES,
+    MAX_LEGACY_WINDOW_MINUTES,
     buildConversionWatcher,
 } from './conversion-watcher'
 
@@ -77,8 +78,8 @@ describe('buildConversionWatcher', () => {
 
     it.each([
         ['no configured window', null, DEFAULT_CONVERSION_WINDOW_MINUTES],
-        ['a window longer than the cap', 60 * 24 * 400, MAX_CONVERSION_WINDOW_MINUTES],
-        ['a window inside the cap', 60, 60],
+        ['a legacy window longer than its cap', 604800, MAX_LEGACY_WINDOW_MINUTES],
+        ['a legacy window inside its cap', 60, 60],
     ])('expires after %s', (_name, windowMinutes, expectedMinutes) => {
         // Treating null as "forever" would leave rows the expiry sweep can never reach.
         const before = Date.now()
@@ -86,6 +87,22 @@ describe('buildConversionWatcher', () => {
 
         // Measured from `before`, so the window is at least the expected value and at most a
         // fraction of a minute more.
+        const minutes = (watcher!.expires_at.getTime() - before) / 60_000
+        expect(minutes).toBeGreaterThanOrEqual(expectedMinutes)
+        expect(minutes).toBeLessThan(expectedMinutes + 1)
+    })
+
+    it.each([
+        ['a duration string', { window: '7d' }, 7 * 24 * 60],
+        ['hours', { window: '12h' }, 12 * 60],
+        ['a duration string past the cap', { window: '400d' }, MAX_CONVERSION_WINDOW_MINUTES],
+        // The duration string is the trustworthy form, so it wins over a bare number that may hold
+        // any unit at all.
+        ['both forms set', { window: '7d', window_minutes: 604800 }, 7 * 24 * 60],
+    ])('expires after %s', (_name, conversionWindow, expectedMinutes) => {
+        const before = Date.now()
+        const watcher = buildConversionWatcher(invocationFor({ ...propertyGoal, ...conversionWindow }))
+
         const minutes = (watcher!.expires_at.getTime() - before) / 60_000
         expect(minutes).toBeGreaterThanOrEqual(expectedMinutes)
         expect(minutes).toBeLessThan(expectedMinutes + 1)
@@ -99,10 +116,10 @@ describe('buildConversionWatcher', () => {
 
         const before = await clamped()
 
-        buildConversionWatcher(invocationFor({ ...propertyGoal, window_minutes: MAX_CONVERSION_WINDOW_MINUTES + 1 }))
+        buildConversionWatcher(invocationFor({ ...propertyGoal, window_minutes: MAX_LEGACY_WINDOW_MINUTES + 1 }))
         expect(await clamped()).toBe(before + 1)
 
-        buildConversionWatcher(invocationFor({ ...propertyGoal, window_minutes: MAX_CONVERSION_WINDOW_MINUTES }))
+        buildConversionWatcher(invocationFor({ ...propertyGoal, window_minutes: MAX_LEGACY_WINDOW_MINUTES }))
         expect(await clamped()).toBe(before + 1)
     })
 

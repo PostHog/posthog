@@ -1924,6 +1924,19 @@ class HogFlowConversionEventSerializer(serializers.Serializer):
     )
 
 
+# Duration strings as the workflow's delay steps already express them, so one convention covers both.
+CONVERSION_WINDOW_REGEX = r"^\d*\.?\d+[dhms]$"
+
+_MINUTES_PER_DURATION_UNIT = {"d": 1440, "h": 60, "m": 1, "s": 1 / 60}
+
+MAX_CONVERSION_WINDOW_MINUTES = 365 * 24 * 60
+MAX_LEGACY_WINDOW_MINUTES = 90 * 24 * 60
+
+
+def _duration_minutes(value: str) -> float:
+    return float(value[:-1]) * _MINUTES_PER_DURATION_UNIT[value[-1]]
+
+
 class HogFlowConversionSerializer(serializers.Serializer):
     filters = serializers.ListField(
         child=serializers.DictField(),
@@ -1939,10 +1952,23 @@ class HogFlowConversionSerializer(serializers.Serializer):
         required=False,
         help_text="Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}].",
     )
+    window = serializers.RegexField(
+        regex=CONVERSION_WINDOW_REGEX,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "How long after entering the workflow a conversion still counts, as a duration string: "
+            "'7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. "
+            "Omit it to use the default window."
+        ),
+    )
     window_minutes = serializers.IntegerField(
         required=False,
         allow_null=True,
-        help_text="Conversion window in minutes after a person enters the workflow. null = no explicit window.",
+        help_text=(
+            "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a "
+            "person enters the workflow. Maximum 129600 (90 days). null = use the default window."
+        ),
     )
     # Not DRF read_only: drf-spectacular puts readOnly fields in the component's `required` list
     # (shared by request and response schemas), which would make generated write schemas demand a
@@ -1951,6 +1977,31 @@ class HogFlowConversionSerializer(serializers.Serializer):
     bytecode = serializers.JSONField(
         required=False, allow_null=True, help_text="Compiled server-side from 'filters'. Do not set; ignored if sent."
     )
+
+    def validate_window(self, value: str | None) -> str | None:
+        if value is None:
+            return value
+        if _duration_minutes(value) > MAX_CONVERSION_WINDOW_MINUTES:
+            raise serializers.ValidationError("The conversion window cannot be longer than 365d.")
+        return value
+
+    def validate_window_minutes(self, value: int | None) -> int | None:
+        if value is None:
+            return value
+        if value > MAX_LEGACY_WINDOW_MINUTES:
+            # Almost every value this large is a second count in a field that takes minutes, so name
+            # the unit and show what the number actually means rather than silently shortening it.
+            raise serializers.ValidationError(
+                f"window_minutes is in minutes, so {value} means {value // 1440} days. "
+                f"The maximum is {MAX_LEGACY_WINDOW_MINUTES}. Use 'window' with a duration string "
+                f"such as '7d' instead."
+            )
+        return value
+
+    def validate(self, data):
+        if data.get("window") is not None and data.get("window_minutes") is not None:
+            raise serializers.ValidationError("Set either 'window' or the deprecated 'window_minutes', not both.")
+        return data
 
     def to_internal_value(self, data):
         # bytecode is server-computed; never trust a client-supplied value (the matcher executes it).

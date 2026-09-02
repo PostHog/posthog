@@ -4,6 +4,7 @@ import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { execHog } from '~/cdp/utils/hog-exec'
 
+import { DURATION_REGEX, SECONDS_PER_DURATION_UNIT } from '../duration'
 import { findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { resolveTimezone } from './timezone'
@@ -35,8 +36,6 @@ export class DelayHandler implements ActionHandler {
 
 // Value is expected to be like `10d` or `1.5h` or `10m`
 
-const DURATION_REGEX = /^(\d*\.?\d+)([dhms])$/
-
 // Same shape as a duration, with an optional leading sign so an offset can point before the instant.
 const OFFSET_REGEX = /^(-?)(\d*\.?\d+)([dhms])$/
 
@@ -45,8 +44,6 @@ const DEFAULT_MAX_DELAY_UNTIL = '30d'
 // The last second luxon (and JS Date) can represent as a real date, end of year 9999. A numeric value larger
 // than this is a millisecond timestamp mislabelled as seconds, not a plausible date to wait for.
 const MAX_UNIX_SECONDS = 253402300799
-
-const SECONDS_PER_DURATION_UNIT: Record<string, number> = { d: 86400, h: 3600, m: 60, s: 1 }
 
 /**
  * Seconds for a signed offset, at its full magnitude.

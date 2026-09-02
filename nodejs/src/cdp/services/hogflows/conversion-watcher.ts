@@ -3,6 +3,7 @@ import { Counter } from 'prom-client'
 import { HogFlow } from '~/cdp/schema/hogflow'
 
 import { ConversionWatcherRow, CyclotronJobInvocationHogFlow, PinnedConversionGoal } from '../../types'
+import { durationSeconds } from './duration'
 import { hasEventOrActionTarget } from './hogflow-utils'
 
 // A goal is configured if either detection path has something to evaluate. Gates the watcher: a
@@ -67,11 +68,16 @@ export function buildConversionWatcher(invocation: CyclotronJobInvocationHogFlow
 // workflow whose own steps run past this can never measure the back half of its own runs.
 export const DEFAULT_CONVERSION_WINDOW_MINUTES = 90 * 24 * 60
 
-// The ceiling on an explicitly configured window. It exists only to bound the table: a row that never
-// expires is a row the sweep can never reclaim. It cannot sit below the default, or a workflow could
-// ask for less than it gets by asking for nothing. Raising it further waits on an unambiguous way to
-// express the window, since today's out-of-range values are minutes fields holding second counts.
-export const MAX_CONVERSION_WINDOW_MINUTES = 90 * 24 * 60
+// The ceiling on a window given as a duration string. It exists only to bound the table: a row that
+// never expires is a row the sweep can never reclaim.
+export const MAX_CONVERSION_WINDOW_MINUTES = 365 * 24 * 60
+
+// The ceiling on the deprecated integer field. It stays where it is because a bare number cannot be
+// trusted to be minutes: the values above it are second counts in a field that takes minutes, so
+// `604800` means seven days rather than 420. Honoring those to the full ceiling would credit a
+// week-long sequence with a conversion nearly a year later. A duration string cannot be misread, so
+// only that form earns the higher ceiling.
+export const MAX_LEGACY_WINDOW_MINUTES = 90 * 24 * 60
 
 // Substituting our window for the configured one changes what the workflow's conversion rate measures,
 // so it must not be silent: a clamped run reports over the cap, not over the window it asked for.
@@ -81,13 +87,26 @@ const counterConversionWindowClamped = new Counter({
 })
 
 function conversionWindowMinutes(hogFlow: HogFlow): number {
-    const configured = hogFlow.conversion?.window_minutes
-    if (!configured || configured <= 0) {
+    const window = hogFlow.conversion?.window
+    if (window) {
+        const seconds = durationSeconds(window)
+        // An unparseable string reaches here only if it was stored before the API validated the field.
+        // Falling through to the default beats measuring over a window nobody can read.
+        if (seconds !== null && seconds > 0) {
+            return clampWindow(seconds / 60, MAX_CONVERSION_WINDOW_MINUTES)
+        }
+    }
+    const legacyMinutes = hogFlow.conversion?.window_minutes
+    if (!legacyMinutes || legacyMinutes <= 0) {
         return DEFAULT_CONVERSION_WINDOW_MINUTES
     }
-    if (configured > MAX_CONVERSION_WINDOW_MINUTES) {
+    return clampWindow(legacyMinutes, MAX_LEGACY_WINDOW_MINUTES)
+}
+
+function clampWindow(minutes: number, ceiling: number): number {
+    if (minutes > ceiling) {
         counterConversionWindowClamped.inc()
-        return MAX_CONVERSION_WINDOW_MINUTES
+        return ceiling
     }
-    return configured
+    return minutes
 }

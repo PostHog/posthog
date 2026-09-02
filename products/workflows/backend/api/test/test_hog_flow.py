@@ -1070,6 +1070,39 @@ class TestHogFlowAPI(APIBaseTest):
         conversion = response.json()["conversion"]
         assert conversion["bytecode"] == [], conversion
 
+    @parameterized.expand(
+        [
+            ("duration string", {"window": "7d"}, 201),
+            ("hours", {"window": "12h"}, 201),
+            ("over the ceiling", {"window": "400d"}, 400),
+            ("not a duration", {"window": "7 days"}, 400),
+            ("legacy minutes", {"window_minutes": 60}, 201),
+            # 604800 is seven days in seconds, in a field that takes minutes. Rejecting it turns a
+            # silently shortened window into an error that names the unit.
+            ("legacy seconds mistaken for minutes", {"window_minutes": 604800}, 400),
+            ("both forms", {"window": "7d", "window_minutes": 60}, 400),
+        ]
+    )
+    def test_hog_flow_conversion_window(self, _name, conversion_window, expected_status):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["conversion"] = {"filters": [], **conversion_window}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == expected_status, response.json()
+
+    def test_hog_flow_conversion_window_minutes_error_names_the_unit(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        hog_flow["conversion"] = {"filters": [], "window_minutes": 604800}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert "minutes" in response.json()["detail"]
+        assert "420 days" in response.json()["detail"]
+
     def test_hog_flow_conversion_filters_compiles_bytecode_on_update(self):
         expected_conversion_bytecode = [
             "_H",
