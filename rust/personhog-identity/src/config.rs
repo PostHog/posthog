@@ -144,6 +144,11 @@ pub struct Config {
     /// Hours completed op rows are kept for op_id idempotency before GC.
     #[envconfig(default = "24")]
     pub lifecycle_op_retention_hours: u64,
+
+    /// Rows one GC pass may delete, so a post-backlog sweep never holds
+    /// locks for long; the next pass continues.
+    #[envconfig(default = "10000")]
+    pub lifecycle_gc_batch_limit: i64,
 }
 
 /// The paired table set identity operates on: the person table plus the
@@ -261,6 +266,7 @@ impl Config {
             execute_timeout: Duration::from_secs(self.lifecycle_execute_timeout_secs),
             poll_interval: Duration::from_millis(self.lifecycle_poll_interval_ms),
             attempt_alert_threshold: self.lifecycle_attempt_alert_threshold,
+            gc_batch_limit: self.lifecycle_gc_batch_limit,
         }
     }
 

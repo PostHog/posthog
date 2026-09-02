@@ -190,11 +190,10 @@ pub struct EngineConfig {
     pub poll_interval: Duration,
     /// Log a warning when an op's attempt counter reaches this value.
     pub attempt_alert_threshold: i32,
+    /// Rows one GC pass may delete, so a post-backlog sweep never holds
+    /// locks for long; the next pass continues.
+    pub gc_batch_limit: i64,
 }
-
-/// Rows one GC pass may delete, so a post-backlog sweep never holds
-/// locks for long; the next pass continues.
-const GC_BATCH_LIMIT: i64 = 10_000;
 
 pub struct Engine {
     pool: PgPool,
@@ -706,7 +705,7 @@ impl Engine {
             )
             "#,
             retention.as_secs_f64(),
-            GC_BATCH_LIMIT,
+            self.config.gc_batch_limit,
         )
         .execute(&self.pool)
         .await?;

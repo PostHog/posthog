@@ -304,6 +304,7 @@ async fn a_live_lease_blocks_a_second_driver_until_it_lapses() {
             execute_timeout: std::time::Duration::from_millis(200),
             poll_interval: std::time::Duration::from_millis(25),
             attempt_alert_threshold: 5,
+            gc_batch_limit: 10_000,
         },
     );
     let err = short_engine
@@ -352,6 +353,7 @@ async fn a_drive_that_runs_out_its_own_deadline_says_so_and_releases_the_lease()
             execute_timeout: std::time::Duration::from_millis(200),
             poll_interval: std::time::Duration::from_millis(25),
             attempt_alert_threshold: 5,
+            gc_batch_limit: 10_000,
         },
     );
 
@@ -479,6 +481,7 @@ async fn a_driver_whose_lease_was_stolen_stops_running_steps_instead_of_renewing
             execute_timeout: std::time::Duration::from_millis(200),
             poll_interval: std::time::Duration::from_millis(25),
             attempt_alert_threshold: 5,
+            gc_batch_limit: 10_000,
         },
     );
     let err = short_engine

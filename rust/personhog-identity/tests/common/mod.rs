@@ -103,6 +103,7 @@ impl TestContext {
                 execute_timeout: std::time::Duration::from_secs(10),
                 poll_interval: std::time::Duration::from_millis(25),
                 attempt_alert_threshold: 5,
+                gc_batch_limit: 10_000,
             },
         )
     }
