@@ -1,21 +1,32 @@
+/** Which API the built loop is created through. Matches `LoopFormRules.backend`. */
+export type LoopBuilderBackend = "loops" | "workflow";
+
+interface LoopBuilderContext {
+  folderId: string;
+  name: string;
+}
+
 /**
  * The canned first-message the loop-builder cloud task starts with — the agent's
  * "custom instructions" for a session whose whole job is to create a Loop with the
- * user and then create it via the PostHog MCP `loops-create` tool. Mirrors the scout
- * authoring prompt (`packages/core/src/scouts/scoutPrompts.ts`).
+ * user and then create it through the PostHog MCP: the `loops-*` tools, or the
+ * `workflows-*` tools when loops are workflow-backed. Mirrors the scout authoring
+ * prompt (`packages/core/src/scouts/scoutPrompts.ts`).
  */
 export function buildLoopBuilderPrompt({
   instructions,
   context,
+  backend = "loops",
 }: {
   instructions?: string;
-  context?: { folderId: string; name: string };
+  context?: LoopBuilderContext;
+  backend?: LoopBuilderBackend;
 }): string {
   const seed = instructions?.trim();
 
   return [
     seed || undefined,
-    buildLoopBuilderSystemInstructions({ hasSeed: !!seed, context }),
+    buildLoopBuilderSystemInstructions({ hasSeed: !!seed, context, backend }),
   ]
     .filter((part): part is string => !!part)
     .join("\n\n");
@@ -24,10 +35,15 @@ export function buildLoopBuilderPrompt({
 export function buildLoopBuilderSystemInstructions({
   hasSeed,
   context,
+  backend = "loops",
 }: {
   hasSeed: boolean;
-  context?: { folderId: string; name: string };
+  context?: LoopBuilderContext;
+  backend?: LoopBuilderBackend;
 }): string {
+  if (backend === "workflow") {
+    return buildWorkflowLoopBuilderInstructions({ hasSeed });
+  }
   return `Your job in this session is to help me create a Loop for this PostHog project, then create it for me.
 
 A Loop is a named, cloud-executed agent automation: instructions the agent runs whenever a trigger fires (a schedule, a GitHub event, or an API call). Loops run unattended in a sandbox and can post results, open pull requests, and keep a context up to date.
@@ -64,4 +80,96 @@ Do not claim that the review card or Create button is visible merely because \`l
 2. Show me its confirmation message and ask me to reply with the literal word \`confirm\`. Do not create anything yet.
 3. Only after I reply \`confirm\`, call \`loops-create-execute\` with the returned \`confirmation_hash\` and \`confirmation\` set to \`confirm\`.
 4. Report whether creation succeeded. Never skip the prepare step, invent a confirmation hash, or treat any earlier message as confirmation.`;
+}
+
+const SEED_LINE = "The user's message describes what they want automated.";
+const NO_SEED_LINE =
+  "Start by asking me what I want automated, and offer a couple of concrete ideas.";
+
+/**
+ * The workflow-backed briefing. It pins the exact graph the Loops screens read
+ * back (`loopHogFlowMapping.ts`) and the schedule presets they can display
+ * (`loopScheduleRRule.ts`): anything else saves fine but shows up in Loops as a
+ * read-only "changed in the workflow editor" entry. A context target is not
+ * carried because workflow loops have no context channel.
+ */
+function buildWorkflowLoopBuilderInstructions({
+  hasSeed,
+}: {
+  hasSeed: boolean;
+}): string {
+  return `Your job in this session is to help me create a Loop for this PostHog project, then create it for me.
+
+A Loop is a workflow that creates an AI task every time its trigger fires: on a schedule, or when a GitHub event lands on one repository. Each task runs unattended in the cloud on the prompt you write. It can work in a repository and open pull requests.
+
+${hasSeed ? SEED_LINE : NO_SEED_LINE}
+
+How to build it:
+
+1. Call \`workflows-list\` with \`origin_product\` set to "loops" first so you don't duplicate an existing loop.
+2. Turn what I want into a clear task prompt (what the task does on every fire). Infer what you reasonably can rather than over-asking.
+3. Only ask about a choice you genuinely cannot infer, one focused question at a time, using your question tool so I can pick from options (never a plain-text question). The essentials, with defaults you should assume unless I say otherwise:
+   - When it runs: a schedule (default: weekdays at 09:00 in my timezone) or one GitHub event type on one repository.
+   - Whether it works on a repository (for code changes and PRs) or is report-only.
+   - A short name.
+4. Repository: use the \`owner/name\` I give you, never one from memory. If I don't name one and the task clearly needs code, ask.
+5. Skills: only when I ask for one, or my request clearly matches one, call \`skill-list\` and attach up to 10 by exact name. Never invent a skill name.
+6. Before you create anything, send me one short summary (name, trigger, repository, skills, and the task prompt) and ask me to reply with the literal word \`confirm\`. Do not create until I reply \`confirm\`; no earlier message counts. If I ask for changes, update the draft and summarize again.
+7. After I confirm, create it in this order and stop at the first failure:
+   a. \`workflows-create\` with the graph below, \`status\` "draft" and \`origin_product\` "loops".
+   b. Schedule loops only: \`workflows-schedule-create\` with the new workflow id as \`workflow_id\`, plus \`rrule\`, \`starts_at\` and \`timezone\`. Skip this for GitHub loops.
+   c. \`workflows-enable\` with the workflow id. My \`confirm\` is the sign-off for enabling.
+   d. Tell me it is live and that it appears in Loops in this app.
+
+The graph, exactly. Replace only the values in angle brackets and add nothing else:
+
+{
+  "name": "<short name>",
+  "description": "",
+  "status": "draft",
+  "origin_product": "loops",
+  "exit_condition": "exit_only_at_end",
+  "actions": [
+    { "id": "trigger", "name": "Trigger", "type": "trigger", "config": <trigger config> },
+    {
+      "id": "create_task",
+      "name": "Create AI task",
+      "type": "function",
+      "config": {
+        "template_id": "template-posthog-create-task",
+        "inputs": {
+          "prompt": { "value": "<task prompt>" },
+          "repository": { "value": "<owner/name>" },
+          "skills": { "value": ["<skill name>"] }
+        }
+      }
+    },
+    { "id": "exit", "name": "Exit", "type": "exit", "config": { "reason": "Task created" } }
+  ],
+  "edges": [
+    { "from": "trigger", "to": "create_task", "type": "continue" },
+    { "from": "create_task", "to": "exit", "type": "continue" }
+  ]
+}
+
+Task step inputs: \`prompt\` is required. Include \`repository\` only for a repository loop and \`skills\` only when attaching skills; otherwise leave those keys out. Do not add other inputs.
+
+Trigger config:
+- Schedule: { "type": "schedule" }. The cadence lives in the schedule row, not in the trigger.
+- GitHub event: { "type": "internal-event", "filters": { "source": "internal-events", "events": [{ "id": "$github_event_received", "type": "events" }], "properties": [
+    { "key": "repository", "value": ["<owner/name>"], "operator": "exact", "type": "event" },
+    { "key": "event_type", "value": ["<issues | issue_comment | pull_request | push>"], "operator": "exact", "type": "event" },
+    { "key": "actor_access", "value": ["write"], "operator": "exact", "type": "event" }
+  ] } }
+  Keep the actor_access filter: it stops people without write access to the repository from starting a task.
+
+Schedule row: \`rrule\` is one of these, exactly as written (nothing else, no BYHOUR or BYMINUTE):
+- Every hour: FREQ=HOURLY;INTERVAL=1
+- Every day: FREQ=DAILY;INTERVAL=1
+- Weekdays: FREQ=WEEKLY;INTERVAL=1;BYDAY=MO,TU,WE,TH,FR
+- One day a week: FREQ=WEEKLY;INTERVAL=1;BYDAY=<MO | TU | WE | TH | FR | SA | SU>
+- Once: FREQ=DAILY;COUNT=1
+\`starts_at\` is the first time it should run, as ISO 8601 with a UTC offset; the clock time comes from it, so pick the next occurrence at the time I want. \`timezone\` is my IANA timezone (ask if you don't know it). Hourly schedules start on the hour.
+
+Not available in Loops: notifications, auto-fix behaviors, contexts, API or manual triggers, more than one repository, more than one GitHub event type, and any other workflow step. If I ask for one of these, say Loops doesn't support it yet and offer the closest loop that fits. Never add actions, edges or inputs to work around it.`;
 }

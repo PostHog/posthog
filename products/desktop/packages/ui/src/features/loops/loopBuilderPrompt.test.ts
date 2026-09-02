@@ -72,4 +72,88 @@ describe("buildLoopBuilderPrompt", () => {
     expect(prompt).toContain("call `loops-create-execute`");
     expect(prompt).toContain("Only after I reply `confirm`");
   });
+
+  it("defaults to the loops backend so the legacy prompt is unchanged", () => {
+    expect(buildLoopBuilderSystemInstructions({ hasSeed: true })).toBe(
+      buildLoopBuilderSystemInstructions({ hasSeed: true, backend: "loops" }),
+    );
+  });
+
+  describe("workflow backend", () => {
+    const prompt = buildLoopBuilderSystemInstructions({
+      hasSeed: true,
+      backend: "workflow",
+    });
+
+    it("drives the workflows tools and never the loops ones", () => {
+      expect(prompt).toContain("`workflows-list`");
+      expect(prompt).toContain('`origin_product` set to "loops"');
+      expect(prompt).toContain("`workflows-create`");
+      expect(prompt).toContain("`workflows-schedule-create`");
+      expect(prompt).toContain("`workflows-enable`");
+      expect(prompt).not.toMatch(/loops-(list|review|create)/);
+      expect(prompt).not.toContain("integrations-list");
+    });
+
+    it("pins the graph the loop editor can read back", () => {
+      expect(prompt).toContain('"template_id": "template-posthog-create-task"');
+      expect(prompt).toContain('"origin_product": "loops"');
+      expect(prompt).toContain('"status": "draft"');
+      expect(prompt).toContain('"exit_condition": "exit_only_at_end"');
+      expect(prompt).toContain('"$github_event_received"');
+      expect(prompt).toContain('"key": "actor_access"');
+      expect(prompt).toContain("FREQ=WEEKLY;INTERVAL=1;BYDAY=MO,TU,WE,TH,FR");
+      expect(prompt).toContain("FREQ=DAILY;COUNT=1");
+      expect(prompt).toContain("no BYHOUR");
+    });
+
+    it("confirms in plain text before creating, then schedules and enables", () => {
+      const create = prompt.indexOf("`workflows-create`");
+      const schedule = prompt.indexOf("`workflows-schedule-create`");
+      const enable = prompt.indexOf("`workflows-enable`");
+      expect(prompt).toContain("reply with the literal word `confirm`");
+      expect(prompt.indexOf("literal word `confirm`")).toBeLessThan(create);
+      expect(create).toBeLessThan(schedule);
+      expect(schedule).toBeLessThan(enable);
+      expect(prompt).toContain("Skip this for GitHub loops");
+    });
+
+    it("names what Loops does not support so the agent does not offer it", () => {
+      expect(prompt).toContain("Not available in Loops");
+      expect(prompt).toContain("notifications");
+      expect(prompt).toContain("API or manual triggers");
+      expect(prompt).not.toContain("runtime_adapter");
+      expect(prompt).not.toContain("behaviors, notifications");
+    });
+
+    it("resolves skills by name through skill-list, capped at ten", () => {
+      expect(prompt).toContain("`skill-list`");
+      expect(prompt).toContain("up to 10");
+      expect(prompt).toContain("exact name");
+    });
+
+    it("drops the context target, which workflow loops cannot carry", () => {
+      const withContext = buildLoopBuilderPrompt({
+        backend: "workflow",
+        context: { folderId: "folder-9", name: "growth" },
+      });
+      expect(withContext).not.toContain("context_target");
+      expect(withContext).not.toContain("folder-9");
+    });
+
+    it.each([
+      {
+        hasSeed: true,
+        expected: "The user's message describes what they want automated.",
+      },
+      { hasSeed: false, expected: "Start by asking me what I want automated" },
+    ])(
+      "keeps the seed handling (hasSeed=$hasSeed)",
+      ({ hasSeed, expected }) => {
+        expect(
+          buildLoopBuilderSystemInstructions({ hasSeed, backend: "workflow" }),
+        ).toContain(expected);
+      },
+    );
+  });
 });
