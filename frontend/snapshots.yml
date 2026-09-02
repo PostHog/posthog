@@ -8524,6 +8524,10 @@ snapshots:
         hash: v1.k794b7964.8defefc8ee81d152212ad970ee03afd0170e149183c700875620b83c94041edb.5f5prfRZbGCHJZ5SXwCfvu5BsuOjCWSch49ouOMP4iU
     scenes-app-settings-project--settings-project-autocapture--light:
         hash: v1.k794b7964.397d4848babe9a8d2fd98b15ffe998d685521cb5135ff4ad1a70951e6062ec71.HMYh2-IfWjQd_PDBPGoPGrX_LVi2OHg7wzBFzJAmslA
+    scenes-app-settings-project--settings-project-customization--dark:
+        hash: v1.k794b7964.938a98048a0a2d239c657ddfd66e8f00b97c2e8193dfc7db0c32d597016b1c86.dmLuFe6lHJ0Ns-2nVKxp3hA2rx4kq0I7JaepXThKiHQ
+    scenes-app-settings-project--settings-project-customization--light:
+        hash: v1.k794b7964.8445995b0dd2ee3334b18842331173820ea8cb673dd4dbdce92c8cffd1b1e160.6bSQO2Y-WgBk3V3uCuAIxsHRli9nLdx0SwqVSXq4EvE
     scenes-app-settings-project--settings-project-danger-zone--dark:
         hash: v1.k794b7964.d18bc16d7f8d14a2168e67a889a5229659191e35393f829ce1b5eb6c0876a269.nQC3Mf7fvxzoZTD0m9ndbrfXV9nQin3tsW49wkX6Zqk
     scenes-app-settings-project--settings-project-danger-zone--light:
