@@ -1,6 +1,7 @@
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.core.cache import cache
+from django.test import SimpleTestCase, TestCase
 
 from products.conversations.backend.cache import (
     MESSAGES_CACHE_TTL,
@@ -9,9 +10,11 @@ from products.conversations.backend.cache import (
     get_cached_messages,
     get_cached_tickets,
     get_cached_unread_count,
+    get_identity_tickets_cache_namespace,
     get_messages_cache_key,
     get_tickets_cache_key,
     get_unread_count_cache_key,
+    invalidate_identity_tickets_cache,
     invalidate_messages_cache,
     invalidate_tickets_cache,
     invalidate_unread_count_cache,
@@ -19,6 +22,22 @@ from products.conversations.backend.cache import (
     set_cached_tickets,
     set_cached_unread_count,
 )
+
+
+class TestIdentityTicketsCacheNamespace(SimpleTestCase):
+    def setUp(self):
+        cache.clear()
+
+    def test_invalidation_rotates_namespace(self):
+        initial_namespace = get_identity_tickets_cache_namespace(team_id=1)
+
+        invalidate_identity_tickets_cache(team_id=1)
+
+        assert get_identity_tickets_cache_namespace(team_id=1) != initial_namespace
+
+    @patch("products.conversations.backend.cache.cache.get", side_effect=Exception("Redis error"))
+    def test_lookup_failure_disables_cache(self, _mock_get):
+        assert get_identity_tickets_cache_namespace(team_id=1) is None
 
 
 class TestCacheKeyGeneration(TestCase):
