@@ -363,8 +363,8 @@ class Command(BaseCommand):
     ) -> CohortResaveOutcome:
         """Recompute one cohort's filters, cohort_type, and condition_type in memory.
 
-        The caller persists the change, so the counters report the same on a save that raises as
-        they did before this work moved out of the loop.
+        This only mutates the cohort in memory and returns the outcome; the caller persists the
+        change and counts it.
         """
         filters = cohort.filters
         # Nothing to recompute without filters.
