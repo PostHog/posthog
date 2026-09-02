@@ -23,6 +23,10 @@ describe("classifyAgentError", () => {
     ["API Error: Connection error.", "upstream_connection_error"],
     ["ACP connection closed", "upstream_connection_error"],
     ["API Error: Request timed out.", "upstream_timeout"],
+    [
+      "API Error: 429 Rate limit exceeded: This agent run reached its spend limit. Try again in about 24 hours.",
+      "agent_error",
+    ],
     ["API Error: 429 rate limited", "upstream_provider_failure"],
     ["API Error: 529 overloaded", "upstream_provider_failure"],
     [

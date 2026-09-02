@@ -32,6 +32,7 @@ UPSTREAM_PROVIDER_FAILURE_MESSAGE = (
     "The upstream AI provider failed to process the request. Please retry the task in a few minutes."
 )
 UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN = re.compile(r"\bapi error:\s*(?:429|5\d\d)\b", re.IGNORECASE)
+SANDBOX_TASK_SPEND_LIMIT_MARKER = "this agent run reached its spend limit"
 DEFAULT_FAILURE_RECOVERY_HINT = (
     "Reply in this thread with `retry` to try again from the latest checkpoint, "
     "or add the missing details and I'll re-plan before continuing."
@@ -87,6 +88,9 @@ def _format_task_error(error: str) -> str:
     error = error.strip()
     if not error:
         return "Unknown error"
+
+    if SANDBOX_TASK_SPEND_LIMIT_MARKER in error.lower():
+        return error
 
     if UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN.search(error):
         return UPSTREAM_PROVIDER_FAILURE_MESSAGE

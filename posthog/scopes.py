@@ -107,6 +107,7 @@ APIScopeObject = Literal[
     "signal_scout_internal",
     "signal_scout_report",
     "signal_scratchpad_internal",
+    "slack_run",
     "stamphog",
     "streamlit_app",
     "subscription",
@@ -133,9 +134,9 @@ APIScopeObject = Literal[
 ]
 
 
-# Server-only provenance marker for OAuth tokens minted for PostHog's built-in
-# agents. It is hidden from user-controlled scope selectors below.
+# Server-only provenance markers hidden from user-controlled scope selectors.
 MCP_BUILT_IN_AGENT_SCOPE = "mcp_builtin_agent:read"
+SLACK_RUN_SCOPE = "slack_run:read"
 
 APIScopeActions = Literal[
     "read",
@@ -187,6 +188,9 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # pipeline's research and implementation runs need durable memory, and granting it
         # through the scout object would hand them `emit_signal` and `record_output` too.
         "signal_scratchpad_internal",
+        # Marks tokens minted for Slack tasks so spend policy does not depend on the
+        # caller-selected LLM gateway product route.
+        "slack_run",
     }
 )
 

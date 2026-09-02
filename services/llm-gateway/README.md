@@ -329,13 +329,14 @@ User-level limits only apply when an `end_user_id` is present (OAuth token holde
 ### Per-run limits
 
 A sandbox agent run can spend a whole window's budget in one conversation, because the person driving it decides when it ends.
-`DEFAULT_SANDBOX_TASK_COST_LIMITS` caps the total spend of a single run, keyed on the task the token was minted for (`posthog_oauthaccesstoken.sandbox_task_id`), not on anything the caller sends:
+`DEFAULT_SANDBOX_TASK_COST_LIMITS` limits the recorded spend of a single run, keyed on the task the token was minted for (`posthog_oauthaccesstoken.sandbox_task_id`), not on anything the caller sends:
 
 ```python
 "my_budget": ProductCostLimit(limit_usd=50.0, window_seconds=604800)  # $50 per run
 ```
 
 Opt-in — a budget with no entry has no per-run ceiling, and a token with no task binding is never metered here.
+The Python gateway records cost after each request completes, so concurrent requests can overshoot a limit by their combined in-flight spend.
 
 ### Budget keys
 
@@ -344,6 +345,7 @@ The three limits above are usually keyed by product, but a product that serves b
 
 Today that splits `signals`: a run started from the Inbox carries `interactive_run:read` and meters against `signals_interactive`, while the scheduled pipeline keeps `signals`.
 `signals_interactive` is a budget name only — it is not in `PRODUCTS`, so no caller can request it.
+Slack task tokens carry `slack_run:read`, which keeps them on the `slack_app` budget even if the sandbox calls another product route that accepts the same OAuth application.
 
 ## Error handling
 

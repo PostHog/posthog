@@ -436,6 +436,10 @@ INTERNAL_RUN_SCOPE: Final[str] = "internal_run:read"
 # it can't be self-granted. Used to pick the budget, never to grant access.
 INTERACTIVE_RUN_SCOPE: Final[str] = "interactive_run:read"
 
+# Server-minted Slack task marker. Used to keep its cost key fixed when the sandbox selects
+# another product route that accepts the same OAuth application.
+SLACK_RUN_SCOPE: Final[str] = "slack_run:read"
+
 # Not a product: no caller can declare it, and it never appears in PRODUCTS. It only names a
 # budget in product_cost_limits / user_cost_limits, resolved from the token by resolve_cost_key.
 SIGNALS_INTERACTIVE_COST_KEY: Final[str] = "signals_interactive"
@@ -505,17 +509,17 @@ def is_model_restricted_for_product(model: str, product: str) -> bool:
 def resolve_cost_key(product: str, scopes: list[str] | None) -> str:
     """The budget a request meters against, which is not always its product.
 
-    Signals runs a scheduled pipeline and a set of buttons in the Inbox through one product.
-    Their volume has different owners — ours and the customer's — so they get separate budgets,
-    resolved from the token's own provenance marker rather than from the product the caller
-    declared, which a sandbox is free to choose.
+    Provenance markers pin budgets that cannot safely depend on the product the caller declares,
+    which a sandbox is free to choose. Slack tokens always resolve to `slack_app`; Signals uses a
+    separate key only for runs a person started.
 
-    The marker decides alone, without also requiring the declared product to be `signals`: a run
-    whose token still comes from the Array app (the fallback while a region has no Signals app
-    row) can declare `posthog_code` or `background_agents` instead, and pairing the two would let
-    that choice move the run off the interactive budget and out of the per-run spend ceiling.
-    Only interactive Signals runs are ever minted with the scope, so keying on it is sufficient.
+    Each marker decides alone, without also requiring its matching declared product. Pairing the
+    two would let a sandbox choose another allowed route and leave its per-run spend limit. Only
+    Slack tasks receive `slack_run`, and only interactive Signals runs receive `interactive_run`,
+    so either scope is sufficient provenance for its budget.
     """
+    if SLACK_RUN_SCOPE in (scopes or []):
+        return "slack_app"
     if INTERACTIVE_RUN_SCOPE in (scopes or []):
         return SIGNALS_INTERACTIVE_COST_KEY
     return resolve_product_alias(product)

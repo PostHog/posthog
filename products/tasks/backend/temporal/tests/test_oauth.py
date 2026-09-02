@@ -92,24 +92,34 @@ def test_built_in_agent_origin_keeps_member_token_until_gateway_flag_rollout(
     )
 
 
+@pytest.mark.parametrize(
+    ("origin_product", "slack_run"),
+    [
+        (Task.OriginProduct.USER_CREATED, False),
+        (Task.OriginProduct.SLACK, True),
+    ],
+)
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
-def test_default_task_uses_array_oauth_application(mock_create: MagicMock) -> None:
+def test_array_task_mints_only_slack_runs_with_the_slack_provenance_marker(
+    mock_create: MagicMock, origin_product: Task.OriginProduct, slack_run: bool
+) -> None:
     task = MagicMock(
         id="task-id",
         created_by=MagicMock(),
         team_id=123,
-        origin_product=Task.OriginProduct.USER_CREATED,
+        origin_product=origin_product,
     )
 
     assert create_oauth_access_token(task) == "token"
 
-    mock_create.assert_called_once_with(
-        task.created_by,
-        123,
-        scopes="read_only",
-        application="array",
-        sandbox_task_id=task.id,
-    )
+    expected: dict[str, object] = {
+        "scopes": "read_only",
+        "application": "array",
+        "sandbox_task_id": task.id,
+    }
+    if slack_run:
+        expected["include_slack_run_scope"] = True
+    mock_create.assert_called_once_with(task.created_by, 123, **expected)
 
 
 @pytest.mark.parametrize(
