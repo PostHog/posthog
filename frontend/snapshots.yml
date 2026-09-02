@@ -3065,17 +3065,21 @@ snapshots:
     insights-sqlbargraph--stacked-bar-with-negative-values--light:
         hash: v1.k794b7964.e9f32e35e60194c76df1aad0e7963ca99bc76d2b6099437c5e679c4959feb976.3DeROLuvQPwEHmWPIxoY7SxfXAcAgX6gufInnDLnBh0
     insights-sqlpiegraph--breakdown-colors--dark:
-        hash: v1.k794b7964.459b2f2dad813b806560c40f292c41503482dcc864756aa5c27e936ef6ad5890.35VUrVQBDx9LxDWhN1L1896BV62m-OhK3d4ujQHrU5o
+        hash: v1.k794b7964.01928cb0ffb1554a01ffae8f214773557e22647fea676e40007a7803cec0af32.fk7qZ2CtcV_Ouq_6xOxJ7wqRdxmck-P18wvqRq1jLsc
     insights-sqlpiegraph--breakdown-colors--light:
-        hash: v1.k794b7964.85b6dc31bdb8ee361f89ab6c8b1df6c435e3e4b791fa982094ebd01a63b52cb7.LT735atGhIw513Hxuiqlqy2j0mRrsSlK5e__FssLlXo
+        hash: v1.k794b7964.2cdd1a0340ad18c1befb63f45f3019c9d169662d43abcf546087a6c076f04027.ZPiiGjgoY84m-UC9HiDkqnea5U12qN7NM0ijyMmK11M
     insights-sqlpiegraph--default--dark:
         hash: v1.k794b7964.5d9407311260cf6d60e52217801013baf5523971043d3a384399661606956094.gY3eS5hEKko3Uw025q_K8VD0OY4XUOo6iNkvdlzwrnA
     insights-sqlpiegraph--default--light:
         hash: v1.k794b7964.cb8ad5af06a0440258a2aad8b7a5531e83bed58ee3e1dfe019e9fcb549569b96.n6v4Nqqfp1KvW3ouAH4u2gEwzMI3eDb3hA3y2hHbBxY
+    insights-sqlpiegraph--legend-at-bottom--dark:
+        hash: v1.k794b7964.c47d48ad6a252d8a5dfc135b3d269bc028523df242a7b79c5b96d9d111ae0376._DhCXEiBO9wMl5fx3iWvB8BVIaxe19bUBzUQb55bkAo
+    insights-sqlpiegraph--legend-at-bottom--light:
+        hash: v1.k794b7964.edbf042650a6322573f4e64763cd4409162aca5fce5a35b2a51689d0b45a3867.KCSWIbrsWY4EZKnAeZHXdZXnZLEs0_oT1CnSBS-PmQE
     insights-sqlpiegraph--with-legend--dark:
-        hash: v1.k794b7964.41dfc4667fa9189fe499758412992668a572450ccd8efd81ebc5da0721e0a13f.IxIdKXrKk6F9AAvA7ZrkyjwOwobtpWR6PuJgvv_oSpo
+        hash: v1.k794b7964.d15af2bc969e9e442db3d5520d7b4c26a29f82dd001f9a3656da9cb838cd904e.HU5scx_5_NP2zMcUStE930Oaa1UgjhjHkEOUjAZ-u3w
     insights-sqlpiegraph--with-legend--light:
-        hash: v1.k794b7964.334268e3aeef84633d540830a5e1394e55a407118286053925f00e6eb378d806.zeqHqcf7h1Nihj7cEGiafCUbASLAmCZ28Z1xngTBl-0
+        hash: v1.k794b7964.e03eea04875a2046ced662098279559de6cfedb493840f3badf759e1a61a329b.Zkyv5NwjRftokqgfRfDPoMH62IXHvXLwEiQNGVkkoug
     insights-sqlscattergraph--default--dark:
         hash: v1.k794b7964.5ca16c3fa53c4fa08dfd7c540a2a6dda5ce63b1f9ebcb0e604a4f13e32c17af5.BC1sKBXJftn3jhHnOKFddv2XmlLtCTyZSfPw9c2yt_4
     insights-sqlscattergraph--default--light:

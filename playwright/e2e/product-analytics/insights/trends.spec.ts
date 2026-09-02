@@ -308,9 +308,9 @@ test.describe('Trends insights', () => {
 
         await test.step('navigate away and verify no orphaned tooltip', async () => {
             await insight.goToList()
-            // The insight was never saved, so the list may render the product empty state
-            // instead of a table; any painted scene is enough to prove navigation happened.
-            await expect(page.locator('main')).toBeVisible()
+            // This project saves no insight, so the list opens on the product analytics setup
+            // screen rather than the table.
+            await expect(page.getByTestId('product-empty-state')).toBeVisible()
             await expect(insight.trends.tooltip).toHaveCount(0, { timeout: 3000 })
         })
     })
