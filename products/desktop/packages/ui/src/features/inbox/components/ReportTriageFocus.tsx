@@ -188,7 +188,12 @@ export function ReportTriageFocus({
   );
   const dismissPending = bulkActions.isSuppressing || bulkActions.isSnoozing;
 
-  const canRemoveSelfFromReviewers = report?.is_suggested_reviewer === true;
+  // Gate on the hook's disabled reason, not just is_suggested_reviewer, so the
+  // hint stays hidden until the current-user query has resolved (a press with
+  // no meUuid silently no-ops).
+  const canRemoveSelfFromReviewers =
+    bulkActions.removeReviewerDisabledReason === null &&
+    report?.is_suggested_reviewer === true;
   const handleRemoveReviewer = useCallback(() => {
     if (bulkActions.isRemovingReviewer) return;
     void bulkActions.removeReviewerSelected();
