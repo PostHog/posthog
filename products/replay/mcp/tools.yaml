@@ -53,6 +53,15 @@ tools:
             destructive: false
             idempotent: true
         enrich_url: '{id}'
+        param_overrides:
+            id:
+                aliases:
+                    - session_id
+                    - recording_id
+                    - session_recording_id
+                    - sessionId
+                    - recordingId
+                    - sessionRecordingId
         title: Get session recording
         description: >
             Get a specific session recording by ID. Returns full recording metadata including duration, interaction
