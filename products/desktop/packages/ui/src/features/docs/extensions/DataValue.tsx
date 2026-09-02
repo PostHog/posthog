@@ -291,7 +291,7 @@ function DataValueCard({
               close();
             }}
           >
-            {source.query ? "Show as SQL card" : "Show as chart"}
+            {source.query ? "SQL card" : "Chart"}
           </DocRefCardAction>
         ) : null}
         {url ? (
@@ -301,7 +301,7 @@ function DataValueCard({
               close();
             }}
           >
-            Open in PostHog
+            PostHog
           </DocRefCardAction>
         ) : null}
         {source.query ? (

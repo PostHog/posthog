@@ -64,13 +64,19 @@ export function DocRefHover({
   );
 }
 
-/** The row of actions at the foot of a card. */
+/** The row of actions at the foot of a card. A label never splits mid-word:
+ * when the row runs out of width, a whole action drops to the next line
+ * instead. */
 export function DocRefCardActions({
   children,
 }: {
   children: ReactNode;
 }): ReactElement {
-  return <div className="mt-2.5 flex items-center gap-3">{children}</div>;
+  return (
+    <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+      {children}
+    </div>
+  );
 }
 
 export function DocRefCardAction({
@@ -83,7 +89,7 @@ export function DocRefCardAction({
   return (
     <button
       type="button"
-      className="cursor-pointer border-none bg-transparent p-0 text-(--gray-11) text-[11px] hover:text-(--gray-12)"
+      className="flex-none cursor-pointer whitespace-nowrap border-none bg-transparent p-0 text-(--gray-11) text-[11px] hover:text-(--gray-12)"
       onClick={onSelect}
     >
       {children}

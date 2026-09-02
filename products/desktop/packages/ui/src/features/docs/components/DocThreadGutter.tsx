@@ -1,3 +1,4 @@
+import { ArrowsClockwiseIcon } from "@phosphor-icons/react";
 import type { DocSchemas } from "@posthog/api-client/docs";
 import type { Task } from "@posthog/shared/domain-types";
 import { DocMark } from "@posthog/ui/primitives/DocMark";
@@ -148,6 +149,22 @@ export function DocThreadGutter({
                           <span className="line-clamp-3 min-w-0 flex-1 whitespace-normal text-(--gray-11) text-[11.5px] leading-snug">
                             {watch.verdict.reason || last.text}
                           </span>
+                          {watch.status === "active" && watch.brief ? (
+                            <button
+                              type="button"
+                              aria-label="Check now"
+                              onClick={() => {
+                                watchMutation.mutate({
+                                  threadId: thread.id,
+                                  body: { action: "check" },
+                                });
+                                close();
+                              }}
+                              className="-mt-0.5 -mr-0.5 flex-none cursor-pointer rounded-(--radius-2) p-1 text-(--gray-10) hover:bg-(--gray-4) hover:text-(--gray-12)"
+                            >
+                              <ArrowsClockwiseIcon size={13} />
+                            </button>
+                          ) : null}
                         </div>
                         <DocRefCardActions>
                           <DocRefCardAction
@@ -158,19 +175,6 @@ export function DocThreadGutter({
                           >
                             {openLabel}
                           </DocRefCardAction>
-                          {watch.status === "active" && watch.brief ? (
-                            <DocRefCardAction
-                              onSelect={() => {
-                                watchMutation.mutate({
-                                  threadId: thread.id,
-                                  body: { action: "check" },
-                                });
-                                close();
-                              }}
-                            >
-                              Check now
-                            </DocRefCardAction>
-                          ) : null}
                           {watch.stopped_reason === "verdict" ? null : (
                             <DocRefCardAction
                               onSelect={() => {
