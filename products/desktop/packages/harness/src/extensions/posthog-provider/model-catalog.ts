@@ -61,10 +61,6 @@ function piModelDisplayName(model: { id: string; name: string }): string {
   return formatGatewayModelName({
     id: model.id,
     owned_by: "",
-    context_window: 0,
-    supports_streaming: false,
-    supports_vision: false,
-    allowed: true,
   });
 }
 
