@@ -663,9 +663,7 @@ export interface sessionRecordingsPlaylistLogicActions {
         errorObject?: any
     }
     loadSessionRecordingsSuccess: (
-        sessionRecordingsResponse: {
-            has_next: boolean
-            next_cursor: string | undefined
+        sessionRecordingsResponse: RecordingsQueryResponse & {
             order:
                 | 'active_seconds'
                 | 'activity_score'
@@ -681,16 +679,13 @@ export interface sessionRecordingsPlaylistLogicActions {
                 | 'surfacing_score'
                 | undefined
             order_direction: RecordingOrderDirection | undefined
-            results: SessionRecordingType[]
         },
         payload?: {
             direction: 'newer' | 'older' | undefined
             userModifiedFilters: Record<string, any> | undefined
         }
     ) => {
-        sessionRecordingsResponse: {
-            has_next: boolean
-            next_cursor: string | undefined
+        sessionRecordingsResponse: RecordingsQueryResponse & {
             order:
                 | 'active_seconds'
                 | 'activity_score'
@@ -706,7 +701,6 @@ export interface sessionRecordingsPlaylistLogicActions {
                 | 'surfacing_score'
                 | undefined
             order_direction: RecordingOrderDirection | undefined
-            results: SessionRecordingType[]
         }
         payload?: {
             direction: 'newer' | 'older' | undefined
@@ -955,9 +949,25 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
             {
                 loadSessionRecordings: async ({ direction, userModifiedFilters }, breakpoint) => {
-                    // Captured before the awaits: `values` reads throw if this logic unmounts
-                    // mid-flight, and the fetch report must carry the filters the request was
-                    // built from, not whatever they are once the response lands.
+                    // A navigation can detach this logic while React re-mounts the web analytics
+                    // replay tile that attaches it. `afterMount` then starts this load after the
+                    // store path is gone, and a bare `values` read throws "[KEA] Can not find
+                    // path". Drop the load if the logic is no longer mounted, before any store read.
+                    if (!sessionRecordingsPlaylistLogic.findMounted(props)) {
+                        return {
+                            results: [],
+                            has_next: false,
+                            next_cursor: undefined,
+                            order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                            order_direction: 'DESC',
+                        } as RecordingsQueryResponse & {
+                            order: RecordingsQuery['order']
+                            order_direction: RecordingsQuery['order_direction']
+                        }
+                    }
+
+                    // Read `filters` before the awaits so the fetch report carries the filters the
+                    // request was built from, not whatever they are once the response lands.
                     const filters = values.filters
                     const convertedQuery = convertUniversalFiltersToRecordingsQuery(filters)
                     const params: RecordingsQuery & { add_events_to_property_queries?: '1' } = {
