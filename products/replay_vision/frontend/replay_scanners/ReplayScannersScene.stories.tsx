@@ -753,3 +753,21 @@ export const ScannerEditorGoalOverview: StoryObj = {
         },
     ],
 }
+
+// The overview while the draft is still generating: the loading bar and skeleton the user sees
+// right after submitting the two questions.
+export const ScannerEditorGoalOverviewLoading: StoryObj = {
+    parameters: {
+        pageUrl: urls.replayVisionScannerOverview('new'),
+        featureFlags: { [FEATURE_FLAGS.VISION_GOAL_BASED_CREATION_FLOW]: 'test' },
+    },
+    decorators: [
+        (StoryFn) => {
+            const logic = replayScannerLogic({ id: 'new' })
+            logic.mount()
+            // Hold the draft loader open so the overview renders its skeleton instead of a result.
+            logic.actions.draftScannerFromGoal('find out where people give up in billing', 5000)
+            return <StoryFn />
+        },
+    ],
+}
