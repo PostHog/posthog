@@ -2733,6 +2733,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 ['channel_source', 'Channel source'],
                                 ['last_message_at', 'Last message at'],
                                 ['last_message_text', 'Last message text'],
+                                ['first_message_text', 'First message text'],
                                 ['unread_team_count', 'Unread team'],
                                 ['unread_customer_count', 'Unread customer'],
                                 ['sla', 'SLA'],
