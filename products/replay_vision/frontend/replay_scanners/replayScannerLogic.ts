@@ -294,6 +294,7 @@ export interface replayScannerLogicValues {
     chartDateFrom: string | null
     chartDateTo: string | null
     copyingAllObservations: boolean
+    creationMethod: 'ai' | 'scratch' | 'template' | null
     creditLimitState: CreditLimitState
     durationValidationError: string | null
     estimateRequestVersion: number
@@ -1023,6 +1024,16 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             null as DraftScannerResponseApi | null,
             {
                 startFromTemplate: () => null,
+            },
+        ],
+        // How the current new-scanner draft was started, so the completion event can split the
+        // creation funnel by path. Set by the same actions that emit `creation_started`; null until
+        // one fires, so a resumed draft after a reload records the method as unknown.
+        creationMethod: [
+            null as 'ai' | 'template' | 'scratch' | null,
+            {
+                draftScannerFromGoal: () => 'ai',
+                startFromTemplate: (_, { templateKey }) => (templateKey ? 'template' : 'scratch'),
             },
         ],
         // Which tag's cohort is being created, so tag rows can show a per-row spinner.
@@ -1857,11 +1868,17 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 actions.setExperimentContext(null)
                 actions.resetScanner(values.originalScanner ?? newScanner(null))
             },
-            scannerSaved: () => {
+            scannerSaved: ({ scanner }) => {
                 actions.requestScannerEstimate()
                 // Saving recomputes the persisted estimate, which shifts the org-wide fleet sum.
                 refreshVisionQuota()
                 if (props.id === 'new') {
+                    // Completes the creation funnel `creation_started` opened, tagged with the same
+                    // path so a first save from each entry point can be counted and compared.
+                    posthog.capture('replay_vision_scanner_created', {
+                        creation_method: values.creationMethod ?? 'unknown',
+                        scanner_type: scanner.scanner_type,
+                    })
                     clearScannerDraft()
                     actions.setScannerDraftSavedAt(null)
                     // The saved scanner's experiment association ends here; a new scanner started in

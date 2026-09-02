@@ -1444,6 +1444,30 @@ describe('replayScannerLogic', () => {
                 goal_length: 'find users who get stuck'.length,
             })
         })
+
+        it.each([
+            ['dead_end', 'template'],
+            [null, 'scratch'],
+        ])('saving after startFromTemplate(%s) completes the funnel as %s', (templateKey, creationMethod) => {
+            logic.actions.startFromTemplate(templateKey)
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            logic.actions.scannerSaved(logic.values.scanner!)
+            expect(captureSpy).toHaveBeenCalledWith('replay_vision_scanner_created', {
+                creation_method: creationMethod,
+                scanner_type: logic.values.scanner!.scanner_type,
+            })
+        })
+
+        it('records the method as unknown when the draft was resumed without a start action', () => {
+            // A reload drops the in-memory creationMethod, so a save from the restored form must
+            // still complete the funnel rather than throwing or reporting a wrong path.
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            logic.actions.scannerSaved(logic.values.scanner!)
+            expect(captureSpy).toHaveBeenCalledWith(
+                'replay_vision_scanner_created',
+                expect.objectContaining({ creation_method: 'unknown' })
+            )
+        })
     })
 
     describe('rebuildExperimentContext', () => {
