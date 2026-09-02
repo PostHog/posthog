@@ -68,6 +68,7 @@ import {
 } from '../replay_scanners/types'
 import { scannerLabel } from '../utils/observation'
 import { ObservationLabelControl } from './ObservationLabelControl'
+import { ObservationPinnedProperties } from './ObservationPinnedProperties'
 import { neighborFilterParams, observationDetailUrl, replayObservationLogic } from './replayObservationLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
@@ -296,6 +297,8 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                     </>
                 }
             />
+
+            <ObservationPinnedProperties sessionId={observation.session_id} />
 
             <LemonCard className="overflow-hidden p-0" hoverEffect={false}>
                 <div
