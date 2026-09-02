@@ -436,6 +436,7 @@ function FeaturePlanningTab({ report }: { report: SignalReport }): JSX.Element {
         planningSessionActive,
         planningTask,
         startingPlanningSession,
+        openQuestions,
     } = useValues(logic)
     const { finishPlanning, startPlanningSession } = useActions(logic)
     const reportDetailLogic = inboxReportDetailLogic({ reportId: report.id, report })
@@ -513,6 +514,47 @@ function FeaturePlanningTab({ report }: { report: SignalReport }): JSX.Element {
                 </div>
             ) : (
                 <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-2 gap-5 @4xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] @4xl:grid-rows-1">
+                    <div className="flex min-h-0 min-w-0 flex-col gap-5 overflow-y-auto pr-2">
+                        <DetailSection icon={<IconDocument />} title="Summary" collapsible defaultCollapsed>
+                            {report.summary ? (
+                                <LemonMarkdown className={MARKDOWN_BODY_CLASSES} disableImages>
+                                    {report.summary}
+                                </LemonMarkdown>
+                            ) : (
+                                <p className="m-0 text-sm italic text-tertiary">
+                                    No summary yet. Plan the feature with the agent and it will fill this in.
+                                </p>
+                            )}
+                        </DetailSection>
+                        <DetailSection
+                            icon={<IconQuestion />}
+                            title="Open questions"
+                            meta={
+                                <span className="text-[0.6875rem] text-tertiary tabular-nums">
+                                    {openQuestions.length}
+                                </span>
+                            }
+                        >
+                            {openQuestions.length > 0 ? (
+                                <div className="grid grid-cols-1 gap-3 @3xl:grid-cols-2">
+                                    {openQuestions.map((artefact) => (
+                                        <OpenQuestionItem key={artefact.id} report={report} artefact={artefact} />
+                                    ))}
+                                </div>
+                            ) : (
+                                <p className="m-0 text-sm italic text-tertiary">
+                                    No open questions. The agent asks here when it needs your input.
+                                </p>
+                            )}
+                        </DetailSection>
+                        <DetailSection icon={<IconClockRewind />} title="Artefacts">
+                            {reportArtefacts && reportArtefacts.length > 0 ? (
+                                <ArtefactLogList reportId={report.id} artefacts={reportArtefacts} />
+                            ) : (
+                                <p className="m-0 text-sm italic text-tertiary">Nothing yet.</p>
+                            )}
+                        </DetailSection>
+                    </div>
                     <div className="flex min-h-0 min-w-0 flex-col overflow-hidden">
                         <div className="flex h-full min-h-0 flex-col overflow-hidden rounded border border-primary bg-surface-primary px-4">
                             {planningTaskId && planningRunId ? (
@@ -529,26 +571,6 @@ function FeaturePlanningTab({ report }: { report: SignalReport }): JSX.Element {
                                 </div>
                             )}
                         </div>
-                    </div>
-                    <div className="flex min-h-0 min-w-0 flex-col gap-5 overflow-y-auto pr-2">
-                        <DetailSection icon={<IconDocument />} title="Summary">
-                            {report.summary ? (
-                                <LemonMarkdown className={MARKDOWN_BODY_CLASSES} disableImages>
-                                    {report.summary}
-                                </LemonMarkdown>
-                            ) : (
-                                <p className="m-0 text-sm italic text-tertiary">
-                                    No summary yet. Plan the feature with the agent and it will fill this in.
-                                </p>
-                            )}
-                        </DetailSection>
-                        <DetailSection icon={<IconClockRewind />} title="Artefacts">
-                            {reportArtefacts && reportArtefacts.length > 0 ? (
-                                <ArtefactLogList reportId={report.id} artefacts={reportArtefacts} />
-                            ) : (
-                                <p className="m-0 text-sm italic text-tertiary">Nothing yet.</p>
-                            )}
-                        </DetailSection>
                     </div>
                 </div>
             )}
