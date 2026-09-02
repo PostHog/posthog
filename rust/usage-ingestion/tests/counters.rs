@@ -29,14 +29,16 @@ async fn counters_are_atomic_per_scope_and_do_not_cross_slots() {
     let accumulator = CounterAccumulator::default();
     for offset in 0..SCOPES {
         let team_id = first_team_id + offset;
-        accumulator.add(
-            team_id,
-            organization_id,
-            &usage_key,
-            "event",
-            offset + 1,
-            timestamp,
-        );
+        accumulator
+            .add(
+                team_id,
+                organization_id,
+                &usage_key,
+                "event",
+                offset + 1,
+                timestamp,
+            )
+            .expect("test record should enter the counter accumulator");
     }
 
     let store: Arc<dyn CounterStore> = Arc::new(
@@ -107,14 +109,16 @@ async fn counters_are_atomic_per_scope_and_do_not_cross_slots() {
 
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     let retry = CounterAccumulator::default();
-    retry.add(
-        first_team_id + SCOPES - 1,
-        organization_id,
-        "ttl_does_not_refresh",
-        "event",
-        1,
-        timestamp,
-    );
+    retry
+        .add(
+            first_team_id + SCOPES - 1,
+            organization_id,
+            "ttl_does_not_refresh",
+            "event",
+            1,
+            timestamp,
+        )
+        .expect("test retry should enter the counter accumulator");
     let (_, retry_dropped) = flush(Arc::clone(&store), retry.drain()).await;
     assert_eq!(retry_dropped, 0);
     let retried_hourly_ttl: i64 = redis::cmd("TTL")

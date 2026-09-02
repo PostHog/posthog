@@ -62,6 +62,20 @@ Every producer reads the same four env vars, and each one is its own deployment,
 Empty is the default everywhere, so nothing reports until it is set.
 There is deliberately no percentage option: sampling a share of a team's events would bill that team a fraction of what it used.
 
+### Redis usage projection
+
+`usage-ingestion` can maintain an optional, approximate Valkey projection for
+fast hourly and daily usage reads. Set `USAGE_INGESTION_REDIS_URL` to enable
+it. An empty URL disables it. `USAGE_INGESTION_REDIS_FLUSH_INTERVAL_SECONDS`
+defaults to 15 seconds. When Valkey is unavailable, the service keeps ingesting
+durable records and drops only the unavailable projection interval before
+retrying the connection.
+
+The projection accepts timestamps from seven days behind to 24 hours ahead of
+the current time and limits each scope and bucket to 16 usage series. These
+bounds keep its keyspace proportional to active teams rather than producer
+input cardinality.
+
 Every record carries quantity 1 and names one billed thing, so the aggregate lives in ClickHouse rather than in the producer.
 A producer that sees the same identity twice sends one record, because two records sharing an identity collapse rather than add.
 

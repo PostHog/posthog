@@ -183,7 +183,14 @@ impl UsageIngestion for UsageIngestionService {
             metrics::histogram!("usage_ingestion_distinct_scopes_per_request")
                 .record(CounterAccumulator::scope_count_for_records(&prepared) as f64);
             for record in &prepared {
-                counters.add_record(record);
+                if let Err(error) = counters.add_record(record) {
+                    metrics::counter!(
+                        "usage_ingestion_redis_counter_rejected_deltas_total",
+                        "reason" => error.reason()
+                    )
+                    .increment(1);
+                    metrics::counter!("usage_ingestion_redis_counter_errors_total").increment(1);
+                }
             }
         }
 

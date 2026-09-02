@@ -35,7 +35,11 @@ development. It uses structured JSON logs otherwise.
 Set `USAGE_INGESTION_REDIS_URL` to a dedicated Valkey Cluster endpoint to
 enable the lossy hourly and daily counter projection. It is disabled when the
 URL is empty, so Kafka and ClickHouse remain the only required dependencies.
-`USAGE_INGESTION_REDIS_FLUSH_INTERVAL_SECONDS` defaults to `15`.
+When Valkey is unavailable, the flusher retries every
+`USAGE_INGESTION_REDIS_FLUSH_INTERVAL_SECONDS` (default `15`) and drops the
+unavailable interval's deltas. Counter timestamps are limited to seven days
+behind and 24 hours ahead of the current time, with at most 16 series per
+scope and bucket.
 
 The local cluster endpoint is `redis://127.0.0.1:6390`. Start it and run its
 integration test with:

@@ -22,7 +22,14 @@ use usage_ingestion_proto::usage_ingestion::v1::{BillingUsageRecord, IngestBilli
 use uuid::Uuid;
 
 /// Midnight UTC, so the whole run shares one `toDate(timestamp)` and one monthly partition.
-const BASE_TIMESTAMP_MS: i64 = 1_718_409_600_000; // 2024-06-15T00:00:00Z
+fn base_timestamp_ms() -> i64 {
+    Utc::now()
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
+        .unwrap()
+        .and_utc()
+        .timestamp_millis()
+}
 /// An hour after the original: a different `timestamp` but the same day, which is the window
 /// the sorting key deduplicates within. Producers stamp flush time, so a retry does move it.
 const RETRY_OFFSET_MS: i64 = 3_600_000;
@@ -48,7 +55,13 @@ const USAGE_KEYS: [(&str, &str); 4] = [
 /// A retry reuses the sorting key `(team_id, toDate(timestamp), producer_id, usage_key,
 /// record_id)` while moving `timestamp` within the day. Narrowing the key's date to the exact
 /// timestamp makes this test fail with double the rows.
-fn record(run: &str, index: usize, retry: bool, first_team_id: i64) -> BillingUsageRecord {
+fn record(
+    run: &str,
+    index: usize,
+    retry: bool,
+    first_team_id: i64,
+    base_timestamp_ms: i64,
+) -> BillingUsageRecord {
     let (usage_key, unit) = USAGE_KEYS[(index / TEAMS) % USAGE_KEYS.len()];
     let event_offset_ms = (index % 60_000) as i64;
     BillingUsageRecord {
@@ -58,7 +71,7 @@ fn record(run: &str, index: usize, retry: bool, first_team_id: i64) -> BillingUs
         usage_key: usage_key.to_string(),
         unit: unit.to_string(),
         quantity: 1 + (index % 100) as i64,
-        timestamp_ms: BASE_TIMESTAMP_MS + event_offset_ms + if retry { RETRY_OFFSET_MS } else { 0 },
+        timestamp_ms: base_timestamp_ms + event_offset_ms + if retry { RETRY_OFFSET_MS } else { 0 },
     }
 }
 
@@ -83,6 +96,7 @@ async fn sustains_thousands_of_concurrent_requests() {
     let retries = requests / 10;
     let unique = requests - retries;
     let run = Uuid::new_v4().to_string();
+    let base_timestamp_ms = base_timestamp_ms();
     let first_team_id = 1 + (Uuid::new_v4().as_u128() % (i32::MAX as u128 - TEAMS as u128)) as i64;
     let organization_id = Uuid::new_v4();
     let accumulator = Arc::new(CounterAccumulator::default());
@@ -104,7 +118,7 @@ async fn sustains_thousands_of_concurrent_requests() {
         let started = Instant::now();
         baseline_client
             .ingest_billing_usage(IngestBillingUsageRequest {
-                records: vec![record(&run, index, false, first_team_id)],
+                records: vec![record(&run, index, false, first_team_id, base_timestamp_ms)],
             })
             .await
             .expect("a baseline ingest failed");
@@ -114,8 +128,10 @@ async fn sustains_thousands_of_concurrent_requests() {
     baseline_latencies.sort();
 
     let mut plan: Vec<BillingUsageRecord> = (0..unique)
-        .map(|index| record(&run, index, false, first_team_id))
-        .chain((0..retries).map(|index| record(&run, index, true, first_team_id)))
+        .map(|index| record(&run, index, false, first_team_id, base_timestamp_ms))
+        .chain(
+            (0..retries).map(|index| record(&run, index, true, first_team_id, base_timestamp_ms)),
+        )
         .collect();
     // Arrival order must not match event order: a retry landing before its original still has
     // to collapse to one row.
@@ -209,9 +225,9 @@ async fn sustains_thousands_of_concurrent_requests() {
         .get_async_connection()
         .await
         .expect("failed to connect to Valkey Cluster");
-    let timestamp = DateTime::<Utc>::from_timestamp_millis(BASE_TIMESTAMP_MS).unwrap();
+    let timestamp = DateTime::<Utc>::from_timestamp_millis(base_timestamp_ms).unwrap();
     let retry_timestamp =
-        DateTime::<Utc>::from_timestamp_millis(BASE_TIMESTAMP_MS + RETRY_OFFSET_MS).unwrap();
+        DateTime::<Utc>::from_timestamp_millis(base_timestamp_ms + RETRY_OFFSET_MS).unwrap();
     let buckets = [
         Bucket::Hour(timestamp.timestamp().div_euclid(60 * 60)),
         Bucket::Hour(retry_timestamp.timestamp().div_euclid(60 * 60)),

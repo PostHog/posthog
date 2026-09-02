@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use futures::{stream, StreamExt};
 use redis::cluster::ClusterClient;
 use redis::cluster_async::ClusterConnection;
@@ -18,6 +18,18 @@ const HOURLY_TTL_SECONDS: u64 = 25 * 60 * 60;
 const DAILY_TTL_SECONDS: u64 = 31 * 24 * 60 * 60;
 const CONNECTIONS: usize = 16;
 const FLUSH_CONCURRENCY: usize = 16;
+const MAX_SERIES_PER_BUCKET: usize = 16;
+const MAX_PAST_TIMESTAMP: ChronoDuration = ChronoDuration::days(7);
+const MAX_FUTURE_TIMESTAMP: ChronoDuration = ChronoDuration::hours(24);
+const INCREMENT_COUNTER: &str = r#"
+local exists = redis.call('HEXISTS', KEYS[1], ARGV[1])
+if exists == 0 and redis.call('HLEN', KEYS[1]) >= tonumber(ARGV[4]) then
+    return 0
+end
+redis.call('HINCRBY', KEYS[1], ARGV[1], ARGV[2])
+redis.call('EXPIRE', KEYS[1], ARGV[3], 'NX')
+return 1
+"#;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum CounterScope {
@@ -67,16 +79,27 @@ struct CounterEntry {
     field: String,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum CounterAddError {
+    TimestampOutOfRange,
+    TooManySeries,
+    Overflow,
+}
+
+impl CounterAddError {
+    pub fn reason(&self) -> &'static str {
+        match self {
+            Self::TimestampOutOfRange => "timestamp_out_of_range",
+            Self::TooManySeries => "too_many_series",
+            Self::Overflow => "overflow",
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ScopeCounters {
     scope: CounterScope,
     entries: HashMap<CounterEntry, i64>,
-}
-
-impl ScopeCounters {
-    fn command_count(&self) -> usize {
-        self.entries.len() * 2
-    }
 }
 
 /// A process-local, lossy aggregation of Kafka-confirmed usage records.
@@ -86,7 +109,7 @@ pub struct CounterAccumulator {
 }
 
 impl CounterAccumulator {
-    pub fn add_record(&self, record: &KafkaBillingUsageRecord) {
+    pub fn add_record(&self, record: &KafkaBillingUsageRecord) -> Result<(), CounterAddError> {
         self.add(
             record.team_id,
             record.organization_id,
@@ -94,7 +117,7 @@ impl CounterAccumulator {
             &record.unit,
             record.quantity,
             record.usage_timestamp,
-        );
+        )
     }
 
     pub fn add(
@@ -105,15 +128,46 @@ impl CounterAccumulator {
         unit: &str,
         quantity: i64,
         timestamp: DateTime<Utc>,
-    ) {
+    ) -> Result<(), CounterAddError> {
+        let now = Utc::now();
+        if timestamp < now - MAX_PAST_TIMESTAMP || timestamp > now + MAX_FUTURE_TIMESTAMP {
+            return Err(CounterAddError::TimestampOutOfRange);
+        }
         let field = usage_field(usage_key, unit);
-        let mut pending = self.pending.lock().expect("usage counter mutex poisoned");
-        for scope in [
+        let buckets = Bucket::from_timestamp(timestamp);
+        let scopes = [
             CounterScope::Team(team_id),
             CounterScope::Organization(organization_id),
-        ] {
+        ];
+        let mut pending = self.pending.lock().expect("usage counter mutex poisoned");
+        for scope in &scopes {
+            let entries = pending.get(scope);
+            for bucket in buckets {
+                let entry = CounterEntry {
+                    bucket,
+                    field: field.clone(),
+                };
+                if entries.is_some_and(|entries| {
+                    !entries.contains_key(&entry)
+                        && entries
+                            .keys()
+                            .filter(|existing| existing.bucket == bucket)
+                            .count()
+                            >= MAX_SERIES_PER_BUCKET
+                }) {
+                    return Err(CounterAddError::TooManySeries);
+                }
+                if entries
+                    .and_then(|entries| entries.get(&entry))
+                    .is_some_and(|current| current.checked_add(quantity).is_none())
+                {
+                    return Err(CounterAddError::Overflow);
+                }
+            }
+        }
+        for scope in scopes {
             let entries = pending.entry(scope).or_default();
-            for bucket in Bucket::from_timestamp(timestamp) {
+            for bucket in buckets {
                 *entries
                     .entry(CounterEntry {
                         bucket,
@@ -122,6 +176,7 @@ impl CounterAccumulator {
                     .or_default() += quantity;
             }
         }
+        Ok(())
     }
 
     pub fn drain(&self) -> Vec<ScopeCounters> {
@@ -148,7 +203,10 @@ impl CounterAccumulator {
 
 #[async_trait]
 pub trait CounterStore: Send + Sync {
-    async fn flush_scope(&self, counters: ScopeCounters) -> Result<usize, redis::RedisError>;
+    async fn flush_scope(
+        &self,
+        counters: ScopeCounters,
+    ) -> Result<(usize, usize), redis::RedisError>;
 }
 
 /// Cluster-aware store. Each scope is one transaction, and every key in it has the same hash tag.
@@ -175,28 +233,29 @@ impl RedisCounterStore {
 
 #[async_trait]
 impl CounterStore for RedisCounterStore {
-    async fn flush_scope(&self, counters: ScopeCounters) -> Result<usize, redis::RedisError> {
-        let command_count = counters.command_count();
+    async fn flush_scope(
+        &self,
+        counters: ScopeCounters,
+    ) -> Result<(usize, usize), redis::RedisError> {
+        let entry_count = counters.entries.len();
         let mut pipeline = redis::pipe();
         pipeline.atomic();
         for (entry, quantity) in counters.entries {
             let key = counter_key(&counters.scope, entry.bucket);
             pipeline
-                .cmd("HINCRBY")
+                .cmd("EVAL")
+                .arg(INCREMENT_COUNTER)
+                .arg(1)
                 .arg(&key)
                 .arg(&entry.field)
                 .arg(quantity)
-                .ignore();
-            pipeline
-                .cmd("EXPIRE")
-                .arg(&key)
                 .arg(entry.bucket.ttl_seconds())
-                .arg("NX")
-                .ignore();
+                .arg(MAX_SERIES_PER_BUCKET);
         }
         let mut connection = self.connection(&counters.scope).lock().await;
-        pipeline.query_async::<()>(&mut *connection).await?;
-        Ok(command_count)
+        let accepted = pipeline.query_async::<Vec<i64>>(&mut *connection).await?;
+        let accepted = accepted.into_iter().filter(|result| *result == 1).count();
+        Ok((accepted * 2, entry_count - accepted))
     }
 }
 
@@ -224,7 +283,7 @@ pub async fn flush(store: Arc<dyn CounterStore>, counters: Vec<ScopeCounters>) -
             async move {
                 let entries = counters.entries.len();
                 match store.flush_scope(counters).await {
-                    Ok(commands) => (commands, 0),
+                    Ok((commands, dropped)) => (commands, dropped),
                     Err(error) => {
                         warn!(%error, dropped_deltas = entries, "usage counter flush failed");
                         (0, entries)
@@ -245,18 +304,41 @@ pub async fn flush(store: Arc<dyn CounterStore>, counters: Vec<ScopeCounters>) -
 
 pub fn spawn_flush_task(
     accumulator: Arc<CounterAccumulator>,
-    store: Arc<dyn CounterStore>,
+    redis_url: String,
     interval: Duration,
 ) {
     tokio::spawn(async move {
         let mut ticker = tokio::time::interval(interval);
+        let mut store: Option<Arc<dyn CounterStore>> = None;
         loop {
             ticker.tick().await;
             let started = Instant::now();
+            if store.is_none() {
+                match RedisCounterStore::connect(&redis_url).await {
+                    Ok(redis_store) => {
+                        store = Some(Arc::new(redis_store));
+                        metrics::gauge!("usage_ingestion_redis_counter_connected").set(1.0);
+                    }
+                    Err(error) => {
+                        let dropped = accumulator
+                            .drain()
+                            .iter()
+                            .map(|scope| scope.entries.len())
+                            .sum::<usize>();
+                        tracing::warn!(%error, dropped_deltas = dropped, "usage counter Redis is unavailable");
+                        metrics::gauge!("usage_ingestion_redis_counter_connected").set(0.0);
+                        metrics::counter!("usage_ingestion_redis_counter_dropped_deltas_total")
+                            .increment(dropped as u64);
+                        metrics::counter!("usage_ingestion_redis_counter_errors_total")
+                            .increment(1);
+                        continue;
+                    }
+                }
+            }
             let counters = accumulator.drain();
             metrics::gauge!("usage_ingestion_redis_counter_accumulator_scopes")
                 .set(counters.len() as f64);
-            let (commands, dropped) = flush(Arc::clone(&store), counters).await;
+            let (commands, dropped) = flush(Arc::clone(store.as_ref().unwrap()), counters).await;
             metrics::histogram!("usage_ingestion_redis_counter_flush_seconds")
                 .record(started.elapsed().as_secs_f64());
             metrics::counter!("usage_ingestion_redis_counter_commands_flushed_total")
@@ -265,6 +347,7 @@ pub fn spawn_flush_task(
                 .increment(dropped as u64);
             if dropped > 0 {
                 metrics::counter!("usage_ingestion_redis_counter_errors_total").increment(1);
+                store = None;
             }
         }
     });
@@ -278,10 +361,16 @@ mod tests {
     fn hashes_stay_with_their_scope_and_accumulator_merges_series() {
         let organization_id = Uuid::nil();
         let accumulator = CounterAccumulator::default();
-        let timestamp = DateTime::from_timestamp(1_718_409_600, 0).unwrap();
-        accumulator.add(42, organization_id, "events", "event", 2, timestamp);
-        accumulator.add(42, organization_id, "events", "event", 3, timestamp);
-        accumulator.add(43, organization_id, "events", "event", 1, timestamp);
+        let timestamp = Utc::now();
+        accumulator
+            .add(42, organization_id, "events", "event", 2, timestamp)
+            .unwrap();
+        accumulator
+            .add(42, organization_id, "events", "event", 3, timestamp)
+            .unwrap();
+        accumulator
+            .add(43, organization_id, "events", "event", 1, timestamp)
+            .unwrap();
 
         let drained = accumulator.drain();
         assert_eq!(drained.len(), 3);
@@ -298,5 +387,60 @@ mod tests {
         );
         assert!(counter_key(&CounterScope::Team(42), Bucket::Hour(477_336)).contains("{team:42}"));
         assert!(counter_key(&CounterScope::Team(42), Bucket::Day(19_889)).contains("{team:42}"));
+    }
+
+    #[test]
+    fn bounds_series_timestamps_and_deltas() {
+        let organization_id = Uuid::nil();
+        let accumulator = CounterAccumulator::default();
+        let now = Utc::now();
+
+        assert_eq!(
+            accumulator.add(
+                42,
+                organization_id,
+                "events",
+                "event",
+                1,
+                now - ChronoDuration::days(8),
+            ),
+            Err(CounterAddError::TimestampOutOfRange)
+        );
+        assert_eq!(
+            accumulator.add(
+                42,
+                organization_id,
+                "events",
+                "event",
+                1,
+                now + ChronoDuration::hours(25),
+            ),
+            Err(CounterAddError::TimestampOutOfRange)
+        );
+        for index in 0..MAX_SERIES_PER_BUCKET {
+            accumulator
+                .add(
+                    42,
+                    organization_id,
+                    &format!("events_{index}"),
+                    "event",
+                    1,
+                    now,
+                )
+                .unwrap();
+        }
+        assert_eq!(
+            accumulator.add(42, organization_id, "one_too_many", "event", 1, now),
+            Err(CounterAddError::TooManySeries)
+        );
+
+        let overflow = CounterAccumulator::default();
+        overflow
+            .add(43, organization_id, "events", "event", i64::MAX, now)
+            .unwrap();
+        assert_eq!(
+            overflow.add(43, organization_id, "events", "event", 1, now),
+            Err(CounterAddError::Overflow)
+        );
     }
 }

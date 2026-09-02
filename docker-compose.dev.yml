@@ -709,6 +709,10 @@ services:
                 condition: service_healthy
             kafka:
                 condition: service_healthy
+            valkey-cluster:
+                condition: service_healthy
+        environment:
+            USAGE_INGESTION_REDIS_URL: 'redis://valkey-cluster:6379'
         # Keeps a bare `up` from building an image that is not published yet.
         profiles:
             - ingestion
