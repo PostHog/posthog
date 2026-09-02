@@ -127,9 +127,16 @@ For **each** cluster the workflow targets (dev, then prod-us):
   - `HOG_TASKS_GOLDEN_PROD_ENABLED=true` — second arm for prod-targeting
     clusters. The prod-us leg stays a no-op until this is set, so it does not
     fail nightly before its own principal + TrustMapping exist.
-  - No `HOGLAND_CLI_REF` needed — the workflow resolves the newest released
-    `vX.Y.Z-cli` tag from `PostHog/hogland` at runtime (immutable and reviewed,
-    never `main`), guarding a `v1.5.0-cli` minimum.
+  - No `HOGLAND_CLI_REF` var needed — the workflow builds the CLI from an
+    immutable, reviewed `PostHog/hogland` ref, never `main`.
+    The bake stores no bearer, so the CLI must support `HOG_TOKEN_COMMAND`, which
+    landed after `v1.5.0-cli`; a release at or below that floor mints no token and
+    dies on the first authenticated call.
+    So the workflow pins the hogland commit that added `HOG_TOKEN_COMMAND`
+    (`HOGLAND_CLI_PIN` in the `Resolve hogland CLI ref` step).
+    Once a `-cli` release newer than `v1.5.0-cli` exists, clear the pin — the
+    floor check then requires the newest release to be strictly newer than
+    `v1.5.0-cli`.
   - The quiet-window guard's rollout workflow is **per cluster**, hardcoded in the
     bake matrix (dev: `deploy.yml`, prod-us: `promote-to-prod.yml`) — not a shared
     var, because the two clusters roll out through different workflows. The guard
