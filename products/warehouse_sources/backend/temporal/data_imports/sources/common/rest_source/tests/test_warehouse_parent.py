@@ -1,3 +1,4 @@
+import os
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -77,6 +78,17 @@ def _patched_resolve(uri: str, snapshot_timestamp=None, row_filter=None):
         patch.object(warehouse_parent, "_snapshot_pin_as_of", return_value=snapshot_timestamp),
     ):
         return resolve_parent_table_ref(1, "00000000-0000-0000-0000-000000000000", "issues", row_filter=row_filter)
+
+
+# Delta time travel resolves a timestamp against each commit file's modification time, not the
+# `commitInfo` timestamp the file carries. Restamp both, so a test that pins between two commits
+# does not depend on how coarsely the runner's clock stamped them.
+def _stamp_commit(commit_file: Path, at: datetime) -> None:
+    entries = commit_file.read_text().splitlines()
+    commit = json.loads(entries[0])
+    commit["commitInfo"]["timestamp"] = int(at.timestamp() * 1000)
+    commit_file.write_text("\n".join([json.dumps(commit), *entries[1:]]) + "\n")
+    os.utime(commit_file, (at.timestamp(), at.timestamp()))
 
 
 def test_resolve_parent_table_ref_raises_when_parent_schema_missing() -> None:
@@ -177,19 +189,17 @@ def test_resolve_raises_when_parent_has_no_synced_table(tmp_path: Path) -> None:
 
 def test_resolve_pins_to_last_completed_snapshot_while_parent_is_syncing(tmp_path: Path) -> None:
     uri = _write_parent_table(tmp_path)
-    v0_table = deltalake.DeltaTable(uri)
-    v0 = v0_table.version()
-    v0_timestamp = datetime.fromtimestamp(v0_table.history()[0]["timestamp"] / 1000, tz=UTC)
+    v0 = deltalake.DeltaTable(uri).version()
 
     # An in-flight full refresh has already committed a partial overwrite on top of v0.
     deltalake.write_deltalake(uri, pa.table({"id": ["partial"], "last_seen": ["x"], "title": ["y"]}), mode="overwrite")
-    partial_refresh_log = Path(uri) / "_delta_log" / "00000000000000000001.json"
-    entries = partial_refresh_log.read_text().splitlines()
-    partial_refresh_commit = json.loads(entries[0])
-    partial_refresh_commit["commitInfo"]["timestamp"] = int(v0_timestamp.timestamp() * 1000) + 1
-    partial_refresh_log.write_text("\n".join([json.dumps(partial_refresh_commit), *entries[1:]]) + "\n")
 
-    pinned = _patched_resolve(uri, snapshot_timestamp=v0_timestamp)
+    delta_log = Path(uri) / "_delta_log"
+    pin = datetime.now(tz=UTC)
+    _stamp_commit(delta_log / "00000000000000000000.json", pin - timedelta(minutes=1))
+    _stamp_commit(delta_log / "00000000000000000001.json", pin + timedelta(minutes=1))
+
+    pinned = _patched_resolve(uri, snapshot_timestamp=pin)
 
     assert pinned.version == v0
 
