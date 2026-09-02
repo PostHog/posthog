@@ -2,6 +2,7 @@ import { ConfigScopeEnumApi, DomainScopeEnumApi, IdentityProviderConfigApi } fro
 
 import {
     getIdentityProviderConfigForScope,
+    getIdentityProviderConfigsForScope,
     getIdentityProviderConfigStatus,
     hasSamlDomainScopeConflict,
     getIdentityProviderConfigStatusDescription,
@@ -21,7 +22,13 @@ const makeConfig = (overrides: Partial<IdentityProviderConfigApi> = {}): Identit
 })
 
 describe('identityProviderConfigUtils', () => {
-    it('prefers a feature-scoped config and falls back to an unscoped config', () => {
+    it('returns every config for a feature while keeping legacy unscoped fallback behavior', () => {
+        const firstSamlConfig = makeConfig({ id: 'saml-1', config_scope: ConfigScopeEnumApi.Saml })
+        const secondSamlConfig = makeConfig({ id: 'saml-2', config_scope: ConfigScopeEnumApi.Saml })
+        expect(
+            getIdentityProviderConfigsForScope([firstSamlConfig, secondSamlConfig], ConfigScopeEnumApi.Saml)
+        ).toEqual([firstSamlConfig, secondSamlConfig])
+
         const unscopedConfig = makeConfig({ id: 'unscoped', config_scope: null })
         const samlConfig = makeConfig({ id: 'saml', config_scope: ConfigScopeEnumApi.Saml })
 
@@ -31,6 +38,9 @@ describe('identityProviderConfigUtils', () => {
         expect(getIdentityProviderConfigForScope([unscopedConfig, samlConfig], ConfigScopeEnumApi.Scim)?.id).toBe(
             'unscoped'
         )
+        expect(getIdentityProviderConfigsForScope([unscopedConfig, samlConfig], ConfigScopeEnumApi.Scim)).toEqual([
+            unscopedConfig,
+        ])
     })
 
     it.each([

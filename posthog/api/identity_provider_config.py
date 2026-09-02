@@ -346,15 +346,12 @@ class IdentityProviderConfigViewSet(TeamAndOrgViewSetMixin, ModelViewSet):
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         config = cast(IdentityProviderConfig, self.get_object())
-        # Deleting a config takes every SCIM provisioning record with it, and with them the IdP's
-        # immutable-id mapping for those users — the next sync provisions everyone again. Make that
-        # reachable only after the domain is explicitly unlinked, so it can't ride along on a
-        # misdirected request against a live configuration.
-        if config.organization_domains.exists():
+        if config.config_scope is None:
             raise exceptions.ValidationError(
-                "This configuration is mapped to an organization domain. Remove its domain mappings before deleting it.",
-                code="linked_to_domain",
+                "This identity provider configuration cannot be deleted until it has a feature scope.",
+                code="unscoped_config",
             )
+
         return super().destroy(request, *args, **kwargs)
 
     @extend_schema(parameters=[SCIMRequestLogQuerySerializer], responses=PaginatedSCIMRequestLogSerializer)

@@ -74,6 +74,19 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                 '/api/users/@me': USER_WITH_IDENTITY_PROVIDER_FEATURES,
                 '/api/projects/:id/integrations': { results: [] },
                 '/api/organizations/:id/integrations': { results: [] },
+                '/api/organizations/:id/identity_provider_configs': {
+                    count: 2,
+                    next: null,
+                    previous: null,
+                    results: [
+                        IDENTITY_PROVIDER_CONFIG,
+                        {
+                            ...IDENTITY_PROVIDER_CONFIG,
+                            id: '0198aaaa-0000-4000-8000-000000000002',
+                            name: 'Example backup identity provider',
+                        },
+                    ],
+                },
                 '/api/organizations/:id/identity_provider_configs/:configId': IDENTITY_PROVIDER_CONFIG,
                 '/api/organizations/:id/domains': {
                     count: 2,
