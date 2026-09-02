@@ -19,6 +19,7 @@ from posthog.temporal.proxy_service.cloudflare import (
     CustomHostnameStatus,
 )
 from posthog.temporal.proxy_service.monitor import (
+    CLOUDFLARE_CHECK_ATTEMPTS,
     PROXY_LIVE_CHECK_TIMEOUT_S,
     CheckActivityInput,
     _check_cloudflare_certificate_status,
@@ -312,16 +313,35 @@ class TestCheckCloudflareCertificateStatus(TestCase):
         self.assertEqual(result.warnings, [])
 
     @pytest.mark.asyncio
+    @patch("posthog.temporal.proxy_service.monitor.CLOUDFLARE_CHECK_RETRY_DELAY_S", 0)
     @patch("posthog.temporal.proxy_service.monitor.get_custom_hostname_by_domain")
-    async def test_unreachable_cloudflare_api_warns_instead_of_failing_the_run(self, mock_get):
-        # An escaping transport error fails the activity, which discards the DNS and liveness
-        # results the monitor run already collected.
+    async def test_unreachable_cloudflare_api_retries_then_warns_instead_of_failing_the_run(self, mock_get):
+        # A persistent transport error must retry, then warn rather than fail the activity, which
+        # would discard the DNS and liveness results the monitor run already collected.
         mock_get.side_effect = requests.exceptions.ProxyError()
 
         result = await _check_cloudflare_certificate_status(Mock(domain="e.example.com"), Mock())
 
         self.assertEqual(result.errors, [])
         self.assertEqual(len(result.warnings), 1)
+        self.assertEqual(mock_get.call_count, CLOUDFLARE_CHECK_ATTEMPTS)
+
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.proxy_service.monitor.CLOUDFLARE_CHECK_RETRY_DELAY_S", 0)
+    @patch("posthog.temporal.proxy_service.monitor.get_custom_hostname_by_domain")
+    async def test_transient_cloudflare_blip_recovers_on_retry(self, mock_get):
+        # A blip on the first call must not warn a healthy proxy: the retry reaches Cloudflare and
+        # reads an active certificate.
+        mock_get.side_effect = [
+            requests.exceptions.ProxyError(),
+            _hostname(status=CustomHostnameStatus.ACTIVE),
+        ]
+
+        result = await _check_cloudflare_certificate_status(Mock(domain="e.example.com"), Mock())
+
+        self.assertEqual(result.errors, [])
+        self.assertEqual(result.warnings, [])
+        self.assertEqual(mock_get.call_count, CLOUDFLARE_CHECK_ATTEMPTS)
 
     @pytest.mark.asyncio
     @patch("posthog.temporal.proxy_service.monitor.get_custom_hostname_by_domain")
