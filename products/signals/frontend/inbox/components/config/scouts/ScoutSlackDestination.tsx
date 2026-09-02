@@ -207,7 +207,7 @@ export function ScoutSlackDestination({
                                     onChange={setThreadReports}
                                     disabledReason={disabledReason}
                                     label="Post reports as a thread"
-                                    tooltip="Post a short lead in the channel and split the rest by the report's headings into replies, so the channel stays readable and a long summary is not cut off."
+                                    tooltip="Post a short lead in the channel and split the rest of the report into replies, one per section, so the channel stays readable and a long summary is not cut off."
                                     bordered
                                 />
                             ) : null}
