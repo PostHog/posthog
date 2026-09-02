@@ -730,6 +730,17 @@ class TestMSSQLSourceNonRetryableErrors:
         assert any(pattern in str(exc_info.value) for pattern in non_retryable.keys())
 
 
+class TestMSSQLSourceCatalogKeywords:
+    @pytest.mark.parametrize("term", ["azure", "azure sql", "azure sql database"])
+    def test_azure_sql_names_are_searchable(self, term):
+        # Azure SQL Database connects through this source, and the catalog search only matches a
+        # source's label, name, and keywords — none of which mention Azure without the keywords.
+        config = MSSQLSource().get_source_config
+        searchable = [config.label or "", str(config.name), *(config.keywords or [])]
+
+        assert any(term in text.lower() for text in searchable), term
+
+
 class TestMSSQLSourceRetryableErrors:
     @pytest.mark.parametrize(
         "error",
