@@ -13240,6 +13240,11 @@ export namespace Schemas {
 
     export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest | PostgresDestinationRequest | AwsS3DestinationRequest | S3CompatibleDestinationRequest | SnowflakeDestinationRequest | RedshiftDestinationRequest;
 
+    export interface BatchExportPausedResponse {
+      /** Whether the batch export is paused after this request. */
+      paused: boolean;
+    }
+
     /**
      * Request body for create/partial_update on BatchExportViewSet.
      *
@@ -13292,6 +13297,11 @@ export namespace Schemas {
          * @nullable
          */
       offset_hour?: number | null;
+    }
+
+    export interface BatchExportUnpauseRequest {
+      /** Backfill the batch export for the period it was paused. */
+      backfill?: boolean;
     }
 
     /**
@@ -61574,25 +61584,6 @@ export namespace Schemas {
       readonly warehouse_origin?: unknown;
     }
 
-    /**
-     * @nullable
-     */
-    export type PatchedErrorTrackingAssignmentRuleAssignee = {
-      readonly type?: 'user' | 'role';
-      readonly id?: number | string;
-    } | null;
-
-    export interface PatchedErrorTrackingAssignmentRule {
-      readonly id?: string;
-      filters?: unknown;
-      /** @nullable */
-      readonly assignee?: PatchedErrorTrackingAssignmentRuleAssignee;
-      order_key?: number;
-      disabled_data?: unknown;
-      readonly created_at?: string;
-      readonly updated_at?: string;
-    }
-
     export interface PatchedErrorTrackingAssignmentRuleUpdateRequest {
       /** Property-group filters that define when this rule matches incoming error events. */
       filters?: PropertyGroupFilterValue | null;
@@ -61600,56 +61591,9 @@ export namespace Schemas {
       assignee?: ErrorTrackingAssignmentRuleAssigneeRequest | null;
     }
 
-    export interface PatchedErrorTrackingBypassRule {
-      /** Unique identifier of the bypass rule. */
-      readonly id?: string;
-      /** Property-group filters that define which incoming error events bypass rate limiting. */
-      filters?: unknown;
-      /** Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order. */
-      order_key?: number;
-      /** Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active. */
-      disabled_data?: unknown;
-      /** When the rule was created. */
-      readonly created_at?: string;
-      /** When the rule was last updated. */
-      readonly updated_at?: string;
-    }
-
     export interface PatchedErrorTrackingBypassRuleUpdateRequest {
       /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters. */
       filters?: PropertyGroupFilterValue;
-    }
-
-    /**
-     * @nullable
-     */
-    export type PatchedErrorTrackingGroupingRuleAssignee = {
-      readonly type?: 'user' | 'role';
-      readonly id?: number | string;
-    } | null;
-
-    /**
-     * Issue linked to this rule
-     * @nullable
-     */
-    export type PatchedErrorTrackingGroupingRuleIssue = {[key: string]: string} | null;
-
-    export interface PatchedErrorTrackingGroupingRule {
-      readonly id?: string;
-      filters?: unknown;
-      /** @nullable */
-      readonly assignee?: PatchedErrorTrackingGroupingRuleAssignee;
-      /** @nullable */
-      description?: string | null;
-      /**
-         * Issue linked to this rule
-         * @nullable
-         */
-      readonly issue?: PatchedErrorTrackingGroupingRuleIssue;
-      order_key?: number;
-      disabled_data?: unknown;
-      readonly created_at?: string;
-      readonly updated_at?: string;
     }
 
     export interface PatchedErrorTrackingGroupingRuleUpdateRequest {
@@ -61713,6 +61657,16 @@ export namespace Schemas {
       metadata?: PatchedErrorTrackingReleaseUpdateRequestMetadata;
     }
 
+    /**
+     * Mapping from rule ID to its new evaluation order.
+     */
+    export type PatchedErrorTrackingRuleReorderRequestOrders = {[key: string]: number};
+
+    export interface PatchedErrorTrackingRuleReorderRequest {
+      /** Mapping from rule ID to its new evaluation order. */
+      orders?: PatchedErrorTrackingRuleReorderRequestOrders;
+    }
+
     export interface PatchedErrorTrackingSettings {
       /**
          * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
@@ -61738,16 +61692,6 @@ export namespace Schemas {
          * @nullable
          */
       per_issue_rate_limit_bucket_size_minutes?: number | null;
-    }
-
-    /**
-     * Mapping from severity rule UUID to its new evaluation order.
-     */
-    export type PatchedErrorTrackingSeverityRuleReorderRequestOrders = {[key: string]: number};
-
-    export interface PatchedErrorTrackingSeverityRuleReorderRequest {
-      /** Mapping from severity rule UUID to its new evaluation order. */
-      orders?: PatchedErrorTrackingSeverityRuleReorderRequestOrders;
     }
 
     export interface PatchedErrorTrackingSeverityRuleUpdateRequest {
@@ -61778,16 +61722,6 @@ export namespace Schemas {
          * @minimum 1
          */
       threshold?: number;
-    }
-
-    export interface PatchedErrorTrackingSuppressionRule {
-      readonly id?: string;
-      filters?: unknown;
-      order_key?: number;
-      disabled_data?: unknown;
-      sampling_rate?: number;
-      readonly created_at?: string;
-      readonly updated_at?: string;
     }
 
     export interface PatchedErrorTrackingSuppressionRuleUpdateRequest {

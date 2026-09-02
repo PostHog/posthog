@@ -121,6 +121,11 @@ class TestBypassRuleAPI(APIBaseTest):
         assert ErrorTrackingBypassRule.objects.get(id=first).order_key == 1
         assert ErrorTrackingBypassRule.objects.get(id=second).order_key == 0
 
+    def test_reorder_rejects_a_body_that_is_not_an_object(self) -> None:
+        response = self.client.patch(f"{self._url()}reorder/", data=[{"orders": {}}], format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_delete_removes_rule(self) -> None:
         rule = ErrorTrackingBypassRule.objects.create(team=self.team, filters=VALID_FILTERS, bytecode=[], order_key=0)
 

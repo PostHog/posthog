@@ -1,3 +1,4 @@
+import uuid
 import datetime as dt
 
 import pytest
@@ -292,6 +293,18 @@ def test_unpause_batch_export_that_is_already_unpaused(
     data = get_batch_export_ok(client, team.pk, batch_export_id)
 
     assert last_updated_at == data["last_updated_at"]
+
+
+def test_unpause_rejects_a_body_that_is_not_an_object(client: HttpClient, team, user):
+    client.force_login(user)
+
+    resp = client.post(
+        f"/api/projects/{team.pk}/batch_exports/{uuid.uuid4()}/unpause",
+        [{"backfill": True}],
+        content_type="application/json",
+    )
+
+    assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
 
 def test_pause_non_existent_batch_export(client: HttpClient, temporal, organization, team, user, aws_s3_integration):

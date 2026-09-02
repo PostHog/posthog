@@ -17,7 +17,13 @@ from django.utils.timezone import now
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import (
+    OpenApiResponse,
+    PolymorphicProxySerializer,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import CursorPagination
@@ -32,6 +38,7 @@ from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.api.log_entries import LogEntryMixin
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.utils import action
@@ -1911,6 +1918,17 @@ def recursive_dict_merge(
     return merged
 
 
+class BatchExportUnpauseRequestSerializer(serializers.Serializer):
+    backfill = serializers.BooleanField(
+        default=False,
+        help_text="Backfill the batch export for the period it was paused.",
+    )
+
+
+class BatchExportPausedResponseSerializer(serializers.Serializer):
+    paused = serializers.BooleanField(help_text="Whether the batch export is paused after this request.")
+
+
 @extend_schema(tags=["batch_exports"])
 @extend_schema_view(
     # Request bodies use a polymorphic destination schema so that integration-backed types
@@ -1934,6 +1952,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
             return queryset.exclude(destination__type="Workflows")
         return queryset
 
+    @extend_schema(request=None, responses={200: OpenApiResponse(response=BatchExportPausedResponseSerializer)})
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def pause(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Pause a BatchExport."""
@@ -1958,8 +1977,12 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
         return response.Response({"paused": True})
 
+    @validated_request(
+        request_serializer=BatchExportUnpauseRequestSerializer,
+        responses={200: OpenApiResponse(response=BatchExportPausedResponseSerializer)},
+    )
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
-    def unpause(self, request: request.Request, *args, **kwargs) -> response.Response:
+    def unpause(self, request: ValidatedRequest, *args, **kwargs) -> response.Response:
         """Unpause a BatchExport."""
         if not isinstance(request.user, User) or request.user.current_team is None:
             raise NotAuthenticated()
@@ -1967,7 +1990,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         user_id = request.user.distinct_id
         team_id = request.user.current_team.id
         note = f"Unpause requested by user {user_id} from team {team_id}"
-        backfill = request.data.get("backfill", False)
+        backfill = request.validated_data["backfill"]
 
         batch_export = self.get_object()
         temporal = sync_connect()

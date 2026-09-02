@@ -443,22 +443,13 @@ export interface PatchedErrorTrackingAssignmentRuleUpdateRequestApi {
 }
 
 /**
- * @nullable
+ * Mapping from rule ID to its new evaluation order.
  */
-export type PatchedErrorTrackingAssignmentRuleApiAssignee = {
-    readonly type?: 'user' | 'role'
-    readonly id?: number | string
-} | null
+export type PatchedErrorTrackingRuleReorderRequestApiOrders = { [key: string]: number }
 
-export interface PatchedErrorTrackingAssignmentRuleApi {
-    readonly id?: string
-    filters?: unknown
-    /** @nullable */
-    readonly assignee?: PatchedErrorTrackingAssignmentRuleApiAssignee
-    order_key?: number
-    disabled_data?: unknown
-    readonly created_at?: string
-    readonly updated_at?: string
+export interface PatchedErrorTrackingRuleReorderRequestApi {
+    /** Mapping from rule ID to its new evaluation order. */
+    orders?: PatchedErrorTrackingRuleReorderRequestApiOrders
 }
 
 export interface ErrorTrackingBypassRuleApi {
@@ -498,21 +489,6 @@ export interface ErrorTrackingBypassRuleUpdateRequestApi {
 export interface PatchedErrorTrackingBypassRuleUpdateRequestApi {
     /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters. */
     filters?: PropertyGroupFilterValueApi
-}
-
-export interface PatchedErrorTrackingBypassRuleApi {
-    /** Unique identifier of the bypass rule. */
-    readonly id?: string
-    /** Property-group filters that define which incoming error events bypass rate limiting. */
-    filters?: unknown
-    /** Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order. */
-    order_key?: number
-    /** Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active. */
-    disabled_data?: unknown
-    /** When the rule was created. */
-    readonly created_at?: string
-    /** When the rule was last updated. */
-    readonly updated_at?: string
 }
 
 export interface ErrorTrackingExternalReferenceIntegrationResultApi {
@@ -698,38 +674,6 @@ export interface ErrorTrackingGroupingRuleUpdateRequestApi {
 export interface PatchedErrorTrackingGroupingRuleUpdateRequestApi {
     /** Property-group filters that define which exceptions should be grouped into the same issue. Omit to preserve the existing filters. */
     filters?: PropertyGroupFilterValueApi | null
-}
-
-/**
- * @nullable
- */
-export type PatchedErrorTrackingGroupingRuleApiAssignee = {
-    readonly type?: 'user' | 'role'
-    readonly id?: number | string
-} | null
-
-/**
- * Issue linked to this rule
- * @nullable
- */
-export type PatchedErrorTrackingGroupingRuleApiIssue = { [key: string]: string } | null
-
-export interface PatchedErrorTrackingGroupingRuleApi {
-    readonly id?: string
-    filters?: unknown
-    /** @nullable */
-    readonly assignee?: PatchedErrorTrackingGroupingRuleApiAssignee
-    /** @nullable */
-    description?: string | null
-    /**
-     * Issue linked to this rule
-     * @nullable
-     */
-    readonly issue?: PatchedErrorTrackingGroupingRuleApiIssue
-    order_key?: number
-    disabled_data?: unknown
-    readonly created_at?: string
-    readonly updated_at?: string
 }
 
 export type ErrorTrackingIssueSeverityApi =
@@ -1751,16 +1695,6 @@ export interface PatchedErrorTrackingSeverityRuleUpdateRequestApi {
     severity?: ErrorTrackingIssueSeverityRuleEnumApi
 }
 
-/**
- * Mapping from severity rule UUID to its new evaluation order.
- */
-export type PatchedErrorTrackingSeverityRuleReorderRequestApiOrders = { [key: string]: number }
-
-export interface PatchedErrorTrackingSeverityRuleReorderRequestApi {
-    /** Mapping from severity rule UUID to its new evaluation order. */
-    orders?: PatchedErrorTrackingSeverityRuleReorderRequestApiOrders
-}
-
 export interface ErrorTrackingSpikeDetectionConfigApi {
     /**
      * Time to wait before alerting again for the same issue after a spike is detected.
@@ -1916,16 +1850,6 @@ export interface PatchedErrorTrackingSuppressionRuleUpdateRequestApi {
      * @maximum 1
      */
     sampling_rate?: number
-}
-
-export interface PatchedErrorTrackingSuppressionRuleApi {
-    readonly id?: string
-    filters?: unknown
-    order_key?: number
-    disabled_data?: unknown
-    sampling_rate?: number
-    readonly created_at?: string
-    readonly updated_at?: string
 }
 
 export interface ErrorTrackingSymbolSetApi {

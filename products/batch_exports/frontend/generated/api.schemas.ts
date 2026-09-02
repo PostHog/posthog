@@ -1655,6 +1655,16 @@ export interface PatchedBatchExportRequestApi {
     offset_hour?: number | null
 }
 
+export interface BatchExportPausedResponseApi {
+    /** Whether the batch export is paused after this request. */
+    paused: boolean
+}
+
+export interface BatchExportUnpauseRequestApi {
+    /** Backfill the batch export for the period it was paused. */
+    backfill?: boolean
+}
+
 /**
  * Typed output for view set `list`.
  */

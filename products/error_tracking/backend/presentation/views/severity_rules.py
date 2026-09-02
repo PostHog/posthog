@@ -15,6 +15,9 @@ from posthog.event_usage import groups
 
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.error_tracking.backend.facade.contracts import ERROR_TRACKING_ISSUE_SEVERITIES
+from products.error_tracking.backend.presentation.views.rule_serializers import (
+    ErrorTrackingRuleReorderRequestSerializer,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -100,13 +103,6 @@ class ErrorTrackingSeverityRuleUpdateRequestSerializer(serializers.Serializer):
     )
 
 
-class ErrorTrackingSeverityRuleReorderRequestSerializer(serializers.Serializer):
-    orders = serializers.DictField(
-        child=serializers.IntegerField(),
-        help_text="Mapping from severity rule UUID to its new evaluation order.",
-    )
-
-
 class ErrorTrackingSeverityRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "error_tracking"
     scope_object_write_actions = ["create", "update", "partial_update", "destroy", "reorder"]
@@ -183,7 +179,7 @@ class ErrorTrackingSeverityRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         )
         return Response(self.get_serializer(rule).data, status=status.HTTP_201_CREATED)
 
-    @validated_request(request_serializer=ErrorTrackingSeverityRuleReorderRequestSerializer, responses={204: None})
+    @validated_request(request_serializer=ErrorTrackingRuleReorderRequestSerializer, responses={204: None})
     @action(methods=["PATCH"], detail=False)
     def reorder(self, request: ValidatedRequest, **kwargs) -> Response:
         error_tracking_api.reorder_severity_rules(self.team.id, request.validated_data["orders"])
