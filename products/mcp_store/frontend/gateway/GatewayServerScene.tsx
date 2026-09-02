@@ -22,7 +22,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
-import { MCPToolApprovalStateEnumApi, ResolvedToolPolicyApi } from '../generated/api.schemas'
+import { MCPAuthTypeEnumApi, MCPToolApprovalStateEnumApi, ResolvedToolPolicyApi } from '../generated/api.schemas'
 import { ServerIcon } from '../scene/icons'
 import { isPolicyStateAllowedByCeiling } from './gatewayPolicyUtils'
 import { GatewayRouteGuard } from './GatewayRouteGuard'
@@ -32,6 +32,11 @@ import { getGatewayServerRemovalAction } from './gatewayServerRemoval'
 import { GatewayServersLoadError } from './GatewayServersHome'
 import { POLICY_OPTIONS, PolicySummary } from './gatewayUtils'
 import { mcpGatewayLogic } from './mcpGatewayLogic'
+
+const AUTH_TYPE_LABELS: Record<MCPAuthTypeEnumApi, string> = {
+    api_key: 'API key',
+    oauth: 'OAuth',
+}
 
 export const scene: SceneExport<(typeof gatewayServerLogic)['props']> = {
     component: GatewayServerRouteScene,
@@ -130,9 +135,16 @@ export function GatewayServerScene({
                     </div>
                     {server.description && <div className="text-secondary mt-1">{server.description}</div>}
                     <div className="flex items-center gap-3 mt-2 text-xs text-secondary">
-                        {server.created_by && (
-                            <span>Added by {server.created_by.first_name || server.created_by.email}</span>
-                        )}
+                        <span className="min-w-0 truncate">
+                            {[
+                                server.created_by &&
+                                    `Added by ${server.created_by.first_name || server.created_by.email}`,
+                                server.template_auth_type && AUTH_TYPE_LABELS[server.template_auth_type],
+                                server.url,
+                            ]
+                                .filter(Boolean)
+                                .join(' · ')}
+                        </span>
                         {server.docs_url && (
                             <LemonButton
                                 size="xsmall"
