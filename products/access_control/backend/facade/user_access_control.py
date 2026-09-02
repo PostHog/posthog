@@ -1632,7 +1632,15 @@ class UserAccessControl:
     # ------------------------------------------------------------
     # Most-specific-wins resolution (RFC 557). Not enforced.
     #
-    # These methods resolve access by specificity:
+    # The methods in this section come in three tiers:
+    # - Entry points (`resolve_most_specific_*_access`): apply the guards for the user, fetch
+    #   the rows, then delegate.
+    # - Resolvers (`_most_specific_*_access_from_rows`): resolve access from rows that are
+    #   already in memory.
+    # - The decision (`_most_specific_rows_decision`): select the row that decides for one
+    #   scope.
+    #
+    # Resolution order, most specific first:
     # - Most specific subject first: member override -> max(role overrides) -> the object's
     #   own default.
     # - When the resource is in RESOURCE_FALLBACK_MAP (e.g. `warehouse_table` ->
@@ -1647,27 +1655,8 @@ class UserAccessControl:
     # `access_level_for_resource` instead.
     # ------------------------------------------------------------
 
-    def _rows_by_subject(self, rows: list[_AccessControl]) -> list[list[_AccessControl]]:
-        """Group one scope's rows by subject, most specific first: the member's own rows, then
-        the rows of their roles, then the rows that apply to everyone. Empty groups are removed."""
-        by_subject: dict[str, list[_AccessControl]] = {"member": [], "role": [], "default": []}
-        for ac in rows:
-            by_subject[self._row_subject(ac)].append(ac)
-        return [group for group in by_subject.values() if group]
-
-    def _most_specific_rows_decision(
-        self, resource: APIScopeObject, rows: list[_AccessControl]
-    ) -> Optional[_AccessControl]:
-        """Select the deciding row for one scope (a single object, or a resource type).
-
-        The most specific subject that has rows decides. The highest of that subject's
-        rows wins. Returns None when `rows` is empty."""
-        for subject_rows in self._rows_by_subject(rows):
-            return self._highest_access_from_rows(resource, subject_rows)
-        return None
-
     def resolve_most_specific_object_access(self, obj: Model) -> Optional[ResolvedAccess]:
-        """Future source of truth for object access — NOT enforced yet, see the section comment.
+        """Resolve the user's access to one object. Future source of truth.
 
         This method has no `explicit` parameter. It always returns the full answer. For the
         `explicit=True` behavior of the enforced methods, check
@@ -1681,10 +1670,65 @@ class UserAccessControl:
         if resolved:
             return access
 
-        fallback_parent_id = self._fallback_parent_id(obj, resource)
+        object_rows = self._get_access_controls(self._access_controls_filters_for_object(resource, str(obj.id)))  # type: ignore
+        return self._most_specific_object_access_from_rows(
+            resource, object_rows, fallback_parent_id=self._fallback_parent_id(obj, resource)
+        )
+
+    def resolve_most_specific_resource_access(self, resource: APIScopeObject) -> Optional[ResolvedAccess]:
+        """Resolve the user's access to one resource type. Future source of truth.
+
+        The guards are the same as in `access_level_for_resource`. Only the decision differs:
+        the most specific subject that has rows decides.
+        """
+        parent_resource = RESOURCE_INHERITANCE_MAP.get(resource)
+        if parent_resource:
+            return self.resolve_most_specific_resource_access(parent_resource)
+
+        if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
+            return ResolvedAccess(
+                access_level=default_access_level(resource),
+                source="system_default",
+                source_subject=None,
+                source_resource=resource,
+            )
+
+        if not resource or not self._organization_membership:
+            return None
+
+        if self.is_organization_admin:
+            return ResolvedAccess(
+                access_level=highest_access_level(resource),
+                source="org_admin",
+                source_subject=None,
+                source_resource=resource,
+            )
+
+        if not self.access_controls_supported:
+            return ResolvedAccess(
+                access_level=default_access_level(resource),
+                source="system_default",
+                source_subject=None,
+                source_resource=resource,
+            )
+
+        rows = self._get_access_controls(self._access_controls_filters_for_resource(resource))
+        return self._most_specific_resource_access_from_rows(resource, rows)
+
+    def _most_specific_object_access_from_rows(
+        self,
+        resource: APIScopeObject,
+        object_rows: list[_AccessControl],
+        fallback_parent_id: Optional[str] = None,
+    ) -> ResolvedAccess:
+        """Resolve access to one object from its rows, which are already in memory.
+
+        Scope order: the object's rows, the fallback parent's rows, the resource, the parent's
+        resource, the system default. The parent's rows are fetched only when
+        `fallback_parent_id` is given.
+        """
         parent = RESOURCE_FALLBACK_MAP.get(resource) if fallback_parent_id else None
 
-        object_rows = self._get_access_controls(self._access_controls_filters_for_object(resource, str(obj.id)))  # type: ignore
         row = self._most_specific_rows_decision(resource, object_rows)
         if row:
             return ResolvedAccess(
@@ -1726,44 +1770,13 @@ class UserAccessControl:
             source_resource=RESOURCE_INHERITANCE_MAP.get(resource, resource),
         )
 
-    def resolve_most_specific_resource_access(self, resource: APIScopeObject) -> Optional[ResolvedAccess]:
-        """Future source of truth for resource access — NOT enforced yet, see the section comment.
+    def _most_specific_resource_access_from_rows(
+        self, resource: APIScopeObject, rows: list[_AccessControl]
+    ) -> ResolvedAccess:
+        """Resolve access to one resource type from its rows, which are already in memory.
 
-        The guards are the same as in `access_level_for_resource`. Only the row step differs:
-        the most specific subject that has a row decides.
+        The deciding row gives the level. Without rows, the system default applies.
         """
-        parent_resource = RESOURCE_INHERITANCE_MAP.get(resource)
-        if parent_resource:
-            return self.resolve_most_specific_resource_access(parent_resource)
-
-        if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
-            return ResolvedAccess(
-                access_level=default_access_level(resource),
-                source="system_default",
-                source_subject=None,
-                source_resource=resource,
-            )
-
-        if not resource or not self._organization_membership:
-            return None
-
-        if self.is_organization_admin:
-            return ResolvedAccess(
-                access_level=highest_access_level(resource),
-                source="org_admin",
-                source_subject=None,
-                source_resource=resource,
-            )
-
-        if not self.access_controls_supported:
-            return ResolvedAccess(
-                access_level=default_access_level(resource),
-                source="system_default",
-                source_subject=None,
-                source_resource=resource,
-            )
-
-        rows = self._get_access_controls(self._access_controls_filters_for_resource(resource))
         row = self._most_specific_rows_decision(resource, rows)
         if row:
             return ResolvedAccess(
@@ -1772,13 +1785,31 @@ class UserAccessControl:
                 source_subject=self._row_subject(row),
                 source_resource=resource,
             )
-
         return ResolvedAccess(
             access_level=default_access_level(resource),
             source="system_default",
             source_subject=None,
             source_resource=resource,
         )
+
+    def _most_specific_rows_decision(
+        self, resource: APIScopeObject, rows: list[_AccessControl]
+    ) -> Optional[_AccessControl]:
+        """Select the deciding row for one scope (a single object, or a resource type).
+
+        The most specific subject that has rows decides. The highest of that subject's
+        rows wins. Returns None when `rows` is empty."""
+        for subject_rows in self._rows_by_subject(rows):
+            return self._highest_access_from_rows(resource, subject_rows)
+        return None
+
+    def _rows_by_subject(self, rows: list[_AccessControl]) -> list[list[_AccessControl]]:
+        """Group one scope's rows by subject, most specific first: the member's own rows, then
+        the rows of their roles, then the rows that apply to everyone. Empty groups are removed."""
+        by_subject: dict[str, list[_AccessControl]] = {"member": [], "role": [], "default": []}
+        for ac in rows:
+            by_subject[self._row_subject(ac)].append(ac)
+        return [group for group in by_subject.values() if group]
 
     def _report_resolved_access_divergence(
         self,
