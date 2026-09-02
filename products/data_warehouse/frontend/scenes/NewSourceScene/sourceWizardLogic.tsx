@@ -1717,6 +1717,7 @@ export interface sourceWizardLogicActions {
             | 'Stigg'
             | 'StockData'
             | 'Stockx'
+            | 'Strato'
             | 'Strava'
             | 'StreamElements'
             | 'Streamlabs'

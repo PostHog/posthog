@@ -152,7 +152,13 @@ _SCAN_TEMPLATE = """
         name AS nodeid,
         attributes['test.selector'] AS selector,
         attributes['test.outcome'] AS outcome,
-        coalesce(nullIf(attributes['test.owner_team'], ''), {unowned_team}) AS owner_team,
+        -- An '@handle' stamp is a person from an owners.yaml first slot, not a team; older
+        -- spans carry them, so fold them into the unowned bucket instead of minting a row.
+        if(
+            startsWith(coalesce(attributes['test.owner_team'], ''), '@'),
+            {unowned_team},
+            coalesce(nullIf(attributes['test.owner_team'], ''), {unowned_team})
+        ) AS owner_team,
         if(__QUEUE_PR__ != '', __QUEUE_PR__, resource_attributes['ci.pr_number']) AS pr_number,
         resource_attributes['ci.branch'] AS branch,
         -- The emitter always stamps ci.run_id; the trace_id fallback (one trace per job) keeps an

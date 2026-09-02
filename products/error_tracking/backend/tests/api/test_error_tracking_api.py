@@ -1,4 +1,5 @@
 import os
+import json
 from datetime import UTC, datetime, timedelta
 
 from freezegun import freeze_time
@@ -16,6 +17,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.utils import uuid7
 from posthog.settings import (
@@ -489,6 +491,227 @@ class TestErrorTracking(APIBaseTest):
         )
 
         assert response.status_code == 404
+
+    @parameterized.expand(
+        [
+            ("active", "resolved", "$error_tracking_issue_resolved", "Resolved", "Active"),
+            ("active", "suppressed", "$error_tracking_issue_suppressed", "Suppressed", "Active"),
+            ("resolved", "active", "$error_tracking_issue_reopened", "Active", "Resolved"),
+            ("suppressed", "active", "$error_tracking_issue_reopened", "Active", "Suppressed"),
+        ]
+    )
+    def test_issue_status_update_produces_lifecycle_internal_event(
+        self, initial_status, new_status, event_name, status_prop, previous_prop
+    ):
+        issue = self.create_issue(fingerprints=["lifecycle_fingerprint"])
+        ErrorTrackingIssue.objects.filter(id=issue.id).update(status=initial_status, severity="critical")
+
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
+                data={"status": new_status},
+            )
+
+        assert response.status_code == 200, response.json()
+        mock_produce.assert_called_once()
+        kwargs = mock_produce.call_args.kwargs
+        assert kwargs["team_id"] == self.team.id
+        event = kwargs["event"]
+        assert event.event == event_name
+        assert event.distinct_id == str(issue.id)
+        assert event.properties["status"] == status_prop
+        assert event.properties["previous_status"] == previous_prop
+        # The issue-property set destination filters can reference, matching the
+        # ingestion-driven events.
+        assert event.properties["severity"] == "critical"
+        assert event.properties["issue_description"] == issue.description
+        assert event.properties["first_seen"] == issue.created_at.isoformat()
+        # Destination templates deep-link issues from the fingerprint; no
+        # exception_timestamp, so the issue scene falls back to the latest event.
+        assert event.properties["fingerprint"] == "lifecycle_fingerprint"
+        assert "exception_timestamp" not in event.properties
+        person = kwargs["person"]
+        assert person.id == str(self.user.id)
+        # The person block reaches customer webhooks verbatim: minimal actor only.
+        assert set(person.properties.keys()) == {"id", "distinct_id", "email", "first_name"}
+
+    def test_issue_status_lifecycle_event_survives_clickhouse_sync_failure(self):
+        issue = self.create_issue(fingerprints=["lifecycle_fingerprint"])
+
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
+            patch(
+                "products.error_tracking.backend.logic.issue_mutations.sync_issues_to_clickhouse",
+                side_effect=Exception("clickhouse down"),
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
+                data={"status": "resolved"},
+            )
+
+        assert response.status_code == 500
+        # The status committed, so a retry sees no transition: the event must
+        # already have been registered when the sync failed.
+        mock_produce.assert_called_once()
+        assert mock_produce.call_args.kwargs["event"].event == "$error_tracking_issue_resolved"
+        issue.refresh_from_db()
+        assert issue.status == ErrorTrackingIssue.Status.RESOLVED
+
+    def test_issue_update_without_status_transition_produces_no_lifecycle_event(self):
+        issue = self.create_issue()
+
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}",
+                data={"name": "Renamed issue"},
+            )
+
+        assert response.status_code == 200, response.json()
+        mock_produce.assert_not_called()
+
+    def test_issue_bulk_set_status_produces_lifecycle_events_only_for_transitions(self):
+        active_issue = self.create_issue()
+        resolved_issue = self.create_issue()
+        ErrorTrackingIssue.objects.filter(id=resolved_issue.id).update(status=ErrorTrackingIssue.Status.RESOLVED)
+
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/issues/bulk",
+                data={"ids": [active_issue.id, resolved_issue.id], "action": "set_status", "status": "resolved"},
+            )
+
+        assert response.status_code == 200, response.json()
+        mock_produce.assert_called_once()
+        event = mock_produce.call_args.kwargs["event"]
+        assert event.event == "$error_tracking_issue_resolved"
+        assert event.distinct_id == str(active_issue.id)
+        assert event.properties["status"] == "Resolved"
+        assert event.properties["previous_status"] == "Active"
+
+    def test_issue_assign_produces_lifecycle_internal_event(self):
+        issue = self.create_issue()
+
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
+                data={"assignee": {"id": self.user.id, "type": "user"}},
+            )
+
+        assert response.status_code == 200, response.json()
+        mock_produce.assert_called_once()
+        event = mock_produce.call_args.kwargs["event"]
+        assert event.event == "$error_tracking_issue_assigned"
+        assert event.distinct_id == str(issue.id)
+        # Byte-identical to cymbal's compact serde output so exact-match filters work.
+        assert event.properties["assignee"] == f'{{"type":"user","id":{self.user.id}}}'
+        assert json.loads(event.properties["assignee"]) == {"type": "user", "id": self.user.id}
+
+    def test_issue_unassign_produces_lifecycle_internal_event(self):
+        issue = self.create_issue()
+        self.client.patch(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
+            data={"assignee": {"id": self.user.id, "type": "user"}},
+        )
+
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/assign",
+                data={"assignee": None},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
+        mock_produce.assert_called_once()
+        event = mock_produce.call_args.kwargs["event"]
+        assert event.event == "$error_tracking_issue_unassigned"
+        assert event.distinct_id == str(issue.id)
+        assert event.properties["previous_assignee"] == f'{{"type":"user","id":{self.user.id}}}'
+
+    def test_issue_merge_produces_lifecycle_event_and_activity_log(self):
+        issue_one = self.create_issue(fingerprints=["fingerprint_one"])
+        issue_two = self.create_issue(fingerprints=["fingerprint_two"])
+
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue_one.id}/merge",
+                # A ghost id and a duplicate must not be reported as merged.
+                data={"ids": [issue_two.id, str(uuid7()), issue_two.id]},
+            )
+
+        assert response.status_code == 200, response.json()
+        mock_produce.assert_called_once()
+        event = mock_produce.call_args.kwargs["event"]
+        assert event.event == "$error_tracking_issue_merged"
+        assert event.distinct_id == str(issue_one.id)
+        assert event.properties["merged_issue_ids"] == [str(issue_two.id)]
+
+        activity = ActivityLog.objects.get(scope="ErrorTrackingIssue", activity="merged")
+        assert activity.item_id == str(issue_one.id)
+        assert activity.detail is not None
+        assert activity.detail["changes"][0]["after"] == [str(issue_two.id)]
+
+    def test_issue_merge_without_effect_logs_no_activity(self):
+        issue = self.create_issue(fingerprints=["fingerprint_one"])
+
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/merge",
+                data={"ids": [issue.id]},
+            )
+
+        assert response.status_code == 200, response.json()
+        mock_produce.assert_not_called()
+        assert not ActivityLog.objects.filter(scope="ErrorTrackingIssue", activity="merged").exists()
+
+    def test_issue_split_produces_lifecycle_event_and_activity_log(self):
+        issue = self.create_issue(fingerprints=["fingerprint_one", "fingerprint_two"])
+
+        with (
+            patch("products.error_tracking.backend.logic.lifecycle_events.produce_internal_event") as mock_produce,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/split",
+                data={"fingerprints": [{"fingerprint": "fingerprint_two", "name": "Split issue"}]},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
+        mock_produce.assert_called_once()
+        event = mock_produce.call_args.kwargs["event"]
+        assert event.event == "$error_tracking_issue_split"
+        assert event.distinct_id == str(issue.id)
+        assert event.properties["split_issue_ids"] == response.json()["new_issue_ids"]
+        # The link fingerprint is one the source issue still owns after the split.
+        assert event.properties["fingerprint"] == "fingerprint_one"
+
+        activity = ActivityLog.objects.get(scope="ErrorTrackingIssue", activity="split")
+        assert activity.item_id == str(issue.id)
+        assert activity.detail is not None
+        assert activity.detail["changes"][0]["after"] == response.json()["new_issue_ids"]
 
     def test_can_start_symbol_set_upload(self) -> None:
         chunk_id = uuid7()

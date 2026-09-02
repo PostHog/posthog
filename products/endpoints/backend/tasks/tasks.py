@@ -1,6 +1,7 @@
 from datetime import timedelta
 from typing import Any
 
+from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
 from celery import shared_task
@@ -9,6 +10,7 @@ from structlog import get_logger
 from posthog.celery_queues import CeleryQueue
 from posthog.scoping_audit import skip_team_scope_audit
 
+from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobStatus
 from products.endpoints.backend.logic.ducklake_shadow import run_ducklake_shadow_comparison
 from products.endpoints.backend.metrics import ENDPOINT_MATERIALIZATION_EVENT_TOTAL
 from products.endpoints.backend.models import EndpointVersion
@@ -58,9 +60,9 @@ def deactivate_stale_materializations() -> None:
 
     This task finds endpoint versions where:
     1. The version has an active materialization (saved_query.is_materialized = True)
-    2. The materialization has run in the past 24h (saved_query.last_run_at within 24h)
+    2. The materialization has run in the past 24h (a completed job, or saved_query.last_run_at)
     3. The materialization was enabled at least 30 days ago (saved_query.created_at)
-    4. The endpoint was last executed over 30 days ago (via API key)
+    4. The version was last executed over 30 days ago (via API key)
 
     For matching versions, the materialization is reverted to save resources.
     """
@@ -68,13 +70,24 @@ def deactivate_stale_materializations() -> None:
     twenty_four_hours_ago = now - timedelta(hours=24)
     stale_threshold = now - timedelta(days=STALE_THRESHOLD_DAYS)
 
+    recent_job = DataModelingJob.objects.filter(
+        saved_query_id=OuterRef("saved_query_id"),
+        status=DataModelingJobStatus.COMPLETED,
+        last_run_at__gte=twenty_four_hours_ago,
+    )
+    ran_recently = Q(saved_query__last_run_at__gte=twenty_four_hours_ago) | Q(Exists(recent_job))
+
+    version_stale = Q(last_executed_at__lt=stale_threshold) | Q(
+        last_executed_at__isnull=True, endpoint__last_executed_at__lt=stale_threshold
+    )
+
     stale_versions = EndpointVersion.objects.filter(
+        ran_recently,
+        version_stale,
         saved_query__isnull=False,
         saved_query__is_materialized=True,
-        saved_query__last_run_at__gte=twenty_four_hours_ago,
         saved_query__deleted=False,
         saved_query__created_at__lte=stale_threshold,
-        endpoint__last_executed_at__lt=stale_threshold,
         endpoint__deleted=False,
     ).select_related("saved_query", "endpoint")
 
