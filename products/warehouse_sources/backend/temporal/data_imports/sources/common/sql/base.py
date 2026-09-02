@@ -90,7 +90,8 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
             "Cannot build decimal array from values": (
                 "One of your numeric columns has values we can't store: more than 76 digits, or more "
                 "than 32 decimal places. Round the values at the source, or constrain the column. We "
-                "store decimals up to 38 digits; wider columns are stored as text rather than numbers."
+                "store decimals up to 38 digits. A column that needs more than that is rebuilt as "
+                "text rather than numbers."
             ),
         }
 

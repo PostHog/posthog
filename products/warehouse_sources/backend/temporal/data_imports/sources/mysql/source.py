@@ -276,7 +276,7 @@ class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # `pipelines/core/arrow_utils.py` when a numeric/decimal value exceeds the
             # decimal256 fallback (precision > 76 or scale > 32). Fixed source-data shape —
             # retrying won't help. Delta itself stores no decimal past 38 digits.
-            "Cannot build decimal array from values": "One of your numeric columns has values we can't store: more than 76 digits, or more than 32 decimal places. Round the values at the source, or constrain the column. We store decimals up to 38 digits; wider columns are stored as text rather than numbers.",
+            "Cannot build decimal array from values": "One of your numeric columns has values we can't store: more than 76 digits, or more than 32 decimal places. Round the values at the source, or constrain the column. We store decimals up to 38 digits. A column that needs more than that is rebuilt as text rather than numbers.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/core/arrow_utils.py`
             # when an integer column's source type was widened (e.g. `INT` → `BIGINT`) after the
             # destination table was created with the narrower type. Delta Lake can't widen an

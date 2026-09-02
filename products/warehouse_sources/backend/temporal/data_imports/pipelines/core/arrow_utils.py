@@ -47,9 +47,9 @@ DLT_TO_PA_TYPE_MAP: dict[
 # Widest decimal Delta stores as a number. `ensure_delta_compatible_arrow_schema` turns every
 # decimal256 into a string, so a column past this keeps its digits but stops being numeric.
 # Kept separate from `DEFAULT_NUMERIC_PRECISION`: they share a value today, but one is a physical
-# ceiling and the other is the precision we pick when a source declares none. An inferred
-# whole-number column reaches text one digit early, because `_get_max_decimal_type` floors scale
-# at 1 and so sizes 38 integer digits as precision 39.
+# ceiling and the other is the precision we pick when a source declares none. A declared
+# NUMERIC(38, 0) stays numeric; only an inferred whole-number column reaches text a digit early,
+# because `_get_max_decimal_type` floors scale at 1 and so sizes 38 integer digits as precision 39.
 DELTA_MAX_DECIMAL_PRECISION = 38
 DEFAULT_NUMERIC_PRECISION = 38  # Delta Lake maximum precision
 DEFAULT_NUMERIC_SCALE = 18  # Good default scale for decimal128, 20 int digits plus 18 decimal cases
