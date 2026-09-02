@@ -37,7 +37,10 @@ def issue_url(inputs: AlertDeliveryWorkflowInputs) -> str:
     # follows the fingerprint to whichever issue owns it now. The path segment takes
     # the environment id, which is what the workflow inputs carry.
     return settings.SITE_URL + build_issue_permalink_path(
-        project_id=inputs.team_id, issue_id=inputs.issue_id, fingerprint=inputs.fingerprint
+        # Cymbal persists an explicitly empty manual fingerprint; that has no route.
+        project_id=inputs.team_id,
+        issue_id=inputs.issue_id,
+        fingerprint=inputs.fingerprint or None,
     )
 
 
