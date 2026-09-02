@@ -4,13 +4,18 @@ import { IconLetter } from '@posthog/icons'
 import { LemonSelectOption, LemonSelectOptionLeaf, LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { getGrantedScopes } from 'lib/integrations/IntegrationScopesWarning'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { range } from 'lib/utils/arrays'
 import { urls } from 'scenes/urls'
 
 import { SubscriptionAIPromptMaxLength, SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
-import { InsightShortId, SubscriptionType, WeekdayType } from '~/types'
+import { InsightShortId, IntegrationType, SubscriptionType, WeekdayType } from '~/types'
+
+import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
+
+import { SubscriptionTargetEnumApi, type SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
 
@@ -89,9 +94,14 @@ export const urlForSubscription = (
     return id === 'new' ? urls.subscriptionNew() : urls.subscription(id)
 }
 
-export const targetTypeOptions: LemonSelectOptions<'email' | 'slack'> = [
-    { value: 'email', label: 'Email', icon: <IconLetter /> },
-    { value: 'slack', label: 'Slack', icon: <IconSlack /> },
+export const targetTypeOptions: LemonSelectOptionLeaf<SubscriptionApi['target_type']>[] = [
+    { value: SubscriptionTargetEnumApi.Email, label: 'Email', icon: <IconLetter /> },
+    { value: SubscriptionTargetEnumApi.Slack, label: 'Slack', icon: <IconSlack /> },
+    {
+        value: SubscriptionTargetEnumApi.Teams,
+        label: 'Microsoft Teams',
+        icon: <img src={IconMicrosoftTeams} alt="" className="h-4 w-4" />,
+    },
 ]
 
 export const intervalOptions: LemonSelectOptions<number> = range(1, 13).map((x) => ({ value: x, label: x.toString() }))
@@ -184,6 +194,33 @@ export function getSubscriptionAdvancedSettings(
     }
 
     return settings
+}
+
+export function integrationHasFilesWrite(integration: IntegrationType | null | undefined): boolean {
+    return integration ? getGrantedScopes(integration).includes('files:write') : false
+}
+
+export function coerceDeliveryConfigForScope(
+    subscription: SubscriptionType,
+    integrations: IntegrationType[] | null | undefined
+): SubscriptionType['delivery_config'] {
+    if (!subscription.delivery_config?.post_all_insights_in_main_message) {
+        return subscription.delivery_config
+    }
+    if (subscription.target_type !== 'slack') {
+        return { ...subscription.delivery_config, post_all_insights_in_main_message: false }
+    }
+    if (integrations == null) {
+        return subscription.delivery_config
+    }
+
+    const selectedIntegration = subscription.integration_id
+        ? integrations.find((integration) => integration.id === subscription.integration_id)
+        : undefined
+    if (!integrationHasFilesWrite(selectedIntegration)) {
+        return { ...subscription.delivery_config, post_all_insights_in_main_message: false }
+    }
+    return subscription.delivery_config
 }
 
 function formatSelectedDeliveryDays(selectedDays: WeekdayType[]): string {
