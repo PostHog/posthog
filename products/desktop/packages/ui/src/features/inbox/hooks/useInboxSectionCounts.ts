@@ -18,6 +18,7 @@ export interface InboxSectionCounts {
   reviewAndMerge: number;
   needsPr: number;
   resolved: number;
+  dismissed: number;
   isLoading: boolean;
 }
 
@@ -71,7 +72,14 @@ export function useInboxSectionCounts(): InboxSectionCounts {
   const resolvedQuery = useInboxReports(
     {
       ...shared,
-      status: "suppressed,resolved",
+      status: "resolved",
+    },
+    { ...options, enabled: scopeReady },
+  );
+  const dismissedQuery = useInboxReports(
+    {
+      ...shared,
+      status: "suppressed",
     },
     { ...options, enabled: scopeReady },
   );
@@ -80,10 +88,12 @@ export function useInboxSectionCounts(): InboxSectionCounts {
     reviewAndMerge: reviewAndMergeQuery.data?.count ?? 0,
     needsPr: needsPrQuery.data?.count ?? 0,
     resolved: resolvedQuery.data?.count ?? 0,
+    dismissed: dismissedQuery.data?.count ?? 0,
     isLoading:
       reviewAndMergeQuery.isLoading ||
       needsPrQuery.isLoading ||
       resolvedQuery.isLoading ||
+      dismissedQuery.isLoading ||
       (isForYou && reviewerUuid == null),
   };
 }

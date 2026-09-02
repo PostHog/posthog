@@ -579,6 +579,71 @@ async def test_deliver_subscription_report_slack(
     assert mock_send_slack_async.await_count == 1
 
 
+@patch("products.exports.backend.temporal.subscriptions.delivery_webhook.pinned_session")
+@patch("posthog.temporal.exports.activities.exporter")
+@patch("ee.tasks.subscriptions.get_metric_meter")
+@pytest.mark.asyncio
+async def test_deliver_subscription_report_teams(
+    mock_metric_meter: MagicMock,
+    mock_exporter: MagicMock,
+    mock_pinned_session: MagicMock,
+    temporal_client: Client,
+    subscriptions_worker,
+    team,
+    user,
+):
+    # Power Automate acknowledges an accepted card with 202 rather than 200.
+    mock_post = mock_pinned_session.return_value.__enter__.return_value.request
+    mock_post.return_value = MagicMock(status_code=202)
+
+    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="tms999", name="Insight")
+    subscription = await sync_to_async(create_subscription)(
+        team=team,
+        insight=insight,
+        created_by=user,
+        target_type="teams",
+        target_value="https://prod-25.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke",
+    )
+
+    def fake_export(asset_obj, **kwargs):
+        asset_obj.content_location = "s3://bucket/teams.png"
+        asset_obj.save(update_fields=["content_location"])
+
+    mock_exporter.export_asset_direct = fake_export
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[HandleSubscriptionValueChangeWorkflow, ProcessSubscriptionWorkflow],
+            activities=SUBSCRIPTION_PROCESS_ACTIVITIES,
+            interceptors=[SloInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=50),
+            debug_mode=True,
+        ):
+            await activity_environment.client.execute_workflow(
+                HandleSubscriptionValueChangeWorkflow.run,
+                ProcessSubscriptionWorkflowInputs(
+                    subscription_id=subscription.id,
+                    team_id=subscription.team_id,
+                    distinct_id=str(subscription.created_by.distinct_id),  # type: ignore[union-attr]
+                ),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+    assert mock_post.call_count == 1
+    card = mock_post.call_args.kwargs["json"]
+    assert card["attachments"][0]["content"]["type"] == "AdaptiveCard"
+
+    delivery = await sync_to_async(SubscriptionDelivery.objects.get)(subscription_id=subscription.id)
+    assert delivery.status == DeliveryStatus.COMPLETED
+    assert delivery.recipient_results == [{"recipient": "prod-25.westeurope.logic.azure.com", "status": "success"}]
+    # The delivery row is read-only history the API returns, so it keeps the host, not the URL.
+    assert delivery.target_value == "prod-25.westeurope.logic.azure.com"
+
+
 @patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription")
 @patch("products.exports.backend.temporal.subscriptions.activities.build_insight_delivery_snapshot")
 @patch(
@@ -2541,6 +2606,25 @@ async def test_deliver_ai_subscription_missing_slack_integration_auto_disables(t
     assert error is not None and error["type"] == SLACK_DISCONNECTED_DISABLE_REASON.key
     await sync_to_async(sub.refresh_from_db)()
     assert sub.enabled is False
+
+
+async def test_deliver_ai_subscription_posts_the_report_to_teams(team, user):
+    sub = await _create_ai_subscription(
+        team,
+        user,
+        target_type="teams",
+        target_value="https://prod-25.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke",
+    )
+    delivery = await _create_ai_delivery(sub, report="# Report")
+
+    with patch("products.exports.backend.temporal.subscriptions.delivery_webhook.pinned_session") as mock_session:
+        mock_post = mock_session.return_value.__enter__.return_value.request
+        mock_post.return_value = MagicMock(status_code=202)
+        result = await ActivityEnvironment().run(deliver_subscription, _ai_delivery_inputs(sub.id, delivery.id))
+
+    body = mock_post.call_args.kwargs["json"]["attachments"][0]["content"]["body"]
+    assert any("# Report" in block["text"] for block in body)
+    assert result.recipient_results[0].status == "success"
 
 
 async def test_deliver_ai_subscription_missing_report_raises_for_retry(team, user):

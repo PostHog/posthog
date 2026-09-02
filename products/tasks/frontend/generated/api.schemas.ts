@@ -887,9 +887,10 @@ export interface PaginatedSandboxEnvironmentDTOListApi {
  * * `full` - Full
  * * `custom` - Custom
  */
-export type NetworkAccessLevelEnumApi = (typeof NetworkAccessLevelEnumApi)[keyof typeof NetworkAccessLevelEnumApi]
+export type SandboxEnvironmentNetworkAccessLevelEnumApi =
+    (typeof SandboxEnvironmentNetworkAccessLevelEnumApi)[keyof typeof SandboxEnvironmentNetworkAccessLevelEnumApi]
 
-export const NetworkAccessLevelEnumApi = {
+export const SandboxEnvironmentNetworkAccessLevelEnumApi = {
     Trusted: 'trusted',
     Full: 'full',
     Custom: 'custom',
@@ -909,7 +910,7 @@ export interface SandboxEnvironmentWriteApi {
      * * `trusted` - Trusted
      * * `full` - Full
      * * `custom` - Custom */
-    network_access_level?: NetworkAccessLevelEnumApi
+    network_access_level?: SandboxEnvironmentNetworkAccessLevelEnumApi
     /**
      * Allowed domains for custom network access.
      * @maxItems 100
@@ -948,7 +949,7 @@ export interface PatchedSandboxEnvironmentWriteApi {
      * * `trusted` - Trusted
      * * `full` - Full
      * * `custom` - Custom */
-    network_access_level?: NetworkAccessLevelEnumApi
+    network_access_level?: SandboxEnvironmentNetworkAccessLevelEnumApi
     /**
      * Allowed domains for custom network access.
      * @maxItems 100
@@ -1086,9 +1087,9 @@ export interface TaskActivityMarkReadResponseApi {
  * * `personal` - Personal
  * * `general` - General
  */
-export type SystemRoleEnumApi = (typeof SystemRoleEnumApi)[keyof typeof SystemRoleEnumApi]
+export type ChannelSystemRoleEnumApi = (typeof ChannelSystemRoleEnumApi)[keyof typeof ChannelSystemRoleEnumApi]
 
-export const SystemRoleEnumApi = {
+export const ChannelSystemRoleEnumApi = {
     Personal: 'personal',
     General: 'general',
 } as const
@@ -1112,7 +1113,7 @@ export interface ChannelDTOApi {
      *
      * * `personal` - Personal
      * * `general` - General */
-    readonly system_role: SystemRoleEnumApi | null
+    readonly system_role: ChannelSystemRoleEnumApi | null
 }
 
 export interface PaginatedChannelDTOListApi {
@@ -1394,9 +1395,9 @@ export interface PaginatedTaskMentionDTOListApi {
  * * `acp` - ACP
  * * `pi` - Pi
  */
-export type RuntimeEnumApi = (typeof RuntimeEnumApi)[keyof typeof RuntimeEnumApi]
+export type TaskRuntimeEnumApi = (typeof TaskRuntimeEnumApi)[keyof typeof TaskRuntimeEnumApi]
 
-export const RuntimeEnumApi = {
+export const TaskRuntimeEnumApi = {
     Acp: 'acp',
     Pi: 'pi',
 } as const
@@ -1702,7 +1703,7 @@ export interface TaskDetailDTOApi {
      *
      * * `acp` - ACP
      * * `pi` - Pi */
-    runtime: RuntimeEnumApi
+    runtime: TaskRuntimeEnumApi
     /** @nullable */
     repository: string | null
     repositories: string[]
@@ -1771,9 +1772,9 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `task_analysis` - Task Analysis
  * * `workflow` - Workflow
  */
-export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
+export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof typeof TaskOriginProductEnumApi]
 
-export const OriginProductEnumApi = {
+export const TaskOriginProductEnumApi = {
     Onboarding: 'onboarding',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
@@ -1859,7 +1860,7 @@ export interface TaskCreateApi {
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow */
-    origin_product?: OriginProductEnumApi
+    origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
      * @maxLength 255
@@ -1972,7 +1973,7 @@ export interface TaskCreateApi {
      *
      * * `acp` - ACP
      * * `pi` - Pi */
-    runtime?: RuntimeEnumApi
+    runtime?: TaskRuntimeEnumApi
 }
 
 /**
@@ -2015,7 +2016,7 @@ export interface TaskWriteApi {
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow */
-    origin_product?: OriginProductEnumApi
+    origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
      * @maxLength 255
@@ -2154,7 +2155,7 @@ export interface PatchedTaskWriteApi {
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow */
-    origin_product?: OriginProductEnumApi
+    origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
      * @maxLength 255

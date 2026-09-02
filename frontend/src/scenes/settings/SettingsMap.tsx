@@ -180,6 +180,7 @@ import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { PersonalGitHubIntegrations, PersonalSlackIntegrations } from './user/PersonalIntegrations'
+import { ProfilePictureSettings } from './user/ProfilePictureSettings'
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { Reminders } from './user/Reminders'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
@@ -2045,6 +2046,12 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'user-profile',
         title: 'Profile',
         settings: [
+            {
+                id: 'profile-picture',
+                title: 'Profile picture',
+                component: <ProfilePictureSettings />,
+                keywords: ['avatar', 'gravatar', 'photo', 'picture', 'image', 'profile'],
+            },
             {
                 id: 'details',
                 title: 'Details',

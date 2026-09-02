@@ -236,6 +236,7 @@ export type SettingId =
     | 'reminders'
     | 'persons-on-events'
     | 'posthog-mcp-configure'
+    | 'profile-picture'
     | 'project-delete'
     | 'project-move'
     | 'realtime-notifications'
