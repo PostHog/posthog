@@ -269,8 +269,11 @@ export function LoopsListViewPresentation({
 
   // One Tabs root spanning header and body: the trigger strip sits in the
   // header's sub-nav, its panels stay down in the scrolling body.
+  // The default tab is read once at mount, and the flag can flip after that.
+  // Remount on a mode change so workflow loops never sit behind a hidden tab.
   return (
     <Tabs
+      key={workflowBacked ? "workflow" : "loops"}
       defaultValue={workflowBacked ? "team" : "personal"}
       className="flex h-full min-h-0 flex-col gap-0"
     >

@@ -43,7 +43,11 @@ function hogFlowLoopsQueryOptions(
         loopsClient.projectId,
       );
       const projectId = Number(loopsClient.projectId);
-      return page.results.map((flow) => hogFlowToLoop(flow, { projectId }));
+      // The list endpoint returns archived workflows too. They would map to
+      // paused loops whose Resume sets them active instead of restoring them.
+      return page.results
+        .filter((flow) => flow.status !== "archived")
+        .map((flow) => hogFlowToLoop(flow, { projectId }));
     },
     enabled: enabled && !!loopsClient,
     staleTime: 30_000,
@@ -85,5 +89,6 @@ export function useLoopLimits(): LoopLimits | null {
       atLimit: page.total_loop_count >= page.max_loops_per_team,
     }),
   });
-  return data ?? null;
+  // A disabled query still serves its cached page, so guard on the flag too.
+  return hogFlows ? null : (data ?? null);
 }

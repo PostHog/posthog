@@ -1,5 +1,6 @@
 import {
   ArrowLeftIcon,
+  ArrowSquareOutIcon,
   CheckCircleIcon,
   LinkIcon,
   PauseIcon,
@@ -43,6 +44,7 @@ import {
 } from "@posthog/ui/router/navigationBridge";
 import { getRouterOrNull } from "@posthog/ui/router/routerRef";
 import { track } from "@posthog/ui/shell/analytics";
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { Flex, Text } from "@radix-ui/themes";
 import type { ParsedHistoryState } from "@tanstack/history";
@@ -106,6 +108,10 @@ export function LoopDetailView({
   // would overwrite what they built, so the page goes read-only for it.
   const foreignWorkflow =
     workflowBacked && !!hogFlow && !isLoopShapedHogFlow(hogFlow);
+  // An archived workflow maps to a paused loop, but resuming it would set it
+  // active again rather than restore it, so it is shown read-only instead.
+  const archived = workflowBacked && hogFlow?.status === "archived";
+  const readOnly = foreignWorkflow || archived;
   const teamSkills = hogFlow ? hogFlowTeamSkills(hogFlow) : [];
   const cloudRegion = useAuthStateValue((state) => state.cloudRegion);
   const projectId = useAuthStateValue((state) => state.currentProjectId);
@@ -257,6 +263,14 @@ export function LoopDetailView({
     if (startEditing) setIsEditing(true);
   }, [startEditing]);
 
+  // The workflow loads after the page opens, so an edit URL can land in the
+  // form before the read-only check has an answer. Back out once it does.
+  useEffect(() => {
+    if (!readOnly) return;
+    setIsEditing(false);
+    setEditDirty(false);
+  }, [readOnly]);
+
   const leavePage = useCallback(() => {
     if (hasLoopListOrigin && canGoBackInHistory()) {
       goBackInHistory();
@@ -384,8 +398,8 @@ export function LoopDetailView({
   // The workflow run endpoint only accepts schedule triggers; a GitHub loop
   // fires from its repository.
   const canRunNow =
-    !foreignWorkflow &&
-    (!workflowBacked || loop.triggers[0]?.type === "schedule");
+    !readOnly && (!workflowBacked || loop.triggers[0]?.type === "schedule");
+  const githubTriggered = loop.triggers[0]?.type === "github";
 
   return (
     <div className="h-full min-h-0 overflow-y-auto">
@@ -413,28 +427,32 @@ export function LoopDetailView({
               >
                 {loop.name}
               </Text>
-              <Badge variant={loopStatusBadgeVariant(loop)}>
-                {loopStatusLabel(loop)}
+              <Badge
+                variant={archived ? "default" : loopStatusBadgeVariant(loop)}
+              >
+                {archived ? "Archived" : loopStatusLabel(loop)}
               </Badge>
               {!workflowBacked ? (
                 <Badge>{formatVisibility(loop.visibility)}</Badge>
               ) : null}
             </Flex>
             <Flex align="center" gap="2">
-              <Button
-                variant="outline"
-                size="sm"
-                loading={updateLoop.isPending}
-                disabled={updateLoop.isPending}
-                onClick={() => handleToggleEnabled(!loop.enabled)}
-              >
-                {loop.enabled ? (
-                  <PauseIcon size={14} />
-                ) : (
-                  <PlayIcon size={14} />
-                )}
-                {loop.enabled ? "Pause" : "Resume"}
-              </Button>
+              {!archived ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  loading={updateLoop.isPending}
+                  disabled={updateLoop.isPending}
+                  onClick={() => handleToggleEnabled(!loop.enabled)}
+                >
+                  {loop.enabled ? (
+                    <PauseIcon size={14} />
+                  ) : (
+                    <PlayIcon size={14} />
+                  )}
+                  {loop.enabled ? "Pause" : "Resume"}
+                </Button>
+              ) : null}
               <Button
                 variant="outline"
                 size="sm"
@@ -455,7 +473,7 @@ export function LoopDetailView({
                   Run now
                 </Button>
               ) : null}
-              {!foreignWorkflow ? (
+              {!readOnly ? (
                 <Button
                   variant="outline"
                   size="sm"
@@ -502,7 +520,11 @@ export function LoopDetailView({
           <PausedNotice loop={loop} />
         </Flex>
 
-        {isEditing ? (
+        {archived ? (
+          <LoopArchivedNotice workflowUrl={workflowUrl} />
+        ) : foreignWorkflow ? (
+          <LoopForeignWorkflowNotice workflowUrl={workflowUrl} />
+        ) : isEditing ? (
           <LoopForm
             loop={loop}
             variant="embedded"
@@ -514,8 +536,6 @@ export function LoopDetailView({
               toast.success("Loop updated");
             }}
           />
-        ) : foreignWorkflow ? (
-          <LoopForeignWorkflowNotice workflowUrl={workflowUrl} />
         ) : (
           <>
             <ConfigSummarySection
@@ -549,8 +569,11 @@ export function LoopDetailView({
                 No runs yet
               </Text>
               <Text className="max-w-sm text-[11.5px] text-gray-10 leading-snug">
-                Runs show up here once this loop fires. Trigger one with Run
-                now, or wait for its next trigger.
+                {canRunNow
+                  ? "Runs show up here once this loop fires. Trigger one with Run now, or wait for its next trigger."
+                  : githubTriggered
+                    ? "Runs show up here once this loop fires. A matching event in the repository starts a run."
+                    : "Runs show up here once this loop fires."}
               </Text>
             </Flex>
           ) : (
@@ -641,6 +664,36 @@ function loopStatusBadgeVariant(
 
 function formatVisibility(visibility: LoopSchemas.LoopVisibilityEnum): string {
   return visibility.charAt(0).toUpperCase() + visibility.slice(1);
+}
+
+/**
+ * Shown in place of the configuration summary for an archived workflow. The
+ * loop API has no archived state, so resuming from here would set the workflow
+ * active instead of restoring it; restoring happens in PostHog.
+ */
+function LoopArchivedNotice({ workflowUrl }: { workflowUrl: string | null }) {
+  return (
+    <div className="flex flex-col gap-2 rounded-(--radius-2) border border-border bg-(--gray-2) px-3 py-3">
+      <span className="font-medium text-[12.5px] text-gray-12">
+        This loop is archived
+      </span>
+      <span className="text-[12px] text-gray-11 leading-snug">
+        It no longer runs and can't be edited here. Restore it in PostHog to
+        bring it back, or delete it here. Run history stays available.
+      </span>
+      {workflowUrl ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-fit"
+          onClick={() => openExternalUrl(workflowUrl)}
+        >
+          <ArrowSquareOutIcon size={14} />
+          Open in PostHog
+        </Button>
+      ) : null}
+    </div>
+  );
 }
 
 function PausedNotice({ loop }: { loop: LoopSchemas.Loop }) {
