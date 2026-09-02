@@ -723,7 +723,13 @@ class TestScoutReportAPI(APIBaseTest):
         with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
             created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
         report_id = created["report_id"]
-        with patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
+        tally_at_autostart: list[list[str]] = []
+
+        async def _capture_tally(**_kwargs: object) -> None:
+            await sync_to_async(run.refresh_from_db)()
+            tally_at_autostart.append(list(run.edited_report_ids or []))
+
+        with patch(AUTOSTART_PATH, new=AsyncMock(side_effect=_capture_tally)) as autostart:
             response = self.client.post(
                 self._edit_url(str(run.id)),
                 data={"report_id": report_id, "suggested_reviewers": [{"github_login": "OctoCat"}]},
@@ -734,8 +740,10 @@ class TestScoutReportAPI(APIBaseTest):
         reviewers = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS)
         assert reviewers is not None and "octocat" in reviewers.content  # canonicalized lowercase
         autostart.assert_awaited_once()
-        run.refresh_from_db()
-        assert run.edited_report_ids == [report_id]
+        # The tally must already carry the edit when autostart fires: the live owner exclusion
+        # resolves the touching scouts from it, so a tally recorded after the hand-off would leave
+        # the editing scout's own owners out of the exclusion.
+        assert tally_at_autostart == [[report_id]]
 
     def test_owner_provenance_is_restamped_at_the_write(self) -> None:
         # Autostart trusts the stored is_skill_owner stamp, and the safety judge sits between reviewer

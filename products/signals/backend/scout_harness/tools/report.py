@@ -1515,6 +1515,19 @@ def _do_edit_report(
                 "signals_scout.edit_report: inferred repository refresh failed",
                 extra={"team_id": team.id, "report_id": report_id},
             )
+    # Record the edit on the run tally only when something actually changed — a no-op edit (e.g. a
+    # title rewrite to its current value, or re-sending the charts already stored) must not claim the
+    # run touched the report, or notify its destination a second time about nothing. Ordered BEFORE
+    # the autostart hand-off below: autostart's live owner exclusion resolves the touching scouts
+    # from this tally, so a first edit recorded after the hand-off would leave the editing scout's
+    # own owners out of the exclusion. Both writes swallow their own failures, so they can't block
+    # autostart. The Slack delivery for this edit was already enqueued above, so a prior in-flight
+    # delivery sees the supersede marker rather than posting the edit a second time.
+    if changed:
+        record_report_edit(team_id=team.id, run_id=run.id, report_id=report_id)
+        # Also link the run itself on the report's work log (deduped), so the editing scout's
+        # transcript is reachable from the report — not just the run-side `edited_report_ids` tally.
+        record_scout_run_task_artefact(team_id=team.id, report_id=report_id, run=run, task_id=attribution.task_id)
     # Re-run autostart only when reviewers changed: it's idempotent (a report with an implementation
     # task already started no-ops), but a report that was missing a qualifying reviewer can now open a
     # draft PR. Fired outside any txn since it spawns a Task — mirrors emit's post-commit hand-off.
@@ -1555,16 +1568,6 @@ def _do_edit_report(
         suggested_prompts_set=prompts_set,
         report_title=report_title,
     )
-    # Record the edit on the run tally only when something actually changed — a no-op edit (e.g. a
-    # title rewrite to its current value, or re-sending the charts already stored) must not claim the
-    # run touched the report, or notify its destination a second time about nothing. The Slack
-    # delivery for this edit was already enqueued above, before the autostart side effect, so a prior
-    # in-flight delivery sees the supersede marker rather than posting the edit a second time.
-    if changed:
-        record_report_edit(team_id=team.id, run_id=run.id, report_id=report_id)
-        # Also link the run itself on the report's work log (deduped), so the editing scout's
-        # transcript is reachable from the report — not just the run-side `edited_report_ids` tally.
-        record_scout_run_task_artefact(team_id=team.id, report_id=report_id, run=run, task_id=attribution.task_id)
     return result
 
 
