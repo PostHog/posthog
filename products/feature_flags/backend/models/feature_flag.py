@@ -238,6 +238,12 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
             # regardless of which code path wrote it.
             models.CheckConstraint(condition=~Q(archived=True, active=True), name="archived_flag_must_be_disabled"),
         ]
+        indexes = [
+            # The flags list and its sibling endpoints read one project's flags newest first.
+            # The team FK index alone makes Postgres read every flag of the team and sort it,
+            # so a team with thousands of flags pays for the whole set on each page.
+            models.Index(fields=["team", "-created_at"], name="ff_team_id_created_at_idx"),
+        ]
         db_table = "posthog_featureflag"
 
     def __str__(self):
