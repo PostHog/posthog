@@ -218,6 +218,31 @@ class TestSplitMarkdownBySections(SimpleTestCase):
 
         assert split_markdown_by_sections(summary) == [summary]
 
+    @parameterized.expand(
+        [
+            (
+                "after_heading",
+                "# Weekly digest\n**Signals** - shipped threading.\n\n**Tasks** - runs faster.",
+                "# Weekly digest",
+            ),
+            (
+                "after_closing_fence",
+                "Lead.\n\n```\ncode\n```\n**Evidence** - a.\n\n**Next step** - b.",
+                "Lead.\n\n```\ncode\n```",
+            ),
+        ]
+    )
+    def test_bold_label_immediately_after_a_block_boundary_is_a_seam(
+        self, _name: str, summary: str, expected_lead: str
+    ) -> None:
+        # A heading and a closing fence both end their block, so a bold label on the very next line
+        # opens a section instead of merging into the lead and leaving the report unthreaded.
+        segments = split_markdown_by_sections(summary)
+
+        assert segments[0].strip() == expected_lead
+        assert segments[1].lstrip().startswith("**")
+        assert len(segments) == 3
+
     def test_headings_outrank_bold_labels(self) -> None:
         # A summary that marks sections both ways splits at its headings, so the bold labels stay
         # inside the section a reader sees them in.

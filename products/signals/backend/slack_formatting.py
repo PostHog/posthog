@@ -187,22 +187,27 @@ def _markdown_seams(text: str) -> list[_MarkdownSeam]:
     offset = 0
     for line in text.split("\n"):
         fence_match = _MARKDOWN_FENCE_RE.match(line)
+        # A blank line opens the next paragraph. A heading and a closing fence also end their
+        # block, so the line after either opens a paragraph, where a bold label counts as a seam.
+        opens_next_paragraph = not line.strip()
         if fence is not None:
             # Close only on the same fence character, at least as long as the opener (CommonMark).
             if fence_match and fence_match.group(1)[0] == fence[0] and len(fence_match.group(1)) >= len(fence):
                 fence = None
+                opens_next_paragraph = True
         elif fence_match:
             fence = fence_match.group(1)
         else:
             heading_match = _MARKDOWN_HEADING_RE.match(line)
             if heading_match:
                 seams.append(_MarkdownSeam(offset=offset, level=len(heading_match.group(1))))
+                opens_next_paragraph = True
             elif after_blank:
                 bold_level = _bold_seam_level(line)
                 if bold_level is not None:
                     seams.append(_MarkdownSeam(offset=offset, level=bold_level))
         offset += len(line) + 1  # +1 for the "\n" that split dropped
-        after_blank = not line.strip()
+        after_blank = opens_next_paragraph
     return seams
 
 
