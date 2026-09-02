@@ -83,3 +83,19 @@ WORKFLOW_EMAIL_AUTO_PAUSE_BOUNCE_MIN_EVENTS_24H: int = get_from_env(
 WORKFLOW_EMAIL_AUTO_PAUSE_BOUNCE_RATE_24H: float = get_from_env(
     "WORKFLOW_EMAIL_AUTO_PAUSE_BOUNCE_RATE_24H", 0.05, type_cast=float
 )
+
+# Warning band: at these rates the workflow's admins get a heads-up email, and at the pause rates
+# above the workflow's email stops. Half the pause rate, with the same volume gates, so a warning
+# always precedes a slow-burning pause while an acute burst can still pause without one.
+WORKFLOW_EMAIL_WARN_COMPLAINT_RATE_1H: float = get_from_env(
+    "WORKFLOW_EMAIL_WARN_COMPLAINT_RATE_1H", 0.005, type_cast=float
+)
+WORKFLOW_EMAIL_WARN_COMPLAINT_RATE_24H: float = get_from_env(
+    "WORKFLOW_EMAIL_WARN_COMPLAINT_RATE_24H", 0.0015, type_cast=float
+)
+WORKFLOW_EMAIL_WARN_BOUNCE_RATE_1H: float = get_from_env("WORKFLOW_EMAIL_WARN_BOUNCE_RATE_1H", 0.05, type_cast=float)
+WORKFLOW_EMAIL_WARN_BOUNCE_RATE_24H: float = get_from_env("WORKFLOW_EMAIL_WARN_BOUNCE_RATE_24H", 0.025, type_cast=float)
+
+# How long one warning covers a workflow. Without this bound the hourly detector would repeat the
+# same email every run while the workflow sits inside the warning band.
+WORKFLOW_EMAIL_WARN_COOLDOWN_DAYS: int = get_from_env("WORKFLOW_EMAIL_WARN_COOLDOWN_DAYS", 7, type_cast=int)
