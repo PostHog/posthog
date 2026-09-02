@@ -572,8 +572,10 @@ export interface DataWarehouseSyncWarning {
     source_id?: string | null
     /** Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached" */
     status: string
-    /** Human-readable warning shown to the user */
+    /** Self-contained warning for LLM/MCP contexts. Restates "results may be out of date". */
     message: string
+    /** Banner version of `message` without the redundant staleness tail. Matches `message` when there is none. */
+    display_message: string
 }
 
 export interface AccessControlFilterWarning {

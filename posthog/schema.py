@@ -1124,7 +1124,16 @@ class DataWarehouseSyncWarning(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    message: str = Field(..., description="Human-readable warning shown to the user")
+    display_message: str = Field(
+        ...,
+        description=(
+            "Banner version of `message` without the redundant staleness tail. Matches `message` when there is none."
+        ),
+    )
+    message: str = Field(
+        ...,
+        description=('Self-contained warning for LLM/MCP contexts. Restates "results may be out of date".'),
+    )
     schema_name: str = Field(
         ...,
         description="Name of the ExternalDataSchema responsible for syncing the table",

@@ -133,6 +133,10 @@ class TestWarehouseSyncWarnings(BaseTest):
         assert warnings[0].status == str(ExternalDataSchema.Status.RUNNING)
         assert warnings[0].source_id == str(self.source.id)
         assert "more than twice" in warnings[0].message
+        # Full message keeps the standalone staleness tail; the banner version drops it.
+        assert "A new sync is in progress but results may be out of date." in warnings[0].message
+        assert warnings[0].display_message.endswith("A new sync is in progress.")
+        assert "out of date" not in warnings[0].display_message
 
     def test_no_warning_when_running_at_exact_threshold(self) -> None:
         self._make_schema(
@@ -212,6 +216,9 @@ class TestWarehouseSyncWarnings(BaseTest):
         assert len(warnings) == 1
         assert warnings[0].status == ExternalDataSchema.Status.COMPLETED
         assert "out of date" in warnings[0].message
+        # Full message keeps the standalone staleness tail; the banner version drops it.
+        assert warnings[0].message.endswith("Results may be out of date.")
+        assert "out of date" not in warnings[0].display_message
 
     def test_uses_preloaded_schemas_when_available(self) -> None:
         """If `_active_external_data_schemas` is set on the table, it's used directly without a DB query."""

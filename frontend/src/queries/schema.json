@@ -20040,8 +20040,12 @@
         "DataWarehouseSyncWarning": {
             "additionalProperties": false,
             "properties": {
+                "display_message": {
+                    "description": "Banner version of `message` without the redundant staleness tail. Matches `message` when there is none.",
+                    "type": "string"
+                },
                 "message": {
-                    "description": "Human-readable warning shown to the user",
+                    "description": "Self-contained warning for LLM/MCP contexts. Restates \"results may be out of date\".",
                     "type": "string"
                 },
                 "schema_name": {
@@ -20070,7 +20074,7 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "table_name", "schema_name", "source_type", "status", "message"],
+            "required": ["type", "table_name", "schema_name", "source_type", "status", "message", "display_message"],
             "type": "object"
         },
         "DataWarehouseViewLink": {

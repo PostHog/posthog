@@ -1046,7 +1046,9 @@ export namespace Schemas {
     }
 
     export interface DataWarehouseSyncWarning {
-      /** Human-readable warning shown to the user */
+      /** Banner version of `message` without the redundant staleness tail. Matches `message` when there is none. */
+      display_message: string;
+      /** Self-contained warning for LLM/MCP contexts. Restates "results may be out of date". */
       message: string;
       /** Name of the ExternalDataSchema responsible for syncing the table */
       schema_name: string;

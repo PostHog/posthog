@@ -64,7 +64,10 @@ def _build_warning_for_schema(
     source_type = schema.source.source_type if schema.source_id else "unknown"
     source_id = str(schema.source_id) if schema.source_id else None
 
-    def build(*, status: str, message: str) -> DataWarehouseSyncWarning:
+    def build(*, status: str, message: str, display_message: str | None = None) -> DataWarehouseSyncWarning:
+        # `message` is self-contained for LLM/MCP contexts, so it restates "results may be out of
+        # date". `display_message` drops that tail because the banner header already says it. When
+        # the two match, callers omit `display_message`.
         return DataWarehouseSyncWarning(
             table_name=table_name,
             schema_name=schema.name,
@@ -72,6 +75,7 @@ def _build_warning_for_schema(
             source_id=source_id,
             status=status,
             message=message,
+            display_message=display_message if display_message is not None else message,
         )
 
     if schema_status == ExternalDataSchemaStatus.FAILED:
@@ -79,7 +83,7 @@ def _build_warning_for_schema(
         if schema.last_synced_at:
             message += f" Results reflect data from {humanize.naturaltime(now - _ensure_utc(schema.last_synced_at))}."
         else:
-            message += " No successful sync has completed yet — the table may be empty or incomplete."
+            message += " No successful sync has completed yet. The table may be empty or incomplete."
         # Deliberately omit schema.latest_error: it holds raw exception text (DB hostnames,
         # credentials, stack traces) and this message reaches LLM contexts via MCP/Max. The full
         # error stays in the data warehouse source screen, which is access-scoped.
@@ -87,28 +91,29 @@ def _build_warning_for_schema(
         return build(status=ExternalDataSchemaStatus.FAILED, message=message)
 
     if schema_status == ExternalDataSchemaStatus.BILLING_LIMIT_REACHED:
+        core = (
+            f"Sync of `{table_name}` (from {source_type}) is paused because the data warehouse "
+            "billing limit has been reached."
+        )
         return build(
             status=ExternalDataSchemaStatus.BILLING_LIMIT_REACHED,
-            message=(
-                f"Sync of `{table_name}` (from {source_type}) is paused because the data warehouse "
-                "billing limit has been reached. Results may be out of date."
-            ),
+            message=f"{core} Results may be out of date.",
+            display_message=core,
         )
 
     if schema_status == ExternalDataSchemaStatus.BILLING_LIMIT_TOO_LOW:
+        core = f"Sync of `{table_name}` (from {source_type}) is paused because the configured billing limit is too low."
         return build(
             status=ExternalDataSchemaStatus.BILLING_LIMIT_TOO_LOW,
-            message=(
-                f"Sync of `{table_name}` (from {source_type}) is paused because the configured "
-                "billing limit is too low. Results may be out of date."
-            ),
+            message=f"{core} Results may be out of date.",
+            display_message=core,
         )
 
     if schema_status == ExternalDataSchemaStatus.PAUSED or not schema.should_sync:
         if schema.last_synced_at is None:
             message = (
-                f"Sync of `{table_name}` (from {source_type}) is paused and hasn't completed a sync yet "
-                "— the table may be empty or incomplete."
+                f"Sync of `{table_name}` (from {source_type}) is paused and hasn't completed a sync yet. "
+                "The table may be empty or incomplete."
             )
         else:
             ago = humanize.naturaltime(now - _ensure_utc(schema.last_synced_at))
@@ -119,7 +124,7 @@ def _build_warning_for_schema(
                 )
             else:
                 message = (
-                    f"Sync of `{table_name}` (from {source_type}) is paused — results are current as of "
+                    f"Sync of `{table_name}` (from {source_type}) is paused. Results are current as of "
                     f"{ago}, but won't update until syncing is re-enabled."
                 )
         return build(status=ExternalDataSchemaStatus.PAUSED, message=message)
@@ -131,16 +136,19 @@ def _build_warning_for_schema(
 
     ago = humanize.naturaltime(now - _ensure_utc(last_synced))
     if schema_status == ExternalDataSchemaStatus.RUNNING:
-        message = (
+        base = (
             f"`{table_name}` (from {source_type}) last completed syncing {ago}, more than twice its "
-            "configured sync interval. A new sync is in progress but results may be out of date."
+            "configured sync interval. A new sync is in progress"
         )
+        message = f"{base} but results may be out of date."
+        display_message = f"{base}."
     else:
-        message = (
-            f"`{table_name}` (from {source_type}) last synced {ago}, more than twice its configured "
-            "sync interval. Results may be out of date."
-        )
-    return build(status=schema_status or ExternalDataSchemaStatus.RUNNING, message=message)
+        core = f"`{table_name}` (from {source_type}) last synced {ago}, more than twice its configured sync interval."
+        message = f"{core} Results may be out of date."
+        display_message = core
+    return build(
+        status=schema_status or ExternalDataSchemaStatus.RUNNING, message=message, display_message=display_message
+    )
 
 
 def get_warehouse_sync_warnings(
