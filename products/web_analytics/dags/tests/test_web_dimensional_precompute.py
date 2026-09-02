@@ -5,11 +5,12 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 import dagster
+from parameterized import parameterized
 
 from posthog.models import Organization, Team
 
 from products.web_analytics.dags.web_dimensional_precompute import (
-    DEFAULT_ROLLOUT_TEAM_IDS,
+    DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION,
     PRECOMPUTE_CHUNK_DAYS,
     PRECOMPUTE_WINDOW_DAYS,
     SELECTED_TEAM_IDS_ENV_VAR,
@@ -20,6 +21,7 @@ from products.web_analytics.dags.web_dimensional_precompute import (
 )
 
 _IS_CLOUD = "products.web_analytics.dags.web_dimensional_precompute.is_cloud"
+_CLOUD_DEPLOYMENT = "products.web_analytics.dags.web_dimensional_precompute.settings.CLOUD_DEPLOYMENT"
 
 # Patch chunking to a single chunk so call counts are deterministic in the op tests.
 _SINGLE_CHUNK = "products.web_analytics.dags.web_dimensional_precompute.PRECOMPUTE_CHUNK_DAYS"
@@ -62,10 +64,25 @@ class TestGetSelectedTeamIds:
         with patch(_IS_CLOUD, return_value=True), patch.dict(os.environ, {SELECTED_TEAM_IDS_ENV_VAR: ""}):
             assert get_selected_team_ids() == []
 
-    def test_unset_uses_default_rollout_on_cloud(self):
-        with patch(_IS_CLOUD, return_value=True), patch.dict(os.environ, {}, clear=False):
+    @parameterized.expand([("US",), ("EU",)])
+    def test_unset_uses_region_default_on_cloud(self, region: str):
+        with (
+            patch(_IS_CLOUD, return_value=True),
+            patch(_CLOUD_DEPLOYMENT, region),
+            patch.dict(os.environ, {}, clear=False),
+        ):
             os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
-            assert get_selected_team_ids() == DEFAULT_ROLLOUT_TEAM_IDS
+            assert get_selected_team_ids() == DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION[region]
+
+    def test_unset_unknown_region_is_empty(self):
+        # A region without a default entry must not fall back to another region's list.
+        with (
+            patch(_IS_CLOUD, return_value=True),
+            patch(_CLOUD_DEPLOYMENT, "DEV"),
+            patch.dict(os.environ, {}, clear=False),
+        ):
+            os.environ.pop(SELECTED_TEAM_IDS_ENV_VAR, None)
+            assert get_selected_team_ids() == []
 
     def test_unset_is_empty_off_cloud(self):
         with patch(_IS_CLOUD, return_value=False), patch.dict(os.environ, {}, clear=False):
