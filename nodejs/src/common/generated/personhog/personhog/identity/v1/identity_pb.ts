@@ -486,23 +486,18 @@ export type MergePersonsRequest = Message<'personhog.identity.v1.MergePersonsReq
     moveLimit?: bigint
 
     /**
-     * Merge event created_at, epoch millis. Consulted only when the target
-     * distinct id resolves to nobody and a fresh person is born from it (the
-     * establish path); a resolved survivor's created_at is the min of the
-     * target's and the sealed sources' own values, never this field.
+     * Merge event created_at, epoch millis. Consulted only when the establish
+     * path births a fresh person; a resolved survivor keeps the min of the
+     * target's and the sealed sources' own values.
      *
      * @generated from field: int64 created_at = 9;
      */
     createdAt: bigint
 
     /**
-     * The uuid of the event that asked for this merge. It cannot be
-     * recovered from op_id: the op id is a one-way derivation, and one
-     * event can own several ops at once (a fold plan and its per-event
-     * fallback merges share this value but not op ids), so the two fields
-     * answer different questions — op_id names the operation, this names
-     * the event behind it. Recorded as $creator_event_uuid on a person the
-     * establish path births. Send the same value on every retry.
+     * The uuid of the event that asked for this merge; op_id derives from it
+     * one-way, so it is not recoverable. Recorded as $creator_event_uuid on
+     * a person the establish path births. Send the same value on every retry.
      *
      * @generated from field: string creator_event_uuid = 10;
      */
@@ -532,22 +527,17 @@ export type MergeSourceResult = Message<'personhog.identity.v1.MergeSourceResult
     outcome: MergeSourceOutcome
 
     /**
-     * The source person this verdict destroyed. Set only on MERGED, because
-     * only then is the person permanently gone and safe to act on without
-     * re-reading; every other outcome leaves it absent rather than naming a
-     * person still live.
+     * The destroyed source person; set only on MERGED, where the person is
+     * permanently gone and safe to reconcile against without re-reading.
      *
      * @generated from field: optional int64 source_person_id = 3;
      */
     sourcePersonId?: bigint
 
     /**
-     * Whether a retry can change this source's outcome. True means the
-     * answer is final however it is retried, and the caller acks the event;
-     * false means a retry may genuinely succeed, and the caller lets
-     * redelivery try again. This is the caller's whole durability decision:
-     * outcome names stay labels for warnings, never inputs to it, so a
-     * value this build has never heard of is still handled correctly.
+     * Whether any retry can change this source's outcome. True acks the
+     * event, false lets redelivery try again. Outcome names are warning
+     * labels, never durability inputs, so unknown values stay handled.
      *
      * @generated from field: bool settled = 4;
      */
@@ -600,11 +590,6 @@ export const MergePersonsResponseSchema: GenMessage<MergePersonsResponse> =
     messageDesc(file_personhog_identity_v1_identity, 15)
 
 /**
- * Add new values to every client before any server emits them: a client
- * that cannot name a value has to treat it as neither settled nor
- * retryable, which costs the event a trip through the dead-letter queue
- * for the length of the skew window.
- *
  * @generated from enum personhog.identity.v1.MergeSourceOutcome
  */
 export enum MergeSourceOutcome {
@@ -675,11 +660,9 @@ export enum MergeSourceOutcome {
     ERROR = 8,
 
     /**
-     * The saga was definitively refused before destroying anything — a
-     * missing lifecycle database, a dead target mark — and aborted; every
-     * retry, fresh op id included, meets the same refusal, so the caller
-     * settles the pair as lost. Distinct from ERROR, a completed operation
-     * whose source ended indeterminate.
+     * Definitively refused before anything was destroyed; every retry meets
+     * the same refusal, so the caller settles the pair as lost. ERROR is a
+     * completed operation whose source ended indeterminate.
      *
      * @generated from enum value: MERGE_SOURCE_OUTCOME_SKIPPED_REFUSED = 9;
      */

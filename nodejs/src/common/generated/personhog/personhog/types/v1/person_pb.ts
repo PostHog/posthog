@@ -662,11 +662,9 @@ export type UpdatePersonPropertiesRequest = Message<'personhog.types.v1.UpdatePe
     lastSeenAt?: bigint
 
     /**
-     * The event kind warrants a write regardless of which properties changed
-     * ($identify and the other person events, or a deployment updating all
-     * properties). Computed by the caller from the event alone; with it
-     * false, changes confined to the filtered property list answer
-     * updated=false and write nothing.
+     * The event kind warrants a write regardless of which properties changed.
+     * Computed by the caller from the event alone; when false, filtered-only
+     * changes answer updated=false and write nothing.
      *
      * @generated from field: bool force_update = 9;
      */
