@@ -208,6 +208,13 @@ def _is_credential_rejection(status_code: int, code: Any, message: str) -> bool:
     # a credential rejection.
     if any(f'"{rejection_code}"' in lowered for rejection_code in _CREDENTIAL_REJECTION_CODES):
         return True
+    # The prose signatures are unquoted, so a caller-selected model name echoed into a 400 body can
+    # contain one and pose as a credential rejection. Trust them only on the 401 or 403 the provider
+    # sends directly, where the caller cannot place the string. A real rejection that litellm
+    # downgrades to a 400 still carries its code on the exception or quoted in the body, so the two
+    # checks above already catch it.
+    if status_code == 400:
+        return False
     return any(signature in lowered for signature in _CREDENTIAL_REJECTION_SIGNATURES)
 
 
