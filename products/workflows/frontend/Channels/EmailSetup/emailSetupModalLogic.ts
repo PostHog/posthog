@@ -190,7 +190,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
             },
         ],
     }),
-    forms(({ actions, values }) => ({
+    forms(({ props, actions, values }) => ({
         emailSender: {
             defaults: {
                 provider: 'ses',
@@ -219,6 +219,9 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
             },
             submit: async (config) => {
                 try {
+                    // Editing an existing sender closes the modal on success; a new sender stays
+                    // open so the DNS records to verify can be shown.
+                    const isEdit = !!values.savedIntegration
                     let integration: IntegrationType
                     if (values.savedIntegration) {
                         integration = await api.integrations.updateEmailConfig(values.savedIntegration.id, {
@@ -233,6 +236,9 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                     actions.loadIntegrations()
                     actions.setSavedIntegration(integration)
                     actions.verifyDomain()
+                    if (isEdit) {
+                        props.onComplete(integration.id)
+                    }
                     return config
                 } catch (error) {
                     if (error instanceof ApiError || (error && typeof error === 'object' && 'detail' in error)) {
