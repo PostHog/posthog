@@ -4,7 +4,7 @@ import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { execHog } from '~/cdp/utils/hog-exec'
 
-import { DURATION_REGEX, SECONDS_PER_DURATION_UNIT } from '../duration'
+import { ParsedDuration, SECONDS_PER_DURATION_UNIT, parseDuration } from '../duration'
 import { findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { resolveTimezone } from './timezone'
@@ -34,11 +34,6 @@ export class DelayHandler implements ActionHandler {
     }
 }
 
-// Value is expected to be like `10d` or `1.5h` or `10m`
-
-// Same shape as a duration, with an optional leading sign so an offset can point before the instant.
-const OFFSET_REGEX = /^(-?)(\d*\.?\d+)([dhms])$/
-
 const DEFAULT_MAX_DELAY_UNTIL = '30d'
 
 // The last second luxon (and JS Date) can represent as a real date, end of year 9999. A numeric value larger
@@ -54,22 +49,25 @@ const MAX_UNIX_SECONDS = 253402300799
  * late rather than not at all.
  */
 function offsetSeconds(value: string): number | null {
-    const match = OFFSET_REGEX.exec(value)
-    if (!match) {
+    const parsed = parseDuration(value)
+    if (!parsed) {
         return null
     }
-    const [, sign, amountString, unit] = match
-    return (sign === '-' ? -1 : 1) * parseFloat(amountString) * SECONDS_PER_DURATION_UNIT[unit]
+    return (parsed.negative ? -1 : 1) * parsed.amount * SECONDS_PER_DURATION_UNIT[parsed.unit]
 }
 
 /** Seconds for the wait's ceiling, using the same units and per-unit ceilings as a fixed delay. */
 function maxDelaySeconds(value: string): number | null {
-    const match = DURATION_REGEX.exec(value)
-    if (!match) {
+    const parsed = parseDuration(value)
+    if (!parsed || parsed.negative) {
         return null
     }
-    const [, amountString, unit] = match
-    return Math.min(MAX_VALUE_FOR_DURATION_UNIT[unit], parseFloat(amountString)) * SECONDS_PER_DURATION_UNIT[unit]
+    return clampedAmount(parsed) * SECONDS_PER_DURATION_UNIT[parsed.unit]
+}
+
+/** The amount a fixed delay is allowed to wait for, held to this unit's ceiling. */
+function clampedAmount(parsed: ParsedDuration): number {
+    return Math.min(MAX_VALUE_FOR_DURATION_UNIT[parsed.unit], parsed.amount)
 }
 
 /**
@@ -190,6 +188,8 @@ async function scheduledAtFromInstant(
     return DateTime.utc() >= scheduledAt ? null : scheduledAt
 }
 
+const LUXON_UNIT = { d: 'days', h: 'hours', m: 'minutes', s: 'seconds' } as const
+
 const MAX_VALUE_FOR_DURATION_UNIT: Record<string, number> = {
     d: 30,
     h: 24,
@@ -213,32 +213,13 @@ export function calculatedScheduledAt(
         throw new Error("'startedAtTimestamp' is not set or is invalid")
     }
 
-    const match = DURATION_REGEX.exec(value)
+    const parsed = parseDuration(value)
 
-    if (!match) {
+    if (!parsed || parsed.negative) {
         throw new Error(`Invalid duration: ${value}`)
     }
 
-    const [_, amountString, unit] = match
-
-    let duration: DurationLike
-
-    switch (unit) {
-        case 'd':
-            duration = { days: Math.min(MAX_VALUE_FOR_DURATION_UNIT[unit], parseFloat(amountString)) }
-            break
-        case 'h':
-            duration = { hours: Math.min(MAX_VALUE_FOR_DURATION_UNIT[unit], parseFloat(amountString)) }
-            break
-        case 'm':
-            duration = { minutes: Math.min(MAX_VALUE_FOR_DURATION_UNIT[unit], parseFloat(amountString)) }
-            break
-        case 's':
-            duration = { seconds: Math.min(MAX_VALUE_FOR_DURATION_UNIT[unit], parseFloat(amountString)) }
-            break
-        default:
-            throw new Error(`Invalid duration: ${value}`)
-    }
+    const duration: DurationLike = { [LUXON_UNIT[parsed.unit]]: clampedAmount(parsed) }
 
     const waitUntilTime = actionStartedAt.plus(duration)
 
