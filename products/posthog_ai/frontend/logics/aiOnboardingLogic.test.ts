@@ -79,14 +79,35 @@ describe('aiOnboardingLogic', () => {
         })
     })
 
-    // The takeover reopens forever if the dismissal names a key the open check doesn't read. It also has to
-    // stay a single-key write: sending the whole map back is what let two tabs drop each other's intro.
-    it('records the seen flag against the onboarding key alone', async () => {
+    // Persisting only on the way out greeted people again on their next visit, because closing the tab,
+    // following a link, or reloading never reaches a dismissal. A replay has to stay silent: it opens the
+    // takeover on surfaces that never showed it, so writing there swallows the one real showing.
+    // The key matters too — one the open check doesn't read reopens the takeover forever.
+    it.each([
+        ['opens', false, [{ product_key: POSTHOG_AI_ONBOARDING_SEEN_KEY, seen: true }]],
+        ['is replayed', true, []],
+    ])('records the seen flag when the takeover %s', async (_name, isReplay, expected) => {
         mountLogic()
-        userLogic
-            .findMounted()
-            ?.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, has_seen_product_intro_for: { session_replay: true } })
+        userLogic.findMounted()?.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER })
 
+        await expectLogic(logic, () => {
+            logic.actions.openOnboarding(isReplay)
+        }).toFinishAllListeners()
+
+        expect(seenWrites).toEqual(expected)
+    })
+
+    // The open and the dismissal both mark it seen. Dismissing while the reloaded user is still in flight
+    // leaves the persisted flag false, so without a guard the write and the full user reload behind it run
+    // twice. The two phases here are what puts the dismissal past the write's debounce, which is the only
+    // reason the same-tick case survives on its own.
+    it('records the seen flag once across an open and a dismissal', async () => {
+        mountLogic()
+        userLogic.findMounted()?.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER })
+
+        await expectLogic(logic, () => {
+            logic.actions.openOnboarding()
+        }).toFinishAllListeners()
         await expectLogic(logic, () => {
             logic.actions.closeOnboarding()
         }).toFinishAllListeners()
@@ -101,6 +122,7 @@ describe('aiOnboardingLogic', () => {
         userLogic.findMounted()?.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_impersonated: true })
 
         await expectLogic(logic, () => {
+            logic.actions.openOnboarding()
             logic.actions.closeOnboarding()
         }).toFinishAllListeners()
 
