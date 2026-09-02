@@ -75,7 +75,7 @@ When the model is routed in `products/db_routing.yaml`:
 
 - Pass `using=router.db_for_write(Thing)` to every `log_activity` and `bulk_log_activity` call in the product, including the receiver.
   Without it, the audit row is written before the product row commits and survives its rollback.
-- The mixin already pins its before-update read to the writer and scopes it to the instance's team.
+- The mixin already pins its before-update read to the writer and reads by primary key without a team filter.
 
 ## Step 7 - Tune the diff
 

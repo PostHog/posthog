@@ -3,7 +3,6 @@ from typing import Any
 from django.db import models, router
 
 from posthog.models.activity_logging.utils import activity_storage, get_changed_fields_local
-from posthog.models.scoping import get_current_team_id
 from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.signals import model_activity_signal
 
@@ -101,13 +100,10 @@ class ModelActivityMixin(models.Model):
 
         queryset: models.QuerySet
         for manager in managers:
-            if isinstance(manager, TeamScopedManager) and get_current_team_id() is None:
-                # A fail-closed manager refuses to build a queryset without team context, and a save
-                # outside a request has none. The row supplies its own team then. That id is resolved,
-                # because this runs before save() canonicalizes a hand-built instance's team_id.
-                queryset = manager.for_team(self.team_id)  # type: ignore[attr-defined]
-            else:
-                queryset = manager.all()
+            # A read by primary key of a row the caller holds needs no team filter, and a fail-closed
+            # manager refuses to build a queryset without team context, which a save outside a request
+            # has none of. Same shape as the _get_before_update overrides on Loop and SignalScoutConfig.
+            queryset = manager.unscoped() if isinstance(manager, TeamScopedManager) else manager.all()
 
             before_update = queryset.using(write_db).filter(pk=self.pk).first()
             if before_update:

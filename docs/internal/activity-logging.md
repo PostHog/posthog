@@ -118,10 +118,11 @@ In a request path it mutes activity for every other request the process serves a
 
 A Celery task, a Temporal activity, or a webhook handler has no request user.
 The row is a system row.
-To attribute it to a job, wrap the write in `ActivityTriggerContext(Trigger(job_type=..., job_id=..., payload=...))`, or pass the `Trigger` in `Detail`.
+To attribute it to a job, pass a `Trigger(job_type=..., job_id=..., payload=...)` in `Detail`.
+A receiver can also read one from `get_current_trigger()` when the job wrapped its write in `ActivityTriggerContext(...)`; the receiver has to read and pass it, the context alone stores nothing.
 
 A model with a fail-closed manager (`TeamScopedRootMixin`, `ProductTeamModel`) raises `TeamScopeError` on any query without team context.
-The mixin's before-update read scopes itself to the instance's own `team_id` when no context is set, so a `save()` outside a request works.
+The mixin's before-update read is by primary key without a team filter (`unscoped()`), so a `save()` outside a request works.
 Your own reads in the same path still need `with team_scope(team_id):` or `Model.objects.for_team(team_id)`.
 See `posthog/models/scoping/README.md`.
 
@@ -144,7 +145,7 @@ Pass `using=router.db_for_write(Model)` to `log_activity` and `bulk_log_activity
 A callback registered inside a rolled-back transaction is discarded, so the audit row is dropped with the product row.
 
 **The before-update read is pinned to the writer.**
-The mixin reads the previous state through `router.db_for_write(Model)`, so a lagged reader replica cannot produce a stale diff.
+The mixin reads the previous state by primary key through `router.db_for_write(Model)`, so a lagged reader replica cannot produce a stale diff.
 Explicit logging at a bulk-write site should read its before-values from the writer too.
 
 ## Reading the log
@@ -152,8 +153,7 @@ Explicit logging at a bulk-write site should read its before-values from the wri
 - `GET /api/projects/:id/activity_log/` - the list the side panel reads.
 - `GET /api/projects/:id/advanced_activity_logs/` - filters, field discovery, and export.
 - Access control: resource `activity_log`, default level `viewer`.
-- Entitlement: reads are gated by `AvailableFeature.AUDIT_LOGS`; writes always happen.
-- Retention: the entitlement carries a lookback window (`posthog/models/activity_logging/retention.py`).
+- Entitlement: the advanced endpoint is gated by `AvailableFeature.AUDIT_LOGS` and applies the entitlement's lookback window (`get_activity_log_lookback_restriction` in `posthog/models/activity_logging/retention.py`). The plain list the side panel reads is not gated the same way. Writes always happen.
 - `activity_visibility_restrictions` hides selected rows from non-staff users (login events of impersonated sessions).
 
 A scene that wants its own paginated history registers its URL in `activityLogLogic.tsx`.
