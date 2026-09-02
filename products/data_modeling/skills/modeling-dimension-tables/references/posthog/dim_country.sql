@@ -10,7 +10,8 @@ FROM (
     SELECT
         upper(properties.$geoip_country_code)      AS country_code
     FROM events
-    WHERE properties.$geoip_country_code != ''
+    WHERE properties.$geoip_country_code IS NOT NULL
+      AND properties.$geoip_country_code != ''
       AND timestamp >= now() - INTERVAL 90 DAY
 ) AS seen
 LEFT JOIN <country_region_lookup> AS lk ON seen.country_code = lk.country_code
