@@ -18,9 +18,11 @@ Replay semantics: micro-batch boundaries are NOT deterministic across activity
 attempts (the flush budget spans tables, the slot micro-advances mid-run, and a
 soft deadline cuts runs on wall clock), so a retried attempt may cover the same
 positions with differently-shaped files. Writers therefore call
-`cleanup_superseded_files` before their first write per schema: anything at or
-past the position the retry re-reads from is superseded and removed. A schema
-reset (TRUNCATE / lost slot) invalidates the whole prefix — `purge_buffer_prefix`.
+`cleanup_superseded_files` before their first write per schema: every file that
+reaches the position the retry re-reads from is superseded and removed, and a file
+that straddles that position first has its settled rows rewritten under a narrower
+range. A schema reset (TRUNCATE / lost slot) invalidates the whole prefix —
+`purge_buffer_prefix`.
 
 Two lanes write here. Shadow (the `dwh-cdc-buffer-shadow` feature flag, per team,
 evaluated once per extraction run and fail-closed) writes a validation copy while
@@ -220,13 +222,12 @@ class CDCBufferWriter:
         )
 
     def cleanup_superseded_files(self, *, team_id: int, schema_id: str, restart_seq: int) -> int:
-        """Remove files a retried attempt is about to regenerate.
+        """Remove every file that reaches `restart_seq`, the position a retry re-reads from.
 
-        Called before the first write per schema in a run: every file whose
-        start_seq >= the position this run reads from (`restart_seq`) belongs to
-        a superseded attempt whose batch boundaries may differ. Files strictly
-        below restart_seq are settled — their WAL was released and will never be
-        re-produced. Returns the number of files removed.
+        A file that straddles it holds settled rows the WAL no longer has beside a
+        transaction head the retry re-emits, so its settled rows are rewritten first.
+        A surviving superseded file means a second copy of every position the retry
+        writes, so failures propagate and the attempt retries. Returns files removed.
         """
         prefix = strip_s3_protocol(get_buffer_prefix(team_id, schema_id))
         try:
@@ -237,22 +238,46 @@ class CDCBufferWriter:
             return 0
 
         removed = 0
+        trimmed = 0
         for key in keys:
             parsed = parse_buffer_file_name(key.rsplit("/", 1)[-1])
-            if parsed is None:
+            if parsed is None or parsed.end_seq < restart_seq:
                 continue
-            if parsed.start_seq >= restart_seq:
-                with suppress(Exception):
-                    self._s3.rm(key)
-                    removed += 1
+            if parsed.start_seq < restart_seq:
+                self._keep_settled_rows(
+                    team_id=team_id, schema_id=schema_id, key=key, file_index=parsed.file_index, restart_seq=restart_seq
+                )
+                trimmed += 1
+            # The consumer may already have deleted an applied file.
+            with suppress(FileNotFoundError):
+                self._s3.rm(key)
+            removed += 1
         if removed:
             self._logger.info(
                 "cdc_buffer_superseded_files_removed",
                 schema_id=schema_id,
                 restart_seq=restart_seq,
                 removed=removed,
+                trimmed=trimmed,
             )
         return removed
+
+    def _keep_settled_rows(self, *, team_id: int, schema_id: str, key: str, file_index: int, restart_seq: int) -> None:
+        """Write a straddling file's rows below `restart_seq` under a narrowed range.
+
+        Same start and index, so it sorts where the original did. Written before the
+        original is removed, so a crash between the two leaves both and the next
+        cleanup trims the original into the same file again.
+        """
+        try:
+            with self._s3.open(key, "rb") as f:
+                table = pq.read_table(f)
+        except FileNotFoundError:
+            return
+        settled = table.filter(pc.less(table.column(CDC_SEQ_COLUMN), pa.scalar(restart_seq, type=pa.int64())))
+        if settled.num_rows == 0:
+            return
+        self.write_batch(team_id=team_id, schema_id=schema_id, table=settled, file_index=file_index)
 
 
 def purge_buffer_prefix(team_id: int, schema_id: str, logger: FilteringBoundLogger, *, strict: bool = False) -> None:
