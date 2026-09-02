@@ -8,6 +8,10 @@ Call `prepare_and_print_ast(node, context, "trino")` explicitly to use the backe
 
 The returned SQL uses named placeholders, with values stored in `context.values`. `convert_pyformat_placeholders` converts these into positional placeholders and values for a Trino client; calling this helper does not execute SQL.
 
+The existing preparation path still owns schema construction, access checks, saved-query expansion, lazy-table resolution, and resolver passes. It then passes the prepared AST and snapshots of bindings, table locators, modifiers, limits, timezone, and week start in a frozen input to the final Trino transpiler. The final transpiler clones the AST and creates a fresh print context without a team, user, or schema database before final lowering, validation, and printing.
+
+This boundary does not add a restricted manifest-backed entry point. Callers still use the Django-backed preparation path described below.
+
 Query Editor capability changes, case-insensitive connection lookup, and parameter submission belong to separate integration changes. They are not prerequisites for compilation.
 
 ## Managed Trino connections
@@ -24,14 +28,14 @@ For supported string, array, and map arguments, `empty(x)` returns true when the
 
 The backend owns its function mappings, structural rewrites, validation, and table rendering. These shared extension points let it reuse the existing compiler without duplicating its semantic pipeline:
 
-| Shared surface                        | Reason                                                                                                                 | Effect on other dialects                                                                                       |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Dialect and runtime-type declarations | Identify Trino throughout resolution and printing.                                                                     | Existing dialect membership and behavior stay unchanged.                                                       |
-| `HogQLContext.trino_table_locators`   | Carry explicit physical destinations through context copies and semantic expansion.                                    | An empty default is unused outside Trino compilation.                                                          |
-| `printer/utils.py`                    | Run Trino lowering before and after shared lazy-table, property, and cohort expansion; resolve introduced nodes again. | Trino-specific passes and imports require the Trino dialect.                                                   |
-| Resolver allowances                   | Accept `TRY_CAST`, positional references, and array slices before the printer sees them.                               | Existing dialect checks retain their previous outcomes.                                                        |
-| `BasePrinter` rendering hooks         | Support Trino's limit/offset order, `FETCH FIRST ... WITH TIES`, and `GROUP BY AUTO`.                                  | Default hook implementations preserve the existing rendering.                                                  |
-| Lazy-table visitor annotations        | The Trino validator visits `LazyTableType`; the common visitor signature must describe that actual node type.          | The workload visitor drops an impossible `FunctionCallTable` check; valid lazy-table behavior stays unchanged. |
+| Shared surface                        | Reason                                                                                                        | Effect on other dialects                                                                                       |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Dialect and runtime-type declarations | Identify Trino throughout resolution and printing.                                                            | Existing dialect membership and behavior stay unchanged.                                                       |
+| `HogQLContext.trino_table_locators`   | Carry explicit physical destinations through context copies and semantic expansion.                           | An empty default is unused outside Trino compilation.                                                          |
+| `printer/utils.py`                    | Run resolver-dependent Trino lowering before shared expansion, then invoke the detached final transpiler.     | Trino-specific passes and imports require the Trino dialect.                                                   |
+| Resolver allowances                   | Accept `TRY_CAST`, positional references, and array slices before the printer sees them.                      | Existing dialect checks retain their previous outcomes.                                                        |
+| `BasePrinter` rendering hooks         | Support Trino's limit/offset order, `FETCH FIRST ... WITH TIES`, and `GROUP BY AUTO`.                         | Default hook implementations preserve the existing rendering.                                                  |
+| Lazy-table visitor annotations        | The Trino validator visits `LazyTableType`; the common visitor signature must describe that actual node type. | The workload visitor drops an impossible `FunctionCallTable` check; valid lazy-table behavior stays unchanged. |
 
 A standalone printer cannot repair a query rejected earlier by the resolver or introduce relation-shape rewrites after semantic resolution is finished. A separate compiler pipeline could avoid these hooks, but would duplicate the PostHog semantic expansion sequence. The small hooks keep that sequence shared. Overriding complete base-printer methods would likewise duplicate unrelated SELECT and set-operation rendering.
 
