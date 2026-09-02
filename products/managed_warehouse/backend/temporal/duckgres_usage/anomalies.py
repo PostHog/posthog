@@ -7,10 +7,10 @@ single policy bit, `recoverable`:
   caller WITHHOLDS the ack: acking would let duckgres delete source buckets this
   pull didn't fully capture, turning a transient problem into permanent
   under-billing.
-- **recoverable=False** — the data can never become billable (an orphan org, a
-  broken org id, an impossible value), so the rows are dropped, the caller
-  alerts, and the ack PROCEEDS: withholding would freeze the ack forever on
-  data that will never change.
+- **recoverable=False** — re-pulling cannot change the outcome (an orphan org,
+  a broken org id, an impossible value), so the caller alerts and the ack
+  PROCEEDS. Depending on the anomaly, evidence is retained or the invalid row
+  is dropped.
 
 `should_ack` is derived, not hand-assembled: no recoverable anomaly → ack. To
 add anomaly #12, add one detection block here — the ack decision, the alert,
@@ -43,12 +43,10 @@ class DuckgresRowsOutsideWindow(Exception):
 
 
 class DuckgresUsageOrphanedOrg(Exception):
-    """An org's managed-warehouse usage had no billable team to attribute it to
-    (every project deleted, or only demo/internal projects left), so it was
-    dropped — an orphan org, agreed with billing. Captured loudly so a paying
-    org draining into "unbillable" gets noticed, but the ack ALWAYS proceeds —
-    re-pulling can't help a warehouse with no billable projects; the data is
-    unattributable, not withheld."""
+    """An org's managed-warehouse usage had no billable team to attribute it to.
+    The row remains in the mirror but is omitted from usage reports until a
+    replacement exists. The ack proceeds because re-pulling cannot repair team
+    state."""
 
 
 class DuckgresMalformedOrgRows(Exception):
@@ -95,10 +93,15 @@ class DuckgresMissingUsage(Exception):
 
 
 class DuckgresMalformedStorage(Exception):
-    """The storage key was present but not a list — a malformed container we cannot
-    read as "no storage". (An ABSENT storage key is fine; servers without the storage
-    metric omit it.) We persisted nothing for storage and WITHHOLD the ack, since the
+    """The storage collection was absent or not a list, so we cannot read it as
+    "no storage". We persisted nothing for storage and WITHHOLD the ack, since the
     shared ack would otherwise delete storage buckets we never captured."""
+
+
+class DuckgresUsageRegression(Exception):
+    """A newer snapshot decreased or omitted an org's previously mirrored
+    product/day total. The org retained its last-good snapshot and the shared ack
+    was withheld so the source remains available for reconciliation."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -109,6 +112,9 @@ class Anomaly:
     recoverable: bool
     exception: type[Exception]
     message: str
+    # None means the anomaly cannot be safely scoped and blocks promotion for
+    # every org. A set quarantines only those orgs while healthy orgs advance.
+    organization_ids: frozenset[str] | None = None
 
     def to_exception(self) -> Exception:
         return self.exception(self.message)
@@ -167,7 +173,7 @@ def detect_anomalies(
                 exception=DuckgresUsageOrphanedOrg,
                 message=(
                     f"managed-warehouse usage for {len(resolution.orphaned_org_ids)} orphan org(s) with no "
-                    f"billable team to attribute it to (rows dropped, ack proceeds): "
+                    f"billable team to attribute it to (rows retained but omitted from reports; ack proceeds): "
                     f"{sorted(resolution.orphaned_org_ids)}"
                 ),
             )
@@ -218,8 +224,10 @@ def detect_anomalies(
                 exception=DuckgresConflictingRows,
                 message=(
                     f"duckgres emitted {resolution.conflicting_row_count} usage row(s) sharing a billing key "
-                    "but with different measures; kept the larger and withheld the ack for reconciliation"
+                    "but with different measures; retained each affected org's last-good mirror and withheld "
+                    "the ack for reconciliation"
                 ),
+                organization_ids=frozenset(resolution.conflicting_org_ids),
             )
         )
     if response.invalid_value_row_count:
@@ -254,9 +262,22 @@ def detect_anomalies(
                 recoverable=True,
                 exception=DuckgresMalformedStorage,
                 message=(
-                    "duckgres usage response carried a malformed storage value (present but not a list); "
-                    "persisted no storage and withheld the ack until a well-formed response lands"
+                    "duckgres usage response carried no storage list (key absent or not a list); persisted no "
+                    "storage and withheld the ack until a well-formed response lands"
                 ),
             )
         )
     return found
+
+
+def regression_anomaly(organization_ids: set[str]) -> Anomaly:
+    return Anomaly(
+        "usage_regression",
+        recoverable=True,
+        exception=DuckgresUsageRegression,
+        message=(
+            f"a newer duckgres snapshot decreased or omitted usage for {len(organization_ids)} org(s); "
+            f"retained their last-good mirror rows and withheld the ack: {sorted(organization_ids)}"
+        ),
+        organization_ids=frozenset(organization_ids),
+    )

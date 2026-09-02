@@ -14,9 +14,36 @@ class Migration(migrations.Migration):
             name="last_applied_watermark",
             field=models.DateTimeField(blank=True, null=True),
         ),
+        migrations.AddField(
+            model_name="duckgresusagecursor",
+            name="last_complete_watermark",
+            field=models.DateTimeField(blank=True, null=True),
+        ),
         migrations.AlterField(
             model_name="duckgresusagecursor",
             name="last_acked_watermark",
             field=models.DateTimeField(blank=True, null=True),
+        ),
+        migrations.RemoveConstraint(
+            model_name="duckgresdailyusage",
+            name="duckgres_daily_usage_key",
+        ),
+        migrations.AddConstraint(
+            model_name="duckgresdailyusage",
+            constraint=models.UniqueConstraint(
+                fields=("date", "organization_id", "team_id", "query_source", "cpu", "mem_gib"),
+                name="duckgres_daily_usage_key",
+            ),
+        ),
+        migrations.RemoveConstraint(
+            model_name="duckgresdailystorageusage",
+            name="duckgres_daily_storage_key",
+        ),
+        migrations.AddConstraint(
+            model_name="duckgresdailystorageusage",
+            constraint=models.UniqueConstraint(
+                fields=("date", "organization_id", "team_id"),
+                name="duckgres_daily_storage_key",
+            ),
         ),
     ]

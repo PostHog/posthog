@@ -132,14 +132,27 @@ class TestFetchUsage:
         assert result.storage_rows[0].gib_seconds == Decimal("8381903.171539306640625")
 
     @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
-    def test_missing_storage_key_means_no_storage_rows(self, mock_requests: MagicMock) -> None:
-        # A server without the storage metric has no storage array; the client must not require it.
+    @pytest.mark.parametrize(
+        "storage_present,storage",
+        [
+            (False, None),
+            (True, None),
+            (True, {"oops": "not a list"}),
+        ],
+        ids=["missing", "null", "non_list"],
+    )
+    def test_missing_or_invalid_storage_container_is_flagged(
+        self, mock_requests: MagicMock, storage_present: bool, storage: object
+    ) -> None:
         body = {k: v for k, v in USAGE_BODY.items() if k != "storage"}
+        if storage_present:
+            body["storage"] = storage
         mock_requests.request.return_value = _response(200, body)
 
         result = fetch_usage()
 
         assert result.storage_rows == []
+        assert result.storage_malformed is True
 
     @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_sends_internal_secret_header_to_usage_url(self, mock_requests: MagicMock) -> None:
@@ -204,6 +217,36 @@ class TestFetchUsage:
         assert result.invalid_value_row_sample is not None
         assert result.invalid_value_row_sample["cpu_seconds"] == -5
         assert result.unparsed_row_count == 0  # parseable-but-impossible is NOT an unparsed row
+
+    @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
+    def test_non_string_org_id_is_unparsed_even_when_measure_is_invalid(self, mock_requests: MagicMock) -> None:
+        body = {
+            **USAGE_BODY,
+            "usage": [{**USAGE_BODY["usage"][0], "org_id": [], "cpu_seconds": -5}],
+            "storage": [],
+        }
+        mock_requests.request.return_value = _response(200, body)
+
+        result = fetch_usage()
+
+        assert result.rows == []
+        assert result.unparsed_row_count == 1
+        assert result.invalid_value_row_count == 0
+        assert result.invalid_compute_scopes == frozenset()
+
+    @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
+    def test_non_string_query_source_is_unparsed(self, mock_requests: MagicMock) -> None:
+        body = {
+            **USAGE_BODY,
+            "usage": [{**USAGE_BODY["usage"][0], "query_source": []}],
+            "storage": [],
+        }
+        mock_requests.request.return_value = _response(200, body)
+
+        result = fetch_usage()
+
+        assert result.rows == []
+        assert result.unparsed_row_count == 1
 
     @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
     def test_nan_measure_is_dropped_as_invalid(self, mock_requests: MagicMock) -> None:
@@ -272,36 +315,18 @@ class TestFetchUsage:
     def test_empty_usage_array_is_not_flagged_as_missing(self, mock_requests: MagicMock) -> None:
         # A present-but-empty array is a legitimate quiet window — NOT a shape
         # violation, so the ack is free to proceed.
-        body = {"watermark_low": "2026-07-07T00:00:00Z", "watermark_high": "2026-07-07T12:00:00Z", "usage": []}
+        body = {
+            "watermark_low": "2026-07-07T00:00:00Z",
+            "watermark_high": "2026-07-07T12:00:00Z",
+            "usage": [],
+            "storage": [],
+        }
         mock_requests.request.return_value = _response(200, body)
 
         result = fetch_usage()
 
         assert result.rows == []
         assert result.usage_missing is False
-
-    @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
-    def test_malformed_storage_container_is_flagged(self, mock_requests: MagicMock) -> None:
-        # storage present but not a list (a dict here) is malformed — flag it so the
-        # caller withholds the ack, distinct from an absent storage key.
-        body = {**USAGE_BODY, "storage": {"oops": "not a list"}}
-        mock_requests.request.return_value = _response(200, body)
-
-        result = fetch_usage()
-
-        assert result.storage_rows == []
-        assert result.storage_malformed is True
-
-    @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")
-    def test_absent_storage_key_is_not_malformed(self, mock_requests: MagicMock) -> None:
-        # An absent storage key is legitimate (servers without the storage metric), so
-        # it must NOT be flagged as malformed.
-        body = {k: v for k, v in USAGE_BODY.items() if k != "storage"}
-        mock_requests.request.return_value = _response(200, body)
-
-        result = fetch_usage()
-
-        assert result.storage_rows == []
         assert result.storage_malformed is False
 
     @patch("products.managed_warehouse.backend.temporal.duckgres_usage.client.internal_requests")

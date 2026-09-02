@@ -8,9 +8,12 @@ commands. Django models remain implementation details of the product.
 
 from __future__ import annotations
 
-from datetime import date
+from collections import defaultdict
+from datetime import UTC, date, datetime, time
 from typing import TYPE_CHECKING
 from uuid import UUID
+
+import structlog
 
 from products.managed_warehouse.backend import common, storage
 from products.managed_warehouse.backend.common import (
@@ -32,6 +35,8 @@ if TYPE_CHECKING:
 
     from products.managed_warehouse.backend.models import DuckgresServer
     from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+
+logger = structlog.get_logger(__name__)
 
 __all__ = [
     "DUCKGRES_BUCKET_REGION",
@@ -249,6 +254,74 @@ def setup_duckgres_session(
 ENDPOINTS_QUERY_SOURCE = "endpoints"
 
 
+class DuckgresUsageMirrorStale(RuntimeError):
+    pass
+
+
+def _require_duckgres_usage_fresh_through(end: date) -> None:
+    """Block a completed-day report until a fully trusted pull covers it."""
+    from products.managed_warehouse.backend.models import DuckgresUsageCursor  # noqa: PLC0415
+    from products.managed_warehouse.backend.temporal.duckgres_usage.client import is_configured  # noqa: PLC0415
+
+    if end >= datetime.now(UTC).date():
+        return
+
+    required = datetime.combine(end, time.max, tzinfo=UTC)
+    cursor = DuckgresUsageCursor.objects.values_list("last_complete_watermark").first()
+    if cursor is None and not is_configured():
+        return
+    complete = cursor[0] if cursor is not None else None
+    if complete is None or complete < required:
+        raise DuckgresUsageMirrorStale(
+            f"duckgres usage mirror is complete through {complete!s}, but report requires {required.isoformat()}"
+        )
+
+
+def _fold_rows_onto_report_teams(rows: list[dict]) -> list[dict]:
+    """Resolve teams deleted after persistence without changing the mirror."""
+    from posthog.models import Team  # noqa: PLC0415
+    from posthog.tasks.usage_report import billable_teams_queryset  # noqa: PLC0415
+
+    team_ids = {row["team_id"] for row in rows}
+    live_team_orgs = {
+        team_id: str(org_id)
+        for team_id, org_id in Team.objects.filter(id__in=team_ids).values_list("id", "organization_id")
+    }
+    affected_org_ids = {str(row["organization_id"]) for row in rows if row["team_id"] not in live_team_orgs}
+    replacements: dict[str, int] = {}
+    for org_id, team_id in (
+        billable_teams_queryset()
+        .filter(organization_id__in=affected_org_ids)
+        .order_by("organization_id", "id")
+        .values_list("organization_id", "id")
+    ):
+        replacements.setdefault(str(org_id), team_id)
+
+    totals: defaultdict[int, int] = defaultdict(int)
+    unresolved: list[dict] = []
+    for row in rows:
+        org_id = str(row["organization_id"])
+        team_id = row["team_id"]
+        live_org_id = live_team_orgs.get(team_id)
+        if live_org_id is not None:
+            report_team_id = team_id if live_org_id == org_id else None
+        else:
+            report_team_id = replacements.get(org_id)
+        if report_team_id is None:
+            unresolved.append(row)
+            continue
+        totals[report_team_id] += row["total"]
+
+    if unresolved:
+        logger.warning(
+            "duckgres_usage_report_rows_unattributed",
+            row_count=len(unresolved),
+            organization_ids=sorted({str(row["organization_id"]) for row in unresolved}),
+            team_ids=sorted({row["team_id"] for row in unresolved}),
+        )
+    return [{"team_id": team_id, "total": total} for team_id, total in totals.items()]
+
+
 def duckgres_compute_rows_for_period(begin: date, end: date, *, endpoints: bool) -> list[dict]:
     """Duckgres compute usage folded to the billable scalar, per team.
 
@@ -260,17 +333,23 @@ def duckgres_compute_rows_for_period(begin: date, end: date, *, endpoints: bool)
 
     from products.managed_warehouse.backend.models import DuckgresDailyUsage  # noqa: PLC0415
 
+    _require_duckgres_usage_fresh_through(end)
     queryset = DuckgresDailyUsage.objects.filter(date__gte=begin, date__lte=end)
     if endpoints:
         queryset = queryset.filter(query_source=ENDPOINTS_QUERY_SOURCE)
     else:
         queryset = queryset.exclude(query_source=ENDPOINTS_QUERY_SOURCE)
-    return [
-        {"team_id": row["team_id"], "total": (row["total_cpu_seconds"] * 8 + row["total_memory_seconds"]) // 8}
-        for row in queryset.values("team_id").annotate(
+    rows = [
+        {
+            "organization_id": row["organization_id"],
+            "team_id": row["team_id"],
+            "total": (row["total_cpu_seconds"] * 8 + row["total_memory_seconds"]) // 8,
+        }
+        for row in queryset.values("organization_id", "team_id").annotate(
             total_cpu_seconds=Sum("cpu_seconds"), total_memory_seconds=Sum("memory_seconds")
         )
     ]
+    return _fold_rows_onto_report_teams(rows)
 
 
 def duckgres_storage_gb_hour_rows_for_period(begin: date, end: date) -> list[dict]:
@@ -295,10 +374,11 @@ def duckgres_storage_gb_hour_rows_for_period(begin: date, end: date) -> list[dic
 
     from products.managed_warehouse.backend.models import DuckgresDailyStorageUsage  # noqa: PLC0415
 
+    _require_duckgres_usage_fresh_through(end)
     out = []
     for row in (
         DuckgresDailyStorageUsage.objects.filter(date__gte=begin, date__lte=end)
-        .values("team_id")
+        .values("organization_id", "team_id")
         .annotate(total_gib_seconds=Sum("gib_seconds"))
     ):
         # GiB-seconds -> billable decimal-GB-hours, in three exact steps:
@@ -315,5 +395,5 @@ def duckgres_storage_gb_hour_rows_for_period(begin: date, end: date) -> list[dic
         #                 // (10^9 * 3600)  = 107.37...  ->  107 GB-hours
         byte_seconds = int(Fraction(row["total_gib_seconds"]) * (2**30))
         gb_hours = byte_seconds // (10**9 * 3600)
-        out.append({"team_id": row["team_id"], "total": gb_hours})
-    return out
+        out.append({"organization_id": row["organization_id"], "team_id": row["team_id"], "total": gb_hours})
+    return _fold_rows_onto_report_teams(out)

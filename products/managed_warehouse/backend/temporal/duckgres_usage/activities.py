@@ -40,14 +40,18 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.managed_warehouse.backend.models import DuckgresUsageCursor
 from products.managed_warehouse.backend.temporal.duckgres_usage.acking import day_boundary_ack
-from products.managed_warehouse.backend.temporal.duckgres_usage.anomalies import detect_anomalies
+from products.managed_warehouse.backend.temporal.duckgres_usage.anomalies import (
+    Anomaly,
+    detect_anomalies,
+    regression_anomaly,
+)
 from products.managed_warehouse.backend.temporal.duckgres_usage.client import (
     UsageResponse,
     ack_usage,
     fetch_usage,
     is_configured,
 )
-from products.managed_warehouse.backend.temporal.duckgres_usage.mirror import count_out_of_window_rows, replace_window
+from products.managed_warehouse.backend.temporal.duckgres_usage.mirror import count_out_of_window_rows, promote_window
 from products.managed_warehouse.backend.temporal.duckgres_usage.team_resolution import (
     ResolvedTeams,
     resolve_billing_teams,
@@ -79,8 +83,8 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
         out_of_window = count_out_of_window_rows(response)
         anomalies = detect_anomalies(response, resolution, recorded, out_of_window)
         if recorded is not None and response.watermark_low < recorded:
-            # Duckgres re-serves data we already acked past; replace semantics
-            # absorb it idempotently. Worth noting, not halting.
+            # Duckgres re-serves data we already acked past; snapshot promotion
+            # absorbs it idempotently. Worth noting, not halting.
             logger.warning(
                 "duckgres_usage_watermark_behind",
                 recorded=recorded.isoformat(),
@@ -88,22 +92,12 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
             )
 
         ack_at = day_boundary_ack(watermark_low=response.watermark_low, watermark_high=response.watermark_high)
-        # A recoverable anomaly means this pull didn't fully capture the window and a
-        # re-pull still can — so the ack is withheld (acking would let duckgres delete
-        # data we don't hold). Non-recoverable anomalies alerted but never gate.
-        should_ack = ack_at is not None and not any(a.recoverable for a in anomalies)
-        ack_watermark = ack_at.isoformat() if (should_ack and ack_at is not None) else None
         watermark_hole = any(a.kind == "watermark_hole" for a in anomalies)
 
-        # One transaction: persist the mirror rows and — record-before-ack — the
-        # watermark the workflow will ack next. Record max(recorded, ack_at): in
-        # the benign "duckgres behind" case ack_at can be older than what we've
-        # already recorded, and regressing the cursor would make the next normal
-        # pull read as a fake hole. The ack itself stays ack_at (idempotent).
-        watermark_to_record = ack_at if should_ack else None
-        if watermark_to_record is not None and recorded is not None:
-            watermark_to_record = max(watermark_to_record, recorded)
-        rows_written = await database_sync_to_async(_persist)(response, resolution, watermark_to_record)
+        persisted = await database_sync_to_async(_persist)(response, resolution, ack_at, anomalies)
+        if persisted.regressed_org_ids:
+            anomalies.append(regression_anomaly(persisted.regressed_org_ids))
+        ack_watermark = ack_at.isoformat() if (persisted.should_ack and ack_at is not None) else None
 
         # Every anomaly is loud — one capture per kind, with its policy already
         # applied to the ack decision above. See anomalies.py for the whole table.
@@ -112,7 +106,7 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
 
         await logger.ainfo(
             "duckgres_usage_polled",
-            rows_written=rows_written,
+            rows_written=persisted.rows_written,
             row_count=len(response.rows),
             storage_row_count=len(response.storage_rows),
             watermark_low=response.watermark_low.isoformat(),
@@ -122,9 +116,10 @@ async def poll_duckgres_usage(inputs: PollDuckgresUsageInputs) -> PollDuckgresUs
             unparsed_row_count=response.unparsed_row_count,
             out_of_window_dropped=out_of_window,
             orphaned_org_ids=sorted(resolution.orphaned_org_ids),
+            regressed_org_ids=sorted(persisted.regressed_org_ids),
         )
         return PollDuckgresUsageResult(
-            rows_written=rows_written,
+            rows_written=persisted.rows_written,
             watermark_low=response.watermark_low.isoformat(),
             watermark_high=response.watermark_high.isoformat(),
             ack_watermark=ack_watermark,
@@ -149,10 +144,22 @@ def _read_recorded_watermark() -> dt.datetime | None:
     return cursor.last_acked_watermark if cursor is not None else None
 
 
-def _persist(response: UsageResponse, resolution: ResolvedTeams, watermark_to_record: dt.datetime | None) -> int:
+@dataclasses.dataclass(frozen=True)
+class _PersistenceResult:
+    rows_written: int
+    should_ack: bool
+    regressed_org_ids: set[str] = dataclasses.field(default_factory=set)
+
+
+def _persist(
+    response: UsageResponse,
+    resolution: ResolvedTeams,
+    ack_at: dt.datetime | None,
+    anomalies: list[Anomaly],
+) -> _PersistenceResult:
     # Persist the already-resolved rows (team re-attribution + dedup happened in
     # resolve_billing_teams, up in the activity where the ack decision needs its
-    # counts). Swap the resolved rows onto the response, replace the open window, and
+    # counts). Swap the resolved rows onto the response, promote the open window, and
     # — record-before-ack — write the watermark in the same transaction.
     #
     # The replace is MONOTONE in the served watermark_high: a response at or below
@@ -164,18 +171,31 @@ def _persist(response: UsageResponse, resolution: ResolvedTeams, watermark_to_re
     # compare-and-replace atomic: a concurrent writer blocks here, then re-reads the
     # committed watermark and refuses.
     #
-    # The ack path is deliberately NOT gated on freshness: a skipped response's
+    # The ack path is deliberately NOT gated on staleness: a skipped response's
     # ack boundary is at or below what the mirror already reflects, so acking it is
     # a safe idempotent re-ack — refusing it could strand duckgres behind forever
     # when it re-serves an identical window after a lost ack. The cursor write only
     # ever advances, which closes the long-stall variant (a zombie recording an
     # older watermark computed before its stall).
     resolved = dataclasses.replace(response, rows=resolution.compute_rows, storage_rows=resolution.storage_rows)
+    recoverable = [anomaly for anomaly in anomalies if anomaly.recoverable]
+    block_all = any(anomaly.organization_ids is None for anomaly in recoverable)
+    blocked_org_ids = {
+        org_id for anomaly in recoverable if anomaly.organization_ids is not None for org_id in anomaly.organization_ids
+    }
     with transaction.atomic():
         cursor, _ = DuckgresUsageCursor.objects.select_for_update().get_or_create(singleton=1)
-        stale = cursor.last_applied_watermark is not None and response.watermark_high <= cursor.last_applied_watermark
+        stale = cursor.last_applied_watermark is not None and (
+            response.watermark_high < cursor.last_applied_watermark
+            or (
+                response.watermark_high == cursor.last_applied_watermark
+                and cursor.last_complete_watermark is not None
+                and cursor.last_complete_watermark >= response.watermark_high
+            )
+        )
         if stale:
             rows_written = 0
+            regressed_org_ids: set[str] = set()
             logger.warning(
                 "duckgres_usage_stale_response_skipped",
                 response_watermark_high=response.watermark_high.isoformat(),
@@ -184,11 +204,34 @@ def _persist(response: UsageResponse, resolution: ResolvedTeams, watermark_to_re
                 else None,
             )
         else:
-            rows_written = replace_window(resolved)
+            promotion = promote_window(resolved, blocked_org_ids=blocked_org_ids, block_all=block_all)
+            rows_written = promotion.rows_written
+            regressed_org_ids = promotion.regressed_org_ids
             cursor.last_applied_watermark = response.watermark_high
-        if watermark_to_record is not None and (
-            cursor.last_acked_watermark is None or watermark_to_record > cursor.last_acked_watermark
+            if (
+                not recoverable
+                and not regressed_org_ids
+                and (cursor.last_complete_watermark is None or response.watermark_high > cursor.last_complete_watermark)
+            ):
+                cursor.last_complete_watermark = response.watermark_high
+
+        should_ack = ack_at is not None and not recoverable and not regressed_org_ids
+        if (
+            should_ack
+            and ack_at is not None
+            and (cursor.last_acked_watermark is None or ack_at > cursor.last_acked_watermark)
         ):
-            cursor.last_acked_watermark = watermark_to_record
-        cursor.save(update_fields=["last_applied_watermark", "last_acked_watermark", "updated_at"])
-    return rows_written
+            cursor.last_acked_watermark = ack_at
+        cursor.save(
+            update_fields=[
+                "last_applied_watermark",
+                "last_complete_watermark",
+                "last_acked_watermark",
+                "updated_at",
+            ]
+        )
+    return _PersistenceResult(
+        rows_written=rows_written,
+        should_ack=should_ack,
+        regressed_org_ids=regressed_org_ids,
+    )

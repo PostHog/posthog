@@ -3,7 +3,7 @@
 The ONLY mock is the duckgres HTTP boundary (`fetch_usage` returning responses
 shaped exactly as duckgres serves them: cumulative day rows whose values grow
 across polls, stamps frozen at record time). Everything downstream is real —
-the poll activity, team resolution, `replace_window`, the cursor, the Team/
+the poll activity, team resolution, per-org mirror promotion, the cursor, the Team/
 Organization tables, and the same gather queries the daily usage report runs
 (`get_teams_with_managed_warehouse_compute_seconds_in_period`). These pin the
 team-deletion / re-attribution / report-rerun behavior end to end, one process
@@ -23,15 +23,22 @@ from decimal import Decimal
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db.models.signals import post_delete, pre_delete
+
 from asgiref.sync import sync_to_async
 
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 from posthog.tasks.usage_report import get_teams_with_managed_warehouse_compute_seconds_in_period
 
-from products.managed_warehouse.backend.models import DuckgresDailyUsage
+from products.managed_warehouse.backend.models import DuckgresDailyStorageUsage, DuckgresDailyUsage
 from products.managed_warehouse.backend.temporal.duckgres_usage.activities import poll_duckgres_usage
-from products.managed_warehouse.backend.temporal.duckgres_usage.client import UsageResponse, UsageRow
+from products.managed_warehouse.backend.temporal.duckgres_usage.client import (
+    StorageRow,
+    UsageResponse,
+    UsageRow,
+    fetch_usage,
+)
 from products.managed_warehouse.backend.temporal.duckgres_usage.types import PollDuckgresUsageInputs
 
 ORG = "018f0000-0000-0000-0000-000000000001"
@@ -40,6 +47,19 @@ DAY_START = dt.datetime(2026, 7, 5, 23, 59, 59, tzinfo=dt.UTC)
 DAY_END = dt.datetime(2026, 7, 6, 23, 59, 59, tzinfo=dt.UTC)
 
 pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.asyncio]
+
+
+@pytest.fixture(autouse=True)
+def current_report_day():
+    # These lifecycle tests model an in-progress July 6 billing day. Keep the
+    # facade's notion of "today" aligned without freezing datetime globally:
+    # lazy Django/Pydantic imports are not compatible with a replaced date type.
+    with patch(
+        "products.managed_warehouse.backend.facade.api.datetime",
+        wraps=dt.datetime,
+    ) as facade_datetime:
+        facade_datetime.now.return_value = dt.datetime(2026, 7, 6, 12, tzinfo=dt.UTC)
+        yield
 
 
 def _row(team_id: int, cpu_seconds: int, date: dt.date = DAY) -> UsageRow:
@@ -87,6 +107,14 @@ def _gather_day() -> dict[int, int]:
 
 
 mirror_rows = sync_to_async(lambda: sorted(DuckgresDailyUsage.objects.values_list("team_id", "cpu_seconds")))
+mirror_rows_with_org = sync_to_async(
+    lambda: sorted(
+        (str(org_id), team_id, total)
+        for org_id, team_id, total in DuckgresDailyUsage.objects.values_list(
+            "organization_id", "team_id", "cpu_seconds"
+        )
+    )
+)
 
 
 @sync_to_async
@@ -96,7 +124,12 @@ def _make_org_with_teams(*team_ids: int) -> None:
         Team.objects.create(id=tid, organization=org, name=f"team-{tid}")
 
 
-delete_team = database_sync_to_async(lambda tid: Team.objects.get(id=tid).delete())
+@database_sync_to_async
+def delete_team(team_id: int) -> None:
+    # The scenario begins after deletion has committed; deletion-hook behavior is
+    # deliberately out of scope. Keep ORM cascades, but avoid unrelated cache hooks.
+    with patch.object(pre_delete, "send"), patch.object(post_delete, "send"):
+        Team.objects.get(id=team_id).delete()
 
 
 async def test_report_rerun_after_deletion_and_remap_restates_not_doubles(activity_environment) -> None:
@@ -155,7 +188,7 @@ async def test_mid_day_deletion_splits_day_without_loss_or_double(activity_envir
 
 async def test_reserved_growing_buckets_converge_without_accumulating(activity_environment) -> None:
     """duckgres re-serves the same cumulative bucket every poll with a grown
-    value; replace semantics must keep exactly one row at the latest value —
+    value; promotion must keep exactly one row at the latest value —
     across a deletion mid-sequence — never sum the re-serves."""
     await _make_org_with_teams(301, 302)
 
@@ -195,30 +228,39 @@ async def test_closed_day_acks_once_and_late_reserve_is_absorbed(activity_enviro
 
 
 async def test_orphan_org_never_reaches_the_gather(activity_environment) -> None:
-    """An orphan org (teams all deleted): rows dropped, alert fired, ack offered,
-    and — the billing-facing property — the gather sees nothing for the day."""
     await database_sync_to_async(Organization.objects.create)(id=ORG, name="orphan org")  # no teams
 
     result, mock_capture = await _poll(
         _response([_row(999, 100)], dt.datetime(2026, 7, 7, 0, 5, tzinfo=dt.UTC)), activity_environment
     )
 
-    assert await mirror_rows() == []  # dropped, never persisted
+    assert await mirror_rows() == [(999, 100)]
     assert (await _gather_day()) == {}  # nothing for any report run to bill
     mock_capture.assert_called_once()  # DuckgresUsageOrphanedOrg — loud
     assert result.ack_watermark == DAY_END.isoformat()  # ack still proceeds
     assert result.orphaned_org_ids == [ORG]
 
 
+async def test_team_deleted_after_ack_is_reattributed_by_the_gather(activity_environment) -> None:
+    await _make_org_with_teams(91, 92)
+
+    result, _ = await _poll(
+        _response([_row(92, 100)], dt.datetime(2026, 7, 7, 0, 5, tzinfo=dt.UTC)), activity_environment
+    )
+    assert result.ack_watermark == DAY_END.isoformat()
+    assert await mirror_rows() == [(92, 100)]
+
+    await delete_team(92)
+
+    assert (await _gather_day()) == {91: 100}
+    assert await mirror_rows() == [(92, 100)]
+
+
 ORG_B = "018f0000-0000-0000-0000-000000000002"
 
 
 async def test_cross_org_zero_stamps_never_collide_in_the_mirror(activity_environment) -> None:
-    """Regression guard for the mirror's identity assumption: its unique key is
-    (date, team_id, source, sizes) with NO org column — sound only while every
-    persisted team_id is a real, live team. Two orgs both stamped 0 on the same
-    day/key would collide if 0 ever reached the mirror. The remap (and orphan
-    drop) must keep that impossible."""
+    """The same sentinel team stamp is safe because mirror identity includes org."""
     await _make_org_with_teams(501)
     org_b = await database_sync_to_async(Organization.objects.create)(id=ORG_B, name="org b")
     await database_sync_to_async(Team.objects.create)(id=502, organization=org_b, name="team-502")
@@ -231,12 +273,20 @@ async def test_cross_org_zero_stamps_never_collide_in_the_mirror(activity_enviro
     # Each org's 0-stamp lands on its OWN billable team — two rows, no collision.
     assert result.rows_written == 2
     assert await mirror_rows() == [(501, 30), (502, 70)]
-    # The invariant itself: every persisted team_id is a live Team.
-    persisted = {tid for tid, _ in await mirror_rows()}
-    live = await database_sync_to_async(
-        lambda: set(Team.objects.filter(id__in=persisted).values_list("id", flat=True))
-    )()
-    assert persisted == live
+    assert await mirror_rows_with_org() == [(ORG, 501, 30), (ORG_B, 502, 70)]
+
+
+async def test_cross_org_unresolved_zero_stamps_are_both_retained(activity_environment) -> None:
+    await database_sync_to_async(Organization.objects.create)(id=ORG, name="org a")
+    await database_sync_to_async(Organization.objects.create)(id=ORG_B, name="org b")
+
+    row_b = dataclasses.replace(_row(0, 70), org_id=ORG_B)
+    result, _ = await _poll(
+        _response([_row(0, 30), row_b], dt.datetime(2026, 7, 6, 18, 0, tzinfo=dt.UTC)), activity_environment
+    )
+
+    assert result.rows_written == 2
+    assert await mirror_rows_with_org() == [(ORG, 0, 30), (ORG_B, 0, 70)]
 
 
 async def test_surrogate_deletion_cascades_and_still_converges(activity_environment) -> None:
@@ -296,20 +346,17 @@ async def test_storage_family_remaps_and_bills_exact_decimal_gb_hours(activity_e
     assert (await sync_to_async(gather_storage)()) == {701: 100}  # remapped AND exact
 
 
-async def test_conflicting_rows_bill_the_larger_value_while_ack_is_withheld(activity_environment) -> None:
-    """Characterizes the signed err-high policy: a same-key value conflict keeps
-    the LARGER row, the gather bills it while the ack is withheld for
-    reconciliation, and the alert fires. If we ever flip to err-low, this test
-    is the one that must change consciously."""
+async def test_conflicting_rows_retain_the_last_good_value_while_ack_is_withheld(activity_environment) -> None:
     await _make_org_with_teams(801)
+    await _poll(_response([_row(801, 100)], dt.datetime(2026, 7, 6, 12, 0, tzinfo=dt.UTC)), activity_environment)
 
     result, mock_capture = await _poll(
-        _response([_row(801, 100), _row(801, 250)], dt.datetime(2026, 7, 6, 18, 0, tzinfo=dt.UTC)),
+        _response([_row(801, 90), _row(801, 250)], dt.datetime(2026, 7, 6, 18, 0, tzinfo=dt.UTC)),
         activity_environment,
     )
 
-    assert await mirror_rows() == [(801, 250)]  # pessimistic: larger kept
-    assert (await _gather_day()) == {801: 250}  # and billed — err high, loudly
+    assert await mirror_rows() == [(801, 100)]
+    assert (await _gather_day()) == {801: 100}
     assert result.ack_watermark is None  # duckgres keeps the source for reconciliation
     mock_capture.assert_called_once()  # DuckgresConflictingRows
 
@@ -397,13 +444,6 @@ async def test_endpoints_and_standard_products_stay_separate_through_the_remap(a
     assert endpoints == {1101: 40}  # endpoints product: only the endpoints row
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="known gap: replace trusts duckgres's cumulative buckets to be monotone. "
-    "A re-served value that SHRANK (duckgres restart / lost minutes upstream) is "
-    "silently accepted, regressing the mirror and under-billing with no signal. "
-    "Desired: treat it like a value conflict — keep the larger and alert.",
-)
 async def test_shrinking_reserve_is_surfaced_not_silently_accepted(activity_environment) -> None:
     await _make_org_with_teams(1201)
 
@@ -414,3 +454,173 @@ async def test_shrinking_reserve_is_surfaced_not_silently_accepted(activity_envi
 
     assert await mirror_rows() == [(1201, 150)]  # keep the larger, like a conflict
     mock_capture.assert_called_once()  # and say so
+
+
+async def test_permanently_invalid_replacement_does_not_turn_into_a_recoverable_regression(
+    activity_environment,
+) -> None:
+    await _make_org_with_teams(1251)
+    await _poll(_response([_row(1251, 150)], dt.datetime(2026, 7, 6, 12, 0, tzinfo=dt.UTC)), activity_environment)
+
+    with patch(
+        "products.managed_warehouse.backend.temporal.duckgres_usage.client._request",
+        return_value={
+            "watermark_low": DAY_START.isoformat(),
+            "watermark_high": "2026-07-07T00:05:00+00:00",
+            "usage": [
+                {
+                    "date": DAY.isoformat(),
+                    "org_id": ORG,
+                    "team_id": 1251,
+                    "query_source": "standard",
+                    "cpu": "8",
+                    "mem_gib": "16",
+                    "cpu_seconds": -1,
+                    "memory_seconds": 0,
+                }
+            ],
+            "storage": [],
+        },
+    ):
+        invalid_response = fetch_usage()
+
+    result, mock_capture = await _poll(invalid_response, activity_environment)
+
+    assert await mirror_rows() == [(1251, 150)]
+    assert result.ack_watermark == DAY_END.isoformat()
+    assert [type(call.args[0]).__name__ for call in mock_capture.call_args_list] == ["DuckgresInvalidValueRows"]
+
+
+async def test_permanently_invalid_storage_does_not_turn_into_a_recoverable_regression(
+    activity_environment,
+) -> None:
+    await _make_org_with_teams(1252)
+    await _poll(
+        UsageResponse(
+            watermark_low=DAY_START,
+            watermark_high=dt.datetime(2026, 7, 6, 12, 0, tzinfo=dt.UTC),
+            rows=[],
+            storage_rows=[StorageRow(date=DAY, org_id=ORG, team_id=1252, gib_seconds=Decimal("150"))],
+        ),
+        activity_environment,
+    )
+
+    with patch(
+        "products.managed_warehouse.backend.temporal.duckgres_usage.client._request",
+        return_value={
+            "watermark_low": DAY_START.isoformat(),
+            "watermark_high": "2026-07-07T00:05:00+00:00",
+            "usage": [],
+            "storage": [
+                {
+                    "date": DAY.isoformat(),
+                    "org_id": ORG,
+                    "team_id": 1252,
+                    "gib_seconds": -1,
+                }
+            ],
+        },
+    ):
+        invalid_response = fetch_usage()
+
+    result, mock_capture = await _poll(invalid_response, activity_environment)
+
+    stored = sync_to_async(lambda: DuckgresDailyStorageUsage.objects.get().gib_seconds)
+    assert await stored() == Decimal("150")
+    assert result.ack_watermark == DAY_END.isoformat()
+    assert [type(call.args[0]).__name__ for call in mock_capture.call_args_list] == ["DuckgresInvalidValueRows"]
+
+
+async def test_invalid_product_retains_last_good_while_valid_product_advances(activity_environment) -> None:
+    await _make_org_with_teams(1253)
+    endpoints = dataclasses.replace(_row(1253, 40), query_source="endpoints")
+    await _poll(
+        _response([_row(1253, 150), endpoints], dt.datetime(2026, 7, 6, 12, 0, tzinfo=dt.UTC)),
+        activity_environment,
+    )
+
+    with patch(
+        "products.managed_warehouse.backend.temporal.duckgres_usage.client._request",
+        return_value={
+            "watermark_low": DAY_START.isoformat(),
+            "watermark_high": "2026-07-07T00:05:00+00:00",
+            "usage": [
+                {
+                    "date": DAY.isoformat(),
+                    "org_id": ORG,
+                    "team_id": 1253,
+                    "query_source": "standard",
+                    "cpu": "8",
+                    "mem_gib": "16",
+                    "cpu_seconds": 250,
+                    "memory_seconds": 0,
+                },
+                {
+                    "date": DAY.isoformat(),
+                    "org_id": ORG,
+                    "team_id": 1253,
+                    "query_source": "endpoints",
+                    "cpu": "8",
+                    "mem_gib": "16",
+                    "cpu_seconds": -1,
+                    "memory_seconds": 0,
+                },
+            ],
+            "storage": [],
+        },
+    ):
+        mixed_response = fetch_usage()
+
+    result, mock_capture = await _poll(mixed_response, activity_environment)
+
+    stored = sync_to_async(lambda: sorted(DuckgresDailyUsage.objects.values_list("query_source", "cpu_seconds")))
+    assert await stored() == [("endpoints", 40), ("standard", 250)]
+    assert result.ack_watermark == DAY_END.isoformat()
+    assert [type(call.args[0]).__name__ for call in mock_capture.call_args_list] == ["DuckgresInvalidValueRows"]
+
+
+async def test_conflicting_foreign_rows_do_not_withhold_ack(activity_environment) -> None:
+    await _make_org_with_teams(1261)
+    foreign_org = await database_sync_to_async(Organization.objects.create)(id=ORG_B, name="foreign org")
+    await database_sync_to_async(Team.objects.create)(id=1262, organization=foreign_org, name="foreign team")
+
+    result, mock_capture = await _poll(
+        _response(
+            [_row(1262, 100), _row(1262, 150)],
+            dt.datetime(2026, 7, 7, 0, 5, tzinfo=dt.UTC),
+        ),
+        activity_environment,
+    )
+
+    assert await mirror_rows() == []
+    assert result.ack_watermark == DAY_END.isoformat()
+    assert [type(call.args[0]).__name__ for call in mock_capture.call_args_list] == ["DuckgresForeignTeamRows"]
+
+
+async def test_regressed_orgs_keep_last_good_while_a_healthy_org_advances(activity_environment) -> None:
+    await _make_org_with_teams(1301)
+    org_b = await database_sync_to_async(Organization.objects.create)(id=ORG_B, name="org b")
+    await database_sync_to_async(Team.objects.create)(id=1302, organization=org_b, name="team-1302")
+    org_c_id = "018f0000-0000-0000-0000-000000000003"
+    org_c = await database_sync_to_async(Organization.objects.create)(id=org_c_id, name="org c")
+    await database_sync_to_async(Team.objects.create)(id=1303, organization=org_c, name="team-1303")
+
+    row_b = dataclasses.replace(_row(1302, 80), org_id=ORG_B)
+    row_c = dataclasses.replace(_row(1303, 100), org_id=org_c_id)
+    await _poll(
+        _response([_row(1301, 150), row_b, row_c], dt.datetime(2026, 7, 6, 23, 50, tzinfo=dt.UTC)),
+        activity_environment,
+    )
+
+    regressed_a = _row(1301, 90)
+    advanced_c = dataclasses.replace(_row(1303, 200), org_id=org_c_id)
+    result, mock_capture = await _poll(
+        _response([regressed_a, advanced_c], dt.datetime(2026, 7, 7, 0, 5, tzinfo=dt.UTC)),
+        activity_environment,
+    )
+
+    assert await mirror_rows_with_org() == [(ORG, 1301, 150), (ORG_B, 1302, 80), (org_c_id, 1303, 200)]
+    assert result.rows_written == 1
+    assert result.ack_watermark is None
+    captured = [type(call.args[0]).__name__ for call in mock_capture.call_args_list]
+    assert captured == ["DuckgresUsageRegression"]

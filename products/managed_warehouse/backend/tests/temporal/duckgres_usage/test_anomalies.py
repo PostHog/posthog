@@ -10,7 +10,7 @@ import datetime as dt
 
 import pytest
 
-from products.managed_warehouse.backend.temporal.duckgres_usage.anomalies import detect_anomalies
+from products.managed_warehouse.backend.temporal.duckgres_usage.anomalies import detect_anomalies, regression_anomaly
 from products.managed_warehouse.backend.temporal.duckgres_usage.client import UsageResponse
 from products.managed_warehouse.backend.temporal.duckgres_usage.team_resolution import ResolvedTeams
 
@@ -41,7 +41,15 @@ MATRIX = [
     ("malformed_org", False, "DuckgresMalformedOrgRows", {}, {"malformed_org_row_count": 1}, None, 0),
     ("foreign_team", False, "DuckgresForeignTeamRows", {}, {"foreign_team_row_count": 1}, None, 0),
     ("duplicate_rows", False, "DuckgresDuplicateRows", {}, {"duplicate_row_count": 1}, None, 0),
-    ("conflicting_rows", True, "DuckgresConflictingRows", {}, {"conflicting_row_count": 1}, None, 0),
+    (
+        "conflicting_rows",
+        True,
+        "DuckgresConflictingRows",
+        {},
+        {"conflicting_row_count": 1, "conflicting_org_ids": {"018f-conflict"}},
+        None,
+        0,
+    ),
     ("invalid_value", False, "DuckgresInvalidValueRows", {"invalid_value_row_count": 1}, {}, None, 0),
     ("usage_missing", True, "DuckgresMissingUsage", {"usage_missing": True}, {}, None, 0),
     ("storage_malformed", True, "DuckgresMalformedStorage", {"storage_malformed": True}, {}, None, 0),
@@ -70,6 +78,10 @@ def test_each_kind_is_detected_with_its_policy(
     assert anomaly.recoverable is recoverable
     assert type(anomaly.to_exception()).__name__ == exception_name
     assert anomaly.message  # every alert carries a human-readable detail
+    if kind == "conflicting_rows":
+        assert anomaly.organization_ids == frozenset({"018f-conflict"})
+    elif recoverable:
+        assert anomaly.organization_ids is None
 
 
 def test_multiple_anomalies_are_all_detected() -> None:
@@ -92,3 +104,11 @@ def test_behind_is_not_a_hole() -> None:
     # direction — logged by the activity, never an anomaly.
     ahead = LOW + dt.timedelta(days=2)
     assert detect_anomalies(_response(), _resolution(), recorded=ahead, out_of_window=0) == []
+
+
+def test_regression_anomaly_is_scoped_and_recoverable() -> None:
+    anomaly = regression_anomaly({"org-a", "org-b"})
+
+    assert anomaly.kind == "usage_regression"
+    assert anomaly.recoverable is True
+    assert anomaly.organization_ids == frozenset({"org-a", "org-b"})

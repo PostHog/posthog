@@ -19,10 +19,10 @@ come from the gather's definition (`billable_teams_queryset`), or the remap
 would make under-billing permanent.
 
 An org with no billable team at all (every project deleted, or only demo/
-internal projects left) is unbillable by definition: its rows are dropped and
-the org is surfaced via `orphaned_org_ids` — an orphan org, decided with
-billing (see the poll activity, which alerts loudly but never withholds the
-ack for it).
+internal projects left) retains its rows under the original team stamp and is
+surfaced via `orphaned_org_ids`. The usage-report gather will omit it until a
+billable replacement exists, while the mirror keeps the evidence needed to
+explain the omission.
 """
 
 import uuid
@@ -43,10 +43,8 @@ _StorageKey = tuple[str, dt.date, int]
 class ResolvedTeams:
     compute_rows: list[UsageRow]
     storage_rows: list[StorageRow]
-    # Orgs whose usage was dropped because they have no billable team at all
-    # (orphan orgs). The caller alerts on these; the ack still proceeds
-    # (re-pulling can't help — the org has no billable team, so the data is
-    # unattributable, not withheld).
+    # Orgs whose deleted-team usage has no billable replacement. Their rows stay
+    # in the mirror under the original stamp; the caller alerts and still acks.
     orphaned_org_ids: set[str]
     # Rows duckgres emitted twice with an IDENTICAL billing row (harmless repeat).
     # We keep one, the caller alerts, and the ack still proceeds.
@@ -54,6 +52,10 @@ class ResolvedTeams:
     # Rows with the same billing key but DIFFERENT measures — we can't trust either,
     # so keep the larger and the caller WITHHOLDS the ack for reconciliation.
     conflicting_row_count: int = 0
+    # Conflicts are recoverable and scoped to the orgs that emitted them. The
+    # mirror can promote healthy orgs while retaining the affected orgs' last
+    # good snapshot.
+    conflicting_org_ids: set[str] = dataclasses.field(default_factory=set)
     # Rows whose org_id is not a UUID — duckgres broke its contract (org keys are
     # PostHog org UUIDs). Dropped and surfaced; the ack DELIBERATELY proceeds: a
     # bucket's org_id never changes, so withholding would freeze the ack forever.
@@ -90,7 +92,7 @@ def _storage_usage(row: StorageRow) -> tuple:
 
 def _dedup_raw(
     rows: list[_Row], key: Callable[[_Row], tuple], usage: Callable[[_Row], tuple]
-) -> tuple[list[_Row], int, int]:
+) -> tuple[list[_Row], int, int, set[str]]:
     """Collapse rows duckgres emitted more than once for the same billing key — a
     contract violation (its API serves one row per key per day). Two flavours:
 
@@ -102,10 +104,11 @@ def _dedup_raw(
       reconciliation instead of deleting it.
 
     Left in, either flavour would crash the mirror's unique insert or double-bill in
-    the fold. Returns (deduped rows, exact-duplicate count, conflict count)."""
+    the fold. Returns the deduped rows, both counts, and conflicting org ids."""
     by_key: dict[tuple, _Row] = {}
     exact = 0
     conflicts = 0
+    conflicting_org_ids: set[str] = set()
     for row in rows:
         k = key(row)
         kept = by_key.get(k)
@@ -115,9 +118,10 @@ def _dedup_raw(
             exact += 1  # identical repeat — drop
         else:
             conflicts += 1
+            conflicting_org_ids.add(row.org_id)
             if usage(row) > usage(kept):
                 by_key[k] = row  # keep the larger; provisional until reconciled
-    return list(by_key.values()), exact, conflicts
+    return list(by_key.values()), exact, conflicts, conflicting_org_ids
 
 
 def _valid_org_id(org_id: str) -> bool:
@@ -162,21 +166,12 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
     malformed_org_row_count = len(malformed)
     malformed_org_id_sample = tuple(sorted({r.org_id for r in malformed})[:3])
 
-    # Collapse raw duplicates first (a duckgres contract violation), so the fold below
-    # only ever sums *re-attribution* collisions — never double-bills a duplicate.
-    compute_rows, compute_dupes, compute_conflicts = _dedup_raw(compute_rows, _compute_key, _compute_usage)
-    storage_rows, storage_dupes, storage_conflicts = _dedup_raw(storage_rows, _storage_key, _storage_usage)
-    duplicate_row_count = compute_dupes + storage_dupes
-    conflicting_row_count = compute_conflicts + storage_conflicts
-
     team_ids = {row.team_id for row in compute_rows} | {row.team_id for row in storage_rows}
     if not team_ids:
         return ResolvedTeams(
             compute_rows,
             storage_rows,
             set(),
-            duplicate_row_count=duplicate_row_count,
-            conflicting_row_count=conflicting_row_count,
             malformed_org_row_count=malformed_org_row_count,
             malformed_org_id_sample=malformed_org_id_sample,
         )
@@ -206,6 +201,34 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
     foreign_team_row_count = len(foreign)
     foreign_team_sample = tuple(sorted({r.team_id for r in foreign})[:3])
 
+    # Classify duplicates only after permanently invalid foreign rows are gone.
+    # Otherwise two conflicting copies of a row that can never be accepted would
+    # turn its ack-proceeds policy into an endless recoverable conflict.
+    compute_rows, compute_dupes, compute_conflicts, compute_conflict_orgs = _dedup_raw(
+        compute_rows, _compute_key, _compute_usage
+    )
+    storage_rows, storage_dupes, storage_conflicts, storage_conflict_orgs = _dedup_raw(
+        storage_rows, _storage_key, _storage_usage
+    )
+    duplicate_row_count = compute_dupes + storage_dupes
+    conflicting_row_count = compute_conflicts + storage_conflicts
+    conflicting_org_ids = compute_conflict_orgs | storage_conflict_orgs
+
+    team_ids = {row.team_id for row in compute_rows} | {row.team_id for row in storage_rows}
+    if not team_ids:
+        return ResolvedTeams(
+            compute_rows,
+            storage_rows,
+            set(),
+            duplicate_row_count=duplicate_row_count,
+            conflicting_row_count=conflicting_row_count,
+            conflicting_org_ids=conflicting_org_ids,
+            malformed_org_row_count=malformed_org_row_count,
+            malformed_org_id_sample=malformed_org_id_sample,
+            foreign_team_row_count=foreign_team_row_count,
+            foreign_team_sample=foreign_team_sample,
+        )
+
     deleted_team_ids = team_ids - live_team_ids
     if not deleted_team_ids:
         # Every remaining row is under a live, same-org team (billable or intentionally
@@ -216,6 +239,7 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
             set(),
             duplicate_row_count=duplicate_row_count,
             conflicting_row_count=conflicting_row_count,
+            conflicting_org_ids=conflicting_org_ids,
             malformed_org_row_count=malformed_org_row_count,
             malformed_org_id_sample=malformed_org_id_sample,
             foreign_team_row_count=foreign_team_row_count,
@@ -247,7 +271,8 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
                 continue
             surrogate = elected[row.org_id]
             if surrogate is None:
-                continue  # deleted team, no billable surrogate — orphaned, drop (surfaced below)
+                out.append(row)  # retain evidence; the report omits it until a replacement exists
+                continue
             out.append(dataclasses.replace(row, team_id=surrogate))
         return out
 
@@ -257,6 +282,7 @@ def resolve_billing_teams(compute_rows: list[UsageRow], storage_rows: list[Stora
         orphaned_org_ids,
         duplicate_row_count,
         conflicting_row_count,
+        conflicting_org_ids,
         malformed_org_row_count=malformed_org_row_count,
         malformed_org_id_sample=malformed_org_id_sample,
         foreign_team_row_count=foreign_team_row_count,

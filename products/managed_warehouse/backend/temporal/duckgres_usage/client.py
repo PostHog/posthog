@@ -78,16 +78,20 @@ class UsageResponse:
     # would only freeze the ack forever with no way to recover.
     invalid_value_row_count: int = 0
     invalid_value_row_sample: dict | None = None
+    # Canonical billing scopes containing a permanently invalid row. Promotion
+    # retains each scope's last-good value while other scopes advance, so the
+    # invalid-value policy (drop, alert, ack) cannot erase data or become an
+    # endless retry loop.
+    invalid_compute_scopes: frozenset[tuple[str, dt.date, bool]] = dataclasses.field(default_factory=frozenset)
+    invalid_storage_scopes: frozenset[tuple[str, dt.date]] = dataclasses.field(default_factory=frozenset)
     # True when the response carried no usage array at all (the key was absent or
     # not a list) — a shape violation, distinct from a present-but-empty array. The
     # caller alerts AND withholds the ack: we can't read a missing array as "the
     # window truly had no usage" and let duckgres delete the source buckets.
     usage_missing: bool = False
-    # True when the storage key was PRESENT but not a list (malformed). An absent
-    # storage key is legitimate (servers without the storage metric) and does NOT
-    # set this; a present-but-malformed one does. The caller alerts AND withholds the
-    # ack, same as usage_missing — we can't read a broken container as "no storage"
-    # and let the shared ack delete storage buckets we never captured.
+    # True when the storage collection is absent or not a list. The caller alerts
+    # AND withholds the ack because the shared acknowledgement could delete storage
+    # buckets we did not mirror.
     storage_malformed: bool = False
 
 
@@ -119,12 +123,14 @@ def fetch_usage(timeout: int = 60) -> UsageResponse:
     # See the field docs on UsageResponse.
     unparsed: list[dict] = []
     invalid: list[dict] = []
+    invalid_compute_scopes: set[tuple[str, dt.date, bool]] = set()
+    invalid_storage_scopes: set[tuple[str, dt.date]] = set()
 
     raw_usage = body.get("usage")
     # A present-but-empty [] is a legitimate quiet window; a missing / null /
     # non-list usage key is a shape violation we must not read as "no usage".
-    # (Storage may legitimately be absent — servers without the storage metric —
-    # so it is deliberately NOT subject to this check.)
+    # Storage has its own strict container check below, so it is not folded into
+    # the usage-specific anomaly.
     usage_missing = not isinstance(raw_usage, list)
 
     rows: list[UsageRow] = []
@@ -132,9 +138,9 @@ def fetch_usage(timeout: int = 60) -> UsageResponse:
         try:
             row = UsageRow(
                 date=dt.date.fromisoformat(raw["date"]),
-                org_id=raw["org_id"],
+                org_id=_string_field(raw["org_id"]),
                 team_id=int(raw["team_id"]),
-                query_source=raw["query_source"],
+                query_source=_string_field(raw["query_source"]),
                 cpu=Decimal(str(raw["cpu"])),
                 mem_gib=Decimal(str(raw["mem_gib"])),
                 cpu_seconds=int(raw["cpu_seconds"]),
@@ -145,20 +151,22 @@ def fetch_usage(timeout: int = 60) -> UsageResponse:
             continue
         if not _compute_values_ok(row):
             invalid.append(raw)
+            if isinstance(row.org_id, str):
+                invalid_compute_scopes.add((row.org_id, row.date, row.query_source == "endpoints"))
             continue
         rows.append(row)
 
     raw_storage = body.get("storage")
-    # An absent storage key is legitimate (no storage metric); a present-but-non-list
-    # value is malformed and withholds the ack, mirroring usage_missing above.
-    storage_malformed = raw_storage is not None and not isinstance(raw_storage, list)
+    # Storage is part of the shared acknowledgement contract, so every non-list,
+    # including an absent key, must retain any unseen source data for a later pull.
+    storage_malformed = not isinstance(raw_storage, list)
 
     storage_rows: list[StorageRow] = []
     for raw in raw_storage if isinstance(raw_storage, list) else []:
         try:
             storage_row = StorageRow(
                 date=dt.date.fromisoformat(raw["date"]),
-                org_id=raw["org_id"],
+                org_id=_string_field(raw["org_id"]),
                 team_id=int(raw["team_id"]),
                 gib_seconds=Decimal(str(raw["gib_seconds"])),
             )
@@ -167,6 +175,8 @@ def fetch_usage(timeout: int = 60) -> UsageResponse:
             continue
         if not _storage_values_ok(storage_row):
             invalid.append(raw)
+            if isinstance(storage_row.org_id, str):
+                invalid_storage_scopes.add((storage_row.org_id, storage_row.date))
             continue
         storage_rows.append(storage_row)
 
@@ -179,9 +189,17 @@ def fetch_usage(timeout: int = 60) -> UsageResponse:
         unparsed_row_sample=unparsed[0] if unparsed else None,
         invalid_value_row_count=len(invalid),
         invalid_value_row_sample=invalid[0] if invalid else None,
+        invalid_compute_scopes=frozenset(invalid_compute_scopes),
+        invalid_storage_scopes=frozenset(invalid_storage_scopes),
         usage_missing=usage_missing,
         storage_malformed=storage_malformed,
     )
+
+
+def _string_field(value: object) -> str:
+    if not isinstance(value, str):
+        raise TypeError("expected a string field")
+    return value
 
 
 def _finite_nonneg(value: Decimal) -> bool:

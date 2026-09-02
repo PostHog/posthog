@@ -6,7 +6,7 @@ so rows can arrive under a deleted team's id or 0 — and those would be dropped
 by the (live-teams-only) usage-report gather. resolve_billing_teams remaps them
 to a live team in the same org so the org still bills — org-level attribution
 makes the surrogate choice billing-neutral. Orgs with no billable team at all
-are orphan orgs (rows dropped, surfaced via orphaned_org_ids, ack proceeds).
+are orphan orgs (rows retained, surfaced via orphaned_org_ids, ack proceeds).
 """
 
 import datetime as dt
@@ -84,13 +84,13 @@ def test_deleted_team_remapped_to_lowest_live_team_in_org() -> None:
     assert result.orphaned_org_ids == set()
 
 
-def test_org_with_no_live_team_is_dropped_and_reported() -> None:
+def test_org_with_no_live_team_is_retained_and_reported() -> None:
     org = Organization.objects.create(name="no projects")  # warehouse but zero teams
 
     result = resolve_billing_teams([_compute(DEAD, str(org.id))], [_storage(DEAD, str(org.id))])
 
-    assert result.compute_rows == []
-    assert result.storage_rows == []
+    assert result.compute_rows == [_compute(DEAD, str(org.id))]
+    assert result.storage_rows == [_storage(DEAD, str(org.id))]
     assert result.orphaned_org_ids == {str(org.id)}
 
 
@@ -159,8 +159,8 @@ def test_zero_stamped_rows_with_no_billable_team_are_orphaned() -> None:
 
     result = resolve_billing_teams([_compute(0, str(org.id))], [_storage(0, str(org.id))])
 
-    assert result.compute_rows == []
-    assert result.storage_rows == []
+    assert [row.team_id for row in result.compute_rows] == [0]
+    assert [row.team_id for row in result.storage_rows] == [0]
     assert result.orphaned_org_ids == {str(org.id)}
 
 
@@ -190,7 +190,7 @@ def test_org_with_only_a_demo_team_is_orphaned() -> None:
     result = resolve_billing_teams([_compute(DEAD, str(org.id))], [])
 
     assert result.orphaned_org_ids == {str(org.id)}  # loud + safe, not silently onto the demo team
-    assert result.compute_rows == []
+    assert [row.team_id for row in result.compute_rows] == [DEAD]
 
 
 def test_internal_metrics_org_is_orphaned() -> None:
@@ -269,6 +269,7 @@ def test_same_key_conflicting_values_keep_max_and_flag() -> None:
     assert len(result.compute_rows) == 1
     assert result.compute_rows[0].cpu_seconds == 250  # kept the max, not the first
     assert result.conflicting_row_count == 1
+    assert result.conflicting_org_ids == {str(org.id)}
     assert result.duplicate_row_count == 0
 
 
@@ -284,6 +285,7 @@ def test_conflicting_values_keep_max_when_larger_comes_first() -> None:
     assert len(result.compute_rows) == 1
     assert result.compute_rows[0].cpu_seconds == 250  # kept the max even though it came first
     assert result.conflicting_row_count == 1
+    assert result.conflicting_org_ids == {str(org.id)}
 
 
 def test_storage_exact_duplicate_is_deduped() -> None:
@@ -306,6 +308,7 @@ def test_storage_conflicting_values_keep_max_and_flag() -> None:
     assert len(result.storage_rows) == 1
     assert result.storage_rows[0].gib_seconds == Decimal("250")  # kept the max
     assert result.conflicting_row_count == 1
+    assert result.conflicting_org_ids == {str(org.id)}
 
 
 # --- surrogate election: one query, strictly tenant-local -----------------------
@@ -345,7 +348,7 @@ def test_orphan_org_stays_orphan_in_a_batch_with_billable_orgs() -> None:
 
     by_org = {r.org_id: r.team_id for r in result.compute_rows}
     assert by_org[str(org_ok.id)] == t0.id  # elected normally
-    assert str(org_orphan.id) not in by_org  # dropped
+    assert by_org[str(org_orphan.id)] == DEAD_2  # retained for report-time attribution
     assert result.orphaned_org_ids == {str(org_orphan.id)}
 
 

@@ -72,12 +72,13 @@ class DuckgresDailyUsage(UUIDModel):
     """One UTC day of managed-warehouse compute usage for one (team, query_source, worker size).
 
     Local durable mirror of duckgres's billing pull API (duckgres
-    `docs/design/billing-pull-api.md`): a Temporal poller replaces the open
-    window's rows on every pull and acks duckgres only at UTC day boundaries,
-    so rows here are always complete day-so-far totals. Once duckgres GCs an
-    acked day this is the surviving copy until the usage report ships it, so
-    it's a system of record, not a scratch buffer. Usage reports (v1 gathers
-    and, later, v2 queries) read from this table; nothing else writes to it.
+    `docs/design/billing-pull-api.md`): a Temporal poller promotes complete
+    day-so-far snapshots per organization and acks duckgres only at UTC day
+    boundaries. A regressed org retains its last-good rows while healthy orgs
+    advance. Once duckgres GCs an acked day this is the surviving copy until
+    the usage report ships it, so it's a system of record, not a scratch
+    buffer. Usage reports (v1 gathers and, later, v2 queries) read from this
+    table; nothing else writes to it.
     """
 
     date = models.DateField()
@@ -99,14 +100,10 @@ class DuckgresDailyUsage(UUIDModel):
         verbose_name = "Duckgres daily usage"
         verbose_name_plural = "Duckgres daily usage"
         constraints = [
-            # Keyed on team_id (not org): team_id is globally unique per region and org is
-            # derivable from it, matching how the rest of billing keys usage. organization_id
-            # is kept as a stored attribute for traceability, not identity. duckgres's team
-            # stamp is only a hint (it may be a deleted team or 0), but the poller remaps
-            # dead/0 stamps to a live billable team and drops orphan-org rows before
-            # persisting — so team_id here is always a real, collision-free key.
+            # The org is part of the identity because an unresolved team stamp can be
+            # shared across orgs (notably duckgres's sentinel team_id=0).
             models.UniqueConstraint(
-                fields=["date", "team_id", "query_source", "cpu", "mem_gib"],
+                fields=["date", "organization_id", "team_id", "query_source", "cpu", "mem_gib"],
                 name="duckgres_daily_usage_key",
             )
         ]
@@ -134,26 +131,25 @@ class DuckgresDailyStorageUsage(UUIDModel):
         verbose_name = "Duckgres daily storage usage"
         verbose_name_plural = "Duckgres daily storage usage"
         constraints = [
-            # See DuckgresDailyUsage: keyed on team_id, org kept as an attribute only.
-            models.UniqueConstraint(fields=["date", "team_id"], name="duckgres_daily_storage_key"),
+            models.UniqueConstraint(fields=["date", "organization_id", "team_id"], name="duckgres_daily_storage_key"),
         ]
 
 
 class DuckgresUsageCursor(UUIDModel):
     """Single-row record of the poller's progress against duckgres.
 
-    Two watermarks, protecting two different things:
+    Three watermarks, protecting three different things:
 
     - ``last_acked_watermark`` — the last watermark the poller acked. Load-bearing
       for custody: the poller cross-checks it against duckgres's own cursor
       (`watermark_low`) each pull and refuses to ack when duckgres is ahead of it
       (a possible hole in billable usage). Null until the first ack.
     - ``last_applied_watermark`` — the ``watermark_high`` of the last response whose
-      rows were applied to the mirror. Load-bearing for the mirror: the replace is
-      monotone in this value, so a stale response (a timed-out poll attempt whose
-      late write lands after a newer attempt already applied and acked) can never
-      overwrite newer data — an acked day is deleted upstream and would otherwise
-      stay wrong forever.
+      rows were evaluated for promotion to the mirror. It keeps response processing
+      monotone so a timed-out poll attempt cannot overwrite a newer snapshot.
+    - ``last_complete_watermark`` — the newest response known to have no recoverable
+      anomaly or regressed org. Complete usage reports require this watermark to
+      cover their full UTC day before they publish.
 
     Written in the same transaction as the mirror rows, before the ack. One row per
     deployment — `singleton` is a unique constant so it's addressable without
@@ -163,6 +159,7 @@ class DuckgresUsageCursor(UUIDModel):
     singleton = models.PositiveSmallIntegerField(default=1, unique=True)
     last_acked_watermark = models.DateTimeField(null=True, blank=True)
     last_applied_watermark = models.DateTimeField(null=True, blank=True)
+    last_complete_watermark = models.DateTimeField(null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

@@ -101,6 +101,7 @@ usage_count = sync_to_async(lambda: DuckgresDailyUsage.objects.count())
 # staleness), so "nothing was acked" is about the acked field, not row existence.
 ack_recorded = sync_to_async(lambda: DuckgresUsageCursor.objects.filter(last_acked_watermark__isnull=False).exists())
 get_cursor_watermark = sync_to_async(lambda: DuckgresUsageCursor.objects.get(singleton=1).last_acked_watermark)
+get_complete_watermark = sync_to_async(lambda: DuckgresUsageCursor.objects.get(singleton=1).last_complete_watermark)
 usage_dates = sync_to_async(lambda: sorted(DuckgresDailyUsage.objects.values_list("date", flat=True)))
 usage_team_ids = sync_to_async(lambda: sorted(DuckgresDailyUsage.objects.values_list("team_id", flat=True)))
 storage_dates = sync_to_async(lambda: sorted(DuckgresDailyStorageUsage.objects.values_list("date", flat=True)))
@@ -128,8 +129,8 @@ def _patched(response):
 @pytest.fixture(autouse=True)
 def live_default_team(transactional_db) -> None:
     # The activity fixtures attribute usage to org ORG / team 42. Team resolution
-    # now drops usage under a deleted team, so these tests must make that team real
-    # — otherwise every row would look orphaned and be dropped before persistence.
+    # resolves usage under a deleted team, so these tests make the stamped team real
+    # unless they are explicitly exercising the orphan path.
     org = Organization.objects.create(id=ORG, name="mdw test org")
     Team.objects.create(id=TEAM_ID, organization=org, name="default")
 
@@ -146,6 +147,7 @@ async def test_persists_and_returns_ack_watermark_when_a_day_closed(activity_env
     assert result.ack_watermark == DAY_6_END.isoformat()  # for the workflow to ack
     assert result.watermark_hole is False
     assert await get_cursor_watermark() == DAY_6_END  # recorded before the ack (record-before-ack)
+    assert await get_complete_watermark() == CLOSED_DAY_RESPONSE.watermark_high
 
 
 @pytest.mark.django_db(transaction=True)
@@ -210,7 +212,7 @@ async def test_skips_when_not_configured(activity_environment) -> None:
 @pytest.mark.asyncio
 async def test_withholds_ack_and_alerts_on_watermark_hole(activity_environment) -> None:
     # Duckgres serves a window starting past our record — it deleted buckets we
-    # never processed. Persist what we got, alert, and DON'T offer an ack.
+    # never processed. Retain the mirror, alert, and DON'T offer an ack.
     await create_cursor(dt.datetime(2026, 7, 4, 23, 59, 59, tzinfo=dt.UTC))
 
     is_conf, fetch, cap, log = _patched(CLOSED_DAY_RESPONSE)
@@ -219,7 +221,7 @@ async def test_withholds_ack_and_alerts_on_watermark_hole(activity_environment) 
 
     assert result.watermark_hole is True
     assert result.ack_watermark is None  # withheld
-    assert await usage_count() == 2  # still persisted
+    assert await usage_count() == 0  # unscoped anomaly blocks all promotion
     mock_capture.assert_called_once()
     # Record untouched — we didn't ack, so it must not advance.
     assert await get_cursor_watermark() == dt.datetime(2026, 7, 4, 23, 59, 59, tzinfo=dt.UTC)
@@ -228,15 +230,15 @@ async def test_withholds_ack_and_alerts_on_watermark_hole(activity_environment) 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_withholds_ack_and_alerts_on_parse_failure(activity_environment) -> None:
-    # A row failed to parse: persist the good ones, alert, and withhold the ack
-    # so duckgres keeps the source data until the upstream cause is fixed.
+    # A row failed to parse: its org is unknown, so no org promotes. Alert and
+    # withhold the ack so duckgres keeps the source until the cause is fixed.
     is_conf, fetch, cap, log = _patched(PARSE_FAILURE_RESPONSE)
     with is_conf, fetch, cap as mock_capture, log:
         result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
 
     assert result.unparsed_row_count == 1
     assert result.ack_watermark is None  # withheld despite a closed day
-    assert await usage_count() == 1  # the good row persisted
+    assert await usage_count() == 0
     mock_capture.assert_called_once()
     assert not await ack_recorded()  # nothing acked, nothing recorded
 
@@ -253,8 +255,8 @@ async def test_withholds_ack_and_alerts_on_out_of_window_rows(activity_environme
 
     assert result.out_of_window_dropped == 1
     assert result.ack_watermark is None  # withheld
-    assert await usage_count() == 1  # only the in-window day 6 row persisted
-    assert await usage_dates() == [dt.date(2026, 7, 6)]
+    assert await usage_count() == 0  # unscoped contract violation blocks promotion
+    assert await usage_dates() == []
     mock_capture.assert_called_once()
     assert not await ack_recorded()
 
@@ -353,16 +355,16 @@ def _one_row_response(org_id: str, team_id: int) -> UsageResponse:
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_orphaned_org_drops_rows_alerts_and_still_acks(activity_environment) -> None:
+async def test_orphaned_org_retains_rows_alerts_and_still_acks(activity_environment) -> None:
     # An org whose usage is under a deleted team AND it has no live team at all:
-    # rows dropped, DuckgresUsageOrphanedOrg fires — but the ack STILL proceeds
+    # rows remain in the mirror, DuckgresUsageOrphanedOrg fires, and the ack proceeds
     # (the deliberate opposite of hole/parse/out-of-window, which withhold it).
     orphan_org = "018f0000-0000-0000-0000-0000000000ff"  # no team created for it
     is_conf, fetch, cap, log = _patched(_one_row_response(orphan_org, 999))
     with is_conf, fetch, cap as mock_capture, log:
         result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
 
-    assert await usage_count() == 0  # dropped — no billable team to attribute to
+    assert await usage_count() == 1
     mock_capture.assert_called_once()  # DuckgresUsageOrphanedOrg
     assert result.ack_watermark == DAY_6_END.isoformat()  # ack proceeds anyway
     assert result.orphaned_org_ids == [orphan_org]  # surfaced on the result too
@@ -391,9 +393,8 @@ async def test_duplicate_rows_are_deduped_and_alerted(activity_environment) -> N
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 async def test_conflicting_rows_withhold_the_ack_and_alert(activity_environment) -> None:
-    # Same key, DIFFERENT measures — we can't trust either value, so keep the larger,
-    # alert, and WITHHOLD the ack (like hole/parse/out-of-window) so duckgres keeps the
-    # source for reconciliation instead of deleting it.
+    # Same key, DIFFERENT measures — we can't trust either value, so retain the
+    # org's last-good snapshot and WITHHOLD the ack for reconciliation.
     conflict_response = UsageResponse(
         watermark_low=dt.datetime(2026, 7, 5, 23, 59, 59, tzinfo=dt.UTC),
         watermark_high=dt.datetime(2026, 7, 7, 12, 39, tzinfo=dt.UTC),
@@ -403,7 +404,7 @@ async def test_conflicting_rows_withhold_the_ack_and_alert(activity_environment)
     with is_conf, fetch, cap as mock_capture, log:
         result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
 
-    assert result.rows_written == 1  # kept the larger, not both
+    assert result.rows_written == 0  # no prior last-good snapshot for this org
     assert result.ack_watermark is None  # WITHHELD despite a closed day
     assert not await ack_recorded()  # nothing acked, nothing recorded
     captured = [type(c.args[0]).__name__ for c in mock_capture.call_args_list]
@@ -452,9 +453,9 @@ MISSING_USAGE_RESPONSE = UsageResponse(
     usage_missing=True,
 )
 
-MALFORMED_STORAGE_RESPONSE = UsageResponse(
-    # Compute parsed fine, but the storage container was malformed (present, not a
-    # list). Compute still persists; the ack is withheld for the storage we couldn't read.
+MISSING_STORAGE_RESPONSE = UsageResponse(
+    # Compute parsed fine, but storage was absent. The anomaly is global because
+    # the missing collection cannot be scoped to an org.
     watermark_low=dt.datetime(2026, 7, 5, 23, 59, 59, tzinfo=dt.UTC),
     watermark_high=dt.datetime(2026, 7, 7, 12, 39, tzinfo=dt.UTC),
     rows=[_row(dt.date(2026, 7, 6))],
@@ -498,15 +499,12 @@ async def test_missing_usage_withholds_ack_and_alerts(activity_environment) -> N
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_malformed_storage_withholds_ack_and_alerts(activity_environment) -> None:
-    # The storage container came back malformed (present but not a list): compute still
-    # persists, but the ack is WITHHELD so the shared ack can't delete storage buckets
-    # we never captured.
-    is_conf, fetch, cap, log = _patched(MALFORMED_STORAGE_RESPONSE)
+async def test_missing_storage_withholds_ack_and_alerts(activity_environment) -> None:
+    is_conf, fetch, cap, log = _patched(MISSING_STORAGE_RESPONSE)
     with is_conf, fetch, cap as mock_capture, log:
         result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
 
-    assert await usage_count() == 1  # the compute row still persisted
+    assert await usage_count() == 0  # global anomaly blocks every org's promotion
     assert result.ack_watermark is None  # withheld
     assert not await ack_recorded()
     captured = [type(c.args[0]).__name__ for c in mock_capture.call_args_list]
@@ -566,7 +564,7 @@ async def test_storage_conflicting_rows_withhold_the_ack_and_alert(activity_envi
     with is_conf, fetch, cap as mock_capture, log:
         result = await activity_environment.run(poll_duckgres_usage, PollDuckgresUsageInputs())
 
-    assert result.rows_written == 1  # kept the larger storage row, not both
+    assert result.rows_written == 0  # no prior last-good snapshot for this org
     assert result.ack_watermark is None  # WITHHELD despite a closed day
     assert not await ack_recorded()
     captured = [type(c.args[0]).__name__ for c in mock_capture.call_args_list]
