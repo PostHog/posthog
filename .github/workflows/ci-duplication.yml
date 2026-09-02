@@ -18,6 +18,8 @@ concurrency:
 
 permissions:
     contents: read
+    # The poster steps write sections of the shared CI report comment (mirrors ci-frontend.yml / ci-ai.yml).
+    pull-requests: write
 
 jobs:
     duplication:
