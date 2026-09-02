@@ -3,6 +3,7 @@ import re
 from django.conf import settings
 from django.template import Library
 
+from posthog.helpers.sso import friendly_social_provider
 from posthog.utils import absolute_uri as util_absolute_uri
 
 register = Library()
@@ -32,17 +33,7 @@ def human_social_providers(providers: list[str]) -> str:
       {% human_social_providers ["google-oauth2", "github"] %}
       =>  "Google, GitHub"
     """
-
-    def friendly_provider(prov: str) -> str:
-        if prov == "google-oauth2":
-            return "Google"
-        elif prov == "github":
-            return "GitHub"
-        elif prov == "gitlab":
-            return "GitLab"
-        return "single sign-on (SAML)"
-
-    return ", ".join(map(friendly_provider, providers))
+    return ", ".join(map(friendly_social_provider, providers))
 
 
 @register.simple_tag

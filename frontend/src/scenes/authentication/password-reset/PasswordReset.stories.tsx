@@ -103,6 +103,40 @@ export const Success: Story = {
     },
 }
 
+export const SsoOnly: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: false,
+                    realm: 'hosted-clickhouse',
+                    available_social_auth_providers: {
+                        github: false,
+                        gitlab: false,
+                        'google-oauth2': true,
+                        saml: false,
+                    },
+                    email_service_available: true,
+                },
+            },
+            post: {
+                '/api/reset': {},
+            },
+        })
+
+        useDelayedOnMountEffect(() => {
+            passwordResetLogic.actions.setRequestPasswordResetValues({ email: 'sso-user@posthog.com' })
+            passwordResetLogic.actions.setRequestPasswordResetManualErrors({
+                code: 'sso_only',
+                email: 'This account has no password to reset. Log in with Google instead.',
+            })
+        })
+
+        return <PasswordReset />
+    },
+}
+
 export const Throttled: Story = {
     render: () => {
         useStorybookMocks({

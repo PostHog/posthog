@@ -269,7 +269,12 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
                 try {
                     await api.create('api/reset/', { email })
                 } catch (e: any) {
-                    actions.setRequestPasswordResetManualErrors({ email: e.detail ?? 'An error occurred' })
+                    // The code drives which screen the scene shows (throttled, SSO-only, …), so it
+                    // has to survive alongside the field-level message.
+                    actions.setRequestPasswordResetManualErrors({
+                        code: e.code,
+                        email: e.detail ?? 'An error occurred',
+                    })
                     posthog.captureException('Failed to reset password', { extra: { error: e } })
                     throw e
                 }
