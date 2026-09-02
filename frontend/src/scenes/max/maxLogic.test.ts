@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
@@ -306,6 +307,43 @@ describe('maxLogic', () => {
             conversationNotFound: true,
             conversationLoading: false,
         })
+    })
+
+    it('does not let a superseded poll mark the newly opened chat as missing', async () => {
+        const chatA = 'chat-a-id'
+        const chatB = 'chat-b-id'
+
+        // Hold chat A's request open so it resolves only after the user has moved to chat B.
+        let rejectA: (reason: unknown) => void = () => {}
+        const pendingA = new Promise<ConversationDetail>((_resolve, reject) => {
+            rejectA = reject
+        })
+        const getSpy = jest
+            .spyOn(api.conversations, 'get')
+            .mockImplementation((id: string) =>
+                id === chatA ? pendingA : Promise.reject({ status: 404, data: { detail: 'Not found' } })
+            )
+
+        logic = maxLogic({ panelId: 'test' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+
+        // Poll A on its last attempt, so a single 404 would otherwise exhaust the budget and set
+        // the not-found flag. Its request stays in flight.
+        logic.actions.setConversationId(chatA)
+        logic.actions.pollConversation(chatA, CONVERSATION_NOT_FOUND_RETRY_DELAYS_MS.length, 0)
+
+        // The user opens chat B before A's request resolves.
+        logic.actions.setConversationId(chatB)
+
+        // A's request fails now. The stale chain must leave B's state untouched.
+        rejectA({ status: 404, data: { detail: 'Not found' } })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.conversationId).toBe(chatB)
+        expect(logic.values.conversationNotFound).toBe(false)
+
+        getSpy.mockRestore()
     })
 
     it('manages suggestion group selection correctly', async () => {

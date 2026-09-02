@@ -796,6 +796,12 @@ export const maxLogic = kea<maxLogicType>([
             try {
                 conversation = await api.conversations.get(conversationId)
             } catch (err: any) {
+                // The user may have opened another chat while this request was in flight. A stale
+                // chain must not retry or write shared state, or it would cancel the active chat's
+                // poll and label it missing.
+                if (values.conversationId !== conversationId) {
+                    return
+                }
                 if (err.status === 404) {
                     // A chat that is still being created resolves on a retry. Only after the budget runs
                     // out is it genuinely gone, and only then does the UI say so. Retries never interrupt
@@ -810,6 +816,11 @@ export const maxLogic = kea<maxLogicType>([
                 }
 
                 lemonToast.error(err?.data?.detail || 'Failed to load the chat.')
+            }
+
+            // Same guard for the success path: a poll superseded by a newer chat must not touch it.
+            if (values.conversationId !== conversationId) {
+                return
             }
 
             // Store every successful read, not only idle ones — a chat opened by link can still be
