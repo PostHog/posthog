@@ -84,11 +84,16 @@ export function useEmbeddedBrowserSlot(input: {
   // effect. It tracks the persisted current URL as the user browses, and
   // re-running on that would tear down and reopen the live view mid-session.
   const urlRef = useRef(url);
-  urlRef.current = url;
   // Applied after open resolves, so a visibility change that raced the open
   // (user switched tabs while the first load was in flight) still lands.
   const visibleRef = useRef(visible);
-  visibleRef.current = visible;
+  // Mirrored on commit, never during render: React can discard or replay a
+  // render, and a value from one that never committed must not leak into the
+  // live view. Both are read from async callbacks, which always run later.
+  useEffect(() => {
+    urlRef.current = url;
+    visibleRef.current = visible;
+  }, [url, visible]);
 
   const hasUrl = url != null;
 
