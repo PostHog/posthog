@@ -333,7 +333,18 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 },
 
                 loadConversation: async (conversationId: string) => {
-                    const response = await api.conversations.get(conversationId)
+                    let response: ConversationDetail | null = null
+                    try {
+                        response = await api.conversations.get(conversationId)
+                    } catch (err: any) {
+                        if (err.status === 404) {
+                            // A conversation stays untitled until it has content, and retrieve hides
+                            // untitled conversations. A refetch right after a failed first turn is
+                            // therefore expected to 404, and must not toast at the user.
+                            return values.conversationHistory
+                        }
+                        throw err
+                    }
                     if (!response) {
                         // The endpoint can return an empty body; a null in the history crashes consumers
                         return values.conversationHistory

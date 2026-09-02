@@ -361,6 +361,70 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
             self.assertEqual(capture_call_args[1]["properties"]["error_type"], "llm_api_error")
             self.assertEqual(capture_call_args[1]["properties"]["provider"], expected_provider)
 
+    @parameterized.expand(
+        [
+            (
+                "anthropic_authentication",
+                anthropic.AuthenticationError(
+                    message="invalid x-api-key",
+                    response=httpx.Response(
+                        status_code=401, request=httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+                    ),
+                    body=None,
+                ),
+                "anthropic",
+            ),
+            (
+                "openai_permission_denied",
+                openai.PermissionDeniedError(
+                    message="You do not have access to the organization tied to the API key.",
+                    response=httpx.Response(
+                        status_code=403, request=httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
+                    ),
+                    body=None,
+                ),
+                "openai",
+            ),
+        ]
+    )
+    async def test_llm_auth_errors_are_not_reported_as_transient(self, _name, exception, expected_provider):
+        runner, mock_graph = self._create_mock_runner(exception)
+
+        with (
+            patch.object(runner, "_init_or_update_state", new_callable=AsyncMock, return_value=None),
+            patch.object(runner, "_lock_conversation", return_value=mock_lock_conversation()),
+            patch("ee.hogai.core.runner.LLM_AUTH_ERROR_COUNTER") as mock_auth_counter,
+            patch("ee.hogai.core.runner.LLM_PROVIDER_ERROR_COUNTER") as mock_provider_counter,
+            patch("ee.hogai.core.runner.posthoganalytics") as mock_posthog,
+            patch("ee.hogai.core.runner.logger") as mock_logger,
+        ):
+            results = []
+            async for event_type, message in runner.astream(
+                stream_message_chunks=False, stream_first_message=False, stream_only_assistant_messages=True
+            ):
+                results.append((event_type, message))
+
+            self.assertEqual(len(results), 1)
+            event_type, message = results[0]
+            self.assertEqual(event_type, AssistantEventType.MESSAGE)
+            self.assertIsInstance(message, FailureMessage)
+            self.assertEqual(
+                cast(FailureMessage, message).content,
+                "I can't respond because of a problem with our AI provider setup. Trying again won't help, and our team has been notified. Contact support if this continues.",
+            )
+
+            mock_auth_counter.labels.assert_called_with(provider=expected_provider)
+            mock_auth_counter.labels.return_value.inc.assert_called_once()
+            mock_provider_counter.labels.assert_not_called()
+
+            mock_logger.exception.assert_called_once()
+            self.assertEqual(mock_logger.exception.call_args[0][0], "llm_auth_error")
+
+            mock_posthog.capture_exception.assert_called_once()
+            capture_properties = mock_posthog.capture_exception.call_args[1]["properties"]
+            self.assertEqual(capture_properties["error_type"], "llm_auth_error")
+            self.assertEqual(capture_properties["provider"], expected_provider)
+
 
 class TestRunnerSubagentBehavior(BaseTest):
     """

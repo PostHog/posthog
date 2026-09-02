@@ -50,6 +50,8 @@ from ee.hogai.utils.exceptions import (
     AGENT_RUN_UNHANDLED_ERROR_COUNTER,
     HTTPX_TRANSPORT_EXCEPTIONS,
     LLM_API_EXCEPTIONS,
+    LLM_AUTH_ERROR_COUNTER,
+    LLM_AUTH_EXCEPTIONS,
     LLM_CLIENT_ERROR_COUNTER,
     LLM_CLIENT_EXCEPTIONS,
     LLM_PROVIDER_ERROR_COUNTER,
@@ -396,8 +398,32 @@ class BaseAgentRunner(ABC):
                     ),
                 )
                 return  # Don't run interrupt handling after LLM errors
+            except LLM_AUTH_EXCEPTIONS as e:
+                # Authentication/permission errors (401, 403) - a credential fault that no retry fixes
+                if self._use_checkpointer:
+                    await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
+                provider = resolve_llm_provider(e)
+                LLM_AUTH_ERROR_COUNTER.labels(provider=provider).inc()
+                logger.exception("llm_auth_error", error=str(e), provider=provider)
+                posthoganalytics.capture_exception(
+                    e,
+                    distinct_id=self._user.distinct_id if self._user else None,
+                    properties={
+                        "error_type": "llm_auth_error",
+                        "provider": provider,
+                        "tag": "max_ai",
+                    },
+                )
+                yield (
+                    AssistantEventType.MESSAGE,
+                    FailureMessage(
+                        content="I can't respond because of a problem with our AI provider setup. Trying again won't help, and our team has been notified. Contact support if this continues.",
+                        id=str(uuid4()),
+                    ),
+                )
+                return  # Don't run interrupt handling after auth errors
             except LLM_API_EXCEPTIONS as e:
-                # Catch-all for other API errors (auth errors, etc.)
+                # Catch-all for other API errors
                 if self._use_checkpointer:
                     await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
                 provider = resolve_llm_provider(e)

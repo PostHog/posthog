@@ -93,6 +93,24 @@ describe('maxGlobalLogic', () => {
             expect(logic.values.conversationHistory).toHaveLength(1)
             expect(logic.values.conversationHistory[0]?.id).toBe(MOCK_CONVERSATION_ID)
         })
+
+        // A conversation has no title until it has content, and the detail endpoint hides untitled
+        // conversations. The refetch after a failed first turn therefore 404s, and the generic loader
+        // toast used to show the raw API detail on top of the failure the user already saw.
+        it('keeps history intact without a toast when the conversation is not retrievable yet', async () => {
+            await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+            logic.actions.prependOrReplaceConversation(MOCK_CONVERSATION)
+            jest.spyOn(api.conversations, 'get').mockRejectedValue({ status: 404, data: { detail: 'Not found.' } })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadConversation(MOCK_CONVERSATION_ID)
+            })
+                .toDispatchActions(['loadConversationSuccess'])
+                .toNotHaveDispatchedActions(['loadConversationFailure'])
+
+            expect(logic.values.conversationHistory).toHaveLength(1)
+            expect(logic.values.conversationHistory[0]?.id).toBe(MOCK_CONVERSATION_ID)
+        })
     })
 
     describe('isMaxAvailable selector', () => {
