@@ -391,7 +391,8 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
                 # The App isn't installed anywhere the user can see. Not an error: the frontend routes them
                 # to the GitHub install page (install_url) off app_not_installed.
                 data = StamphogSyncInstallationResponseSerializer(
-                    {"synced": [], "skipped": [], "app_not_installed": True, "installations": []}
+                    {"synced": [], "skipped": [], "app_not_installed": True, "installations": []},
+                    context=self.get_serializer_context(),
                 ).data
                 return Response(data)
             if len(discovered) > 1:
@@ -401,7 +402,8 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
                 # connect. Bind nothing; the frontend re-runs the flow with an explicit installation_id
                 # (which the explicit path above verifies).
                 data = StamphogSyncInstallationResponseSerializer(
-                    {"synced": [], "skipped": [], "app_not_installed": False, "installations": discovered}
+                    {"synced": [], "skipped": [], "app_not_installed": False, "installations": discovered},
+                    context=self.get_serializer_context(),
                 ).data
                 return Response(data)
             installation_ids = [discovered[0]["id"]]
@@ -426,8 +428,11 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
             synced.extend(installation_synced)
             skipped.extend(installation_skipped)
 
+        # The nested repo config serializer reads user_access_level off the view, and DRF hands the
+        # root's context down to it. Without the context every synced row reports a null level.
         data = StamphogSyncInstallationResponseSerializer(
-            {"synced": synced, "skipped": skipped, "app_not_installed": False, "installations": []}
+            {"synced": synced, "skipped": skipped, "app_not_installed": False, "installations": []},
+            context=self.get_serializer_context(),
         ).data
         return Response(data)
 

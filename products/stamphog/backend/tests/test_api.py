@@ -641,6 +641,9 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert response.json()["app_not_installed"] is False
         synced = sorted(row["repository"] for row in response.json()["synced"])
         assert synced == ["PostHog/other", "PostHog/posthog"]
+        # The scene disables the review controls off this field, and it renders these rows straight
+        # from the sync response. A null here would leave every control disabled right after connecting.
+        assert {row["user_access_level"] for row in response.json()["synced"]} == {"editor"}
         bound = StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id, installation_id="42")
         assert bound.count() == 2
         # Bind disabled: an install can surface hundreds of repos, so none starts reviewing until toggled.
