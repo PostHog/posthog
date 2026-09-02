@@ -10,7 +10,6 @@ from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, search_match_type_from_instance
 from posthog.schema_enums import IntervalType
 
 from ..facade import api
@@ -81,87 +80,6 @@ class MetricRunQuerySerializer(serializers.Serializer):
         help_text="Cache/execution behavior, same semantics as /query/. Omit to serve a fresh cache "
         "hit and calculate blocking when stale.",
     )
-
-
-@extend_schema_serializer(component_name="DataCatalogMetricSearchQuery")
-class MetricSearchQuerySerializer(serializers.Serializer):
-    """Input for searching the team's governed metric catalog."""
-
-    query = serializers.CharField(
-        required=False,
-        trim_whitespace=True,
-        max_length=MAX_SEARCH_LENGTH,
-        help_text="Text to match against a metric's name, display name, or description. Literal matches return first; "
-        "when none exist, typo-tolerant trigram matches return instead. This does not match synonyms.",
-    )
-    name = serializers.CharField(
-        required=False,
-        max_length=METRIC_NAME_MAX_LENGTH,
-        help_text="Exact metric name to retrieve instead of performing a text search.",
-    )
-
-    def validate(self, attrs: dict[str, str]) -> dict[str, str]:
-        if attrs.get("query") or attrs.get("name"):
-            return attrs
-        raise serializers.ValidationError("Provide query or name.")
-
-
-@extend_schema_serializer(component_name="DataCatalogMetricSearchResult")
-class MetricSearchResultSerializer(serializers.ModelSerializer):
-    """The discovery fields an agent needs before running a catalog metric."""
-
-    definition = MetricDefinitionField(
-        read_only=True,
-        allow_null=True,
-        help_text="Stored metric definition. Inspect it before adapting a similar metric; for raw SQL metrics, "
-        "the HogQL is also available in hogql.",
-    )
-    hogql = serializers.SerializerMethodField(
-        help_text="Raw HogQL for a HogQLQuery metric, or null when the metric uses a structured definition.",
-    )
-    is_drifted = serializers.SerializerMethodField(
-        help_text="True when the definition has drifted from its linked source insight.",
-    )
-    search_match_type = serializers.SerializerMethodField(
-        help_text="exact for a literal match or exact name lookup; similar for a typo-tolerant trigram fallback.",
-    )
-    definition_kind = serializers.CharField(
-        read_only=True,
-        allow_null=True,
-        help_text="Query kind of the definition, or null for a description-only metric.",
-    )
-
-    class Meta:
-        model = Metric
-        fields = [
-            "name",
-            "display_name",
-            "description",
-            "definition",
-            "hogql",
-            "status",
-            "is_drifted",
-            "unit",
-            "definition_kind",
-            "search_match_type",
-        ]
-
-    @extend_schema_field(serializers.CharField(allow_null=True))
-    def get_hogql(self, obj: Metric) -> str | None:
-        definition = obj.definition
-        if not isinstance(definition, dict) or definition.get("kind") != "HogQLQuery":
-            return None
-        query = definition.get("query")
-        return query if isinstance(query, str) else None
-
-    @extend_schema_field(OpenApiTypes.BOOL)
-    def get_is_drifted(self, obj: Metric) -> bool:
-        drift_map = self.context["drift_map"]
-        return drift_map[obj.id]
-
-    @extend_schema_field(serializers.CharField(allow_null=True))
-    def get_search_match_type(self, obj: Metric) -> str | None:
-        return search_match_type_from_instance(obj)
 
 
 @extend_schema_serializer(component_name="DataCatalogMetric")

@@ -8,13 +8,14 @@ import {
     DataCatalogCertificationsDeprecateCreateParams,
     DataCatalogMetricsApproveCreateParams,
     DataCatalogMetricsCreateBody,
+    DataCatalogMetricsListQueryParams,
     DataCatalogMetricsPartialUpdateBody,
     DataCatalogMetricsPartialUpdateParams,
     DataCatalogMetricsRefreshFromInsightCreateParams,
+    DataCatalogMetricsRetrieveParams,
     DataCatalogMetricsRunCreateBody,
     DataCatalogMetricsRunCreateParams,
     DataCatalogMetricsRunCreateQueryParams,
-    DataCatalogMetricsSearchListQueryParams,
     DataCatalogRelationshipProposalsAcceptCreateParams,
     DataCatalogRelationshipProposalsCreateBody,
     DataCatalogRelationshipProposalsRejectCreateBody,
@@ -26,7 +27,7 @@ import {
     prepareConfirmedAction,
     type PrepareConfirmedActionResult,
 } from '@/tools/confirmed-action-runtime'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const DataCatalogCertificationCertifySchema = DataCatalogCertificationsCertifyCreateParams.omit({
@@ -598,25 +599,51 @@ const dataCatalogRelationshipRejectExecute = (): ToolBase<
     },
 })
 
-const MetricSearchSchema = DataCatalogMetricsSearchListQueryParams
+const MetricDescribeSchema = DataCatalogMetricsRetrieveParams.omit({ project_id: true })
 
-const metricSearch = (): ToolBase<
-    typeof MetricSearchSchema,
-    WithPostHogUrl<Schemas.DataCatalogMetricSearchResult[]>
-> => ({
-    name: 'metric-search',
-    schema: MetricSearchSchema,
-    handler: async (context: Context, params: z.infer<typeof MetricSearchSchema>) => {
+const metricDescribe = (): ToolBase<typeof MetricDescribeSchema, Schemas.DataCatalogMetric> => ({
+    name: 'metric-describe',
+    schema: MetricDescribeSchema,
+    handler: async (context: Context, params: z.infer<typeof MetricDescribeSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.DataCatalogMetricSearchResult[]>({
+        const result = await context.api.request<Schemas.DataCatalogMetric>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/search/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/${encodeURIComponent(String(params.name))}/`,
+        })
+        return result
+    },
+})
+
+const MetricListSchema = DataCatalogMetricsListQueryParams
+
+const metricList = (): ToolBase<typeof MetricListSchema, WithPostHogUrl<Schemas.PaginatedDataCatalogMetricList>> => ({
+    name: 'metric-list',
+    schema: MetricListSchema,
+    handler: async (context: Context, params: z.infer<typeof MetricListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedDataCatalogMetricList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/`,
             query: {
-                name: params.name,
-                query: params.query,
+                limit: params.limit,
+                offset: params.offset,
             },
         })
-        return await withPostHogUrl(context, result, '/')
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'name',
+                    'display_name',
+                    'description',
+                    'status',
+                    'is_drifted',
+                    'unit',
+                    'definition_kind',
+                ])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/')
     },
 })
 
@@ -637,5 +664,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-catalog-relationship-propose': dataCatalogRelationshipPropose,
     'data-catalog-relationship-reject-prepare': dataCatalogRelationshipRejectPrepare,
     'data-catalog-relationship-reject-execute': dataCatalogRelationshipRejectExecute,
-    'metric-search': metricSearch,
+    'metric-describe': metricDescribe,
+    'metric-list': metricList,
 }
