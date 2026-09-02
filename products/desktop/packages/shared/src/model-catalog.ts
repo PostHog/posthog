@@ -35,13 +35,6 @@ function normalizeModelId(modelId: string): string {
   return normalized;
 }
 
-/** The model ids one adapter drives, in catalog order. */
-export function modelsForRuntimeAdapter(adapter: Adapter): readonly string[] {
-  return MODELS.filter((model) => model.runtimeAdapter === adapter).map(
-    (model) => model.id,
-  );
-}
-
 /**
  * The efforts this model may run at, empty when it takes no effort at all.
  *
@@ -62,18 +55,11 @@ export function reasoningEffortsForModel(
       candidate.runtimeAdapter === adapter && candidate.id === normalized,
   );
   if (model) return model.reasoningEfforts;
-  const family = FAMILY_REASONING_EFFORTS.find(
+  // Longest matching prefix wins, so the table's declaration order is free.
+  const family = FAMILY_REASONING_EFFORTS.filter(
     (candidate) =>
       candidate.runtimeAdapter === adapter &&
       normalized.startsWith(candidate.prefix),
-  );
+  ).sort((a, b) => b.prefix.length - a.prefix.length)[0];
   return family?.reasoningEfforts ?? FALLBACK_REASONING_EFFORTS[adapter] ?? [];
-}
-
-/** Whether this model exposes an effort control at all. */
-export function supportsReasoningEffort(
-  adapter: Adapter,
-  modelId: string,
-): boolean {
-  return reasoningEffortsForModel(adapter, modelId).length > 0;
 }

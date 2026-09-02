@@ -17,14 +17,6 @@ interface ReasoningEffortOption {
 // config and workspace-server defaults), so the picker badges it as default.
 const DEFAULT_CODEX_EFFORT = "high";
 
-export function supportsXhighEffort(modelId: string): boolean {
-  return reasoningEffortsForModel("codex", modelId).includes("xhigh");
-}
-
-export function supportsMaxEffort(modelId: string): boolean {
-  return reasoningEffortsForModel("codex", modelId).includes("max");
-}
-
 export function getReasoningEffortOptions(
   modelId: string,
 ): ReasoningEffortOption[] {

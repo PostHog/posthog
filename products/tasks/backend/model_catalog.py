@@ -41,6 +41,10 @@ XHIGH = "xhigh"
 MAX = "max"
 ULTRACODE = "ultracode"
 
+# Every tier any model exposes, shallowest first. A consumer renders an effort ladder from
+# this, so a new tier reaches both projections by being added here and nowhere else.
+REASONING_EFFORTS: tuple[str, ...] = (LOW, MEDIUM, HIGH, XHIGH, MAX, ULTRACODE)
+
 _STANDARD = (LOW, MEDIUM, HIGH)
 _THROUGH_MAX = (*_STANDARD, XHIGH, MAX)
 _EXTENDED = (*_THROUGH_MAX, ULTRACODE)
@@ -87,10 +91,10 @@ MODELS: tuple[CatalogModel, ...] = (
     CatalogModel("gpt-5.6-luna", CODEX, _THROUGH_MAX),
 )
 
-# Depths a whole model family exposes, tried in order when no exact id matches. OpenAI ships
+# Depths a whole model family exposes, used when no exact id matches. OpenAI ships
 # vendor-flavoured variants the gateway never lists (`gpt-5.5-codex`), and a desktop session
 # running against the user's own subscription can drive one, so the tier a family supports has
-# to answer for those too. First match wins, so list longer prefixes before shorter ones.
+# to answer for those too. The longest matching prefix wins, so declaration order is free.
 FAMILY_REASONING_EFFORTS: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     (CODEX, "gpt-5.6", _THROUGH_MAX),
     (CODEX, "gpt-5.5", (*_STANDARD, XHIGH)),
@@ -112,9 +116,7 @@ DEFAULT_MODEL_BY_RUNTIME_ADAPTER: dict[str, str] = {
 }
 
 
-def runtime_adapters() -> tuple[str, ...]:
-    """Every adapter this catalog serves, in declaration order."""
-    return tuple(PROVIDER_BY_RUNTIME_ADAPTER)
+RUNTIME_ADAPTERS: tuple[str, ...] = tuple(PROVIDER_BY_RUNTIME_ADAPTER)
 
 
 def models_for_runtime_adapter(runtime_adapter: str) -> tuple[str, ...]:
@@ -151,9 +153,13 @@ def reasoning_efforts_for(runtime_adapter: str, model_id: str) -> tuple[str, ...
     for model in MODELS:
         if model.runtime_adapter == runtime_adapter and model.id == normalized:
             return model.reasoning_efforts
-    for adapter, prefix, efforts in FAMILY_REASONING_EFFORTS:
-        if adapter == runtime_adapter and normalized.startswith(prefix):
-            return efforts
+    families = [
+        (prefix, efforts)
+        for adapter, prefix, efforts in FAMILY_REASONING_EFFORTS
+        if adapter == runtime_adapter and normalized.startswith(prefix)
+    ]
+    if families:
+        return max(families, key=lambda family: len(family[0]))[1]
     return FALLBACK_REASONING_EFFORTS_BY_RUNTIME_ADAPTER.get(runtime_adapter, ())
 
 
@@ -166,9 +172,10 @@ __all__ = [
     "MODELS",
     "OPENAI",
     "PROVIDER_BY_RUNTIME_ADAPTER",
+    "REASONING_EFFORTS",
+    "RUNTIME_ADAPTERS",
     "CatalogModel",
     "models_for_runtime_adapter",
     "normalize_model_id",
     "reasoning_efforts_for",
-    "runtime_adapters",
 ]
