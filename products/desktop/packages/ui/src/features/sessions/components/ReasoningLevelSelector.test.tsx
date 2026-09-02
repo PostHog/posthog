@@ -21,6 +21,7 @@ vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
 }));
 
 const useAdapterSubscription = vi.hoisted(() => vi.fn());
+const applyModelAccess = vi.hoisted(() => vi.fn());
 vi.mock(
   "@posthog/ui/features/settings/adapterSubscription",
   async (importOriginal) => {
@@ -31,6 +32,10 @@ vi.mock(
     return {
       ...actual,
       useAdapterSubscription,
+      // The real one writes the settings store and resolves the analytics
+      // service, which no test container provides; the click path only needs
+      // the menu to keep rendering.
+      applyModelAccess,
     };
   },
 );
@@ -68,7 +73,7 @@ function subscriptionState(
     loggedIn: boolean;
   }>,
 ) {
-  return {
+  const state = {
     flagEnabled: true,
     subscriptionOn: true,
     loggedIn: true,
@@ -78,6 +83,10 @@ function subscriptionState(
     setSubscriptionOn: () => {},
     ...overrides,
   };
+  // Mirror the real hook: the connection is only "needed" once the
+  // subscription is picked while logged out.
+  state.needsConnection = state.subscriptionOn && !state.loggedIn;
+  return state;
 }
 
 const ultracodeDocsUrl = "https://code.claude.com/docs/en/workflows";
@@ -902,5 +911,54 @@ describe("ReasoningLevelSelector", () => {
     expect(
       screen.getByRole("menuitemradio", { name: "Anthropic" }),
     ).not.toHaveAttribute("aria-disabled", "true");
+    // Logged in, so the login note stays hidden.
+    expect(screen.queryByText(/Log in to Claude Code/)).not.toBeInTheDocument();
+  }, 20000);
+
+  it("shows the login note only when the logged-out billing pick needs it", async () => {
+    // Persisted billing is PostHog, account is logged out: no login prompt.
+    useAdapterSubscription.mockReturnValue(
+      subscriptionState({ subscriptionOn: false, loggedIn: false }),
+    );
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const { unmount } = render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption()}
+          adapter="claude"
+          showBillingMenu
+          workspaceMode="local"
+        />
+      </Theme>,
+    );
+
+    await openAdvanced(user);
+    await openSub(user, /^Billing/);
+    expect(screen.queryByText(/Log in to Claude Code/)).not.toBeInTheDocument();
+    unmount();
+
+    // Billing picked while logged out: the quiet login note appears.
+    useAdapterSubscription.mockReturnValue(
+      subscriptionState({ subscriptionOn: true, loggedIn: false }),
+    );
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption()}
+          adapter="claude"
+          showBillingMenu
+          workspaceMode="local"
+        />
+      </Theme>,
+    );
+
+    await openAdvanced(user);
+    await openSub(user, /^Billing/);
+    expect(
+      await screen.findByText(
+        "Log in to Claude Code to use Anthropic billing.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Log in" })).toBeInTheDocument();
   }, 20000);
 });

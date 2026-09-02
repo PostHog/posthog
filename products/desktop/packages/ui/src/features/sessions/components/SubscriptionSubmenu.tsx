@@ -1,6 +1,4 @@
-import { SignIn } from "@phosphor-icons/react";
 import {
-  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSub,
@@ -24,9 +22,9 @@ const PROVIDER_LABEL: Record<Adapter, string> = {
   codex: "OpenAI",
 };
 
-const LOGIN_LABEL: Record<Adapter, string> = {
-  claude: "Log in to Claude Code",
-  codex: "Log in to ChatGPT",
+const LOGIN_NOTE: Record<Adapter, string> = {
+  claude: "Log in to Claude Code to use Anthropic billing.",
+  codex: "Connect ChatGPT to use OpenAI billing.",
 };
 
 export const SUBSCRIPTION_LOGIN_ACTION: Record<Adapter, string> = {
@@ -122,21 +120,27 @@ export function SubscriptionSubmenu({
             <DropdownMenuRadioItem
               value="own-subscription"
               closeOnClick={closeOnChange}
-              disabled={!subscription.loggedIn}
             >
               {providerLabel}
             </DropdownMenuRadioItem>
           )}
         </DropdownMenuRadioGroup>
-        {subscription.loggedIn ? null : (
-          <DropdownMenuItem
-            onClick={() =>
-              openSettings("harness", SUBSCRIPTION_LOGIN_ACTION[adapter])
-            }
-          >
-            <SignIn size={12} />
-            {LOGIN_LABEL[adapter]}
-          </DropdownMenuItem>
+        {subscription.needsConnection && (
+          // A quiet inline note rather than a permanent menu row: it appears
+          // only once the provider option is picked while logged out, and
+          // sessions keep running on PostHog until the login completes.
+          <div className="flex flex-col gap-1 px-2 py-1.5 text-muted-foreground text-xs">
+            <span>{LOGIN_NOTE[adapter]}</span>
+            <button
+              type="button"
+              className="self-start underline underline-offset-2 hover:text-foreground"
+              onClick={() =>
+                openSettings("harness", SUBSCRIPTION_LOGIN_ACTION[adapter])
+              }
+            >
+              Log in
+            </button>
+          </div>
         )}
       </DropdownMenuSubContent>
     </DropdownMenuSub>

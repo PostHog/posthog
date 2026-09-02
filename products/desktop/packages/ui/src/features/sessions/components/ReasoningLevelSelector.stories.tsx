@@ -131,8 +131,8 @@ function Harness({
         onConfigOptionChange={() => {}}
         showBillingMenu={workspaceMode !== undefined}
         workspaceMode={workspaceMode}
-        // Logged out in Storybook (the status query never resolves), so the
-        // submenu shows the PostHog-checked state with the provider disabled.
+        // Logged out in Storybook (the status query never resolves) with
+        // PostHog selected, so the login note stays hidden.
         modelAccess={
           workspaceMode === undefined
             ? undefined
