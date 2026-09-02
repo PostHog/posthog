@@ -1936,6 +1936,10 @@ snapshots:
         hash: v1.k794b7964.12a981fa531307f5626ec3f9d7d9046edd11d79dd22d8dbb370595d657cc9a79.uJAzNRT5kzK3ub5FJx9e9YHQ2HIVORKVKTd1mdYV4q4
     components-properties-table--dollar-properties-on-person-searchable--light:
         hash: v1.k794b7964.a0c006b3eda56bc41f468204d4b77048a867852cb6a790ee4de0116889acbc30.KIIpihbQAEELr_6HuzqELYKoj2E_mNjMx-yI83moUrI
+    components-properties-table--external-source-properties--dark:
+        hash: v1.k794b7964.d9499993dfe2442c1b68f965da058fad6de7787bf7541096b385415daae37e1e.5kYRRgshEBGgJvR3hLfKEvoYMIYdxKbUNyV2bYNmda8
+    components-properties-table--external-source-properties--light:
+        hash: v1.k794b7964.e534b6bef4cbc0e8e9907d16c7ec963140855393d6f559cbf079c3b0ca9f055c.CuckCNYfBxiWnbwmRoXUGGYklzhJ6sMW-bhAAK0PTJ4
     components-properties-timeline--multiple-points-for-one-person-property--dark:
         hash: v1.k794b7964.9d87655c5b097922a0e0d73bee5f973b55e419ea8f32ca0063487374e3fc327c._MYFJiI6LQqHpK0cjRYLLqi8MUPbIQXy5QaT8EKdIrE
     components-properties-timeline--multiple-points-for-one-person-property--light:
@@ -1949,9 +1953,9 @@ snapshots:
     components-properties-timeline--one-point-for-one-person-property--light:
         hash: v1.k794b7964.a29477c3a6b99e56dbcf85920941dccc1e356a9489bce4edf980b206aaeddbdc.yizWd9jqicjEo909JeMNAYOpwwZGVsnhUvIrmNV01LA
     components-property-key-info--property-key-info--dark:
-        hash: v1.k794b7964.86233b37a6cc52075154629e5928f1275aee531631d9b24361eae0baa0b5b410.Q9aiFd3--I5oh5C9ZT0J5z4nUm4Odk93VqtpXWUYzRc
+        hash: v1.k794b7964.82f943daab78e0ab3d3a6d838bbe9c49011cc48ea91495d890e2367a7f2fc6da.h4kJWFStw0iwpB8bcoJkUDjYgf2u1UHMYDbyuHQT5BI
     components-property-key-info--property-key-info--light:
-        hash: v1.k794b7964.2f0245e1b92aba6695884bdf695034bf1efd85caca619940965a08338f15e41c.5Z7YHy2M9ko_15_blb0NaI7WmQeXytUWAntBAs03Qr0
+        hash: v1.k794b7964.b2a63bf01a88350dc39810f9e5551723cf32b776f5a4787610273d403556bf60._sNqayX-2Yu2CR8xceX1RiePws_Jj5INB05XzWoyjsE
     components-quill-date-filter--date-filter--dark:
         hash: v1.k794b7964.d2f042b099df421da94056b983d5566d502ac18a0d0e7c7002278ee7af9357a8.o4RyqSP9P5diOgMObTJW1Bf9lcVyxZhnzGqeNuuYE0I
     components-quill-date-filter--date-filter--light:
