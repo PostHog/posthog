@@ -321,7 +321,7 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
             }
 
             if (isExperiment && changes.length > 0 && listParts.length === 0) {
-                // Every change described to null (e.g. only derived values drifted) — drop the row.
+                // humanize() skips log items with a null description
                 return { description: null }
             }
 
