@@ -9,6 +9,11 @@ import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/util
 import { dayjs } from 'lib/dayjs'
 import { escapeRegex } from 'lib/utils/actions'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import {
+    NEW_QUERY_STARTED_ERROR_MESSAGE,
+    abortResilientLoading,
+    isUserInitiatedError,
+} from 'lib/utils/kea-logic-builders'
 import { objectsEqual } from 'lib/utils/objects'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
@@ -52,8 +57,8 @@ import type { MetricsChartSeries } from './metricsSeries'
 // A derived type ((typeof METRIC_AGGREGATIONS)[number]) would keep these in sync, but
 // kea-typegen inlines derived unions into every consumer's generated block — keep the
 // named alias so those blocks stay stable.
-export type MetricAggregation = 'sum' | 'avg' | 'count' | 'p95' | 'rate' | 'increase'
-export const METRIC_AGGREGATIONS: MetricAggregation[] = ['sum', 'avg', 'count', 'p95', 'rate', 'increase']
+export type MetricAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'p95' | 'rate' | 'increase'
+export const METRIC_AGGREGATIONS: MetricAggregation[] = ['sum', 'avg', 'count', 'min', 'max', 'p95', 'rate', 'increase']
 
 /** Narrows an untrusted value (a URL param, a saved link) to an aggregation the backend accepts. */
 export const isMetricAggregation = (value: unknown): value is MetricAggregation =>
@@ -89,15 +94,6 @@ export const RECOMMENDED_AGGREGATION_BY_TYPE: Record<string, MetricAggregation> 
 export const DEFAULT_DATE_FROM = '-1h'
 // Kept off the persisted node: a saved query with no `display` renders as a line chart anyway.
 export const DEFAULT_DISPLAY_TYPE: MetricsDisplayType = 'line'
-export const NEW_QUERY_STARTED_ERROR_MESSAGE = 'A new metrics query started, canceling the previous one'
-
-// A superseded or unmounted request rejects with an abort, not a real failure — never surface it as an error.
-// The cancel path aborts with NEW_QUERY_STARTED_ERROR_MESSAGE, whose text doesn't contain "abort", so match it
-// explicitly alongside the generic abort check (mirrors logsViewerDataLogic's isUserInitiatedError).
-export const isUserInitiatedError = (error: unknown): boolean => {
-    const errorStr = String(error).toLowerCase()
-    return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
-}
 // The anomaly badge characterizes the most recent slice of the selected window against the rest.
 const ANOMALY_WINDOW_FRACTION = 0.2
 export const LIVE_REFRESH_MS = 15_000
@@ -594,18 +590,9 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     isUserInitiatedError(error) ? state : error || 'Something went wrong running this query.',
             },
         ],
-        // kea-loaders' auto `queryResultsLoading` drops to false when a superseded query's
-        // abort lands as a failure, flashing the empty state while the replacement query is
-        // still in flight. This flag only clears on success or a real failure, so the UI
-        // must read it instead of `queryResultsLoading`.
-        queryLoading: [
-            false as boolean,
-            {
-                fetchQueryResults: () => true,
-                fetchQueryResultsSuccess: () => false,
-                fetchQueryResultsFailure: (state, { error }) => (isUserInitiatedError(error) ? state : false),
-            },
-        ],
+        // Rides out superseded-query aborts, so the UI must read it instead of the auto
+        // `queryResultsLoading`, which drops mid-refetch and flashes the empty state.
+        queryLoading: [false as boolean, abortResilientLoading('fetchQueryResults')],
     }),
     listeners(({ actions, values, cache }) => ({
         // Narrows the metric picker to the filtered services, so it offers only the

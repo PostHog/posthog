@@ -16,6 +16,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.queries.trends.util import PROPERTY_MATH_FUNCTIONS
 
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import lazy_precompute_ineligible_reason
 from products.web_analytics.backend.hogql_queries.web_vitals_paths_lazy_precompute import (
     can_use_lazy_precompute,
     execute_lazy_precomputed_read,
@@ -121,6 +122,7 @@ HAVING value >= 0
             hogql=response.hogql,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LIVE,
+            preComputeIneligibleReason=lazy_precompute_ineligible_reason(),
         )
 
     def _get_results_for_band(

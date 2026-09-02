@@ -6,7 +6,7 @@ import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxFiltersLogic } from '../logics/inboxFiltersLogic'
 import { legacyTabListLogicProps, reportListLogic } from '../logics/reportListLogic'
 import { INBOX_LEGACY_TAB_SECTION, InboxFlatListTabKey, InboxReportSectionKey, SignalReport } from '../types'
-import { DismissalReasonValue } from '../utils/dismissalReasons'
+import { DismissalFeedback } from '../utils/dismissalReasons'
 import { CardSkeleton } from './cards/CardSkeleton'
 import { InboxBulkSelectionBar } from './shell/InboxBulkSelectionBar'
 import { InboxSearchFilterBar } from './shell/InboxSearchFilterBar'
@@ -14,7 +14,7 @@ import { InboxSearchFilterBar } from './shell/InboxSearchFilterBar'
 export interface InboxReportCardProps {
     report: SignalReport
     sectionKey: InboxReportSectionKey
-    onDismiss: (reason: DismissalReasonValue, note: string) => void
+    onDismiss: (dismissal: DismissalFeedback) => void
     /** Restore a suppressed report back to the inbox. Only wired on the Archived tab. */
     onRestore?: () => void
     /** Rendered as an attached row inside a shared bordered container (vs. a freestanding card). */
@@ -211,8 +211,8 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
                                 key={report.id}
                                 report={report}
                                 sectionKey={INBOX_LEGACY_TAB_SECTION[tabKey]}
-                                onDismiss={(reason, note) => dismissReport(report.id, reason, note)}
-                                onRestore={() => restoreReport(report.id)}
+                                onDismiss={(dismissal) => dismissReport(report.id, dismissal)}
+                                onRestore={() => restoreReport(report.id, 'list_row')}
                             />
                         ))}
                         {/* Skeleton cards continue the list while the next page loads – sleeker than a spinner. */}

@@ -62,17 +62,19 @@ def _passthrough(fn):
 
 
 @contextlib.contextmanager
-def _patched_activity(source_mock):
+def _patched_activity(source_mock, model=None, schema=None):
     """Patch out every dependency import_data_activity_sync touches before source setup."""
-    model = mock.MagicMock()
-    model.pipeline.source_type = "MongoDB"
-    model.pipeline.job_inputs = {}
-    model.folder_path = mock.Mock(return_value="dataset")
+    if model is None:
+        model = mock.MagicMock()
+        model.pipeline.source_type = "MongoDB"
+        model.pipeline.job_inputs = {}
+        model.folder_path = mock.Mock(return_value="dataset")
 
-    schema = mock.MagicMock()
-    schema.should_use_incremental_field = False
-    schema.row_filters = None
-    schema.delta_revive_required = None
+    if schema is None:
+        schema = mock.MagicMock()
+        schema.should_use_incremental_field = False
+        schema.row_filters = None
+        schema.delta_revive_required = None
 
     with (
         mock.patch.object(module, "tag_queries"),
@@ -803,10 +805,15 @@ async def test_unusable_parent_falls_back_to_the_api_path(parent):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "sync_type",
-    [ExternalDataSchema.SyncType.INCREMENTAL, ExternalDataSchema.SyncType.FULL_REFRESH],
+    [
+        ExternalDataSchema.SyncType.INCREMENTAL,
+        ExternalDataSchema.SyncType.FULL_REFRESH,
+        ExternalDataSchema.SyncType.WEBHOOK,
+    ],
 )
 async def test_synced_parent_uses_the_warehouse_path(sync_type):
-    # Merge and full-refresh parents both hold one row per key, so both drive the reader.
+    # Every sync type here leaves one row per key, so each drives the reader. Webhook qualifies
+    # because its drains merge on the primary key rather than appending.
     with (
         mock.patch.object(module, "database_sync_to_async_pool", new=_passthrough),
         mock.patch.object(module, "is_fanout_warehouse_reuse_enabled", return_value=True),
@@ -874,6 +881,130 @@ async def test_parent_gate_inert_for_sources_without_requirements():
 
     assert result is False
     flag_check.assert_not_called()
+
+
+def _probe_model() -> mock.MagicMock:
+    model = mock.MagicMock()
+    model.pipeline.source_type = "Postgres"
+    model.pipeline.job_inputs = {}
+    model.folder_path = mock.Mock(return_value="dataset")
+    return model
+
+
+def _probe_schema() -> mock.MagicMock:
+    schema = mock.MagicMock()
+    schema.id = uuid.uuid4()
+    schema.should_use_incremental_field = False
+    schema.is_incremental = False
+    schema.sync_type_config = {}
+    schema.incremental_field_earliest_value = None
+    schema.incremental_field_type = None
+    schema.row_filters = None
+    schema.schema_metadata = None
+    schema.delta_revive_required = None
+    return schema
+
+
+def _probe_source(probe: Any) -> mock.MagicMock:
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.get_non_retryable_errors.return_value = {}
+    source.get_required_parent_schemas.return_value = []
+    if isinstance(probe, Exception):
+        source.probe_new_data.side_effect = probe
+    else:
+        source.probe_new_data.return_value = probe
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    return source
+
+
+def _probe_inputs(**overrides: Any) -> ImportDataActivityInputs:
+    kwargs: dict[str, Any] = {
+        "team_id": 1,
+        "schema_id": uuid.uuid4(),
+        "source_id": uuid.uuid4(),
+        "run_id": str(uuid.uuid4()),
+        "reset_pipeline": False,
+        "fast_return_eligible": True,
+    }
+    kwargs.update(overrides)
+    return ImportDataActivityInputs(**kwargs)
+
+
+_FULL_SYNC_RESULT: Any = {"should_trigger_cdp_producer": True}
+
+
+@contextlib.contextmanager
+def _probe_ctx(source: mock.MagicMock, model: mock.MagicMock):
+    with (
+        _patched_activity(source, model=model, schema=_probe_schema()),
+        mock.patch.object(module, "history_start_for_schema", return_value=None),
+        mock.patch.object(module, "ExternalDataSchema") as schema_model,
+        mock.patch.object(module, "_run", new=mock.AsyncMock(return_value=_FULL_SYNC_RESULT)),
+    ):
+        yield schema_model
+
+
+@pytest.mark.asyncio
+async def test_fast_return_completes_without_source_setup():
+    model = _probe_model()
+    source = _probe_source(probe=False)
+
+    with _probe_ctx(source, model) as schema_model:
+        result = await import_data_activity_sync(_probe_inputs())
+
+    assert result == {
+        "should_trigger_cdp_producer": False,
+        "skip_post_import_activities": True,
+        "fast_returned": True,
+    }
+    source.source_for_pipeline.assert_not_called()
+    update = schema_model.objects.filter.return_value.update
+    update.assert_called_once()
+    assert update.call_args.kwargs["last_synced_at"] is model.created_at
+    assert set(update.call_args.kwargs) == {"last_synced_at", "updated_at"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "probe",
+    [
+        pytest.param(True, id="source_has_new_data"),
+        pytest.param(None, id="source_cannot_answer"),
+        pytest.param(RuntimeError("probe blew up"), id="probe_raises"),
+        pytest.param(TimeoutError(), id="probe_times_out"),
+    ],
+)
+async def test_probe_uncertainty_runs_the_full_sync(probe: Any):
+    model = _probe_model()
+    source = _probe_source(probe=probe)
+
+    with _probe_ctx(source, model):
+        result = await import_data_activity_sync(_probe_inputs())
+
+    assert result is _FULL_SYNC_RESULT
+    source.probe_new_data.assert_called_once()
+    source.source_for_pipeline.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        pytest.param({"fast_return_eligible": False}, id="not_eligible"),
+        pytest.param({"reset_pipeline": True}, id="reset_requested"),
+    ],
+)
+async def test_probe_never_runs_when_not_eligible_or_resetting(overrides: dict[str, Any]):
+    model = _probe_model()
+    source = _probe_source(probe=False)
+
+    with _probe_ctx(source, model):
+        result = await import_data_activity_sync(_probe_inputs(**overrides))
+
+    assert result is _FULL_SYNC_RESULT
+    source.probe_new_data.assert_not_called()
+    source.source_for_pipeline.assert_called_once()
 
 
 # Credentials the integration service holds are PostHog's own — the OAuth app secrets and API keys

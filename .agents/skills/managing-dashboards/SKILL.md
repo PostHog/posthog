@@ -42,7 +42,7 @@ Do this before implementation for a new dashboard feature. Skip it for a narrow 
 
 1. State the user problem, intended actor, and explicit non-goals.
 2. State the feature action and its default behavior.
-3. State the state owner: dashboard, tile, request, user, or URL.
+3. State where the feature stores its state: dashboard, tile, request, user, URL, or a separate team-scoped resource.
 4. State the availability, read permission, and mutation permission.
 5. State behavior for new rows, existing rows, and invalid or absent state.
 6. State the acceptance criteria for allowed, denied, shared, and failure paths.
@@ -67,6 +67,7 @@ State these decisions before implementation.
 8. Define cache, refresh, query, and failure behavior.
 9. If templates apply, define scope, portability, copy semantics, and later edits.
 10. Define lifecycle, API, streaming, quota, audit, and project-tree effects.
+11. For a new API, add MCP tools for its supported operations. Exclude an operation only with a documented reason. Record required scopes.
 
 Use this checklist as a design gate. Read the linked reference when an item applies.
 
@@ -89,6 +90,7 @@ Use this checklist as a design gate. Read the linked reference when an item appl
 5. Keep query work bounded. Do not turn dashboard load into unbounded tile queries or concurrent requests.
 6. Keep grid updates stable during drag, resize, and tile refresh. Avoid a full grid relayout for each tile result.
 7. Add observability when a change creates a new loading, query, cache, access, or refresh path.
+8. For list-only state, render controls only where that state applies.
 
 ## 5. Test the boundary, not only the happy path
 
@@ -102,6 +104,7 @@ Cover each affected boundary.
 - Narrow layout, wide layout, drag, resize, insertion, duplication, and persisted layout reload.
 - Template scope, permissions, variable substitution, and project-specific references.
 - API schema and generated types after serializer changes.
+- Paginated list ordering, each page, and client continuation when the UI loads every result.
 - Filter and variable precedence, shared-token behavior, and quick-filter validation.
 - Soft-delete, restore, move, copy, and project-transfer behavior.
 - Streaming completion, disconnect, and individual tile failure behavior.

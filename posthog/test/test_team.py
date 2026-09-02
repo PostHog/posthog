@@ -19,7 +19,7 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 from .base import BaseTest
 
-util.can_enable_actor_on_events = True  # ty: ignore[invalid-assignment]
+util.can_enable_actor_on_events = True
 
 
 class TestModelCache(TestCase):

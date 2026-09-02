@@ -22,6 +22,7 @@ from products.web_analytics.backend.hogql_queries.web_analytics_query_runner imp
     WEB_ANALYTICS_NO_JOIN_SERVED,
     WebAnalyticsQueryRunner,
 )
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import lazy_precompute_ineligible_reason
 from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
     can_use_lazy_precompute,
     execute_lazy_precomputed_read,
@@ -407,6 +408,7 @@ CROSS JOIN {sessions_agg} AS sessions_agg
                 if response == pre_aggregated_response
                 else WebAnalyticsPreComputeStrategy.LIVE
             ),
+            preComputeIneligibleReason=lazy_precompute_ineligible_reason(),
         )
 
     @cached_property

@@ -684,7 +684,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         user = acting_user(self.context)
         if not team.organization.is_ai_data_processing_approved:
             raise serializers.ValidationError(
-                "Your organization needs to allow AI analysis before you can create a Replay Vision scanner."
+                "Your organization needs to allow AI analysis before you can create a Replay Vision scanner.",
+                code="ai_data_processing_not_approved",
             )
         # Tags become TaggedItem rows below, not a scanner column.
         tags = validated_data.pop("tags", None)

@@ -19,6 +19,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.utils import close_db_connections
 
+from products.tasks.backend.feature_flags import run_stream_presence_gated
 from products.tasks.backend.logic.services.agent_command import sandbox_transport_token, validate_sandbox_url
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.permission_broker import (
@@ -144,7 +145,12 @@ async def _relay_sandbox_events(input: RelaySandboxEventsInput, *, finalize_stre
     ).total_seconds()
 
     stream_key = get_task_run_stream_key(input.run_id)
-    redis_stream = TaskRunRedisStream(stream_key, run_uses_dedicated_stream(task_run.state))
+    redis_stream = TaskRunRedisStream(
+        stream_key,
+        run_uses_dedicated_stream(task_run.state),
+        presence_gated=run_stream_presence_gated(task_run.state),
+        origin_product=origin_product,
+    )
     await redis_stream.initialize()
 
     actor_user = await sync_to_async(get_task_run_credential_user)(task_run.task, task_run.state)

@@ -7,6 +7,7 @@ export const HARNESS_EXTENSION_ENTRYPOINTS = {
   "web-access": "web-access/index",
   mcp: "mcp/index",
   "posthog-mcp-policy": "posthog-mcp-policy/index",
+  rtk: "rtk/index",
 } as const;
 
 export type HarnessExtensionName = keyof typeof HARNESS_EXTENSION_ENTRYPOINTS;

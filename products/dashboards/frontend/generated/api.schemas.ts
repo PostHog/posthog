@@ -7,6 +7,105 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface DashboardSavedViewFiltersApi {
+    /** @maxLength 200 */
+    search?: string
+    createdBy?: number[] | 'All users'
+    pinned?: boolean
+    shared?: boolean
+    /**
+     * @maxItems 50
+     * @items.maxLength 100
+     */
+    tags?: string[]
+    /**
+     * @maxLength 4000
+     * @nullable
+     */
+    folder?: string | null
+}
+
+/**
+ * * `private` - Private
+ * * `team` - Team
+ */
+export type DashboardSavedViewScopeEnumApi =
+    (typeof DashboardSavedViewScopeEnumApi)[keyof typeof DashboardSavedViewScopeEnumApi]
+
+export const DashboardSavedViewScopeEnumApi = {
+    Private: 'private',
+    Team: 'team',
+} as const
+
+export interface DashboardSavedViewApi {
+    readonly id: string
+    /**
+     * Name shown in the dashboard list view picker.
+     * @maxLength 200
+     */
+    name: string
+    /** Dashboard list filters stored by this view. */
+    filters: DashboardSavedViewFiltersApi
+    /** Whether only the creator or all team members can use this view.
+     *
+     * * `private` - Private
+     * * `team` - Team */
+    scope?: DashboardSavedViewScopeEnumApi
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** @nullable */
+    readonly created_by: number | null
+    /** Whether the current user can change this view's visibility. */
+    readonly can_change_scope: boolean
+}
+
+export interface PaginatedDashboardSavedViewListApi {
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: DashboardSavedViewApi[]
+}
+
+export interface DashboardSavedViewWriteApi {
+    /**
+     * Name shown in the dashboard list view picker.
+     * @maxLength 200
+     */
+    name: string
+    /** Dashboard list filters stored by this view. */
+    filters: DashboardSavedViewFiltersApi
+    /** Whether only the creator or all team members can use this view.
+     *
+     * * `private` - Private
+     * * `team` - Team */
+    scope?: DashboardSavedViewScopeEnumApi
+}
+
+export interface PatchedDashboardSavedViewApi {
+    readonly id?: string
+    /**
+     * Name shown in the dashboard list view picker.
+     * @maxLength 200
+     */
+    name?: string
+    /** Dashboard list filters stored by this view. */
+    filters?: DashboardSavedViewFiltersApi
+    /** Whether only the creator or all team members can use this view.
+     *
+     * * `private` - Private
+     * * `team` - Team */
+    scope?: DashboardSavedViewScopeEnumApi
+    readonly created_at?: string
+    /** @nullable */
+    readonly updated_at?: string | null
+    /** @nullable */
+    readonly created_by?: number | null
+    /** Whether the current user can change this view's visibility. */
+    readonly can_change_scope?: boolean
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -197,9 +296,10 @@ export interface CopyDashboardTemplateApi {
  * * `duplicate` - Duplicate
  * * `unlisted` - Unlisted (product-embedded)
  */
-export type CreationModeEnumApi = (typeof CreationModeEnumApi)[keyof typeof CreationModeEnumApi]
+export type DashboardCreationModeEnumApi =
+    (typeof DashboardCreationModeEnumApi)[keyof typeof DashboardCreationModeEnumApi]
 
-export const CreationModeEnumApi = {
+export const DashboardCreationModeEnumApi = {
     Default: 'default',
     Template: 'template',
     Duplicate: 'duplicate',
@@ -221,10 +321,9 @@ export const RestrictionLevelEnumApi = {
  * * `21` - Can view dashboard
  * * `37` - Can edit dashboard
  */
-export type EffectivePrivilegeLevelEnumApi =
-    (typeof EffectivePrivilegeLevelEnumApi)[keyof typeof EffectivePrivilegeLevelEnumApi]
+export type PrivilegeLevelEnumApi = (typeof PrivilegeLevelEnumApi)[keyof typeof PrivilegeLevelEnumApi]
 
-export const EffectivePrivilegeLevelEnumApi = {
+export const PrivilegeLevelEnumApi = {
     Number21: 21,
     Number37: 37,
 } as const
@@ -273,7 +372,7 @@ export interface DashboardBasicApi {
     readonly file_system_path: string | null
     readonly is_shared: boolean
     readonly deleted: boolean
-    readonly creation_mode: CreationModeEnumApi
+    readonly creation_mode: DashboardCreationModeEnumApi
     tags?: unknown[]
     /** Controls who can edit the dashboard.
      *
@@ -281,7 +380,7 @@ export interface DashboardBasicApi {
      * * `37` - Only those invited to this dashboard can edit */
     readonly restriction_level: RestrictionLevelEnumApi
     readonly effective_restriction_level: RestrictionLevelEnumApi
-    readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
+    readonly effective_privilege_level: PrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -405,7 +504,7 @@ export interface DashboardApi {
     readonly file_system_path: string | null
     readonly is_shared: boolean
     deleted?: boolean
-    readonly creation_mode: CreationModeEnumApi
+    readonly creation_mode: DashboardCreationModeEnumApi
     readonly filters: DashboardApiFilters
     /** @nullable */
     readonly variables: DashboardApiVariables
@@ -419,7 +518,7 @@ export interface DashboardApi {
     tags?: unknown[]
     restriction_level?: RestrictionLevelEnumApi
     readonly effective_restriction_level: RestrictionLevelEnumApi
-    readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
+    readonly effective_privilege_level: PrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -4201,6 +4300,8 @@ export interface WebStatsTableQueryResponseApi {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+    preComputeIneligibleReason?: string | null
     /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
     preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
@@ -4295,6 +4396,8 @@ export interface WebOverviewQueryResponseApi {
     hogql?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+    preComputeIneligibleReason?: string | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
@@ -4613,6 +4716,8 @@ export interface Response4Api {
     hogql?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+    preComputeIneligibleReason?: string | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
@@ -4641,6 +4746,8 @@ export interface Response5Api {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+    preComputeIneligibleReason?: string | null
     /** Whether a lazy-precompute read was served from expired-within-grace (stale) jobs instead of recomputing inline. */
     preComputeStale?: boolean | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
@@ -4727,6 +4834,8 @@ export interface Response8Api {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+    preComputeIneligibleReason?: string | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
@@ -4763,6 +4872,8 @@ export interface Response9Api {
     hogql?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+    preComputeIneligibleReason?: string | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
@@ -5001,6 +5112,7 @@ export const IntegrationKindApi = {
     Apns: 'apns',
     Postgresql: 'postgresql',
     AwsS3: 'aws-s3',
+    AwsRedshift: 'aws-redshift',
     S3Compatible: 's3-compatible',
     Snowflake: 'snowflake',
     YoutubeAnalytics: 'youtube-analytics',
@@ -6810,6 +6922,8 @@ export interface WebGoalsQueryResponseApi {
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
     offset?: number | null
+    /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+    preComputeIneligibleReason?: string | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
@@ -6931,6 +7045,8 @@ export interface WebVitalsPathBreakdownQueryResponseApi {
     hogql?: string | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** Why a live response skipped precompute: the eligibility-gate reason that refused it. Unset when the query was eligible. */
+    preComputeIneligibleReason?: string | null
     preComputeStrategy?: WebAnalyticsPreComputeStrategyApi | null
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
@@ -8865,6 +8981,8 @@ export interface ChartSettingsApi {
     goalLines?: GoalLineApi[] | null
     heatmap?: HeatmapSettingsApi | null
     leftYAxisSettings?: YAxisSettingsApi | null
+    /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest. */
+    legendPosition?: LegendPositionApi | null
     pie?: PieChartSettingsApi | null
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: ChartSettingsApiResultCustomizations
@@ -9147,7 +9265,7 @@ export interface InsightApi {
     readonly last_modified_by: UserBasicApi
     readonly is_sample: boolean
     readonly effective_restriction_level: RestrictionLevelEnumApi
-    readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
+    readonly effective_privilege_level: PrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -10184,6 +10302,33 @@ export type ConversationsRecentTicketsWidgetTypeEnumApi =
 
 export const ConversationsRecentTicketsWidgetTypeEnumApi = {
     ConversationsRecentTickets: 'conversations_recent_tickets',
+} as const
+
+export type DashboardSavedViewsListParams = {
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * Return saved views with this visibility scope.
+     *
+     * * `private` - Private
+     * * `team` - Team
+     * @minLength 1
+     */
+    scope?: DashboardSavedViewsListScope
+}
+
+export type DashboardSavedViewsListScope =
+    (typeof DashboardSavedViewsListScope)[keyof typeof DashboardSavedViewsListScope]
+
+export const DashboardSavedViewsListScope = {
+    Private: 'private',
+    Team: 'team',
 } as const
 
 export type DashboardTemplatesListParams = {

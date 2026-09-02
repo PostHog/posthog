@@ -29,6 +29,11 @@
 //! depths, a jump into the middle of an instruction, a local slot outside the frame, or a `RETURN`
 //! that leaves the stack unbalanced all stop the analysis and widen the condition to every column.
 //! Reads accumulate globally rather than per instruction, so a join can never retract one.
+//!
+//! One case answers rather than widens. A `GET_GLOBAL` root that no globals dict carries reads
+//! nothing under any projection, so it claims no path and the walk continues. A bare
+//! representation-sensitive native is the exception, because such a root is a closure the program
+//! can still call — see [`Interpreter::get_global`].
 
 use std::collections::{BTreeSet, VecDeque};
 use std::sync::Arc;
@@ -603,9 +608,25 @@ impl<'a> Interpreter<'a> {
         }
         let (root_name, segments) = chain.split_first().expect("count is non-zero");
         let Some(root) = GlobalRoot::parse(root_name) else {
-            return Err(Stop::Unanalyzable(UnanalyzableReason::UnknownGlobalRoot(
-                root_name.to_string(),
-            )));
+            // A one-element chain also resolves to a first-class closure over a native, and
+            // `arrayMap` invokes that closure through `CALL_LOCAL`, so the `CallGlobal` arm never
+            // sees the name. Reading a number's spelling is unsafe however the native is reached,
+            // so [`REPRESENTATION_SENSITIVE_NATIVES`] has to be checked on both paths.
+            if segments.is_empty() && REPRESENTATION_SENSITIVE_NATIVES.contains(&root_name.as_ref())
+            {
+                return Err(Stop::Unnarrowable(
+                    FullColumnsReason::RepresentationSensitiveCall,
+                ));
+            }
+            // Every other such name reads no event data, so it constrains no column. A projection
+            // narrows the values *under* the roots a globals builder writes and never removes a
+            // root, so a name absent from the dict is absent under every projection: its
+            // `GET_GLOBAL` raises `UnknownGlobal` on the projected event and on the full one alike.
+            // [`GlobalRoot`] is what makes "not a root" mean "in no dict this crate builds".
+            //
+            // Opaque rather than terminate: the closure case keeps executing, so ending the path
+            // here could prune a genuine later read. Over-approximating is the safe direction.
+            return push_opaque(stack);
         };
         // A bare `properties`, `person`, or `pdi` hands a whole object to whatever consumes it, so
         // which keys are read is decided at runtime and cannot be narrowed here. `pdi` counts
@@ -791,6 +812,107 @@ mod tests {
         );
     }
 
+    /// The shape a group-type-name filter compiles to. `organization` is a per-team group type: the
+    /// SQL printer aliases it onto `group_0`, but the bytecode compiler emits the written chain
+    /// verbatim, so the root reaches the VM and no globals dict carries it. Such a root reads no
+    /// event data under any projection, so the program claims nothing.
+    ///
+    /// Written out literally rather than through the `read` helper, so the helper cannot hide the
+    /// same mistake, for the same reason
+    /// `a_global_chain_is_read_root_first_from_its_reversed_pushes` is written that way.
+    #[test]
+    fn a_root_no_globals_dict_carries_claims_no_reads() {
+        // organization.properties.name == 'Example Org'
+        let tokens = vec![
+            json!(32),
+            json!("Example Org"),
+            json!(32),
+            json!("name"),
+            json!(32),
+            json!("properties"),
+            json!(32),
+            json!("organization"),
+            json!(1),
+            json!(3),
+            json!(11),
+        ];
+        assert_eq!(reads(tokens), Vec::<String>::new());
+    }
+
+    /// The absent root continues the walk rather than ending it, so a read after one is still
+    /// claimed. A `Control::Terminate` implementation passes every other test in this file and
+    /// fails only here.
+    #[test]
+    fn a_read_after_an_absent_root_is_still_claimed() {
+        let mut tokens = read(&["organization"]);
+        tokens.extend(read(&["properties", "plan"]));
+        // `AND` of the two, so the program balances its stack the way the compiler would.
+        tokens.push(json!(3));
+        tokens.push(json!(2));
+        assert_eq!(reads(tokens), ["properties.plan"]);
+    }
+
+    /// A bare native name is not a read. `GET_GLOBAL` resolves it to a first-class closure, and
+    /// `arrayMap` invokes that closure through `CALL_LOCAL`, so the `CALL_GLOBAL` guard never sees
+    /// the name. `typeof` answers from how a number was spelled, so a caller rebuilding the blob
+    /// from the claimed keys re-prints `100.0` as `100` and the condition decides the other way.
+    /// The root carries the same obligation a direct call does.
+    #[test]
+    fn a_representation_sensitive_native_reached_as_a_root_widens() {
+        // arrayMap(typeof, [properties.n]) == ['float']
+        let tokens = vec![
+            json!(32),
+            json!("typeof"),
+            json!(1),
+            json!(1),
+            json!(32),
+            json!("n"),
+            json!(32),
+            json!("properties"),
+            json!(1),
+            json!(2),
+            json!(43),
+            json!(1),
+            json!(2),
+            json!("arrayMap"),
+            json!(2),
+            json!(32),
+            json!("float"),
+            json!(43),
+            json!(1),
+            json!(11),
+        ];
+        assert_eq!(
+            full_columns_reason(tokens),
+            FullColumnsReason::RepresentationSensitiveCall
+        );
+    }
+
+    /// A native the rebuild cannot disturb stays projectable when it arrives as a root, so the
+    /// guard above widens on representation sensitivity rather than on every native reference.
+    #[test]
+    fn an_insensitive_native_reached_as_a_root_still_claims_its_reads() {
+        // arrayMap(base64Encode, [properties.n])
+        let tokens = vec![
+            json!(32),
+            json!("base64Encode"),
+            json!(1),
+            json!(1),
+            json!(32),
+            json!("n"),
+            json!(32),
+            json!("properties"),
+            json!(1),
+            json!(2),
+            json!(43),
+            json!(1),
+            json!(2),
+            json!("arrayMap"),
+            json!(2),
+        ];
+        assert_eq!(reads(tokens), ["properties.n"]);
+    }
+
     /// `elements_chain` resolves to the event column or, when that is empty, to
     /// `properties.$elements_chain`. A claimed read set that named only the column would be short,
     /// and a caller projecting from it would evaluate the condition against a null chain.
@@ -818,8 +940,8 @@ mod tests {
         assert_eq!(reads(tokens), ["properties.a", "properties.b"]);
     }
 
-    /// A path segment computed at runtime, an unmodeled root, an unmodeled opcode, and garbage all
-    /// have to fail closed, each naming what stopped the analysis.
+    /// A path segment computed at runtime, an unmodeled opcode, and garbage all have to fail
+    /// closed, each naming what stopped the analysis.
     #[test]
     fn unmodeled_programs_fail_closed_with_their_reason() {
         // `properties[someValue]`: the segment on the stack is not a literal.
@@ -832,10 +954,6 @@ mod tests {
             json!(2),
         ];
         assert_eq!(unanalyzable(dynamic), UnanalyzableReason::DynamicGlobalPath);
-        assert_eq!(
-            unanalyzable(read(&["session"])),
-            UnanalyzableReason::UnknownGlobalRoot("session".to_owned())
-        );
         assert_eq!(
             unanalyzable(vec![json!(1), json!(0)]),
             UnanalyzableReason::ZeroLengthGlobalChain

@@ -41,6 +41,7 @@ import { resolveLlmGatewayUrl } from "../utils/gateway";
 import { Logger } from "../utils/logger";
 import { TaskRunEventStreamSender } from "./event-stream-sender";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
+import { createRtkSavingsNotification } from "./rtk-savings";
 import { jsonRpcRequestSchema } from "./schemas";
 import type { AgentServerConfig } from "./types";
 
@@ -141,6 +142,7 @@ export class PiAgentServer {
     string,
     McpToolPermissionRequest
   >();
+  private rtkSavingsAttempted = false;
 
   constructor(private readonly config: AgentServerConfig) {
     this.posthogAPI = new PostHogAPIClient({
@@ -252,6 +254,7 @@ export class PiAgentServer {
     await this.flushConversationLog().catch((error) =>
       this.logger.error("Failed to persist Pi events during shutdown", error),
     );
+    await this.emitRtkSavings();
     await this.eventStreamSender?.stop();
     this.server?.close();
     this.server = null;
@@ -292,7 +295,31 @@ export class PiAgentServer {
           updateError,
         ),
       );
+    await this.emitRtkSavings();
     await this.eventStreamSender?.stop();
+  }
+
+  private async emitRtkSavings(): Promise<void> {
+    if (!this.eventStreamSender || this.rtkSavingsAttempted) {
+      return;
+    }
+    this.rtkSavingsAttempted = true;
+
+    try {
+      const notification = await createRtkSavingsNotification({
+        taskId: this.config.taskId,
+        runId: this.config.runId,
+        teamId: this.config.projectId,
+        runtimeAdapter: "pi",
+        model: this.config.model,
+        resolveSavings: this.config.resolveRtkSavings,
+      });
+      if (notification) {
+        this.eventStreamSender.enqueue(notification);
+      }
+    } catch (error) {
+      this.logger.debug("Failed to emit rtk savings", { error });
+    }
   }
 
   private createApp(): Hono {
@@ -304,6 +331,10 @@ export class PiAgentServer {
         hasSession: this.session !== null,
         bootMs: this.sessionReadyBootMs,
         sessionInitMs: this.sessionInitMs,
+        boot: {
+          totalMs: this.sessionReadyBootMs,
+          launcherToProcessMs: this.config.launcherToProcessMs,
+        },
       }),
     );
 

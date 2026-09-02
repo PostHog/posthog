@@ -322,6 +322,7 @@ path = "products.warehouse_sources"
 depends_on = [
     "ee",
     "posthog",
+    "products.batch_exports",
     "products.cdp",
     "products.data_modeling",
     "products.data_tools",

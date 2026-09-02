@@ -85,6 +85,9 @@ jobs:
                         # so no app image is built here. Dockerfile.node is gated separately in
                         # ci-nodejs-container.yml.
                         - 'docker*.yml'
+                        # The compose stack mounts this ClickHouse config; the Kafka engine settings
+                        # in it set how long every ClickHouse-backed Jest test waits for a row.
+                        - 'docker/clickhouse/**'
                       rust:
                         - 'rust/**'
                         - 'proto/**'
@@ -310,6 +313,7 @@ jobs:
               continue-on-error: true
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -613,6 +617,7 @@ jobs:
               continue-on-error: true
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:

@@ -50,6 +50,18 @@ class TestRuntimeModelCapabilities(SimpleTestCase):
         assert "moonshotai/kimi-k3" in get_models_for_runtime_adapter("claude")
         assert get_supported_reasoning_efforts("claude", "moonshotai/kimi-k3") == ()
 
+    def test_fable_models_support_all_public_reasoning_efforts(self) -> None:
+        for model in ("claude-fable-5", "claude-fable-5-1"):
+            assert model in get_models_for_runtime_adapter("claude")
+            assert tuple(effort.value for effort in get_supported_reasoning_efforts("claude", model)) == (
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max",
+                "ultracode",
+            )
+
 
 class TestRunStateResumeCompatibility(SimpleTestCase):
     @parameterized.expand(

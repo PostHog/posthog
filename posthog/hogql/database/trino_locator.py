@@ -20,5 +20,5 @@ def resolve_trino_table_locator(table: Table, context: HogQLContext) -> TrinoTab
             if not value.strip():
                 raise QueryError(f"Direct Trino tables require a {label}.")
         return locator
-    logical_name = table.name or table.to_printed_hogql()
+    logical_name = getattr(table, "trino_locator_name", None) or table.name or table.to_printed_hogql()
     return context.trino_table_locators.get(logical_name)

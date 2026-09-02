@@ -46,8 +46,9 @@ from hogli_commands.build import (
     _match_commands,
 )
 from hogli_commands.change_detection import changed_files, matches_globs
-from hogli_commands.complexity_lint import PYTHON_SCOPE, TYPESCRIPT_SCOPE
+from hogli_commands.complexity_lint import PYTHON_SCOPE, TEST_WARN_AT, TYPESCRIPT_SCOPE, WARN_AT
 from hogli_commands.devenv.generator import TRACKED_MPROCS_FILES
+from hogli_commands.size_lint import SCOPE as SIZE_SCOPE
 
 Requirement = Literal["node", "desktop-node", "stack", "clickhouse"]
 
@@ -65,6 +66,10 @@ class DiffCheck:
     advice: str | None = None  # nudge-only: preflight never runs this check, it just says what to run
     requires: tuple[Requirement, ...] = ()  # capabilities the check needs, else it skips
     takes_files: bool = False  # append matched files to the command
+    # Append `--against <base>`, plus `--committed` when the run is scoped to commits.
+    # A check that measures file content has to agree with preflight on both which base
+    # to compare against and which copy of the file to read.
+    takes_diff_scope: bool = False
     # Run once per pnpm workspace containing matched files (cwd = that workspace),
     # so nested workspaces like products/desktop validate their own lockfile instead
     # of the root one. Capability (node_modules present) is checked per workspace.
@@ -129,11 +134,21 @@ DIFF_CHECKS: list[DiffCheck] = [
     ),
     DiffCheck(
         key="complexity",
-        label="cyclomatic complexity (warn >10)",
+        label=f"cyclomatic complexity (warn >{WARN_AT}, >{TEST_WARN_AT} in tests)",
         # From complexity_lint.py so preflight and the command can't drift on scope.
         triggers=[*PYTHON_SCOPE, *TYPESCRIPT_SCOPE],
         verify=["hogli", "lint:complexity"],
         takes_files=True,
+        soft=True,
+    ),
+    DiffCheck(
+        key="size",
+        label="file size (warn >1000 lines)",
+        # From size_lint.py so preflight and the command can't drift on scope.
+        triggers=[*SIZE_SCOPE],
+        verify=["hogli", "lint:size"],
+        takes_files=True,
+        takes_diff_scope=True,
         soft=True,
     ),
     DiffCheck(
@@ -376,7 +391,7 @@ def _run_workspace_scoped(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
     return overall, " · ".join(parts)
 
 
-def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
+def _run_diff_check(chk: DiffCheck, do_fix: bool, against: str | None, strict: bool) -> tuple[Status, str]:
     if chk.advice is not None:
         # Nudge-only: nothing to run, nothing to auto-fix — the advisory *is* the check.
         return "advisory", chk.advice
@@ -397,6 +412,16 @@ def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
         return "skipped", f"needs {', '.join(unmet)}"
     else:
         cmd = list(chk.verify)
+    if chk.takes_diff_scope:
+        # Forward only an explicit base. Passing a default would pin the child to
+        # `origin/master` while `changed_files` falls back to local `master`, and the two
+        # would then disagree in a clone that has no remote ref. Strict runs also pass
+        # `--committed`, because only commits are about to be pushed; advisory runs keep
+        # the working tree in scope and so must be measured from it.
+        if against is not None:
+            cmd += ["--against", against]
+        if strict:
+            cmd.append("--committed")
     if chk.takes_files:
         # Drop deleted paths: ruff (and friends) error E902 on a path that no longer exists.
         present = [f for f in chk.matched if (REPO_ROOT / f).exists()]
@@ -703,7 +728,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
             click.echo(f"       {detail}")
 
     for chk in triggered:
-        status, detail = _run_diff_check(chk, do_fix)
+        status, detail = _run_diff_check(chk, do_fix, against, strict)
         failures += status == "fail"
         # Nudges say "consider this", not "this is drift" — counting them would cry wolf in
         # the footer on every matching push and cost the detected advisories their weight.

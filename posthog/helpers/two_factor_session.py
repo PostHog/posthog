@@ -44,8 +44,8 @@ def remove_code_based_verification_bypass(email: str) -> None:
 
 
 # Global kill-switch: when this Redis key is present, code-based verification is skipped for every
-# user (e.g. while transactional email delivery is down and the verification link can't be
-# delivered). The key carries the reason/actor/timestamp and a mandatory TTL so it auto-re-enables.
+# user (e.g. while transactional email delivery is down and the login code can't be delivered).
+# The key carries the reason/actor/timestamp and a mandatory TTL so it auto-re-enables.
 # Only the email factor is affected — TOTP and passkey 2FA are gated earlier in the login flow.
 CODE_BASED_VERIFICATION_GLOBAL_DISABLE_REDIS_KEY = "code_based_verification_global_disable"
 MAX_CODE_BASED_VERIFICATION_GLOBAL_DISABLE_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days

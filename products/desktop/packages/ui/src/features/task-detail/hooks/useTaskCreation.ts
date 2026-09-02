@@ -16,7 +16,7 @@ import {
   type Adapter,
   type AgentRuntime,
   ANALYTICS_EVENTS,
-  type CodexModelAccess,
+  type ModelAccess,
   PROJECT_BLUEBIRD_FLAG,
   type TaskCreationInput,
   type WorkspaceMode,
@@ -30,9 +30,9 @@ import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChanne
 import { useTaskRepositoryDraftStore } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import {
-  effectiveCodexModelAccess,
-  useCodexSubscription,
-} from "@posthog/ui/features/settings/useCodexSubscription";
+  subscriptionModelAccess,
+  useAdapterSubscription,
+} from "@posthog/ui/features/settings/adapterSubscription";
 import { waitForComposerExit } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { navigateToTaskPending } from "@posthog/ui/router/navigationBridge";
@@ -140,7 +140,8 @@ async function trackTaskCreated(
   input: TaskCreationInput,
   selectedDirectory: string,
   hostClient: HostTrpcClient,
-  codexModelAccess?: CodexModelAccess,
+  codexModelAccess?: ModelAccess,
+  claudeModelAccess?: ModelAccess,
 ): Promise<void> {
   try {
     const workspaceMode = input.workspaceMode ?? "local";
@@ -182,6 +183,7 @@ async function trackTaskCreated(
       uses_worktree_include: usesWorktreeInclude,
       adapter: input.adapter,
       codex_model_access: codexModelAccess,
+      claude_model_access: claudeModelAccess,
     });
   } catch (error) {
     log.warn("Failed to track Task created event", { error });
@@ -223,7 +225,8 @@ export function useTaskCreation({
   const [isCreatingTask, setIsCreatingTask] = useState(false);
   const [isExitingComposer, setIsExitingComposer] = useState(false);
   const hostClient = useHostTRPCClient();
-  const codexSubscription = useCodexSubscription();
+  const codexSubscription = useAdapterSubscription("codex");
+  const claudeSubscription = useAdapterSubscription("claude");
   const trpc = useHostTRPC();
   const queryClient = useQueryClient();
   const defaultAdditionalDirectoriesQuery = useQuery(
@@ -411,12 +414,11 @@ export function useTaskCreation({
           );
           const codexModelAccess =
             runtime !== "pi" && adapter === "codex"
-              ? effectiveCodexModelAccess({
-                  flagEnabled: codexSubscription.flagEnabled,
-                  subscriptionOn: codexSubscription.subscriptionOn,
-                  loggedIn: codexSubscription.loggedIn,
-                  workspaceMode,
-                })
+              ? subscriptionModelAccess(codexSubscription, workspaceMode)
+              : undefined;
+          const claudeModelAccess =
+            runtime !== "pi" && adapter === "claude"
+              ? subscriptionModelAccess(claudeSubscription, workspaceMode)
               : undefined;
           const input = prepareTaskInput(serializedContent, filePaths, {
             // Repo-optional surfaces may still supply an explicit task folder or
@@ -433,6 +435,7 @@ export function useTaskCreation({
             executionMode,
             adapter,
             codexModelAccess,
+            claudeModelAccess,
             runtime,
             model,
             reasoningLevel,
@@ -570,6 +573,7 @@ export function useTaskCreation({
               selectedDirectory,
               hostClient,
               input.codexModelAccess,
+              input.claudeModelAccess,
             );
             // Repo-less channel tasks create no workspace row (the agent runs in
             // a scratch dir surfaced as a synthetic workspace), so the normal
@@ -706,8 +710,13 @@ export function useTaskCreation({
       taskService,
       tasks,
       codexSubscription.flagEnabled,
-      codexSubscription.loggedIn,
+      codexSubscription.loginState,
       codexSubscription.subscriptionOn,
+      claudeSubscription.flagEnabled,
+      claudeSubscription.loginState,
+      claudeSubscription.subscriptionOn,
+      claudeSubscription,
+      codexSubscription,
     ],
   );
 

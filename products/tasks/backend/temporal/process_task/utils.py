@@ -179,6 +179,14 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.MAX,
         ReasoningEffort.ULTRACODE,
     ),
+    "claude-fable-5-1": (
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+        ReasoningEffort.XHIGH,
+        ReasoningEffort.MAX,
+        ReasoningEffort.ULTRACODE,
+    ),
     "claude-sonnet-5": (
         ReasoningEffort.LOW,
         ReasoningEffort.MEDIUM,

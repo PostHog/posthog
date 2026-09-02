@@ -152,6 +152,7 @@ jobs:
                   fi
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -402,6 +403,7 @@ jobs:
                   fi
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -515,13 +517,6 @@ jobs:
                   DEBUG: 1
               run: ./bin/hogli build:skills
 
-            - name: Mint release GitHub token
-              id: release-token
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
-
             - name: Determine next version
               id: version
               run: |
@@ -532,8 +527,11 @@ jobs:
                   echo "tag=agent-skills-v0.$((MINOR + 1)).0" >> "$GITHUB_OUTPUT"
 
             - name: Create versioned release
+              # The job's own contents:write GITHUB_TOKEN, like build-phrocs.yml and
+              # build-livestream-tui.yml. No workflow triggers off these releases, so the
+              # app token bought nothing and only added a permission that can drift away.
               env:
-                  GH_TOKEN: ${{ steps.release-token.outputs.token }}
+                  GH_TOKEN: ${{ github.token }}
                   RELEASE_TAG: ${{ steps.version.outputs.tag }}
               run: |
                   gh release create "$RELEASE_TAG" \
@@ -545,7 +543,7 @@ jobs:
 
             - name: Update latest release
               env:
-                  GH_TOKEN: ${{ steps.release-token.outputs.token }}
+                  GH_TOKEN: ${{ github.token }}
                   RELEASE_TAG: ${{ steps.version.outputs.tag }}
               run: |
                   if gh release view agent-skills-latest &>/dev/null; then
