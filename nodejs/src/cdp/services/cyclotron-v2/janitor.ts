@@ -3,6 +3,7 @@ import { Pool } from 'pg'
 import { Counter, Gauge } from 'prom-client'
 
 import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
 
 import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '../../types'
 import { v2JobToInvocation } from '../job-queue/job-queue-postgres-v2'
@@ -485,9 +486,10 @@ export class CyclotronV2Janitor {
      * that never converts would otherwise live forever. This runs here rather than in the matcher
      * because every matcher pod would run its own copy, all deleting from the same table.
      *
-     * A failure is logged and swallowed: an expired watcher has already stopped matching via the
-     * `expires_at` predicate, so a missed sweep costs space and never a conversion, and it must not
-     * stop the janitor finishing its cyclotron work.
+     * A failure is reported to error tracking and swallowed: an expired watcher has already stopped
+     * matching via the `expires_at` predicate, so a missed sweep costs space and never a conversion,
+     * and it must not stop the janitor finishing its cyclotron work. The report matters because the
+     * catch hides the failure from the run otherwise — a persistent one grows the table unbounded.
      */
     async sweepExpiredConversionWatchers(): Promise<number> {
         try {
@@ -506,6 +508,7 @@ export class CyclotronV2Janitor {
             return deleted
         } catch (err) {
             logger.error('CyclotronV2Janitor conversion watcher sweep failed', { error: String(err) })
+            captureException(err)
             return 0
         }
     }
