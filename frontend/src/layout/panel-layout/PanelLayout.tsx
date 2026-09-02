@@ -3,6 +3,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 
 import { IconX } from '@posthog/icons'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconMenu } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
@@ -12,6 +13,7 @@ import { supportTicketCounterLogic } from 'products/conversations/frontend/suppo
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { Nav as AiFirstNavBar } from './ai-first/Nav'
 import { PanelLayoutPanels } from './ai-first/PanelLayoutPanels'
+import { FlatNav } from './flat-nav/FlatNav'
 import { panelLayoutLogic } from './panelLayoutLogic'
 import { PROJECT_TREE_KEY } from './ProjectTree/ProjectTree'
 import { projectTreeLogic } from './ProjectTree/projectTreeLogic'
@@ -83,6 +85,7 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
     const { showLayoutPanel, clearActivePanelIdentifier, showLayoutNavBar } = useActions(panelLayoutLogic)
     useMountedLogic(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     useMountedLogic(supportTicketCounterLogic) // Start polling for unread tickets on app load
+    const isFlatNavEnabled = useFeatureFlag('FLAT_NAV')
 
     return (
         <>
@@ -129,7 +132,7 @@ export function PanelLayout({ className }: { className?: string }): JSX.Element 
                         : {}
                 }
             >
-                <AiFirstNavBar />
+                {isFlatNavEnabled ? <FlatNav /> : <AiFirstNavBar />}
             </div>
 
             {/* Mobile-only positioning anchor for panel content. Decoupled from #project-panel-layout

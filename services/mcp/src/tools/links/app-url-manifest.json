@@ -814,6 +814,11 @@
         "params": [],
         "scope": "project"
     },
+    "identityProviderConfig": {
+        "template": "/settings/organization-authentication/{feature}/{configId}",
+        "params": ["feature", "configId"],
+        "scope": "project"
+    },
     "inbox": {
         "template": "/inbox",
         "params": [],

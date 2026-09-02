@@ -1064,7 +1064,8 @@ jobs:
                   set -e
                   exit $overall
 
-            # Excluded reports bypass Trunk quarantine, so this step owns their verdict.
+            # Stages every product's report under a per-product filename. Pass a report path to
+            # exclude a product from Trunk quarantine; this step then owns that product's verdict.
             - name: Prepare product JUnit for Trunk
               id: prepare_product_junit
               if: always()
@@ -1074,8 +1075,7 @@ jobs:
               run: |
                   bash .github/scripts/prepare-product-junit-for-trunk.sh \
                       trunk-junit \
-                      "$PRODUCT_FILTERS" \
-                      products/warehouse_sources/junit-product.xml
+                      "$PRODUCT_FILTERS"
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
