@@ -43,6 +43,23 @@ export const Connected: Story = {
     decorators: [mswDecorator({ get: { '/api/environments/:id/integrations': { results: [mockIntegration] } } })],
 }
 
+// An instance without Slack configured shows staff the instructions button instead of the connect
+// button. That branch ignores ``centered``, so it relies on the page for its centered layout.
+export const SlackNotConfigured: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    realm: Realm.Cloud,
+                    slack_service: { available: false, client_id: null },
+                },
+                '/api/environments/:id/integrations': { results: [] },
+            },
+        }),
+    ],
+}
+
 // GitHub puts a helper paragraph next to its connect button, which stretches the section wider
 // than the button. Without the centered layout the button sits at that width's left edge.
 export const GithubNotConnected: Story = {
