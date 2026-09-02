@@ -40,6 +40,7 @@ if TYPE_CHECKING:
         materialization_fix_enabled,
         suggest_materialization_fix,
     )
+    from products.endpoints.backend.insight_transformers import transform_materialized_insight_response
     from products.endpoints.backend.logic.crud import EndpointCrudService
     from products.endpoints.backend.logic.execution import EndpointExecutionService
     from products.endpoints.backend.logic.materialization import (
@@ -51,6 +52,7 @@ if TYPE_CHECKING:
         validate_endpoint_request,
         validate_update_request,
     )
+    from products.endpoints.backend.materialization_transforms import build_endpoint_hogql
     from products.endpoints.backend.openapi import generate_openapi_spec
 
 # symbol -> source module (relative to products.endpoints.backend)
@@ -67,6 +69,10 @@ _LAZY = {
     "validate_endpoint_request": "logic.validation",
     "validate_update_request": "logic.validation",
     "generate_openapi_spec": "openapi",
+    # The insight-conversion seam. Product analytics owns the runners these two reach through
+    # core's dispatcher, so its tests hold the cases that prove the conversion still works.
+    "build_endpoint_hogql": "materialization_transforms",
+    "transform_materialized_insight_response": "insight_transformers",
 }
 
 
