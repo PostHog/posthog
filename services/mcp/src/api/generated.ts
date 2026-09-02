@@ -87291,8 +87291,8 @@ export namespace Schemas {
 
     export interface WidgetGenerateRequest {
       /**
-         * Instructions for the generated widget.
-         * @maxLength 20000
+         * Instructions for the generated widget. Initial and improvement instructions accept up to 20,000 characters; regeneration accepts complete instructions up to 50,000 characters.
+         * @maxLength 50000
          */
       prompt: string;
       /** Idempotency key for this generation job. */
@@ -87310,6 +87310,8 @@ export namespace Schemas {
        * * `regenerate` - regenerate
        * * `improve` - improve */
       generation_operation?: GenerationOperationEnum;
+      /** Current widget version the improvement is based on. Required for improve operations. */
+      expected_current_version_id?: string;
     }
 
     /**
@@ -87467,7 +87469,10 @@ export namespace Schemas {
       version_operation: GeneratedWidgetVersionOperationEnum;
       /** Instructions added by this version. */
       prompt_delta: string;
-      /** Complete instructions represented by this version. */
+      /**
+         * Complete instructions represented by this version, up to 50,000 characters.
+         * @maxLength 50000
+         */
       effective_prompt: string;
       /**
          * AI model, or null when this version did not run a model.
