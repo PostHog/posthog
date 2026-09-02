@@ -24,8 +24,10 @@ interface SessionRecordingPanelProps {
 }
 
 // The widget stores the replay link as a path like /replay/:recordingId, sometimes with a query string.
-function recordingIdFromReplayUrl(replayUrl: string | undefined): string | null {
-    if (!replayUrl) {
+// The public widget endpoint keeps non-string scalars in session_context, so guard the type here: a
+// numeric value would otherwise crash .split() and take the whole ticket scene down.
+export function recordingIdFromReplayUrl(replayUrl: unknown): string | null {
+    if (typeof replayUrl !== 'string') {
         return null
     }
     return replayUrl.split('?')[0].split('/').filter(Boolean).pop() ?? null
