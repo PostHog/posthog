@@ -1940,7 +1940,7 @@ MAX_CONVERSION_WINDOW_MINUTES = 365 * 24 * 60
 MAX_LEGACY_WINDOW_MINUTES = 90 * 24 * 60
 
 
-def _duration_minutes(value: str) -> float:
+def duration_to_minutes(value: str) -> float:
     return float(value[:-1]) * _MINUTES_PER_DURATION_UNIT[value[-1]]
 
 
