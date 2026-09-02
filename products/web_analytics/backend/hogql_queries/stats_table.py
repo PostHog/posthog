@@ -29,7 +29,7 @@ from posthog.hogql.property import (
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.query_tagging import clear_tag, get_query_tag_value
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.models.filters.mixins.utils import cached_property
 
 from products.web_analytics.backend.hogql_queries.first_pageview_attribution import (
@@ -55,6 +55,7 @@ from products.web_analytics.backend.hogql_queries.stats_table_strategies import 
     StatsTableQueryStrategy,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner, map_columns
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import lazy_precompute_ineligible_reason
 from products.web_analytics.backend.hogql_queries.web_stats_frustration_lazy_precompute import (
     can_use_lazy_precompute as can_use_frustration_lazy_precompute,
     execute_lazy_precomputed_read as execute_frustration_lazy_precomputed_read,
@@ -820,6 +821,7 @@ WHERE and(
                 if self.used_preaggregated_tables
                 else WebAnalyticsPreComputeStrategy.LIVE
             ),
+            preComputeIneligibleReason=lazy_precompute_ineligible_reason(),
             **self.paginator.response_params(),
         )
 

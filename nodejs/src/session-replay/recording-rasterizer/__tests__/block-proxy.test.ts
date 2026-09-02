@@ -20,6 +20,7 @@ function baseInput(overrides: Partial<RasterizeRecordingInput> = {}): RasterizeR
 const testCfg = {
     recordingApiBaseUrl: 'http://localhost:6738',
     recordingApiSecret: 'test-secret',
+    blockListingTimeoutMs: 30_000,
 }
 
 const mockLog = {
@@ -58,7 +59,7 @@ describe('BlockProxy', () => {
             expect(proxy.totalCompressedBytes).toBe(3002)
             expect(mockInternalFetch).toHaveBeenCalledWith(
                 'http://localhost:6738/api/projects/1/recordings/test-session-123/blocks',
-                { headers: { 'X-Internal-Api-Secret': 'test-secret' } }
+                { headers: { 'X-Internal-Api-Secret': 'test-secret' }, timeoutMs: 30_000 }
             )
         })
 
@@ -73,7 +74,10 @@ describe('BlockProxy', () => {
 
             expect(mockInternalFetch).toHaveBeenCalledWith(
                 'http://localhost:6738/api/projects/1/recordings/test-session-123/blocks',
-                { headers: { 'X-Internal-Api-Secret': 'test-secret', Authorization: 'Bearer minted-token' } }
+                {
+                    headers: { 'X-Internal-Api-Secret': 'test-secret', Authorization: 'Bearer minted-token' },
+                    timeoutMs: 30_000,
+                }
             )
         })
 
@@ -117,6 +121,21 @@ describe('BlockProxy', () => {
 
             const proxy = new BlockProxy(testCfg, mockLog)
             await expect(proxy.fetchBlocks(baseInput())).rejects.toThrow('Invalid block listing response')
+            // The rethrow that lets timeouts through as retryable must not flip this.
+            await expect(proxy.fetchBlocks(baseInput())).rejects.toMatchObject({ retryable: false })
+        })
+
+        it('marks a body read that aborts as retryable', async () => {
+            mockInternalFetch.mockResolvedValue({
+                status: 200,
+                json: jest.fn().mockRejectedValue(new Error('The operation was aborted due to timeout')),
+            })
+
+            const proxy = new BlockProxy(testCfg, mockLog)
+            await expect(proxy.fetchBlocks(baseInput())).rejects.toMatchObject({
+                retryable: true,
+                code: 'BLOCK_LISTING_FAILED',
+            })
         })
     })
 

@@ -4,7 +4,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import has_aggregation, property_to_expr
 
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
 
