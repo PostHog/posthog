@@ -241,7 +241,7 @@ def _score_and_mirror(
     return icp_score, mirror_distinct_id
 
 
-def _read_wizard_ai_sdk(organization_id: str) -> bool:
+def _read_wizard_ai_sdk(*, organization_id: str) -> bool:
     """Best-effort recheck-only read of the wizard's AI-SDK stamp.
 
     Isolated from `_score_fit`'s own try/except: the wizard bridge is optional evidence, so
@@ -281,7 +281,7 @@ def _score_fit(
     the ownership check) — including a score-less one, whose status overwrites a stale
     number left by an earlier scored attempt.
     """
-    wizard_ai_sdk = _read_wizard_ai_sdk(organization_id) if is_recheck else False
+    wizard_ai_sdk = _read_wizard_ai_sdk(organization_id=organization_id) if is_recheck else False
     try:
         lists = load_active_lists()
         if lists is None:
