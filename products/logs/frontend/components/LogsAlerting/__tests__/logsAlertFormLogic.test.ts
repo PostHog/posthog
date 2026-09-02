@@ -4,6 +4,9 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
@@ -11,6 +14,7 @@ import { logsAlertsCreate, logsAlertsPartialUpdate } from 'products/logs/fronten
 import {
     LogsAlertConfigurationApi,
     LogsAlertConfigurationStateEnumApi,
+    TriggerTypeEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
 
 import { buildFormDefaults, LogsAlertFormType, logsAlertFormLogic } from '../logsAlertFormLogic'
@@ -77,6 +81,8 @@ const VALID_FORM_VALUES: LogsAlertFormType = {
     severityLevels: ['error'],
     serviceNames: [],
     filterGroup: { type: FilterLogicalOperator.And, values: [] },
+    triggerType: TriggerTypeEnumApi.Count,
+    triggerConfig: null,
     thresholdOperator: 'above',
     thresholdCount: 100,
     windowMinutes: 10,
@@ -315,6 +321,46 @@ describe('logsAlertFormLogic', () => {
             )
         })
 
+        it('includes triggerConfig in the payload for a new_pattern trigger', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setAlertFormValues({
+                    ...VALID_FORM_VALUES,
+                    triggerType: TriggerTypeEnumApi.NewPattern,
+                    triggerConfig: { seed_lookback_days: 3 },
+                })
+                logic.actions.submitAlertForm()
+            }).toFinishAllListeners()
+
+            expect(mockLogsAlertsCreate).toHaveBeenCalledWith(
+                MOCK_PROJECT_ID,
+                expect.objectContaining({
+                    trigger_type: TriggerTypeEnumApi.NewPattern,
+                    trigger_config: { seed_lookback_days: 3 },
+                })
+            )
+        })
+
+        it('drops triggerConfig from the payload for a pattern_threshold trigger', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setAlertFormValues({
+                    ...VALID_FORM_VALUES,
+                    triggerType: TriggerTypeEnumApi.PatternThreshold,
+                    // A stray triggerConfig can be left over from a prior new_pattern selection;
+                    // only new_pattern uses it, so submit must not send it for pattern_threshold.
+                    triggerConfig: { seed_lookback_days: 3 },
+                })
+                logic.actions.submitAlertForm()
+            }).toFinishAllListeners()
+
+            expect(mockLogsAlertsCreate).toHaveBeenCalledWith(
+                MOCK_PROJECT_ID,
+                expect.objectContaining({
+                    trigger_type: TriggerTypeEnumApi.PatternThreshold,
+                    trigger_config: null,
+                })
+            )
+        })
+
         it('builds filters with only serviceNames when only serviceNames are provided', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setAlertFormValues({
@@ -530,6 +576,8 @@ describe('logsAlertFormLogic', () => {
                 name: '',
                 severityLevels: ['trace', 'debug', 'info', 'warn', 'error', 'fatal'],
                 serviceNames: [],
+                triggerType: TriggerTypeEnumApi.Count,
+                triggerConfig: null,
                 thresholdOperator: 'above',
                 thresholdCount: 100,
                 windowMinutes: 10,
@@ -537,6 +585,64 @@ describe('logsAlertFormLogic', () => {
                 datapointsToAlarm: 1,
                 cooldownMinutes: 0,
             })
+
+            logic.unmount()
+        })
+
+        it('pre-populates triggerType and triggerConfig from an existing pattern-trigger alert', () => {
+            const logic = logsAlertFormLogic({
+                alert: {
+                    ...MOCK_ALERT,
+                    trigger_type: TriggerTypeEnumApi.NewPattern,
+                    trigger_config: { seed_lookback_days: 3 },
+                },
+            })
+            logic.mount()
+
+            expect(logic.values.alertForm.triggerType).toBe(TriggerTypeEnumApi.NewPattern)
+            expect(logic.values.alertForm.triggerConfig).toEqual({ seed_lookback_days: 3 })
+
+            logic.unmount()
+        })
+    })
+
+    describe('patternTriggersEnabled selector', () => {
+        beforeEach(() => {
+            featureFlagLogic.mount()
+        })
+
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {})
+        })
+
+        it('is false for a new alert when the flag is off', () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.LOGS_PATTERN_ALERTS]: false })
+            const logic = logsAlertFormLogic({ alert: null })
+            logic.mount()
+
+            expect(logic.values.patternTriggersEnabled).toBe(false)
+
+            logic.unmount()
+        })
+
+        it('is true for a new alert when the flag is on', () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.LOGS_PATTERN_ALERTS]: true })
+            const logic = logsAlertFormLogic({ alert: null })
+            logic.mount()
+
+            expect(logic.values.patternTriggersEnabled).toBe(true)
+
+            logic.unmount()
+        })
+
+        it('stays true while editing an alert that already has a pattern trigger, even with the flag off', () => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.LOGS_PATTERN_ALERTS]: false })
+            const logic = logsAlertFormLogic({
+                alert: { ...MOCK_ALERT, trigger_type: TriggerTypeEnumApi.PatternThreshold },
+            })
+            logic.mount()
+
+            expect(logic.values.patternTriggersEnabled).toBe(true)
 
             logic.unmount()
         })

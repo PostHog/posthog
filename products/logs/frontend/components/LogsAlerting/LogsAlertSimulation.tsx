@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonButton, LemonCard, LemonSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { DefaultTooltip, type Series, TimeSeriesBarChart, type TimeSeriesBarChartConfig } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
@@ -11,7 +11,11 @@ import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
-import { LogsAlertSimulateBucketApi, LogsAlertSimulateResponseApi } from 'products/logs/frontend/generated/api.schemas'
+import {
+    LogsAlertSimulateBucketApi,
+    LogsAlertSimulateResponseApi,
+    TriggerTypeEnumApi,
+} from 'products/logs/frontend/generated/api.schemas'
 
 import { logsAlertFormLogic } from './logsAlertFormLogic'
 
@@ -40,18 +44,29 @@ function BucketTooltipDetails({ bucket }: { bucket: LogsAlertSimulateBucketApi |
             {details.map((detail) => (
                 <span key={detail}>{detail}</span>
             ))}
+            {bucket.breaching_patterns?.map((pattern) => (
+                <span key={`${pattern.service_name}:${pattern.pattern}`} className="truncate max-w-64">
+                    {pattern.service_name}: {pattern.pattern}
+                </span>
+            ))}
         </div>
     )
 }
 
-function SimulationChart({ result }: { result: LogsAlertSimulateResponseApi }): JSX.Element {
+function SimulationChart({
+    result,
+    isPatternTrigger,
+}: {
+    result: LogsAlertSimulateResponseApi
+    isPatternTrigger: boolean
+}): JSX.Element {
     const { labels, series } = useMemo(
         () => ({
             labels: result.buckets.map((b: LogsAlertSimulateBucketApi) => b.timestamp),
             series: [
                 {
                     key: 'count',
-                    label: 'Log count',
+                    label: isPatternTrigger ? 'Breaching patterns' : 'Log count',
                     data: result.buckets.map((b: LogsAlertSimulateBucketApi) => b.count),
                     // One series with per-bar colors, so a bucket's simulated outcome is visible without
                     // splitting the counts across three mutually exclusive series.
@@ -64,7 +79,7 @@ function SimulationChart({ result }: { result: LogsAlertSimulateResponseApi }): 
                 },
             ] as Series[],
         }),
-        [result]
+        [result, isPatternTrigger]
     )
 
     const theme = useChartTheme()
@@ -73,15 +88,19 @@ function SimulationChart({ result }: { result: LogsAlertSimulateResponseApi }): 
             showCrosshair: false,
             // Buckets are minutes apart, and the surrounding incident table renders in local time.
             xAxis: { interval: 'minute', timezone: dayjs.tz.guess() },
-            goalLines: [
-                {
-                    value: result.threshold_count,
-                    label: 'Threshold',
-                    displayLabel: true,
-                },
-            ],
+            // threshold_count is occurrences of one pattern, not a count of breaching patterns, so it
+            // isn't on the same axis as this chart's bars for a pattern trigger. Omit the goal line.
+            goalLines: isPatternTrigger
+                ? undefined
+                : [
+                      {
+                          value: result.threshold_count,
+                          label: 'Threshold',
+                          displayLabel: true,
+                      },
+                  ],
         }),
-        [result.threshold_count]
+        [result.threshold_count, isPatternTrigger]
     )
 
     return (
@@ -183,9 +202,11 @@ function SimulationSummary({
 function SimulationIncidents({
     incidents,
     threshold,
+    isPatternTrigger,
 }: {
     incidents: Incident[]
     threshold: number
+    isPatternTrigger: boolean
 }): JSX.Element | null {
     if (incidents.length === 0) {
         return null
@@ -200,8 +221,16 @@ function SimulationIncidents({
                 <Tooltip title="How long the alert remained in a firing state">
                     <div className="flex-[1] min-w-0 px-2 cursor-help">Duration</div>
                 </Tooltip>
-                <Tooltip title="Highest rolling window count during this alert vs your configured threshold">
-                    <div className="flex-[1] min-w-0 px-2 cursor-help">Peak / threshold</div>
+                <Tooltip
+                    title={
+                        isPatternTrigger
+                            ? 'Highest number of breaching patterns during this alert'
+                            : 'Highest rolling window count during this alert vs your configured threshold'
+                    }
+                >
+                    <div className="flex-[1] min-w-0 px-2 cursor-help">
+                        {isPatternTrigger ? 'Peak' : 'Peak / threshold'}
+                    </div>
                 </Tooltip>
                 <Tooltip title="Whether the alert resolved or is still active at the end of the simulation window">
                     <div className="flex-[3] min-w-0 px-2 cursor-help">Outcome</div>
@@ -209,9 +238,18 @@ function SimulationIncidents({
             </div>
             <div className="max-h-[280px] overflow-y-auto divide-y divide-border">
                 {incidents.map((incident, i) => {
-                    const peakRatio = incident.peakCount / threshold
+                    // threshold_count is occurrences of a single pattern for a pattern trigger, a
+                    // different unit than peakCount (breaching pattern count). The ratio only holds
+                    // for a count trigger, where both sides are the same matching-log count.
+                    const peakRatio = isPatternTrigger ? null : incident.peakCount / threshold
                     const severityColor =
-                        peakRatio >= 5 ? 'text-danger font-bold' : peakRatio >= 2 ? 'text-danger' : 'text-warning'
+                        peakRatio === null
+                            ? 'text-danger'
+                            : peakRatio >= 5
+                              ? 'text-danger font-bold'
+                              : peakRatio >= 2
+                                ? 'text-danger'
+                                : 'text-warning'
 
                     return (
                         <div key={i} className="flex items-center text-xs py-2.5">
@@ -223,7 +261,9 @@ function SimulationIncidents({
                             </div>
                             <div className="flex-[1] min-w-0 px-2">
                                 <span className={severityColor}>{incident.peakCount.toLocaleString()}</span>
-                                <span className="text-secondary"> / {threshold.toLocaleString()}</span>
+                                {isPatternTrigger ? null : (
+                                    <span className="text-secondary"> / {threshold.toLocaleString()}</span>
+                                )}
                             </div>
                             <div className="flex-[3] min-w-0 px-2">
                                 {incident.stillFiring ? (
@@ -245,18 +285,32 @@ function SimulationIncidents({
 }
 
 function SimulationResults({ result }: { result: LogsAlertSimulateResponseApi }): JSX.Element {
+    const { alertForm } = useValues(logsAlertFormLogic)
+    const isPatternTrigger = alertForm.triggerType !== TriggerTypeEnumApi.Count
     const incidents = extractIncidents(result.buckets)
     const op = result.threshold_operator === 'above' ? '>' : '<'
 
     return (
         <div className="space-y-4">
+            {result.approximate ? (
+                <LemonBanner type="info">
+                    This preview is approximate. It rebuilds its own record of previously seen patterns from this date
+                    range, instead of the alert's real history, so early buckets can under- or over-count new patterns
+                    compared to production.
+                </LemonBanner>
+            ) : null}
             <p className="text-xs text-secondary m-0">
-                Simulated with current form settings: {op} {result.threshold_count} logs in window. Edit the form and
-                re-run to compare.
+                {isPatternTrigger
+                    ? `Simulated with current form settings: at least ${result.threshold_count} occurrences per pattern in window. Edit the form and re-run to compare.`
+                    : `Simulated with current form settings: ${op} ${result.threshold_count} logs in window. Edit the form and re-run to compare.`}
             </p>
-            <SimulationChart result={result} />
+            <SimulationChart result={result} isPatternTrigger={isPatternTrigger} />
             <SimulationSummary result={result} incidents={incidents} />
-            <SimulationIncidents incidents={incidents} threshold={result.threshold_count} />
+            <SimulationIncidents
+                incidents={incidents}
+                threshold={result.threshold_count}
+                isPatternTrigger={isPatternTrigger}
+            />
         </div>
     )
 }

@@ -23,7 +23,7 @@ import { AlertEditorSection } from 'products/alerts/frontend/components/AlertEdi
 import { QuietHoursFields } from 'products/alerts/frontend/components/QuietHoursFields'
 import { ServiceFilter } from 'products/logs/frontend/components/LogsViewer/Filters/ServiceFilter'
 import { SeverityLevelsFilter } from 'products/logs/frontend/components/LogsViewer/Filters/SeverityLevelsFilter'
-import { LogsAlertThresholdOperatorEnumApi } from 'products/logs/frontend/generated/api.schemas'
+import { LogsAlertThresholdOperatorEnumApi, TriggerTypeEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsAlertFormLogic } from './logsAlertFormLogic'
 
@@ -153,12 +153,19 @@ export function LogsAlertFilters({ filterError }: { filterError?: string }): JSX
     )
 }
 
+const TRIGGER_TYPE_OPTIONS = [
+    { value: TriggerTypeEnumApi.Count, label: 'Count threshold' },
+    { value: TriggerTypeEnumApi.NewPattern, label: 'New pattern' },
+    { value: TriggerTypeEnumApi.PatternThreshold, label: 'Pattern threshold' },
+]
+
 export function LogsAlertTrigger(): JSX.Element {
-    const { alertForm } = useValues(logsAlertFormLogic)
+    const { alertForm, patternTriggersEnabled } = useValues(logsAlertFormLogic)
     const { timezone } = useValues(teamLogic)
     const { setAlertFormValue } = useActions(logsAlertFormLogic)
+    const isPatternTrigger = alertForm.triggerType !== TriggerTypeEnumApi.Count
     const enabledAdvancedOptionsCount =
-        Number(alertForm.evaluationPeriods > 1 || alertForm.datapointsToAlarm > 1) +
+        Number(!isPatternTrigger && (alertForm.evaluationPeriods > 1 || alertForm.datapointsToAlarm > 1)) +
         Number(alertForm.cooldownMinutes > 0) +
         Number(alertForm.scheduleRestriction !== null)
 
@@ -166,83 +173,71 @@ export function LogsAlertTrigger(): JSX.Element {
         <div className="space-y-4">
             <div className="space-y-2">
                 <h4 className="m-0">Trigger condition</h4>
-                <AlertDefinitionRow label="Alert if count goes">
-                    <LemonSegmentedButton
-                        value={alertForm.thresholdOperator}
-                        onChange={(value) => setAlertFormValue('thresholdOperator', value)}
-                        options={[
-                            { value: LogsAlertThresholdOperatorEnumApi.Above, label: 'above' },
-                            { value: LogsAlertThresholdOperatorEnumApi.Below, label: 'below' },
-                        ]}
-                        size="small"
-                    />
-                    <LemonInput
-                        type="number"
-                        min={0}
-                        value={alertForm.thresholdCount}
-                        onChange={(value) => setAlertFormValue('thresholdCount', value ?? 0)}
-                        className="w-24"
-                        size="small"
-                        data-attr="logs-alert-threshold-count"
-                    />
-                    <span className="text-sm">in the last</span>
-                    <LemonSelect
-                        value={alertForm.windowMinutes}
-                        onChange={(value) => setAlertFormValue('windowMinutes', value ?? 10)}
-                        options={WINDOW_OPTIONS}
-                        size="small"
-                    />
-                </AlertDefinitionRow>
+                {patternTriggersEnabled ? (
+                    <AlertDefinitionRow label="Alert on">
+                        <LemonSegmentedButton
+                            value={alertForm.triggerType}
+                            onChange={(value) => setAlertFormValue('triggerType', value)}
+                            options={TRIGGER_TYPE_OPTIONS}
+                            size="small"
+                            data-attr="logs-alert-trigger-type"
+                        />
+                    </AlertDefinitionRow>
+                ) : null}
+                <LogsAlertTriggerRow />
+                {alertForm.triggerType === TriggerTypeEnumApi.NewPattern ? <LogsAlertSeedLookbackRow /> : null}
             </div>
             <AlertAdvancedOptions enabledCount={enabledAdvancedOptionsCount}>
-                <LemonField.Pure
-                    label={
-                        <span className="inline-flex items-center gap-1">
-                            Reduce noise
-                            <Tooltip title="Require the condition to be met multiple times before the alert fires. This prevents notifications on brief, one-off spikes.">
-                                <IconInfo className="text-base text-secondary" />
-                            </Tooltip>
-                        </span>
-                    }
-                >
-                    <div className="space-y-2">
-                        <div className="flex items-center gap-2 flex-wrap">
-                            <LemonInput
-                                type="number"
-                                min={1}
-                                max={alertForm.evaluationPeriods}
-                                value={alertForm.datapointsToAlarm}
-                                onChange={(value) => setAlertFormValue('datapointsToAlarm', value ?? 1)}
-                                className="w-16"
-                                size="small"
-                            />
-                            <span className="text-sm">of</span>
-                            <LemonInput
-                                type="number"
-                                min={alertForm.datapointsToAlarm}
-                                max={10}
-                                value={alertForm.evaluationPeriods}
-                                onChange={(value) => {
-                                    const newPeriods = value ?? alertForm.datapointsToAlarm
-                                    setAlertFormValue('evaluationPeriods', newPeriods)
-                                    if (alertForm.datapointsToAlarm > newPeriods) {
-                                        setAlertFormValue('datapointsToAlarm', newPeriods)
-                                    }
-                                }}
-                                className="w-16"
-                                size="small"
-                            />
-                            <span className="text-sm">checks must match to fire</span>
-                            <CheckDotsTooltip
-                                datapoints={alertForm.datapointsToAlarm}
-                                periods={alertForm.evaluationPeriods}
-                            />
+                {!isPatternTrigger ? (
+                    <LemonField.Pure
+                        label={
+                            <span className="inline-flex items-center gap-1">
+                                Reduce noise
+                                <Tooltip title="Require the condition to be met multiple times before the alert fires. This prevents notifications on brief, one-off spikes.">
+                                    <IconInfo className="text-base text-secondary" />
+                                </Tooltip>
+                            </span>
+                        }
+                    >
+                        <div className="space-y-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <LemonInput
+                                    type="number"
+                                    min={1}
+                                    max={alertForm.evaluationPeriods}
+                                    value={alertForm.datapointsToAlarm}
+                                    onChange={(value) => setAlertFormValue('datapointsToAlarm', value ?? 1)}
+                                    className="w-16"
+                                    size="small"
+                                />
+                                <span className="text-sm">of</span>
+                                <LemonInput
+                                    type="number"
+                                    min={alertForm.datapointsToAlarm}
+                                    max={10}
+                                    value={alertForm.evaluationPeriods}
+                                    onChange={(value) => {
+                                        const newPeriods = value ?? alertForm.datapointsToAlarm
+                                        setAlertFormValue('evaluationPeriods', newPeriods)
+                                        if (alertForm.datapointsToAlarm > newPeriods) {
+                                            setAlertFormValue('datapointsToAlarm', newPeriods)
+                                        }
+                                    }}
+                                    className="w-16"
+                                    size="small"
+                                />
+                                <span className="text-sm">checks must match to fire</span>
+                                <CheckDotsTooltip
+                                    datapoints={alertForm.datapointsToAlarm}
+                                    periods={alertForm.evaluationPeriods}
+                                />
+                            </div>
+                            <p className="text-xs text-secondary m-0">
+                                The alert auto-resolves once the condition is no longer met.
+                            </p>
                         </div>
-                        <p className="text-xs text-secondary m-0">
-                            The alert auto-resolves once the condition is no longer met.
-                        </p>
-                    </div>
-                </LemonField.Pure>
+                    </LemonField.Pure>
+                ) : null}
                 <LemonField.Pure
                     label="Notification cooldown"
                     help="After firing, wait this long before sending another notification. Set to 0 to notify on every check."
@@ -267,6 +262,120 @@ export function LogsAlertTrigger(): JSX.Element {
                 />
             </AlertAdvancedOptions>
         </div>
+    )
+}
+
+function LogsAlertTriggerRow(): JSX.Element {
+    const { alertForm } = useValues(logsAlertFormLogic)
+    const { setAlertFormValue } = useActions(logsAlertFormLogic)
+
+    if (alertForm.triggerType === TriggerTypeEnumApi.NewPattern) {
+        return (
+            <AlertDefinitionRow label="Alert the first time a new error pattern reaches at least">
+                <LemonInput
+                    type="number"
+                    min={1}
+                    value={alertForm.thresholdCount}
+                    onChange={(value) => setAlertFormValue('thresholdCount', value ?? 1)}
+                    className="w-24"
+                    size="small"
+                    data-attr="logs-alert-threshold-count"
+                />
+                <span className="text-sm">occurrences in the last</span>
+                <LemonSelect
+                    value={alertForm.windowMinutes}
+                    onChange={(value) => setAlertFormValue('windowMinutes', value ?? 10)}
+                    options={WINDOW_OPTIONS}
+                    size="small"
+                />
+            </AlertDefinitionRow>
+        )
+    }
+
+    if (alertForm.triggerType === TriggerTypeEnumApi.PatternThreshold) {
+        return (
+            <AlertDefinitionRow label="Alert when a single error pattern reaches">
+                <LemonInput
+                    type="number"
+                    min={1}
+                    value={alertForm.thresholdCount}
+                    onChange={(value) => setAlertFormValue('thresholdCount', value ?? 1)}
+                    className="w-24"
+                    size="small"
+                    data-attr="logs-alert-threshold-count"
+                />
+                <span className="text-sm">occurrences in the last</span>
+                <LemonSelect
+                    value={alertForm.windowMinutes}
+                    onChange={(value) => setAlertFormValue('windowMinutes', value ?? 10)}
+                    options={WINDOW_OPTIONS}
+                    size="small"
+                />
+            </AlertDefinitionRow>
+        )
+    }
+
+    return (
+        <AlertDefinitionRow label="Alert if count goes">
+            <LemonSegmentedButton
+                value={alertForm.thresholdOperator}
+                onChange={(value) => setAlertFormValue('thresholdOperator', value)}
+                options={[
+                    { value: LogsAlertThresholdOperatorEnumApi.Above, label: 'above' },
+                    { value: LogsAlertThresholdOperatorEnumApi.Below, label: 'below' },
+                ]}
+                size="small"
+            />
+            <LemonInput
+                type="number"
+                min={0}
+                value={alertForm.thresholdCount}
+                onChange={(value) => setAlertFormValue('thresholdCount', value ?? 0)}
+                className="w-24"
+                size="small"
+                data-attr="logs-alert-threshold-count"
+            />
+            <span className="text-sm">in the last</span>
+            <LemonSelect
+                value={alertForm.windowMinutes}
+                onChange={(value) => setAlertFormValue('windowMinutes', value ?? 10)}
+                options={WINDOW_OPTIONS}
+                size="small"
+            />
+        </AlertDefinitionRow>
+    )
+}
+
+function LogsAlertSeedLookbackRow(): JSX.Element {
+    const { alertForm } = useValues(logsAlertFormLogic)
+    const { setAlertFormValue } = useActions(logsAlertFormLogic)
+    const seedLookbackDays = alertForm.triggerConfig?.seed_lookback_days ?? 7
+
+    return (
+        <AlertDefinitionRow
+            label={
+                <span className="inline-flex items-center gap-1">
+                    Seed from
+                    <Tooltip title="On its first check, the alert scans this much history to learn which error patterns already exist, so it never fires on them.">
+                        <IconInfo className="text-base text-secondary" />
+                    </Tooltip>
+                </span>
+            }
+        >
+            <LemonInput
+                type="number"
+                min={1}
+                max={30}
+                value={seedLookbackDays}
+                onChange={(value) =>
+                    setAlertFormValue('triggerConfig', { ...alertForm.triggerConfig, seed_lookback_days: value ?? 7 })
+                }
+                className="w-24"
+                size="small"
+                data-attr="logs-alert-seed-lookback-days"
+            />
+            <span className="text-sm">days of history</span>
+        </AlertDefinitionRow>
     )
 }
 

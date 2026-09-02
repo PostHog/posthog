@@ -578,6 +578,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 { key: 'severity_level', name: 'severity_level', propertyFilterType: 'log' },
                 { key: 'trace_id', name: 'trace_id', propertyFilterType: 'log' },
                 { key: 'span_id', name: 'span_id', propertyFilterType: 'log' },
+                { key: 'pattern', name: 'pattern', propertyFilterType: 'log' },
             ].filter((o) => !excludedProperties[TaxonomicFilterGroupType.Logs]?.includes(o.key)),
             localItemsSearch: (items: any[], q: string): any[] => {
                 if (!q) {
