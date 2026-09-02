@@ -442,13 +442,18 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 new Date(Date.now() - 3600_000).toISOString(),
                 undefined,
             ],
+            [
+                'dated well ahead of now by a fast client clock',
+                new Date(Date.now() + 3600_000).toISOString(),
+                undefined,
+            ],
         ])(
             'overlays the trigger event $set onto the resolved person when the event was %s',
             async (_label, capturedAt, expectedEmail) => {
                 // Person A 1 is cached with no email. When the trigger is the very event that sets one,
                 // the cached copy can predate that write, so a message step reads no recipient and the
-                // send fails. Once the event is older than the cache can lag, the person read is
-                // authoritative and the trigger's values must not win over it.
+                // send fails. Outside the window the person read is authoritative and the trigger's
+                // values must not win over it, however the event dates itself.
                 const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
                     event: {
                         distinct_id: 'distinct_A_1',

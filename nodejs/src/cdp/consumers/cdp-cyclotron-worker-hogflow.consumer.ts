@@ -52,8 +52,11 @@ function applyEventPersonPropertyWrites(
     event: HogFlowInvocationContext['event'],
     personIdOrDistinctId: string
 ): CyclotronPerson {
+    // The window is two-sided. `timestamp` is the fallback when the server did not stamp
+    // `captured_at`, and a client clock that runs fast makes an old event look recent forever, which
+    // is the case the upper bound exists to stop. An event dated far ahead is not trusted at all.
     const capturedAt = Date.parse(event.captured_at ?? event.timestamp)
-    if (!Number.isFinite(capturedAt) || Date.now() - capturedAt > EVENT_PERSON_WRITE_OVERLAY_WINDOW_MS) {
+    if (!Number.isFinite(capturedAt) || Math.abs(Date.now() - capturedAt) > EVENT_PERSON_WRITE_OVERLAY_WINDOW_MS) {
         return person
     }
 
