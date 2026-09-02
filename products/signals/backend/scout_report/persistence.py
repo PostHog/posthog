@@ -356,14 +356,6 @@ def update_scout_report(
                 # receivers.py).
                 report._unreviewed_edit = True  # type: ignore[attr-defined]
             report.save(update_fields=updated_fields)
-        elif reviewed and title is not None and summary is not None:
-            # A judged rewrite to the exact stored document: nothing changes in Postgres, but the
-            # embedding row may be a tombstone from an earlier unreviewed edit, and only a save marked
-            # as re-indexable lets the receiver restore it (see receivers.py). The receiver cannot see
-            # whether the row is live, so this spends one re-embed of identical text when it was — a
-            # judged re-send is rare, and a supersede write is cheap.
-            report._reviewed_reindex = True  # type: ignore[attr-defined]
-            report.save(update_fields=["title", "summary", "updated_at"])
             if attribution is not None:
                 edit_artefacts: list[TitleChange | SummaryChange] = []
                 if "title" in updated_fields:
@@ -377,6 +369,15 @@ def update_scout_report(
                         content=content,
                         attribution=attribution,
                     )
+        elif reviewed and title is not None and summary is not None:
+            # A judged rewrite to the exact stored document: nothing changes in Postgres, but the
+            # embedding row may be a tombstone from an earlier unreviewed edit, and only a save marked
+            # as re-indexable lets the receiver restore it (see receivers.py). The receiver cannot see
+            # whether the row is live, so this spends one re-embed of identical text when it was — a
+            # judged re-send is rare, and a supersede write is cheap. No change artefacts: nothing
+            # changed.
+            report._reviewed_reindex = True  # type: ignore[attr-defined]
+            report.save(update_fields=["title", "summary", "updated_at"])
 
     logger.info(
         "signals_scout.edit_report: content updated",
