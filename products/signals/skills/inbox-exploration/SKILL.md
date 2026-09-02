@@ -60,6 +60,7 @@ _underlying detail_ — pair them when the user wants to dig in.
 | ------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `inbox-reports-list`                  | Paginated list of reports with filters (status, search, etc.)                                                 |
 | `inbox-reports-retrieve`              | Full detail for a single report                                                                               |
+| `inbox-reports-claim`                 | Claim or release a report, and optionally attach its implementation PR                                        |
 | `inbox-report-artefacts-list`         | A report's full work log — `signal_finding` evidence, status judgments, commits, task runs, notes (read-only) |
 | `inbox-report-artefacts-retrieve`     | Full detail for a single artefact (read-only)                                                                 |
 | `inbox-reports-set-state`             | Resolve (`resolved`), dismiss (`suppressed`), or snooze (`potential`) a single report                         |
@@ -71,12 +72,12 @@ _underlying detail_ — pair them when the user wants to dig in.
 
 The `inbox-reports-*-list` / `-retrieve`, `inbox-report-artefacts-list` / `-retrieve`, and
 `inbox-source-configs-*-list` / `-retrieve` tools are read-only. The exposed writes are `inbox-reports-set-state` (resolve / dismiss / snooze a single report),
-`inbox-reports-bulk-set-state` (the same transition for 1–100 reports in one call) — see
+`inbox-reports-bulk-set-state` (the same transition for 1–100 reports in one call),
+`inbox-reports-claim` (claim / release / attach a PR), see
 _Workflow: resolve, dismiss, or snooze a report_ — and `inbox-source-configs-partial-update`, which flips a
 source's `enabled` flag on or off (e.g. `{enabled: false}` to stop a source feeding the inbox);
-`-create` / `-update` exist too for standing a source up or replacing it wholesale. Other writes
-(pause processing, set `implementation_pr_url`) are not exposed via MCP today — the PR link is
-populated on the product surface when a PR is opened against a report.
+`-create` / `-update` exist too for standing a source up or replacing it wholesale. Pausing
+processing is not exposed via MCP.
 
 ## Terminology
 
@@ -285,7 +286,7 @@ implement.** Reports from `signals_scout` (and any LLM-research source) are espe
 double-checking; their `summary` often reads as a confident root-cause with file and function
 names, but it can be stale or wrong.
 
-### Step 1 — Retrieve and check it isn't already handled
+### Step 1 — Retrieve, check existing work, and claim it
 
 ```json
 inbox-reports-retrieve
@@ -297,8 +298,19 @@ Before doing any work, look at:
 - `already_addressed` — if `true`, the fix may already be in flight or merged; confirm with the
   user before duplicating it.
 - `implementation_pr_url` — if a PR is already linked, surface it instead of opening a second one.
+- `work_state` and `assignee` — show whether someone else has already picked it up. A takeover is
+  allowed, but make it deliberate rather than overlooking active work.
 - `status` — only `ready` reports carry a finished judgment. A `candidate` / `pending_input`
   report hasn't been researched yet; don't implement off a half-formed summary.
+
+Before starting research or implementation, claim the report:
+
+```json
+posthog:inbox-reports-claim
+{ "report_id": "<report_uuid>" }
+```
+
+The claim is attributed to the current internal task or external MCP client. Claims do not expire.
 
 ### Step 2 — Verify the diagnosis against the code (do not skip)
 
@@ -329,15 +341,25 @@ speculative fix.
   area-specific skills), make the change minimal, and add a regression test that would have caught
   the reported failure.
 
-### Step 4 — Open the PR and link it back
+### Step 4 — Open the PR and attach it
 
-Open the PR following the repo's PR conventions. There is no MCP tool to set
-`implementation_pr_url` — that link is populated on the product surface when a PR is opened
-against the report. So reference the report in the PR description (its `_posthogUrl`) and tell the
-user which report the PR addresses, so the loop is traceable.
+Open the PR following the repo's PR conventions, then attach it to the report:
 
-**Don't resolve a report because you opened a PR.** When the fix ships as a PR, the merge is what
-resolves the report — the tasks GitHub webhook does it automatically. Resolving by hand at PR-open
+```json
+posthog:inbox-reports-claim
+{
+  "report_id": "<report_uuid>",
+  "pr_url": "https://github.com/example/repository/pull/123"
+}
+```
+
+The same PR may be attached to multiple reports. Connected repositories receive immediate state
+validation and webhook updates. PRs from unconnected repositories are accepted with unknown state,
+so resolve those reports manually after the work lands. Also reference the report's `_posthogUrl`
+in the PR description so the loop is traceable from either side.
+
+**Don't resolve a report because you opened a PR.** When the fix ships as a connected PR, the merge
+resolves the report automatically. Resolving by hand at PR-open
 time asserts work that hasn't landed, and a reviewer looking at the inbox can't tell the difference.
 Manual resolve is for fixes a PR merge will never cover — a skill-body change, a config change, a
 `NO_REPO` report — see the workflow below.
@@ -488,12 +510,12 @@ inbox-source-configs-partial-update
 - `suppressed` reports are excluded by default; pass `status: "suppressed"` explicitly if the
   user wants to see hidden items
 - The inbox writes exposed via MCP are `inbox-reports-set-state` (resolve / dismiss / snooze one
-  report), `inbox-reports-bulk-set-state` (the same for 1–100 reports), and
+  report), `inbox-reports-bulk-set-state` (the same for 1–100 reports), `inbox-reports-claim`
+  (claim / release / attach a PR), and
   `inbox-source-configs-partial-update` (toggle a source's `enabled` flag). To _act_ on a report
-  (implement a fix), verify the diagnosis against the code first, then open a PR — see
+  (implement a fix), claim it, verify the diagnosis against the code, then open and attach a PR — see
   _Workflow: act on an actionable report_. A PR-backed fix is resolved automatically when the PR
-  merges, so don't resolve it by hand at PR-open time; setting `implementation_pr_url` happens on
-  the product surface, not via MCP. Always also surface the `_posthogUrl` deep-link
+  merges, so don't resolve it by hand at PR-open time. Always also surface the `_posthogUrl` deep-link
 - **Never implement a report's fix straight from its `summary`.** Reports — especially
   `signals_scout` ones — are LLM diagnoses; confirm the cited files / functions / behavior in the
   actual code before writing a fix. A report that doesn't hold up is a dismissal candidate, not a

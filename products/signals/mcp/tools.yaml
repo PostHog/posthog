@@ -127,6 +127,29 @@ tools:
             `results` (one entry per id, in request order) and the `transitioned_count` / `skipped_count` /
             `failed_count` / `not_found_count` summary. An id whose transition isn't allowed from its current status
             comes back as `skipped` (the single-report 409) while the rest still go through.
+    inbox-reports-claim:
+        operation: signals_reports_claim
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Claim or release a signal report
+        description: >
+            Claim a ready, pending_input, potential, or suppressed report before working on it. Calling this again as
+            another actor silently takes over the claim. Optionally pass `pr_url` to attach or replace one GitHub pull
+            request; the report does not need a pull request to be claimed or resolved. Pass `release=true` to clear
+            only ownership while preserving any attached pull request. Only the current owner can release a claim. A
+            connected repository is checked immediately; an unconnected GitHub pull request is accepted with unknown
+            state and will not receive webhook updates. Returns the full report with work_state, assignee, and pull
+            request fields.
+        param_overrides:
+            id:
+                aliases:
+                    - report_id
     inbox-reports-list:
         operation: signals_reports_list
         enabled: true
@@ -143,28 +166,24 @@ tools:
             List signal reports for the current project. A signal report is a cluster of related observations (signals)
             that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering
             by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text
-            search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers
-            (PostHog user UUIDs), and task_id (only reports associated with that task — pass your own task id to see
-            which reports you are already working against). Some statuses are hidden by default (currently suppressed,
-            i.e. human-dismissed); pass `include_all_statuses=true` to list reports in every status — do this when
+            search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers,
+            `unclaimed`, and `assignee=me`. Claimed reports remain actionable and visible; use `unclaimed=true` to pick
+            work that has neither an owner nor an open or unknown PR. Some statuses are hidden by default (currently
+            suppressed, i.e. human-dismissed); pass `include_all_statuses=true` to list reports in every status. Do this when
             deduplicating against the full inbox state, and read each row's `status` (plus `dismissal_reason` /
             `dismissal_note` on dismissed rows) before acting. For picking up work, filter to `ready` — earlier statuses
             are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's
-            full work log — signal findings (evidence), judgments, and log entries — is readable via
+            full work log, including signal findings, judgments, and log entries, is readable via
             inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by
             '-is_suggested_reviewer,status,-updated_at' by default. To find the self-driving reports for one source
             record — e.g. what the inbox already investigated for a specific support ticket — pass that record's id as
             `source_id` together with exactly one `source_product` (for a support ticket: `source_product=conversations`
             and the ticket's UUID as `source_id`); add `include_all_statuses=true` to include dismissed ones.
         agent_note:
-            "If you do ANY work connected to one of these reports — even pure research or investigation — always first
-            associate your task with it: call inbox-report-artefacts-create with artefact_type `task_run` and content {}
-            (your own task id is filled in automatically). That task_run artefact IS the task↔report association —
-            commits you push are recorded on the report through it, and without it your work is invisible to the report.
-            If that call fails with a 400 saying a task id is required, you simply have no task id of your own — that's
-            expected, not an error to fix; skip the association and carry on. Without the write tools (a read-only
-            session) ignore the association step entirely — artefact persistence is handled for you. Read the report's
-            work log via inbox-report-artefacts-list before acting."
+            "Before doing any work connected to a report, call inbox-reports-claim for that report. This records who is
+            working on it for other people and agents. Read the report's work log via inbox-report-artefacts-list before
+            acting. Attach the implementation pull request by calling inbox-reports-claim again with `pr_url`. Release
+            only when abandoning ownership; resolving work does not require a pull request."
         response:
             include:
                 - id
@@ -181,6 +200,10 @@ tools:
                 - source_products
                 - is_suggested_reviewer
                 - implementation_pr_url
+                - implementation_pr_state
+                - implementation_pr_merged
+                - work_state
+                - assignee
                 - created_at
                 - updated_at
     inbox-reports-retrieve:
@@ -195,27 +218,16 @@ tools:
         enrich_url: '{id}'
         title: Get signal report
         description: >
-            Get a single signal report by ID. Returns the full report including title, summary, status, priority and
-            actionability judgments, signal_count, total_weight, source products, and the URL of the implementation PR
-            if one has been opened. The report's full work log — signal findings (evidence), judgments, and log entries
-            — is readable via inbox-report-artefacts-list; read it before acting on the report. The raw underlying
-            signals require a HogQL query (see the 'signals' skill). If you do any work prompted by this report — even
-            research — first associate your task with it by appending a `task_run` artefact via
-            inbox-report-artefacts-create. Report lifecycle is pipeline-managed — don't try to drive it: act on `ready`
-            reports; `pending_input` means the report is waiting on human input, so surface it to a human rather than
-            acting on it yourself.
+            Get a single signal report by ID. Returns the full report, including work_state, current assignee, and the
+            attached pull request and its latest known state. The report's full work log is readable via
+            inbox-report-artefacts-list; read it before acting. The raw underlying signals require a HogQL query (see
+            the 'signals' skill). Claim the report before doing work. A report may be claimed in ready, pending_input,
+            potential, or suppressed state.
         agent_note:
-            "If you do ANY work connected to this report — even pure research or investigation — always first associate
-            your task with it: call inbox-report-artefacts-create with artefact_type `task_run` and content {} (your own
-            task id is filled in automatically). That task_run artefact IS the task↔report association — commits you
-            push via git_signed_commit are recorded on the report through it, and without it your work is invisible to
-            the report. If that call fails with a 400 saying a task id is required, you simply have no task id of your
-            own — that's expected, not an error to fix; skip the association and continue. Then log the work as
-            artefacts as you go — notes, code references, and any commit you have already pushed to a remote branch
-            outside git_signed_commit (signed pushes are recorded automatically; never record a commit that is not on a
-            remote branch). Status artefacts (priority, actionability, reviewers) are latest-wins — append a new version
-            to re-assess. Without the write tools, work as instructed by your task — artefact persistence is handled for
-            you."
+            'Before doing work on this report, call inbox-reports-claim. Read its artefacts first, then log useful notes
+            and code references as you go. Call inbox-reports-claim again with `pr_url` after opening a pull request.
+            Resolve with inbox-reports-set-state when work finishes without a pull request or webhook automation cannot
+            observe the merge.'
         param_overrides:
             id:
                 aliases:

@@ -5855,8 +5855,22 @@
             "readOnlyHint": false
         }
     },
+    "inbox-reports-claim": {
+        "description": "Claim a ready, pending_input, potential, or suppressed report before working on it. Calling this again as another actor silently takes over the claim. Optionally pass `pr_url` to attach or replace one GitHub pull request; the report does not need a pull request to be claimed or resolved. Pass `release=true` to clear only ownership while preserving any attached pull request. Only the current owner can release a claim. A connected repository is checked immediately; an unconnected GitHub pull request is accepted with unknown state and will not receive webhook updates. Returns the full report with work_state, assignee, and pull request fields.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Claim or release a signal report",
+        "title": "Claim or release a signal report",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "inbox-reports-list": {
-        "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers (PostHog user UUIDs), and task_id (only reports associated with that task — pass your own task id to see which reports you are already working against). Some statuses are hidden by default (currently suppressed, i.e. human-dismissed); pass `include_all_statuses=true` to list reports in every status — do this when deduplicating against the full inbox state, and read each row's `status` (plus `dismissal_reason` / `dismissal_note` on dismissed rows) before acting. For picking up work, filter to `ready` — earlier statuses are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's full work log — signal findings (evidence), judgments, and log entries — is readable via inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default. To find the self-driving reports for one source record — e.g. what the inbox already investigated for a specific support ticket — pass that record's id as `source_id` together with exactly one `source_product` (for a support ticket: `source_product=conversations` and the ticket's UUID as `source_id`); add `include_all_statuses=true` to include dismissed ones.",
+        "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers, `unclaimed`, and `assignee=me`. Claimed reports remain actionable and visible; use `unclaimed=true` to pick work that has neither an owner nor an open or unknown PR. Some statuses are hidden by default (currently suppressed, i.e. human-dismissed); pass `include_all_statuses=true` to list reports in every status. Do this when deduplicating against the full inbox state, and read each row's `status` (plus `dismissal_reason` / `dismissal_note` on dismissed rows) before acting. For picking up work, filter to `ready` — earlier statuses are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's full work log, including signal findings, judgments, and log entries, is readable via inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default. To find the self-driving reports for one source record — e.g. what the inbox already investigated for a specific support ticket — pass that record's id as `source_id` together with exactly one `source_product` (for a support ticket: `source_product=conversations` and the ticket's UUID as `source_id`); add `include_all_statuses=true` to include dismissed ones.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List signal reports",
@@ -5870,7 +5884,7 @@
         }
     },
     "inbox-reports-retrieve": {
-        "description": "Get a single signal report by ID. Returns the full report including title, summary, status, priority and actionability judgments, signal_count, total_weight, source products, and the URL of the implementation PR if one has been opened. The report's full work log — signal findings (evidence), judgments, and log entries — is readable via inbox-report-artefacts-list; read it before acting on the report. The raw underlying signals require a HogQL query (see the 'signals' skill). If you do any work prompted by this report — even research — first associate your task with it by appending a `task_run` artefact via inbox-report-artefacts-create. Report lifecycle is pipeline-managed — don't try to drive it: act on `ready` reports; `pending_input` means the report is waiting on human input, so surface it to a human rather than acting on it yourself.",
+        "description": "Get a single signal report by ID. Returns the full report, including work_state, current assignee, and the attached pull request and its latest known state. The report's full work log is readable via inbox-report-artefacts-list; read it before acting. The raw underlying signals require a HogQL query (see the 'signals' skill). Claim the report before doing work. A report may be claimed in ready, pending_input, potential, or suppressed state.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Get signal report",

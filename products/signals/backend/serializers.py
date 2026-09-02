@@ -21,9 +21,12 @@ from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
 from .daily_limit import reports_generated_today, team_day_start
 from .models import (
     AutonomyPriority,
+    SignalActorKind,
     SignalReport,
     SignalReportArtefact,
+    SignalReportAssignment,
     SignalReportRefund,
+    SignalReportWorkState,
     SignalSourceConfig,
     SignalTeamConfig,
     SignalUserAutonomyConfig,
@@ -300,6 +303,31 @@ class _UserSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class SignalReportClaimSerializer(serializers.Serializer):
+    pr_url = serializers.URLField(
+        required=False,
+        help_text=("Optional GitHub pull request to attach to the claim. The report may be claimed without one."),
+    )
+    release = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Release ownership while preserving any attached pull request.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("release") and "pr_url" in attrs:
+            raise serializers.ValidationError("release and pr_url cannot be supplied together.")
+        return attrs
+
+
+class SignalReportAssigneeSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=SignalActorKind.choices)
+    user = _UserSerializer(allow_null=True)
+    task_id = serializers.UUIDField(allow_null=True)
+    agent = serializers.CharField(allow_null=True)
+    claimed_at = serializers.DateTimeField(allow_null=True)
+
+
 class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
     user = _UserSerializer(read_only=True)
     slack_notification_integration_id = serializers.IntegerField(
@@ -531,7 +559,10 @@ class SignalReportSerializer(serializers.ModelSerializer):
         help_text="skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.",
     )
     implementation_pr_url = serializers.SerializerMethodField(
-        help_text="PR URL from the latest implementation task run, if available.",
+        help_text="Pull request attached to this report's claim, if available.",
+    )
+    implementation_pr_state = serializers.SerializerMethodField(
+        help_text="Latest known pull request state: unknown, draft, open, closed, or merged.",
     )
     implementation_pr_merged = serializers.SerializerMethodField(
         help_text=(
@@ -539,6 +570,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "PR or it hasn't merged. Report status doesn't imply this: a resolved report may have been "
             "resolved directly, without a merged PR."
         ),
+    )
+    work_state = serializers.SerializerMethodField(
+        help_text="Derived remediation state: unclaimed, working, in_review, or done.",
+    )
+    assignee = serializers.SerializerMethodField(
+        help_text="Current user, internal task, or external agent claim owner. Null when unclaimed.",
     )
     refund = serializers.SerializerMethodField(
         help_text="The report's PR refund, when one exists. One refund per report, ever.",
@@ -576,7 +613,10 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "source_products",
             "scout_name",
             "implementation_pr_url",
+            "implementation_pr_state",
             "implementation_pr_merged",
+            "work_state",
+            "assignee",
             "refund",
             "refund_ineligibility_reason",
             "billing_exempt_reason",
@@ -688,19 +728,43 @@ class SignalReportSerializer(serializers.ModelSerializer):
         return None
 
     def get_implementation_pr_url(self, obj: SignalReport) -> str | None:
-        implementation_pr_url_map: dict[str, str] | None = self.context.get("implementation_pr_url_map")
-        if implementation_pr_url_map is not None:
-            return implementation_pr_url_map.get(str(obj.id))
-        value = getattr(obj, "implementation_pr_url", None)
-        return value if isinstance(value, str) else None
+        assignment = self._get_assignment(obj)
+        return assignment.pr_url if assignment is not None else None
+
+    @extend_schema_field(serializers.ChoiceField(choices=SignalReportAssignment.PrState.choices, allow_null=True))
+    def get_implementation_pr_state(self, obj: SignalReport) -> str | None:
+        assignment = self._get_assignment(obj)
+        if assignment is None or not assignment.pr_url:
+            return None
+        return assignment.pr_state or SignalReportAssignment.PrState.UNKNOWN
 
     def get_implementation_pr_merged(self, obj: SignalReport) -> bool:
-        merged_report_ids: set[str] | None = self.context.get("implementation_pr_merged_ids")
-        if merged_report_ids is not None:
-            return str(obj.id) in merged_report_ids
-        # Annotated path: the JSON flag arrives as text, and NULL means no PR-bearing run at all.
-        value = getattr(obj, "implementation_pr_merged", None)
-        return value in (True, "true", "True")
+        assignment = self._get_assignment(obj)
+        return bool(assignment and assignment.pr_merged)
+
+    @extend_schema_field(serializers.ChoiceField(choices=SignalReportWorkState.choices))
+    def get_work_state(self, obj: SignalReport) -> str:
+        assignment = self._get_assignment(obj)
+        if assignment is not None:
+            return assignment.work_state
+        return "done" if obj.status == SignalReport.Status.RESOLVED else "unclaimed"
+
+    @extend_schema_field(SignalReportAssigneeSerializer(allow_null=True))
+    def get_assignee(self, obj: SignalReport) -> dict | None:
+        assignment = self._get_assignment(obj)
+        if assignment is None or not assignment.actor_kind:
+            return None
+        return {
+            "kind": assignment.actor_kind,
+            "user": _UserSerializer(assignment.actor_user).data if assignment.actor_user else None,
+            "task_id": str(assignment.actor_task_id) if assignment.actor_task_id else None,
+            "agent": assignment.actor_agent,
+            "claimed_at": assignment.claimed_at,
+        }
+
+    @staticmethod
+    def _get_assignment(obj: SignalReport) -> SignalReportAssignment | None:
+        return getattr(obj, "assignment", None)
 
     @extend_schema_field(SignalReportRefundSerializer(allow_null=True))
     def get_refund(self, obj: SignalReport) -> dict | None:
@@ -842,18 +906,42 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
     created_by = _UserSerializer(
         read_only=True,
         allow_null=True,
-        help_text="User the artefact is attributed to, when a user produced it. Null for task/system writes.",
+        help_text=(
+            "Authenticated user principal for user or external agent writes. Null for internal task and system writes."
+        ),
     )
     task_id = serializers.UUIDField(
         read_only=True,
         allow_null=True,
-        help_text="Task the artefact is attributed to, when an agent produced it. Null for user/system writes.",
+        help_text="Internal task the artefact is attributed to. Null for user, external agent, and system writes.",
+    )
+    actor_kind = serializers.SerializerMethodField(
+        help_text="Actor kind. Legacy rows without attribution are returned as system.",
+    )
+    actor_agent = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="MCP client name when an external agent produced the artefact.",
     )
 
     class Meta:
         model = SignalReportArtefact
-        fields = ["id", "type", "content", "created_at", "updated_at", "created_by", "task_id"]
+        fields = [
+            "id",
+            "type",
+            "content",
+            "created_at",
+            "updated_at",
+            "actor_kind",
+            "actor_agent",
+            "created_by",
+            "task_id",
+        ]
         read_only_fields = fields
+
+    @extend_schema_field(serializers.ChoiceField(choices=SignalActorKind.choices))
+    def get_actor_kind(self, obj: SignalReportArtefact) -> str:
+        return obj.actor_kind or SignalActorKind.SYSTEM
 
     def get_content(self, obj: SignalReportArtefact) -> dict | list:
         try:
