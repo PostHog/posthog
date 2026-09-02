@@ -162,8 +162,8 @@ tools:
             audience (config.filters.properties: person-property conditions and/or cohort references), one run per
             matching person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with
             workflows-schedule-create. A 'schedule' trigger has no audience: it runs once per occurrence, so attach its
-            cadence with workflows-schedule-create and skip the audience preview. Behavioral targeting ('did
-            event X at least N times over the last M days') is unsupported; reject it and explain why.
+            cadence with workflows-schedule-create and skip the audience preview. Behavioral targeting ('did event X at
+            least N times over the last M days') is unsupported; reject it and explain why.
         ui_app: workflow
     workflows-discard-draft:
         operation: hog_flows_discard_draft_create
