@@ -2455,6 +2455,9 @@ class TestJudgePromptAssembly:
 
 
 class TestRunLocalEvaluationActivity:
+    # A fixed workflow start time: the activity only threads it through to the emitted event.
+    START_TIME = datetime(2026, 1, 1, tzinfo=UTC)
+
     def _create_hog_evaluation(self, team, source: str):
         from posthog.cdp.validation import compile_hog
 
@@ -2480,7 +2483,7 @@ class TestRunLocalEvaluationActivity:
     async def test_hog_eval_executes_and_emits_in_one_activity(self, setup_data):
         team = setup_data["team"]
         evaluation = await sync_to_async(self._create_hog_evaluation)(team, "return true")
-        start_time = datetime.now(UTC)
+        start_time = self.START_TIME
 
         with patch(
             "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_for_team"
@@ -2506,7 +2509,7 @@ class TestRunLocalEvaluationActivity:
         with patch(
             "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_for_team"
         ) as mock_capture:
-            outcome = await run_local_evaluation_activity(self._inputs(evaluation, team, datetime.now(UTC)))
+            outcome = await run_local_evaluation_activity(self._inputs(evaluation, team, self.START_TIME))
 
         assert outcome.result is not None
         assert outcome.result["terminal_user_error"] is True
@@ -2522,7 +2525,7 @@ class TestRunLocalEvaluationActivity:
         with patch(
             "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_for_team"
         ) as mock_capture:
-            outcome = await run_local_evaluation_activity(self._inputs(evaluation, team, datetime.now(UTC)))
+            outcome = await run_local_evaluation_activity(self._inputs(evaluation, team, self.START_TIME))
 
         assert outcome.result is None
         assert outcome.evaluation["evaluation_type"] == "llm_judge"
@@ -2551,7 +2554,7 @@ class TestRunLocalEvaluationActivity:
                 team.id,
                 properties={"$ai_input": [{"role": "assistant", "content": "no user turn"}]},
             ),
-            start_time=datetime.now(UTC),
+            start_time=self.START_TIME,
         )
 
         with patch(
@@ -2572,7 +2575,7 @@ class TestRunLocalEvaluationActivity:
 
         team = setup_data["team"]
         evaluation = await sync_to_async(self._create_hog_evaluation)(team, "return true")
-        inputs = self._inputs(evaluation, team, datetime.now(UTC))
+        inputs = self._inputs(evaluation, team, self.START_TIME)
 
         env = ActivityEnvironment()
         with patch(
