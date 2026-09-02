@@ -29,3 +29,8 @@ warehouse_sources_queue.0009_sourcebatch_job_id_idx
 # on the table the flags API writes to. Re-running is a no-op: the transform is idempotent and
 # each swap only matches rows still holding the pre-clean value.
 feature_flags.0014_clean_flag_filters_inert_violations
+# Lowercases the task repositories written before Task.save normalized the column. Keyset
+# pagination over the task id lets each batch commit on its own, instead of holding one
+# transaction across a scan of the whole table. Re-running is a no-op: the update only matches
+# the rows that still differ from their lowercase form.
+tasks.0113_normalize_task_repository_case
