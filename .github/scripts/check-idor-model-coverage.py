@@ -99,8 +99,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "PendingPersonOverride",
         "Person",
         "PersonDistinctId",
-        "PersonOverride",
-        "PersonOverrideMapping",
         # --- Schema/definition models (read-only, synced from events) ---
         "EventDefinition",
         "EventProperty",

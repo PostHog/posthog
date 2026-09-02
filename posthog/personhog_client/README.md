@@ -36,11 +36,8 @@ Do not query them directly — use the routed helpers or client RPCs.
 | `posthog_cohortpeople`               | `CohortPeople`               | Static cohort membership           |
 | `posthog_group`                      | `Group`                      | Group records                      |
 | `posthog_grouptypemapping`           | `GroupTypeMapping`           | Group type → column index mappings |
-| `posthog_personoverride`             | `PersonOverride`             | Person merge overrides             |
 | `posthog_pendingpersonoverride`      | `PendingPersonOverride`      | Pending person merge overrides     |
-| `posthog_flatpersonoverride`         | `FlatPersonOverride`         | Flattened person overrides         |
 | `posthog_featureflaghashkeyoverride` | `FeatureFlagHashKeyOverride` | Feature flag hash key overrides    |
-| `posthog_personoverridemapping`      | `PersonOverrideMapping`      | Person override mappings           |
 
 ## Client singleton
 
