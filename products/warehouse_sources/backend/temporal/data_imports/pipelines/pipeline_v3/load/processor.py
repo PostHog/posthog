@@ -94,6 +94,11 @@ from products.warehouse_sources.backend.temporal.data_imports.workload_report im
 
 logger = structlog.get_logger(__name__)
 
+# Batch interval at which `batch_written_to_delta_lake` carries a file count. Frequent enough to
+# show a table fragmenting over a multi-hundred-batch load, rare enough that the listing it needs
+# stays off the per-batch path.
+FILE_COUNT_LOG_SAMPLE_EVERY = 100
+
 
 def _get_write_type(sync_type: SyncTypeLiteral) -> Literal["incremental", "full_refresh", "append"]:
     """Convert sync type to write type for DeltaTableRef."""
@@ -323,6 +328,15 @@ def _apply_partitioning(
     return pa_table
 
 
+def _partial_data_loading_applies(export_signal: ExportSignalMessage, schema: ExternalDataSchema) -> bool:
+    """Whether this batch feeds partial data loading (first-ever sync, Stripe only).
+
+    Read before the write as well as after: `previous_file_uris` only exists to serve this
+    feature, and collecting it means listing every file in the table.
+    """
+    return export_signal.is_first_ever_sync and supports_partial_data_loading(schema)
+
+
 async def _handle_partial_data_loading(
     export_signal: ExportSignalMessage,
     job: ExternalDataJob,
@@ -332,10 +346,7 @@ async def _handle_partial_data_loading(
     internal_schema: HogQLSchema,
 ) -> None:
     """Make data available for querying during first-ever sync for Stripe sources."""
-    if not export_signal.is_first_ever_sync:
-        return
-
-    if not supports_partial_data_loading(schema):
+    if not _partial_data_loading_applies(export_signal, schema):
         return
 
     current_file_uris = delta_table.file_uris()
@@ -736,9 +747,14 @@ def process_message(
     message: Any,
     progress_callback: Callable[[], None] | None = None,
     verify_ownership: Callable[[], None] | None = None,
+    attempt: int = 1,
 ) -> None:
     """Load one batch into Delta Lake. ``verify_ownership`` raises if the group lease was lost;
-    re-checked before each lasting side effect since the heartbeat only detects loss between beats."""
+    re-checked before each lasting side effect since the heartbeat only detects loss between beats.
+
+    ``attempt`` is this batch's delivery number, counting from 1. It selects how hard the
+    idempotency check works: only a redelivery can have a half-finished predecessor to detect.
+    """
     export_signal = ExportSignalMessage.from_dict(message)
 
     # The consumer is where v3 merges — the memory-heavy phase — actually run, so it must self-report
@@ -751,7 +767,7 @@ def process_message(
         host=socket.gethostname(),
         initial_phase="load",
     ):
-        _process_message_reported(message, export_signal, progress_callback, verify_ownership)
+        _process_message_reported(message, export_signal, progress_callback, verify_ownership, attempt)
 
 
 def _process_external_destinations_only(
@@ -785,6 +801,7 @@ def _process_message_reported(
     export_signal: "ExportSignalMessage",
     progress_callback: Callable[[], None] | None,
     verify_ownership: Callable[[], None] | None,
+    attempt: int = 1,
 ) -> None:
     # Reconnect stale app-DB connections up front so the ORM queries below don't burn all batch attempts.
     close_old_connections()
@@ -834,6 +851,7 @@ def _process_message_reported(
             export_signal.run_uuid,
             export_signal.batch_index,
             delta_table_ref=delta_table_ref,
+            is_first_attempt=attempt <= 1,
         )
 
         # The warehouse having this batch says nothing about the other destinations, so
@@ -902,8 +920,14 @@ def _process_message_reported(
 
         pa_table = _apply_partitioning(export_signal, pa_table, existing_delta_table, schema)
 
-        # Capture file URIs before write for partial data loading
-        previous_file_uris = existing_delta_table.file_uris() if existing_delta_table else []
+        # Capture file URIs before write for partial data loading. The listing is O(files in
+        # table), so skip it entirely when no consumer wants it — during a long first sync the
+        # table can hold millions of files and every batch would pay to build a list nothing reads.
+        previous_file_uris = (
+            existing_delta_table.file_uris()
+            if existing_delta_table is not None and _partial_data_loading_applies(export_signal, schema)
+            else []
+        )
 
         primary_keys = export_signal.primary_keys
         cdc_write_mode = export_signal.cdc_write_mode
@@ -1025,10 +1049,15 @@ def _process_message_reported(
         internal_schema.add_pyarrow_schema(pyarrow_schema_from_arrow_exportable(delta_table.schema()))
         internal_schema.add_pyarrow_table(pa_table)
 
+        # file_count is the signal that shows a table fragmenting during a long load, so it stays —
+        # but listing every file costs O(files in table), which is the very thing it measures. Sample
+        # it instead: the trend is what matters, and the version is cheap enough to log every batch.
+        sample_file_count = export_signal.batch_index % FILE_COUNT_LOG_SAMPLE_EVERY == 0
         logger.debug(
             "batch_written_to_delta_lake",
             batch_index=export_signal.batch_index,
-            file_count=len(delta_table.file_uris()),
+            delta_version=delta_table.version(),
+            file_count=len(delta_table.file_uris()) if sample_file_count else None,
         )
 
         async_to_sync(_handle_partial_data_loading)(
