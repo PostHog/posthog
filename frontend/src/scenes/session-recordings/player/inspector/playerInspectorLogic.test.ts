@@ -5,7 +5,9 @@ import { RecordingSnapshot } from '@posthog/replay-shared'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
+    InspectorListItemEvent,
     PlayerInspectorLogicProps,
     playerInspectorLogic,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -505,6 +507,31 @@ describe('playerInspectorLogic', () => {
 
             expect(logic.values.allItems.items.filter((item) => item.type === 'experiment-variant')).toHaveLength(0)
             expect(logic.values.seekbarItems.filter((item) => item.type === 'experiment-variant')).toHaveLength(0)
+        })
+    })
+
+    describe('seekbar items', () => {
+        // selectedMiniFilters persists to localStorage, so pin the defaults before each test
+        beforeEach(() => {
+            miniFiltersLogic.actions.resetMiniFilters()
+        })
+
+        // Each mini-filter must gate only the ticks it names
+        it.each([
+            ['events-custom' as const, ['$autocapture', '$pageview'], ['blah']],
+            ['events-autocapture' as const, ['$pageview'], ['$autocapture']],
+        ])('keeps the other ticks when %s is off', async (filterKey, kept, hidden) => {
+            logic.actions.setMiniFilter(filterKey, false)
+
+            await expectLogic(dataLogic, () => {
+                dataLogic.actions.loadSnapshots()
+            }).toDispatchActions(['loadEventsSuccess'])
+
+            const eventNames = logic.values.seekbarItems
+                .filter((item): item is InspectorListItemEvent => item.type === 'events')
+                .map((item) => item.data.event)
+            kept.forEach((event) => expect(eventNames).toContain(event))
+            hidden.forEach((event) => expect(eventNames).not.toContain(event))
         })
     })
 
