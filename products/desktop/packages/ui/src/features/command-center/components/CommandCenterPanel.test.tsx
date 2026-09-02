@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   openTask: vi.fn(),
   setDraft: vi.fn(),
   clearAutoresearchDraft: vi.fn(),
+  currentUserUuid: "user-1",
+  taskCreatedCallback: null as ((task: Task) => void) | null,
   authState: {
     status: "authenticated",
     cloudRegion: "us",
@@ -86,9 +88,12 @@ vi.mock("../../message-editor/draftStore", () => {
 vi.mock("../../auth/store", () => ({
   useAuthStateValue: (selector: (state: typeof mocks.authState) => unknown) =>
     selector(mocks.authState),
-  useAuthStore: {
-    getState: () => ({ authState: mocks.authState }),
-  },
+}));
+vi.mock("../../auth/authClient", () => ({
+  useOptionalAuthenticatedClient: () => ({}),
+}));
+vi.mock("../../auth/useCurrentUser", () => ({
+  useCurrentUser: () => ({ data: { uuid: mocks.currentUserUuid } }),
 }));
 vi.mock("../../autoresearch/autoresearchDraftStore", () => ({
   useAutoresearchDraftStore: {
@@ -106,16 +111,19 @@ vi.mock("../../task-detail/components/TaskInput", () => ({
   }: {
     onTaskCreated?: (task: Task) => void;
     showNewTaskSuggestions?: boolean;
-  }) => (
-    <div data-suggestions={showNewTaskSuggestions}>
-      <button
-        type="button"
-        onClick={() => onTaskCreated?.(mocks.createdTask as Task)}
-      >
-        Send
-      </button>
-    </div>
-  ),
+  }) => {
+    mocks.taskCreatedCallback = onTaskCreated ?? null;
+    return (
+      <div data-suggestions={showNewTaskSuggestions}>
+        <button
+          type="button"
+          onClick={() => onTaskCreated?.(mocks.createdTask as Task)}
+        >
+          Send
+        </button>
+      </div>
+    );
+  },
 }));
 vi.mock("../commandCenterStore", () => ({
   useCommandCenterStore: (selector: (state: unknown) => unknown) =>
@@ -185,6 +193,8 @@ describe("CommandCenterPanel", () => {
     vi.clearAllMocks();
     mocks.authState.cloudRegion = "us";
     mocks.authState.currentProjectId = 2;
+    mocks.currentUserUuid = "user-1";
+    mocks.taskCreatedCallback = null;
     mocks.store.composer = null;
     mocks.store.finishCreating.mockReturnValue(true);
   });
@@ -206,7 +216,10 @@ describe("CommandCenterPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "New task" }));
 
-    expect(mocks.store.startCreating).toHaveBeenCalledWith(2, "cc-cell-us:2-2");
+    expect(mocks.store.startCreating).toHaveBeenCalledWith(
+      2,
+      "cc-cell-us:2:user-1-2",
+    );
   });
 
   // Without this the task is created but never claims a tile, so its session
@@ -214,14 +227,14 @@ describe("CommandCenterPanel", () => {
   it("keeps a task composed in a tile in that tile", () => {
     mocks.store.composer = {
       cellIndex: 2,
-      sessionId: "cc-cell-us:2-2",
+      sessionId: "cc-cell-us:2:user-1-2",
     };
     render(<CommandCenterPanel cell={emptyCell} isActiveSession={false} />);
 
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     expect(mocks.store.finishCreating).toHaveBeenCalledWith(
-      "cc-cell-us:2-2",
+      "cc-cell-us:2:user-1-2",
       "task-2",
     );
     expect(screen.getByText("Send").parentElement).toHaveAttribute(
@@ -233,22 +246,28 @@ describe("CommandCenterPanel", () => {
   it("opens a created task when the auth scope changed", () => {
     mocks.store.composer = {
       cellIndex: 2,
-      sessionId: "cc-cell-us:2-2",
+      sessionId: "cc-cell-us:2:user-1-2",
     };
-    render(<CommandCenterPanel cell={emptyCell} isActiveSession={false} />);
-    mocks.authState.currentProjectId = 3;
+    const { rerender } = render(
+      <CommandCenterPanel cell={emptyCell} isActiveSession={false} />,
+    );
+    const taskCreated = mocks.taskCreatedCallback;
+    mocks.currentUserUuid = "user-2";
+    rerender(<CommandCenterPanel cell={emptyCell} isActiveSession={false} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    taskCreated?.(mocks.createdTask as Task);
 
     expect(mocks.store.finishCreating).not.toHaveBeenCalled();
-    expect(mocks.store.stopCreating).toHaveBeenCalledWith("cc-cell-us:2-2");
+    expect(mocks.store.stopCreating).toHaveBeenCalledWith(
+      "cc-cell-us:2:user-1-2",
+    );
     expect(mocks.openTask).toHaveBeenCalledWith(mocks.createdTask);
   });
 
   it("opens a created task when its tile is no longer reserved", () => {
     mocks.store.composer = {
       cellIndex: 2,
-      sessionId: "cc-cell-us:2-2",
+      sessionId: "cc-cell-us:2:user-1-2",
     };
     mocks.store.finishCreating.mockReturnValue(false);
     render(<CommandCenterPanel cell={emptyCell} isActiveSession={false} />);
@@ -261,7 +280,7 @@ describe("CommandCenterPanel", () => {
   it("preserves the draft when leaving the command center", () => {
     mocks.store.composer = {
       cellIndex: 2,
-      sessionId: "cc-cell-us:2-2",
+      sessionId: "cc-cell-us:2:user-1-2",
     };
     const { unmount } = render(
       <CommandCenterPanel cell={emptyCell} isActiveSession={false} />,
@@ -276,14 +295,18 @@ describe("CommandCenterPanel", () => {
   it("clears all session drafts when canceling", () => {
     mocks.store.composer = {
       cellIndex: 2,
-      sessionId: "cc-cell-us:2-2",
+      sessionId: "cc-cell-us:2:user-1-2",
     };
     render(<CommandCenterPanel cell={emptyCell} isActiveSession={false} />);
 
     fireEvent.click(screen.getByTitle("Cancel"));
 
-    expect(mocks.store.stopCreating).toHaveBeenCalledWith("cc-cell-us:2-2");
-    expect(mocks.setDraft).toHaveBeenCalledWith("cc-cell-us:2-2", null);
-    expect(mocks.clearAutoresearchDraft).toHaveBeenCalledWith("cc-cell-us:2-2");
+    expect(mocks.store.stopCreating).toHaveBeenCalledWith(
+      "cc-cell-us:2:user-1-2",
+    );
+    expect(mocks.setDraft).toHaveBeenCalledWith("cc-cell-us:2:user-1-2", null);
+    expect(mocks.clearAutoresearchDraft).toHaveBeenCalledWith(
+      "cc-cell-us:2:user-1-2",
+    );
   });
 });

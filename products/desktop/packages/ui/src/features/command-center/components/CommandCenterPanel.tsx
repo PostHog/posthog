@@ -36,7 +36,9 @@ import { secureRandomString } from "@posthog/ui/utils/random";
 import { Flex, Text } from "@radix-ui/themes";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAuthStateValue, useAuthStore } from "../../auth/store";
+import { useOptionalAuthenticatedClient } from "../../auth/authClient";
+import { useAuthStateValue } from "../../auth/store";
+import { useCurrentUser } from "../../auth/useCurrentUser";
 import { useAutoresearchDraftStore } from "../../autoresearch/autoresearchDraftStore";
 import { useFolders } from "../../folders/useFolders";
 import { useCloudPrUrl } from "../../git-interaction/useCloudPrUrl";
@@ -139,9 +141,15 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
   const cells = useCommandCenterStore((s) => s.cells);
   const brainrotMode = useSettingsStore((s) => s.brainrotMode);
   const authIdentity = useAuthStateValue(getAuthIdentity);
-  const sessionId = authIdentity
-    ? getCellSessionId(authIdentity, cellIndex)
-    : null;
+  const client = useOptionalAuthenticatedClient();
+  const { data: currentUser } = useCurrentUser({ client });
+  const authScope =
+    authIdentity && currentUser?.uuid
+      ? `${authIdentity}:${currentUser.uuid}`
+      : null;
+  const sessionId = authScope ? getCellSessionId(authScope, cellIndex) : null;
+  const currentSessionIdRef = useRef(sessionId);
+  currentSessionIdRef.current = sessionId;
   const isCreating =
     sessionId !== null &&
     composer?.cellIndex === cellIndex &&
@@ -174,13 +182,7 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
         void openTask(task);
         return;
       }
-      const currentIdentity = getAuthIdentity(
-        useAuthStore.getState().authState,
-      );
-      const currentSessionId = currentIdentity
-        ? getCellSessionId(currentIdentity, cellIndex)
-        : null;
-      if (currentSessionId !== sessionId) {
+      if (currentSessionIdRef.current !== sessionId) {
         stopCreating(sessionId);
         clearComposerDraft(sessionId);
         void openTask(task);
@@ -192,7 +194,7 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
       // task still exists, so open it instead of overwriting newer grid state.
       if (!assigned) void openTask(task);
     },
-    [cellIndex, finishCreating, sessionId, stopCreating],
+    [finishCreating, sessionId, stopCreating],
   );
 
   const handleCancel = useCallback(() => {
