@@ -13,7 +13,7 @@ catalog sync jobs alike.
 import json
 import secrets
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal
 from urllib.parse import urlencode, urljoin
 
@@ -22,6 +22,7 @@ from django.conf import settings
 import requests
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.security.pinned_requests import SSRFBlockedError, pinned_request
 
 from .oauth import (
@@ -47,7 +48,7 @@ AuthFlavor = Literal["open", "oauth_dcr", "oauth_shared", "api_key_or_unknown"]
 _InitializeOutcome = Literal["open", "auth_required", "failed"]
 
 
-@dataclass
+@frozen(frozen=False)
 class ProbeResult:
     reachable: bool = False
     speaks_mcp: bool = False
