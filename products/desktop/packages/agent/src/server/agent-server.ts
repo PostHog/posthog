@@ -2387,6 +2387,12 @@ export class AgentServer {
     const { classification, message } = this.extractErrorClassification(error);
     const isUpstreamFailure =
       upstreamProviderFailureClassifications.has(classification);
+    const isTurnWithoutResponse =
+      classification === "turn_ended_without_response";
+    const retryableFollowup =
+      isTurnWithoutResponse &&
+      phase === "followup" &&
+      this.getEffectiveMode(payload) === "interactive";
     const displayMessage = isUpstreamFailure
       ? UPSTREAM_PROVIDER_FAILURE_MESSAGE
       : message || "Agent error";
@@ -2394,8 +2400,9 @@ export class AgentServer {
       isUpstreamFailure &&
       phase === "followup" &&
       this.getEffectiveMode(payload) === "interactive";
-    const expectedIdleTransportClosure =
-      recoverable && /^ACP connection closed$/i.test(message.trim());
+    const suppressClientError =
+      retryableFollowup ||
+      (recoverable && /^ACP connection closed$/i.test(message.trim()));
 
     this.logger.error(`send_${phase}_task_message_failed`, {
       classification,
@@ -2403,13 +2410,17 @@ export class AgentServer {
       recoverable,
     });
 
-    if (!expectedIdleTransportClosure) {
+    if (!suppressClientError) {
       this.broadcastTurnFailure(classification, displayMessage);
     }
 
     if (recoverable) {
       this.broadcastTurnComplete("error_recoverable");
       return { recoverable: true };
+    }
+
+    if (retryableFollowup) {
+      return { recoverable: false };
     }
 
     await this.signalTaskComplete(payload, "error", displayMessage);
