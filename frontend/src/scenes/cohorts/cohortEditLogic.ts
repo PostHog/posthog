@@ -101,7 +101,7 @@ export const checkIsPendingCalculation = (cohort: CohortType, retryState: Calcul
     // pending state — without this the cohort would show "pending" forever and mask the error.
     // The exception is a retry the user just queued: treat the fresh attempt as in-progress until
     // it records a new failure (errors climb past the count seen when it was queued) or succeeds.
-    if (retryState && (cohort.errors_calculating ?? 0) <= retryState.baselineErrors) {
+    if (retryState && cohort.errors_calculating <= retryState.baselineErrors) {
         return true
     }
     return false
