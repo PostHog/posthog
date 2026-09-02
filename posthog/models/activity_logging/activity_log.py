@@ -827,12 +827,17 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         # Reverse relation to a fail-closed model: reading through it in `changes_between` raises
         # TeamScopeError when a source is saved outside request scope, and it isn't source-config intent.
         "custom_oauth2_integrations",
+        # Same hazard: the destination set is edited through its own endpoint, not by saving a source.
+        "destination_links",
     ],
     "ExternalDataSchema": [
         "status",
         "sync_type_config",
         "latest_error",
         "last_synced_at",
+        # Reverse relation to a fail-closed model — same hazard as the source's `destination_links`.
+        # Every sync saves the schema from a Temporal activity, where diffing it would raise.
+        "destination_links",
         # Pipeline-assigned, not user intent. Diffing it resolves the FK through
         # DataWarehouseTable.objects, whose manager adds two joins and a prefetch on every
         # schema save (even ones that don't touch this field) — the extra queries have

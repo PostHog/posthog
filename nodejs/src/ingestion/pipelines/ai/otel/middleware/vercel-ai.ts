@@ -5,6 +5,7 @@ import { mustAddReasoningCost } from '~/ingestion/pipelines/ai/costs/output-cost
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { promotePosthogCustomMetadata } from './custom-metadata'
+import { usableStopReason } from './stop-reason'
 import { OtelLibraryMiddleware } from './types'
 
 // Provider-specific and standard attributes to strip after processing.
@@ -22,6 +23,7 @@ const STRIP_KEYS = [
     'ai.usage.tokens',
     'ai.usage.inputTokenDetails.noCacheTokens',
     'ai.usage.outputTokenDetails.textTokens',
+    'ai.usage.outputTokenDetails.reasoningTokens',
     'ai.response.id',
     'ai.response.model',
     'ai.response.timestamp',
@@ -366,14 +368,17 @@ function process(event: PluginEvent, next: () => void): void {
 
     stripProcessedContext(props)
 
-    // Map finish reason to $ai_stop_reason before stripping
+    // Map finish reason to $ai_stop_reason before stripping. An unusable value falls through to
+    // the next source instead of winning by position.
     if (props['$ai_stop_reason'] === undefined) {
-        const vercelReason = props['ai.response.finishReason']
+        const vercelReason = usableStopReason(props['ai.response.finishReason'])
         const genAiReasons = props['gen_ai.response.finish_reasons']
+        // One reason per choice. The first choice is the one the trace view renders first.
+        const firstGenAiReason = Array.isArray(genAiReasons) ? usableStopReason(genAiReasons[0]) : undefined
         if (vercelReason !== undefined) {
             props['$ai_stop_reason'] = vercelReason
-        } else if (Array.isArray(genAiReasons) && genAiReasons.length > 0) {
-            props['$ai_stop_reason'] = genAiReasons[0]
+        } else if (firstGenAiReason !== undefined) {
+            props['$ai_stop_reason'] = firstGenAiReason
         }
     }
     delete props['ai.response.finishReason']
@@ -425,15 +430,18 @@ function process(event: PluginEvent, next: () => void): void {
     }
 }
 
-const MARKER_KEYS = [
-    'ai.operationId',
-    'ai.telemetry.functionId',
-    ...EVE_MARKER_KEYS,
-    ...EVE_MARKER_KEYS.map((key) => `${AI_RUNTIME_CONTEXT_PREFIX}${key}`),
-]
+// Match any Vercel AI SDK or Eve span by attribute namespace. AI SDK 7's
+// gen_ai-native integration drops ai.operationId but still emits ai.*
+// supplemental attributes (ai.usage.*, ai.telemetry.metadata.*), so an exact
+// key list would miss those spans and skip attribution and usage normalization.
+// The other middlewares (pydantic-ai, traceloop) run first and own their own
+// namespaces, so a prefix match here cannot steal their spans.
+const MARKER_PREFIXES = ['ai.', 'eve.']
 
 export const vercelAi: OtelLibraryMiddleware = {
     name: 'vercel-ai',
-    matches: (event) => MARKER_KEYS.some((key) => event.properties?.[key] !== undefined),
+    matches: (event) =>
+        event.properties !== undefined &&
+        Object.keys(event.properties).some((key) => MARKER_PREFIXES.some((prefix) => key.startsWith(prefix))),
     process,
 }

@@ -1018,7 +1018,7 @@ class TestAccountsTableQueryRunner(BaseTest):
             )
 
     @pytest.mark.ee
-    def test_object_access_does_not_filter_rows_or_partition_the_cache(self) -> None:
+    def test_object_access_filters_rows_and_partitions_the_cache(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -1038,22 +1038,22 @@ class TestAccountsTableQueryRunner(BaseTest):
         )
 
         blocked_runner = AccountsTableQueryRunner(
-            query=AccountsTableQuery(columns=[], filters=[], limit=10),
+            query=AccountsTableQuery(columns=[], filters=[], limit=1),
             team=self.team,
             user=self.user,
         )
         blocked_cache_key = blocked_runner.get_cache_key()
         response = blocked_runner.calculate()
 
-        assert {row.id for row in response.results} == {str(visible_account.id), str(denied_account.id)}
+        assert [row.id for row in response.results] == [str(visible_account.id)]
 
         blocking_access.delete()
         unblocked_cache_key = AccountsTableQueryRunner(
-            query=AccountsTableQuery(columns=[], filters=[], limit=10),
+            query=AccountsTableQuery(columns=[], filters=[], limit=1),
             team=self.team,
             user=self.user,
         ).get_cache_key()
-        assert blocked_cache_key == unblocked_cache_key
+        assert blocked_cache_key != unblocked_cache_key
 
 
 class TestAccountsTableQueryAPI(APIBaseTest):
@@ -1085,6 +1085,38 @@ class TestAccountsTableQueryAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_accounts_table_query_endpoint_requires_account_scope_and_dispatches(self) -> None:
+        account = create_account(team_id=self.team.id, name="Acme")
+        endpoint = f"/api/projects/{self.team.id}/accounts_table_query/"
+        accounts_query = AccountsTableQuery(columns=[], filters=[]).model_dump()
+        payload = {"query": accounts_query, "refresh": "force_blocking"}
+
+        denied = self.client.post(
+            endpoint,
+            payload,
+            format="json",
+            headers={"authorization": f"Bearer {self._token(['query:read'])}"},
+        )
+        assert denied.status_code == status.HTTP_403_FORBIDDEN
+
+        allowed = self.client.post(
+            endpoint,
+            payload,
+            format="json",
+            headers={"authorization": f"Bearer {self._token(['account:read'])}"},
+        )
+        assert allowed.status_code == status.HTTP_200_OK, allowed.content
+        assert [row["id"] for row in allowed.json()["results"]] == [str(account.id)]
+
+    def test_accounts_table_query_endpoint_rejects_other_query_kinds(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/accounts_table_query/",
+            {"query": {"kind": "HogQLQuery", "query": "SELECT 1"}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_query_endpoint_requires_query_scope_and_dispatches(self) -> None:
         account = create_account(team_id=self.team.id, name="Acme")
         endpoint = f"/api/projects/{self.team.id}/query/"
@@ -1093,7 +1125,7 @@ class TestAccountsTableQueryAPI(APIBaseTest):
         for query in [accounts_query, {"kind": "DataTableNode", "source": accounts_query}]:
             with self.subTest(query_kind=query["kind"]):
                 payload = {"query": query, "refresh": "force_blocking"}
-                for incomplete_scopes in [[], ["account:read"]]:
+                for incomplete_scopes in [["account:read"]]:
                     denied = self.client.post(
                         endpoint,
                         payload,

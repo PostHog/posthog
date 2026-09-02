@@ -2613,9 +2613,9 @@ export interface ProjectBackwardCompatApi {
     onboarding_tasks?: unknown
     /** @nullable */
     web_analytics_pre_aggregated_tables_enabled?: boolean | null
-    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
+    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
     readonly event_retention_months: number
-    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+    /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
     readonly events_retention_enforced: boolean
 }
 
@@ -3465,9 +3465,9 @@ export interface PatchedProjectBackwardCompatApi {
     onboarding_tasks?: unknown
     /** @nullable */
     web_analytics_pre_aggregated_tables_enabled?: boolean | null
-    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
+    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. Read-only: this value follows your plan's data retention entitlement, so neither you nor PostHog support can change it unless your organization is on the enterprise plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
     readonly event_retention_months?: number
-    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+    /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: neither you nor PostHog support can turn enforcement off, and the retention window itself only changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031 */
     readonly events_retention_enforced?: boolean
 }
 
@@ -3495,9 +3495,9 @@ export const RestrictionTypeEnumApi = {
  * * `clientwarnings` - Clientwarnings
  * * `ai` - Ai
  */
-export type PipelinesEnumApi = (typeof PipelinesEnumApi)[keyof typeof PipelinesEnumApi]
+export type IngestionPipelineEnumApi = (typeof IngestionPipelineEnumApi)[keyof typeof IngestionPipelineEnumApi]
 
-export const PipelinesEnumApi = {
+export const IngestionPipelineEnumApi = {
     Analytics: 'analytics',
     SessionRecordings: 'session_recordings',
     Errortracking: 'errortracking',
@@ -3523,7 +3523,7 @@ export interface EventIngestionRestrictionApi {
     /** Event UUIDs the restriction applies to. Empty means it is not filtered by event UUID. */
     event_uuids: string[]
     /** Ingestion pipelines the restriction applies to. Filters combine with AND; values within a filter combine with OR. */
-    pipelines: PipelinesEnumApi[]
+    pipelines: IngestionPipelineEnumApi[]
 }
 
 export interface SharePasswordApi {
@@ -3916,10 +3916,9 @@ export interface PatchedProjectSecretAPIKeyApi {
  * * `Boolean` - Boolean
  * * `Duration` - Duration
  */
-export type PropertyDefinitionTypeEnumApi =
-    (typeof PropertyDefinitionTypeEnumApi)[keyof typeof PropertyDefinitionTypeEnumApi]
+export type PropertyTypeEnumApi = (typeof PropertyTypeEnumApi)[keyof typeof PropertyTypeEnumApi]
 
-export const PropertyDefinitionTypeEnumApi = {
+export const PropertyTypeEnumApi = {
     DateTime: 'DateTime',
     String: 'String',
     Numeric: 'Numeric',
@@ -3941,7 +3940,7 @@ export interface EnterprisePropertyDefinitionApi {
     readonly updated_by: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events: boolean | null
-    property_type?: PropertyDefinitionTypeEnumApi | BlankEnumApi | null
+    property_type?: PropertyTypeEnumApi | BlankEnumApi | null
     verified?: boolean
     /** @nullable */
     readonly verified_at: string | null
@@ -3975,7 +3974,7 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     readonly updated_by?: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events?: boolean | null
-    property_type?: PropertyDefinitionTypeEnumApi | BlankEnumApi | null
+    property_type?: PropertyTypeEnumApi | BlankEnumApi | null
     verified?: boolean
     /** @nullable */
     readonly verified_at?: string | null
@@ -4159,9 +4158,10 @@ export interface TeamBasicApi {
  * * `6` - install
  * * `9` - root
  */
-export type PluginsAccessLevelEnumApi = (typeof PluginsAccessLevelEnumApi)[keyof typeof PluginsAccessLevelEnumApi]
+export type OrganizationPluginsAccessLevelEnumApi =
+    (typeof OrganizationPluginsAccessLevelEnumApi)[keyof typeof OrganizationPluginsAccessLevelEnumApi]
 
-export const PluginsAccessLevelEnumApi = {
+export const OrganizationPluginsAccessLevelEnumApi = {
     Number0: 0,
     Number3: 3,
     Number6: 6,
@@ -4172,10 +4172,10 @@ export const PluginsAccessLevelEnumApi = {
  * * `bayesian` - Bayesian
  * * `frequentist` - Frequentist
  */
-export type DefaultExperimentStatsMethodEnumApi =
-    (typeof DefaultExperimentStatsMethodEnumApi)[keyof typeof DefaultExperimentStatsMethodEnumApi]
+export type OrganizationDefaultExperimentStatsMethodEnumApi =
+    (typeof OrganizationDefaultExperimentStatsMethodEnumApi)[keyof typeof OrganizationDefaultExperimentStatsMethodEnumApi]
 
-export const DefaultExperimentStatsMethodEnumApi = {
+export const OrganizationDefaultExperimentStatsMethodEnumApi = {
     Bayesian: 'bayesian',
     Frequentist: 'frequentist',
 } as const
@@ -4197,7 +4197,7 @@ export interface OrganizationApi {
     readonly created_at: string
     readonly updated_at: string
     readonly membership_level: OrganizationMembershipLevelEnumApi
-    readonly plugins_access_level: PluginsAccessLevelEnumApi
+    readonly plugins_access_level: OrganizationPluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
     /** @nullable */
@@ -4254,7 +4254,7 @@ export interface OrganizationApi {
      *
      * * `bayesian` - Bayesian
      * * `frequentist` - Frequentist */
-    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
+    default_experiment_stats_method?: OrganizationDefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -4721,10 +4721,10 @@ export interface GitHubReposRefreshResponseApi {
  * * `approved` - Approved
  * * `unidentified` - Unidentified
  */
-export type GitHubInstallRequestItemStatusEnumApi =
-    (typeof GitHubInstallRequestItemStatusEnumApi)[keyof typeof GitHubInstallRequestItemStatusEnumApi]
+export type GitHubInstallRequestStatusEnumApi =
+    (typeof GitHubInstallRequestStatusEnumApi)[keyof typeof GitHubInstallRequestStatusEnumApi]
 
-export const GitHubInstallRequestItemStatusEnumApi = {
+export const GitHubInstallRequestStatusEnumApi = {
     Pending: 'pending',
     Approved: 'approved',
     Unidentified: 'unidentified',
@@ -4740,7 +4740,7 @@ export interface GitHubInstallRequestItemApi {
      * * `pending` - Pending
      * * `approved` - Approved
      * * `unidentified` - Unidentified */
-    status: GitHubInstallRequestItemStatusEnumApi
+    status: GitHubInstallRequestStatusEnumApi
     /**
      * GitHub App installation id, set once the request is approved.
      * @nullable
@@ -4909,9 +4909,10 @@ export interface OnboardingSkipRequestApi {
  * * `android` - Android
  * * `web` - Web
  */
-export type PushTokenPlatformEnumApi = (typeof PushTokenPlatformEnumApi)[keyof typeof PushTokenPlatformEnumApi]
+export type UserPushTokenPlatformEnumApi =
+    (typeof UserPushTokenPlatformEnumApi)[keyof typeof UserPushTokenPlatformEnumApi]
 
-export const PushTokenPlatformEnumApi = {
+export const UserPushTokenPlatformEnumApi = {
     Ios: 'ios',
     Android: 'android',
     Web: 'web',
@@ -4928,7 +4929,7 @@ export interface UserPushTokenRegisterRequestApi {
      * * `ios` - iOS
      * * `android` - Android
      * * `web` - Web */
-    platform: PushTokenPlatformEnumApi
+    platform: UserPushTokenPlatformEnumApi
 }
 
 export interface UserPushTokenItemApi {
@@ -4939,7 +4940,7 @@ export interface UserPushTokenItemApi {
      * * `ios` - iOS
      * * `android` - Android
      * * `web` - Web */
-    platform: PushTokenPlatformEnumApi
+    platform: UserPushTokenPlatformEnumApi
     /** When this token was first registered. */
     created_at: string
     /** Last time the mobile app re-registered this token. */

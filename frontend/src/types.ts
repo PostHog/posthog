@@ -91,7 +91,7 @@ import type { IntegrationConfigApi } from 'products/integrations/frontend/genera
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
-import type { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
@@ -843,9 +843,13 @@ export interface TeamType extends TeamBasicType {
         | null
     session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
     session_recording_retention_period: SessionRecordingRetentionPeriod | null
-    /** Plan-derived events data retention window in months (synced from billing). */
+    /**
+     * Plan-derived events data retention window in months (synced from billing). Read-only: it follows the plan's
+     * data retention entitlement, so support cannot change it outside the enterprise plan.
+     * See https://github.com/PostHog/posthog/issues/17031
+     */
     event_retention_months: number
-    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+    /** Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only. */
     events_retention_enforced: boolean
     session_replay_config: { record_canvas?: boolean } | undefined | null
     survey_config?: TeamSurveyConfigType
@@ -5602,6 +5606,7 @@ export const INTEGRATION_KINDS = [
     'apns',
     'postgresql',
     'aws-s3',
+    'aws-redshift',
     's3-compatible',
     'snowflake',
     'youtube-analytics',
@@ -6440,6 +6445,8 @@ export interface ExternalDataSourceCreatePayload {
     direct_query_enabled?: boolean
     created_via: 'web' | 'api' | 'mcp'
     payload: Record<string, any>
+    /** Destinations every table on the source writes to. Set at creation so the opening sync carries them. */
+    destination_ids?: string[]
 }
 
 /** Response of `POST warehouse_tables/upload_file` — the stored file a self-managed table is built from. */
@@ -6740,6 +6747,12 @@ export interface ExternalDataJob {
      * runs the customer isn't charged for. `null` on legacy rows and means billable.
      */
     billable?: boolean | null
+    /**
+     * Destinations this run delivered to, snapshotted when it started. Empty on runs that predate
+     * destinations, which wrote to the PostHog warehouse alone. `rows_synced` counts the rows read
+     * from the source once, not once per destination.
+     */
+    destination_ids?: string[]
 }
 
 export interface SimpleDataWarehouseTable {
@@ -6847,6 +6860,9 @@ export type BatchExportServiceHTTP = {
 
 export type BatchExportServiceRedshift = {
     type: 'Redshift'
+    // Credentials live on the linked `aws-redshift` integration. Exports created before integrations
+    // keep their inline user/password.
+    integration?: number
     config: {
         user: string
         password: string
@@ -6855,21 +6871,24 @@ export type BatchExportServiceRedshift = {
         database: string
         schema: string
         table_name: string
-        properties_data_type: boolean
+        properties_data_type: 'varchar' | 'super'
         mode: 'COPY' | 'INSERT'
-        authorization_mode: 'IAMRole' | 'Credentials'
+        // Form-only: derived from the shape of copy_inputs.authorization, never sent to the API.
+        authorization_mode: 'SameConnection' | 'DifferentConnection' | 'IAMRole' | 'Credentials'
         copy_inputs: BatchExportServiceRedshiftCopyInputs | null
         exclude_events: string[]
         include_events: string[]
     }
 }
 
+// The two COPY credentials can each reference an `aws-s3` integration by id instead of holding
+// inline keys. `authorization` additionally accepts the ARN of a role attached to the cluster.
 export type BatchExportServiceRedshiftCopyInputs = {
     s3_bucket: string
     s3_key_prefix: string
     region_name: string
-    bucket_credentials: AWSCredentials
-    authorization: string | AWSCredentials
+    bucket_credentials: number | AWSCredentials
+    authorization: number | string | AWSCredentials
 }
 
 export type AWSCredentials = {
@@ -7778,7 +7797,7 @@ export interface Conversation {
      */
     agent_runtime?: 'langgraph' | 'sandbox'
     /** Backing products/tasks Task for sandbox conversations. Null until the first message creates it. `latest_run` is the newest TaskRun id used to bootstrap the sandbox stream. */
-    task?: { id: string; latest_run: string | null; runtime?: RuntimeEnumApi } | null
+    task?: { id: string; latest_run: string | null; runtime?: TaskRuntimeEnumApi } | null
 }
 
 export interface ConversationDetail extends Conversation {

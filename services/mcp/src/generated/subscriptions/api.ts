@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const SubscriptionsListParams = /* @__PURE__ */ zod.object({
+export const SubscriptionsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,7 +16,7 @@ export const SubscriptionsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const SubscriptionsListQueryParams = /* @__PURE__ */ zod.object({
+export const SubscriptionsListQueryParams = () => zod.object({
     created_by: zod.string().optional().describe('Filter by creator user UUID.'),
     dashboard: zod.number().optional().describe('Filter by dashboard ID.'),
     dashboard_tiles: zod
@@ -33,10 +33,13 @@ export const SubscriptionsListQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Filter by subscription resource: insight, dashboard export, or AI report.'),
     search: zod.string().optional().describe('A search term.'),
-    target_type: zod.enum(['email', 'slack']).optional().describe('Filter by delivery channel (email or Slack).'),
+    target_type: zod
+        .enum(['email', 'slack', 'teams'])
+        .optional()
+        .describe('Filter by delivery channel: email, Slack, or Microsoft Teams.'),
 })
 
-export const SubscriptionsCreateParams = /* @__PURE__ */ zod.object({
+export const SubscriptionsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -64,7 +67,7 @@ export const subscriptionsCreateBodySummaryPromptGuideMax = 500
 
 export const subscriptionsCreateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault = false
 
-export const SubscriptionsCreateBody = /* @__PURE__ */ zod
+export const SubscriptionsCreateBody = () => zod
     .object({
         dashboard: zod
             .number()
@@ -126,12 +129,16 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
             ),
         target_type: zod
-            .enum(['email', 'slack'])
-            .describe('\* `email` - Email\n\* `slack` - Slack')
-            .describe('Delivery channel: email or slack.\n\n\* `email` - Email\n\* `slack` - Slack'),
+            .enum(['email', 'slack', 'teams'])
+            .describe('\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams')
+            .describe(
+                'Delivery channel: email, slack, or teams.\n\n\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams'
+            ),
         target_value: zod
             .string()
-            .describe('Recipient(s): comma-separated email addresses for email, or Slack channel name\/ID for slack.'),
+            .describe(
+                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it.'
+            ),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
             .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
@@ -169,7 +176,11 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .max(subscriptionsCreateBodyCountMax)
             .nullish()
             .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
-        start_date: zod.iso.datetime({ offset: true }).describe('When to start delivering (ISO 8601 datetime).'),
+        start_date: zod.iso
+            .datetime({ offset: true })
+            .describe(
+                'When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute.'
+            ),
         until_date: zod.iso
             .datetime({ offset: true })
             .nullish()
@@ -223,7 +234,7 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Standard Subscription serializer.')
 
-export const SubscriptionsRetrieveParams = /* @__PURE__ */ zod.object({
+export const SubscriptionsRetrieveParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this subscription.'),
     project_id: zod
         .string()
@@ -232,7 +243,7 @@ export const SubscriptionsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const SubscriptionsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const SubscriptionsPartialUpdateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this subscription.'),
     project_id: zod
         .string()
@@ -261,7 +272,7 @@ export const subscriptionsPartialUpdateBodySummaryPromptGuideMax = 500
 
 export const subscriptionsPartialUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault = false
 
-export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
+export const SubscriptionsPartialUpdateBody = () => zod
     .object({
         dashboard: zod
             .number()
@@ -323,14 +334,18 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                 "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
             ),
         target_type: zod
-            .enum(['email', 'slack'])
-            .describe('\* `email` - Email\n\* `slack` - Slack')
+            .enum(['email', 'slack', 'teams'])
+            .describe('\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams')
             .optional()
-            .describe('Delivery channel: email or slack.\n\n\* `email` - Email\n\* `slack` - Slack'),
+            .describe(
+                'Delivery channel: email, slack, or teams.\n\n\* `email` - Email\n\* `slack` - Slack\n\* `teams` - Microsoft Teams'
+            ),
         target_value: zod
             .string()
             .optional()
-            .describe('Recipient(s): comma-separated email addresses for email, or Slack channel name\/ID for slack.'),
+            .describe(
+                'Recipient(s): comma-separated email addresses for email, Slack channel name\/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it.'
+            ),
         frequency: zod
             .enum(['daily', 'weekly', 'monthly', 'yearly'])
             .describe('\* `daily` - Daily\n\* `weekly` - Weekly\n\* `monthly` - Monthly\n\* `yearly` - Yearly')
@@ -373,7 +388,9 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
         start_date: zod.iso
             .datetime({ offset: true })
             .optional()
-            .describe('When to start delivering (ISO 8601 datetime).'),
+            .describe(
+                'When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute.'
+            ),
         until_date: zod.iso
             .datetime({ offset: true })
             .nullish()
@@ -424,7 +441,7 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const SubscriptionsDestroyParams = /* @__PURE__ */ zod.object({
+export const SubscriptionsDestroyParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this subscription.'),
     project_id: zod
         .string()
@@ -433,7 +450,7 @@ export const SubscriptionsDestroyParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const SubscriptionsTestDeliveryCreateParams = /* @__PURE__ */ zod.object({
+export const SubscriptionsTestDeliveryCreateParams = () => zod.object({
     id: zod.number().describe('A unique integer value identifying this subscription.'),
     project_id: zod
         .string()
@@ -446,7 +463,7 @@ export const SubscriptionsTestDeliveryCreateParams = /* @__PURE__ */ zod.object(
  * Paginated delivery history for a subscription. Requires premium subscriptions.
  * @summary List subscription deliveries
  */
-export const SubscriptionsDeliveriesListParams = /* @__PURE__ */ zod.object({
+export const SubscriptionsDeliveriesListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -455,7 +472,7 @@ export const SubscriptionsDeliveriesListParams = /* @__PURE__ */ zod.object({
     subscription_id: zod.number(),
 })
 
-export const SubscriptionsDeliveriesListQueryParams = /* @__PURE__ */ zod.object({
+export const SubscriptionsDeliveriesListQueryParams = () => zod.object({
     cursor: zod.string().optional().describe('The pagination cursor value.'),
     status: zod
         .enum(['completed', 'failed', 'skipped', 'starting'])
@@ -467,7 +484,7 @@ export const SubscriptionsDeliveriesListQueryParams = /* @__PURE__ */ zod.object
  * Fetch one delivery row by id.
  * @summary Retrieve subscription delivery
  */
-export const SubscriptionsDeliveriesRetrieveParams = /* @__PURE__ */ zod.object({
+export const SubscriptionsDeliveriesRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this subscription delivery.'),
     project_id: zod
         .string()

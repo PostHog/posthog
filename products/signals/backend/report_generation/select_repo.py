@@ -18,6 +18,7 @@ from posthog.sync import database_sync_to_async
 
 from products.signals.backend.agent_runtime import STEP_REPO_SELECTION, resolve_agent_runtime
 from products.signals.backend.models import SignalReportArtefact
+from products.signals.backend.repo_corrections import wrong_repo_corrections_block
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.repo_selection import (
     REPO_SELECTION_DUMMY_REPOSITORY,
@@ -88,6 +89,10 @@ async def select_repository_for_team(
     agent_runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(
         team_id, STEP_REPO_SELECTION
     )
+    # Same chokepoint reasoning: every signals selection (report pipeline, custom agents, scout
+    # emit) should see the project's past wrong-repo corrections, so the block is built here
+    # rather than per caller. Best-effort inside (None on failure or no corrections).
+    past_corrections = await database_sync_to_async(wrong_repo_corrections_block, thread_sensitive=False)(team_id)
     try:
         return await select_repository(
             team_id=team_id,
@@ -102,6 +107,7 @@ async def select_repository_for_team(
             model=agent_runtime.model,
             runtime_adapter=agent_runtime.runtime_adapter,
             reasoning_effort=agent_runtime.reasoning_effort,
+            past_corrections=past_corrections,
         )
     except RepoSelectionRejectedError as exc:
         # Preserve legacy behavior: surface validation reject as null with reason so callers'
