@@ -372,24 +372,35 @@ class TestUpdateLastSyncedAt:
         # failing the whole import activity over a momentary blip.
         job = MagicMock()
         get_job = MagicMock(side_effect=[OperationalError("query_wait_timeout"), job])
-        schema = MagicMock()
-        get_schema = MagicMock(return_value=schema)
+        update_keys = MagicMock()
 
         with (
             patch(f"{_PIPELINE_SYNC_MODULE}.ExternalDataJob.objects.get", get_job),
-            patch(
-                f"{_PIPELINE_SYNC_MODULE}.ExternalDataSchema.objects.exclude", return_value=MagicMock(get=get_schema)
-            ),
+            patch(f"{_PIPELINE_SYNC_MODULE}.update_sync_type_config_keys", update_keys),
             patch(f"{_DB_RETRY_MODULE}.close_old_connections") as close,
             patch(f"{_DB_RETRY_MODULE}.time.sleep") as sleep,
         ):
             await update_last_synced_at(job_id="job-1", schema_id="schema-1", team_id=1)
 
         assert get_job.call_count == 2
-        assert schema.last_synced_at == job.created_at
-        schema.save.assert_called_once_with(skip_activity_log=True)
+        update_keys.assert_called_once()
+        assert update_keys.call_args.kwargs["extra_model_fields"] == {"last_synced_at": job.created_at}
         close.assert_called_once()
         sleep.assert_called_once_with(2)
+
+    @pytest.mark.asyncio
+    async def test_stamps_the_full_run_marker(self):
+        # `_fast_return_eligible` reads this to force one extracting run per interval, so a run
+        # that reaches post-load must leave it behind.
+        update_keys = MagicMock()
+
+        with (
+            patch(f"{_PIPELINE_SYNC_MODULE}.ExternalDataJob.objects.get", MagicMock(return_value=MagicMock())),
+            patch(f"{_PIPELINE_SYNC_MODULE}.update_sync_type_config_keys", update_keys),
+        ):
+            await update_last_synced_at(job_id="job-1", schema_id="schema-1", team_id=1)
+
+        assert "last_full_run_at" in update_keys.call_args.kwargs["updates"]
 
 
 class TestSetInitialSyncComplete(BaseTest):

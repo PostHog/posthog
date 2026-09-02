@@ -2,8 +2,7 @@
 name: signals-scout-observability-gaps
 description: >
   Signals scout for observability gaps — significant event volumes with no insight, dashboard,
-  or alert coverage. Files a report recommending new insights, dashboards, or alerts as the
-  team's product evolves.
+  or alert coverage. Recommends new insights, dashboards, or alerts as the product evolves.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the analytics and entity

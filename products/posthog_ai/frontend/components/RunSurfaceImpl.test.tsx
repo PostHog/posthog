@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 
-import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { RunStatus } from '../logics/runStreamLogic'
 import type { PermissionRequestRecord } from '../types/streamTypes'
@@ -37,7 +37,7 @@ function setValues(
         pendingPermissionRequest: PermissionRequestRecord | null
         bootstrapLoading: boolean
         threadItems: unknown[]
-        task: { origin_product: string; runtime?: RuntimeEnumApi } | null
+        task: { origin_product: string; runtime?: TaskRuntimeEnumApi } | null
     }>
 ): void {
     ;(useValues as jest.Mock).mockReturnValue({
@@ -45,7 +45,7 @@ function setValues(
         threadItems: [],
         pendingPermissionRequest: null,
         currentRunStatus: 'in_progress',
-        task: { origin_product: 'user_created', runtime: RuntimeEnumApi.Acp },
+        task: { origin_product: 'user_created', runtime: TaskRuntimeEnumApi.Acp },
         taskLoading: false,
         taskError: null,
         taskNotFound: false,
@@ -82,7 +82,7 @@ describe('RunSurface', () => {
     })
 
     it('does not mount the ACP run surface for a Pi task', () => {
-        setValues({ task: { origin_product: 'user_created', runtime: RuntimeEnumApi.Pi } })
+        setValues({ task: { origin_product: 'user_created', runtime: TaskRuntimeEnumApi.Pi } })
 
         render(
             <RunSurface.Root taskId="task-1" runId="run-1" interaction="live">
