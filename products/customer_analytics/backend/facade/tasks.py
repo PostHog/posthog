@@ -6,7 +6,8 @@ from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
-from django.db.models import F, Q, QuerySet
+from django.db.models import Case, CharField, F, IntegerField, Q, QuerySet, Value, When
+from django.db.models.functions import Coalesce, Concat, Lower, NullIf, Trim
 from django.utils import timezone
 
 from posthog.models import OrganizationMembership, Team, User
@@ -207,6 +208,46 @@ def _record_activity(
     )
 
 
+def _order_by_annotation(queryset: QuerySet[CustomerTask], annotation: str, descending: bool) -> QuerySet[CustomerTask]:
+    ordering = F(annotation).desc(nulls_last=True) if descending else F(annotation).asc(nulls_last=True)
+    return queryset.order_by(ordering, "id")
+
+
+def _apply_ordering(queryset: QuerySet[CustomerTask], ordering: str) -> QuerySet[CustomerTask]:
+    descending = ordering.startswith("-")
+    field = ordering.removeprefix("-")
+    if field == "status":
+        queryset = queryset.alias(
+            _ordering_status=Case(
+                When(status=CustomerTaskStatus.OPEN, then=Value(0)),
+                When(status=CustomerTaskStatus.IN_PROGRESS, then=Value(1)),
+                When(status=CustomerTaskStatus.COMPLETED, then=Value(2)),
+                When(status=CustomerTaskStatus.CANCELED, then=Value(3)),
+                default=Value(4),
+                output_field=IntegerField(),
+            )
+        )
+        return _order_by_annotation(queryset, "_ordering_status", descending)
+    if field == "assigned_to":
+        queryset = queryset.alias(
+            _ordering_assigned_to=Lower(
+                Coalesce(
+                    NullIf(Trim(Concat("assigned_to__first_name", Value(" "), "assigned_to__last_name")), Value("")),
+                    "assigned_to__email",
+                    output_field=CharField(),
+                )
+            )
+        )
+        return _order_by_annotation(queryset, "_ordering_assigned_to", descending)
+    if field == "account":
+        queryset = queryset.alias(_ordering_account=Lower("account__name"))
+        return _order_by_annotation(queryset, "_ordering_account", descending)
+    if field == "name":
+        queryset = queryset.alias(_ordering_name=Lower("name"))
+        return _order_by_annotation(queryset, "_ordering_name", descending)
+    return _order_by_annotation(queryset, field, descending)
+
+
 def list_customer_tasks(
     *,
     team_id: int,
@@ -242,8 +283,7 @@ def list_customer_tasks(
     if filters.ordering is None:
         queryset = queryset.order_by(F("due_at").asc(nulls_last=True), "-updated_at", "id")
     else:
-        ordering = filters.ordering
-        queryset = queryset.order_by(ordering, "id")
+        queryset = _apply_ordering(queryset, filters.ordering)
     count = queryset.count()
     return [_task_view(task, user_access_control) for task in queryset[offset : offset + limit]], count
 

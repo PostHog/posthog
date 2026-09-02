@@ -1,14 +1,19 @@
+from datetime import UTC, datetime
+from uuid import UUID
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team, User
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.customer_analytics.backend.facade import tasks
 from products.customer_analytics.backend.models import Account, CustomerTask, CustomerTaskActivity
 from products.customer_analytics.backend.presentation.views.customer_tasks import (
     CustomerTaskCreateSerializer,
@@ -220,18 +225,175 @@ class CustomerTaskAPI(APIBaseTest):
             == status.HTTP_409_CONFLICT
         )
 
-    def test_ordering_and_pagination_are_deterministic(self) -> None:
-        for name in ("C task", "A task", "B task"):
-            assert self.client.post(self.url, {"name": name}, format="json").status_code == status.HTTP_201_CREATED
+    def _create_ordering_task(
+        self,
+        *,
+        identifier: int,
+        name: str,
+        status_value: str,
+        account: Account | None,
+        assigned_to: User | None,
+        due_at: datetime | None,
+        description: str | None = None,
+        created_at: datetime,
+        updated_at: datetime,
+    ) -> CustomerTask:
+        task = CustomerTask.objects.for_team(self.team.id).create(
+            id=UUID(int=identifier),
+            team=self.team,
+            name=name,
+            description=description,
+            status=status_value,
+            account=account,
+            assigned_to=assigned_to,
+            due_at=due_at,
+            completed_at=created_at if status_value == "completed" else None,
+        )
+        CustomerTask.objects.for_team(self.team.id).filter(id=task.id).update(
+            created_at=created_at, updated_at=updated_at
+        )
+        return task
 
-        first = self.client.get(f"{self.url}?ordering=name&limit=2&offset=0").json()
-        second = self.client.get(f"{self.url}?ordering=name&limit=2&offset=2").json()
+    def _create_ordering_dataset(self) -> None:
+        alpha_account = Account.objects.for_team(self.team.id).create(team=self.team, name="alpha account")
+        bravo_account = Account.objects.for_team(self.team.id).create(team=self.team, name="Bravo account")
+        alice = User.objects.create_and_join(self.organization, "alice@example.com", "testpassword")
+        User.objects.filter(id=alice.id).update(first_name="aLiCe", last_name="Able")
+        zoe = User.objects.create_and_join(self.organization, "zoe@example.com", "testpassword")
+        User.objects.filter(id=zoe.id).update(first_name="ZoE", last_name="Zed")
+        timestamp = {day: datetime(2026, 1, day, tzinfo=UTC) for day in range(1, 5)}
+        self._create_ordering_task(
+            identifier=1,
+            name="bravo",
+            status_value="canceled",
+            account=bravo_account,
+            assigned_to=zoe,
+            due_at=timestamp[2],
+            created_at=timestamp[3],
+            updated_at=timestamp[3],
+        )
+        self._create_ordering_task(
+            identifier=2,
+            name="Alpha",
+            status_value="open",
+            account=alpha_account,
+            assigned_to=alice,
+            due_at=timestamp[1],
+            created_at=timestamp[1],
+            updated_at=timestamp[4],
+        )
+        self._create_ordering_task(
+            identifier=3,
+            name="charlie",
+            status_value="in_progress",
+            account=bravo_account,
+            assigned_to=zoe,
+            due_at=timestamp[2],
+            created_at=timestamp[4],
+            updated_at=timestamp[1],
+        )
+        self._create_ordering_task(
+            identifier=4,
+            name="Delta",
+            status_value="completed",
+            account=None,
+            assigned_to=None,
+            due_at=None,
+            created_at=timestamp[2],
+            updated_at=timestamp[2],
+        )
 
-        assert [task["name"] for task in first["results"]] == ["A task", "B task"]
-        assert [task["name"] for task in second["results"]] == ["C task"]
-        assert first["count"] == 3
-        assert first["next"] is not None
-        assert second["previous"] is not None
+    @parameterized.expand(
+        [
+            ("name", ("Alpha", "bravo", "charlie", "Delta"), ("Delta", "charlie", "bravo", "Alpha")),
+            ("status", ("Alpha", "charlie", "Delta", "bravo"), ("bravo", "Delta", "charlie", "Alpha")),
+            ("assigned_to", ("Alpha", "bravo", "charlie", "Delta"), ("bravo", "charlie", "Alpha", "Delta")),
+            ("due_at", ("Alpha", "bravo", "charlie", "Delta"), ("bravo", "charlie", "Alpha", "Delta")),
+            ("updated_at", ("charlie", "Delta", "bravo", "Alpha"), ("Alpha", "bravo", "Delta", "charlie")),
+            ("account", ("Alpha", "bravo", "charlie", "Delta"), ("bravo", "charlie", "Alpha", "Delta")),
+            ("created_at", ("Alpha", "Delta", "bravo", "charlie"), ("charlie", "bravo", "Delta", "Alpha")),
+        ]
+    )
+    def test_facade_orders_task_columns(
+        self, ordering: str, ascending: tuple[str, ...], descending: tuple[str, ...]
+    ) -> None:
+        self._create_ordering_dataset()
+
+        ascending_tasks = tasks._apply_ordering(CustomerTask.objects.for_team(self.team.id), ordering)
+        descending_tasks = tasks._apply_ordering(CustomerTask.objects.for_team(self.team.id), f"-{ordering}")
+
+        assert list(ascending_tasks.values_list("name", flat=True)) == list(ascending)
+        assert list(descending_tasks.values_list("name", flat=True)) == list(descending)
+
+    @parameterized.expand(
+        [
+            ("name",),
+            ("-name",),
+            ("status",),
+            ("-status",),
+            ("assigned_to",),
+            ("-assigned_to",),
+            ("due_at",),
+            ("-due_at",),
+            ("updated_at",),
+            ("-updated_at",),
+            ("account",),
+            ("-account",),
+            ("created_at",),
+            ("-created_at",),
+        ]
+    )
+    def test_facade_ordering_uses_id_tie_breaker(self, ordering: str) -> None:
+        timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+        self._create_ordering_task(
+            identifier=1,
+            name="Task",
+            description="Zulu",
+            status_value="open",
+            account=None,
+            assigned_to=None,
+            due_at=timestamp,
+            created_at=timestamp,
+            updated_at=timestamp,
+        )
+        self._create_ordering_task(
+            identifier=2,
+            name="Task",
+            description="Alpha",
+            status_value="open",
+            account=None,
+            assigned_to=None,
+            due_at=timestamp,
+            created_at=timestamp,
+            updated_at=timestamp,
+        )
+
+        queryset = tasks._apply_ordering(CustomerTask.objects.for_team(self.team.id), ordering)
+
+        assert list(queryset.values_list("description", flat=True)) == ["Zulu", "Alpha"]
+
+    @parameterized.expand(
+        [
+            ("name",),
+            ("-name",),
+            ("status",),
+            ("-status",),
+            ("assigned_to",),
+            ("-assigned_to",),
+            ("due_at",),
+            ("-due_at",),
+            ("updated_at",),
+            ("-updated_at",),
+            ("account",),
+            ("-account",),
+            ("created_at",),
+            ("-created_at",),
+        ]
+    )
+    def test_list_accepts_task_ordering(self, ordering: str) -> None:
+        response = self.client.get(self.url, {"ordering": ordering})
+
+        assert response.status_code == status.HTTP_200_OK
 
     def test_update_validates_the_final_account_and_assignee_together(self) -> None:
         assignee = User.objects.create_and_join(self.organization, "final-state@example.com", "testpassword")

@@ -92529,16 +92529,22 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Task ordering.
+     * Sort by task name, status, assignee, deadline, last update, account, or creation time. Prefix with - for descending order.
      *
-     * * `due_at` - due_at
-     * * `-due_at` - -due_at
-     * * `created_at` - created_at
-     * * `-created_at` - -created_at
-     * * `updated_at` - updated_at
-     * * `-updated_at` - -updated_at
      * * `name` - name
      * * `-name` - -name
+     * * `status` - status
+     * * `-status` - -status
+     * * `assigned_to` - assigned_to
+     * * `-assigned_to` - -assigned_to
+     * * `due_at` - due_at
+     * * `-due_at` - -due_at
+     * * `updated_at` - updated_at
+     * * `-updated_at` - -updated_at
+     * * `account` - account
+     * * `-account` - -account
+     * * `created_at` - created_at
+     * * `-created_at` - -created_at
      * @minLength 1
      */
     ordering?: string;

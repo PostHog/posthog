@@ -24,14 +24,20 @@ from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYT
 from products.customer_analytics.backend.models import CustomerTask, CustomerTaskActivityType, CustomerTaskStatus
 
 _ORDERING_CHOICES = [
-    "due_at",
-    "-due_at",
-    "created_at",
-    "-created_at",
-    "updated_at",
-    "-updated_at",
     "name",
     "-name",
+    "status",
+    "-status",
+    "assigned_to",
+    "-assigned_to",
+    "due_at",
+    "-due_at",
+    "updated_at",
+    "-updated_at",
+    "account",
+    "-account",
+    "created_at",
+    "-created_at",
 ]
 
 
@@ -181,7 +187,9 @@ class CustomerTaskListQuerySerializer(serializers.Serializer):
     due_before = serializers.DateTimeField(required=False, help_text="Exclusive upper deadline bound.")
     has_due_at = serializers.BooleanField(required=False, help_text="Filter tasks by whether a deadline exists.")
     ordering = serializers.ChoiceField(
-        required=False, choices=[(value, value) for value in _ORDERING_CHOICES], help_text="Task ordering."
+        required=False,
+        choices=[(value, value) for value in _ORDERING_CHOICES],
+        help_text="Sort by task name, status, assignee, deadline, last update, account, or creation time. Prefix with - for descending order.",
     )
     limit = serializers.IntegerField(
         required=False, default=50, min_value=0, max_value=100, help_text="Page size, up to 100."
