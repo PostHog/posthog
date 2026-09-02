@@ -261,7 +261,7 @@ tasks:
       acceptable_tools: [feature-flag-get-all, feature-flag-get-definition-by-key, feature-flag-get-definition]
       success_criteria: >
           Calls feature-flag-unarchive with no filters payload and does not enable it, saying the flag is still turned
-          off. Finds the archived flag by passing archived=true to feature-flag-get-all; a plain key lookup returning
+          off. Finds the archived flag by passing {"archived":"true"} to feature-flag-get-all; a plain key lookup returning
           nothing is not grounds for reporting that the flag does not exist.
 
     - id: flag-targeting-edit-uses-update
