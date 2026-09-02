@@ -389,18 +389,17 @@ def _pages_by_path(pages: dict[str, list[dict[str, Any]]]):
 
 
 @pytest.mark.parametrize(
-    "iterator_backed_parent,expected_parent_source",
+    "warehouse_parent,expected_parent_source",
     [(False, "api"), (True, "warehouse")],
 )
 def test_dependent_resource_reports_which_parent_source_served_its_rows(
-    iterator_backed_parent: bool, expected_parent_source: str
+    warehouse_parent: bool, expected_parent_source: str
 ) -> None:
     # The fan-out size only detects a warehouse parent that is missing rows when the same line
-    # says which source produced it. The label follows the parent that actually served the rows,
-    # because `build_dependent_resource` falls back to the API parent when the warehouse table
-    # cannot be resolved.
+    # says which source produced it.
     parent_resource: dict[str, Any] = {"name": "parents", "endpoint": {"path": "/parents"}}
-    if iterator_backed_parent:
+    if warehouse_parent:
+        parent_resource["parent_source"] = "warehouse"
         parent_resource["data_iterator"] = lambda: iter([[{"id": "p1"}, {"id": "p2"}]])
 
     config: dict[str, Any] = {
@@ -437,6 +436,7 @@ def test_dependent_resource_reports_which_parent_source_served_its_rows(
         FANOUT_PARENT_ROWS_CONSUMED,
         parent_source=expected_parent_source,
         rows_total=2,
+        resumed=False,
         page_rows=2,
     )
 
@@ -617,6 +617,7 @@ def test_warehouse_parent_builds_data_iterator_and_404_ignore(
         row_filter=row_filter,
     )
     assert child_resource["endpoint"]["response_actions"] == [{"status_code": 404, "action": "ignore"}]
+    assert parent_resource["parent_source"] == "warehouse"
 
 
 @patch("products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
@@ -639,6 +640,7 @@ def test_warehouse_parent_config_stays_on_api_path_when_not_enabled(mock_rest_ap
     parent_resource = config["resources"][0]
     child_resource = config["resources"][1]
     assert "data_iterator" not in parent_resource
+    assert "parent_source" not in parent_resource
     assert parent_resource["endpoint"]["params"]["limit"] == 3
     assert "response_actions" not in child_resource["endpoint"]
 
@@ -672,6 +674,8 @@ def test_unreadable_parent_table_falls_back_to_the_api_path(mock_rest_api_resour
     config = mock_rest_api_resources.call_args.args[0]
     parent_resource = config["resources"][0]
     assert "data_iterator" not in parent_resource
+    # Left unset so the telemetry reports the parent this run read, not the one it asked for.
+    assert "parent_source" not in parent_resource
     assert parent_resource["endpoint"]["params"]["limit"] == 3
     # The snapshot-only 404 handling goes with it: a fresh API parent doesn't list stale rows.
     assert "response_actions" not in config["resources"][1]["endpoint"]

@@ -164,6 +164,7 @@ def _make_paginate_dependent_resource(
     completed: set[str] = set(seed.get("completed") or [])
     current_path: Optional[str] = seed.get("current")
     current_child_state: Optional[dict[str, Any]] = seed.get("child_state")
+    resumed = bool(completed or current_path)
 
     def checkpoint(current: Optional[str], child_state: Optional[dict[str, Any]]) -> None:
         # resume_hook is non-None here (only called from the resumable path).
@@ -259,6 +260,7 @@ def _make_paginate_dependent_resource(
             logger,
             parent_source=parent_source,
             rows_total=parent_rows_consumed,
+            resumed=resumed,
             page_rows=page_rows,
         )
 
@@ -431,13 +433,10 @@ def create_resources(
             parent_name = resolved_params[0].resolve_config["resource"]
             predecessor = resources[parent_name]
 
-            # An iterator-backed parent is the warehouse read that `build_dependent_resource` sets
-            # up; every other parent pages its endpoint over HTTP. Derived here rather than passed
-            # in, because the fan-out builder falls back to the API parent when the table cannot be
-            # resolved, and this reports where the rows came from rather than what was requested.
-            parent_source: FanoutParentSource = (
-                "warehouse" if endpoint_resource_map[parent_name].get("data_iterator") else "api"
-            )
+            # Set by `build_dependent_resource` only once the warehouse table resolves, so an
+            # unresolvable table leaves this "api" and the telemetry names the parent the run
+            # actually read.
+            parent_source: FanoutParentSource = endpoint_resource_map[parent_name].get("parent_source") or "api"
 
             base_params = exclude_keys(request_params, {rp.param_name for rp in resolved_params})
 

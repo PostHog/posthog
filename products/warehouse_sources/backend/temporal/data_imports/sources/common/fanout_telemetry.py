@@ -12,17 +12,21 @@ def log_fanout_parent_rows_consumed(
     *,
     parent_source: FanoutParentSource,
     rows_total: int,
+    resumed: bool,
     page_rows: int | None = None,
 ) -> None:
-    """Report how many parent rows a fan-out sweep consumed, and which parent source served them.
+    """Report how many parent rows a fan-out sweep consumed, and which source served them.
 
-    Every fan-out emits this through one helper so that a single query can compare the two parent
-    sources for one schema. That comparison is the only way to detect a warehouse parent that is
-    missing rows the API listing still returns. A webhook-maintained parent can be missing rows,
-    because its table holds only what its drains delivered.
+    Comparing that count across the two parent sources for one schema is how a warehouse parent
+    that is missing rows gets found, because a webhook-maintained parent holds only what its
+    drains delivered.
 
-    `page_rows` is for a caller that emits once per parent page and carries `rows_total` as a
-    running total. A caller that emits once at the end of its sweep omits it.
+    `rows_total` counts the current attempt, so an attempt that resumed reports fewer rows than
+    the sweep covers. `resumed` marks those lines, because a partial count and a genuinely short
+    parent listing otherwise look the same.
+
+    Emit often enough that the last line of an attempt carries its running total. A caller that
+    emits once per parent page also sets `page_rows`.
 
     Lives in a leaf module (no deltalake or pyarrow) so that any source can import it.
     """
@@ -31,5 +35,6 @@ def log_fanout_parent_rows_consumed(
         FANOUT_PARENT_ROWS_CONSUMED,
         parent_source=parent_source,
         rows_total=rows_total,
+        resumed=resumed,
         **per_page_fields,
     )

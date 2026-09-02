@@ -591,16 +591,21 @@ class TestStripeNestedResourceGetRows:
             return _list_object([])
 
         manager = MagicMock()
+        logger = MagicMock()
         with patch.object(stripe_module, "NESTED_SWEEP_CHECKPOINT_PARENTS", 3):
             rows = _run_nested_get_rows(
                 nested_method,
                 parent_objects=[{"id": f"cus_{i}"} for i in range(8)],
                 resumable_source_manager=manager,
+                logger=logger,
             )
 
         assert rows == []
         # Checkpointed after the 3rd and 6th parent; the 7th and 8th are still in flight.
         assert [call.args[0].starting_after for call in manager.save_state.call_args_list] == ["cus_2", "cus_5"]
+        # The pipeline kills this loop mid-sweep on a worker shutdown, so every checkpoint carries
+        # the running fan-out size instead of leaving the attempt's only line until after the loop.
+        assert [call.kwargs["rows_total"] for call in logger.info.call_args_list] == [3, 6, 8]
 
     def test_query_param_service_receives_parent_in_params(self):
         # Flat Stripe services with a required filter (e.g. entitlements.active_entitlements.list)
@@ -1569,25 +1574,35 @@ class TestStripeWarehouseParentFanout:
         # A webhook-maintained parent holds only what its drains delivered, so it can be missing
         # customers the API listing still returns. Comparing the fan-out size across the two parent
         # sources for one schema is the only signal for that, and it needs both a count and the
-        # label naming which source produced it.
-        customers = [{"id": "cus_1", "balance": -500}, {"id": "cus_2", "balance": 250}]
+        # label naming which source produced it. `cus_zero` is ruled out by the skip predicate and
+        # still counts, because the number has to mean the same thing on both sources.
+        customers = [{"id": "cus_zero", "balance": 0}, {"id": "cus_credit", "balance": -500}]
         uri = _write_customer_parent_table(tmp_path, customers)
         api_logger = MagicMock()
         warehouse_logger = MagicMock()
 
-        api_method, _ = _recording_nested_method()
-        warehouse_method, _ = _recording_nested_method()
+        api_method, api_probed = _recording_nested_method()
+        warehouse_method, warehouse_probed = _recording_nested_method()
 
-        _run_nested_get_rows(api_method, parent_objects=customers, logger=api_logger)
+        _run_nested_get_rows(
+            api_method,
+            parent_objects=customers,
+            parent_has_nested=stripe_module._customer_might_have_balance_transactions,
+            logger=api_logger,
+        )
         _run_nested_get_rows(
             warehouse_method,
+            parent_has_nested=stripe_module._customer_might_have_balance_transactions,
             warehouse_parent=ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version()),
             logger=warehouse_logger,
         )
 
-        api_logger.info.assert_called_once_with(FANOUT_PARENT_ROWS_CONSUMED, parent_source="api", rows_total=2)
+        assert api_probed == warehouse_probed == ["cus_credit"]
+        api_logger.info.assert_called_once_with(
+            FANOUT_PARENT_ROWS_CONSUMED, parent_source="api", rows_total=2, resumed=False
+        )
         warehouse_logger.info.assert_called_once_with(
-            FANOUT_PARENT_ROWS_CONSUMED, parent_source="warehouse", rows_total=2
+            FANOUT_PARENT_ROWS_CONSUMED, parent_source="warehouse", rows_total=2, resumed=False
         )
 
     def test_the_skip_predicate_reads_the_balance_off_the_warehouse_row(self, tmp_path):
@@ -1700,14 +1715,19 @@ class TestStripeWarehouseParentFanout:
         )
 
         nested_method, _ = _recording_nested_method()
+        logger = MagicMock()
         rows = _run_nested_get_rows(
             nested_method,
             resumable_source_manager=manager,
             warehouse_parent=ParentTableRef(uri=uri, version=version),
             can_resume=True,
+            logger=logger,
         )
 
         assert [row["id"] for row in rows] == ["cbt_cus_2", "cbt_cus_3"]
+        # A resumed attempt counts only the parents it walked, so its fan-out size is partial. The
+        # line has to say so, or it reads as a warehouse parent that is missing rows.
+        assert logger.info.call_args.kwargs["resumed"] is True
 
     @parameterized.expand(
         [
