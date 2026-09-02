@@ -4,6 +4,7 @@ from typing import Any, cast
 
 from django.db.models import QuerySet
 
+from drf_spectacular.helpers import forced_singular_serializer
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -18,12 +19,10 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission, TeamMemberAccessPermission
 
-from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
-from products.customer_analytics.backend.facade import contracts, tasks
+from products.customer_analytics.backend.facade import task_contracts, tasks
 from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG
-from products.customer_analytics.backend.models import CustomerTask
+from products.customer_analytics.backend.models import CustomerTask, CustomerTaskActivityType, CustomerTaskStatus
 
-_TASK_STATUS_CHOICES = [(value, value) for value in ("open", "in_progress", "completed", "canceled")]
 _ORDERING_CHOICES = [
     "due_at",
     "-due_at",
@@ -53,7 +52,9 @@ class CustomerTaskSerializer(serializers.Serializer):
     account = CustomerTaskAccountSerializer(read_only=True, allow_null=True, help_text="Linked account, if any.")
     name = serializers.CharField(read_only=True, help_text="Task name.")
     description = serializers.CharField(read_only=True, allow_null=True, help_text="Task description, if any.")
-    status = serializers.ChoiceField(read_only=True, choices=_TASK_STATUS_CHOICES, help_text="Task lifecycle status.")
+    status = serializers.ChoiceField(
+        read_only=True, choices=CustomerTaskStatus.choices, help_text="Task lifecycle status."
+    )
     assigned_to = CustomerTaskUserSerializer(
         read_only=True, allow_null=True, help_text="Assigned project member, if any."
     )
@@ -88,7 +89,7 @@ class CustomerTaskCreateSerializer(serializers.Serializer):
         required=False, allow_null=True, help_text="ISO 8601 deadline, or null for no deadline."
     )
     status = serializers.ChoiceField(
-        required=False, default="open", choices=_TASK_STATUS_CHOICES, help_text="Initial task status."
+        required=False, default="open", choices=CustomerTaskStatus.choices, help_text="Initial task status."
     )
 
     def validate_name(self, value: str) -> str:
@@ -124,7 +125,7 @@ class CustomerTaskUpdateSerializer(serializers.Serializer):
         required=False, allow_null=True, help_text="Replacement ISO 8601 deadline, or null to clear it."
     )
     status = serializers.ChoiceField(
-        required=False, allow_null=False, choices=_TASK_STATUS_CHOICES, help_text="Replacement task status."
+        required=False, allow_null=False, choices=CustomerTaskStatus.choices, help_text="Replacement task status."
     )
 
     def validate_name(self, value: str) -> str:
@@ -155,7 +156,7 @@ class CustomerTaskActivitySerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True, help_text="UUID of the activity.")
     activity_type = serializers.ChoiceField(
         read_only=True,
-        choices=[(value, value) for value in ("created", "updated", "archived", "restored")],
+        choices=CustomerTaskActivityType.choices,
         help_text="Action that produced the activity.",
     )
     changes = CustomerTaskChangeSerializer(
@@ -194,7 +195,7 @@ class CustomerTaskListQuerySerializer(serializers.Serializer):
 
     def validate_statuses(self, value: str) -> tuple[str, ...]:
         values = tuple(part.strip() for part in value.split(","))
-        if not values or any(part not in dict(_TASK_STATUS_CHOICES) for part in values):
+        if not values or any(part not in dict(CustomerTaskStatus.choices) for part in values):
             raise serializers.ValidationError("statuses must contain only open, in_progress, completed, or canceled.")
         return values
 
@@ -204,6 +205,24 @@ class CustomerTaskActivityQuerySerializer(serializers.Serializer):
         required=False, default=50, min_value=0, max_value=100, help_text="Page size, up to 100."
     )
     offset = serializers.IntegerField(required=False, default=0, min_value=0, help_text="Number of rows to skip.")
+
+
+class CustomerTaskPageSerializer(serializers.Serializer):
+    count = serializers.IntegerField(read_only=True, help_text="Total number of matching tasks.")
+    next = serializers.URLField(read_only=True, allow_null=True, help_text="URL of the next page, if available.")
+    previous = serializers.URLField(
+        read_only=True, allow_null=True, help_text="URL of the previous page, if available."
+    )
+    results = CustomerTaskSerializer(many=True, read_only=True, help_text="Tasks in this page.")
+
+
+class CustomerTaskActivityPageSerializer(serializers.Serializer):
+    count = serializers.IntegerField(read_only=True, help_text="Total number of matching activities.")
+    next = serializers.URLField(read_only=True, allow_null=True, help_text="URL of the next page, if available.")
+    previous = serializers.URLField(
+        read_only=True, allow_null=True, help_text="URL of the previous page, if available."
+    )
+    results = CustomerTaskActivitySerializer(many=True, read_only=True, help_text="Activities in this page.")
 
 
 class CustomerTaskPagination(LimitOffsetPagination):
@@ -246,10 +265,11 @@ class CustomerTaskPermission(BasePermission):
         )
 
 
-class CustomerTaskViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
+class CustomerTaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "customer_task"
     serializer_class = CustomerTaskSerializer
     queryset = CustomerTask.objects.unscoped()
+    pagination_class = None
     posthog_feature_flag = CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG
     scope_object_read_actions = ["list", "retrieve", "activities"]
     scope_object_write_actions = ["create", "update", "partial_update", "archive", "restore"]
@@ -276,14 +296,14 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
 
     @validated_request(
         query_serializer=CustomerTaskListQuerySerializer,
-        responses={200: OpenApiResponse(response=CustomerTaskSerializer(many=True))},
+        responses={200: OpenApiResponse(response=forced_singular_serializer(CustomerTaskPageSerializer))},
     )
     def list(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         data = request.validated_query_data
         page, count = tasks.list_customer_tasks(
             team_id=self.team_id,
             user_access_control=self.user_access_control,
-            filters=contracts.CustomerTaskListFilters(
+            filters=task_contracts.CustomerTaskListFilters(
                 search=data.get("search", "").strip() or None,
                 account_id=data.get("account_id"),
                 assigned_to=data.get("assigned_to"),
@@ -314,7 +334,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
         serializer.is_valid(raise_exception=True)
         task = tasks.create_customer_task(
             team=self.team,
-            input=contracts.CreateCustomerTaskInput(**serializer.validated_data),
+            input=task_contracts.CreateCustomerTaskInput(**serializer.validated_data),
             actor=cast(User, request.user),
             user_access_control=self.user_access_control,
         )
@@ -330,7 +350,7 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
         task = tasks.update_customer_task(
             team=self.team,
             task_id=self.kwargs["pk"],
-            input=contracts.UpdateCustomerTaskInput(
+            input=task_contracts.UpdateCustomerTaskInput(
                 **data,
                 account_id_provided="account_id" in request.data,
                 name_provided="name" in request.data,
@@ -350,8 +370,8 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
     def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self.partial_update(request, *args, **kwargs)
 
-    @action(detail=True, methods=["post"])
     @extend_schema(request=None, responses={200: CustomerTaskSerializer})
+    @action(detail=True, methods=["post"])
     def archive(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         task = tasks.archive_customer_task(
             team_id=self.team_id,
@@ -363,8 +383,8 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
             return Response({"detail": "Task not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CustomerTaskSerializer(instance=task).data)
 
-    @action(detail=True, methods=["post"])
     @extend_schema(request=None, responses={200: CustomerTaskSerializer})
+    @action(detail=True, methods=["post"])
     def restore(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         task = tasks.restore_customer_task(
             team_id=self.team_id,
@@ -376,11 +396,13 @@ class CustomerTaskViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
             return Response({"detail": "Task not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CustomerTaskSerializer(instance=task).data)
 
-    @action(detail=True, methods=["get"])
-    @validated_request(
-        query_serializer=CustomerTaskActivityQuerySerializer,
-        responses={200: OpenApiResponse(response=CustomerTaskActivitySerializer(many=True))},
+    @extend_schema(
+        operation_id="customerTasksActivitiesList",
+        parameters=[CustomerTaskActivityQuerySerializer],
+        responses={200: OpenApiResponse(response=CustomerTaskActivityPageSerializer)},
     )
+    @action(detail=True, methods=["get"])
+    @validated_request(query_serializer=CustomerTaskActivityQuerySerializer)
     def activities(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         data = request.validated_query_data
         result = tasks.list_customer_task_activities(

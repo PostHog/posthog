@@ -31,7 +31,7 @@ class CustomerTask(TeamScopedRootMixin, UUIDModel):
     )
     name = models.CharField(max_length=400)
     description = models.TextField(null=True, blank=True)
-    properties = models.JSONField(default=dict)
+    properties = models.JSONField(default=dict, db_default={})
     status = models.CharField(max_length=20, choices=CustomerTaskStatus.choices, default=CustomerTaskStatus.OPEN)
     assigned_to = models.ForeignKey(
         "posthog.User",

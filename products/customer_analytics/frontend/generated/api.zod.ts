@@ -863,6 +863,51 @@ export const CustomerProfileConfigsPartialUpdateBody = /* @__PURE__ */ zod.objec
     sidebar: zod.unknown().optional(),
 })
 
+export const customerTasksCreateBodyNameMax = 400
+
+export const customerTasksCreateBodyStatusDefault = `open`
+
+export const CustomerTasksCreateBody = /* @__PURE__ */ zod.object({
+    account_id: zod.uuid().nullish().describe('UUID of a visible account, or null for an accountless task.'),
+    name: zod.string().max(customerTasksCreateBodyNameMax).describe('Task name.'),
+    description: zod.string().nullish().describe('Task description, or null to leave it empty.'),
+    assigned_to_id: zod.number().nullish().describe('PostHog user ID to assign, or null to leave unassigned.'),
+    due_at: zod.iso.datetime({ offset: true }).nullish().describe('ISO 8601 deadline, or null for no deadline.'),
+    status: zod
+        .enum(['open', 'in_progress', 'completed', 'canceled'])
+        .describe(
+            '\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
+        )
+        .default(customerTasksCreateBodyStatusDefault)
+        .describe(
+            'Initial task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
+        ),
+})
+
+export const CustomerTasksUpdateBody = /* @__PURE__ */ zod.looseObject({})
+
+export const customerTasksPartialUpdateBodyNameMax = 400
+
+export const CustomerTasksPartialUpdateBody = /* @__PURE__ */ zod.object({
+    account_id: zod.uuid().nullish().describe('UUID of a visible account, or null to remove the account link.'),
+    name: zod.string().max(customerTasksPartialUpdateBodyNameMax).optional().describe('Replacement task name.'),
+    description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
+    assigned_to_id: zod.number().nullish().describe('Replacement assignee ID, or null to unassign.'),
+    due_at: zod.iso
+        .datetime({ offset: true })
+        .nullish()
+        .describe('Replacement ISO 8601 deadline, or null to clear it.'),
+    status: zod
+        .enum(['open', 'in_progress', 'completed', 'canceled'])
+        .describe(
+            '\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
+        )
+        .optional()
+        .describe(
+            'Replacement task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
+        ),
+})
+
 /**
  * The caller's event stream: a live feed of selected accounts' events posted to a
  * Slack channel of their choice. Per-user — each team member owns at most one stream, and

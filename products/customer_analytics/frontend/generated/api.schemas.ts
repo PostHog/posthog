@@ -2807,6 +2807,244 @@ export interface PatchedCustomerProfileConfigApi {
     readonly updated_at?: string | null
 }
 
+export interface CustomerTaskAccountApi {
+    /** UUID of the linked account. */
+    readonly id: string
+    /** Name of the linked account. */
+    readonly name: string
+}
+
+/**
+ * * `open` - Open
+ * * `in_progress` - In progress
+ * * `completed` - Completed
+ * * `canceled` - Canceled
+ */
+export type CustomerTaskStatusEnumApi = (typeof CustomerTaskStatusEnumApi)[keyof typeof CustomerTaskStatusEnumApi]
+
+export const CustomerTaskStatusEnumApi = {
+    Open: 'open',
+    InProgress: 'in_progress',
+    Completed: 'completed',
+    Canceled: 'canceled',
+} as const
+
+export interface CustomerTaskUserApi {
+    /** PostHog user ID. */
+    readonly id: number
+    /** Email address of the user. */
+    readonly email: string
+    /** First name of the user. */
+    readonly first_name: string
+    /** Last name of the user. */
+    readonly last_name: string
+}
+
+export interface CustomerTaskApi {
+    /** UUID of the task. */
+    readonly id: string
+    /** Linked account, if any. */
+    readonly account: CustomerTaskAccountApi | null
+    /** Task name. */
+    readonly name: string
+    /**
+     * Task description, if any.
+     * @nullable
+     */
+    readonly description: string | null
+    /** Task lifecycle status.
+     *
+     * * `open` - Open
+     * * `in_progress` - In progress
+     * * `completed` - Completed
+     * * `canceled` - Canceled */
+    readonly status: CustomerTaskStatusEnumApi
+    /** Assigned project member, if any. */
+    readonly assigned_to: CustomerTaskUserApi | null
+    /**
+     * Task deadline, if any.
+     * @nullable
+     */
+    readonly due_at: string | null
+    /**
+     * When the task was completed, if applicable.
+     * @nullable
+     */
+    readonly completed_at: string | null
+    /** User credited with completion, if known. */
+    readonly completed_by: CustomerTaskUserApi | null
+    /** User who created the task, if known. */
+    readonly created_by: CustomerTaskUserApi | null
+    /**
+     * When the task was archived.
+     * @nullable
+     */
+    readonly archived_at: string | null
+    /** When the task was created. */
+    readonly created_at: string
+    /** When the task was last updated. */
+    readonly updated_at: string
+    /** Whether the current user can edit this task. */
+    readonly can_edit: boolean
+}
+
+export interface CustomerTaskPageApi {
+    /** Total number of matching tasks. */
+    readonly count: number
+    /**
+     * URL of the next page, if available.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, if available.
+     * @nullable
+     */
+    readonly previous: string | null
+    /** Tasks in this page. */
+    readonly results: readonly CustomerTaskApi[]
+}
+
+export interface CustomerTaskCreateApi {
+    /**
+     * UUID of a visible account, or null for an accountless task.
+     * @nullable
+     */
+    account_id?: string | null
+    /**
+     * Task name.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * Task description, or null to leave it empty.
+     * @nullable
+     */
+    description?: string | null
+    /**
+     * PostHog user ID to assign, or null to leave unassigned.
+     * @nullable
+     */
+    assigned_to_id?: number | null
+    /**
+     * ISO 8601 deadline, or null for no deadline.
+     * @nullable
+     */
+    due_at?: string | null
+    /** Initial task status.
+     *
+     * * `open` - Open
+     * * `in_progress` - In progress
+     * * `completed` - Completed
+     * * `canceled` - Canceled */
+    status?: CustomerTaskStatusEnumApi
+}
+
+export interface PatchedCustomerTaskUpdateApi {
+    /**
+     * UUID of a visible account, or null to remove the account link.
+     * @nullable
+     */
+    account_id?: string | null
+    /**
+     * Replacement task name.
+     * @maxLength 400
+     */
+    name?: string
+    /**
+     * Replacement description, or null to clear it.
+     * @nullable
+     */
+    description?: string | null
+    /**
+     * Replacement assignee ID, or null to unassign.
+     * @nullable
+     */
+    assigned_to_id?: number | null
+    /**
+     * Replacement ISO 8601 deadline, or null to clear it.
+     * @nullable
+     */
+    due_at?: string | null
+    /** Replacement task status.
+     *
+     * * `open` - Open
+     * * `in_progress` - In progress
+     * * `completed` - Completed
+     * * `canceled` - Canceled */
+    status?: CustomerTaskStatusEnumApi
+}
+
+/**
+ * * `created` - Created
+ * * `updated` - Updated
+ * * `archived` - Archived
+ * * `restored` - Restored
+ */
+export type CustomerTaskActivityTypeEnumApi =
+    (typeof CustomerTaskActivityTypeEnumApi)[keyof typeof CustomerTaskActivityTypeEnumApi]
+
+export const CustomerTaskActivityTypeEnumApi = {
+    Created: 'created',
+    Updated: 'updated',
+    Archived: 'archived',
+    Restored: 'restored',
+} as const
+
+/**
+ * Value before the change.
+ */
+export type CustomerTaskChangeApiBefore = string | number | boolean | { [key: string]: unknown } | null
+
+/**
+ * Value after the change.
+ */
+export type CustomerTaskChangeApiAfter = string | number | boolean | { [key: string]: unknown } | null
+
+export interface CustomerTaskChangeApi {
+    /** Semantic task field that changed. */
+    readonly field: string
+    /** Value before the change. */
+    readonly before: CustomerTaskChangeApiBefore
+    /** Value after the change. */
+    readonly after: CustomerTaskChangeApiAfter
+}
+
+export interface CustomerTaskActivityApi {
+    /** UUID of the activity. */
+    readonly id: string
+    /** Action that produced the activity.
+     *
+     * * `created` - Created
+     * * `updated` - Updated
+     * * `archived` - Archived
+     * * `restored` - Restored */
+    readonly activity_type: CustomerTaskActivityTypeEnumApi
+    /** Semantic field changes in this action. */
+    readonly changes: readonly CustomerTaskChangeApi[]
+    /** User who made the change, if known. */
+    readonly actor: CustomerTaskUserApi | null
+    /** When the activity was recorded. */
+    readonly created_at: string
+}
+
+export interface CustomerTaskActivityPageApi {
+    /** Total number of matching activities. */
+    readonly count: number
+    /**
+     * URL of the next page, if available.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, if available.
+     * @nullable
+     */
+    readonly previous: string | null
+    /** Activities in this page. */
+    readonly results: readonly CustomerTaskActivityApi[]
+}
+
 /**
  * The caller's event stream — a live feed of selected accounts' events posted to a
  * Slack channel of their choice. One stream per user per project.
@@ -3877,6 +4115,96 @@ export type CustomerProfileConfigsListParams = {
     limit?: number
     /**
      * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type CustomerTasksListParams = {
+    /**
+     * Filter by account UUID.
+     */
+    account_id?: string
+    /**
+     * Which archive state to include.
+     *
+     * * `active` - active
+     * * `archived` - archived
+     * * `all` - all
+     * @minLength 1
+     */
+    archive_state?: CustomerTasksListArchiveState
+    /**
+     * Filter by me, unassigned, or one user ID.
+     * @minLength 1
+     */
+    assigned_to?: string
+    /**
+     * Inclusive lower deadline bound.
+     */
+    due_after?: string
+    /**
+     * Exclusive upper deadline bound.
+     */
+    due_before?: string
+    /**
+     * Filter tasks by whether a deadline exists.
+     */
+    has_due_at?: boolean
+    /**
+     * Page size, up to 100.
+     * @minimum 0
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Number of rows to skip.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Task ordering.
+     *
+     * * `due_at` - due_at
+     * * `-due_at` - -due_at
+     * * `created_at` - created_at
+     * * `-created_at` - -created_at
+     * * `updated_at` - updated_at
+     * * `-updated_at` - -updated_at
+     * * `name` - name
+     * * `-name` - -name
+     * @minLength 1
+     */
+    ordering?: string
+    /**
+     * Search task name and description.
+     */
+    search?: string
+    /**
+     * Comma-separated task statuses.
+     * @minLength 1
+     */
+    statuses?: string
+}
+
+export type CustomerTasksListArchiveState =
+    (typeof CustomerTasksListArchiveState)[keyof typeof CustomerTasksListArchiveState]
+
+export const CustomerTasksListArchiveState = {
+    Active: 'active',
+    Archived: 'archived',
+    All: 'all',
+} as const
+
+export type CustomerTasksActivitiesListParams = {
+    /**
+     * Page size, up to 100.
+     * @minimum 0
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Number of rows to skip.
+     * @minimum 0
      */
     offset?: number
 }

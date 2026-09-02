@@ -29,7 +29,7 @@ class Migration(migrations.Migration):
                 ),
                 ("name", models.CharField(max_length=400)),
                 ("description", models.TextField(blank=True, null=True)),
-                ("properties", models.JSONField(default=dict)),
+                ("properties", models.JSONField(db_default={}, default=dict)),
                 (
                     "status",
                     models.CharField(
