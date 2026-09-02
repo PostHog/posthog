@@ -27,6 +27,19 @@ _PROVIDER_TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (
 )
 
 
+# `google-genai` never checks the HTTP status of a resumable upload's finalize request. A failed finalize
+# therefore reaches us as a bare builtin: a `KeyError` when the SDK reads a response body that holds no file,
+# or a `ValueError` when it stops on the upload-status header. Neither carries an `APIError` or a transport
+# error to match on, so both need their own shape. Both mean the upload never completed.
+_UNFINALIZED_UPLOAD_TEXT = "upload status is not finalized"
+
+
+def _is_unfinalized_upload(error: BaseException) -> bool:
+    if isinstance(error, KeyError):
+        return error.args == ("file",)
+    return isinstance(error, ValueError) and _UNFINALIZED_UPLOAD_TEXT in str(error).lower()
+
+
 def describe_gemini_error(error: BaseException) -> str:
     """Fixed-shape summary for user-visible error reasons.
 
@@ -36,6 +49,8 @@ def describe_gemini_error(error: BaseException) -> str:
     if isinstance(error, APIError):
         status = f" {error.status}" if error.status else ""
         return f"The AI provider returned HTTP {error.code}{status}"
+    if _is_unfinalized_upload(error):
+        return "The AI provider did not finish the video upload"
     return f"PostHog could not reach the AI provider ({type(error).__name__})"
 
 
@@ -47,7 +62,7 @@ def classify_gemini_error(error: BaseException) -> FailureKind | None:
     contact support about an outage they can just retry. Errors we can't place stay None so they keep the
     unclassified path rather than claiming to be transient and burning the retry budget.
     """
-    if isinstance(error, _PROVIDER_TRANSPORT_ERRORS):
+    if isinstance(error, _PROVIDER_TRANSPORT_ERRORS) or _is_unfinalized_upload(error):
         return FailureKind.PROVIDER_TRANSIENT
     if not isinstance(error, APIError):
         return None
