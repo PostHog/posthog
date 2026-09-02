@@ -176,6 +176,7 @@ export interface taskTrackerSceneLogicActions {
                 | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'
@@ -236,6 +237,7 @@ export interface taskTrackerSceneLogicActions {
                 | undefined
             kind:
                 | 'apns'
+                | 'aws-redshift'
                 | 'aws-s3'
                 | 'azure-blob'
                 | 'bing-ads'

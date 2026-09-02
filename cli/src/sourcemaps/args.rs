@@ -173,13 +173,14 @@ pub struct ReleaseArgs {
 
 #[derive(clap::Args, Clone, Default)]
 pub struct UploadConflictArgs {
-    /// Allow overwriting an existing symbol set whose content has changed. Always on with
-    /// `--release-mode=event`. [default: false]
+    /// Allow overwriting an existing symbol set whose content has changed. The sourcemap and
+    /// hermes uploads always overwrite in `event` release mode. [default: false]
     #[arg(long, default_value_t = false, conflicts_with = "skip_on_conflict")]
     pub force: bool,
 
     /// Skip symbol sets that already exist with different content instead of failing.
-    /// Existing symbol sets are left unchanged. Ignored with `--release-mode=event`. [default: false]
+    /// Existing symbol sets are left unchanged. The sourcemap and hermes uploads ignore this in
+    /// `event` release mode. [default: false]
     #[arg(long, default_value_t = false, conflicts_with = "force")]
     pub skip_on_conflict: bool,
 }
