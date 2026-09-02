@@ -1,5 +1,9 @@
+import datetime as dt
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
+
+from django.utils import timezone
 
 from rest_framework import status
 
@@ -135,3 +139,80 @@ class TestMetricsAlertsApi(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+
+    # --- Lifecycle transitions on update (state machine + audit, not bare field writes) ---
+
+    def _make_firing_alert(self, **overrides):
+        base = _payload(state="firing", consecutive_failures=2)
+        base.update(overrides)
+        return MetricsAlertConfiguration.objects.create(team=self.team, **base)
+
+    def test_disable_transitions_state_and_writes_audit(self):
+        alert = self._make_firing_alert()
+        response = self.client.patch(self._url(f"{alert.id}/"), {"enabled": False}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        alert.refresh_from_db()
+        assert alert.state == "not_firing"
+        assert alert.enabled is False
+        # disable preserves consecutive_failures (forensics), unlike enable/reset
+        assert alert.consecutive_failures == 2
+        event = MetricsAlertEvent.objects.get(alert=alert, kind=MetricsAlertEvent.Kind.DISABLE)
+        assert event.state_before == "firing"
+        assert event.state_after == "not_firing"
+
+    def test_enable_transitions_state_and_reschedules(self):
+        alert = self._make_firing_alert(enabled=False, next_check_at=None)
+        response = self.client.patch(self._url(f"{alert.id}/"), {"enabled": True}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        alert.refresh_from_db()
+        assert alert.state == "not_firing"
+        assert alert.consecutive_failures == 0
+        # enable clears next_check_at so the scheduler picks the alert up on the next tick
+        assert alert.next_check_at is None
+        MetricsAlertEvent.objects.get(alert=alert, kind=MetricsAlertEvent.Kind.ENABLE)
+
+    def test_snooze_transitions_state(self):
+        alert = self._make_firing_alert(state="not_firing")
+        until = (timezone.now() + dt.timedelta(hours=1)).isoformat()
+        response = self.client.patch(self._url(f"{alert.id}/"), {"snooze_until": until}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        alert.refresh_from_db()
+        assert alert.state == "snoozed"
+        assert alert.snooze_until is not None
+        MetricsAlertEvent.objects.get(alert=alert, kind=MetricsAlertEvent.Kind.SNOOZE)
+
+    def test_clearing_snooze_unsnoozes(self):
+        until = timezone.now() + dt.timedelta(hours=1)
+        alert = self._make_firing_alert(state="snoozed", snooze_until=until)
+        response = self.client.patch(self._url(f"{alert.id}/"), {"snooze_until": None}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        alert.refresh_from_db()
+        assert alert.state == "not_firing"
+        assert alert.snooze_until is None
+        MetricsAlertEvent.objects.get(alert=alert, kind=MetricsAlertEvent.Kind.UNSNOOZE)
+
+    def test_threshold_change_resets_state_and_reschedules(self):
+        alert = self._make_firing_alert()
+        response = self.client.patch(self._url(f"{alert.id}/"), {"threshold_value": 250.0}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        alert.refresh_from_db()
+        assert alert.state == "not_firing"
+        assert alert.consecutive_failures == 0
+        assert alert.next_check_at is None
+        MetricsAlertEvent.objects.get(alert=alert, kind=MetricsAlertEvent.Kind.THRESHOLD_CHANGE)
+
+    def test_threshold_change_preserves_snooze(self):
+        until = timezone.now() + dt.timedelta(hours=1)
+        alert = self._make_firing_alert(state="snoozed", snooze_until=until)
+        response = self.client.patch(self._url(f"{alert.id}/"), {"threshold_value": 250.0}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        alert.refresh_from_db()
+        assert alert.state == "snoozed"
+
+    def test_window_only_change_does_not_touch_state(self):
+        alert = self._make_firing_alert()
+        response = self.client.patch(self._url(f"{alert.id}/"), {"window_minutes": 15}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        alert.refresh_from_db()
+        assert alert.state == "firing"
+        assert not MetricsAlertEvent.objects.filter(alert=alert).exists()

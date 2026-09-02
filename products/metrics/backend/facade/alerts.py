@@ -13,6 +13,14 @@ from products.metrics.backend.alert_destinations import (
     METRICS_ALERT_SLACK_CONTEXT_ELEMENTS,
     METRICS_DESTINATION_TYPES,
 )
+from products.metrics.backend.alert_state_machine import (
+    apply_disable,
+    apply_enable,
+    apply_outcome,
+    apply_snooze,
+    apply_threshold_change,
+    apply_unsnooze,
+)
 
 __all__ = [
     "EVENT_KIND_CONFIG",
@@ -20,4 +28,10 @@ __all__ = [
     "METRICS_ALERT_EVENT_IDS",
     "METRICS_ALERT_SLACK_CONTEXT_ELEMENTS",
     "METRICS_DESTINATION_TYPES",
+    "apply_disable",
+    "apply_enable",
+    "apply_outcome",
+    "apply_snooze",
+    "apply_threshold_change",
+    "apply_unsnooze",
 ]

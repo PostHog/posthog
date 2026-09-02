@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any, Final, cast
 
 from django.db import transaction
 
@@ -34,11 +34,36 @@ from products.metrics.backend.facade.alerts import (
     METRICS_ALERT_EVENT_IDS,
     METRICS_ALERT_SLACK_CONTEXT_ELEMENTS,
     METRICS_DESTINATION_TYPES,
+    apply_disable,
+    apply_enable,
+    apply_outcome,
+    apply_snooze,
+    apply_threshold_change,
+    apply_unsnooze,
 )
 from products.metrics.backend.facade.contracts import METRICS_FEATURE_FLAG
 from products.metrics.backend.facade.models import MetricsAlertConfiguration, MetricsAlertEvent
 
 MAX_DESTINATION_IDS_PER_DELETE_REQUEST = 50
+
+_SENTINEL: Final = object()
+
+# Fields whose change re-evaluates the alert from scratch (threshold / window shape).
+_THRESHOLD_FIELDS = {
+    "threshold_value",
+    "threshold_operator",
+    "evaluation_periods",
+    "datapoints_to_alarm",
+    "filters",
+    "group_by",
+    "aggregation",
+    "metric_name",
+    "quantile",
+}
+
+
+def _any_field_changed(instance: MetricsAlertConfiguration, validated_data: dict, fields: set[str]) -> bool:
+    return any(f in validated_data and validated_data[f] != getattr(instance, f) for f in fields)
 
 
 class MetricsAlertDestinationSerializer(serializers.Serializer):
@@ -123,6 +148,46 @@ class MetricsAlertConfigurationSerializer(serializers.ModelSerializer):
     def create(self, validated_data: dict) -> MetricsAlertConfiguration:
         return MetricsAlertConfiguration.objects.create(**validated_data)
 
+    def update(self, instance: MetricsAlertConfiguration, validated_data: dict) -> MetricsAlertConfiguration:
+        snooze_data = validated_data.pop("snooze_until", _SENTINEL)
+
+        threshold_changed = _any_field_changed(instance, validated_data, _THRESHOLD_FIELDS)
+        schedule_changed = _any_field_changed(instance, validated_data, {"check_interval_minutes", "window_minutes"})
+
+        enabled_change: bool | None = None
+        if "enabled" in validated_data and validated_data["enabled"] != instance.enabled:
+            enabled_change = validated_data["enabled"]
+
+        # Route the edit through the shared state machine so lifecycle fields (state,
+        # consecutive_failures) stay consistent and every transition is audited.
+        # Priority: enable/disable > snooze > threshold. Window/interval-only edits
+        # leave state untouched. apply_outcome is the single writer of state fields.
+        with transaction.atomic():
+            snapshot = instance.to_snapshot()
+            if enabled_change is True:
+                apply_outcome(instance, apply_enable(snapshot), kind=MetricsAlertEvent.Kind.ENABLE)
+            elif enabled_change is False:
+                apply_outcome(instance, apply_disable(snapshot), kind=MetricsAlertEvent.Kind.DISABLE)
+            elif snooze_data is not _SENTINEL:
+                if snooze_data is None:
+                    apply_outcome(instance, apply_unsnooze(snapshot), kind=MetricsAlertEvent.Kind.UNSNOOZE)
+                else:
+                    apply_outcome(instance, apply_snooze(snapshot), kind=MetricsAlertEvent.Kind.SNOOZE)
+            elif threshold_changed:
+                apply_outcome(instance, apply_threshold_change(snapshot), kind=MetricsAlertEvent.Kind.THRESHOLD_CHANGE)
+
+            # snooze_until is a timestamp column, carried alongside the state transition
+            # so the single save persists both.
+            if snooze_data is not _SENTINEL:
+                instance.snooze_until = snooze_data
+
+            # Any evaluation-affecting change re-evaluates from scratch: clear
+            # next_check_at so the scheduler picks the alert up on the next tick.
+            if enabled_change is True or threshold_changed or schedule_changed:
+                validated_data["next_check_at"] = None
+
+            return super().update(instance, validated_data)
+
 
 class MetricsAlertConfigurationDetailSerializer(MetricsAlertConfigurationSerializer):
     destinations = serializers.SerializerMethodField()
@@ -200,7 +265,9 @@ class MetricsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         instance.delete()
 
-    @extend_schema(request=MetricsAlertDestinationSerializer, responses={201: MetricsAlertDestinationResponseSerializer})
+    @extend_schema(
+        request=MetricsAlertDestinationSerializer, responses={201: MetricsAlertDestinationResponseSerializer}
+    )
     @action(detail=True, methods=["POST"], url_path="destinations", required_scopes=["metrics:write"])
     def create_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = MetricsAlertDestinationSerializer(data=request.data)

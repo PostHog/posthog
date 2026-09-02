@@ -9,6 +9,11 @@ from posthog.management.commands.start_temporal_worker import (
     workflows_include_data_import_syncs,
 )
 
+from products.metrics.backend.facade.temporal import (
+    ACTIVITIES as METRICS_ALERTING_ACTIVITIES,
+    WORKFLOWS as METRICS_ALERTING_WORKFLOWS,
+)
+
 
 class _NotADataSyncWorkflow:
     pass
@@ -48,3 +53,46 @@ def test_wa_digests_are_registered_with_the_weekly_digest() -> None:
     workflows, activities = entries[0]
     assert set(WA_DIGEST_WORKFLOWS) <= set(workflows)
     assert set(WA_DIGEST_ACTIVITIES) <= set(activities)
+
+
+# The metrics alerting schedule names its task queue explicitly, so if the queue has no
+# deployed poller the recurring checks fire onto a queue nothing drains — silent, since the
+# workflow only times out after its (long) execution timeout. Until a dedicated worker fleet
+# is deployed, METRICS_ALERTING_TASK_QUEUE must default to the general-purpose fleet so the
+# defaultdict merge folds these workflows/activities into a queue with live pollers.
+def test_metrics_alerting_defaults_to_a_polled_queue(monkeypatch) -> None:
+    # pytest.ini forces DEBUG=1, which collapses every queue to development-task-queue, so
+    # the production default can only be observed by re-evaluating the settings module with
+    # DEBUG off and no METRICS_ALERTING_TASK_QUEUE env override.
+    monkeypatch.delenv("METRICS_ALERTING_TASK_QUEUE", raising=False)
+    try:
+        reloaded = _reload_temporal_settings(debug=False)
+        assert reloaded.METRICS_ALERTING_TASK_QUEUE == "general-purpose-task-queue"
+        assert reloaded.METRICS_ALERTING_TASK_QUEUE == reloaded.GENERAL_PURPOSE_TASK_QUEUE
+    finally:
+        # importlib.reload mutates the shared module object; restore the DEBUG=1 evaluation
+        # so later tests in the process see the collapsed dev queue they expect.
+        _reload_temporal_settings(debug=True)
+
+    entries = [
+        (queue, workflows, activities)
+        for queue, workflows, activities in _task_queue_specs
+        if METRICS_ALERTING_WORKFLOWS[0] in workflows
+    ]
+    assert len(entries) == 1
+    _, workflows, activities = entries[0]
+    assert set(METRICS_ALERTING_WORKFLOWS) <= set(workflows)
+    assert set(METRICS_ALERTING_ACTIVITIES) <= set(activities)
+
+
+def _reload_temporal_settings(*, debug: bool):
+    import importlib
+
+    from unittest.mock import patch
+
+    import posthog.settings.temporal as temporal_settings
+
+    # temporal.py binds `from ...base_variables import DEBUG`, so patching the name on the
+    # temporal module is undone by the reload's re-import; patch it at the source instead.
+    with patch("posthog.settings.base_variables.DEBUG", debug):
+        return importlib.reload(temporal_settings)

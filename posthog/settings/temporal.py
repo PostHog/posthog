@@ -262,7 +262,14 @@ ERROR_TRACKING_TASK_QUEUE = _set_temporal_task_queue("error-tracking-task-queue"
 ERROR_TRACKING_LIFECYCLE_TASK_QUEUE = _set_temporal_task_queue("error-tracking-lifecycle-task-queue")
 EVENT_SCREENSHOTS_TASK_QUEUE = _set_temporal_task_queue("event-screenshots-task-queue")
 LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
-METRICS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("metrics-alerting-task-queue")
+# Defaults to the general-purpose fleet so dispatch always has a live worker. Routing metrics
+# alerting to a dedicated, separately-scalable worker takes two steps in order: deploy a worker
+# fleet polling "metrics-alerting-task-queue" (a charts change), then set this env on the
+# dispatching services. Setting it first strands the recurring checks on a pollerless queue until
+# the workflow execution timeout closes them.
+METRICS_ALERTING_TASK_QUEUE = _set_temporal_task_queue(
+    os.getenv("METRICS_ALERTING_TASK_QUEUE", "general-purpose-task-queue")
+)
 # Dedicated queue: the tick becomes the scan-heavy rollup writer, and it must not
 # share pods with the latency-sensitive alerting workers.
 LOGS_VOLUME_TICK_TASK_QUEUE = _set_temporal_task_queue(
