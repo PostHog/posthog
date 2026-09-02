@@ -29,6 +29,7 @@ import * as otelMetrics from './ingestion-otel-metrics'
 import { resetLogsIngestionInstrumentsForTests } from './ingestion-otel-metrics'
 import { logsPatternBodyKindCounter } from './log-pattern-stage'
 import { LogRecord, decodeLogRecords, encodeLogRecords } from './log-record-avro'
+import { LogsConfigCache } from './logs-config-cache'
 import {
     DEFAULT_LOGS_RETENTION_DAYS,
     LogsIngestionConsumer,
@@ -109,6 +110,8 @@ const createKafkaMessage = async (logData: any, headers: Record<string, string> 
             { name: 'instrumentation_scope', type: ['null', 'string'] },
             { name: 'event_name', type: ['null', 'string'] },
             { name: 'attributes', type: ['null', { type: 'map', values: 'string' }] },
+            { name: 'pattern', type: ['null', 'string'], default: null },
+            { name: 'pattern_version', type: ['null', 'int'], default: null },
         ],
     })
 
@@ -157,6 +160,8 @@ const createMultiRecordKafkaMessage = async (
             { name: 'instrumentation_scope', type: ['null', 'string'] },
             { name: 'event_name', type: ['null', 'string'] },
             { name: 'attributes', type: ['null', { type: 'map', values: 'string' }] },
+            { name: 'pattern', type: ['null', 'string'], default: null },
+            { name: 'pattern_version', type: ['null', 'int'], default: null },
         ],
     })
 
@@ -208,7 +213,7 @@ describe('LogsIngestionConsumer', () => {
         depsPartial: Partial<
             Pick<
                 LogsIngestionConsumerDeps,
-                'samplingRulesCache' | 'metricRulesCache' | 'metricsEmitter' | 'logsTransformer'
+                'samplingRulesCache' | 'metricRulesCache' | 'metricsEmitter' | 'logsTransformer' | 'logsConfigCache'
             >
         > = {}
     ) => {
@@ -2376,6 +2381,36 @@ describe('LogsIngestionConsumer', () => {
             } else {
                 expect(bodyKindIncSpy).not.toHaveBeenCalled()
             }
+        })
+
+        // The fixture encodes the whole log object as the body, so its top-level keys are
+        // `level`, `message`, `service`, `timestamp`.
+        it.each([
+            ["the team's configured keys pick the message", ['service'], 'served <N> requests'],
+            [
+                'no config cache means no extraction, so the JSON body groups by key set',
+                undefined,
+                '<JSON:level,message,service,timestamp>',
+            ],
+        ])('%s', async (_name, keys, expectedPattern) => {
+            const logsConfigCache = keys
+                ? ({ getPatternMessageKeys: jest.fn().mockResolvedValue(keys) } as unknown as LogsConfigCache)
+                : undefined
+            maskingConsumer = await createLogsIngestionConsumer(
+                hub,
+                { LOGS_PATTERN_MASKING_ENABLED_TEAMS: '*' },
+                { logsConfigCache }
+            )
+
+            const messages = await createKafkaMessages(
+                [createLogMessage({ message: 'ignored 9', service: 'served 5 requests' })],
+                { token: team.api_token }
+            )
+            await waitForBackgroundTasks(maskingConsumer.processKafkaBatch(messages))
+
+            const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
+            const [, , records] = await decodeLogRecords(logsMessages[0].value as Buffer)
+            expect(records[0].pattern).toBe(expectedPattern)
         })
     })
 })
