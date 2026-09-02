@@ -64,6 +64,9 @@ const scanner = (overrides: Partial<ReplayScannerApi> = {}): ReplayScannerApi =>
         credits_this_month: 0,
         observations_this_month: 0,
         credits_per_observation: 1,
+        estimated_monthly_observations: null,
+        estimated_monthly_credits: null,
+        estimated_at: null,
         user_access_level: 'editor',
         ...overrides,
     }) as ReplayScannerApi
@@ -78,6 +81,9 @@ const scanners = {
             name: 'Confused checkout',
             credits_this_month: 1250,
             observations_this_month: 1250,
+            estimated_monthly_observations: 3100,
+            estimated_monthly_credits: 3100,
+            estimated_at: '2026-05-10T00:00:00Z',
             description: 'Flags sessions where the user hesitated at payment.',
             tags: ['checkout', 'core flows'],
             scanner_type: 'monitor',
@@ -99,6 +105,9 @@ const scanners = {
             name: 'Session summary',
             credits_this_month: 5,
             observations_this_month: 5,
+            estimated_monthly_observations: 40,
+            estimated_monthly_credits: 40,
+            estimated_at: '2026-05-10T00:00:00Z',
             scanner_type: 'summarizer',
             scanner_config: { prompt: 'Summarize this session.', length: 'medium' },
             sampling_rate: 0.05,
@@ -110,6 +119,9 @@ const scanners = {
             credits_this_month: 320,
             observations_this_month: 160,
             credits_per_observation: 2,
+            estimated_monthly_observations: 1000,
+            estimated_monthly_credits: 2000,
+            estimated_at: '2026-05-10T00:00:00Z',
             scanner_type: 'scorer',
             scanner_config: { prompt: 'Score this session.', scale: { min: 0, max: 10 } },
             sampling_rate: 1,
@@ -138,8 +150,20 @@ const quota: VisionQuotaApi = {
     scanners_monthly_credits: 5200,
     backfills_committed_credits: 0,
     free_monthly_credits: 2500,
+    credits_settled: 2400,
+    credits_reserved: 0,
     period_start: '2026-05-01T00:00:00Z',
     period_end: '2026-06-01T00:00:00Z',
+}
+
+// Settled ledger spend per UTC day of the mocked period, weekends dipping, summing to `quota.credits_used`.
+const spendSeries = {
+    period_start: quota.period_start,
+    period_end: quota.period_end,
+    days: [150, 190, 230, 260, 90, 80, 250, 280, 310, 120, 440].map((credits, i) => ({
+        date: `2026-05-${String(i + 1).padStart(2, '0')}`,
+        credits,
+    })),
 }
 
 const summarizerScanner = scanners.results[2]
@@ -372,6 +396,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/scanners/creators/': { creators: [alice, bob] },
                 '/api/projects/:team_id/vision/quota/': quota,
+                '/api/projects/:team_id/vision/quota/spend_series/': spendSeries,
                 '/api/projects/:team_id/vision/scanners/:id/': summarizerScanner,
                 '/api/projects/:team_id/vision/scanners/:id/impact/': scannerImpact,
                 '/api/projects/:team_id/vision/scanners/:id/observations/': observations,

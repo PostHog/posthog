@@ -223,7 +223,7 @@ ESTIMATES_WORKFLOW_NAME = "replay-vision-refresh-scanner-estimates"
 ESTIMATES_WORKFLOW_ID = "replay-vision-estimate-refresher"
 ESTIMATES_SCHEDULE_ID = "replay-vision-estimate-refresher-schedule"
 
-# Quarter-hourly checks against a 24h staleness target keep estimates at most ~24h15m old.
+# Quarter-hourly so an estimate nulled by a config edit is recomputed soon; the staleness clocks live with the query.
 ESTIMATES_REFRESH_INTERVAL = dt.timedelta(minutes=15)
 # Covers the worst-case batch (MAX_PER_RUN / CONCURRENCY × the 60s activity timeout = 100 min) with margin;
 # overlap SKIP means a slow run absorbs later ticks instead of being cancelled mid-batch.
