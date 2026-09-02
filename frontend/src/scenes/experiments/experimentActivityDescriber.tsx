@@ -320,6 +320,11 @@ export const experimentActivityDescriber = (logItem: ActivityLogItem): Humanized
                     .filter((part): part is string | JSX.Element => part !== null)
             }
 
+            if (isExperiment && changes.length > 0 && listParts.length === 0) {
+                // Every change described to null (e.g. only derived values drifted) — drop the row.
+                return { description: null }
+            }
+
             if (isExperiment && changes.length > 0 && listParts.length > 0) {
                 const lastIndex = listParts.length - 1
                 listParts[lastIndex] = appendPreposition(listParts[lastIndex])
