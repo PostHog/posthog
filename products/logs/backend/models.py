@@ -66,9 +66,10 @@ def default_logs_session_id_attribute_keys() -> list[str]:
     return list(DEFAULT_LOGS_SESSION_ID_ATTRIBUTE_KEYS)
 
 
-# Default JSON keys that hold the message text a log pattern is derived from. Ordered:
-# selection checks keys in list order and the first key whose value is a non-empty string
-# wins. An empty list turns extraction off, so JSON bodies group by their key set instead.
+# Default top-level JSON keys that hold the message text a log pattern is derived from.
+# Keys match literally, so a dot is part of the name and never a path. Ordered: selection
+# checks keys in list order and the first key whose value is a non-empty string wins. An
+# empty list turns extraction off, so JSON bodies group by their key set instead.
 DEFAULT_LOGS_PATTERN_MESSAGE_KEYS = ["message", "msg", "event"]
 
 
@@ -113,8 +114,9 @@ class TeamLogsConfig(models.Model):
         db_default=Value("{posthogSessionId}"),
     )
 
-    # Ordered list of JSON keys whose value is the message text that log patterns are derived
-    # from. Selection checks keys in order and the first non-empty string wins. An empty list
+    # Ordered list of top-level JSON keys whose value is the message text that log patterns are
+    # derived from. Matched literally, so `log.message` names one key and never descends. The
+    # first key in order whose value is a non-empty string wins. An empty list
     # turns extraction off. Read by the logs ingestion consumer, so this only shapes the
     # stored `pattern` column and never rewrites the log body.
     logs_pattern_message_keys = ArrayField(

@@ -168,9 +168,11 @@ class TeamLogsConfigSerializer(serializers.ModelSerializer):
         allow_empty=True,
         max_length=10,
         help_text=(
-            "Ordered list of JSON keys whose value is the message text that log patterns are "
-            "derived from. Selection checks keys in order; the first key whose value is a "
-            "non-empty string wins. Defaults to ['message', 'msg', 'event']. An empty list "
+            "Ordered list of top-level JSON keys whose value is the message text that log "
+            "patterns are derived from. Keys are matched literally at the top level of the log "
+            "body; a dot in a key is part of the key name, not a path into nested objects. "
+            "Selection checks keys in order; the first key whose value is a non-empty string "
+            "wins. Defaults to ['message', 'msg', 'event']. An empty list "
             "turns message extraction off, so JSON log bodies group by their key set instead. "
             "The stored log body is never changed by this setting."
         ),
