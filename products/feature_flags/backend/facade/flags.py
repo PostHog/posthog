@@ -17,7 +17,8 @@ FLAG_EVALUATIONS_HOGQL_TABLE_FEATURE_FLAG = "flag-evaluations-hogql-table"
 def is_flag_evaluations_table_enabled(team: "Team") -> bool:
     """Gate every surface that exposes `posthog.flag_evaluations` through here.
 
-    Cloud-only for now: a self-hosted instance always reads false.
+    Cloud-only for now: a self-hosted production instance reads false. Local dev and
+    end-to-end tests are the exception and read true.
     """
     # The flag is evaluated against PostHog's own analytics project, which a local or end-to-end
     # environment has no membership in, so it would gate the table out of both.
