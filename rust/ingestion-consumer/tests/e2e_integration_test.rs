@@ -458,7 +458,7 @@ fn make_kafka_consumer(
         config.set("group.instance.id", id);
     }
     // Wire the epoch as production's constructor does, so rebalances advance
-    // the ledger observer's assignment epoch in these tests too.
+    // the transport's assignment epoch in these tests too.
     let mut context = SentinelContext::detached();
     context.set_assignment_epoch(assignment_epoch);
     let kafka_consumer: StreamConsumer<SentinelContext> =
@@ -2522,11 +2522,12 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
 }
 
 /// A partition leaves for a second consumer and returns when that consumer
-/// shuts down. The first consumer's in-flight batch settles across the epoch
-/// change: the lost partition's stale completion drops instead of panicking,
-/// the kept partition's completions still land, and the returned partition
-/// starts a fresh assignment. A ledger bug here kills the consumer loop, so
-/// continued delivery after both handovers is the health signal.
+/// shuts down. The first consumer's in-flight batch settles across the
+/// generation change: the lost partition's stale completion drops, the kept
+/// partition's completions still land, and the returned partition starts a
+/// fresh assignment. A ledger bug here would surface as ledger errors or a
+/// wedged loop, so continued delivery after both handovers is the health
+/// signal.
 #[tokio::test]
 async fn partition_lost_and_regained_keeps_the_consumer_alive() {
     let topic = format!("e2e-regain-{}", Uuid::new_v4());
@@ -2591,7 +2592,7 @@ async fn partition_lost_and_regained_keeps_the_consumer_alive() {
     let task2 = tokio::spawn(async move { consumer2.process().await });
 
     // Release the held batch: it settles against ledgers whose partition set
-    // and epoch changed while it was in flight.
+    // and generations changed while it was in flight.
     guards.clear();
     tokio::time::sleep(Duration::from_secs(2)).await;
     for seq in 5..10usize {
@@ -2615,7 +2616,7 @@ async fn partition_lost_and_regained_keeps_the_consumer_alive() {
     .await;
 
     // The second consumer leaves; its partition returns to the first under a
-    // new epoch and must consume as a fresh assignment.
+    // new generation and must consume as a fresh assignment.
     shutdown2.cancel();
     let _ = tokio::time::timeout(Duration::from_secs(5), task2).await;
     probe2.cancel();

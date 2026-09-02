@@ -52,7 +52,7 @@ use tracing::{info, warn};
 
 use crate::ledger_shadow::set_depth_gauge;
 use crate::types::SerializedKafkaMessage;
-use common_kafka_consumer::TopicOffsetLedger;
+use common_kafka_consumer::{TopicOffsetLedger, TopicPartition};
 
 /// The first and last Kafka offsets a batch holds for one topic-partition.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -164,16 +164,21 @@ impl CommitSentinel {
     /// Check a batch's offset spans against the previous commit per partition,
     /// then advance the tracked committed offset to `span.last + 1`. Emits
     /// metrics and logs; returns the violations for tests.
-    pub fn check_commit(&self, spans: &HashMap<(String, i32), OffsetSpan>) -> Vec<CommitViolation> {
+    pub fn check_commit<'a>(
+        &self,
+        spans: impl IntoIterator<Item = (&'a TopicPartition, &'a OffsetSpan)>,
+    ) -> Vec<CommitViolation> {
         if !self.enabled.load(Ordering::Relaxed) {
             return Vec::new();
         }
         let mut partitions = self.partitions.lock().unwrap();
         let mut violations = Vec::new();
 
-        for ((topic, partition), span) in spans {
+        for (topic_partition, span) in spans {
             counter!("ingestion_consumer_commits_checked_total").increment(1);
 
+            let topic = &topic_partition.topic;
+            let partition = &topic_partition.partition;
             let state = partitions.entry((topic.clone(), *partition)).or_default();
             if let Some(prev) = state.attempted {
                 let kind = if span.first == prev {
@@ -679,12 +684,12 @@ impl ConsumerContext for SentinelContext {
 mod tests {
     use super::*;
 
-    fn spans(entries: &[(&str, i32, i64, i64)]) -> HashMap<(String, i32), OffsetSpan> {
+    fn spans(entries: &[(&str, i32, i64, i64)]) -> HashMap<TopicPartition, OffsetSpan> {
         entries
             .iter()
             .map(|(topic, partition, first, last)| {
                 (
-                    (topic.to_string(), *partition),
+                    TopicPartition::new(*topic, *partition),
                     OffsetSpan {
                         first: *first,
                         last: *last,

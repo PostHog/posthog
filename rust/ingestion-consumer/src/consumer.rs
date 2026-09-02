@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{
-    Charge, EpochOffsets, Offset as LedgerOffset, Partition, TopicOffsetLedger, TopicPartition,
+    Charge, Offset as LedgerOffset, Partition, TopicOffsetLedger, TopicPartition,
 };
 use futures::StreamExt;
 use lifecycle::Handle;
@@ -20,18 +20,15 @@ use crate::debug_recorder::{record_if, DebugEventKind, DebugRecorder, PartitionO
 use crate::discovery::DiscoveryMode;
 use crate::dispatcher::{Dispatcher, KeyOffset, SubBatch};
 use crate::grpc_transport::{GrpcTransport, PendingWorkerStreamSend};
-use crate::ledger_shadow::{count_stale_slice, set_depth_gauge, settle_ledger};
+use crate::ledger_shadow::LedgerShadow;
 use crate::order_sentinel::{CommitSentinel, OffsetSpan, SentinelContext};
 use crate::transport::SendError;
 use crate::types::{Accumulator, Group, SerializedKafkaMessage};
 use crate::worker_registry::WorkerId;
 
-/// Statistics gathered while collecting a batch, used to emit parity metrics.
+/// Batch-wide statistics gathered while collecting, used to emit parity
+/// metrics. Per-partition facts live on [`BatchPartition`].
 struct BatchStats {
-    /// Max Kafka message timestamp (ms) per (topic, partition) — for `latest_processed_timestamp_ms`.
-    latest_kafka_ts: HashMap<(String, i32), i64>,
-    /// Max ingestion lag (ms) per (topic, partition) — for `ingestion_lag_ms`.
-    max_lag_ms: HashMap<(String, i32), i64>,
     /// Per-message (partition, lag_ms) pairs — for `ingestion_lag_ms_histogram`.
     message_lags_ms: Vec<(i32, i64)>,
     /// Total byte size of message payloads — for `consumer_batch_size_kb`.
@@ -41,11 +38,75 @@ struct BatchStats {
 impl BatchStats {
     fn new() -> Self {
         Self {
-            latest_kafka_ts: HashMap::new(),
-            max_lag_ms: HashMap::new(),
             message_lags_ms: Vec::new(),
             total_bytes: 0,
         }
+    }
+}
+
+/// One delivered message, as the batch records it against its partition.
+struct Delivery {
+    offset: i64,
+    charge: Charge,
+    /// Kafka message timestamp (ms).
+    kafka_ts: i64,
+    /// Ingestion lag (ms); `None` without a parseable `now` header.
+    lag_ms: Option<i64>,
+}
+
+/// Everything a batch records about one of its partitions, built with one
+/// map entry per delivered message. The span feeds the commit; the stamped
+/// charges feed the shadow ledger.
+struct BatchPartition {
+    /// The offsets the commit path commits, as `last + 1`.
+    span: OffsetSpan,
+    /// Ledger generation the charges are stamped with.
+    generation: u64,
+    /// Ledger bump count seen when the charges were last stamped. Comparing
+    /// it per message is cheaper than reading the generation.
+    bumps: u64,
+    /// The slice charged to the ledger: offsets delivered under `generation`.
+    charges: Vec<(LedgerOffset, Charge)>,
+    /// Max Kafka message timestamp (ms) — for `latest_processed_timestamp_ms`.
+    latest_kafka_ts: i64,
+    /// Max ingestion lag (ms) — for `ingestion_lag_ms`.
+    max_lag_ms: Option<i64>,
+}
+
+impl BatchPartition {
+    fn new(generation: u64, bumps: u64, delivery: &Delivery) -> Self {
+        Self {
+            span: OffsetSpan::new(delivery.offset),
+            generation,
+            bumps,
+            charges: vec![(LedgerOffset(delivery.offset), delivery.charge)],
+            latest_kafka_ts: delivery.kafka_ts,
+            max_lag_ms: delivery.lag_ms,
+        }
+    }
+
+    /// Record one more delivery. `generation` is consulted only when `bumps`
+    /// moved since the last stamp. A moved generation means the partition was
+    /// revoked and regained inside this batch: the offsets buffered so far
+    /// belong to the old assignment and Kafka redelivers them, so the ledger
+    /// slice restarts. The commit span keeps them, as the commit path does
+    /// today.
+    fn record(&mut self, bumps: u64, generation: impl FnOnce() -> u64, delivery: &Delivery) {
+        self.span.extend(delivery.offset);
+        self.latest_kafka_ts = self.latest_kafka_ts.max(delivery.kafka_ts);
+        if let Some(lag_ms) = delivery.lag_ms {
+            self.max_lag_ms = Some(self.max_lag_ms.map_or(lag_ms, |max| max.max(lag_ms)));
+        }
+        if bumps != self.bumps {
+            self.bumps = bumps;
+            let generation = generation();
+            if generation != self.generation {
+                self.generation = generation;
+                self.charges.clear();
+            }
+        }
+        self.charges
+            .push((LedgerOffset(delivery.offset), delivery.charge));
     }
 }
 
@@ -53,15 +114,12 @@ impl BatchStats {
 struct CollectedBatch {
     /// The poll's messages, demuxed per partition and routing key.
     groups: Vec<Group>,
-    offsets: HashMap<(String, i32), OffsetSpan>,
-    ledger_offsets: HashMap<TopicPartition, EpochOffsets>,
+    partitions: HashMap<TopicPartition, BatchPartition>,
     stats: BatchStats,
 }
 
 struct ProcessedBatch {
-    offsets: HashMap<(String, i32), OffsetSpan>,
-    ledger_offsets: HashMap<TopicPartition, EpochOffsets>,
-    stats: BatchStats,
+    partitions: HashMap<TopicPartition, BatchPartition>,
     /// Messages accepted so far. Deferred groups (keys whose worker was
     /// draining/dead) are flushed in `complete_oldest_batch`, which adds to this.
     total_accepted: u32,
@@ -125,7 +183,7 @@ pub struct IngestionConsumer {
     commit_sentinel: Arc<CommitSentinel>,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     debug_recorder: Option<Arc<DebugRecorder>>,
-    topic_offset_ledger: Arc<TopicOffsetLedger>,
+    ledger_shadow: LedgerShadow,
 }
 
 impl IngestionConsumer {
@@ -142,7 +200,9 @@ impl IngestionConsumer {
         // Share the context's commit sentinel so rebalance callbacks reset the
         // same baselines the commit path checks against.
         let commit_sentinel = consumer.context().commit_sentinel();
-        let topic_offset_ledger = Arc::new(TopicOffsetLedger::new(transport.assignment_epoch()));
+        // The shadow is always on here: the tests that build a consumer from
+        // parts are the ones that exercise it. `new` reads the kill switch.
+        let topic_offset_ledger = Arc::new(TopicOffsetLedger::new());
         consumer
             .context()
             .set_topic_offset_ledger(Arc::clone(&topic_offset_ledger));
@@ -160,7 +220,7 @@ impl IngestionConsumer {
             deferred_flush_timeout: options.deferred_flush_timeout,
             handle,
             group_id: options.group_id,
-            topic_offset_ledger,
+            ledger_shadow: LedgerShadow::new(topic_offset_ledger, true),
         }
     }
 
@@ -191,7 +251,7 @@ impl IngestionConsumer {
             config.consumer_batch_size_kb,
         );
         let commit_sentinel = Arc::new(CommitSentinel::new());
-        let topic_offset_ledger = Arc::new(TopicOffsetLedger::new(transport.assignment_epoch()));
+        let topic_offset_ledger = Arc::new(TopicOffsetLedger::new());
         commit_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
         let key_sentinel = dispatcher.key_order_sentinel();
         key_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
@@ -227,7 +287,10 @@ impl IngestionConsumer {
             ),
             handle,
             group_id: config.ingestion_consumer_group_id.clone(),
-            topic_offset_ledger,
+            ledger_shadow: LedgerShadow::new(
+                topic_offset_ledger,
+                config.consumer_offset_ledger_shadow_enabled,
+            ),
         })
     }
 
@@ -330,7 +393,7 @@ impl IngestionConsumer {
         record_if(&self.debug_recorder, || DebugEventKind::BatchDispatched {
             batch_id: batch_id.clone(),
             messages: batch_size,
-            partitions: debug_partition_offsets(&collected.offsets, &collected.stats.max_lag_ms),
+            partitions: debug_partition_offsets(&collected.partitions),
         });
         let assign_start = Instant::now();
         let groups = std::mem::take(&mut collected.groups);
@@ -406,14 +469,14 @@ impl IngestionConsumer {
         // Commit only the oldest completed batch. Later successful batches stay
         // uncommitted behind any earlier failed batch, preserving at-least-once
         // delivery across worker or pipeline failures.
-        self.commit_offsets(&processed.offsets, &processed.ledger_offsets)?;
+        self.commit_offsets(&processed.partitions)?;
         self.dispatcher.release_batch(&batch_id);
-        emit_latest_processed_timestamp_metrics(&processed.stats, &self.group_id);
+        emit_latest_processed_timestamp_metrics(&processed.partitions, &self.group_id);
         record_if(&self.debug_recorder, || DebugEventKind::BatchCommitted {
             batch_id: batch_id.clone(),
             accepted: processed.total_accepted,
             duration_ms: processed.elapsed.as_millis() as u64,
-            partitions: debug_partition_offsets(&processed.offsets, &processed.stats.max_lag_ms),
+            partitions: debug_partition_offsets(&processed.partitions),
         });
 
         histogram!("ingestion_consumer_batch_processing_duration_seconds")
@@ -585,14 +648,17 @@ impl IngestionConsumer {
         histogram!("consumer_batch_size_kb").record(collected.stats.total_bytes as f64 / 1024.0);
 
         // Per-partition ingestion lag gauge — matches Node.js `ingestion_lag_ms`.
-        for ((topic, partition), max_lag) in &collected.stats.max_lag_ms {
+        for (topic_partition, partition) in &collected.partitions {
+            let Some(max_lag) = partition.max_lag_ms else {
+                continue;
+            };
             gauge!(
                 "ingestion_lag_ms",
-                "topic" => topic.clone(),
-                "partition" => partition.to_string(),
+                "topic" => topic_partition.topic.clone(),
+                "partition" => topic_partition.partition.to_string(),
                 "groupId" => group_id.clone()
             )
-            .set(*max_lag as f64);
+            .set(max_lag as f64);
         }
 
         // Per-message lag histogram — matches Node.js `ingestion_lag_ms_histogram`.
@@ -614,9 +680,7 @@ impl IngestionConsumer {
         let total_accepted = Self::scatter(&dispatcher, &batch_id, pending, false).await?;
 
         Ok(ProcessedBatch {
-            offsets: collected.offsets,
-            ledger_offsets: collected.ledger_offsets,
-            stats: collected.stats,
+            partitions: collected.partitions,
             total_accepted,
             batch_size: batch_size as u32,
             elapsed: start.elapsed(),
@@ -717,9 +781,7 @@ impl IngestionConsumer {
     /// at most one message, itself bounded by `fetch.message.max.bytes`.
     async fn collect_batch(&self) -> anyhow::Result<CollectedBatch> {
         let mut accumulator = Accumulator::default();
-        let mut offsets: HashMap<(String, i32), OffsetSpan> = HashMap::new();
-        let mut ledger_charges: HashMap<TopicPartition, (u64, Vec<(LedgerOffset, Charge)>)> =
-            HashMap::new();
+        let mut partitions: HashMap<TopicPartition, BatchPartition> = HashMap::new();
         let mut stats = BatchStats::new();
         let deadline = Instant::now() + self.batch_timeout;
         let batch_start_ms = current_time_ms();
@@ -747,22 +809,7 @@ impl IngestionConsumer {
                     let topic = borrowed_message.topic().to_string();
                     let partition = borrowed_message.partition();
                     let offset = borrowed_message.offset();
-
-                    offsets
-                        .entry((topic.clone(), partition))
-                        .and_modify(|span| span.extend(offset))
-                        .or_insert_with(|| OffsetSpan::new(offset));
-
                     let kafka_ts = borrowed_message.timestamp().to_millis().unwrap_or(0);
-                    stats
-                        .latest_kafka_ts
-                        .entry((topic.clone(), partition))
-                        .and_modify(|t| {
-                            if kafka_ts > *t {
-                                *t = kafka_ts;
-                            }
-                        })
-                        .or_insert(kafka_ts);
 
                     let payload_bytes = borrowed_message.payload().map(|v| v.len()).unwrap_or(0);
                     stats.total_bytes += payload_bytes;
@@ -779,28 +826,33 @@ impl IngestionConsumer {
                         }
                     }
 
-                    // Stamped once at the slice's first delivery; the
-                    // observer decides staleness per partition, so a slice
-                    // spanning an unrelated epoch bump keeps charging.
-                    let slice = ledger_charges
-                        .entry((topic.clone(), partition))
-                        .or_insert_with(|| (self.topic_offset_ledger.epoch(), Vec::new()));
-                    slice
-                        .1
-                        .push((LedgerOffset(offset), message_charge(&borrowed_message)));
-
-                    if let Some(capture_ms) = headers.get("now").and_then(|v| parse_now_ms(v)) {
-                        let lag_ms = (batch_start_ms - capture_ms).max(0);
-                        stats
-                            .max_lag_ms
-                            .entry((topic.clone(), partition))
-                            .and_modify(|l| {
-                                if lag_ms > *l {
-                                    *l = lag_ms;
-                                }
-                            })
-                            .or_insert(lag_ms);
+                    let lag_ms = headers
+                        .get("now")
+                        .and_then(|v| parse_now_ms(v))
+                        .map(|capture_ms| (batch_start_ms - capture_ms).max(0));
+                    if let Some(lag_ms) = lag_ms {
                         stats.message_lags_ms.push((partition, lag_ms));
+                    }
+
+                    let delivery = Delivery {
+                        offset,
+                        charge: message_charge(&borrowed_message),
+                        kafka_ts,
+                        lag_ms,
+                    };
+                    let key = TopicPartition::new(topic.clone(), partition);
+                    let bumps = self.ledger_shadow.bumps();
+                    match partitions.get_mut(&key) {
+                        Some(batch_partition) => batch_partition.record(
+                            bumps,
+                            || self.ledger_shadow.generation(&key),
+                            &delivery,
+                        ),
+                        None => {
+                            let generation = self.ledger_shadow.generation(&key);
+                            partitions
+                                .insert(key, BatchPartition::new(generation, bumps, &delivery));
+                        }
                     }
 
                     let serialized = SerializedKafkaMessage {
@@ -844,31 +896,16 @@ impl IngestionConsumer {
             }
         }
 
-        // One ledger call per partition keeps the lock, the entry key,
-        // and the gauge labels off the per-message path.
-        for (topic_partition, (epoch, charges)) in &ledger_charges {
-            match self.topic_offset_ledger.charge(
-                &topic_partition.0,
-                topic_partition.1,
-                *epoch,
-                charges.iter().copied(),
-            ) {
-                Ok(depth) => set_depth_gauge(&topic_partition.0, topic_partition.1, depth),
-                Err(reason) => count_stale_slice("charge", reason),
-            }
+        // One ledger call per partition keeps the lock and the gauge labels
+        // off the per-message path.
+        for (topic_partition, partition) in &partitions {
+            self.ledger_shadow
+                .charge(topic_partition, partition.generation, &partition.charges);
         }
-        let ledger_offsets = ledger_charges
-            .into_iter()
-            .map(|(topic_partition, (epoch, charges))| {
-                let offsets = charges.into_iter().map(|(offset, _)| offset).collect();
-                (topic_partition, EpochOffsets { epoch, offsets })
-            })
-            .collect();
 
         Ok(CollectedBatch {
             groups: accumulator.into_groups(),
-            offsets,
-            ledger_offsets,
+            partitions,
             stats,
         })
     }
@@ -876,10 +913,9 @@ impl IngestionConsumer {
     /// Commit the max offset for each topic-partition.
     fn commit_offsets(
         &self,
-        offset_spans: &HashMap<(String, i32), OffsetSpan>,
-        ledger_offsets: &HashMap<TopicPartition, EpochOffsets>,
+        partitions: &HashMap<TopicPartition, BatchPartition>,
     ) -> anyhow::Result<()> {
-        if offset_spans.is_empty() {
+        if partitions.is_empty() {
             // Unreachable while batches require messages to be spawned; counted
             // so "no empty commits" is a measurable guarantee, not an assumption.
             counter!("ingestion_consumer_commit_violations_total", "kind" => "empty").increment(1);
@@ -889,51 +925,48 @@ impl IngestionConsumer {
 
         // Validate contiguity/monotonicity per partition before committing, so
         // a violation is attributed to the batch that caused it.
-        self.commit_sentinel.check_commit(offset_spans);
+        self.commit_sentinel.check_commit(
+            partitions
+                .iter()
+                .map(|(topic_partition, partition)| (topic_partition, &partition.span)),
+        );
 
         let mut tpl = TopicPartitionList::new();
-        for ((topic, partition), span) in offset_spans {
+        for (topic_partition, partition) in partitions {
             // Commit offset + 1 (Kafka convention: committed offset = next to read)
-            tpl.add_partition_offset(topic, *partition, rdkafka::Offset::Offset(span.last + 1))?;
+            tpl.add_partition_offset(
+                &topic_partition.topic,
+                topic_partition.partition,
+                rdkafka::Offset::Offset(partition.span.last + 1),
+            )?;
         }
 
         self.consumer.commit(&tpl, CommitMode::Async)?;
-        for (topic_partition, _) in
-            settle_ledger(&self.topic_offset_ledger, ledger_offsets, offset_spans)
-        {
-            self.drain_frontier(topic_partition);
+        for (topic_partition, partition) in partitions {
+            self.ledger_shadow.settle(
+                topic_partition,
+                partition.generation,
+                partition.charges.iter().map(|(offset, _)| *offset),
+                &partition.span,
+            );
         }
         counter!("ingestion_consumer_offset_commits_total").increment(1);
 
         Ok(())
     }
-
-    /// Drain a settled partition's frontier and refresh its depth gauge.
-    fn drain_frontier(&self, topic_partition: &TopicPartition) {
-        self.topic_offset_ledger.take_frontier(topic_partition);
-        set_depth_gauge(
-            &topic_partition.0,
-            topic_partition.1,
-            self.topic_offset_ledger.depth(topic_partition),
-        );
-    }
 }
 
 /// Per-partition max offset + observed lag for the debug UI's batch events.
 fn debug_partition_offsets(
-    offsets: &HashMap<(String, i32), OffsetSpan>,
-    max_lag_ms: &HashMap<(String, i32), i64>,
+    partitions: &HashMap<TopicPartition, BatchPartition>,
 ) -> Vec<PartitionOffset> {
-    offsets
+    partitions
         .iter()
-        .map(|((topic, partition), span)| PartitionOffset {
-            topic: topic.clone(),
-            partition: *partition,
-            offset: span.last,
-            lag_ms: max_lag_ms
-                .get(&(topic.clone(), *partition))
-                .copied()
-                .unwrap_or(0),
+        .map(|(topic_partition, partition)| PartitionOffset {
+            topic: topic_partition.topic.clone(),
+            partition: topic_partition.partition,
+            offset: partition.span.last,
+            lag_ms: partition.max_lag_ms.unwrap_or(0),
         })
         .collect()
 }
@@ -1050,17 +1083,20 @@ fn parse_now_ms(value: &str) -> Option<i64> {
         .map(|dt| dt.timestamp_millis())
 }
 
-fn emit_latest_processed_timestamp_metrics(stats: &BatchStats, group_id: &str) {
+fn emit_latest_processed_timestamp_metrics(
+    partitions: &HashMap<TopicPartition, BatchPartition>,
+    group_id: &str,
+) {
     // Per-partition latest committed timestamp — matches Node.js
     // `latest_processed_timestamp_ms`.
-    for ((topic, partition), ts_ms) in &stats.latest_kafka_ts {
+    for (topic_partition, partition) in partitions {
         gauge!(
             "latest_processed_timestamp_ms",
-            "topic" => topic.clone(),
-            "partition" => partition.to_string(),
+            "topic" => topic_partition.topic.clone(),
+            "partition" => topic_partition.partition.to_string(),
             "groupId" => group_id.to_string()
         )
-        .set(*ts_ms as f64);
+        .set(partition.latest_kafka_ts as f64);
     }
 }
 
@@ -1069,6 +1105,72 @@ mod tests {
     use super::*;
     use rdkafka::message::{Header, OwnedHeaders, OwnedMessage};
     use rdkafka::Timestamp;
+
+    fn delivery(offset: i64) -> Delivery {
+        Delivery {
+            offset,
+            charge: Charge {
+                events: 1,
+                bytes: 1,
+            },
+            kafka_ts: offset,
+            lag_ms: Some(offset),
+        }
+    }
+
+    fn charged_offsets(partition: &BatchPartition) -> Vec<i64> {
+        partition
+            .charges
+            .iter()
+            .map(|(offset, _)| offset.0)
+            .collect()
+    }
+
+    #[test]
+    fn a_mid_batch_regain_restarts_the_ledger_slice_and_keeps_the_span() {
+        let mut partition = BatchPartition::new(3, 7, &delivery(10));
+        partition.record(
+            7,
+            || unreachable!("no bump, no generation read"),
+            &delivery(11),
+        );
+
+        // The partition is revoked and regained: Kafka redelivers from the
+        // committed offset 5 under generation 4.
+        partition.record(8, || 4, &delivery(5));
+        partition.record(8, || unreachable!("stamped once per bump"), &delivery(6));
+
+        assert_eq!(charged_offsets(&partition), vec![5, 6]);
+        assert_eq!(partition.generation, 4);
+        assert_eq!(partition.span, OffsetSpan { first: 5, last: 11 });
+    }
+
+    #[test]
+    fn another_partitions_bump_keeps_the_slice() {
+        let mut partition = BatchPartition::new(3, 7, &delivery(10));
+        partition.record(8, || 3, &delivery(11));
+
+        assert_eq!(charged_offsets(&partition), vec![10, 11]);
+        assert_eq!(partition.generation, 3);
+    }
+
+    #[test]
+    fn a_partition_keeps_its_max_timestamp_and_lag() {
+        let mut partition = BatchPartition::new(0, 0, &delivery(10));
+        partition.record(
+            0,
+            || 0,
+            &Delivery {
+                offset: 11,
+                charge: Charge::ZERO,
+                kafka_ts: 5,
+                lag_ms: None,
+            },
+        );
+
+        assert_eq!(partition.latest_kafka_ts, 10);
+        assert_eq!(partition.max_lag_ms, Some(10));
+    }
 
     #[test]
     fn message_charge_counts_payload_key_and_headers() {
