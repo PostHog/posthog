@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import quote
@@ -546,7 +547,8 @@ def _post_scout_report_thread_replies(
                 thread_ts=thread_ts,
                 blocks=blocks,
                 text=fallback,
-                client_msg_id=f"{delivery_id}:{index}",
+                # Slack rejects a non-UUID client_msg_id, so derive one per reply, as the queue does.
+                client_msg_id=str(uuid.uuid5(uuid.NAMESPACE_OID, f"{delivery_id}:{index}")),
                 unfurl_links=False,
                 unfurl_media=False,
             )
@@ -570,7 +572,7 @@ def _post_scout_report_thread_replies(
                 channel=channel_id,
                 thread_ts=thread_ts,
                 text=overflow_text,
-                client_msg_id=f"{delivery_id}:overflow",
+                client_msg_id=str(uuid.uuid5(uuid.NAMESPACE_OID, f"{delivery_id}:overflow")),
                 unfurl_links=False,
                 unfurl_media=False,
             )

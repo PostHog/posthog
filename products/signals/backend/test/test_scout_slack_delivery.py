@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -104,7 +106,11 @@ class TestPostScoutReportThreadReplies(SimpleTestCase):
         )
 
         assert client.chat_postMessage.call_count == 3
-        assert all("client_msg_id" in call.kwargs for call in client.chat_postMessage.call_args_list)
+        # Slack rejects a non-UUID client_msg_id, so every reply must carry a valid, deterministic one.
+        msg_ids = [call.kwargs["client_msg_id"] for call in client.chat_postMessage.call_args_list]
+        assert msg_ids == [str(uuid.uuid5(uuid.NAMESPACE_OID, f"d1:{i}")) for i in range(3)]
+        for msg_id in msg_ids:
+            uuid.UUID(msg_id)  # raises if the id is not a valid UUID
 
     def test_caps_replies_and_posts_one_overflow_note(self) -> None:
         # The section split makes the reply count follow the section count, so a long report must not
@@ -123,7 +129,8 @@ class TestPostScoutReportThreadReplies(SimpleTestCase):
         overflow_call = client.chat_postMessage.call_args_list[-1].kwargs
         assert "blocks" not in overflow_call
         assert "5 more sections" in overflow_call["text"]
-        assert overflow_call["client_msg_id"] == "d1:overflow"
+        assert overflow_call["client_msg_id"] == str(uuid.uuid5(uuid.NAMESPACE_OID, "d1:overflow"))
+        uuid.UUID(overflow_call["client_msg_id"])  # raises if the overflow id is not a valid UUID
 
 
 class TestScoutSlackDelivery(BaseTest):
@@ -485,9 +492,10 @@ class TestScoutSlackDelivery(BaseTest):
         assert lead_sections == ["Lead line."]
         first_reply, second_reply = calls[1].kwargs, calls[2].kwargs
         assert first_reply["thread_ts"] == "1785418710.000800"
-        assert first_reply["client_msg_id"] == f"{delivery_id}:0"
+        # Slack rejects a non-UUID client_msg_id, so each reply derives one, like the recipient path.
+        assert first_reply["client_msg_id"] == str(uuid.uuid5(uuid.NAMESPACE_OID, f"{delivery_id}:0"))
         assert "Evidence" in first_reply["blocks"][0]["text"]["text"]
-        assert second_reply["client_msg_id"] == f"{delivery_id}:1"
+        assert second_reply["client_msg_id"] == str(uuid.uuid5(uuid.NAMESPACE_OID, f"{delivery_id}:1"))
         assert "Recommended next step" in second_reply["blocks"][0]["text"]["text"]
         assert calls[3].kwargs["blocks"][0]["type"] == "context"
 
