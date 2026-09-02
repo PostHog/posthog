@@ -536,6 +536,7 @@ class EndpointExecutionService(PydanticModelMixin):
         try:
             result: Response | None = None
             materialized_failed = False
+            materialized_error: Exception | None = None
             if use_materialized:
                 try:
                     result = self._execute_materialized_endpoint(
@@ -549,15 +550,17 @@ class EndpointExecutionService(PydanticModelMixin):
                     )
                 except ConcurrencyLimitExceeded:
                     raise
-                except Exception:
-                    # Already logged/captured/signaled inside the materialized path. Re-run
-                    # inline: only stamp materialized_fallback once inline succeeds, because
-                    # only an inline success proves the materialized table was the sole thing
-                    # broken. If inline also fails the request was never recoverable (a bad
-                    # query fails on both paths) — that's an inline failure, not a fallback.
+                except Exception as e:
+                    # Already logged/signaled inside the materialized path (and captured there
+                    # unless the class looked like a customer error). Re-run inline: only stamp
+                    # materialized_fallback once inline succeeds, because only an inline success
+                    # proves the materialized table was the sole thing broken. If inline also
+                    # fails the request was never recoverable (a bad query fails on both paths) —
+                    # that's an inline failure, not a fallback.
                     materialized_failed = True
                     execution_type = "inline"
                     result = None
+                    materialized_error = e
 
             if result is None:
                 result = self._execute_inline_endpoint(
@@ -571,6 +574,22 @@ class EndpointExecutionService(PydanticModelMixin):
                 )
                 if materialized_failed:
                     execution_type = "materialized_fallback"
+                    if materialized_error is not None and _is_user_query_error(materialized_error):
+                        # Inline succeeded with the customer's own query, so a user-safe error
+                        # from the materialized read came from our rewritten SQL (e.g. a dropped
+                        # or drifted materialized table), not the customer. The materialized path
+                        # skipped capture because the class looked like a customer error — capture
+                        # it now as our fault, which the inline success has just confirmed.
+                        capture_exception(
+                            materialized_error,
+                            {
+                                "product": Product.ENDPOINTS,
+                                "team_id": self.team.pk,
+                                "endpoint_name": endpoint.name,
+                                "materialized": True,
+                                "saved_query_id": version_obj.saved_query.id if version_obj.saved_query else None,
+                            },
+                        )
             # Query-only wall-clock, to compare fairly with the DuckLake shadow.
             _ch_query_ms = (time.monotonic() - _ch_query_start) * 1000
             execution_status = "success"
