@@ -164,6 +164,34 @@ describe('insightAiSyncLogic', () => {
         expect(logic.values.hasPendingAiConflict).toBe(false)
     })
 
+    it('restores a completed local save after an older AI reload succeeds', () => {
+        insightSceneLogic.actions.setInsightMetadataLocal({ name: 'Draft name' })
+        logic.actions.agentToolCompleted('insight-update', { id: 42 })
+        logic.actions.useAiChanges()
+
+        const savedQuery = { kind: NodeKind.HogQLQuery, query: 'select 2' } as any
+        const savedInsight = {
+            ...insightLogicProps.cachedInsight,
+            name: 'Saved name',
+            query: savedQuery,
+        } as any
+
+        // This is insightLogic's real save completion ordering: success, then the persistent result.
+        insightSceneLogic.actions.saveInsightSuccess()
+        insightSceneLogic.actions.setInsight(savedInsight, { fromPersistentApi: true, overrideQuery: true })
+
+        insightSceneLogic.actions.loadInsightSuccess({
+            ...insightLogicProps.cachedInsight,
+            name: 'AI name',
+            query: { kind: NodeKind.HogQLQuery, query: 'select 1' },
+        } as any)
+
+        expect(insightSceneLogic.values.insight.name).toBe('Saved name')
+        expect(insightSceneLogic.values.savedInsight.name).toBe('Saved name')
+        expect(insightData.values.query).toEqual(savedQuery)
+        expect(logic.values).toMatchObject({ hasPendingAiConflict: false, isApplyingAiChanges: false })
+    })
+
     it('ignores another insight', () => {
         expectLogic().clearHistory()
 

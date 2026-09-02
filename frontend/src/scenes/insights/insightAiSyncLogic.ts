@@ -224,6 +224,13 @@ export interface insightAiSyncLogicActions {
     saveInsightSuccess: () => {
         value: true
     } // insightLogic
+    setInsight: (
+        insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>,
+        options: import('~/types').SetInsightOptions
+    ) => {
+        insight: Partial<QueryBasedInsightModel<Node<Record<string, any>>>>
+        options: import('~/types').SetInsightOptions
+    } // insightLogic
     setInsightMetadataLocal: (
         metadataUpdate: Partial<
             Pick<QueryBasedInsightModel<Node<Record<string, any>>>, 'description' | 'favorited' | 'name' | 'tags'>
@@ -255,6 +262,9 @@ export interface insightAiSyncLogicActions {
     setPendingAiConflict: () => {
         value: true
     }
+    supersedeAiChangesReload: () => {
+        value: true
+    }
     useAiChanges: () => {
         value: true
     }
@@ -284,6 +294,7 @@ export const insightAiSyncLogic: LogicWrapper<insightAiSyncLogicType> = kea<insi
                 'loadInsightSuccess',
                 'loadInsightFailure',
                 'saveInsightSuccess',
+                'setInsight',
                 'setInsightMetadataLocal',
             ],
             insightDataLogic(insightLogicProps),
@@ -307,6 +318,7 @@ export const insightAiSyncLogic: LogicWrapper<insightAiSyncLogicType> = kea<insi
         completeAiChangesReload: (preserveLocalChanges: boolean) => ({ preserveLocalChanges }),
         failAiChangesReload: true,
         recordAiReloadEdit: true,
+        supersedeAiChangesReload: true,
     }),
     reducers({
         hasPendingAiConflict: [
@@ -324,6 +336,7 @@ export const insightAiSyncLogic: LogicWrapper<insightAiSyncLogicType> = kea<insi
                 useAiChanges: () => true,
                 completeAiChangesReload: () => false,
                 failAiChangesReload: () => false,
+                supersedeAiChangesReload: () => false,
             },
         ],
         aiReloadHasLocalEdits: [
@@ -333,6 +346,7 @@ export const insightAiSyncLogic: LogicWrapper<insightAiSyncLogicType> = kea<insi
                 recordAiReloadEdit: () => true,
                 completeAiChangesReload: () => false,
                 failAiChangesReload: () => false,
+                supersedeAiChangesReload: () => false,
             },
         ],
     }),
@@ -363,7 +377,28 @@ export const insightAiSyncLogic: LogicWrapper<insightAiSyncLogicType> = kea<insi
             cache.aiReloadQuery = query
             actions.recordAiReloadEdit()
         },
+        saveInsightSuccess: () => {
+            if (!values.isApplyingAiChanges) {
+                return
+            }
+            cache.aiReloadWasSupersededBySave = true
+            cache.aiReloadMetadataUpdate = undefined
+            cache.aiReloadQuery = undefined
+            actions.supersedeAiChangesReload()
+        },
+        setInsight: ({ insight, options }) => {
+            if (cache.aiReloadWasSupersededBySave && options.fromPersistentApi) {
+                cache.aiReloadSavedInsight = insight
+            }
+        },
         loadInsightSuccess: () => {
+            if (cache.aiReloadSavedInsight) {
+                const savedInsight = cache.aiReloadSavedInsight
+                cache.aiReloadSavedInsight = undefined
+                cache.aiReloadWasSupersededBySave = false
+                actions.setInsight(savedInsight, { fromPersistentApi: true, overrideQuery: true })
+                return
+            }
             if (!values.isApplyingAiChanges) {
                 return
             }
@@ -382,6 +417,8 @@ export const insightAiSyncLogic: LogicWrapper<insightAiSyncLogicType> = kea<insi
             actions.completeAiChangesReload(preserveLocalChanges)
         },
         loadInsightFailure: () => {
+            cache.aiReloadSavedInsight = undefined
+            cache.aiReloadWasSupersededBySave = false
             if (!values.isApplyingAiChanges) {
                 return
             }
