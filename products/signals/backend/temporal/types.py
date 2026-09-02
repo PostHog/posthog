@@ -139,6 +139,10 @@ class TeamSignalGroupingV2Input:
     team_id: int
     pending_batch_keys: list[str] = field(default_factory=list)
     paused_until: Optional[datetime] = None
+    # Failed-processing attempt count per S3 batch key, carried across continue_as_new so a
+    # poison batch is bounded rather than retried forever. Defaults empty so histories written
+    # before this field replay unchanged.
+    batch_key_attempts: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass

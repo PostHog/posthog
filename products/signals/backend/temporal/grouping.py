@@ -1063,6 +1063,7 @@ def _augment_candidates_with_batch(
 async def _process_signal_batch(
     batch: list[EmitSignalInputs],
     cached_type_examples: Optional[FetchSignalTypeExamplesOutput] = None,
+    emit_prep_drops: bool = True,
 ) -> tuple[int, FetchSignalTypeExamplesOutput]:
     """
     Process a batch of signals with parallel preparation (steps 1-4) and sequential
@@ -1072,6 +1073,10 @@ async def _process_signal_batch(
     Earlier signals in the batch are injected into later signals' candidate sets via
     local cosine distance comparison, eliminating the need for per-signal CH waits
     within a batch.
+
+    A prep-phase (steps 1-4) failure re-raises so the caller can decide whether to retry.
+    Callers that retry the batch pass emit_prep_drops=False and own the terminal
+    signal_dropped telemetry, so a deterministic failure is not counted once per attempt.
     """
     team_id = batch[0].team_id
     # Purely defensive
@@ -1196,7 +1201,8 @@ async def _process_signal_batch(
             team_id=team_id,
             batch_size=len(batch),
         )
-        await asyncio.gather(*(capture_signal_dropped(signal, e, stage="grouping_prep") for signal in batch))
+        if emit_prep_drops:
+            await asyncio.gather(*(capture_signal_dropped(signal, e, stage="grouping_prep") for signal in batch))
         raise
 
     # === SEQUENTIAL PHASE (steps 5-7) ===

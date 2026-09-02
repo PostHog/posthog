@@ -17,6 +17,7 @@ from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
 
+from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.grouping import (
     TYPE_EXAMPLES_CACHE_TTL,
     FetchSignalTypeExamplesOutput,
@@ -36,12 +37,18 @@ PAUSE_MAX_RUN_DURATION = timedelta(minutes=30)
 BATCH_COLLECT_MAX_SIGNALS = 20
 BATCH_COLLECT_TIMEOUT = timedelta(seconds=30)
 RETRY_BACKOFF = timedelta(seconds=10)
+# A batch key that fails processing this many times is dead-lettered: its signals are dropped
+# and the key leaves the buffer, so a deterministic failure cannot jam the team's pipeline.
+MAX_BATCH_ATTEMPTS = 3
 
 # Patch ID for the multi-batch collection change. Once all in-flight workflows
 # that recorded history under the old single-batch code have drained (they
 # continue_as_new every iteration, so this is fast), replace this
 # workflow.patched() call with workflow.deprecate_patch() and eventually remove.
 _PATCH_COLLECT_BATCH = "collect-batch-signals-v1"
+# Patch ID for bounding retries and dead-lettering poison batches. In-flight runs replay the
+# old unbounded stash-and-sleep path; fresh runs take the bounded path.
+_PATCH_BOUNDED_RETRY = "bounded-batch-retry-v1"
 
 
 @dataclass
@@ -50,6 +57,8 @@ class CollectedBatch:
 
     signals: list[EmitSignalInputs] = field(default_factory=list)
     object_keys: list[str] = field(default_factory=list)
+    # Signals grouped by their source S3 key, so a dead-lettered key drops only its own signals.
+    signals_by_key: dict[str, list[EmitSignalInputs]] = field(default_factory=dict)
 
 
 @activity.defn
@@ -78,6 +87,7 @@ class TeamSignalGroupingV2Workflow:
 
     def __init__(self) -> None:
         self._batch_key_buffer: list[str] = []
+        self._batch_key_attempts: dict[str, int] = {}
         self._cached_type_examples: Optional[FetchSignalTypeExamplesOutput] = None
         self._type_examples_fetched_at: Optional[datetime] = None
         self._paused_until: Optional[datetime] = None
@@ -120,6 +130,7 @@ class TeamSignalGroupingV2Workflow:
                 team_id=input.team_id,
                 pending_batch_keys=list(self._batch_key_buffer),
                 paused_until=self._paused_until,
+                batch_key_attempts=dict(self._batch_key_attempts),
             )
         )
 
@@ -155,6 +166,7 @@ class TeamSignalGroupingV2Workflow:
             )
 
             collected.signals.extend(read_result.signals)
+            collected.signals_by_key[object_key] = read_result.signals
 
         return collected
 
@@ -221,6 +233,84 @@ class TeamSignalGroupingV2Workflow:
                 self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
             return
 
+        if workflow.patched(_PATCH_BOUNDED_RETRY):
+            await self._process_collected(input, collected)
+        else:
+            await self._process_collected_unbounded(input, collected)
+
+        # continue_as_new after each processing round to keep history bounded.
+        # Carry over any pending keys that arrived while we were processing.
+        self._continue_as_new(input)
+
+    async def _process_collected(self, input: TeamSignalGroupingV2Input, collected: CollectedBatch) -> None:
+        """Process a collected batch, bounding retries so a poison batch cannot jam the buffer."""
+        try:
+            # emit_prep_drops=False: a prep failure is retried, so this path owns the terminal
+            # signal_dropped telemetry (see _dead_letter) rather than emitting once per attempt.
+            dropped, _type_examples = await _process_signal_batch(collected.signals, emit_prep_drops=False)
+        except Exception as error:
+            logger.exception(
+                "Failed to process signal batch",
+                team_id=input.team_id,
+                batch_size=len(collected.signals),
+                batch_keys=collected.object_keys,
+            )
+            await self._handle_batch_failure(input, collected, error)
+            return
+
+        for key in collected.object_keys:
+            self._batch_key_attempts.pop(key, None)
+        if self._signals_processed_counter is not None:
+            self._signals_processed_counter.add(len(collected.signals))
+        if self._signals_dropped_counter is not None and dropped > 0:
+            self._signals_dropped_counter.add(dropped)
+
+    async def _handle_batch_failure(
+        self, input: TeamSignalGroupingV2Input, collected: CollectedBatch, error: BaseException
+    ) -> None:
+        """Count the attempt per key, dead-letter keys at the cap, and re-stash the rest for retry."""
+        retry_keys: list[str] = []
+        dead_keys: list[str] = []
+        for key in collected.object_keys:
+            attempts = self._batch_key_attempts.get(key, 0) + 1
+            self._batch_key_attempts[key] = attempts
+            (dead_keys if attempts >= MAX_BATCH_ATTEMPTS else retry_keys).append(key)
+
+        if dead_keys:
+            await self._dead_letter(input, collected, dead_keys, error)
+            for key in dead_keys:
+                self._batch_key_attempts.pop(key, None)
+
+        # Stash keys still under the attempt cap back at the head so they retry after continue_as_new.
+        self._batch_key_buffer = retry_keys + self._batch_key_buffer
+        if self._batch_buffer_size_gauge is not None:
+            self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
+        if retry_keys:
+            # Sleep before retrying to avoid hot-looping on a deterministic failure.
+            await workflow.sleep(RETRY_BACKOFF)
+
+    async def _dead_letter(
+        self,
+        input: TeamSignalGroupingV2Input,
+        collected: CollectedBatch,
+        dead_keys: list[str],
+        error: BaseException,
+    ) -> None:
+        """Drop signals whose batch key hit the attempt cap, and emit their drop telemetry once."""
+        dead_signals = [signal for key in dead_keys for signal in collected.signals_by_key.get(key, [])]
+        logger.error(
+            "Dropping poison signal batch after repeated failures",
+            team_id=input.team_id,
+            dead_keys=dead_keys,
+            signal_count=len(dead_signals),
+        )
+        if self._signals_dropped_counter is not None and dead_signals:
+            self._signals_dropped_counter.add(len(dead_signals))
+        for signal in dead_signals:
+            await capture_signal_dropped(signal, error, stage="grouping_prep")
+
+    async def _process_collected_unbounded(self, input: TeamSignalGroupingV2Input, collected: CollectedBatch) -> None:
+        """Legacy unbounded stash-and-sleep path, kept for in-flight runs replaying old history."""
         try:
             dropped, _type_examples = await _process_signal_batch(collected.signals)
             if self._signals_processed_counter is not None:
@@ -241,10 +331,6 @@ class TeamSignalGroupingV2Workflow:
                 self._batch_buffer_size_gauge.set(len(self._batch_key_buffer))
             await workflow.sleep(RETRY_BACKOFF)
 
-        # continue_as_new after each processing round to keep history bounded.
-        # Carry over any pending keys that arrived while we were processing.
-        self._continue_as_new(input)
-
     @temporalio.workflow.run
     async def run(self, input: TeamSignalGroupingV2Input) -> None:
         with posthoganalytics.new_context(capture_exceptions=False):
@@ -255,6 +341,7 @@ class TeamSignalGroupingV2Workflow:
     async def _run_impl(self, input: TeamSignalGroupingV2Input) -> None:
         # Restore state carried over from continue_as_new
         self._batch_key_buffer.extend(input.pending_batch_keys)
+        self._batch_key_attempts = dict(input.batch_key_attempts)
         self._paused_until = input.paused_until
         start_time = workflow.now()
 
