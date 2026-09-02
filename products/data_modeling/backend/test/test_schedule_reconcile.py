@@ -15,6 +15,7 @@ from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule
 from products.data_modeling.backend.logic.freshness import UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.node_frequency import (
     get_declared_anchor,
+    get_declared_target,
     set_declared_anchor,
     set_declared_target,
 )
@@ -48,6 +49,7 @@ RECONCILE = "products.data_modeling.backend.logic.schedule_reconcile"
 M15 = timedelta(minutes=15)
 H1 = timedelta(hours=1)
 H6 = timedelta(hours=6)
+D1 = timedelta(days=1)
 
 
 def _listing(schedule_id, workflow="data-modeling-execute-dag"):
@@ -437,12 +439,13 @@ class TestMaybeReconcileDag(BaseTest):
                 maybe_reconcile_dag(dag)
         connect.assert_not_called()
 
-    def test_untiered_dag_is_left_alone(self):
-        # a legacy single-schedule DAG converts only via the conversion command; a mutation
-        # trigger must neither unschedule it nor create tiers next to live v1 schedules
+    def test_untiered_dag_with_live_v1_schedules_is_left_alone(self):
+        # tiers next to live v1 per-query schedules would materialize everything twice; such a
+        # DAG stays for the conversion command, which sweeps v1 in the same pass
         dag = self._dag_with_target()
         with (
             mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=True),
+            mock.patch(f"{RECONCILE}.dag_has_live_v1_schedules", return_value=True),
             mock.patch(
                 f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([str(dag.id)]))
             ),
@@ -455,6 +458,73 @@ class TestMaybeReconcileDag(BaseTest):
         create.assert_not_called()
         update.assert_not_called()
         delete.assert_not_called()
+
+    def test_first_target_on_bare_legacy_dag_converts_it(self):
+        # a DAG that gained its first materialized view after the migration passes runs every
+        # node on one bare execute-dag schedule; the first target must convert it to tiers,
+        # seeding the untargeted nodes at the cadence that bare schedule already runs them at
+        dag = DAG.get_or_create_default(self.team)
+        dag.sync_frequency_interval = D1
+        dag.save()
+        source = _table_node(self.team, dag, "events", {"origin": "posthog"})
+        targeted = _saved_query_node(self.team, dag, "fresh", NodeType.MAT_VIEW)
+        untargeted = _saved_query_node(self.team, dag, "daily", NodeType.MAT_VIEW)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=targeted)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=untargeted)
+        set_declared_target(targeted, M15)
+
+        bare_id = str(dag.id)
+        temporal = self._temporal_listing([bare_id])
+        with (
+            mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=True),
+            mock.patch(f"{RECONCILE}.dag_has_live_v1_schedules", return_value=False),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock()),
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                maybe_reconcile_dag(dag)
+
+        created = {
+            call.kwargs["id"]: call.kwargs["schedule"].action.args[0]["node_ids"] for call in create.call_args_list
+        }
+        self.assertEqual(
+            created,
+            {tier_schedule_id(bare_id, M15): [str(targeted.id)], tier_schedule_id(bare_id, D1): [str(untargeted.id)]},
+        )
+        delete.assert_called_once_with(temporal, schedule_id=bare_id)
+        untargeted.refresh_from_db()
+        self.assertEqual(get_declared_target(untargeted), D1)
+
+    def test_re_enabling_a_view_after_pause_all_recreates_its_tier(self):
+        # pausing every view winds the tier schedules down; setting a cadence again must bring
+        # one back for exactly the re-enabled node, leaving the still-paused ones alone
+        dag = DAG.get_or_create_default(self.team)
+        source = _table_node(self.team, dag, "events", {"origin": "posthog"})
+        re_enabled = _saved_query_node(self.team, dag, "back", NodeType.MAT_VIEW)
+        still_paused = _saved_query_node(self.team, dag, "paused", NodeType.MAT_VIEW)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=re_enabled)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=still_paused)
+        set_declared_target(re_enabled, M15)
+
+        with (
+            mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=True),
+            mock.patch(f"{RECONCILE}.dag_has_live_v1_schedules", return_value=False),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([]))),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock()),
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                maybe_reconcile_dag(dag)
+
+        create.assert_called_once()
+        self.assertEqual(create.call_args.kwargs["id"], tier_schedule_id(str(dag.id), M15))
+        self.assertEqual(create.call_args.kwargs["schedule"].action.args[0]["node_ids"], [str(re_enabled.id)])
+        delete.assert_not_called()
+        still_paused.refresh_from_db()
+        self.assertIsNone(get_declared_target(still_paused))
 
     def test_tiered_dag_reconciles_after_commit(self):
         dag = self._dag_with_target()
