@@ -126,8 +126,8 @@ def test_canonical_query_uses_the_complete_replacement_identity() -> None:
         rows = get_canonical_usage_rows(ctx)
 
     query = sync_execute.call_args.args[0]
-    assert "GROUP BY team_id, toDate(timestamp), producer_id, usage_key, record_id" in query
-    assert "argMax(quantity, inserted_at)" in query
+    assert "FROM billing_usage_records FINAL" in query
+    assert "do_not_merge_across_partitions_select_final = 1" in query
     assert "organization_id IN %(organization_ids)s" in query
     assert rows == [("00000000-0000-0000-0000-000000000001", "ingestion", "events", "events", 7)]
 

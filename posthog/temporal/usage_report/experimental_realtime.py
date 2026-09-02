@@ -35,6 +35,8 @@ CAPTURE_BATCH_SIZE = 1000
 
 CaptureMode = Literal["capture", "manual_report", "dry_run"]
 
+# FINAL runs before filtering. Keep this query to one UTC day, which matches
+# the toDate(timestamp) component of the replacement key.
 CANONICAL_USAGE_QUERY = """
 SELECT
     organization_id,
@@ -42,22 +44,13 @@ SELECT
     usage_key,
     unit,
     sum(quantity) AS quantity
-FROM
-(
-    SELECT
-        argMax(organization_id, inserted_at) AS organization_id,
-        producer_id,
-        usage_key,
-        argMax(unit, inserted_at) AS unit,
-        argMax(quantity, inserted_at) AS quantity
-    FROM billing_usage_records
-    WHERE timestamp >= %(period_start)s
-      AND timestamp < %(period_end)s
-      {organization_filter}
-    GROUP BY team_id, toDate(timestamp), producer_id, usage_key, record_id
-)
+FROM billing_usage_records FINAL
+WHERE timestamp >= %(period_start)s
+  AND timestamp < %(period_end)s
+  {organization_filter}
 GROUP BY organization_id, producer_id, usage_key, unit
 ORDER BY organization_id, producer_id, usage_key, unit
+SETTINGS do_not_merge_across_partitions_select_final = 1
 """
 
 
