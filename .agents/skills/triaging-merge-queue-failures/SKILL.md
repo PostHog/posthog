@@ -169,6 +169,8 @@ The same failing check name appears on other PRs' recent attempts or on `master`
 - Anti-flake protection means the optimistic merge queue is on with a pending failure depth above zero; only then does Trunk retry some failures itself.
 - Trunk is selective — it does not retry every failure automatically. Absence of an automatic retry is not evidence the failure was real.
 - A failed PR is not dropped immediately: Trunk's own wording is that it "failed tests and is waiting for other pull requests to finish testing", and it may then open a bisection attempt. A `failed` state can therefore be followed by more attempts without anyone requeueing.
+- A `-bisection` attempt is based on plain master plus the one PR, and the shadow PR's body names that base SHA. Read master's run at that SHA (`gh api repos/PostHog/posthog/commits/<sha>/check-runs`): if the same test ran and passed there, the PR is the flake's victim, not its cause — verdict 5, even though the same head has now failed twice. pytest `--reruns` cannot rescue an environment-dependent race (clock granularity, runner speed), so "failed every attempt" is not evidence either way; `/fixing-flaky-tests` step 1 covers the comparison.
+- `products/warehouse_sources/junit-product.xml` is excluded from the Trunk quarantine gate (`prepare-product-junit-for-trunk.sh` in `ci-backend.yml`), so a known flake there still reds its shard. Quarantine status never explains a warehouse-sources failure.
 
 ## Unattended sweeps
 
