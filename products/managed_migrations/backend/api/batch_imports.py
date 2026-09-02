@@ -24,6 +24,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
+from posthog.security.url_validation import resolve_and_validate_url
 
 from products.managed_migrations.backend import trial_storage
 from products.managed_migrations.backend.models.batch_imports import (
@@ -121,10 +122,6 @@ class BatchImportSerializer(serializers.ModelSerializer):
     def validate_endpoint_url(self, value: str | None) -> str | None:
         if not value or not value.strip():
             return None
-        # Deferred: batch_export pulls the batch-export Temporal framework, which has no
-        # business on this module's import path.
-        from products.batch_exports.backend.api.batch_export import resolve_and_validate_url  # noqa: PLC0415
-
         try:
             resolve_and_validate_url(value)
         except ValueError:
