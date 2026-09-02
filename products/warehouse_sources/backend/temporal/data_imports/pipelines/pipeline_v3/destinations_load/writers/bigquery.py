@@ -12,6 +12,7 @@ statements. The shape is otherwise the same as the other SQL destinations:
 from __future__ import annotations
 
 import io
+import hashlib
 from collections.abc import AsyncIterator
 from typing import ClassVar
 
@@ -34,6 +35,19 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.contr
 )
 
 BATCH_INDEX_COLUMN = "_ph_batch_index"
+
+# Proof this writer created a table, so a sync never truncates, merges into or appends to one
+# the customer already had. `table_name` comes from the source's resource name, which a custom
+# source manifest controls, so without a marker any table sharing that name is fair game.
+#
+# Stored as a BigQuery label rather than a comment: labels survive `copy_table`'s WRITE_TRUNCATE
+# (the destination table's own metadata is left alone, only its data is replaced), which is what
+# lets `finalize_run` check the live table's label after the swap that publishes it.
+_OWNERSHIP_LABEL_KEY = "posthog_sync_schema"
+
+
+class UnrelatedTableExistsError(RuntimeError):
+    """A sync would have overwritten, merged into or appended to a table it never created."""
 
 
 def staging_table_name(ctx: DestinationRunContext) -> str:
@@ -99,6 +113,34 @@ class BigQueryDestinationWriter:
     def _quoted_table(self, table: str) -> str:
         return _backtick(self._table_ref(table))
 
+    def _schema_label(self) -> str:
+        # BigQuery labels only allow lowercase letters, digits, underscores and dashes, at most
+        # 63 bytes, and `schema_id` carries no such guarantee. Hashing sidesteps that validation
+        # entirely while staying specific to the schema that owns the table.
+        return hashlib.sha256(self._ctx.schema_id.encode()).hexdigest()
+
+    def _check_owned_or_absent(self, client: bigquery.Client, table_ref: str, action: str) -> bool:
+        """Whether `table_ref` does not exist yet.
+
+        Raises if it exists and was not created by this schema's sync, rather than silently
+        truncating, merging into or appending to a table that predates this sync and merely
+        happens to share the generated name.
+        """
+        try:
+            existing = client.get_table(table_ref)
+        except NotFound:
+            return True
+        if (existing.labels or {}).get(_OWNERSHIP_LABEL_KEY) != self._schema_label():
+            raise UnrelatedTableExistsError(
+                f"{table_ref} already exists and was not created by this sync; refusing to {action}."
+            )
+        return False
+
+    def _mark_owned(self, client: bigquery.Client, table_ref: str) -> None:
+        existing = client.get_table(table_ref)
+        existing.labels = {**(existing.labels or {}), _OWNERSHIP_LABEL_KEY: self._schema_label()}
+        client.update_table(existing, ["labels"])
+
     async def prepare_run(self, ctx: DestinationRunContext) -> None:
         def ensure_dataset() -> None:
             client = self._get_client()
@@ -128,6 +170,8 @@ class BigQueryDestinationWriter:
         # pq.write_table needs a Table, and one record batch is one load job.
         table = pa.Table.from_batches([record_batch])
 
+        is_first_write = ctx.batch_index == 0 and chunk == 0
+
         def write() -> int:
             client = self._get_client()
 
@@ -139,20 +183,40 @@ class BigQueryDestinationWriter:
                 # chunk appends, or it would wipe what the chunk before it just loaded.
                 disposition = (
                     bigquery.WriteDisposition.WRITE_TRUNCATE
-                    if ctx.batch_index == 0 and chunk == 0
+                    if is_first_write
                     else bigquery.WriteDisposition.WRITE_APPEND
                 )
+                staging_ref = self._table_ref(staging)
+                if is_first_write:
+                    # The staging name is unique to this run, so a genuine collision is remote,
+                    # but refusing to reuse an unrelated table costs one read and closes the gap.
+                    self._check_owned_or_absent(client, staging_ref, "reuse it as a staging table")
                 self._load(client, staging, table, disposition)
+                if is_first_write:
+                    self._mark_owned(client, staging_ref)
                 return table.num_rows
 
             if run.is_incremental and run.primary_keys:
                 temp = f"{run.table_name}__ph_tmp_{run.run_uuid.replace('-', '')[:8]}_{ctx.batch_index}_{chunk}"
+                target_ref = self._table_ref(run.table_name)
+                if is_first_write:
+                    # A merge target BigQuery rejects outright if it does not already exist, so
+                    # this only ever narrows an existing failure to a clearer one; it never
+                    # creates or marks a table that was never there to check.
+                    self._check_owned_or_absent(client, target_ref, "merge into it")
                 self._load(client, temp, table, bigquery.WriteDisposition.WRITE_TRUNCATE)
                 self._merge(client, run.table_name, temp, list(table.schema.names), list(run.primary_keys))
                 client.delete_table(self._table_ref(temp), not_found_ok=True)
+                if is_first_write:
+                    self._mark_owned(client, target_ref)
                 return table.num_rows
 
+            target_ref = self._table_ref(run.table_name)
+            if is_first_write:
+                self._check_owned_or_absent(client, target_ref, "append to it")
             self._load(client, run.table_name, table, bigquery.WriteDisposition.WRITE_APPEND)
+            if is_first_write:
+                self._mark_owned(client, target_ref)
             return table.num_rows
 
         return await sync_to_async(write, thread_sensitive=False)()
@@ -203,11 +267,17 @@ class BigQueryDestinationWriter:
                 # has to propagate: swallowing it would leave the live table on stale data
                 # and complete the run anyway.
                 return
+            target_ref = self._table_ref(ctx.table_name)
+            # The live table predates this run when it exists at all, so this is the one check
+            # that cannot be skipped on the strength of `write_batch`'s: a table sharing the
+            # generated name could have appeared, or lost its label, between the two calls.
+            self._check_owned_or_absent(client, target_ref, "replace it with the full refresh's staging table")
             client.copy_table(
                 self._table_ref(staging),
-                self._table_ref(ctx.table_name),
+                target_ref,
                 job_config=bigquery.CopyJobConfig(write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE),
             ).result()
+            self._mark_owned(client, target_ref)
             client.delete_table(self._table_ref(staging), not_found_ok=True)
 
         await sync_to_async(publish, thread_sensitive=False)()
