@@ -15,7 +15,7 @@ export function ObservationPinnedPropertiesPicker(): JSX.Element {
     const atLimit = pinnedProperties.length >= MAX_PINNED_PROPERTIES
 
     return (
-        <div className="w-80 max-w-full">
+        <div>
             <div className="flex items-center gap-2 px-3 py-2 border-b">
                 <IconPinFilled className="text-muted" />
                 <span className="text-sm font-semibold">Pinned session properties</span>

@@ -274,6 +274,42 @@ const observationDetail = observation({
     },
 })
 
+// A monitor observation, so the detail page renders the prompt row and the reasoning card that a
+// summarizer hides. The prompt is long on purpose: it is what the collapsed row has to clamp.
+const monitorObservationDetail = observation({
+    id: '00000000-0000-0000-0000-0000000000d2',
+    session_id: '01966b3f-70a1-7c52-a4d5-3f9b2e8c1d11',
+    recording_subject_email: 'bob@example.com',
+    distinct_id: 'user_2m1x9d',
+    previous_observation_id: '00000000-0000-0000-0000-0000000000b1',
+    next_observation_id: '00000000-0000-0000-0000-0000000000b4',
+    scanner_snapshot: {
+        name: 'Confused checkout',
+        scanner_type: 'monitor',
+        scanner_version: 3,
+        model: 'gemini-3.7-flash',
+        provider: 'google',
+        emits_signals: true,
+        scanner_config: {
+            prompt: 'Did the user struggle at checkout? Count it as struggling if they retried a coupon code more than once, resubmitted the payment form after an error, or moved back and forth between the cart and the payment step without completing the order. Ignore sessions that never reached the checkout page at all.',
+            allow_inconclusive: true,
+        },
+    },
+    scanner_result: {
+        model_output: {
+            scanner_type: 'monitor',
+            confidence: 0.82,
+            verdict: 'yes',
+            reasoning:
+                'The user entered a coupon code three times, each time getting a validation error, then switched to the payment form and submitted it twice before leaving the page. That is a retry loop at checkout rather than ordinary browsing.',
+        },
+        signals_count: 1,
+    },
+})
+
+// The pinned strip reads these off the sessions table; the values are invented.
+const sessionPropertiesRow = ['google.com', 'Paid Search', 'google', 'https://example.com/checkout?utm_source=google']
+
 const promptSuggestion: ReplayScannerPromptSuggestionApi = {
     id: '00000000-0000-0000-0000-0000000000e1',
     status: 'pending',
@@ -395,9 +431,27 @@ const meta: Meta = {
                 '/api/projects/:team_id/signals/scout/metadata/current/': {},
                 '/api/projects/:team_id/vision/scanners/:scannerId/scout_reports/': [],
                 '/api/projects/:team_id/vision/alerts/': { count: 0, next: null, previous: null, results: [] },
+                // Feeds the pinned-properties picker on the observation page.
+                '/api/environments/:team_id/sessions/property_definitions/': {
+                    count: 4,
+                    next: null,
+                    previous: null,
+                    results: [
+                        { id: '$entry_referring_domain', name: '$entry_referring_domain', property_type: 'String' },
+                        { id: '$channel_type', name: '$channel_type', property_type: 'String' },
+                        { id: '$entry_utm_source', name: '$entry_utm_source', property_type: 'String' },
+                        { id: '$entry_current_url', name: '$entry_current_url', property_type: 'String' },
+                    ],
+                },
             },
             post: {
-                '/api/environments/:team_id/query/:query_kind/': observationsTrend,
+                '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
+                    const body = (await request.json()) as { query?: { query?: string } } | null
+                    // The observation page's pinned strip is the only reader of the sessions table here.
+                    return body?.query?.query?.includes('FROM sessions')
+                        ? { results: [sessionPropertiesRow] }
+                        : observationsTrend
+                },
                 '/api/projects/:team_id/vision/scanners/estimate/': estimate,
             },
         }),
@@ -672,6 +726,18 @@ export const ScannerEditorBudget: StoryObj = {
 
 export const ObservationDetail: StoryObj = {
     parameters: { pageUrl: urls.replayVisionObservation(observationDetail.id) },
+}
+
+// The only story covering the collapsed prompt row and the pinned session properties card.
+export const ObservationDetailMonitor: StoryObj = {
+    parameters: { pageUrl: urls.replayVisionObservation(monitorObservationDetail.id) },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/observations/:id/': monitorObservationDetail,
+            },
+        }),
+    ],
 }
 
 // Billing hasn't clamped this org's limit yet, so the API still reports it as uncapped.

@@ -12,6 +12,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { CardHeader } from '../components/CardHeader'
+import { LabeledRow } from '../components/LabeledRow'
 import { observationPinnedPropertiesLogic } from './observationPinnedPropertiesLogic'
 import { ObservationPinnedPropertiesPicker } from './ObservationPinnedPropertiesPicker'
 import { observationSessionPropertiesLogic } from './observationSessionPropertiesLogic'
@@ -94,16 +95,15 @@ export function ObservationPinnedProperties({ sessionId }: { sessionId: string }
                 <LemonSkeleton.Row repeat={2} className="h-5" />
             ) : (
                 <div className="@container/pinned">
-                    <div className="grid grid-cols-1 gap-x-6 gap-y-2 @md/pinned:grid-cols-2 @3xl/pinned:grid-cols-3">
+                    <div className="grid grid-cols-1 gap-x-6 gap-y-3 @md/pinned:grid-cols-2 @3xl/pinned:grid-cols-4">
                         {queryablePinnedProperties.map((property) => (
-                            <div key={property} className="flex items-baseline justify-between gap-3 min-w-0 text-sm">
-                                <span className="text-muted shrink-0">{propertyLabel(property)}</span>
-                                <span className="min-w-0 truncate font-medium">
+                            <div key={property} className="min-w-0">
+                                <LabeledRow label={propertyLabel(property)}>
                                     <PinnedPropertyValue
                                         property={property}
                                         value={sessionProperties?.[property] ?? null}
                                     />
-                                </span>
+                                </LabeledRow>
                             </div>
                         ))}
                     </div>
