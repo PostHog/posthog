@@ -49,7 +49,7 @@ from .serializers import (
 )
 
 _RECENT_RUNS_LIMIT = 50
-_LAST_RUN_FIELDS = ("last_status", "last_run_at", "last_succeeded_at")
+_LAST_RUN_FIELDS = ("last_status", "last_run_at", "last_succeeded_at", "failing_since")
 
 
 class _QualityGatedViewSet(TeamAndOrgViewSetMixin):
@@ -277,25 +277,37 @@ class _BaseCheckViewSet(_SubjectScopedViewSet, AccessControlViewSetMixin, viewse
             config=data.get("config") or {},
             **optional,
         )
+        # A create can land on a check that already exists, whose last run read a subject this
+        # caller is denied. Blank that run the way an edit does, or the fingerprint match becomes
+        # the one way to read history that list hides, retrieve 403s and runs/ empties.
+        if not created and self._last_run_is_hidden(check):
+            self._redact_last_run(check)
         return Response(
             self.get_serializer(check).data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
+
+    def _last_run_is_hidden(self, check: DataQualityCheck) -> bool:
+        return self._can_be_object_denied() and check.id in self._hidden_check_ids([check])
+
+    @staticmethod
+    def _redact_last_run(check: DataQualityCheck) -> None:
+        for field in _LAST_RUN_FIELDS:
+            setattr(check, field, None)
 
     def perform_update(self, serializer: BaseSerializer) -> None:
         # The candidate definition, not the stored one: an edit that points the check at a new
         # relationships target or rewrites its custom SQL has to clear that subject too, before it
         # is saved and the worker starts running it.
         check = cast(DataQualityCheck, serializer.instance)
-        redact_last_run = self._can_be_object_denied() and check.id in self._hidden_check_ids([check])
+        redact_last_run = self._last_run_is_hidden(check)
         data = serializer.validated_data
         self._require_referenced_subject_access(
             data.get("check_type", check.check_type), data.get("config", check.config) or {}
         )
         updated_check = cast(DataQualityCheck, serializer.save())
         if redact_last_run:
-            for field in _LAST_RUN_FIELDS:
-                setattr(updated_check, field, None)
+            self._redact_last_run(updated_check)
 
     def perform_destroy(self, instance: DataQualityCheck) -> None:
         api.soft_delete_check(instance)

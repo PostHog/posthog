@@ -69,6 +69,22 @@ describe('MetricsViewer', () => {
         logic?.unmount()
     })
 
+    // The formula input only means something once a second series can feed it; showing it
+    // is what makes the multi-series feature discoverable at all.
+    it('reveals a second clause row and the formula input when a series is added', async () => {
+        render(
+            <Provider>
+                <MetricsViewer />
+            </Provider>
+        )
+        expect(screen.queryByPlaceholderText('Formula, e.g. (a - b) / a')).toBeNull()
+
+        fireEvent.click(screen.getByText('Add series'))
+
+        expect(await screen.findByPlaceholderText('Formula, e.g. (a - b) / a')).toBeInTheDocument()
+        expect(logic.values.viewerClauses).toHaveLength(2)
+    })
+
     // "Add to dashboard" saves the query as an insight, then hands off to the shared dashboard
     // picker. That picker's "Add to a new dashboard" does nothing unless the create-dashboard
     // dialog is rendered alongside it, which is easy to leave out of a scene.
