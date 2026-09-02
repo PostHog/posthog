@@ -13,6 +13,7 @@ import {
     SessionRecordingsRetrieveParams,
 } from '@/generated/replay/api'
 import { withUiApp } from '@/resources/ui-apps'
+import { normalizeParamAliases } from '@/tools/cast-helpers'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
@@ -58,7 +59,12 @@ const sessionRecordingDelete = (): ToolBase<typeof SessionRecordingDeleteSchema,
     },
 })
 
-const SessionRecordingGetSchema = SessionRecordingsRetrieveParams.omit({ project_id: true })
+const SessionRecordingGetSchema = z.preprocess(
+    normalizeParamAliases({
+        id: ['session_id', 'recording_id', 'session_recording_id', 'sessionId', 'recordingId', 'sessionRecordingId'],
+    }),
+    SessionRecordingsRetrieveParams.omit({ project_id: true })
+)
 
 const sessionRecordingGet = (): ToolBase<typeof SessionRecordingGetSchema, WithPostHogUrl<Schemas.SessionRecording>> =>
     withUiApp('session-recording', {
