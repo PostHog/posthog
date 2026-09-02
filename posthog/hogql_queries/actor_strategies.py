@@ -51,41 +51,52 @@ class PersonStrategy(ActorStrategy):
     origin = "persons"
     origin_id = "id"
 
+    # batching is needed to prevent timeouts when reading from Postgres
+    BATCH_SIZE = 1000
+
     # This is hand written instead of using the ORM because the ORM was blowing up the memory on exports and taking forever
-    def get_actors(self, actor_ids, order_by: str = "") -> dict[str, dict]:
-        # If actor queries start quietly dying again, this might need batching at some point
-        # but currently works with 800,000 persondistinctid entries (May 24, 2024)
+    def get_actors(self, actor_ids, sort_by_created_at_descending: bool = False) -> dict[str, dict]:
         person_table = Person._meta.db_table
         pdi_table = PersonDistinctId._meta.db_table
-        persons_query = f"""SELECT {person_table}.id, {person_table}.uuid, {person_table}.properties, {person_table}.is_identified, {person_table}.created_at
-            FROM {person_table}
-            WHERE {person_table}.uuid = ANY(%(uuids)s)
-            AND {person_table}.team_id = %(team_id)s"""
-        if order_by:
-            persons_query += f" ORDER BY {order_by}"
-
         conn = connections[READ_DB_FOR_PERSONS]
 
+        actor_ids_list = list(actor_ids)
+        all_people: list = []
+        all_distinct_ids: list = []
+
         with conn.cursor() as cursor:
-            cursor.execute(
-                persons_query,
-                {"uuids": list(actor_ids), "team_id": self.team.pk},
-            )
-            people = cursor.fetchall()
-            cursor.execute(
-                f"""SELECT {pdi_table}.person_id, {pdi_table}.distinct_id
-            FROM {pdi_table}
-            WHERE {pdi_table}.person_id = ANY(%(people_ids)s)
-            AND {pdi_table}.team_id = %(team_id)s""",
-                {"people_ids": [x[0] for x in people], "team_id": self.team.pk},
-            )
-            distinct_ids = cursor.fetchall()
+            for i in range(0, len(actor_ids_list), self.BATCH_SIZE):
+                batch = actor_ids_list[i : i + self.BATCH_SIZE]
+                persons_query = f"""SELECT {person_table}.id, {person_table}.uuid, {person_table}.properties, {person_table}.is_identified, {person_table}.created_at
+                    FROM {person_table}
+                    WHERE {person_table}.uuid = ANY(%(uuids)s)
+                    AND {person_table}.team_id = %(team_id)s"""
+                cursor.execute(persons_query, {"uuids": batch, "team_id": self.team.pk})
+                all_people.extend(cursor.fetchall())
 
-        person_id_to_raw_person_and_set: dict[int, tuple] = {person[0]: (person, []) for person in people}
+            if sort_by_created_at_descending:
+                from datetime import datetime
 
-        for pdid in distinct_ids:
+                min_dt = datetime.min
+                all_people.sort(key=lambda p: (-(p[4] or min_dt).timestamp(), str(p[1])))
+
+            person_ids = [x[0] for x in all_people]
+            for i in range(0, len(person_ids), self.BATCH_SIZE):
+                batch = person_ids[i : i + self.BATCH_SIZE]
+                cursor.execute(
+                    f"""SELECT {pdi_table}.person_id, {pdi_table}.distinct_id
+                    FROM {pdi_table}
+                    WHERE {pdi_table}.person_id = ANY(%(people_ids)s)
+                    AND {pdi_table}.team_id = %(team_id)s""",
+                    {"people_ids": batch, "team_id": self.team.pk},
+                )
+                all_distinct_ids.extend(cursor.fetchall())
+
+        person_id_to_raw_person_and_set: dict[int, tuple] = {person[0]: (person, []) for person in all_people}
+
+        for pdid in all_distinct_ids:
             person_id_to_raw_person_and_set[pdid[0]][1].append(pdid[1])
-        del distinct_ids
+        del all_distinct_ids
 
         person_uuid_to_person = {
             str(person[1]): {
