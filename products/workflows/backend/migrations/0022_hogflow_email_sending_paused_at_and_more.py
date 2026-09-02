@@ -22,4 +22,9 @@ class Migration(migrations.Migration):
             name="email_sending_resumed_at",
             field=models.DateTimeField(blank=True, null=True),
         ),
+        migrations.AddField(
+            model_name="hogflow",
+            name="email_sending_warned_at",
+            field=models.DateTimeField(blank=True, null=True),
+        ),
     ]
