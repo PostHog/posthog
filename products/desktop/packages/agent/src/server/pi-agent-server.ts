@@ -331,6 +331,10 @@ export class PiAgentServer {
         hasSession: this.session !== null,
         bootMs: this.sessionReadyBootMs,
         sessionInitMs: this.sessionInitMs,
+        boot: {
+          totalMs: this.sessionReadyBootMs,
+          launcherToProcessMs: this.config.launcherToProcessMs,
+        },
       }),
     );
 

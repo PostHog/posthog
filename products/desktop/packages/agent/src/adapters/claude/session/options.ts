@@ -195,6 +195,7 @@ function buildEnvironment(
       ELECTRON_RUN_AS_NODE: "1",
     }),
     CLAUDE_CODE_ENABLE_ASK_USER_QUESTION_TOOL: "true",
+    CLAUDE_CODE_ENABLE_TODO_TOOLS: "1",
     // Offload all MCP tools by default
     ENABLE_TOOL_SEARCH: "auto:0",
     // Enable idle state as end-of-turn signal (required for SDK 0.2.114+)
