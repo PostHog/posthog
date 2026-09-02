@@ -19,6 +19,8 @@ export interface SpendVerdict {
     projectedPct: number
     /** Projected period-end share of the limit, unclamped (e.g. 124 when overshooting). */
     periodEndPct: number
+    /** Projected period-end demand in credits, unclamped; null without a quota snapshot. */
+    projectedDemandCredits: number | null
     projection: QuotaProjection
     hasCap: boolean
 }
@@ -34,6 +36,32 @@ const PILL_TAG_TYPES: Record<SpendVerdictKind, 'success' | 'warning' | 'danger' 
 /** LemonTag type carrying a verdict's colour, so every pill renders the same status the same way. */
 export function verdictTagType(kind: SpendVerdictKind): 'success' | 'warning' | 'danger' | 'muted' {
     return PILL_TAG_TYPES[kind]
+}
+
+const TEXT_CLASS: Record<SpendVerdictKind, string> = {
+    safe: 'text-success',
+    warning: 'text-warning',
+    danger: 'text-danger',
+    paused: 'text-danger',
+    uncapped: 'text-secondary',
+}
+
+const COLOR_VAR: Record<SpendVerdictKind, string> = {
+    safe: 'var(--success)',
+    warning: 'var(--warning)',
+    danger: 'var(--danger)',
+    paused: 'var(--danger)',
+    uncapped: 'var(--muted)',
+}
+
+/** Text colour class for a verdict, for headline numbers and captions. */
+export function verdictTextClass(kind: SpendVerdictKind): string {
+    return TEXT_CLASS[kind]
+}
+
+/** CSS colour variable for a verdict, for SVG marks that cannot take a class. */
+export function verdictColorVar(kind: SpendVerdictKind): string {
+    return COLOR_VAR[kind]
 }
 
 interface SpendVerdictOptions {
@@ -61,22 +89,38 @@ export function spendVerdict(
     const spentPct = Math.min(Math.max(projection.usedPct, 0), 100)
     const projectedPct = Math.min(Math.max(periodEndPct, spentPct), 100) - spentPct
 
+    let projectedDemandCredits: number | null = null
+    if (quota) {
+        if (hasCap && (quota.credit_limit ?? 0) > 0) {
+            projectedDemandCredits = Math.round(((quota.credit_limit ?? 0) * periodEndPct) / 100)
+        } else {
+            const periodStart = dayjs(quota.period_start)
+            const periodEnd = dayjs(quota.period_end)
+            const periodDays = Math.max(periodEnd.diff(periodStart, 'day', true), 1)
+            const daysLeft = Math.max(periodEnd.diff(dayjs(), 'day', true), 0)
+            const monthlyRate = contributions.reduce((sum, c) => (c.kind === 'monthly-rate' ? sum + c.credits : sum), 0)
+            const oneOffs = contributions.reduce((sum, c) => (c.kind === 'one-off' ? sum + c.credits : sum), 0)
+            projectedDemandCredits = Math.round(quota.credits_used + (monthlyRate / periodDays) * daysLeft + oneOffs)
+        }
+    }
+
+    const base = { spentPct, projectedPct, periodEndPct, projectedDemandCredits, projection, hasCap }
+
     if (!hasCap) {
         const monthly = contributions.reduce((sum, c) => (c.kind === 'monthly-rate' ? sum + c.credits : sum), 0)
         return {
+            ...base,
             kind: 'uncapped',
             pillLabel: 'No spend limit',
             sentence: `${subject} projected to use ~${formatCreditCount(monthly)}/month.`,
             spentPct: 0,
             projectedPct: 0,
-            periodEndPct,
-            projection,
-            hasCap,
         }
     }
 
     if (projection.exhausted) {
         return {
+            ...base,
             kind: 'paused',
             pillLabel: onFreePlan ? 'Out of free credits' : 'Limit reached',
             sentence: onFreePlan
@@ -84,9 +128,6 @@ export function spendVerdict(
                 : `Scanning is paused until ${resetsOn}: the monthly spend limit is reached.`,
             spentPct: 100,
             projectedPct: 0,
-            periodEndPct,
-            projection,
-            hasCap,
         }
     }
 
@@ -94,46 +135,29 @@ export function spendVerdict(
     // below billing's limit): state the overshoot without claiming scanning is paused.
     if (projection.usedPct >= 100) {
         return {
+            ...base,
             kind: 'danger',
             pillLabel: 'Over limit',
             sentence: `Spend has exceeded the ${limitNoun} for this period.`,
-            spentPct,
-            projectedPct,
-            periodEndPct,
-            projection,
-            hasCap,
         }
     }
 
     if (model.status === 'danger') {
         const capDate = projection.capReachDate ? projection.capReachDate.format('MMM D') : null
         return {
+            ...base,
             kind: 'danger',
             pillLabel: capDate ? `Limit by ${capDate}` : 'Over limit',
             sentence: capDate
                 ? `${subject} on track to ${onFreePlan ? 'use up the free credits' : 'hit the monthly spend limit'} around ${capDate}.`
                 : `${subject} projected to exceed the ${limitNoun} by ${resetsOn}.`,
-            spentPct,
-            projectedPct,
-            periodEndPct,
-            projection,
-            hasCap,
         }
     }
 
     return {
+        ...base,
         kind: model.status === 'warning' ? 'warning' : 'safe',
         pillLabel: model.status === 'warning' ? 'Nearing limit' : 'On track',
         sentence: `${subject} projected to use ${periodEndPct}% of the ${limitNoun} by ${resetsOn}.`,
-        spentPct,
-        projectedPct,
-        periodEndPct,
-        projection,
-        hasCap,
     }
-}
-
-/** Days into the current period, floored at 0; drives the "today" position on trajectory charts. */
-export function daysIntoPeriod(periodStart: string): number {
-    return Math.max(dayjs().diff(dayjs(periodStart), 'day', true), 0)
 }

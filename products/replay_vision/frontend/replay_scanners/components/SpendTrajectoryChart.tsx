@@ -1,8 +1,8 @@
 import { dayjs } from 'lib/dayjs'
+import { compactNumber } from 'lib/utils/numbers'
 
 import type { VisionQuotaApi } from '../../generated/api.schemas'
-import { formatCreditCount } from '../../utils/credits'
-import type { SpendSeries } from '../visionUsageLogic'
+import { formatCreditCount, formatCreditNumber } from '../../utils/credits'
 
 const WIDTH = 640
 const HEIGHT = 200
@@ -11,15 +11,19 @@ const PAD_X = 8
 const TOP = 34
 const BASE = HEIGHT - 20
 const LABEL_CLEARANCE = 12
+// The SVG scales ~2x to the card width, so viewBox-unit sizes render double; 6.5 ≈ 13px on screen.
 const FONT = 6.5
 const ABOVE = -6
 const BELOW = 11
 
 interface SpendTrajectoryChartProps {
     quota: VisionQuotaApi
-    series: SpendSeries
+    /** Credits spent per day; index 0 is the period's first day. */
+    dailyCredits: number[]
     /** Projected period-end demand in credits, unclamped; the chart pauses the drawn line at the limit. */
     projectedTotal: number
+    /** When demand crosses the limit inside the period, the date the verdict computed for it. */
+    capReachDate: dayjs.Dayjs | null
     /** Hex/token-resolved colour for the projection line, matching the verdict status. */
     statusVar: string
 }
@@ -41,8 +45,9 @@ function pointsAttr(points: Point[]): string {
  */
 export function SpendTrajectoryChart({
     quota,
-    series,
+    dailyCredits,
     projectedTotal,
+    capReachDate,
     statusVar,
 }: SpendTrajectoryChartProps): JSX.Element {
     const periodStart = dayjs(quota.period_start)
@@ -51,19 +56,21 @@ export function SpendTrajectoryChart({
     const todayDay = Math.min(Math.max(dayjs().diff(periodStart, 'day', true), 0), periodDays)
 
     const cumulative: number[] = []
-    series.credits.reduce((sum, daily, i) => {
-        cumulative[i] = sum + daily
-        return cumulative[i]
-    }, 0)
-    const spentTotal = cumulative.length > 0 ? cumulative[cumulative.length - 1] : quota.credits_used
+    let runningTotal = 0
+    for (const daily of dailyCredits) {
+        runningTotal += daily
+        cumulative.push(runningTotal)
+    }
+    const spentTotal = cumulative.length > 0 ? runningTotal : quota.credits_used
 
-    const limit = quota.credit_limit
-    // Spend stops at the limit, so the drawn end never exceeds it; demand only decides the slope.
-    const endValue = limit !== null && limit > 0 ? Math.min(projectedTotal, limit) : projectedTotal
+    // A zero or missing limit draws no cap; spend stops at a real one, so the drawn end never
+    // exceeds it and demand only decides the slope.
+    const cap = quota.credit_limit !== null && quota.credit_limit > 0 ? quota.credit_limit : null
+    const endValue = cap !== null ? Math.min(projectedTotal, cap) : projectedTotal
     // The free allocation gets its own quieter line, unless it IS the limit (the free plan).
     const freeCredits = quota.free_monthly_credits
-    const drawFreeLine = freeCredits > 0 && (limit === null || freeCredits < limit)
-    const maxValue = Math.max(limit ?? 0, endValue, spentTotal, drawFreeLine ? freeCredits : 0, 1)
+    const drawFreeLine = freeCredits > 0 && (cap === null || freeCredits < cap)
+    const maxValue = Math.max(cap ?? 0, endValue, spentTotal, drawFreeLine ? freeCredits : 0, 1)
     const xForDay = (day: number): number => PAD_LEFT + (day / periodDays) * (WIDTH - PAD_LEFT - PAD_X)
     const yForCredits = (credits: number): number => BASE - (credits / maxValue) * (BASE - TOP)
 
@@ -77,16 +84,14 @@ export function SpendTrajectoryChart({
     const drawSpentLine = todayDay >= 1.5
     const end: Point = { x: xForDay(periodDays), y: yForCredits(endValue) }
 
-    // Where the straight demand line meets the limit, in period days; null when it never does.
+    // Where the straight demand line meets the limit; the date shown is the verdict's, so the tile
+    // and the chart can never name two different days.
     let crossing: Point | null = null
-    let crossingDate: string | null = null
-    if (limit !== null && limit > 0 && spentTotal < limit && projectedTotal > limit) {
-        const t = (limit - spentTotal) / (projectedTotal - spentTotal)
-        const crossDay = todayDay + t * (periodDays - todayDay)
-        crossing = { x: xForDay(crossDay), y: yForCredits(limit) }
-        crossingDate = periodStart.add(crossDay, 'day').format('MMM D')
+    if (cap !== null && spentTotal < cap && projectedTotal > cap && capReachDate !== null) {
+        const t = (cap - spentTotal) / (projectedTotal - spentTotal)
+        crossing = { x: xForDay(todayDay + t * (periodDays - todayDay)), y: yForCredits(cap) }
     }
-    const pausedAtLimit = limit !== null && limit > 0 && spentTotal >= limit
+    const pausedAtLimit = cap !== null && spentTotal >= cap
 
     // Round tick steps (1/2/2.5/5 per decade) so the y labels land on friendly numbers.
     const rawStep = maxValue / 4
@@ -104,8 +109,8 @@ export function SpendTrajectoryChart({
 
     const dangerVar = 'var(--danger)'
     const mutedVar = 'var(--muted)'
-    const projectionLabel = `${periodEnd.format('MMM D')} · ~${Math.round(endValue).toLocaleString('en-US')}`
-    const limitY = limit !== null && limit > 0 ? yForCredits(limit) : null
+    const projectionLabel = `${periodEnd.format('MMM D')} · ~${formatCreditNumber(endValue)}`
+    const limitY = cap !== null ? yForCredits(cap) : null
     const freeY = drawFreeLine ? yForCredits(freeCredits) : null
     // Two dotted reference lines an em apart read as one; drop the free one when they nearly touch.
     const showFreeLine = freeY !== null && (limitY === null || Math.abs(freeY - limitY) >= LABEL_CLEARANCE)
@@ -121,17 +126,13 @@ export function SpendTrajectoryChart({
         }
         return Math.min(anchorY + BELOW, BASE - 4)
     }
-    // Every line leaves the today dot upward or to the right, so a label sitting level on its left
-    // is the one spot nothing crosses. Near the left edge it flips to the right instead.
+    // The spend curve climbs into the today dot from the lower left and the projection leaves to the
+    // upper right, so above-left is the one clear spot; near the left edge it flips to below-right.
     const todayLabelLeft = today.x >= 60
     const todayLabelX = todayLabelLeft ? today.x - 9 : today.x + 9
-    // On the right of the dot the projection climbs through the space above, so the label sits below;
-    // it only moves back above when a reference line already occupies the spot below.
     const belowY = Math.min(today.y + BELOW, BASE - 4)
     const rightSideY = referenceYs.every((y) => Math.abs(belowY - y) >= LABEL_CLEARANCE) ? belowY : today.y - 16
-    // A side label level with a reference line sits on its dashes; lift it just above instead.
-    const sideY = referenceYs.some((y) => Math.abs(today.y - y) < 8) ? today.y - 5 : today.y + 2.5
-    const todayLabelY = todayLabelLeft ? sideY : rightSideY
+    const todayLabelY = todayLabelLeft ? labelY(today.y) : rightSideY
     const endLabelY = labelY(end.y)
 
     return (
@@ -139,7 +140,7 @@ export function SpendTrajectoryChart({
             viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
             style={{ width: '100%', height: 'auto', display: 'block' }}
             role="img"
-            aria-label={`Cumulative spend this period: ${formatCreditCount(spentTotal)} so far, projected ${formatCreditCount(endValue)} by ${periodEnd.format('MMMM D')}${limit !== null ? `, limit ${formatCreditCount(limit)}` : ''}`}
+            aria-label={`Cumulative spend this period: ${formatCreditCount(spentTotal)} so far, projected ${formatCreditCount(endValue)} by ${periodEnd.format('MMMM D')}${cap !== null ? `, limit ${formatCreditCount(cap)}` : ''}`}
         >
             {yTicks.map((v) => (
                 <g key={v}>
@@ -153,7 +154,7 @@ export function SpendTrajectoryChart({
                         opacity={0.6}
                     />
                     <text x={PAD_LEFT - 4} y={yForCredits(v) + 2} fontSize={FONT} fill={mutedVar} textAnchor="end">
-                        {v >= 1000 ? `${Math.round(v / 100) / 10}k` : Math.round(v)}
+                        {compactNumber(v)}
                     </text>
                 </g>
             ))}
@@ -188,7 +189,7 @@ export function SpendTrajectoryChart({
                         strokeDasharray="2 3"
                     />
                     <text x={PAD_LEFT + 4} y={limitY - 6} fontSize={FONT} fontWeight={600} fill={dangerVar}>
-                        Monthly limit · {Math.round(limit ?? 0).toLocaleString('en-US')}
+                        Monthly limit · {formatCreditNumber(cap ?? 0)}
                     </text>
                 </>
             )}
@@ -212,7 +213,7 @@ export function SpendTrajectoryChart({
                         fill={mutedVar}
                         textAnchor="end"
                     >
-                        Free credits · {Math.round(freeCredits).toLocaleString('en-US')}
+                        Free credits · {formatCreditNumber(freeCredits)}
                     </text>
                 </>
             )}
@@ -260,7 +261,8 @@ export function SpendTrajectoryChart({
                         fontWeight={600}
                         fill={dangerVar}
                     >
-                        Hits the limit around {crossingDate}. Scanning pauses until {periodEnd.format('MMM D')}.
+                        Hits the limit around {capReachDate?.format('MMM D')}. Scanning pauses until{' '}
+                        {periodEnd.format('MMM D')}.
                     </text>
                 </>
             ) : (
@@ -288,7 +290,7 @@ export function SpendTrajectoryChart({
                 fill="currentColor"
                 textAnchor={todayLabelLeft ? 'end' : 'start'}
             >
-                Today · {Math.round(spentTotal).toLocaleString('en-US')}
+                Today · {formatCreditNumber(spentTotal)}
             </text>
             <text x={PAD_LEFT} y={HEIGHT - 4} fontSize={FONT} fill={mutedVar}>
                 {periodStart.format('MMM D')}

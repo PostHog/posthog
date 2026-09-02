@@ -16,25 +16,11 @@ import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { creditsToUsd, formatCreditCount, formatCreditsMaybeUsd } from '../../utils/credits'
 import { fleetContributions } from '../../utils/quotaContributions'
-import { spendVerdict, verdictTagType } from '../../utils/spendVerdict'
+import { spendVerdict, verdictColorVar, verdictTextClass } from '../../utils/spendVerdict'
 import { STARTUP_CAP_EXPLANATION } from '../../utils/startupCap'
 import { ReplayScanner } from '../types'
 import { visionUsageLogic } from '../visionUsageLogic'
 import { SpendTrajectoryChart } from './SpendTrajectoryChart'
-
-const STATUS_TEXT_CLASS: Record<string, string> = {
-    success: 'text-success',
-    warning: 'text-warning',
-    danger: 'text-danger',
-    muted: 'text-secondary',
-}
-
-const STATUS_VAR: Record<string, string> = {
-    success: 'var(--success)',
-    warning: 'var(--warning)',
-    danger: 'var(--danger)',
-    muted: 'var(--muted)',
-}
 
 export function VisionUsageTab(): JSX.Element {
     const { usageScanners, usageScannersLoading, togglingScannerIds, spendSeries, spendSeriesLoading } =
@@ -51,20 +37,13 @@ export function VisionUsageTab(): JSX.Element {
     } = useValues(visionQuotaLogic)
 
     const verdict = spendVerdict(quota, fleetContributions(quota), { onFreePlan })
-    const statusTag = verdictTagType(verdict.kind)
-    const statusText = STATUS_TEXT_CLASS[statusTag]
+    const statusText = verdictTextClass(verdict.kind)
     const hasCap = verdict.hasCap
     const resetsOn = quota?.period_end ? dayjs(quota.period_end) : null
     const daysToReset = resetsOn ? Math.max(resetsOn.startOf('day').diff(dayjs().startOf('day'), 'day'), 0) : null
 
     // Demand is the unclamped run rate; actual spend pauses at the limit, so the tile shows the clamp.
-    const periodDays = quota && resetsOn ? Math.max(resetsOn.diff(dayjs(quota.period_start), 'day', true), 1) : 30
-    const daysLeft = resetsOn ? Math.max(resetsOn.diff(dayjs(), 'day', true), 0) : 0
-    const projectedDemandCredits = quota
-        ? hasCap
-            ? Math.round(((quota.credit_limit ?? 0) * verdict.periodEndPct) / 100)
-            : Math.round(quota.credits_used + (quota.projected_monthly_credits / periodDays) * daysLeft)
-        : null
+    const projectedDemandCredits = verdict.projectedDemandCredits
     const projectedTotalCredits =
         projectedDemandCredits !== null && quota
             ? hasCap
@@ -293,12 +272,13 @@ export function VisionUsageTab(): JSX.Element {
                     )}
                 </div>
                 {quota && spendSeries ? (
-                    spendSeries.credits.length > 0 || quota.credits_used > 0 ? (
+                    spendSeries.length > 0 || quota.credits_used > 0 ? (
                         <SpendTrajectoryChart
                             quota={quota}
-                            series={spendSeries}
+                            dailyCredits={spendSeries}
                             projectedTotal={projectedDemandCredits ?? quota.credits_used}
-                            statusVar={STATUS_VAR[statusTag]}
+                            capReachDate={verdict.projection.capReachDate}
+                            statusVar={verdictColorVar(verdict.kind)}
                         />
                     ) : (
                         <div className="flex items-center justify-center h-40 text-sm text-secondary">

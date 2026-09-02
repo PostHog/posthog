@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import type { EstimateResponseApi, VisionQuotaApi } from '../generated/api.schemas'
+import type { VisionQuotaApi } from '../generated/api.schemas'
 
 /**
  * Dev-only fake states for every spend surface, driven by `?vision_quota_scenario=<key>`.
@@ -9,8 +9,6 @@ import type { EstimateResponseApi, VisionQuotaApi } from '../generated/api.schem
  * builds; the overrides are display-only and the backend still enforces the real quota.
  */
 
-export type EstimateScenario = 'loading' | 'error' | 'none' | EstimateResponseApi
-
 export interface QuotaScenario {
     key: string
     quota: VisionQuotaApi | null
@@ -18,8 +16,6 @@ export interface QuotaScenario {
     usageScanners: FakeUsageScanner[] | null
     /** Credits spent per day from period start to today; null keeps the real chart query. */
     dailySpend: number[] | null
-    /** Editor estimate override; undefined keeps the real estimate. */
-    scannerEstimate?: EstimateScenario
 }
 
 export interface FakeUsageScanner {
@@ -35,7 +31,6 @@ export interface FakeUsageScanner {
 }
 
 const SCENARIO_PARAM = 'vision_quota_scenario'
-const ESTIMATE_PARAM = 'vision_estimate_scenario'
 
 // Scenarios run 18 days into a 30-day period, so the chart has a real spend history to draw
 // regardless of today's date.
@@ -234,11 +229,3 @@ export function currentQuotaScenario(): QuotaScenario | null {
     }
     return { key, ...build() }
 }
-
-/** Editor estimate override from `?vision_estimate_scenario=loading|error|none`; null when absent. */
-export function currentEstimateScenario(): Exclude<EstimateScenario, EstimateResponseApi> | null {
-    const value = scenarioParam(ESTIMATE_PARAM)
-    return value === 'loading' || value === 'error' || value === 'none' ? value : null
-}
-
-export const QUOTA_SCENARIO_KEYS = Object.keys(SCENARIOS)

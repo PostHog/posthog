@@ -17,10 +17,14 @@ export function billableCredits(credits: number, freeCredits: number): number {
     return Math.max(0, Math.round(credits) - Math.max(0, freeCredits))
 }
 
+/** The bare number half of `formatCreditCount`, e.g. 1234.4 -> "1,234". */
+export function formatCreditNumber(credits: number): string {
+    return Math.round(credits).toLocaleString('en-US')
+}
+
 /** e.g. 500 -> "500 credits", 1 -> "1 credit". */
 export function formatCreditCount(credits: number): string {
-    const rounded = Math.round(credits)
-    return `${rounded.toLocaleString('en-US')} ${Math.abs(rounded) === 1 ? 'credit' : 'credits'}`
+    return `${formatCreditNumber(credits)} ${Math.abs(Math.round(credits)) === 1 ? 'credit' : 'credits'}`
 }
 
 /** e.g. 500 -> "500 credits (≈ $5.00)", 1 -> "1 credit (≈ $0.01)". */

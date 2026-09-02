@@ -21,10 +21,7 @@ const RECORDING_OBSERVED_EVENT = '$recording_observed'
 const SPEND_MODEL_PRICES = Object.entries(OBSERVATION_CREDITS_BY_MODEL)
 
 /** Daily credit spend for the current billing period; index 0 is the period's first day. */
-export interface SpendSeries {
-    days: string[]
-    credits: number[]
-}
+export type SpendSeries = number[]
 
 interface visionUsageLogicValues {
     usageScanners: ReplayScanner[]
@@ -73,14 +70,7 @@ export const visionUsageLogic = kea<visionUsageLogicType>([
                 loadSpendSeries: async (): Promise<SpendSeries | null> => {
                     const scenario = currentQuotaScenario()
                     if (scenario) {
-                        if (!scenario.dailySpend || !scenario.quota) {
-                            return { days: [], credits: [] }
-                        }
-                        const start = dayjs(scenario.quota.period_start)
-                        return {
-                            days: scenario.dailySpend.map((_, i) => start.add(i, 'day').format('YYYY-MM-DD')),
-                            credits: scenario.dailySpend,
-                        }
+                        return scenario.dailySpend ?? []
                     }
                     const periodStart = values.quota?.period_start
                     if (!periodStart) {
@@ -113,11 +103,8 @@ export const visionUsageLogic = kea<visionUsageLogicType>([
                         },
                     }
                     const response = await performQuery(query)
-                    const result = (response as { results?: { data?: number[]; days?: string[] }[] }).results?.[0]
-                    if (!result?.data) {
-                        return { days: [], credits: [] }
-                    }
-                    return { days: result.days ?? [], credits: result.data }
+                    const result = (response as { results?: { data?: number[] }[] }).results?.[0]
+                    return result?.data ?? []
                 },
             },
         ],
@@ -147,7 +134,7 @@ export const visionUsageLogic = kea<visionUsageLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         loadUsageScanners: async () => {
             const scenario = currentQuotaScenario()
             if (scenario?.usageScanners) {
@@ -190,9 +177,19 @@ export const visionUsageLogic = kea<visionUsageLogicType>([
                 actions.finishTogglingScanner(scanner.id)
             }
         },
-        // The chart is period-scoped, so it can only run once the quota names the period.
-        loadQuotaSuccess: () => {
-            actions.loadSpendSeries()
+        // The chart is period-scoped, so it can only run once the quota names the period. Quota
+        // refetches after scanner toggles keep the same period, and daily spend history doesn't
+        // move with them, so a loaded series is only refreshed when the period changes.
+        loadQuotaSuccess: ({ quota }) => {
+            if (
+                values.spendSeries === null ||
+                (quota?.period_start && quota.period_start !== cache.spendSeriesPeriodStart)
+            ) {
+                actions.loadSpendSeries()
+            }
+        },
+        loadSpendSeriesSuccess: () => {
+            cache.spendSeriesPeriodStart = values.quota?.period_start
         },
     })),
     afterMount(({ actions, values }) => {
