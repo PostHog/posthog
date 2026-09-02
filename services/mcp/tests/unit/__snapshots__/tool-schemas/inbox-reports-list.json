@@ -1,6 +1,14 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "actionability": {
+            "description": "Comma-separated actionability judgments to include. Valid values: immediately_actionable, requires_human_input, not_actionable. Reports without a judgment are excluded.",
+            "type": "string"
+        },
+        "already_addressed": {
+            "description": "Filter by whether the latest actionability judgment says the issue is already being handled. False also includes older reports where that judgment did not record a value.",
+            "type": "boolean"
+        },
         "channel_id": {
             "description": "Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.",
             "type": "string"
@@ -33,6 +41,10 @@
             "description": "Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.",
             "type": "string"
         },
+        "scope": {
+            "description": "Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate.",
+            "type": "string"
+        },
         "scout": {
             "description": "Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.",
             "type": "string"
@@ -43,6 +55,10 @@
         },
         "search": {
             "description": "Case-insensitive substring match against report title and summary.",
+            "type": "string"
+        },
+        "sort": {
+            "description": "Inbox sort preset: priority, last_updated, newest, or oldest. Ignored when ordering is supplied.",
             "type": "string"
         },
         "source_id": {
@@ -63,6 +79,18 @@
         },
         "task_id": {
             "description": "Only reports associated with this task (via the report's task associations).",
+            "type": "string"
+        },
+        "teammate_uuid": {
+            "description": "PostHog user UUID used when scope=teammate.",
+            "type": "string"
+        },
+        "use_priority_preference": {
+            "description": "When true and priority is omitted, include priorities at or above the requesting user's personal PR-generation threshold, falling back to the project threshold.",
+            "type": "boolean"
+        },
+        "view": {
+            "description": "Apply an inbox view: actionable, needs_input, monitoring, resolved, dismissed, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters.",
             "type": "string"
         }
     },
