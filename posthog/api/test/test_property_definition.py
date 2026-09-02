@@ -4,13 +4,15 @@ from typing import Any, Optional, Union, cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
-from django.db import OperationalError
+from django.db import OperationalError, connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import ActivityLog, EventDefinition, EventProperty, Organization, PropertyDefinition, Team
+from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.property_definition_api import (
     PropertyDefinitionQuerySerializer,
     PropertyDefinitionViewSet,
@@ -763,9 +765,6 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.json() == expected_results
 
     def test_seen_together_runs_one_query_per_request(self) -> None:
-        from django.db import connection
-        from django.test.utils import CaptureQueriesContext
-
         for event_name in ["e1", "e2", "e3", "e4", "e5"]:
             EventProperty.objects.create(team=self.team, event=event_name, property="$session_id")
 
@@ -797,6 +796,23 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             f"expected a single posthog_eventproperty query, got {len(event_property_queries)}: "
             f"{[q['sql'] for q in event_property_queries]}"
         )
+
+    def test_list_joins_the_enterprise_table_with_a_left_join(self) -> None:
+        PropertyDefinition.objects.create(team=self.team, name="join_shape_prop", property_type="String")
+
+        with CaptureQueriesContext(connection) as captured:
+            response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/")
+
+        assert response.status_code == status.HTTP_200_OK
+        definition_queries = [q["sql"] for q in captured.captured_queries if "posthog_propertydefinition" in q["sql"]]
+        assert definition_queries
+        assert not any("FULL OUTER JOIN" in sql for sql in definition_queries)
+        # Without the enterprise extension the listing query emits no join at all.
+        if EE_AVAILABLE:
+            assert all(
+                "posthog_propertydefinition LEFT JOIN ee_enterprisepropertydefinition" in sql
+                for sql in definition_queries
+            )
 
     def test_property_definition_project_id_coalesce(self):
         # Create legacy property with only team_id (old style)
