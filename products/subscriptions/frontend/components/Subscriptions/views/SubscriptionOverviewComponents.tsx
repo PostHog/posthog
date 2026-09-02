@@ -1,10 +1,9 @@
 import type { ReactNode } from 'react'
 
-import { IconAI, IconEllipsis, IconGraph, IconLetter, IconPause, IconPlay, IconTrash } from '@posthog/icons'
+import { IconAI, IconEllipsis, IconGraph, IconPause, IconPlay, IconTrash } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -14,7 +13,9 @@ import { urls } from 'scenes/urls'
 
 import { SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
+import { subscriptionDestination } from '../../../scenes/components/subscriptionDestination'
 import { isSubscriptionEnabled } from '../../../scenes/components/SubscriptionsTable'
+import { targetTypeOptions } from '../utils'
 
 const PROMPT_PREVIEW_MAX_CHARS = 80
 
@@ -28,23 +29,16 @@ interface SubscriptionListItemProps {
     isToggling?: boolean
 }
 
-function subscriptionDestination(subscription: SubscriptionType): { label: string; title: string } {
-    const destinations = subscription.target_value
-        .split(',')
-        .map((destination) => destination.trim())
-        .filter(Boolean)
-
-    if (subscription.target_type === 'email') {
-        return {
-            label: destinations.length === 1 ? destinations[0] : `${destinations.length} recipients`,
-            title: destinations.join(', '),
-        }
-    }
-
-    const channels = destinations.map((destination) => destination.split('|')[1] || destination)
+function subscriptionListDestination(subscription: SubscriptionType): {
+    icon: ReactNode
+    label: string
+    title: string
+} {
+    const destination = subscriptionDestination(subscription.target_type, subscription.target_value)
     return {
-        label: channels.length === 1 ? channels[0] : `${channels.length} channels`,
-        title: channels.join(', '),
+        icon: targetTypeOptions.find(({ value }) => value === subscription.target_type)?.icon,
+        label: destination.label,
+        title: destination.title,
     }
 }
 
@@ -154,7 +148,7 @@ export function SubscriptionListItem({
     const aiPrompt = subscription.resource_type === SubscriptionResourceTypes.AiPrompt ? subscription.prompt : null
     const aiPromptTruncated = aiPrompt && aiPrompt.length > PROMPT_PREVIEW_MAX_CHARS
     const aiPromptPreview = aiPromptTruncated ? `${aiPrompt.slice(0, PROMPT_PREVIEW_MAX_CHARS)}…` : aiPrompt
-    const destination = subscriptionDestination(subscription)
+    const destination = subscriptionListDestination(subscription)
 
     return (
         <LemonButton
@@ -223,8 +217,7 @@ export function SubscriptionListItem({
                             className="flex items-center gap-1 text-xs text-secondary shrink-0"
                             title={destination.title}
                         >
-                            {subscription.target_type === 'email' && <IconLetter />}
-                            {subscription.target_type === 'slack' && <IconSlack />}
+                            {destination.icon}
                             <span className="max-w-40 truncate">{destination.label}</span>
                         </div>
                     </div>
