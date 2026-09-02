@@ -420,9 +420,10 @@ pub const FLAG_CONDITION_SKIPPED_COUNTER: &str = "flags_condition_skipped_total"
 // Incremented once per flag left out of a team's payload because its `filters` JSON
 // does not deserialize into FlagFilters. A property filter with no `"type"` key is
 // one such blob, because PropertyFilter requires prop_type, and serde fails the
-// whole outer struct. Python keeps a flag like that, so every increment here is a
-// flag the two builders disagree about. Team id and flag key are in the companion
-// warn log, not in metric labels (cardinality).
+// whole outer struct. This counts every dropped flag, which is a superset of the
+// flags the two builders disagree about: Python keeps an active or referenced flag
+// that this drops, but an inactive, unreferenced flag is dropped by both builders.
+// Team id and flag key are in the companion warn log, not in metric labels (cardinality).
 pub const FLAG_MALFORMED_FILTER_COUNTER: &str = "flags_flag_malformed_filter_total";
 // Incremented once per team read that left out at least one flag for the reason
 // above. FLAG_MALFORMED_FILTER_COUNTER divided by this gives the mean flags

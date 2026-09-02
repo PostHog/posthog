@@ -211,9 +211,11 @@ impl FeatureFlagList {
                         // Serde fails the whole `filters` struct when a required field is
                         // absent, so one bad property filter costs the entire flag. A property
                         // filter with no `"type"` key does that, because
-                        // PropertyFilter::prop_type has no default. Python keeps such a flag,
-                        // so every flag lost here is one the two builders disagree about. Skip
-                        // the flag rather than fail the read, so the team keeps the rest.
+                        // PropertyFilter::prop_type has no default. Python does not parse these
+                        // filters, so it keeps such a flag when the flag is active or referenced,
+                        // and those drops are real builder divergences. An inactive, unreferenced
+                        // flag is dropped by both builders, so the counters below over-count it.
+                        // Skip the flag rather than fail the read, so the team keeps the rest.
                         malformed_filter_flags += 1;
                         tracing::warn!(
                             "Failed to deserialize filters for flag {} in team {}: {}",
