@@ -46,6 +46,9 @@ the entity itself. Two spots stay plain text, because the inbox renders them as 
 the summary's first line, which the inbox lifts out as the card headline. The harness prompt
 (_Linking what you reference_) carries the full rule.
 
+**Section labels are where a Slack thread splits.** A destination with "Post reports as a thread" on posts a short lead in the channel and each later section as a reply.
+A heading (`## Evidence`) and a bold label on its own line (`**Evidence**`) both mark a section, so write the outline you want the reader to get and either form works.
+
 **Status is decided for you, from safety × actionability:**
 
 | Safety judge | `actionability`          | Resulting status | Surfaces in inbox? |

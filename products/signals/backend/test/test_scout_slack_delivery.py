@@ -368,16 +368,26 @@ class TestScoutSlackDelivery(BaseTest):
         assert not any(text.endswith("…") for text in section_texts)
         assert any(tail_marker in text for text in section_texts)
 
-    def test_threaded_short_report_posts_one_reply_per_heading_section(self) -> None:
+    @parameterized.expand(
+        [
+            ("headings", "Lead line.\n\n## First\nshort body\n\n### Detail\ndeeper body\n\n## Second\nshort body"),
+            (
+                "bold_labels",
+                "Lead line.\n\n**First**\n\nshort body\n\n**Detail** - deeper body\n\n**Second**\n\nshort body",
+            ),
+        ]
+    )
+    def test_threaded_short_report_posts_one_reply_per_section(self, _name: str, summary: str) -> None:
         # The bug: threading only kicked in past the section cap, so a typical digest that fits one
-        # section posted as one wall of text. A report with headings now threads at any length, and
-        # a sub-heading rides in its parent's reply instead of opening one of its own.
+        # section posted as one wall of text. A report now threads at any length, whether it labels
+        # its sections with headings or in bold, and a sub-section rides in its parent's reply
+        # instead of opening one of its own.
         emission = self._make_emission()
         report = SignalReport.objects.create(
             team=self.team,
             status=SignalReport.Status.READY,
             title="Checkout failures",
-            summary="Lead line.\n\n## First\nshort body\n\n### Detail\ndeeper body\n\n## Second\nshort body",
+            summary=summary,
         )
         integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
         fake_client = MagicMock()
@@ -410,9 +420,9 @@ class TestScoutSlackDelivery(BaseTest):
         assert "Second" in second_reply["blocks"][0]["text"]["text"]
         assert calls[3].kwargs["blocks"][0]["type"] == "context"
 
-    def test_threaded_report_without_headings_posts_a_single_message(self) -> None:
-        # Headings are the seams threading splits on. A summary with none has nothing to split, so it
-        # stays one channel message rather than being cut mid-prose.
+    def test_threaded_report_without_section_labels_posts_a_single_message(self) -> None:
+        # Headings and bold labels are the seams threading splits on. A summary with neither has
+        # nothing to split, so it stays one channel message rather than being cut mid-prose.
         emission = self._make_emission()
         report = SignalReport.objects.create(
             team=self.team,

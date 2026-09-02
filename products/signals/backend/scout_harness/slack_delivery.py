@@ -355,14 +355,15 @@ def build_scout_report_slack_message(
 
 
 def _report_summary_chunks(report: SignalReport) -> list[str]:
-    """Convert the report summary to mrkdwn and split it into one chunk per heading section.
+    """Convert the report summary to mrkdwn and split it into one chunk per section.
 
     Called only for a threaded delivery. The first chunk leads the channel and each later one
     becomes a reply, so the thread mirrors the report's outline at any length. Length is not the
     test: a typical digest fits inside one Slack section, so a length test leaves it as one wall of
-    text. A summary with no headings has no seam and stays one chunk. A section too long for one
-    Slack section is hard-chunked on its line ends. The split runs after `strip_chart_references`
-    so a chart link never straddles two messages."""
+    text. A section is opened by a Markdown heading or a bold label, so the summary threads whether
+    the scout wrote `## Evidence` or `**Evidence**`. A summary with neither has no seam and stays
+    one chunk. A section too long for one Slack section is hard-chunked on its line ends. The split
+    runs after `strip_chart_references` so a chart link never straddles two messages."""
     summary_text = strip_chart_references((report.summary or "").strip())
     chunks: list[str] = []
     for segment in split_markdown_by_headings(summary_text):
