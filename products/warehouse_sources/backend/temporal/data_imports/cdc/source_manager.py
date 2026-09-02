@@ -11,7 +11,6 @@ generator resumes.
 
 from __future__ import annotations
 
-import datetime as dt
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Final, Literal
 
@@ -221,7 +220,6 @@ def consolidated_resource_name(schema: ExternalDataSchema) -> str:
 class _BufferFile:
     span: BufferFileSpan
     key: str
-    modified: dt.datetime | None
 
 
 def _drop_applied_rows(table: pa.Table, position: int, remaining: int) -> tuple[pa.Table, int]:
@@ -241,6 +239,9 @@ def _drop_applied_rows(table: pa.Table, position: int, remaining: int) -> tuple[
     """
     if not table.num_rows:
         return table, 0
+    # A null position cannot be placed against the prefix, so it is always kept. Engine-stamped
+    # batches never carry one (see `has_engine_seq`); a source column of the same name is not
+    # engine-stamped and never reaches a lane.
     seqs = table.column(CDC_SEQ_COLUMN).to_pylist()
     keep: list[int] = []
     dropped_at_position = 0
@@ -328,10 +329,7 @@ class CDCSourceManager:
             parsed = parse_buffer_file_name(key.rsplit("/", 1)[-1])
             if parsed is None:
                 continue
-            modified = entry.get("LastModified")
-            files.append(
-                _BufferFile(span=parsed, key=key, modified=modified if isinstance(modified, dt.datetime) else None)
-            )
+            files.append(_BufferFile(span=parsed, key=key))
 
         files.sort(key=lambda f: (f.span.start_seq, f.span.end_seq, f.span.file_index))
         await self._logger.adebug("cdc_buffer_files_listed", prefix=prefix, file_count=len(files))

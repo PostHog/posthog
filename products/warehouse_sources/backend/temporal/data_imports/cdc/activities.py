@@ -952,7 +952,7 @@ class CDCExtractActivity:
             # A schema with deferred runs pending stays legacy this tick, so the flush and any new
             # events travel one lane. Deferred batches carry no position column, so nothing orders
             # them against buffered writes — mixing lanes lets an older deferred row land after a
-            # newer buffered one. The consumer holds off too (has_pending_legacy_backlog).
+            # newer buffered one. The consumer holds off too (has_batches_in_flight).
             self._buffered_table_names = {
                 s.name
                 for s in self.cdc_schemas

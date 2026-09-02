@@ -69,13 +69,6 @@ def has_engine_seq(table: pa.Table) -> bool:
     return (field.metadata or {}).get(b"posthog_cdc") == CDC_SEQ_PROVENANCE[b"posthog_cdc"]
 
 
-def batch_max_seq(table: pa.Table) -> int | None:
-    if not has_engine_seq(table) or table.num_rows == 0:
-        return None
-    values = [v for v in table.column(CDC_SEQ_COLUMN).to_pylist() if v is not None]
-    return max(values) if values else None
-
-
 def dedupe_keep_highest_seq(table: pa.Table, primary_keys: list[str]) -> tuple[pa.Table, int]:
     """Collapse each primary key to its highest-position row, preserving batch order otherwise.
 

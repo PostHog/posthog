@@ -1450,10 +1450,12 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # carries no position to order against, and a previous attempt of this job holds staged
             # batches that are still claimable, which the append lane would write twice.
             #
-            # Failing beats returning nothing. An empty response COMPLETES the job, and completing
-            # a job deletes the buffer files its run read — so a tick that stood down would delete
-            # files the crashed attempt never drained. The activity's own retries double as the
-            # wait, and a plain error leaves the schedule alone, unlike CDCHandledExternally.
+            # Failing beats returning nothing. An empty response COMPLETES the job, which releases
+            # the v3 pipeline lock while the previous attempt's batches are still claimable — the
+            # next run would then read the buffer against positions those batches are about to
+            # move. The activity's own retries double as the wait, and a plain error leaves the
+            # schedule alone, unlike CDCHandledExternally. The cost is that a backlog outliving
+            # the retries surfaces as a failed sync rather than a silent no-op tick.
             raise ValueError(
                 f"Buffered CDC schema {schema.name} still has deliveries in flight. Consuming the "
                 "buffer now could write rows a landing batch is about to write. Retrying."

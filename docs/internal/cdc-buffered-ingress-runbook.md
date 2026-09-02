@@ -20,6 +20,13 @@ Each table is its own run in the load queue. The queue keys batch idempotency, S
 claim ordering on the run id, so a `both` run appends `-consolidated` and `-cdc` to it. Nothing else
 suffixes, and every single-table source keeps the run id it always had.
 
+Only a source that declares lanes runs the lane code. Every other source runs `PipelineV3` as it
+was: the base class is the single-table path with extract-method seams, and `LanedPipelineV3` in
+`pipeline_v3/lanes.py` overrides those seams. The activity picks the class from
+`SourceResponse.lanes`. On the load side, a final batch that names no `sibling_run_uuids` skips the
+completion gate — and the queue connection it needs — entirely, so a single-table run finalizes
+exactly as before.
+
 The job completes on the last of its runs to finish. Every final batch asks the queue whether
 another run of the same job still has a batch that has not succeeded, and the one that finds none
 completes the job, releases the v3 lock and starts post-import. A run that failed holds completion
@@ -57,10 +64,11 @@ append lane that is a second copy of the same history. Two scheduled runs cannot
 own: the v3 pipeline lock is held from the start of the workflow until the loader completes the
 job. The window is a retried activity, which runs under the lock its own workflow already holds,
 and a lock takeover, which hands the lock to a new job while the old one's batches are still
-queued. It fails the run rather than returning an empty one, because an empty response completes
-the job — and completing it deletes the files this run read, which a crashed attempt never drained.
-The activity's own retries are the wait; a backlog that clears within them never surfaces as a
-failure.
+queued. It fails the run rather than returning an empty one, because an empty response completes the job,
+and completing it releases the pipeline lock while the previous attempt's batches are still
+claimable. The activity's own retries are the wait; a backlog that clears within them never
+surfaces as a failure, but one that outlives them surfaces as a failed sync rather than a quiet
+tick.
 
 Nothing is re-snapshotted. The slot, the Delta tables, and `initial_sync_complete` are all
 preserved, so there is no WAL gap and no re-sync.

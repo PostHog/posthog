@@ -513,6 +513,7 @@ class PendingBatch:
             "cdc_write_mode": self.metadata.get("cdc_write_mode"),
             "cdc_table_mode": self.metadata.get("cdc_table_mode"),
             "cdc_buffer_files": self.metadata.get("cdc_buffer_files"),
+            "sibling_run_uuids": self.metadata.get("sibling_run_uuids"),
             "destination_ids": self.destination_ids or [],
         }
 
@@ -1150,9 +1151,13 @@ class BatchQueue:
         A spared run that stalls later is not re-checked here (this fires once, at the
         new run's first batch); the reconcile sweep's stranded-run pass owns that case.
         """
+        siblings = [uuid for uuid in (sibling_run_uuids or []) if uuid != current_run_uuid]
+        # A single-table run keeps the query it has always had; only a run with siblings to spare
+        # widens it to a list.
+        run_filter = "b.run_uuid != ALL(%(spared_run_uuids)s)" if siblings else "b.run_uuid != %(current_run_uuid)s"
         cursor = conn.execute(
             _bulk_fail_dual_write_sql(
-                f"""b.job_id = %(job_id)s AND b.run_uuid != ALL(%(spared_run_uuids)s)
+                f"""b.job_id = %(job_id)s AND {run_filter}
                 AND NOT EXISTS (
                     SELECT 1
                     FROM {BATCH_TABLE} b_live
@@ -1164,7 +1169,8 @@ class BatchQueue:
             ),
             {
                 "job_id": job_id,
-                "spared_run_uuids": list({current_run_uuid, *(sibling_run_uuids or [])}),
+                "current_run_uuid": current_run_uuid,
+                "spared_run_uuids": [current_run_uuid, *siblings],
                 "progress_stale": progress_stale_seconds,
                 "error_response": json.dumps({"error": "superseded by newer attempt", "superseded": True}),
             },
@@ -1465,29 +1471,56 @@ class BatchQueue:
         *,
         job_id: str,
         run_uuid: str,
+        sibling_run_uuids: list[str] | None = None,
     ) -> bool:
-        """Whether any OTHER run of this job still has a batch that has not succeeded.
+        """Whether another lane OF THIS ATTEMPT has not finished. Blocks completing the job.
 
-        A job whose source feeds several tables has one run per table, and each ends with its own
-        final batch. The job is done when the last of them lands, so every final batch asks this
-        and the one that finds nothing outstanding completes the job.
+        A job whose source feeds several tables has one run per table, each ending in its own final
+        batch. The job is done when the last of them lands, so every final batch asks this and the
+        one that finds nothing outstanding completes the job.
 
-        Anything other than 'succeeded' holds completion, failures included: a run that failed
-        never wrote its table, and `fail_run` is what takes the job terminal instead.
+        A lane counts as finished only once its own final batch has SUCCEEDED. Asking whether its
+        batches are merely all succeeded would race: lanes are enqueued one after another, so a
+        lane whose data batches have landed but whose final row is not inserted yet would read as
+        finished, and the job would complete before that lane's post-load ran.
+
+        A lane that staged nothing has no rows at all and is not waited on — its whole batch was
+        already in its table.
+
+        Scoped to the run ids this attempt is writing, never to the job as a whole: a retried
+        activity keeps the job row and takes a new run id, so the previous attempt's batches sit
+        under the same `job_id`, usually left `failed` by `supersede_other_runs`. Reading those as
+        a lane still owing work would stop the job ever completing and leak its pipeline lock.
         """
+        siblings = [uuid for uuid in (sibling_run_uuids or []) if uuid != run_uuid]
+        if not siblings:
+            return False
+
         with conn.cursor() as cur:
             cur.execute(
                 f"""
                 SELECT EXISTS (
                     SELECT 1
-                    FROM {BATCH_TABLE} b
-                    WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                      AND b.job_id = %(job_id)s
-                      AND b.run_uuid <> %(run_uuid)s
-                      AND b.latest_state <> 'succeeded'
+                    FROM unnest(%(siblings)s::text[]) AS sibling(run_uuid)
+                    WHERE EXISTS (
+                        SELECT 1
+                        FROM {BATCH_TABLE} b
+                        WHERE b.run_uuid = sibling.run_uuid
+                          AND b.job_id = %(job_id)s
+                          AND b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                    )
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM {BATCH_TABLE} f
+                        WHERE f.run_uuid = sibling.run_uuid
+                          AND f.job_id = %(job_id)s
+                          AND f.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                          AND f.is_final_batch
+                          AND f.latest_state = 'succeeded'
+                    )
                 )
                 """,
-                {"job_id": job_id, "run_uuid": run_uuid},
+                {"job_id": job_id, "siblings": siblings},
             )
             row = cur.fetchone()
         return bool(row and row[0])

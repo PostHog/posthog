@@ -5,10 +5,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pyarrow as pa
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import (
-    PipelineV3,
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.lanes import (
+    LanedPipelineV3,
     _LaneWriter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import OutputLane
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportJobModels,
@@ -58,13 +59,7 @@ def _make_pipeline() -> PipelineV3:
     pipeline._load_id = 1
     pipeline._s3_batch_writer = MagicMock()
     pipeline._pg_producer = MagicMock(sync_type="full_refresh")
-    pipeline._lane_writers = [
-        _LaneWriter(
-            lane=OutputLane(name="test_table"),
-            s3_batch_writer=pipeline._s3_batch_writer,
-            pg_producer=pipeline._pg_producer,
-        )
-    ]
+    pipeline._batch_results = []
     pipeline._accumulated_pa_schema = None
     pipeline._shutdown_monitor = MagicMock()
     pipeline._attempt = 1
@@ -357,6 +352,7 @@ def _run_uuids(lanes) -> list[str]:
         lanes=lanes,
     )
     module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
+    pipeline_cls: type[PipelineV3] = LanedPipelineV3 if lanes else PipelineV3
     with (
         patch(f"{module}.current_activity_attempt", return_value=3),
         patch(f"{module}.current_workflow_id", return_value="wf-1"),
@@ -365,7 +361,7 @@ def _run_uuids(lanes) -> list[str]:
         patch(f"{module}.PostgresProducer"),
         patch(f"{module}.DeltaTableRef"),
     ):
-        PipelineV3(
+        pipeline_cls(
             source_response=mock_resource,
             logger=_make_logger(),
             job_id="job-1",
@@ -397,11 +393,15 @@ def _lane_writer(name: str, *, billable: bool = True, transform=None) -> _LaneWr
 @pytest.mark.asyncio
 class TestLaneFanOut:
     @staticmethod
-    def _pipeline(writers: list[_LaneWriter]) -> PipelineV3:
-        pipeline = _make_pipeline()
+    def _pipeline(writers: list[_LaneWriter]) -> LanedPipelineV3:
+        base = _make_pipeline()
+        pipeline = LanedPipelineV3.__new__(LanedPipelineV3)
+        pipeline.__dict__.update(base.__dict__)
+        pipeline._output_lanes = [writer.lane for writer in writers]
         pipeline._lane_writers = writers
         pipeline._s3_batch_writer = writers[0].s3_batch_writer
         pipeline._pg_producer = writers[0].pg_producer
+        pipeline._batch_results = writers[0].batch_results
         pipeline._resource.finalize_metadata = None
         cast(MagicMock, pipeline._schema).configure_mock(incremental_field=None, enabled_columns=None)
         pipeline._last_incremental_field_value = None
@@ -449,6 +449,17 @@ class TestLaneFanOut:
 
         assert [len(writer.batch_results) for writer in writers] == [1, 0]
         cast(MagicMock, writers[1].pg_producer.send_batch_notification).assert_not_called()
+
+    async def test_a_batch_that_arrives_empty_is_still_staged(self) -> None:
+        # Every non-CDC source is one lane with no transform, and reaches here with an empty table
+        # whenever its source yields one. Skipping it would move job completion from the load
+        # consumer to the workflow for those syncs.
+        writers = [_lane_writer("users")]
+        pipeline = self._pipeline(writers)
+
+        await self._process(pipeline, pa.table({"id": pa.array([], pa.int64())}))
+
+        assert len(writers[0].batch_results) == 1
 
     async def test_each_lane_ends_with_its_own_final_batch(self) -> None:
         writers = [_lane_writer("users"), _lane_writer("users_cdc", billable=False)]
@@ -506,3 +517,42 @@ class TestLaneRunUuids:
         )
 
         assert writers == ["wfrun-abc-a3-consolidated", "wfrun-abc-a3-cdc"]
+
+
+@pytest.mark.asyncio
+class TestSingleTableRunIsUntouched:
+    """The base class is every non-lane source. Its staging path must not depend on lanes at all."""
+
+    async def test_an_empty_batch_is_still_staged_and_counted(self) -> None:
+        pipeline = _make_pipeline()
+        pipeline._resource.finalize_metadata = None
+        cast(MagicMock, pipeline._schema).configure_mock(incremental_field=None, enabled_columns=None)
+        pipeline._last_incremental_field_value = None
+        pipeline._earliest_incremental_field_value = None
+        cast(MagicMock, pipeline._s3_batch_writer).write_batch = MagicMock(return_value=MagicMock(batch_index=0))
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.update_incremental_field_values",
+                AsyncMock(return_value=MagicMock(last_value=None, earliest_value=None)),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.update_row_tracking_after_batch",
+                AsyncMock(),
+            ) as tracked,
+        ):
+            await pipeline._process_batch(
+                pa_table=pa.table({"id": pa.array([], pa.int64())}), batch_index=0, row_count=0
+            )
+
+        assert len(pipeline._batch_results) == 1
+        cast(MagicMock, pipeline._pg_producer.send_batch_notification).assert_called_once()
+        assert tracked.call_args[0][3] == 0
+
+    def test_a_source_without_lanes_never_names_siblings(self) -> None:
+        pipeline = _make_pipeline()
+        pipeline._job.workflow_run_id = "wfrun-abc"
+        pipeline._attempt = 1
+
+        assert pipeline._sibling_run_uuids() == []
+        assert pipeline._run_uuid_suffix() == ""

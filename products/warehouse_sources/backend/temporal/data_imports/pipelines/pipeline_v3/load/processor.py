@@ -481,12 +481,33 @@ async def _delete_drained_buffer_files(export_signal: ExportSignalMessage) -> No
     commit position, so "everything up to here" can name a file written after the run listed.
     """
     prefix = get_buffer_prefix(export_signal.team_id, export_signal.schema_id)
+    keys = [f"{prefix}/{name}" for name in export_signal.cdc_buffer_files or []]
+    if not keys:
+        return
     async with aget_s3_client() as s3:
-        for name in export_signal.cdc_buffer_files or []:
-            try:
-                await s3._rm(f"{prefix}/{name}")
-            except FileNotFoundError:
-                continue
+        try:
+            await s3._rm(keys)
+        except FileNotFoundError:
+            # A retry of this final batch already deleted some of them.
+            pass
+
+
+def _sibling_lane_still_running(export_signal: ExportSignalMessage) -> bool:
+    with psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
+        blocked = BatchQueue.has_unfinished_sibling_run(
+            conn,
+            job_id=export_signal.job_id,
+            run_uuid=export_signal.run_uuid,
+            sibling_run_uuids=export_signal.sibling_run_uuids,
+        )
+    if blocked:
+        logger.info(
+            "job_completion_deferred_to_sibling_run",
+            external_data_job_id=export_signal.job_id,
+            run_uuid=export_signal.run_uuid,
+            resource_name=export_signal.resource_name,
+        )
+    return blocked
 
 
 def _mark_job_completed(export_signal: ExportSignalMessage) -> bool:
@@ -496,15 +517,10 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> bool:
     batch. Whichever lands last completes the job; the others return here having done nothing, so
     the lock stays held and post-import waits for the whole run.
     """
-    with psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
-        if BatchQueue.has_unfinished_sibling_run(conn, job_id=export_signal.job_id, run_uuid=export_signal.run_uuid):
-            logger.info(
-                "job_completion_deferred_to_sibling_run",
-                external_data_job_id=export_signal.job_id,
-                run_uuid=export_signal.run_uuid,
-                resource_name=export_signal.resource_name,
-            )
-            return False
+    # Only a run that named siblings has anything to wait for. Every single-table run — and every
+    # message written before lanes existed — skips this entirely, connection included.
+    if export_signal.sibling_run_uuids and _sibling_lane_still_running(export_signal):
+        return False
 
     # Reconnect stale connections before the transaction; close_old_connections must never
     # run inside an atomic block since it can drop the connection mid-transaction.
@@ -532,9 +548,6 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> bool:
     if job_completed:
         async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
 
-        if export_signal.cdc_buffer_files:
-            async_to_sync(_delete_drained_buffer_files)(export_signal)
-
         logger.info(
             "job_marked_completed",
             external_data_job_id=export_signal.job_id,
@@ -551,7 +564,16 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> bool:
         )
 
     _release_pipeline_lock_for_job(export_signal)
-    return job_completed
+
+    # After the lock, and never fatal: the rows are committed, so a failed delete costs one
+    # re-read next run (which every lane's resume point absorbs) rather than a leaked lock.
+    if job_completed and export_signal.cdc_buffer_files:
+        try:
+            async_to_sync(_delete_drained_buffer_files)(export_signal)
+        except Exception:
+            logger.warning("cdc_buffer_delete_failed", external_data_job_id=export_signal.job_id, exc_info=True)
+
+    return True
 
 
 def _finish_completed_job(export_signal: ExportSignalMessage, prepared_queryable_folder: str | None) -> None:
@@ -1056,10 +1078,13 @@ def _process_message_reported(
 
         DELTA_ROWS_WRITTEN_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(pa_table.num_rows)
 
-        if cdc_write_mode == SCD2_APPEND_MODE:
-            # The history table is its own resume point, and reading it back cheaply needs Delta
-            # to keep min/max for the position column. See `cdc.lane_position`.
-            async_to_sync(ensure_position_stats)(delta_table)
+        if cdc_write_mode is not None:
+            # Both lanes read their resume point back from their own table, so both need Delta to
+            # keep min/max for the position column. Without it the read is a full column scan on
+            # every sync. See `cdc.lane_position`.
+            async_to_sync(ensure_position_stats)(
+                delta_table, [*(primary_keys or []), *(export_signal.partition_keys or [])]
+            )
 
         internal_schema = HogQLSchema()
         # Build from the Delta table schema first to cover all columns from

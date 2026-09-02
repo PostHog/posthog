@@ -12,7 +12,9 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
+import pyarrow as pa
 import structlog
+import pyarrow.compute as pc
 
 from posthog.dataclasses import frozen
 
@@ -94,19 +96,29 @@ async def _scan_position(delta_table: deltalake.DeltaTable) -> LanePosition:
     one per sync — and a table created under `ensure_position_stats` never takes it at all.
     """
     table = await asyncio.to_thread(delta_table.to_pyarrow_table, columns=[CDC_SEQ_COLUMN])
-    positions = [value for value in table.column(CDC_SEQ_COLUMN).to_pylist() if value is not None]
-    if not positions:
+    column = table.column(CDC_SEQ_COLUMN)
+    highest = pc.max(column).as_py()
+    if highest is None:
         return EMPTY_POSITION
-    highest = max(positions)
-    return LanePosition(position=highest, rows_at_position=sum(1 for value in positions if value == highest))
+    # Arrow-side, because this column can be the whole history table.
+    at_top = pc.cast(pc.equal(column, highest), pa.int64())
+    return LanePosition(position=highest, rows_at_position=pc.sum(at_top).as_py() or 0)
 
 
-async def ensure_position_stats(delta_table: deltalake.DeltaTable) -> None:
-    """Keep per-file min/max for the position column, so reading the resume point stays a lookup."""
-    if (delta_table.metadata().configuration or {}).get(STATS_COLUMNS_PROPERTY) == CDC_SEQ_COLUMN:
+async def ensure_position_stats(delta_table: deltalake.DeltaTable, keep_stats_for: list[str] | None = None) -> None:
+    """Keep per-file min/max for the position column, so reading the resume point stays a lookup.
+
+    Naming columns REPLACES Delta's default "first 32 columns", so every column that still needs
+    pruning has to be named too — the merge key above all, which every write matches on. Columns
+    the table does not have are left out rather than declared, which delta-rs rejects.
+    """
+    present = {field.name for field in delta_table.schema().fields}
+    columns = [CDC_SEQ_COLUMN, *[name for name in (keep_stats_for or []) if name in present and name != CDC_SEQ_COLUMN]]
+    wanted = ",".join(columns)
+    if (delta_table.metadata().configuration or {}).get(STATS_COLUMNS_PROPERTY) == wanted:
         return
     try:
-        await asyncio.to_thread(delta_table.alter.set_table_properties, {STATS_COLUMNS_PROPERTY: CDC_SEQ_COLUMN})
+        await asyncio.to_thread(delta_table.alter.set_table_properties, {STATS_COLUMNS_PROPERTY: wanted})
     except Exception:
         # Costs a column scan per run until it succeeds or compaction rewrites the files; never
         # worth failing a sync that has already written its data.

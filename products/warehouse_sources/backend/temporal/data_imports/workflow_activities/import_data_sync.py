@@ -861,10 +861,16 @@ async def _run(
         use_v3 = models.job.pipeline_version == ExternalDataJob.PipelineVersion.V3
 
         if use_v3:
-            from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import PipelineV3
+            from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
+                LanedPipelineV3,
+                PipelineV3,
+            )
 
             logger.info("Running V3 pipeline (persisted job.pipeline_version is V3)")
-            pipeline: PipelineV3 | PipelineNonDLT = PipelineV3(
+            # A source feeding several tables from one read declares lanes; everything else runs
+            # the base class untouched.
+            pipeline_cls: type[PipelineV3] = LanedPipelineV3 if source_response.lanes else PipelineV3
+            pipeline: PipelineV3 | PipelineNonDLT = pipeline_cls(
                 source_response,
                 logger,
                 job_inputs.run_id,

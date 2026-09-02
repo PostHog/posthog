@@ -1256,6 +1256,77 @@ class TestStateDualWrite:
         assert (await _batch_state(conn, done))[0] == "succeeded"
 
     @pytest.mark.asyncio
+    async def test_a_retried_attempt_can_still_complete_its_job(self, conn, sync_conn):
+        # An activity retry keeps the job row and takes a new run_uuid, so the previous attempt's
+        # batches sit under the same job_id. They must not read as a lane this attempt waits on,
+        # or the job never completes and its pipeline lock is never released.
+        stale = await _insert_batch(conn, run_uuid="wfrun-a1", job_id="job-retry")
+        await _write_backdated_status(conn, batch_id=stale, job_state="failed", age_seconds=60)
+        await _insert_batch(conn, run_uuid="wfrun-a2", job_id="job-retry")
+
+        blocked = BatchQueue.has_unfinished_sibling_run(
+            sync_conn, job_id="job-retry", run_uuid="wfrun-a2", sibling_run_uuids=["wfrun-a2"]
+        )
+
+        assert blocked is False
+
+    @pytest.mark.asyncio
+    async def test_a_lane_waits_until_its_sibling_final_batch_succeeded(self, conn, sync_conn):
+        other = await _insert_batch(
+            conn, run_uuid="wfrun-a1-cdc", job_id="job-both", batch_index=0, is_final_batch=True
+        )
+        await _insert_batch(conn, run_uuid="wfrun-a1-consolidated", job_id="job-both", batch_index=0)
+
+        siblings = ["wfrun-a1-consolidated", "wfrun-a1-cdc"]
+
+        def blocked() -> bool:
+            return BatchQueue.has_unfinished_sibling_run(
+                sync_conn, job_id="job-both", run_uuid="wfrun-a1-consolidated", sibling_run_uuids=siblings
+            )
+
+        assert blocked() is True
+
+        await _write_backdated_status(conn, batch_id=other, job_state="succeeded", age_seconds=1)
+
+        assert blocked() is False
+
+    @pytest.mark.asyncio
+    async def test_a_sibling_whose_final_batch_is_not_enqueued_yet_still_blocks(self, conn, sync_conn):
+        # Lanes are enqueued one after another. A sibling whose data batches have landed but whose
+        # final row does not exist yet must not read as finished, or the job completes before that
+        # lane's post-load runs.
+        landed = await _insert_batch(conn, run_uuid="wfrun-a1-cdc", job_id="job-race", batch_index=0)
+        await _write_backdated_status(conn, batch_id=landed, job_state="succeeded", age_seconds=1)
+        await _insert_batch(
+            conn, run_uuid="wfrun-a1-consolidated", job_id="job-race", batch_index=0, is_final_batch=True
+        )
+
+        blocked = BatchQueue.has_unfinished_sibling_run(
+            sync_conn,
+            job_id="job-race",
+            run_uuid="wfrun-a1-consolidated",
+            sibling_run_uuids=["wfrun-a1-consolidated", "wfrun-a1-cdc"],
+        )
+
+        assert blocked is True
+
+    @pytest.mark.asyncio
+    async def test_a_lane_that_staged_nothing_is_not_waited_on(self, conn, sync_conn):
+        # Its whole batch was already in its table, so it has no rows in the queue at all.
+        await _insert_batch(
+            conn, run_uuid="wfrun-a1-consolidated", job_id="job-empty", batch_index=0, is_final_batch=True
+        )
+
+        blocked = BatchQueue.has_unfinished_sibling_run(
+            sync_conn,
+            job_id="job-empty",
+            run_uuid="wfrun-a1-consolidated",
+            sibling_run_uuids=["wfrun-a1-consolidated", "wfrun-a1-cdc"],
+        )
+
+        assert blocked is False
+
+    @pytest.mark.asyncio
     async def test_supersede_fails_columns_of_older_runs(self, conn, sync_conn):
         # The old run was never claimed, so superseding it loses no load progress.
         old = await _insert_batch(conn, run_uuid="run-old", job_id="job-dw")

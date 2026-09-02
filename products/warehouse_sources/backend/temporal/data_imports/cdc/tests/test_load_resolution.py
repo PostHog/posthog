@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
     MAX_VERIFIED_DELETE_ROWS,
     SCD2_APPEND_MODE,
-    batch_max_seq,
     dedupe_keep_highest_seq,
     is_cdc_write_resolution_enabled,
     resolve_batch,
@@ -41,18 +40,6 @@ def _batch(ids, names, ops, seqs=None, engine_seq=True):
 
 def _existing(ids, names):
     return pa.table({"id": pa.array(ids, pa.int64()), "name": pa.array(names, pa.string())})
-
-
-class TestBatchMaxSeq:
-    def test_none_without_seq_column(self):
-        assert batch_max_seq(_batch([1], ["a"], ["I"])) is None
-
-    def test_none_when_empty(self):
-        assert batch_max_seq(_batch([], [], [], seqs=[])) is None
-
-    def test_ignores_nulls(self):
-        table = _batch([1, 2, 3], ["a", "b", "c"], ["I", "I", "I"], seqs=[10, None, 30])
-        assert batch_max_seq(table) == 30
 
 
 class TestDedupeKeepHighestSeq:

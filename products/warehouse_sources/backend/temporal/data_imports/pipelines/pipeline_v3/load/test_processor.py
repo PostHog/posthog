@@ -1026,7 +1026,9 @@ class TestJobCompletionAcrossLanes:
         return completed, mock_status, mock_release, mock_delete
 
     def test_a_lane_finishing_first_leaves_the_job_running(self):
-        completed, mock_status, mock_release, _ = self._complete(_message(is_final_batch=True), sibling_unfinished=True)
+        completed, mock_status, mock_release, _ = self._complete(
+            _message(is_final_batch=True, sibling_run_uuids=["run-1", "run-2"]), sibling_unfinished=True
+        )
 
         assert completed is False
         mock_status.assert_not_called()
@@ -1051,7 +1053,8 @@ class TestJobCompletionAcrossLanes:
     def test_a_deferred_completion_deletes_nothing(self):
         # The other lane has not written these changes yet; deleting now would lose them.
         _, _, _, mock_delete = self._complete(
-            _message(is_final_batch=True, cdc_buffer_files=["1-10-0.parquet"]), sibling_unfinished=True
+            _message(is_final_batch=True, sibling_run_uuids=["run-1", "run-2"], cdc_buffer_files=["1-10-0.parquet"]),
+            sibling_unfinished=True,
         )
 
         mock_delete.assert_not_called()

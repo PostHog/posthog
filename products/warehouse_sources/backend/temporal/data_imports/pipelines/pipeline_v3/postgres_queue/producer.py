@@ -154,6 +154,9 @@ class PostgresProducer:
         if self._workflow_run_id is not None:
             metadata["workflow_run_id"] = self._workflow_run_id
         metadata["timestamp_ns"] = batch_result.timestamp_ns
+        # Only the final batch needs them: they scope the job-completion gate to this attempt.
+        if is_final_batch and self._sibling_run_uuids:
+            metadata["sibling_run_uuids"] = self._sibling_run_uuids
 
         # One-shot, at the start of a fresh (non-resume) run: stalled sibling runs of
         # this job go terminal so their batches can't double-load. Runs the loader is
