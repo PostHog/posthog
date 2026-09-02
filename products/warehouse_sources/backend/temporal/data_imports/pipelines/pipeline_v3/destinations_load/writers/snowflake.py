@@ -89,6 +89,34 @@ def _assert_safe_identifier(value: str, what: str) -> str:
     return value
 
 
+# Proof this writer created a table, so a sync never drops, merges into, or replaces one the
+# customer already had. `table_name` comes from the source's resource name, which a custom-source
+# manifest controls, so without it any table sharing that name in the configured role's reach is
+# fair game.
+#
+# Stored as a Snowflake table comment because that survives the `RENAME TO` in `finalize_run`.
+# Scoped by schema id because `table_name` collides across sources on purpose and ownership must
+# not.
+_OWNERSHIP_COMMENT = "posthog-warehouse-sync-owned"
+
+
+def _owned_marker(schema_id: str) -> str:
+    """Ownership marker scoped to the schema whose sync created the table."""
+    return f"{_OWNERSHIP_COMMENT}:{schema_id}"
+
+
+class UnrelatedTableExistsError(RuntimeError):
+    """A sync would have replaced or mutated a table this writer never created."""
+
+
+def _sql_string_literal(value: str) -> str:
+    # `ALTER TABLE ... SET COMMENT` is a DDL statement, and the Snowflake connector's bind
+    # variables aren't accepted there any more than Postgres's are — so this quotes and escapes
+    # the literal itself. `value` is always this module's own marker text built from a schema id
+    # and run uuid, never free-form user input.
+    return "'" + value.replace("'", "''") + "'"
+
+
 # Snowflake polls asynchronously, so these bound how long one statement may take.
 COPY_TIMEOUT_SECONDS = 60 * 30
 MERGE_TIMEOUT_SECONDS = 60 * 30
@@ -228,6 +256,41 @@ class SnowflakeDestinationWriter:
                 f"ADD COLUMN IF NOT EXISTS {quote_identifier(field.name)} {snowflake_type_for(field.type)}"
             )
 
+    async def _table_exists(self, client: SnowflakeClient, table: str) -> bool:
+        result = await client.execute_async_query(
+            "SELECT 1 FROM information_schema.tables WHERE table_schema = %(schema)s AND table_name = %(table)s",
+            parameters={"schema": self._schema, "table": table},
+            fetch_results=True,
+        )
+        return bool(_rows_of(result))
+
+    async def _table_comment(self, client: SnowflakeClient, table: str) -> str | None:
+        result = await client.execute_async_query(
+            "SELECT comment FROM information_schema.tables WHERE table_schema = %(schema)s AND table_name = %(table)s",
+            parameters={"schema": self._schema, "table": table},
+            fetch_results=True,
+        )
+        rows = _rows_of(result)
+        return rows[0][0] if rows else None
+
+    async def _mark_owned(self, client: SnowflakeClient, table: str, schema_id: str) -> None:
+        await client.execute_async_query(
+            f"ALTER TABLE {self._qualified(table)} SET COMMENT = {_sql_string_literal(_owned_marker(schema_id))}"
+        )
+
+    async def _is_owned(self, client: SnowflakeClient, table: str, schema_id: str) -> bool:
+        # Not a plain `startswith`: schema ids are arbitrary strings, and one could be a
+        # character-prefix of another ("abc" of "abc123"), which would let a table another
+        # schema owns pass as owned here. Split on the marker's own `:` separator instead so the
+        # owning schema id is compared for exact equality.
+        comment = await self._table_comment(client, table)
+        if comment is None:
+            return False
+        marker, sep, owner = comment.partition(":")
+        if marker != _OWNERSHIP_COMMENT or not sep:
+            return False
+        return owner == schema_id
+
     # --- writer protocol ----------------------------------------------------------------
 
     async def prepare_run(self, ctx: DestinationRunContext) -> None:
@@ -260,6 +323,23 @@ class SnowflakeDestinationWriter:
                 )
 
                 if first:
+                    # `target` is the live table on an incremental run, and this writer's own
+                    # staging table on a full refresh — either way, a table that predates this
+                    # sync and merely happens to share the generated name must be refused before
+                    # its schema is evolved or a row in it is touched. Reusing an unowned table
+                    # would mutate or delete unrelated data and, on a full refresh's final batch,
+                    # replace its ownership marker and swap it in under `finalize_run`'s nose.
+                    table_existed = await self._table_exists(client, target)
+                    if table_existed and not await self._is_owned(client, target, run.schema_id):
+                        raise UnrelatedTableExistsError(
+                            f'"{self._schema}"."{target}" already exists and was not created by this sync; '
+                            + (
+                                "refusing to reuse it as a staging table."
+                                if full_refresh
+                                else "refusing to merge an incremental run's rows into it."
+                            )
+                        )
+
                     await self._ensure_table(client, target, stamped.schema, with_batch_index=False)
                     await self._evolve_table(client, target, stamped.schema)
                     if full_refresh:
@@ -268,6 +348,13 @@ class SnowflakeDestinationWriter:
                             f"DELETE FROM {self._qualified(target)} "
                             f"WHERE {quote_identifier(BATCH_INDEX_COLUMN)} = {int(ctx.batch_index)}"
                         )
+                        # Marked on the staging table, not the live one: the comment survives the
+                        # rename in `finalize_run`, which is where it gets checked.
+                        await self._mark_owned(client, target, run.schema_id)
+                    elif not table_existed:
+                        # A table this writer just created for an incremental run never gets
+                        # renamed, so mark it in place rather than at swap time.
+                        await self._mark_owned(client, target, run.schema_id)
                     first = False
 
                 if run.is_incremental and run.primary_keys and not full_refresh:
@@ -349,14 +436,21 @@ class SnowflakeDestinationWriter:
         client = await self._make_client()
 
         async with client.connect():
-            result = await client.execute_async_query(
-                "SELECT 1 FROM information_schema.tables WHERE table_schema = %(schema)s AND table_name = %(table)s",
-                parameters={"schema": self._schema, "table": staging},
-                fetch_results=True,
-            )
-            if not _rows_of(result):
+            if not await self._table_exists(client, staging):
                 # Already swapped by an earlier attempt at this same final batch.
                 return
+
+            if await self._table_exists(client, ctx.table_name) and not await self._is_owned(
+                client, ctx.table_name, ctx.schema_id
+            ):
+                # A table with this name exists and this writer never created it. Refuse rather
+                # than drop it: `table_name` comes from the source's resource name, which a
+                # custom-source manifest controls, and a table that predates this sync could be
+                # anything the customer already had in this schema.
+                raise UnrelatedTableExistsError(
+                    f'"{self._schema}"."{ctx.table_name}" already exists and was not created by this sync; '
+                    "refusing to replace it with the full refresh's staging table."
+                )
 
             await client.execute_async_query(
                 f"ALTER TABLE {self._qualified(staging)} DROP COLUMN IF EXISTS {quote_identifier(BATCH_INDEX_COLUMN)}"
