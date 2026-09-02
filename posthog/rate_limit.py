@@ -1192,8 +1192,10 @@ class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
         return f"throttle_wizard_gateway_token_{hashlib.sha256(ident.encode()).hexdigest()}"
 
 
-def reserve_wizard_mint(request, view) -> str | None:
+def reserve_wizard_mint(request, view, limit: int | None = None) -> str | None:
     """Atomically consume one of this user's daily mints for this program, or raise.
+
+    `limit` replaces the throttle's daily count; None keeps the configured rate.
 
     Called immediately before the mint, after every gate, so a request refused by a
     gate spends nothing, while parallel requests cannot all slip under the ceiling
@@ -1229,7 +1231,7 @@ def reserve_wizard_mint(request, view) -> str | None:
     except Exception as e:
         capture_exception(e)
         return None
-    if count > throttle.num_requests:
+    if count > (throttle.num_requests if limit is None else limit):
         raise exceptions.Throttled(detail="This wizard program has used its daily run limit. Try again tomorrow.")
     return counter
 
@@ -1340,20 +1342,35 @@ class WidgetUserBurstThrottle(SimpleRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": ident}
 
 
-class WidgetTeamThrottle(SimpleRateThrottle):
-    """Rate limit per team token."""
-
-    scope = "widget_team"
+class _WidgetTeamTokenThrottle(SimpleRateThrottle):
     rate = "3600/hour"
 
-    def get_cache_key(self, request, view):
-        # Throttle by team token if available, otherwise by IP
+    def get_cache_key(self, request: "Request", view: "APIView") -> str:
+        if not self.scope:
+            raise NotImplementedError("Set scope on WidgetTeamPollThrottle or WidgetTeamWriteThrottle")
         token = request.headers.get("X-Conversations-Token", "")
         if token:
             ident = hashlib.sha256(token.encode()).hexdigest()
         else:
             ident = self.get_ident(request)
         return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class WidgetTeamPollThrottle(_WidgetTeamTokenThrottle):
+    """Do not assign this to POST views. A shared bucket lets background list
+    polling 429 ticket creates."""
+
+    scope = "widget_team_poll"
+
+
+class WidgetTeamWriteThrottle(_WidgetTeamTokenThrottle):
+    """Keep this off GET poll views so list and message polling cannot exhaust it."""
+
+    scope = "widget_team_write"
+
+
+WIDGET_POLL_THROTTLES = (WidgetUserBurstThrottle, WidgetTeamPollThrottle)
+WIDGET_WRITE_THROTTLES = (WidgetUserBurstThrottle, WidgetTeamWriteThrottle)
 
 
 class SymbolSetUploadSustainedRateThrottle(PersonalApiKeyRateThrottle):
@@ -1798,3 +1815,13 @@ class SupportSlackOAuthCallbackThrottle(IPThrottle):
 
     scope = "support_slack_oauth_callback"
     rate = "30/minute"
+
+
+class BatchExportsCountRowsSustainedRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "batch_exports_count_rows_sustained"
+    rate = "120/hour"
+
+
+class BatchExportsCountRowsBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "batch_exports_count_rows_burst"
+    rate = "20/minute"

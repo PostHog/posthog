@@ -305,6 +305,26 @@ class TestEndpointMetricScopes:
                 name="bad", breakdown_dimensions=["visit:exit_page"], metrics=["pageviews", "events"]
             )
 
+    def test_event_page_exemption_keeps_session_metrics_only_when_page_is_alone(self):
+        # `event:page` alone is exempt, so it keeps the session metrics; pairing it with another
+        # `event:*` dimension loses the exemption and drops them, or Plausible would 400.
+        alone = PlausibleEndpointConfig(name="alone", breakdown_dimensions=["event:page"])
+        assert "bounce_rate" in alone.metrics and "visit_duration" in alone.metrics
+
+        paired = PlausibleEndpointConfig(name="paired", breakdown_dimensions=["event:page", "event:hostname"])
+        assert "bounce_rate" not in paired.metrics and "visit_duration" not in paired.metrics
+        assert paired.metrics == ["visitors", "visits", "pageviews", "events"]
+
+    @pytest.mark.parametrize(
+        "endpoint, hostname_column",
+        [("pages", "hostname"), ("entry_pages", "entry_page_hostname"), ("exit_pages", "exit_page_hostname")],
+    )
+    def test_page_breakdowns_key_on_hostname(self, endpoint, hostname_column):
+        # Without hostname in the composite key, paths on different subdomains merge into one row.
+        config = PLAUSIBLE_ENDPOINTS[endpoint]
+        assert hostname_column in config.column_names
+        assert hostname_column in config.primary_keys
+
 
 class TestPlausibleSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))

@@ -41,11 +41,21 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY, stamp_derived_metadata
-from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, discover_canonical_skills
+from products.signals.backend.scout_harness.lazy_seed import (
+    HARNESS_SEEDED_BY,
+    SyncResult,
+    _compute_row_hash,
+    canonical_skill_names,
+    discover_canonical_skills,
+)
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENCE_REPORT_RESEARCH as PIPELINE_AUDIENCE
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
-from products.signals.backend.scout_harness.serializers import SignalScoutConfigUpdateSerializer
+from products.signals.backend.scout_harness.serializers import (
+    SignalScoutConfigUpdateSerializer,
+    SignalScoutSlackDestinationSerializer,
+)
+from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.team_limits import MAX_RUNS_PER_TEAM_PER_TICK
 from products.signals.backend.scout_harness.tools import structured_output as structured_output_tool
 from products.signals.backend.scout_harness.tools.profile import compute_project_profile
@@ -1344,16 +1354,24 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not SignalScratchpad.objects.filter(team=self.team).exists()
 
-    def test_remember_rejects_expires_at_in_the_past(self) -> None:
-        # A memory that's already lapsed on write is invisible the moment it lands, so it's a
-        # mistake worth a 400 rather than a silently useless row.
+    @parameterized.expand(
+        [
+            ("past", "2020-01-01T00:00:00Z"),
+            ("malformed", "in thirty days"),
+        ]
+    )
+    def test_remember_drops_invalid_expires_at_without_losing_the_write(self, _name: str, expires_at: str) -> None:
+        # The agent computes `expires_at` itself and a share of writes carry a past or unparseable
+        # value. The content is the memory worth keeping, so an invalid expiry is dropped (the entry
+        # lands durable) rather than rejecting the whole write. Wiring guard for the best-effort field.
         response = self.client.post(
             self._list_url(),
-            data={"key": "k1", "content": "v", "expires_at": "2020-01-01T00:00:00Z"},
+            data={"key": "k1", "content": "v", "expires_at": expires_at},
             format="json",
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert not SignalScratchpad.objects.filter(team=self.team, key="k1").exists()
+        assert response.status_code == status.HTTP_200_OK
+        row = SignalScratchpad.objects.get(team=self.team, key="k1")
+        assert row.expires_at is None
 
     def test_search_does_not_leak_other_teams_memory(self) -> None:
         other = Team.objects.create(organization=self.organization, name="Other")
@@ -2277,7 +2295,27 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         # A partial update skips the `thread_reports` default, so the flag reaches the reader
         # through the response only and the stored destination keeps the shape it was sent in.
         assert response.json()["output_destinations"] == {
-            "slack": {**destination["slack"], "thread_reports": False},
+            "slack": {**destination["slack"], "users": None, "thread_reports": False},
+            "webhook": None,
+        }
+        config.refresh_from_db()
+        assert config.output_destinations == destination
+
+    def test_partial_update_slack_dm_destination_round_trips(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        destination = {"slack": {"integration_id": integration.id, "users": ["U0123ABC456|@andy"]}}
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"output_destinations": destination},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        # Reads render both target keys, null when unset; the stored JSON keeps only what was sent.
+        assert response.json()["output_destinations"] == {
+            "slack": {**destination["slack"], "channel": None, "thread_reports": False},
             "webhook": None,
         }
         config.refresh_from_db()
@@ -2684,6 +2722,103 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         # Storage is untouched — the row is hidden from the response, not deleted.
         assert SignalScoutConfig.objects.filter(team=self.team, skill_name="signals-scout-error-tracking").exists()
 
+    def test_sync_tombstones_a_retired_canonical_scout(self) -> None:
+        # A scout removed from `products/signals/skills/` leaves a live row on every team the
+        # harness seeded it into, and the roster keeps listing a scout that can never run again.
+        # The sync reaps it, on the same terms as the coordinator tick.
+        retired = LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-retired",
+            description="retired scout",
+            body="# retired scout",
+            metadata={"seeded_by": HARNESS_SEEDED_BY, "source": "products/signals/skills"},
+            category="scout",
+            version=1,
+            is_latest=True,
+        )
+        retired.metadata["canonical_hash"] = _compute_row_hash(retired, [])
+        retired.save(update_fields=["metadata"])
+        hand_authored = self._make_skill("signals-scout-mine")
+
+        response = self.client.post(self._sync_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        retired.refresh_from_db()
+        assert retired.deleted is True
+        assert retired.is_latest is False
+        assert "signals-scout-retired" not in {c["skill_name"] for c in response.json()}
+        # A team's own scout carrying the same prefix is never the harness's to reap.
+        hand_authored.refresh_from_db()
+        assert hand_authored.deleted is False
+        assert "signals-scout-mine" in {c["skill_name"] for c in response.json()}
+
+    def test_sync_records_what_the_materialization_did(self) -> None:
+        # The endpoint discarded the `SyncResult` it got back, so a materialization left nothing
+        # countable behind: not the projects a tab-open rescued, not the scouts a sync seeded.
+        with patch("products.signals.backend.scout_harness.fleet_sync.posthoganalytics.capture") as capture:
+            response = self.client.post(f"{self._sync_url()}?surface=roster")
+
+        assert response.status_code == status.HTTP_200_OK
+        (call,) = [c for c in capture.call_args_list if c.kwargs.get("event") == "signals_scout_fleet_synced"]
+        properties = call.kwargs["properties"]
+        assert properties["surface"] == "roster"
+        assert properties["team_id"] == self.team.id
+        # The rescue metric: this project had nothing and now has its fleet.
+        assert properties["was_empty"] is True
+        assert properties["created_count"] == len(discover_canonical_skills())
+        assert properties["configs_registered_count"] == len(response.json())
+        assert properties["fleet_size"] == len(response.json())
+        assert properties["pruned_count"] == 0
+        assert properties["unexpected_prune"] is False
+        assert properties["skipped_reason"] is None
+
+    def test_sync_records_a_no_op_pass(self) -> None:
+        # Zero counts are the denominator for "how often does opening the tab find work to do",
+        # so a pass that changed nothing still has to report.
+        self.client.post(self._sync_url())
+
+        with patch("products.signals.backend.scout_harness.fleet_sync.posthoganalytics.capture") as capture:
+            response = self.client.post(self._sync_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        (call,) = [c for c in capture.call_args_list if c.kwargs.get("event") == "signals_scout_fleet_synced"]
+        properties = call.kwargs["properties"]
+        assert properties["created_count"] == 0
+        assert properties["configs_registered_count"] == 0
+        assert properties["was_empty"] is False
+        assert properties["surface"] == "unknown"
+
+    @parameterized.expand([("a retirement", False), ("a mass prune", True)])
+    def test_sync_reports_a_prune_too_large_to_be_a_retirement(self, _name: str, mass: bool) -> None:
+        # A deploy that ships a partial `products/signals/skills/` makes the reap strip live
+        # scouts off every project that opens the tab. Retiring one scout at a time is ordinary
+        # and must stay quiet; reaping the whole fleet in one pass has to reach error tracking,
+        # because the server log line it used to leave is watched by nothing.
+        fleet_size = len([n for n in canonical_skill_names() if n.startswith(SIGNALS_SCOUT_SKILL_PREFIX)])
+        pruned = tuple(f"signals-scout-gone-{i}" for i in range(fleet_size if mass else 1))
+        with (
+            patch(
+                "products.signals.backend.scout_harness.fleet_sync.sync_canonical_skills",
+                return_value=SyncResult(pruned_skill_names=pruned),
+            ),
+            patch("products.signals.backend.scout_harness.fleet_sync.capture_exception") as capture_exception,
+            patch("products.signals.backend.scout_harness.fleet_sync.posthoganalytics.capture") as capture,
+        ):
+            response = self.client.post(self._sync_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        (call,) = [c for c in capture.call_args_list if c.kwargs.get("event") == "signals_scout_fleet_synced"]
+        assert call.kwargs["properties"]["pruned_count"] == len(pruned)
+        assert call.kwargs["properties"]["unexpected_prune"] is mass
+        assert capture_exception.called is mass
+
+    def test_sync_rejects_an_unknown_surface(self) -> None:
+        # Wiring guard for `@validated_request`: the action reads `validated_query_data`, which
+        # only the decorator sets, so dropping it turns every sync into a 500.
+        response = self.client.post(f"{self._sync_url()}?surface=somewhere")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_sync_rejects_read_only_scope(self) -> None:
         from posthog.models.personal_api_key import PersonalAPIKey
         from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -3012,12 +3147,14 @@ class TestScoutHarnessMetadataAPI(APIBaseTest):
         assert body["limits"]["runs_today"] == 1
 
 
-_QUOTA = "products.signals.backend.scout_harness.views.is_team_signals_quota_limited"
-_DAILY_GATE = "products.signals.backend.scout_harness.views.daily_report_limit_gate"
+# The gates themselves live in `run_gates`, shared with the workflow-triggered run path, so
+# that's where they're patched; the view only maps their outcome onto DRF exceptions.
+_QUOTA = "products.signals.backend.scout_harness.run_gates.is_team_signals_quota_limited"
+_DAILY_GATE = "products.signals.backend.scout_harness.run_gates.daily_report_limit_gate"
+_FLAG = "products.signals.backend.scout_harness.run_gates._read_flag_payload"
 _START = "products.signals.backend.temporal.agentic.scout_scheduler.start_manual_signals_scout_run"
 _CONNECT = "products.signals.backend.scout_harness.views.sync_connect"
 _WITHHELD = "products.signals.backend.scout_harness.views.withheld_skills_for_team"
-_FLAG = "products.signals.backend.scout_harness.views._read_flag_payload"
 
 
 class TestScoutHarnessConfigRunAPI(APIBaseTest):
@@ -3348,3 +3485,25 @@ class TestScoutRunDerivedMetadata(APIBaseTest):
         metadata = response.json()["metadata"]
         assert metadata["model"] == "some-model"
         assert metadata[DERIVED_METADATA_KEY]["has_emit_report"] is False
+
+
+class TestSignalScoutSlackDestinationSerializerValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("both_channel_and_users", {"integration_id": 1, "channel": "C1|#alerts", "users": ["U0123ABC|@a"]}),
+            ("not_a_member_id", {"integration_id": 1, "users": ["andy"]}),
+            ("channel_id_in_users", {"integration_id": 1, "users": ["C0123ABC456|#alerts"]}),
+            ("lowercase_member_id", {"integration_id": 1, "users": ["u0123abc456|@a"]}),
+            ("too_many_users", {"integration_id": 1, "users": [f"U0{index}ABCDE|@u{index}" for index in range(6)]}),
+        ]
+    )
+    def test_rejects_invalid_dm_destinations(self, _name: str, data: dict) -> None:
+        serializer = SignalScoutSlackDestinationSerializer(data=data)
+        assert not serializer.is_valid()
+
+    def test_dedupes_users_by_member_id(self) -> None:
+        serializer = SignalScoutSlackDestinationSerializer(
+            data={"integration_id": 1, "users": ["U0123ABC|@a", "U0123ABC", "W0456DEF|@b"]}
+        )
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["users"] == ["U0123ABC|@a", "W0456DEF|@b"]

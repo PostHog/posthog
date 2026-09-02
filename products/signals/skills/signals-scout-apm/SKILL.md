@@ -1,10 +1,8 @@
 ---
 name: signals-scout-apm
 description: >
-  Signals scout for PostHog distributed tracing (APM / OpenTelemetry spans). Watches RED
-  metrics per (service, operation) — error rate, p95 latency, request volume — for
-  regressions, new error signatures, and traffic cliffs, and files each validated regression
-  as a report in the inbox.
+  Signals scout for PostHog distributed tracing (APM / OpenTelemetry spans). Watches per-service
+  RED metrics for error-rate and latency regressions, new error signatures, and traffic cliffs.
 compatibility: >
   PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
   (scratchpad) + signal_scout_report:write (report channel), plus the apm-* tool family

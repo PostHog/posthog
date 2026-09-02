@@ -9,14 +9,28 @@ import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/util
 import { dayjs } from 'lib/dayjs'
 import { escapeRegex } from 'lib/utils/actions'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import {
+    NEW_QUERY_STARTED_ERROR_MESSAGE,
+    abortResilientLoading,
+    isUserInitiatedError,
+} from 'lib/utils/kea-logic-builders'
 import { objectsEqual } from 'lib/utils/objects'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { MetricsQuery, MetricsQueryClause, MetricsQueryFilter, NodeKind } from '~/queries/schema/schema-general'
+import {
+    GoalLine,
+    MetricsDisplaySettings,
+    MetricsDisplayType,
+    MetricsQuery,
+    MetricsQueryClause,
+    MetricsQueryFilter,
+    MetricsYAxisSettings,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { QueryBasedInsightModel } from '~/types'
-import { PropertyOperator, UniversalFilterValue, UniversalFiltersGroup } from '~/types'
+import { PropertyFilterType, PropertyOperator, UniversalFilterValue, UniversalFiltersGroup } from '~/types'
 
 import {
     metricsAttributesRetrieve,
@@ -34,6 +48,9 @@ import { canCreateMetricsInsight, canViewMetrics } from 'products/metrics/fronte
 
 import type { Node } from '../../../../frontend/src/queries/schema/schema-general'
 import type { _MetricNameApi } from '../generated/api.schemas'
+import { type MetricTopMoverRow, topMoverRows } from '../metricsAnomaly'
+import { EMPTY_SERVICE_PATTERN, SERVICE_NAME_KEY } from '../metricsAttributes'
+import { correlationServiceNames } from '../metricsLinks'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import type { MetricNameItem } from './metricNamePickerLogic'
 import type { MetricsChartSeries } from './metricsSeries'
@@ -41,8 +58,14 @@ import type { MetricsChartSeries } from './metricsSeries'
 // A derived type ((typeof METRIC_AGGREGATIONS)[number]) would keep these in sync, but
 // kea-typegen inlines derived unions into every consumer's generated block — keep the
 // named alias so those blocks stay stable.
-export type MetricAggregation = 'sum' | 'avg' | 'count' | 'p95' | 'rate' | 'increase'
-export const METRIC_AGGREGATIONS: MetricAggregation[] = ['sum', 'avg', 'count', 'p95', 'rate', 'increase']
+export type MetricAggregation = 'sum' | 'avg' | 'count' | 'min' | 'max' | 'p95' | 'rate' | 'increase'
+export const METRIC_AGGREGATIONS: MetricAggregation[] = ['sum', 'avg', 'count', 'min', 'max', 'p95', 'rate', 'increase']
+
+/** Narrows an untrusted value (a URL param, a saved link) to an aggregation the backend accepts. */
+export const isMetricAggregation = (value: unknown): value is MetricAggregation =>
+    typeof value === 'string' && METRIC_AGGREGATIONS.includes(value as MetricAggregation)
+
+export { EMPTY_SERVICE_PATTERN, SERVICE_NAME_KEY }
 
 export type MetricsViewerSeries = _MetricSeriesApi
 
@@ -70,15 +93,8 @@ export const RECOMMENDED_AGGREGATION_BY_TYPE: Record<string, MetricAggregation> 
     exponential_histogram: 'p95',
 }
 export const DEFAULT_DATE_FROM = '-1h'
-export const NEW_QUERY_STARTED_ERROR_MESSAGE = 'A new metrics query started, canceling the previous one'
-
-// A superseded or unmounted request rejects with an abort, not a real failure — never surface it as an error.
-// The cancel path aborts with NEW_QUERY_STARTED_ERROR_MESSAGE, whose text doesn't contain "abort", so match it
-// explicitly alongside the generic abort check (mirrors logsViewerDataLogic's isUserInitiatedError).
-export const isUserInitiatedError = (error: unknown): boolean => {
-    const errorStr = String(error).toLowerCase()
-    return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
-}
+// Kept off the persisted node: a saved query with no `display` renders as a line chart anyway.
+export const DEFAULT_DISPLAY_TYPE: MetricsDisplayType = 'line'
 // The anomaly badge characterizes the most recent slice of the selected window against the rest.
 const ANOMALY_WINDOW_FRACTION = 0.2
 export const LIVE_REFRESH_MS = 15_000
@@ -137,14 +153,6 @@ const propertyFilterToMetricFilter = (filter: UniversalFilterValue): _MetricFilt
 const flattenFilterValues = (group: UniversalFiltersGroup): UniversalFilterValue[] =>
     group.values.flatMap((value) => (isUniversalGroupFilterLike(value) ? flattenFilterValues(value) : [value]))
 
-// Ingestion promotes `service.name` to its own column, so it is the one label the
-// picker can be narrowed by cheaply — see MetricNamesQueryRunner.
-export const SERVICE_NAME_KEY = 'service_name'
-
-// The anchored regex standing in for senders that set no service name: the empty
-// string cannot survive the filter pipeline, which drops empty chip values.
-export const EMPTY_SERVICE_PATTERN = '^$'
-
 /** The services a chip pins the query to, or `[]` when it isn't a membership test. */
 const serviceChipValues = (chip: UniversalFilterValue): string[] => {
     const operator = 'operator' in chip ? chip.operator : undefined
@@ -180,9 +188,11 @@ export interface metricsViewerLogicValues {
     pickerServices: string[] // metricNamePickerLogic
     currentTeamId: number | null // teamLogic
     aggregation: MetricAggregation
+    aggregationExplicitlySet: boolean
     anomalyBadge: MetricsAnomalyBadge | null
     anomalyReport: _MetricAnomalyReportApi | null
     anomalyReportLoading: boolean
+    anomalyTopMovers: MetricTopMoverRow[]
     attributeEndpointFilters: Record<string, string>
     attributeKeyOptions: {
         key: string
@@ -190,9 +200,12 @@ export interface metricsViewerLogicValues {
     }[]
     attributeKeyOptionsLoading: boolean
     chartSeries: MetricsChartSeries[]
+    correlationServices: string[]
     dateFrom: string | null
     dateTo: string | null
+    displayType: MetricsDisplayType
     filterGroup: UniversalFiltersGroup
+    goalLines: GoalLine[]
     groupByKeys: string[]
     groupBySearch: string
     hasMetricName: boolean
@@ -201,17 +214,20 @@ export interface metricsViewerLogicValues {
     lastSavedQueryNode: MetricsQuery | null
     liveRefresh: boolean
     metricName: string
+    metricsDisplay: MetricsDisplaySettings | undefined
     metricsQueryNode: MetricsQuery | null
     pendingAddToDashboard: boolean
     queryAbortController: AbortController | null
     queryError: string | null
     queryFilters: _MetricFilterApi[]
+    queryLoading: boolean
     queryResults: MetricsViewerSeries[]
     queryResultsLoading: boolean
     savedInsight: QueryBasedInsightModel | null
     savedInsightLoading: boolean
     selectedMetricType: OtelMetricTypeEnumApi | null
     selectedServices: string[]
+    yAxisSettings: MetricsYAxisSettings
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -232,6 +248,16 @@ export interface metricsViewerLogicActions {
     setServices: (services: string[]) => {
         services: string[]
     } // metricNamePickerLogic
+    addAttributeFilter: (
+        key: string,
+        value: string
+    ) => {
+        key: string
+        value: string
+    }
+    addGoalLine: () => {
+        value: true
+    }
     addToDashboard: () => {
         value: true
     }
@@ -310,6 +336,9 @@ export interface metricsViewerLogicActions {
     openAddToDashboardModal: () => {
         value: true
     }
+    removeGoalLine: (index: number) => {
+        index: number
+    }
     saveAsInsight: () => any
     saveAsInsightFailure: (
         error: string,
@@ -333,6 +362,9 @@ export interface metricsViewerLogicActions {
     }
     setDateTo: (dateTo: string | null) => {
         dateTo: string | null
+    }
+    setDisplayType: (displayType: MetricsDisplayType) => {
+        displayType: MetricsDisplayType
     }
     setFilterGroup: (filterGroup: UniversalFiltersGroup) => {
         filterGroup: UniversalFiltersGroup
@@ -361,12 +393,33 @@ export interface metricsViewerLogicActions {
     setSelectedMetricType: (metricType: OtelMetricTypeEnumApi | null) => {
         metricType: OtelMetricTypeEnumApi | null
     }
+    setYAxisSetting: (
+        key: keyof MetricsYAxisSettings,
+        value: boolean | number | string | undefined
+    ) => {
+        key: keyof MetricsYAxisSettings
+        value: boolean | number | string | undefined
+    }
+    updateGoalLine: (
+        index: number,
+        key: keyof GoalLine,
+        value: boolean | number | string
+    ) => {
+        index: number
+        key: keyof GoalLine
+        value: boolean | number | string
+    }
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface metricsViewerLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         hasMetricName: (metricName: string) => boolean
+        metricsDisplay: (
+            displayType: MetricsDisplayType,
+            goalLines: GoalLine[],
+            yAxisSettings: MetricsYAxisSettings
+        ) => MetricsDisplaySettings | undefined
         metricsQueryNode: (
             metricName: string,
             aggregation: MetricAggregation,
@@ -374,13 +427,16 @@ export interface metricsViewerLogicMeta {
             dateFrom: string | null,
             dateTo: string | null,
             groupByKeys: string[],
-            queryFilters: _MetricFilterApi[]
+            queryFilters: _MetricFilterApi[],
+            metricsDisplay: MetricsDisplaySettings | undefined
         ) => MetricsQuery | null
         queryFilters: (filterGroup: UniversalFiltersGroup) => _MetricFilterApi[]
         selectedServices: (filterGroup: UniversalFiltersGroup) => string[]
+        correlationServices: (selectedServices: string[], queryResults: _MetricSeriesApi[]) => string[]
         attributeEndpointFilters: (dateFrom: string | null, dateTo: string | null) => Record<string, string>
         chartSeries: (queryResults: _MetricSeriesApi[]) => MetricsChartSeries[]
         hasResults: (queryResults: _MetricSeriesApi[]) => boolean
+        anomalyTopMovers: (anomalyReport: _MetricAnomalyReportApi | null) => MetricTopMoverRow[]
         anomalyBadge: (anomalyReport: _MetricAnomalyReportApi | null) => MetricsAnomalyBadge | null
     }
 }
@@ -411,6 +467,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         setGroupByKeys: (groupByKeys: string[]) => ({ groupByKeys }),
         setGroupBySearch: (groupBySearch: string) => ({ groupBySearch }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
+        // Narrows the chart to one label value, from the anomaly panel's ranked movers.
+        addAttributeFilter: (key: string, value: string) => ({ key, value }),
         // Saves the current query as an insight (reusing the last save while the
         // query is unchanged) and opens the dashboard picker for it.
         addToDashboard: true,
@@ -421,6 +479,20 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // action aborts the previous controller before storing the new one.
         setQueryAbortController: (controller: AbortController | null) => ({ controller }),
         cancelInProgressQuery: (controller: AbortController | null) => ({ controller }),
+        // Chart presentation. These ride along on the saved query node but never reach the query
+        // engine, so changing one re-renders without refetching.
+        setDisplayType: (displayType: MetricsDisplayType) => ({ displayType }),
+        addGoalLine: true,
+        updateGoalLine: (index: number, key: keyof GoalLine, value: string | number | boolean) => ({
+            index,
+            key,
+            value,
+        }),
+        removeGoalLine: (index: number) => ({ index }),
+        setYAxisSetting: (key: keyof MetricsYAxisSettings, value: number | string | boolean | undefined) => ({
+            key,
+            value,
+        }),
     }),
     reducers({
         metricName: ['' as string, { setMetricName: (_, { metricName }) => metricName }],
@@ -441,6 +513,17 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 setRecommendedAggregation: (_, { aggregation }) => aggregation,
             },
         ],
+        // Whether the current aggregation was picked deliberately (by the user, or named in a
+        // link) rather than recommended from the metric's type. A deliberate pick holds only
+        // until the next metric switch, matching what picking a metric already does.
+        aggregationExplicitlySet: [
+            false,
+            {
+                setAggregation: () => true,
+                setRecommendedAggregation: () => false,
+                setMetricName: () => false,
+            },
+        ],
         dateFrom: [DEFAULT_DATE_FROM as string | null, { setDateFrom: (_, { dateFrom }) => dateFrom }],
         dateTo: [null as string | null, { setDateTo: (_, { dateTo }) => dateTo }],
         liveRefresh: [false, { setLiveRefresh: (_, { liveRefresh }) => liveRefresh }],
@@ -453,6 +536,35 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         queryAbortController: [
             null as AbortController | null,
             { setQueryAbortController: (_, { controller }) => controller },
+        ],
+        displayType: [
+            DEFAULT_DISPLAY_TYPE as MetricsDisplayType,
+            { setDisplayType: (_, { displayType }) => displayType },
+        ],
+        goalLines: [
+            [] as GoalLine[],
+            {
+                addGoalLine: (state) => [...state, { label: '', value: 0 }],
+                updateGoalLine: (state, { index, key, value }) =>
+                    state.map((line, i) => (i === index ? { ...line, [key]: value } : line)),
+                removeGoalLine: (state, { index }) => state.filter((_, i) => i !== index),
+            },
+        ],
+        yAxisSettings: [
+            {} as MetricsYAxisSettings,
+            {
+                // An undefined value clears the setting rather than persisting an explicit
+                // undefined, so an emptied number input goes back to automatic.
+                setYAxisSetting: (state, { key, value }) => {
+                    const next = { ...state }
+                    if (value === undefined) {
+                        delete next[key]
+                    } else {
+                        Object.assign(next, { [key]: value })
+                    }
+                    return next
+                },
+            },
         ],
         isAddToDashboardModalOpen: [
             false,
@@ -490,6 +602,9 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                     isUserInitiatedError(error) ? state : error || 'Something went wrong running this query.',
             },
         ],
+        // Rides out superseded-query aborts, so the UI must read it instead of the auto
+        // `queryResultsLoading`, which drops mid-refetch and flashes the empty state.
+        queryLoading: [false as boolean, abortResilientLoading('fetchQueryResults')],
     }),
     listeners(({ actions, values, cache }) => ({
         // Narrows the metric picker to the filtered services, so it offers only the
@@ -501,6 +616,43 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 actions.setServices(values.selectedServices)
             }
         },
+        addAttributeFilter: ({ key, value }) => {
+            const inner = values.filterGroup.values[0] as UniversalFiltersGroup
+            const existingIndex = inner.values.findIndex(
+                (filter) =>
+                    !isUniversalGroupFilterLike(filter) &&
+                    'key' in filter &&
+                    filter.key === key &&
+                    'operator' in filter &&
+                    filter.operator === PropertyOperator.Exact
+            )
+            const existing = existingIndex >= 0 ? (inner.values[existingIndex] as UniversalFilterValue) : null
+            const existingValues = existing ? toValueStrings('value' in existing ? existing.value : null) : []
+            if (existingValues.includes(value)) {
+                return
+            }
+            // Two chips on one key are ANDed, and no series equals both values, so a second pick of
+            // the same key widens the chip it already has instead of adding another.
+            const chip = {
+                type: PropertyFilterType.MetricAttribute,
+                key,
+                value: [...existingValues, value],
+                operator: PropertyOperator.Exact,
+            }
+            const nextValues = [...inner.values]
+            if (existingIndex >= 0) {
+                nextValues[existingIndex] = chip as UniversalFilterValue
+            } else {
+                nextValues.push(chip as UniversalFilterValue)
+            }
+            actions.setFilterGroup({
+                ...values.filterGroup,
+                values: [
+                    { ...inner, values: nextValues as UniversalFiltersGroup['values'] },
+                    ...values.filterGroup.values.slice(1),
+                ],
+            })
+        },
         setMetricName: ({ metricName }) => {
             const metricType = values.items.find((item) => item.name === metricName.trim())?.metric_type
             actions.setSelectedMetricType(toKnownMetricType(metricType))
@@ -511,22 +663,24 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 actions.setRecommendedAggregation(recommended)
             }
         },
-        // Recovers the type when the metric name was set before the picker's list
-        // arrived (initial load); an already-latched type is left alone.
+        // Recovers the type, and the aggregation that follows from it, when the metric name was set
+        // before the picker's list arrived — the shape of a deep link on a cold load. An
+        // already-latched type and an explicitly chosen aggregation are both left alone.
         loadItemsSuccess: () => {
-            if (values.selectedMetricType !== null || !values.hasMetricName) {
+            if (!values.hasMetricName) {
                 return
             }
             const metricType = values.items.find((item) => item.name === values.metricName.trim())?.metric_type
             const known = toKnownMetricType(metricType)
-            if (known) {
+            if (known && values.selectedMetricType === null) {
                 actions.setSelectedMetricType(known)
             }
-            // The name was set before the list arrived, so the pick-time recommendation
-            // never ran. Apply it late, but only over the untouched default — an
-            // aggregation restored from the URL or picked by the user stays.
+            // Without this a link to a cumulative counter charts the raw running total rather than
+            // its rate: nothing recommended an aggregation while the list was still empty. The
+            // explicit-pick flag, not a compare against the default, is what holds a deliberate
+            // choice — picking the default value is still a choice.
             const recommended = metricType ? RECOMMENDED_AGGREGATION_BY_TYPE[metricType] : undefined
-            if (recommended && values.aggregation === DEFAULT_AGGREGATION && recommended !== values.aggregation) {
+            if (recommended && !values.aggregationExplicitlySet && recommended !== values.aggregation) {
                 actions.setRecommendedAggregation(recommended)
             }
         },
@@ -712,6 +866,23 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
     })),
     selectors({
         hasMetricName: [(s) => [s.metricName], (metricName: string) => metricName.trim().length > 0],
+        // Chart settings as they'd be persisted, with every default omitted — an all-defaults
+        // object would change the shape of newly-saved nodes for no gain.
+        metricsDisplay: [
+            (s) => [s.displayType, s.goalLines, s.yAxisSettings],
+            (
+                displayType: MetricsDisplayType,
+                goalLines: GoalLine[],
+                yAxisSettings: MetricsYAxisSettings
+            ): MetricsDisplaySettings | undefined => {
+                const display: MetricsDisplaySettings = {
+                    ...(displayType !== DEFAULT_DISPLAY_TYPE ? { type: displayType } : {}),
+                    ...(goalLines.length ? { goalLines } : {}),
+                    ...(Object.keys(yAxisSettings).length ? { yAxis: yAxisSettings } : {}),
+                }
+                return Object.keys(display).length ? display : undefined
+            },
+        ],
         // The viewer state as a `MetricsQuery` schema node — what "Save as insight"
         // persists, so the saved tile re-runs exactly what the viewer shows.
         // The REST viewer's 'p95' shorthand maps to the node's quantile aggregation.
@@ -724,6 +895,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 s.dateTo,
                 s.groupByKeys,
                 s.queryFilters,
+                s.metricsDisplay,
             ],
             (
                 metricName: string,
@@ -732,7 +904,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 dateFrom: string | null,
                 dateTo: string | null,
                 groupByKeys: string[],
-                queryFilters: _MetricFilterApi[]
+                queryFilters: _MetricFilterApi[],
+                metricsDisplay: MetricsDisplaySettings | undefined
             ): MetricsQuery | null => {
                 const trimmedName = metricName.trim()
                 if (!trimmedName) {
@@ -766,6 +939,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                         date_from: dateFrom ?? DEFAULT_DATE_FROM,
                         ...(dateTo ? { date_to: dateTo } : {}),
                     },
+                    ...(metricsDisplay ? { display: metricsDisplay } : {}),
                 }
             },
         ],
@@ -792,6 +966,16 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 return serviceChipValues(chips[0])
             },
         ],
+        // Services the logs and traces pivots can be scoped to: the pinned service filter, or
+        // failing that whichever services the chart is grouped by.
+        correlationServices: [
+            (s) => [s.selectedServices, s.queryResults],
+            (selectedServices: string[], results: MetricsViewerSeries[]): string[] =>
+                correlationServiceNames(
+                    selectedServices,
+                    results.map((series) => series.labels)
+                ),
+        ],
         // Scopes the filter bar's key/value suggestions to the viewer's window; splatted onto the
         // taxonomic endpoints as query params.
         attributeEndpointFilters: [
@@ -817,6 +1001,13 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         hasResults: [
             (s) => [s.queryResults],
             (results: MetricsViewerSeries[]): boolean => (results[0]?.points.length ?? 0) > 0,
+        ],
+        // The label values behind the current anomaly, ranked. Empty for an ungrouped metric or
+        // when nothing stood out, which the panel reports rather than hiding.
+        anomalyTopMovers: [
+            (s) => [s.anomalyReport],
+            (report: _MetricAnomalyReportApi | null): MetricTopMoverRow[] =>
+                report ? topMoverRows(report.top_movers) : [],
         ],
         // Display shape for the anomaly badge — null when there's no report or the metric is flat.
         anomalyBadge: [

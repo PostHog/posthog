@@ -187,7 +187,7 @@ export type ExperimentTriggeredBy =
     | 'experiment_config_change'
     | 'metric_config_change'
 
-// Triggers that kick off a metrics recalculation. Each is also a valid API TriggerEnumApi value, so a
+// Triggers that kick off a metrics recalculation. Each is also a valid API ExperimentMetricsRecalculationTriggerEnumApi value, so a
 // narrowed triggeredBy passes straight to triggerRecalculation. page_load and manual are handled elsewhere.
 const RECALCULATION_TRIGGERS = ['experiment_config_change', 'metric_config_change', 'auto_refresh'] as const
 

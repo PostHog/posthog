@@ -23,8 +23,9 @@
 #   test matrices were skipped has nothing to mirror), Trunk flaky-test quarantine
 #   gate (canonical runs per-shard analytics-uploader steps that post to the
 #   external Trunk service; the upload is best-effort and a local "Fail on test
-#   failure" step owns the pass/fail verdict. Canonical can stage or filter JUnit
-#   before this upload. The shadow strips all of it because a non-blocking timing
+#   failure" step owns the pass/fail verdict. Canonical stages JUnit under per-product
+#   filenames before this upload, and can hold a product back from quarantine by naming
+#   its report as an exclusion. The shadow strips all of it because a non-blocking timing
 #   trial must not post to Trunk, and so it also omits the test
 #   steps' continue-on-error and that verdict step, letting each shard's test
 #   exit code be the verdict directly. Canonical gates each quarantine gate on the
@@ -88,7 +89,8 @@
 #   canonical's env.DOCKERHUB_USERNAME / vars.DOCKERHUB_USER because Depot never indirects
 #   through env:, so canonical's per-job env-scoping (workflow-level -> job-level,
 #   for the gha-workflow-env-secret Semgrep fix) is depot-exempt. Login is best-effort
-#   because these jobs only pull public images and can fall back to anonymous pulls.
+#   because these jobs only pull public images and can fall back to anonymous pulls,
+#   which canonical relies on too.
 # - Path-filter persons-SQL is folded into migrations
 # - Snapshot mode matches canonical, but snapshot patch upload/commit is stripped;
 #   canonical's per-schema-leg patch scoping (legacy legs exclude *.new_events_schema.ambr,
@@ -288,6 +290,11 @@ jobs:
               continue-on-error: true
             - uses: ./.depot/actions/paths-filter
               id: filter
+              # No `!= 'schedule'` arm, unlike canonical: this shadow has no `schedule`
+              # trigger (depot-exempt, see the header), so there is no cron run whose
+              # filter could narrow to a single commit. Canonical's reason for the extra
+              # arm is "The hourly master lane" in
+              # .agents/skills/authoring-ci-workflows/SKILL.md.
               if: github.event_name != 'push' # Run all tests on master push
               with:
                   list-files: 'escape'

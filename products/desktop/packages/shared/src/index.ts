@@ -60,9 +60,12 @@ export {
   serializeCloudPrompt,
 } from "./cloud-prompt";
 export {
+  adapterForModelId,
   BLOCKED_GATEWAY_MODEL_IDS,
   buildCloudTaskConfigOptions,
+  buildProviderModelGroups,
   type CloudTaskConfigOption,
+  type CloudTaskConfigSelectGroup,
   type CloudTaskConfigSelectOption,
   compareModelsForPicker,
   DEFAULT_CODEX_MODEL,
@@ -73,7 +76,9 @@ export {
   getClaudeModelRecency,
   getCloudTaskGatewayUrl,
   getProviderName,
+  HARNESS_DISPLAY_NAMES,
   isAnthropicModel,
+  isAnthropicModelId,
   isBasetenModel,
   isBlockedModelId,
   isCloudflareModel,
@@ -102,6 +107,9 @@ export {
   DISMISSAL_REASON_OPTIONS,
   type DismissalReasonOptionValue,
   dismissalReasonLabel,
+  RESOLVE_REASON_OPTIONS,
+  type ReportStateReason,
+  type ResolveReasonOptionValue,
 } from "./dismissal-reasons";
 export {
   type ArtifactSource,
@@ -134,6 +142,7 @@ export {
   isNotAuthenticatedError,
   isRateLimitError,
   isTransientUpstreamError,
+  isTurnEndedWithoutResponseError,
   NotAuthenticatedError,
   type PromptFailure,
   type PromptFailureKind,
@@ -204,15 +213,29 @@ export {
   defaultEligibleModel,
   isDefaultSelectOption,
   isRestrictedModelOption,
+  modelHarnessMeta,
   OPTION_DOCS_URL_META_KEY,
   restrictedModelMeta,
   selectOptionDocsUrl,
+  selectOptionHarness,
 } from "./models";
 export {
   getOauthClientIdFromRegion,
   OAUTH_SCOPE_VERSION,
   OAUTH_SCOPES,
 } from "./oauth";
+export {
+  type AgentRunState,
+  agentRunStateSchema,
+  type PiSubagentToolCall,
+  type PiSubagentToolDetails,
+  type PiWorkflowToolDetails,
+  piSubagentToolCallSchema,
+  piSubagentToolDetailsSchema,
+  piWorkflowToolDetailsSchema,
+  type WorkflowAgentState,
+  workflowAgentStateSchema,
+} from "./orchestration";
 export {
   compactHomePath,
   expandTildePath,
@@ -223,6 +246,14 @@ export {
   toRelativePath,
 } from "./path";
 export type { PiMessagingMode, PiRuntimeHealth } from "./pi-session";
+export {
+  createPiToolCallRecord,
+  isPiToolName,
+  PI_TOOL_KIND_BY_NAME,
+  type PiToolCallInput,
+  type PiToolCallRecord,
+  type PiToolName,
+} from "./pi-tool-call";
 export {
   buildPrOutput,
   mergePrUrls,

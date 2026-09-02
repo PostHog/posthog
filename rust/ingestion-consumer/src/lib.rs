@@ -5,7 +5,6 @@ pub mod debug_recorder;
 pub mod discovery;
 pub mod dispatcher;
 pub mod grpc_transport;
-pub mod kafka_config;
 pub mod kafka_stats;
 pub mod order_sentinel;
 pub mod readiness;

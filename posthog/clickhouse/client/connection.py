@@ -6,7 +6,7 @@ from dataclasses import field
 from enum import StrEnum
 from functools import cache
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
@@ -29,6 +29,11 @@ class NodeRole(StrEnum):
     ALL = "all"
     DATA = "data"
     INGESTION_EVENTS = "events"
+    # Same macro, named for what the role holds rather than what writes to it. The nodes carrying
+    # this role run the events ingestion layer and are also the events cluster's shards, so a
+    # caller reasoning about stored data (deletion, squash) reads better against EVENTS while the
+    # migrations that create ingestion tables keep INGESTION_EVENTS.
+    EVENTS = "events"
     INGESTION_SMALL = "small"
     INGESTION_MEDIUM = "medium"
     ENDPOINTS = "endpoints"
@@ -90,6 +95,8 @@ class ClickHouseUser(StrEnum):
     ENDPOINTS = "endpoints"
     BILLING = "billing"
     REPLAY_VISION = "replay_vision"
+    # Session replay surfacing scoring sweep
+    SURFACING_SCORING = "surfacing_scoring"
 
     # Backups - used by Dagster backup jobs
     BACKUPS = "backups"
@@ -289,6 +296,32 @@ def get_kwargs_for_client(
     return base_kwargs
 
 
+def _is_file_backed_user(creds: ClickHouseCredentials, workload: Workload, user: str | None) -> bool:
+    # True when the resolved connection authenticates as a user whose credential comes from a
+    # rotating token file. The LOGS and readonly paths resolve to their own static credentials, so
+    # they are excluded and keep the static password.
+    return bool(creds.password_file) and workload != Workload.LOGS and user == creds.user
+
+
+def get_http_kwargs(
+    workload: Workload = Workload.DEFAULT,
+    team_id: int | None = None,
+    readonly: bool = False,
+    ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+) -> dict[str, Any]:
+    """Build kwargs for the short-lived HTTP client, reading a file-backed credential fresh.
+
+    The HTTP client is rebuilt on every call, so one read here is enough to send a rotated token.
+    The native pool path does not use this helper because RefreshingChPool already re-reads the file
+    on every checkout, which means a read here would only duplicate it on the hot query path.
+    """
+    kwargs = get_kwargs_for_client(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
+    creds = get_clickhouse_creds(ch_user)
+    if _is_file_backed_user(creds, workload, kwargs.get("user")):
+        kwargs["password"] = creds.read_password()
+    return kwargs
+
+
 @patchable
 def get_client_from_pool(
     workload: Workload = Workload.DEFAULT,
@@ -303,10 +336,7 @@ def get_client_from_pool(
     """
 
     if settings.CLICKHOUSE_USE_HTTP or team_id in settings.CLICKHOUSE_USE_HTTP_PER_TEAM:
-        # File-backed credential refresh currently covers only the native pool below. This HTTP path
-        # (and default_client / ClickhouseCluster) still send the static CLICKHOUSE_*_PASSWORD, so a
-        # user must keep its static password until the HTTP path also reads the token file.
-        kwargs = get_kwargs_for_client(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
+        kwargs = get_http_kwargs(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
         return get_http_client(**kwargs)
 
     return get_pool(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user).get_client()
@@ -327,9 +357,7 @@ def get_pool(
     creds = get_clickhouse_creds(ch_user)
     # A file-backed user reads its credential fresh on every checkout, so the pool is keyed on
     # identity rather than the rotating credential and stamps the credential in RefreshingChPool.pull.
-    # Only when the resolved pool authenticates as this user: the LOGS and readonly paths resolve to
-    # their own static credentials and keep a plain pool.
-    if creds.password_file and workload != Workload.LOGS and kwargs.get("user") == creds.user:
+    if _is_file_backed_user(creds, workload, kwargs.get("user")):
         kwargs.pop("password", None)
         return make_ch_pool(credential_provider=creds.read_password, **kwargs)
     return make_ch_pool(**kwargs)

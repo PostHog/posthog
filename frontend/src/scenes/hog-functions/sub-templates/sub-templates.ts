@@ -136,13 +136,14 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         sub_template_id: 'activity-log',
         type: 'internal_destination',
         context_id: 'activity-log',
-        filters: { events: [{ id: '$activity_log_entry_created', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$activity_log_entry_created', type: 'events' }] },
     },
     'feature-flag-change': {
         sub_template_id: 'feature-flag-change',
         type: 'internal_destination',
         context_id: 'activity-log',
         filters: {
+            source: 'internal-events',
             events: [
                 {
                     id: '$activity_log_entry_created',
@@ -163,79 +164,79 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         sub_template_id: 'discussion-mention',
         type: 'internal_destination',
         context_id: 'discussion-mention',
-        filters: { events: [{ id: '$discussion_mention_created', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$discussion_mention_created', type: 'events' }] },
     },
     'error-tracking-issue-created': {
         sub_template_id: 'error-tracking-issue-created',
         type: 'internal_destination',
         context_id: 'error-tracking',
-        filters: { events: [{ id: '$error_tracking_issue_created', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$error_tracking_issue_created', type: 'events' }] },
     },
     'error-tracking-issue-reopened': {
         sub_template_id: 'error-tracking-issue-reopened',
         type: 'internal_destination',
         context_id: 'error-tracking',
-        filters: { events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$error_tracking_issue_reopened', type: 'events' }] },
     },
     'error-tracking-issue-spiking': {
         sub_template_id: 'error-tracking-issue-spiking',
         type: 'internal_destination',
         context_id: 'error-tracking',
-        filters: { events: [{ id: '$error_tracking_issue_spiking', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$error_tracking_issue_spiking', type: 'events' }] },
     },
     [INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID]: {
         sub_template_id: INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID,
         type: 'internal_destination',
         context_id: 'insight-alerts',
-        filters: { events: [{ id: '$insight_alert_firing', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$insight_alert_firing', type: 'events' }] },
     },
     'experiment-significant': {
         sub_template_id: 'experiment-significant',
         type: 'internal_destination',
         context_id: 'experiment-alerts',
-        filters: { events: [{ id: '$experiment_metric_significant', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$experiment_metric_significant', type: 'events' }] },
     },
     'logs-alert-firing': {
         sub_template_id: 'logs-alert-firing',
         type: 'internal_destination',
         context_id: 'logs-alerting',
-        filters: { events: [{ id: '$logs_alert_firing', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$logs_alert_firing', type: 'events' }] },
     },
     'logs-alert-resolved': {
         sub_template_id: 'logs-alert-resolved',
         type: 'internal_destination',
         context_id: 'logs-alerting',
-        filters: { events: [{ id: '$logs_alert_resolved', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$logs_alert_resolved', type: 'events' }] },
     },
     'logs-alert-auto-disabled': {
         sub_template_id: 'logs-alert-auto-disabled',
         type: 'internal_destination',
         context_id: 'logs-alerting',
-        filters: { events: [{ id: '$logs_alert_auto_disabled', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$logs_alert_auto_disabled', type: 'events' }] },
     },
     'logs-alert-errored': {
         sub_template_id: 'logs-alert-errored',
         type: 'internal_destination',
         context_id: 'logs-alerting',
-        filters: { events: [{ id: '$logs_alert_errored', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$logs_alert_errored', type: 'events' }] },
     },
     'health-check-firing': {
         sub_template_id: 'health-check-firing',
         type: 'internal_destination',
         context_id: 'health-alerts',
-        filters: { events: [{ id: '$health_check_issue_firing', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$health_check_issue_firing', type: 'events' }] },
     },
     'health-check-resolved': {
         sub_template_id: 'health-check-resolved',
         type: 'internal_destination',
         context_id: 'health-alerts',
-        filters: { events: [{ id: '$health_check_issue_resolved', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$health_check_issue_resolved', type: 'events' }] },
     },
     'batch-export-run-failed': {
         sub_template_id: 'batch-export-run-failed',
         type: 'internal_destination',
         context_id: 'batch-export-alerts',
-        filters: { events: [{ id: '$batch_export_run_failed', type: 'events' }] },
+        filters: { source: 'internal-events', events: [{ id: '$batch_export_run_failed', type: 'events' }] },
         masking: {
             hash: BATCH_EXPORT_ALERT_MASKING_HASH,
             ttl: BATCH_EXPORT_ALERT_MASKING_TTL_SECONDS,
@@ -1708,6 +1709,12 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
         case '$error_tracking_issue_created':
         case '$error_tracking_issue_reopened':
         case '$error_tracking_issue_spiking':
+        case '$error_tracking_issue_resolved':
+        case '$error_tracking_issue_suppressed':
+        case '$error_tracking_issue_assigned':
+        case '$error_tracking_issue_unassigned':
+        case '$error_tracking_issue_merged':
+        case '$error_tracking_issue_split':
             return 'error-tracking'
         case '$insight_alert_firing':
             return 'insight-alerts'

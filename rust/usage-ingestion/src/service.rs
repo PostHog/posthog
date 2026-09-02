@@ -42,29 +42,81 @@ impl UsageIngestionService {
     async fn prepare(
         &self,
         record: BillingUsageRecord,
-        resolved: &mut HashMap<i64, Uuid>,
-    ) -> Result<KafkaBillingUsageRecord, Status> {
+        resolved: &mut HashMap<i64, Result<Uuid, &'static str>>,
+    ) -> Result<KafkaBillingUsageRecord, PrepareError> {
         if record.team_id <= 0 || record.team_id > i64::from(i32::MAX) {
-            return Err(Status::invalid_argument(
-                "team_id must be a positive 32-bit integer",
-            ));
+            return Err(PrepareError::Rejected("invalid_team_id"));
         }
+        // A rejection is memoized alongside a success, so a batch of 500 records from one
+        // unmapped team costs one resolver call rather than 500 cache reads counted as hits.
         let organization_id = match resolved.get(&record.team_id) {
-            Some(value) => *value,
-            None => {
-                let value = self
-                    .resolver
-                    .resolve(record.team_id)
-                    .await
-                    .map_err(resolve_status)?;
-                resolved.insert(record.team_id, value);
-                value
-            }
+            Some(Ok(value)) => *value,
+            Some(Err(reason)) => return Err(PrepareError::Rejected(reason)),
+            None => match self.resolver.resolve(record.team_id).await {
+                Ok(value) => {
+                    resolved.insert(record.team_id, Ok(value));
+                    value
+                }
+                Err(error) => {
+                    let error = prepare_error(error);
+                    if let PrepareError::Rejected(reason) = error {
+                        resolved.insert(record.team_id, Err(reason));
+                    }
+                    return Err(error);
+                }
+            },
         };
 
         KafkaBillingUsageRecord::from_proto(record, organization_id, Utc::now())
-            .map_err(|error| Status::invalid_argument(error.to_string()))
+            .map_err(|_| PrepareError::Rejected("invalid_record"))
     }
+
+    /// Returns the records to produce and what was dropped on the way. A rejected record fails
+    /// the same way however often it is re-sent, so keeping the batch alive is the difference
+    /// between losing one team's usage and losing every team's usage that happened to share
+    /// the batch with it.
+    async fn prepare_batch(
+        &self,
+        records: Vec<BillingUsageRecord>,
+    ) -> Result<(Vec<KafkaBillingUsageRecord>, Vec<Rejection>), Status> {
+        // One resolver call per distinct team, not per record: a full batch from one
+        // team would otherwise be 500 Redis reads and 500 queries on a cold cache.
+        let mut resolved = HashMap::new();
+        let mut prepared = Vec::with_capacity(records.len());
+        let mut rejected = Vec::new();
+        for record in records {
+            let team_id = record.team_id;
+            match self.prepare(record, &mut resolved).await {
+                Ok(record) => prepared.push(record),
+                Err(PrepareError::Rejected(reason)) => {
+                    metrics::counter!("usage_ingestion_records_rejected_total", "reason" => reason)
+                        .increment(1);
+                    rejected.push(Rejection { team_id, reason });
+                }
+                Err(PrepareError::Unavailable(status)) => return Err(status),
+            }
+        }
+        rejected.sort_unstable();
+        rejected.dedup();
+        Ok((prepared, rejected))
+    }
+}
+
+/// Splits a failed record by what the producer should do about it. Anything a retry cannot
+/// change is skipped; anything the service could not determine fails the whole batch, so the
+/// producer sends it again.
+#[derive(Debug)]
+enum PrepareError {
+    Rejected(&'static str),
+    Unavailable(Status),
+}
+
+/// A team the service dropped records for, and why. Deduplicated per batch, so a team that
+/// fails the same way twice reads as one lead.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct Rejection {
+    team_id: i64,
+    reason: &'static str,
 }
 
 #[tonic::async_trait]
@@ -83,13 +135,17 @@ impl UsageIngestion for UsageIngestionService {
             ));
         }
 
-        // One resolver call per distinct team, not per record: a full batch from one
-        // team would otherwise be 500 Redis reads and 500 queries on a cold cache.
-        let mut resolved = HashMap::new();
-        let mut prepared = Vec::with_capacity(records.len());
-        for record in records {
-            prepared.push(self.prepare(record, &mut resolved).await?);
+        let (prepared, rejected) = self.prepare_batch(records).await?;
+        if !rejected.is_empty() {
+            tracing::warn!(
+                rejected = ?rejected,
+                "dropped usage records the service cannot accept"
+            );
         }
+        if prepared.is_empty() {
+            return Ok(Response::new(IngestBillingUsageResponse::default()));
+        }
+
         let accepted_record_ids = prepared
             .iter()
             .map(|record| record.record_id.clone())
@@ -125,20 +181,20 @@ impl UsageIngestion for UsageIngestionService {
     }
 }
 
-fn resolve_status(error: ResolveError) -> Status {
+fn prepare_error(error: ResolveError) -> PrepareError {
     match error {
-        ResolveError::InvalidTeamId => {
-            Status::invalid_argument("team_id must be a positive 32-bit integer")
-        }
-        ResolveError::Missing => Status::not_found("team organization mapping was not found"),
-        ResolveError::Database(error) => {
-            Status::unavailable(format!("team organization lookup failed: {error}"))
-        }
+        ResolveError::InvalidTeamId => PrepareError::Rejected("invalid_team_id"),
+        ResolveError::Missing => PrepareError::Rejected("organization_missing"),
+        ResolveError::Database(error) => PrepareError::Unavailable(Status::unavailable(format!(
+            "team organization lookup failed: {error}"
+        ))),
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use async_trait::async_trait;
     use common_liveness::SyncLivenessReporter;
     use rdkafka::ClientConfig;
@@ -164,18 +220,45 @@ mod tests {
         }
     }
 
-    fn service() -> UsageIngestionService {
-        // prepare() never produces, so the producer only has to exist.
+    /// Resolves every team except `unmapped`, which stands in for a team whose organization
+    /// row is gone. Counts its calls, so a test can pin how often a batch asks.
+    #[derive(Default)]
+    struct PartialResolver {
+        unmapped: i64,
+        calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl OrganizationResolver for PartialResolver {
+        async fn resolve(&self, team_id: i64) -> Result<Uuid, ResolveError> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            if team_id == self.unmapped {
+                return Err(ResolveError::Missing);
+            }
+            Ok(Uuid::parse_str(TEAM_ORGANIZATION).unwrap())
+        }
+    }
+
+    struct UnreachableResolver;
+
+    #[async_trait]
+    impl OrganizationResolver for UnreachableResolver {
+        async fn resolve(&self, _team_id: i64) -> Result<Uuid, ResolveError> {
+            Err(ResolveError::Database(sqlx::Error::PoolTimedOut))
+        }
+    }
+
+    fn service_with(resolver: Arc<dyn OrganizationResolver>) -> UsageIngestionService {
+        // prepare_batch() never produces, so the producer only has to exist.
         let producer = ClientConfig::new()
             .set("bootstrap.servers", "localhost:9092")
             .create_with_context(KafkaContext::new(AlwaysHealthy))
             .expect("failed to build the test producer");
-        UsageIngestionService::new(
-            producer,
-            Arc::new(FixedResolver),
-            500,
-            "test-topic".to_string(),
-        )
+        UsageIngestionService::new(producer, resolver, 500, "test-topic".to_string())
+    }
+
+    fn service() -> UsageIngestionService {
+        service_with(Arc::new(FixedResolver))
     }
 
     fn record() -> BillingUsageRecord {
@@ -190,6 +273,14 @@ mod tests {
         }
     }
 
+    fn record_for(team_id: i64) -> BillingUsageRecord {
+        BillingUsageRecord {
+            record_id: format!("018f7c8e-4c08-7c5e-9bc0-15c9f5cc9f{team_id:02}"),
+            team_id,
+            ..record()
+        }
+    }
+
     #[tokio::test]
     async fn the_resolved_organization_is_stamped_on_the_record() {
         let prepared = service()
@@ -201,5 +292,83 @@ mod tests {
             prepared.organization_id,
             Uuid::parse_str(TEAM_ORGANIZATION).unwrap()
         );
+    }
+
+    #[tokio::test]
+    async fn an_unattributable_team_does_not_discard_the_rest_of_the_batch() {
+        let resolver = Arc::new(PartialResolver {
+            unmapped: 11,
+            ..Default::default()
+        });
+        let service = service_with(resolver.clone());
+
+        let (prepared, rejected) = service
+            .prepare_batch(vec![record_for(10), record_for(11), record_for(12)])
+            .await
+            .expect("a rejected record must not fail the batch");
+
+        assert_eq!(
+            prepared.iter().map(|r| r.team_id).collect::<Vec<_>>(),
+            vec![10, 12]
+        );
+        assert_eq!(
+            rejected,
+            vec![Rejection {
+                team_id: 11,
+                reason: "organization_missing"
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_batch_asks_the_resolver_once_per_team_even_when_it_says_no() {
+        let resolver = Arc::new(PartialResolver {
+            unmapped: 11,
+            ..Default::default()
+        });
+        let service = service_with(resolver.clone());
+        let records = (0..4).map(|_| record_for(11)).collect();
+
+        let (prepared, rejected) = service.prepare_batch(records).await.unwrap();
+
+        assert!(prepared.is_empty());
+        // One lead per team, and one lookup, however many of its records the batch held.
+        assert_eq!(rejected.len(), 1);
+        assert_eq!(resolver.calls.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn a_record_the_service_can_never_accept_is_skipped() {
+        // Validation the record itself fails, rather than anything about its team.
+        let unbillable = BillingUsageRecord {
+            quantity: 0,
+            ..record_for(10)
+        };
+
+        let (prepared, rejected) = service()
+            .prepare_batch(vec![unbillable, record_for(12)])
+            .await
+            .expect("a rejected record must not fail the batch");
+
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(
+            rejected,
+            vec![Rejection {
+                team_id: 10,
+                reason: "invalid_record"
+            }]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_lookup_that_could_not_be_answered_still_fails_the_batch() {
+        // The producer has to retry this one, so it must not look like an accepted batch
+        // that happened to drop records.
+        let status = service_with(Arc::new(UnreachableResolver))
+            .prepare_batch(vec![record_for(10)])
+            .await
+            .expect_err("an unavailable lookup must fail the batch");
+
+        assert_eq!(status.code(), tonic::Code::Unavailable);
     }
 }

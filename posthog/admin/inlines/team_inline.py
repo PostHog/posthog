@@ -57,6 +57,8 @@ class TeamInline(TabularInlinePaginated):
             "group_type_mappings_display",
             "email_sending_suspension_state",
             "email_sending_suspension_actions",
+            "email_sending_tier_state",
+            "email_sending_tier_actions",
         )
     ] + ["displayed_name"]
 

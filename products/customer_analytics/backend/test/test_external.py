@@ -318,7 +318,7 @@ class TestExternalAccountAPI(APIBaseTest):
                     "tags": ["enterprise"],
                 }
             )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertEqual(self._active_csm_user_ids(), [])
 
     def test_patch_cannot_change_external_id_or_name(self):

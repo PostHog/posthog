@@ -1,11 +1,14 @@
 import { Message } from 'node-rdkafka'
 
+import { RecordedTopHogMetric, createRecordingTopHog } from '~/tests/helpers/tophog'
+
 import { FetchCandidate, MAX_HOPS, serializeFrontierRecord } from './collected-urls-record'
 import { CrawlHistoryItem, CrawlHistoryStore, configurationCacheKey } from './crawl-history'
 import { AttemptOutcome, DELAY_TOO_LONG, FetchAttempt, FetchPass, HOPS_EXHAUSTED } from './fetch-runner'
 import { FrontierDeadLetterSink } from './frontier-dead-letter-sink'
 import { FrontierPublisher, RepublishFlushResult, RepublishResult } from './frontier-publisher'
 import { ImageFetchConsumerMetrics, ImageFetchRequestMetrics } from './metrics'
+import { ImageFetchTopHogMetrics } from './tophog-metrics'
 import { UrlFetchConsumer } from './url-fetch-consumer'
 
 const NOW_MS = 1_700_000_000_000
@@ -93,6 +96,7 @@ interface Harness {
     republish: jest.Mock<Promise<RepublishResult>, any[]>
     flush: jest.Mock<Promise<RepublishFlushResult>, []>
     park: jest.Mock<Promise<void>, any[]>
+    topHogRecords: Map<string, RecordedTopHogMetric[]>
 }
 
 function build(dryRun = false, deadLettersEnabled = true): Harness {
@@ -103,14 +107,17 @@ function build(dryRun = false, deadLettersEnabled = true): Harness {
     const republish = jest.fn(() => Promise.resolve('queued' as const))
     const flush = jest.fn(() => Promise.resolve({ failedUrls: 0 }))
     const park = jest.fn(() => Promise.resolve())
+    const recordingTopHog = createRecordingTopHog()
+    const topHogMetrics = new ImageFetchTopHogMetrics(recordingTopHog.registry)
     const consumer = new UrlFetchConsumer(
         history,
         { createRepublishBatch: () => ({ republish, flush }) } as unknown as FrontierPublisher,
         { seenTtlSeconds: 30 * 24 * 60 * 60, dryRun },
         dryRun ? undefined : ({ run } as FetchPass),
-        deadLettersEnabled ? ({ park } as FrontierDeadLetterSink) : null
+        deadLettersEnabled ? ({ park } as FrontierDeadLetterSink) : null,
+        topHogMetrics
     )
-    return { consumer, history, run, republish, flush, park }
+    return { consumer, history, run, republish, flush, park, topHogRecords: recordingTopHog.records }
 }
 
 describe('UrlFetchConsumer', () => {
@@ -218,6 +225,26 @@ describe('UrlFetchConsumer', () => {
             { ...fromPartition7, sourcePartitions: [7] },
             { ...fromPartition42, sourcePartitions: [42] },
         ])
+        expect(harness.topHogRecords.get('ml_image_fetch_attempts_by_registrable_domain')).toEqual([
+            {
+                key: {
+                    registrable_domain: 'example.com',
+                    disposition: 'completed',
+                    outcome: 'ok',
+                    partition: '7',
+                },
+                value: 1,
+            },
+            {
+                key: {
+                    registrable_domain: 'other.net',
+                    disposition: 'completed',
+                    outcome: 'ok',
+                    partition: '42',
+                },
+                value: 1,
+            },
+        ])
         expect(incPartitionAttempt).toHaveBeenCalledWith(7, 'completed', 'ok')
         expect(incPartitionAttempt).toHaveBeenCalledWith(42, 'completed', 'ok')
     })
@@ -315,13 +342,16 @@ describe('UrlFetchConsumer', () => {
 
     it('republishes a job that arrives before its durable not-before time', async () => {
         const harness = build()
-        const early = candidate('a', { notBeforeMs: NOW_MS + 30_000 })
+        const early = candidate('a', {
+            notBeforeMs: NOW_MS + 30_000,
+            lastBlockReason: 'configuration_unreachable',
+        })
 
         await harness.consumer.handleBatch([message([early])], NOW_MS)
 
         expect(harness.run.mock.calls[0][0]).toEqual([])
         expect(harness.republish).toHaveBeenCalledWith(
-            { ...early, sourcePartitions: [0] },
+            { ...early, sourcePartitions: [0], lastBlockReason: 'configuration_unreachable' },
             {
                 currentUrl: early.currentUrl,
                 host: early.host,
@@ -332,6 +362,37 @@ describe('UrlFetchConsumer', () => {
             30_000
         )
         expect(harness.history.writes).toEqual([])
+        expect(harness.topHogRecords.get('ml_image_fetch_attempts_by_registrable_domain')).toEqual([
+            {
+                key: {
+                    registrable_domain: 'example.com',
+                    disposition: 'republished',
+                    outcome: 'backoff',
+                    partition: '0',
+                },
+                value: 1,
+            },
+        ])
+        expect(harness.topHogRecords.get('ml_image_fetch_block_events_by_registrable_domain')).toEqual([
+            {
+                key: {
+                    registrable_domain: 'example.com',
+                    reason: 'configuration_unreachable',
+                    partition: '0',
+                },
+                value: 1,
+            },
+        ])
+        expect(harness.topHogRecords.get('ml_image_fetch_blocked_ms_by_registrable_domain')).toEqual([
+            {
+                key: {
+                    registrable_domain: 'example.com',
+                    reason: 'configuration_unreachable',
+                    partition: '0',
+                },
+                value: 30_000,
+            },
+        ])
     })
 
     it('records a terminal refusal when the remaining delay is over one hour', async () => {
@@ -564,19 +625,31 @@ describe('UrlFetchConsumer', () => {
     it('throws when the fetch pass reports a lost URL', async () => {
         const harness = build()
         harness.run.mockImplementation((candidates) =>
-            Promise.resolve(
-                candidates.map((item) => ({
-                    candidate: item,
+            Promise.resolve([
+                {
+                    candidate: candidates[0],
                     outcome: 'timeout',
                     finished: false,
                     lost: true,
                     configurationUpdates: [],
-                }))
-            )
+                },
+                terminal(candidates[1]),
+            ])
         )
 
-        await expect(harness.consumer.handleBatch([message([candidate('a')])], NOW_MS)).rejects.toThrow(
+        await expect(harness.consumer.handleBatch([message([candidate('a'), candidate('b')])], NOW_MS)).rejects.toThrow(
             'account for 1 URLs'
         )
+        expect(harness.topHogRecords.get('ml_image_fetch_attempts_by_registrable_domain')).toEqual([
+            {
+                key: {
+                    registrable_domain: 'example.com',
+                    disposition: 'completed',
+                    outcome: 'ok',
+                    partition: '0',
+                },
+                value: 1,
+            },
+        ])
     })
 })

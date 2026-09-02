@@ -8519,6 +8519,7 @@ class TestDialectConstantBinding(BaseTest):
         ("snowflake", "snowflake"),
         ("redshift", "redshift"),
         ("duckdb", "duckdb"),
+        ("trino", "trino"),
     ]
 
     def _constant(self, value: Any, dialect: HogQLDialect) -> tuple[str, dict[str, Any]]:

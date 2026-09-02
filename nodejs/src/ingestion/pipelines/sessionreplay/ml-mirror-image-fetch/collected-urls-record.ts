@@ -1,6 +1,7 @@
 import { parseJSON } from '~/common/utils/json-parse'
 import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
 
+import { ImageFetchBlockReason, isImageFetchBlockReason } from './block-reason'
 import { canonicalizeUrl } from './politeness-key'
 
 export const MAX_HOPS = 10
@@ -35,6 +36,7 @@ export interface FetchCandidate {
     fetchCount: number
     republishCount: number
     lastRepublishReason: StoredRepublishReason | null
+    lastBlockReason?: ImageFetchBlockReason
     sourcePartitions?: readonly number[]
 }
 
@@ -51,6 +53,7 @@ export interface FrontierRecord {
             | 'fetchCount'
             | 'republishCount'
             | 'lastRepublishReason'
+            | 'lastBlockReason'
         >
     >
 }
@@ -199,6 +202,7 @@ function parseJob(
         fetchCount,
         republishCount,
         lastRepublishReason,
+        lastBlockReason,
         lowOriginDiversityDeferred,
     } = job
     if (
@@ -211,6 +215,7 @@ function parseJob(
         !isNonNegativeSafeInteger(fetchCount) ||
         !isNonNegativeSafeInteger(republishCount) ||
         !isStoredRepublishReason(lastRepublishReason) ||
+        (lastBlockReason !== undefined && !isImageFetchBlockReason(lastBlockReason)) ||
         (lowOriginDiversityDeferred !== undefined && typeof lowOriginDiversityDeferred !== 'boolean')
     ) {
         return { ok: false, reason: 'bad_url' }
@@ -240,6 +245,7 @@ function parseJob(
             fetchCount,
             republishCount,
             lastRepublishReason,
+            lastBlockReason,
         },
     }
 }
@@ -256,6 +262,7 @@ export function serializeFrontierRecord(candidates: FetchCandidate[]): Buffer {
             fetchCount: candidate.fetchCount,
             republishCount: candidate.republishCount,
             lastRepublishReason: candidate.lastRepublishReason,
+            lastBlockReason: candidate.lastBlockReason,
         })),
     }
     return Buffer.from(JSON.stringify(record))

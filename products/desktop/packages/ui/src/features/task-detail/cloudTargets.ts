@@ -86,7 +86,7 @@ export function buildCloudTargetOptions({
       key: cloudTargetKey({ kind: "image", id: image.id }),
       target: { kind: "image" as const, id: image.id },
       name: image.name,
-      description: `Image v${image.version}, full network access`,
+      description: `v${image.version}, full network access`,
     })),
   ];
 }

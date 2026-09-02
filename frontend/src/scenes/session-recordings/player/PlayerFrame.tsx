@@ -7,6 +7,7 @@ import { useActions, useValues } from 'kea'
 import { Handler, viewportResizeDimension } from 'posthog-js/rrweb-types'
 import { useCallback, useEffect, useRef } from 'react'
 
+import { getPlayerFrameScale, isIOS } from 'scenes/session-recordings/player/playerFrameScaling'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 const BASE_CLICK_INDICATOR_DURATION_S = 1 / 3
@@ -36,19 +37,19 @@ export const PlayerFrame = (): JSX.Element => {
 
             const parentDimensions = frameRef.current.parentElement.getBoundingClientRect()
 
-            const scale = Math.min(
-                parentDimensions.width / dimensions.width,
-                parentDimensions.height / dimensions.height,
-                1
-            )
+            const { scale, zoom, transform } = getPlayerFrameScale(parentDimensions, dimensions, isIOS())
 
-            // Scale with `zoom` instead of `transform: scale()`. A decimal transform scale
-            // promotes the large replay iframe to a composited layer, which WebKit
-            // re-rasterizes at pinch-zoom scale and crashes the tab on iOS (FB13816677).
-            // `zoom` scales through layout, so no oversized layer exists. This also avoids
-            // the Chrome GPU bug where an identity transform painted the iframe layer
-            // outside its clipping bounds, which previously forced a 0.999 scale cap.
-            player.replayer.wrapper.style.setProperty('zoom', String(scale))
+            const wrapperStyle = player.replayer.wrapper.style
+            if (zoom === null) {
+                wrapperStyle.removeProperty('zoom')
+            } else {
+                wrapperStyle.setProperty('zoom', zoom)
+            }
+            if (transform === null) {
+                wrapperStyle.removeProperty('transform')
+            } else {
+                wrapperStyle.setProperty('transform', transform)
+            }
 
             setScale(scale)
         },

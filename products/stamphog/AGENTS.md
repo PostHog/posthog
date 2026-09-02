@@ -53,8 +53,10 @@ There is deliberately no "this file is harmless" rule, and adding one back needs
 Successive review passes found every candidate wrong in this repository: lockfiles select the dependency code that gets installed, tests run in CI with CI's credentials, a file under a `generated/` directory can be hand-edited and still compiles into a service, `docs/onboarding` is aliased into the production frontend, MDX compiles to JavaScript, snapshot files are JavaScript modules the test runner executes, and even plain Markdown ships, because `services/mcp` imports `.md` templates and product `tools.yaml` files compile `.md` prompts into shipped tool definitions.
 
 The digest carries the one narrow exception, and it is not a gate.
-`detect_ownership` counts each team's files under `products/<name>/frontend/generated/`, and a team whose changed files are all in there is not a digest audience (`backend/logic/audiences.py`).
+`detect_ownership` counts each team's files under `products/<name>/frontend/generated/` and keeps them out of the team's path sample, and `backend/logic/audiences.py` subtracts that count, so a team's `owned_file_count` is the files a person edited.
+A team left with none of those is not a digest audience at all.
 `hogli build:openapi` rewrites those types whenever any shared serializer changes anywhere in the repo, so a team owning nothing else in a PR was not touched by it: that is how an error-tracking change reached the product analytics channel.
+Subtracting rather than only dropping the all-generated case came from the same channel getting swept again: one regenerated file next to one real one read as a two-file stake, which is above the graze rule's threshold, so the sweep looked like ownership.
 Three things keep it from being the harmless-file rule above.
 It decides who hears about a merge, never whether code is safe to approve.
 The root `CLAUDE.md` forbids hand-editing those files, so the hand-edited-and-still-ships case does not apply to this path.
@@ -168,12 +170,20 @@ narrow:
 
 ## Trust boundaries
 
+- The review-gating fields (`enabled`, `review_mode`, `trigger_label`) and the soft-delete need the
+  `manager` level on the `stamphog` resource, because they decide whether a pull request is reviewed
+  at all. Naming one of those fields on a create takes `manager` too. Connecting a repository
+  without them, and the digest toggle, stay at `editor`.
 - Review policy is read from the repo's **default branch**, never the PR head — a PR must not be
   able to rewrite the policy that gates it. Same for the `digest:` channel declaration and the
   root `owners.yaml` team registry the digest routes through.
-- A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts
-  it: its flags were set by someone who never proved GitHub access. Reinstall rebinds keep
-  settings — those were configured under a verified binding.
+- A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts it,
+  and its review policy (`review_mode`, `trigger_label`) resets to the model defaults: all of those
+  fields were set by someone who never proved GitHub access, so a pre-selected label mode would
+  otherwise go live the moment a manager enables the row. Reinstall rebinds keep settings — those
+  were configured under a verified binding. Such a row is also kept out of the digest candidates:
+  a blank installation can fetch no routing file, and every candidate is read, so leaving it in let
+  one placeholder silence the whole team's digest.
 - Digest routing is derived every run from the repositories and never stored, so nothing here can
   go stale silently — and nothing degrades either. A registry that cannot be read stops the whole
   team's run (`RoutingUnavailable`) rather than falling through to derived channel names: the

@@ -305,11 +305,11 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         # Deploy-scoped figures are unaffected.
         assert result.deployment_count == 2
 
-    def test_busiest_environment_fallback_excludes_transient_and_sibling_environments(self):
-        # Nothing is production-marked (this repo's real shape), so the default scope falls back
-        # to the single busiest persistent environment: the ephemeral per-PR preview deploys and
-        # the quieter sibling environment (a second region, dev, a package registry) must stay
-        # out of the counts — every-persistent counted them all and multiplied every metric.
+    def test_production_named_environment_beats_busier_dev_environment(self):
+        # Nothing is production-marked (this repo's real shape) and dev deploys more often than
+        # production, so the default scope must resolve through the environment NAME: without the
+        # name tier the busiest-persistent fallback reported dev deploys as every DORA figure.
+        # Transient per-PR previews stay out of every default scope.
         curated = self._curated(
             self.team,
             deployment_rows=[
@@ -317,12 +317,16 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
                 _deployment_row(2, "sha-b", "preview-pr-123", "2026-01-12 09:30:00", production=False, transient=True),
                 _deployment_row(3, "sha-c", "prod-us", "2026-01-13 09:30:00", production=False),
                 _deployment_row(4, "sha-d", "dev", "2026-01-12 09:30:00", production=False),
+                _deployment_row(5, "sha-e", "dev", "2026-01-13 09:30:00", production=False),
+                _deployment_row(6, "sha-f", "dev", "2026-01-14 09:30:00", production=False),
             ],
             status_rows=[
                 _status_row(11, 1, "success", "prod-us", "2026-01-12 10:00:00"),
                 _status_row(21, 2, "success", "preview-pr-123", "2026-01-12 10:00:00"),
                 _status_row(31, 3, "success", "prod-us", "2026-01-13 10:00:00"),
                 _status_row(41, 4, "success", "dev", "2026-01-12 10:00:00"),
+                _status_row(51, 5, "success", "dev", "2026-01-13 10:00:00"),
+                _status_row(61, 6, "success", "dev", "2026-01-14 10:00:00"),
             ],
             # One never-merged PR keeps the seeded CSV non-empty without joining any deploy.
             pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-11 08:00:00")],
@@ -334,7 +338,33 @@ class TestDoraQuery(ClickhouseTestMixin, BaseTest):
         )
 
         assert result.environment_scope == "prod-us"
-        assert result.environments == ["prod-us", "dev"]
+        assert result.environments == ["dev", "prod-us"]
+        assert result.deployment_count == 2
+
+    def test_busiest_environment_fallback_without_production_named_environment(self):
+        # No production flag and no production-looking name: the single busiest persistent
+        # environment still carries the default scope, so such a repo gets numbers, not zeros.
+        curated = self._curated(
+            self.team,
+            deployment_rows=[
+                _deployment_row(1, "sha-a", "staging", "2026-01-12 09:30:00", production=False),
+                _deployment_row(2, "sha-b", "staging", "2026-01-13 09:30:00", production=False),
+                _deployment_row(3, "sha-c", "dev", "2026-01-12 09:30:00", production=False),
+            ],
+            status_rows=[
+                _status_row(11, 1, "success", "staging", "2026-01-12 10:00:00"),
+                _status_row(21, 2, "success", "staging", "2026-01-13 10:00:00"),
+                _status_row(31, 3, "success", "dev", "2026-01-12 10:00:00"),
+            ],
+            pr_rows=[_pr_row(1, "alice", "open", 0, "2026-01-11 08:00:00")],
+        )
+        result = query_dora_overview(
+            curated=curated,
+            date_from=datetime(2026, 1, 10, tzinfo=UTC),
+            date_to=datetime(2026, 1, 20, tzinfo=UTC),
+        )
+
+        assert result.environment_scope == "staging"
         assert result.deployment_count == 2
 
     def test_deploy_scan_slack_bounds_prewindow_deployments(self):
