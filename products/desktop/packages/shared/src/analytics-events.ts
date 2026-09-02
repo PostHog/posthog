@@ -1,6 +1,7 @@
 // Analytics event types and properties
 
 import type { Adapter, ModelAccess } from "./adapter";
+import type { AgentAction } from "./agent-actions";
 import type { EffortLevel } from "./domain-types";
 import type { SourceProduct } from "./inbox-types";
 
@@ -487,6 +488,21 @@ export interface DeepLinkChannelProperties {
   channel_id: string;
   /** Present when the link targets a thread inside the channel. */
   task_id?: string;
+}
+
+// Agent action events
+export interface AgentActionClickedProperties {
+  action_kind: AgentAction["kind"];
+  /** Task the offer was made in. Null when the row renders outside a session. */
+  task_id: string | null;
+  /**
+   * `origin_key` of that task, e.g. `desktop_onboarding_session:<user_id>`. It
+   * names the server-side flow that made the offer, so onboarding acceptance
+   * reads off this event alone.
+   */
+  task_origin_key: string | null;
+  /** False when the host found no handler for the link, or the call failed. */
+  opened: boolean;
 }
 
 // PostHog's reserved LLM analytics feedback events, same shape as the PostHog AI
@@ -1618,6 +1634,9 @@ export const ANALYTICS_EVENTS = {
   DEEP_LINK_CANVAS: "Deep link canvas",
   DEEP_LINK_CHANNEL: "Deep link channel",
 
+  // Agent action events
+  AGENT_ACTION_CLICKED: "Agent action clicked",
+
   // Error events
   TASK_CREATION_FAILED: "Task creation failed",
   AGENT_SESSION_ERROR: "Agent session error",
@@ -1824,6 +1843,9 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.DEEP_LINK_ISSUE_FAILED]: DeepLinkIssueFailedProperties;
   [ANALYTICS_EVENTS.DEEP_LINK_CANVAS]: DeepLinkCanvasProperties;
   [ANALYTICS_EVENTS.DEEP_LINK_CHANNEL]: DeepLinkChannelProperties;
+
+  // Agent action events
+  [ANALYTICS_EVENTS.AGENT_ACTION_CLICKED]: AgentActionClickedProperties;
 
   // Error events
   [ANALYTICS_EVENTS.TASK_CREATION_FAILED]: TaskCreationFailedProperties;
