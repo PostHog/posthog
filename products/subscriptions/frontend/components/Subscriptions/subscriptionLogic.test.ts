@@ -15,6 +15,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId, IntegrationType, SubscriptionType } from '~/types'
 
+import { newSubscriptionTargetLogic } from '../../scenes/newSubscriptionTargetLogic'
 import { subscriptionLogic } from './subscriptionLogic'
 
 jest.mock('posthog-js')
@@ -695,6 +696,21 @@ describe('subscriptionLogic', () => {
         }).toFinishListeners()
 
         expect(getRecentSlackChannelIds(7)).toEqual(expectedIds)
+    })
+
+    // The scene picks a target before the form opens, and a create routes away from the scene.
+    // A target left behind skips the picker on the next visit and reuses the old insight.
+    it('clears a target picked on the subscriptions scene', async () => {
+        const targetLogic = newSubscriptionTargetLogic()
+        targetLogic.mount()
+        targetLogic.actions.chooseInsight('abc123' as InsightShortId, 'Weekly signups')
+
+        await expectLogic(newLogic, () => {
+            newLogic.actions.submitSubscriptionSuccess({ target_type: 'email' } as SubscriptionType)
+        }).toFinishListeners()
+
+        expect(targetLogic.values.target).toBeNull()
+        targetLogic.unmount()
     })
 
     it('rejects empty prompt when resource_type is ai_prompt', async () => {

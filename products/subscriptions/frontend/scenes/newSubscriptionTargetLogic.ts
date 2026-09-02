@@ -47,7 +47,7 @@ export interface newSubscriptionTargetLogicActions {
     chooseDashboard: (id: number, name: string) => { id: number; name: string }
     chooseAiPrompt: () => any
     reset: () => any
-    loadInsightOptions: () => any
+    loadInsightOptions: (_: any) => any
     loadInsightOptionsSuccess: (
         insightOptions: NewSubscriptionInsightOption[],
         payload?: any
@@ -161,11 +161,11 @@ export const newSubscriptionTargetLogic = kea<newSubscriptionTargetLogicType>([
     listeners(({ actions }) => ({
         setKind: ({ kind }) => {
             if (kind === 'insight') {
-                actions.loadInsightOptions()
+                actions.loadInsightOptions(null)
             }
         },
         setInsightSearch: () => {
-            actions.loadInsightOptions()
+            actions.loadInsightOptions(null)
         },
         // The creation form is rendered from the dashboard itself, so fetch it as soon as
         // it is picked rather than making the form wait for a mount effect.
