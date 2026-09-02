@@ -4,8 +4,12 @@ on:
     pull_request:
         paths:
             - '**.py'
+            - '**.ts'
+            - '**.tsx'
             - '.github/workflows/ci-duplication.yml'
+            - '.github/scripts/post-duplication-section.mjs'
             - 'bin/lint_duplication.py'
+            - 'bin/lint-duplication.limits.json'
     workflow_dispatch:
 
 concurrency:
@@ -16,8 +20,8 @@ permissions:
     contents: read
 
 jobs:
-    python-duplication:
-        name: Python duplication lint
+    duplication:
+        name: Duplication lint
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 10
         # Advisory while the gate proves itself; promote to blocking once it
@@ -38,4 +42,27 @@ jobs:
                       echo "bin/lint_duplication.py not present on this branch; skipping"
                       exit 0
                   fi
-                  python3 bin/lint_duplication.py --base "origin/${{ github.event.pull_request.base.ref || 'master' }}"
+                  python3 bin/lint_duplication.py --base "origin/${{ github.event.pull_request.base.ref || 'master' }}" --report-dir .
+            # always() so findings still reach the comment when the lint step fails.
+            # Skipped on trunk-merge/** branches: merge-queue draft PRs are ephemeral and
+            # unread, and each section write spends shared GITHUB_TOKEN budget.
+            - name: Post CI report — duplication (Python)
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f .github/scripts/post-duplication-section.mjs ] && [ -f duplication-findings-python.json ]; then
+                      node .github/scripts/post-duplication-section.mjs python duplication-findings-python.json
+                  else
+                      echo "Skipping the duplication report section: script or findings not on this branch"
+                  fi
+            - name: Post CI report — duplication (TypeScript)
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f .github/scripts/post-duplication-section.mjs ] && [ -f duplication-findings-ts.json ]; then
+                      node .github/scripts/post-duplication-section.mjs typescript duplication-findings-ts.json
+                  else
+                      echo "Skipping the duplication report section: script or findings not on this branch"
+                  fi
