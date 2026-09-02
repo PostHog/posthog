@@ -2509,6 +2509,7 @@ def get_teams_with_logs_bytes_in_period(
 def get_teams_with_logs_retention_byte_days_in_period(
     begin: datetime,
     end: datetime,
+    # nosemgrep: tuple-return-prefer-dataclass -- (team_id, count) rows, the shape convert_team_usage_rows_to_dict reads
 ) -> list[tuple[int, int]]:
     """
     Returns byte-days of log retention grouped by team: ingested bytes weighted by their retention days.
