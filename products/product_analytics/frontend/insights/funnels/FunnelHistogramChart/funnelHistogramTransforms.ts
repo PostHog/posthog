@@ -1,6 +1,6 @@
 import type { Series } from '@posthog/quill-charts'
 
-import { humanFriendlyDuration } from 'lib/utils/durations'
+import { humanFriendlyDurationBinRange } from 'lib/utils/durations'
 
 import type { HistogramGraphDatum } from '~/types'
 
@@ -14,7 +14,7 @@ export const FUNNEL_HISTOGRAM_PREVIOUS_SERIES_LABEL = 'Previous'
 export interface FunnelHistogramData {
     /** One bar series per period; `data[i]` is the conversion count for bin `i`. */
     series: Series[]
-    /** Category labels — the lower bound of each duration bin, one per bar. */
+    /** Category labels — the duration range of each bin, one per bar. */
     labels: string[]
     /** Per-bar percentage label (share of total conversions), indexed to match `labels`. */
     barLabels: string[]
@@ -48,7 +48,7 @@ export function buildFunnelHistogramData(
     }
 
     return {
-        labels: histogramGraphData.map((datum) => humanFriendlyDuration(datum.bin0, { maxUnits: 2 })),
+        labels: histogramGraphData.map((datum) => humanFriendlyDurationBinRange(datum.bin0, datum.bin1)),
         barLabels: histogramGraphData.map((datum) => datum.label),
         series,
     }

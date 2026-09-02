@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { humanFriendlyDuration } from 'lib/utils/durations'
+import { humanFriendlyDuration, humanFriendlyDurationBinRange } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -13,8 +13,7 @@ type TimeToConvertColumn = LemonTableColumn<TimeToConvertCompareRow, keyof TimeT
 const timeRangeColumn: TimeToConvertColumn = {
     title: 'Time to convert',
     key: 'time_range',
-    render: (_, row) =>
-        `${humanFriendlyDuration(row.bin0, { maxUnits: 2 })} – ${humanFriendlyDuration(row.bin1, { maxUnits: 2 })}`,
+    render: (_, row) => humanFriendlyDurationBinRange(row.bin0, row.bin1),
 }
 
 const conversionsColumn: TimeToConvertColumn = {

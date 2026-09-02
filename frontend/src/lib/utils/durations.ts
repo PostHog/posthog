@@ -64,6 +64,12 @@ export function humanFriendlyDuration(
     return units.slice(0, maxUnits ?? undefined).join(' ')
 }
 
+/** Formats a histogram bin as an inclusive-lower, exclusive-upper range, e.g. "1m – 2m".
+ *  Chart and table share this so both label a bin the same way. */
+export function humanFriendlyDurationBinRange(bin0: number, bin1: number): string {
+    return `${humanFriendlyDuration(bin0, { maxUnits: 2 })} – ${humanFriendlyDuration(bin1, { maxUnits: 2 })}`
+}
+
 const threeSignificantDigits = (value: number): number =>
     Math.min(Math.max(0, 2 - Math.floor(Math.log10(Math.abs(value)))), 4)
 

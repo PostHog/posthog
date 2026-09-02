@@ -1,3 +1,5 @@
+import { humanFriendlyDurationBinRange } from 'lib/utils/durations'
+
 import type { HistogramGraphDatum } from '~/types'
 
 import {
@@ -31,10 +33,19 @@ describe('buildFunnelHistogramData', () => {
         expect(series[0].data).toEqual([12, 6, 2])
     })
 
-    it('labels each bar with the humanized lower bound of its bin', () => {
+    it('labels each bar with the humanized duration range of its bin', () => {
         const { labels } = buildFunnelHistogramData(bins)
 
-        expect(labels).toEqual(['0s', '1m', '2m'])
+        expect(labels).toEqual(['0s – 1m', '1m – 2m', '2m – 3m'])
+    })
+
+    it('labels each bar with the same range string the results table renders', () => {
+        // The table renders its "Time to convert" column via humanFriendlyDurationBinRange.
+        // Both views must label a shared bin identically, or the chart and table disagree.
+        const { labels } = buildFunnelHistogramData(bins)
+        const tableLabels = bins.map((bin) => humanFriendlyDurationBinRange(bin.bin0, bin.bin1))
+
+        expect(labels).toEqual(tableLabels)
     })
 
     it('carries the per-bin percentage labels', () => {
@@ -78,7 +89,7 @@ describe('buildFunnelHistogramData', () => {
         expect(series[1].data).toEqual([4, 5, 1])
         expect(series[1].color).toBe('#cccccc')
         // Shared bins: labels come from the (current) period's boundaries.
-        expect(labels).toEqual(['0s', '1m', '2m'])
+        expect(labels).toEqual(['0s – 1m', '1m – 2m', '2m – 3m'])
     })
 
     it('stays single-series when no previous period is provided', () => {
