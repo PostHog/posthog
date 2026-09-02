@@ -46,11 +46,7 @@ WORKFLOWS_SES_EVENTS_SNS_TOPIC_ARNS: list[str] = [
 #
 # A name holding "." or "&" is not harmless. SES rejects "Mail.ru", "Web.de" and "AT&T" with
 # BadRequestException, which fails the whole BatchGetMetricData request and hides the entire
-# breakdown rather than one row. Those are plausible providers to reach for, so keep this
-# settable, and check a new value against the API before shipping it: query SEND for the name
-# over a window VDM has data for, and treat volume as the only proof the name is real.
-SES_ISP_DIMENSIONS: list[str] = [
-    isp.strip()
-    for isp in os.getenv("SES_ISP_DIMENSIONS", "Gmail,Yahoo,Outlook,Hotmail,Apple,iCloud").split(",")
-    if isp.strip()
-]
+# breakdown rather than one row. Those are plausible providers to reach for, so check a new value
+# against the API before adding it: query SEND for the name over a window VDM has data for, and
+# treat volume as the only proof the name is real.
+SES_ISP_DIMENSIONS: list[str] = ["Gmail", "Yahoo", "Outlook", "Hotmail", "Apple", "iCloud"]
