@@ -49,6 +49,7 @@ import { writeTaskDragData } from "@posthog/ui/features/sidebar/taskDrag";
 import { SESSION_ROW_ATTRIBUTE } from "@posthog/ui/features/sidebar/useMarqueeSelection";
 import { HandoffTaskDialog } from "@posthog/ui/features/task-detail/components/HandoffTaskDialog";
 import { useMountedOnceOpened } from "@posthog/ui/hooks/useMountedOnceOpened";
+import { useNow } from "@posthog/ui/hooks/useNow";
 import {
   type DragEvent,
   type ReactNode,
@@ -175,13 +176,32 @@ function rowAuthor(
 
 /**
  * The face of whoever is working on a row, shown only while the item is live or
- * recently active — a quiet row stays clean. The wall clock is read at render;
- * rows already re-render on the list's poll, so the face fades on its own.
+ * recently active — a quiet row stays clean.
+ *
+ * Idle is decided here, once, off the clock: an item's activity time is fixed,
+ * so a row that is idle now stays idle until its item changes, and re-rendering
+ * it every minute would buy nothing. Only a row with a face to fade subscribes.
  */
 function RowPresence({ item }: { item: ChannelItemModel }) {
   const author = rowAuthor(item);
   if (!author) return null;
-  const tier = presenceTier(item.ts, Date.now());
+  if (presenceTier(item.ts, Date.now()) === "idle") return null;
+  return <ActiveRowPresence item={item} author={author} />;
+}
+
+/**
+ * Subscribed to the clock rather than reading it once: the row is memoized on
+ * its item, which a poll returning the same rows leaves untouched, so nothing
+ * else would re-render it as the live window closes and the recent one ends.
+ */
+function ActiveRowPresence({
+  item,
+  author,
+}: {
+  item: ChannelItemModel;
+  author: NonNullable<ReturnType<typeof rowAuthor>>;
+}) {
+  const tier = presenceTier(item.ts, useNow());
   if (tier === "idle") return null;
   return (
     <PresenceAvatar

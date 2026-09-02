@@ -19,6 +19,7 @@ import {
 } from "@posthog/ui/features/canvas/hooks/useUnreadSessionCount";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
+import { useNow } from "@posthog/ui/hooks/useNow";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useRef } from "react";
 import {
@@ -327,22 +328,24 @@ export function useSpaceOverview(
     ...spaceTaskPageQuery(client, spaceId),
     enabled: !!client,
   });
+  // A dependency, not `Date.now()` inline: the query keeps `data` referentially
+  // equal across polls that return the same rows, so without the clock in the
+  // memo a live dot would never fade while nobody touched the space.
+  const now = useNow();
 
   return useMemo(() => {
     if (!data) return NO_OVERVIEW;
     const live = data.tasks.filter((task) => !archivedTaskIds.has(task.id));
     return {
       people: spacePeople(live, createdBy, peopleLimit),
-      // Which of those faces are working right now. Reads the wall clock, so it
-      // resolves afresh each time the page repolls (every 30s).
-      liveUuids: liveUuidsFromTasks(live, Date.now()),
+      liveUuids: liveUuidsFromTasks(live, now),
       // A page that came back short is the whole space, so the count is exact
       // once the archived ones are dropped. A full page falls back to the
       // server's total, which excludes archived tasks — bar any this device has
       // archived and not yet mirrored.
       total: data.tasks.length < TREE_FETCH_LIMIT ? live.length : data.count,
     };
-  }, [data, archivedTaskIds, createdBy, peopleLimit]);
+  }, [data, archivedTaskIds, createdBy, peopleLimit, now]);
 }
 
 /**
@@ -377,8 +380,13 @@ const SPACE_PRESENCE_LIMIT = 3;
  * One page of the team's most recently active tasks across every space, which
  * the whole list's presence is aggregated from. Full task records are heavy, so
  * this is a short page polled slowly — presence here is "recently active", not
- * a live cursor, so a minute of lag is invisible. A slim server-side field
- * would be cheaper if this ever needs to grow.
+ * a live cursor, so a minute of lag is invisible.
+ *
+ * The page is a global cut, so it is also a bound on what can show: a space
+ * whose newest activity sits below this many newer tasks elsewhere shows no
+ * faces even inside the recent window. The task list has no date filter to ask
+ * for "the last two hours" instead, so the fix for a team that outruns this is a
+ * slim per-channel participants field on the server, not a bigger page here.
  */
 const SPACE_PRESENCE_FETCH_LIMIT = 100;
 const SPACE_PRESENCE_POLL_INTERVAL_MS = 90_000;
@@ -424,20 +432,26 @@ export function useSpacePresence(): ReadonlyMap<string, ChannelPresence> {
     staleTime: SPACE_QUERY_STALE_TIME_MS,
   });
 
+  // In the memo for the same reason `useSpaceOverview` has it: the tiers are
+  // clock-derived, and the query alone would never move them.
+  const now = useNow();
+
+  // The last object handed out per channel, so a row can be given the same one
+  // back. Entries are set in place rather than the map swapped, as the sibling
+  // cache above does; a channel that leaves the page keeps a stale entry until
+  // it returns, which costs one small object per space ever seen.
   const cache = useRef(new Map<string, ChannelPresence>());
   return useMemo(() => {
     if (!data) return NO_PRESENCE;
     const live = data.tasks.filter((task) => !archivedTaskIds.has(task.id));
-    const fresh = presenceByChannel(live, {
-      now: Date.now(),
-      limit: SPACE_PRESENCE_LIMIT,
-    });
+    const fresh = presenceByChannel(live, { now, limit: SPACE_PRESENCE_LIMIT });
     const stable = new Map<string, ChannelPresence>();
     for (const [channelId, next] of fresh) {
       const prev = cache.current.get(channelId);
-      stable.set(channelId, prev && samePresence(prev, next) ? prev : next);
+      const kept = prev && samePresence(prev, next) ? prev : next;
+      cache.current.set(channelId, kept);
+      stable.set(channelId, kept);
     }
-    cache.current = stable;
     return stable;
-  }, [data, archivedTaskIds]);
+  }, [data, archivedTaskIds, now]);
 }
