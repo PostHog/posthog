@@ -59,7 +59,7 @@ export type RecalculationStatuses = (typeof RECALCULATION_STATUSES)[keyof typeof
 // Higher rank = stronger recalculation scope. A metric-scoped rerun reuses the window (cache-hits
 // unchanged metrics); everything else advances the window and recomputes all metrics, so it wins a
 // coalesce. Unknown triggers default to the strong end so a rerun never silently under-recomputes.
-const RERUN_TRIGGER_RANK: Partial<Record<TriggerEnumApi, number>> = {
+const RERUN_TRIGGER_RANK: Partial<Record<ExperimentMetricsRecalculationTriggerEnumApi, number>> = {
     metric_config_change: 0,
     experiment_config_change: 1,
     manual: 1,
@@ -67,10 +67,13 @@ const RERUN_TRIGGER_RANK: Partial<Record<TriggerEnumApi, number>> = {
     auto_refresh: 1,
 }
 
-export const rerunTriggerRank = (trigger: TriggerEnumApi): number => RERUN_TRIGGER_RANK[trigger] ?? 1
+export const rerunTriggerRank = (trigger: ExperimentMetricsRecalculationTriggerEnumApi): number =>
+    RERUN_TRIGGER_RANK[trigger] ?? 1
 
-export const strongerRerunTrigger = (a: TriggerEnumApi, b: TriggerEnumApi): TriggerEnumApi =>
-    rerunTriggerRank(b) > rerunTriggerRank(a) ? b : a
+export const strongerRerunTrigger = (
+    a: ExperimentMetricsRecalculationTriggerEnumApi,
+    b: ExperimentMetricsRecalculationTriggerEnumApi
+): ExperimentMetricsRecalculationTriggerEnumApi => (rerunTriggerRank(b) > rerunTriggerRank(a) ? b : a)
 
 /** Transient per-metric retry state written by the calc activity between failed attempts. */
 export interface MetricRetryInfo {
@@ -185,7 +188,7 @@ export interface experimentMetricsLogicValues {
     nextRetryAt: string | null
     primaryMetricsResults: CachedNewExperimentQueryResponse[]
     primaryMetricsResultsErrors: (unknown | null)[]
-    queuedRerun: TriggerEnumApi | null
+    queuedRerun: ExperimentMetricsRecalculationTriggerEnumApi | null
     recalculatingMetricUuids: string[]
     recalculationDisplayState: 'cold' | 'initial' | 'partial' | 'refreshing' | 'resting'
     recalculationLoading: boolean
@@ -265,8 +268,8 @@ export interface experimentMetricsLogicActions {
     setPrimaryMetricsResultsErrors: (errors: (unknown | null)[]) => {
         errors: unknown[]
     }
-    setQueuedRerun: (trigger: TriggerEnumApi | null) => {
-        trigger: TriggerEnumApi | null
+    setQueuedRerun: (trigger: ExperimentMetricsRecalculationTriggerEnumApi | null) => {
+        trigger: ExperimentMetricsRecalculationTriggerEnumApi | null
     }
     setRecalculatingMetricUuids: (uuids: string[]) => {
         uuids: string[]
@@ -338,7 +341,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         setRecalculationLoading: (loading: boolean) => ({ loading }),
         // The metrics still showing a stale value while a non-cold recalc refreshes them in place.
         setRecalculatingMetricUuids: (uuids: string[]) => ({ uuids }),
-        setQueuedRerun: (trigger: TriggerEnumApi | null) => ({ trigger }),
+        setQueuedRerun: (trigger: ExperimentMetricsRecalculationTriggerEnumApi | null) => ({ trigger }),
     }),
     reducers({
         currentRecalculation: [
@@ -358,7 +361,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
         // The single pending rerun requested while a run was active. Coalesces to the stronger scope;
         // in-memory and per-tab (v1). Fired and cleared by the poll-terminal branch.
         queuedRerun: [
-            null as TriggerEnumApi | null,
+            null as ExperimentMetricsRecalculationTriggerEnumApi | null,
             {
                 setQueuedRerun: (state, { trigger }) =>
                     trigger === null || state === null ? trigger : strongerRerunTrigger(state, trigger),
