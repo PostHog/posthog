@@ -20,6 +20,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.models.organization import Organization, OrganizationMembership
 
+from products.growth.backend.enrichment.homepage import homepage_input_fields
 from products.growth.backend.models import EnrichmentPromptConfig, OrganizationEnrichmentFetch
 
 UNKNOWN: Literal["unknown"] = "unknown"
@@ -439,7 +440,12 @@ def is_unknown_output(output: dict[str, Any]) -> bool:
 
 
 def classify_payload(
-    config: EnrichmentPromptConfig, payload: dict[str, Any] | None, signup_domain: str | None, client: OpenAI
+    config: EnrichmentPromptConfig,
+    payload: dict[str, Any] | None,
+    signup_domain: str | None,
+    client: OpenAI,
+    *,
+    organization_id: Any = None,
 ) -> dict[str, Any]:
     validate_input_fields(config)
     validate_output_fields(config)
@@ -451,6 +457,10 @@ def classify_payload(
     # Checked after resolving, not before: a payload that's present but has none of the configured
     # paths would otherwise bill a call to ask the model about "Company data: {}".
     extracted = extract_input_fields(payload, config.input_fields)
+    if config.include_homepage:
+        # Never raises: degraded outcomes (not configured, busy, unreachable, no domain) come
+        # back as a homepage_fetch_outcome value, not an exception - see homepage.py.
+        extracted = {**extracted, **homepage_input_fields(organization_id, signup_domain)}
     inputs = bound_inputs(extracted)
     if not inputs:
         return unknown_output(config, signup_domain, "archived payload has none of the configured input fields")

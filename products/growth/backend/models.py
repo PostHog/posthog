@@ -175,6 +175,9 @@ class EnrichmentPromptConfig(UUIDModel):
     # the only keys a stored verdict carries — see enrichment/labels.py's build_messages /
     # _parse_custom_output. `name` is never one of them.
     output_fields = models.JSONField(default=list)
+    # When set, the runner adds homepage_summary/homepage_excerpt/homepage_fetch_outcome to this
+    # label's inputs (see enrichment/homepage.py) alongside the archived Harmonic payload above.
+    include_homepage = models.BooleanField(default=False)
     # The version the batch runner computes; at most one active row per label (enforced below).
     is_active = models.BooleanField(default=False)
     created_by = models.ForeignKey(
@@ -200,7 +203,7 @@ class EnrichmentPromptConfig(UUIDModel):
     # Bumped whenever the set of fields below changes. Stored results keep the prefix they were
     # stamped with, so adding a sixth behavior-defining field stays a readable migration rather
     # than silently making every historical prompt_hash unrecomputable.
-    CONTENT_HASH_VERSION = "v1"
+    CONTENT_HASH_VERSION = "v2"
 
     @property
     def content_hash(self) -> str:
@@ -212,6 +215,7 @@ class EnrichmentPromptConfig(UUIDModel):
                 "model": self.model,
                 "input_fields": self.input_fields,
                 "output_fields": self.output_fields,
+                "include_homepage": self.include_homepage,
             },
             sort_keys=True,
         )

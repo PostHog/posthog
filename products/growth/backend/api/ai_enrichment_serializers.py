@@ -44,6 +44,12 @@ _INPUT_FIELDS_HELP = (
     "value reaches the LLM and is then stored on the result indefinitely, so keep this list intentional."
 )
 
+_INCLUDE_HOMEPAGE_HELP = (
+    "Fetch the org's homepage via Firecrawl (cached 30 days across every label) and add "
+    "homepage_summary, homepage_excerpt, and homepage_fetch_outcome to this label's inputs, alongside the "
+    "archived Harmonic payload."
+)
+
 
 class OutputFieldSerializer(serializers.Serializer):
     key = serializers.RegexField(
@@ -131,6 +137,7 @@ class ConfigVersionSerializer(serializers.Serializer):
     model = serializers.CharField(help_text="Gateway model id this version was authored against.")
     input_fields = serializers.ListField(child=serializers.CharField(), help_text=_INPUT_FIELDS_HELP)
     output_fields = OutputFieldSerializer(many=True, help_text=_OUTPUT_FIELDS_HELP)
+    include_homepage = serializers.BooleanField(help_text=_INCLUDE_HOMEPAGE_HELP)
     is_active = serializers.BooleanField(help_text="Whether the batch runner currently computes this version.")
     created_by_email = serializers.SerializerMethodField(
         help_text="Email of the staff user who created this version, or null for system-seeded rows."
@@ -193,6 +200,7 @@ class SaveRequestSerializer(serializers.Serializer):
         child=serializers.CharField(), required=False, default=list, help_text=_INPUT_FIELDS_HELP
     )
     output_fields = OutputFieldSerializer(many=True, allow_empty=False, help_text=_OUTPUT_FIELDS_HELP)
+    include_homepage = serializers.BooleanField(required=False, default=False, help_text=_INCLUDE_HOMEPAGE_HELP)
 
     def validate_version(self, value: str) -> str:
         # The /run/ endpoint stamps every unsaved draft with exactly this string (see
@@ -224,6 +232,7 @@ class RunRequestSerializer(serializers.Serializer):
         child=serializers.CharField(), required=False, default=list, help_text=_INPUT_FIELDS_HELP
     )
     output_fields = OutputFieldSerializer(many=True, allow_empty=False, help_text=_OUTPUT_FIELDS_HELP)
+    include_homepage = serializers.BooleanField(required=False, default=False, help_text=_INCLUDE_HOMEPAGE_HELP)
     sample = serializers.IntegerField(
         required=False,
         default=DEFAULT_SAMPLE_SIZE,

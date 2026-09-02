@@ -18695,6 +18695,8 @@ export namespace Schemas {
       input_fields: string[];
       /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. At most 20 fields. */
       output_fields: OutputField[];
+      /** Fetch the org's homepage via Firecrawl (cached 30 days across every label) and add homepage_summary, homepage_excerpt, and homepage_fetch_outcome to this label's inputs, alongside the archived Harmonic payload. */
+      include_homepage: boolean;
       /** Whether the batch runner currently computes this version. */
       is_active: boolean;
       /**
@@ -75774,6 +75776,8 @@ export namespace Schemas {
       input_fields?: string[];
       /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. At most 20 fields. */
       output_fields: OutputField[];
+      /** Fetch the org's homepage via Firecrawl (cached 30 days across every label) and add homepage_summary, homepage_excerpt, and homepage_fetch_outcome to this label's inputs, alongside the archived Harmonic payload. */
+      include_homepage?: boolean;
       /**
          * Number of the most recently archived, distinct orgs to classify (1-10). Each sampled org costs one LLM call, so keep this bounded during iteration.
          * @minimum 1
@@ -76119,6 +76123,8 @@ export namespace Schemas {
       input_fields?: string[];
       /** Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]*$, be unique, and not be 'meta' or 'inputs'. At most 20 fields. */
       output_fields: OutputField[];
+      /** Fetch the org's homepage via Firecrawl (cached 30 days across every label) and add homepage_summary, homepage_excerpt, and homepage_fetch_outcome to this label's inputs, alongside the archived Harmonic payload. */
+      include_homepage?: boolean;
     }
 
     export interface SavedHeatmapCaptureRequest {

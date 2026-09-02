@@ -12,6 +12,8 @@ from django.test import SimpleTestCase
 import openai
 from parameterized import parameterized
 
+from posthog.egress.firecrawl import FirecrawlEgressBudgetExhausted, FirecrawlNotConfigured, FirecrawlScrapeFailed
+from posthog.egress.firecrawl.client import FirecrawlScrape
 from posthog.models.organization import Organization, OrganizationMembership
 
 from products.growth.backend.enrichment.labels import (
@@ -28,6 +30,7 @@ from products.growth.backend.models import EnrichmentLabelResult, EnrichmentProm
 
 _BATCH_COMMAND_MODULE = "products.growth.backend.management.commands.enrichment_label_batch"
 _DRY_RUN_COMMAND_MODULE = "products.growth.backend.management.commands.enrichment_label_dry_run"
+_HOMEPAGE_MODULE = "products.growth.backend.enrichment.homepage"
 
 
 def _mock_llm_client(
@@ -557,6 +560,74 @@ class TestEnrichmentLabelBatch(BaseTest):
 
         assert EnrichmentLabelResult.objects.filter(prompt_version="ai-pilled-clay-v1").count() == 1
         assert EnrichmentLabelResult.objects.filter(prompt_version="ai-pilled-clay-v2").count() == 1
+
+
+class TestClassifyPayloadHomepage(BaseTest):
+    def _config(self, include_homepage: bool) -> EnrichmentPromptConfig:
+        return EnrichmentPromptConfig(
+            name="test_label",
+            version="test-v1",
+            prompt_text="judge it. Email: {email}",
+            model="gpt-5-mini",
+            input_fields=["name"],
+            output_fields=[{"key": "is_ai", "type": "boolean", "description": ""}],
+            include_homepage=include_homepage,
+        )
+
+    def test_homepage_fields_are_omitted_when_the_flag_is_off(self):
+        config = self._config(include_homepage=False)
+        client = _mock_llm_client()
+
+        with patch(f"{_HOMEPAGE_MODULE}.scrape") as scrape:
+            output = classify_payload(
+                config, {"name": "Acme"}, "acme.example", client, organization_id=self.organization.id
+            )
+
+        assert "homepage_fetch_outcome" not in output["inputs"]["fields"]
+        scrape.assert_not_called()
+
+    def test_homepage_fields_are_included_when_the_flag_is_on(self):
+        config = self._config(include_homepage=True)
+        client = _mock_llm_client()
+        scraped = FirecrawlScrape(url="https://acme.example", markdown="content", summary="Acme builds AI tools.")
+
+        with patch(f"{_HOMEPAGE_MODULE}.scrape", return_value=scraped):
+            output = classify_payload(
+                config, {"name": "Acme"}, "acme.example", client, organization_id=self.organization.id
+            )
+
+        fields = output["inputs"]["fields"]
+        assert fields["homepage_fetch_outcome"] == "scraped"
+        assert fields["homepage_summary"] == "Acme builds AI tools."
+        assert fields["homepage_excerpt"] == "content"
+
+    @parameterized.expand(
+        [
+            ("not_configured", FirecrawlNotConfigured),
+            ("scrape_failed", FirecrawlScrapeFailed),
+            ("busy", FirecrawlEgressBudgetExhausted),
+        ]
+    )
+    def test_a_degraded_homepage_outcome_still_produces_a_verdict(self, _name, error):
+        config = self._config(include_homepage=True)
+        client = _mock_llm_client()
+
+        with patch(f"{_HOMEPAGE_MODULE}.scrape", side_effect=error("boom")):
+            output = classify_payload(
+                config, {"name": "Acme"}, "acme.example", client, organization_id=self.organization.id
+            )
+
+        assert output["is_ai"] is True
+        client.chat.completions.create.assert_called_once()
+
+    def test_a_missing_domain_still_produces_a_verdict(self):
+        config = self._config(include_homepage=True)
+        client = _mock_llm_client()
+
+        output = classify_payload(config, {"name": "Acme"}, None, client, organization_id=self.organization.id)
+
+        assert output["is_ai"] is True
+        assert output["inputs"]["fields"]["homepage_fetch_outcome"] == "no_domain"
 
 
 class TestSignupDomainForOrganization(BaseTest):

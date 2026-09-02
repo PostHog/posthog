@@ -230,6 +230,7 @@ class AIEnrichmentViewSet(viewsets.ViewSet):
             model=data["model"],
             input_fields=data["input_fields"],
             output_fields=data["output_fields"],
+            include_homepage=data.get("include_homepage", False),
         )
 
         items = _build_run_inputs(data["sample"])
@@ -315,6 +316,7 @@ class AIEnrichmentViewSet(viewsets.ViewSet):
                     model=data["model"],
                     input_fields=data["input_fields"],
                     output_fields=data["output_fields"],
+                    include_homepage=data.get("include_homepage", False),
                     is_active=False,
                     created_by=cast(User, request.user),
                 )

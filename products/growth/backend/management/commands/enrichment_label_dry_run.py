@@ -137,7 +137,9 @@ class Command(BaseCommand):
                 # already tolerates this) must print one ERROR row, not kill the whole sample.
                 company = fetch.payload.get("name") or fetch.organization.name
                 signup_domain = signup_domain_for_organization(fetch.organization)
-                output = classify_payload(config, fetch.payload, signup_domain, client)
+                output = classify_payload(
+                    config, fetch.payload, signup_domain, client, organization_id=fetch.organization_id
+                )
             except Exception as e:
                 errors += 1
                 company = fetch.organization.name

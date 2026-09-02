@@ -120,7 +120,7 @@ def classify_fetch_for_run(
         if not ai_processing_approved(fetch.organization_id):
             output = unknown_output(config, signup_domain, "AI processing consent was revoked mid-run")
             return company, signup_domain, output, None, {}
-        output = classify_payload(config, fetch.payload, signup_domain, client)
+        output = classify_payload(config, fetch.payload, signup_domain, client, organization_id=fetch.organization_id)
     except Exception as e:
         return company, signup_domain, None, _run_error(config, e, "classify_fetch_for_run"), inputs
     finally:

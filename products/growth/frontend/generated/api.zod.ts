@@ -35,6 +35,7 @@ export const growthAiEnrichmentRunCreateBodyOutputFieldsItemKeyRegExp = new RegE
 export const growthAiEnrichmentRunCreateBodyOutputFieldsItemDescriptionDefault = ``
 export const growthAiEnrichmentRunCreateBodyOutputFieldsItemDescriptionMax = 400
 
+export const growthAiEnrichmentRunCreateBodyIncludeHomepageDefault = false
 export const growthAiEnrichmentRunCreateBodySampleDefault = 5
 export const growthAiEnrichmentRunCreateBodySampleMax = 10
 
@@ -88,6 +89,12 @@ export const GrowthAiEnrichmentRunCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]\*$, be unique, and not be 'meta' or 'inputs'. At most 20 fields."
         ),
+    include_homepage: zod
+        .boolean()
+        .default(growthAiEnrichmentRunCreateBodyIncludeHomepageDefault)
+        .describe(
+            "Fetch the org's homepage via Firecrawl (cached 30 days across every label) and add homepage_summary, homepage_excerpt, and homepage_fetch_outcome to this label's inputs, alongside the archived Harmonic payload."
+        ),
     sample: zod
         .number()
         .min(1)
@@ -117,6 +124,8 @@ export const growthAiEnrichmentSaveCreateBodyModelMax = 128
 export const growthAiEnrichmentSaveCreateBodyOutputFieldsItemKeyRegExp = new RegExp('^[a-z][a-z0-9_]\*$')
 export const growthAiEnrichmentSaveCreateBodyOutputFieldsItemDescriptionDefault = ``
 export const growthAiEnrichmentSaveCreateBodyOutputFieldsItemDescriptionMax = 400
+
+export const growthAiEnrichmentSaveCreateBodyIncludeHomepageDefault = false
 
 export const GrowthAiEnrichmentSaveCreateBody = /* @__PURE__ */ zod.object({
     label: zod
@@ -172,5 +181,11 @@ export const GrowthAiEnrichmentSaveCreateBody = /* @__PURE__ */ zod.object({
         )
         .describe(
             "Output schema: list of {key, type, description}. type is 'boolean', 'number', or 'string'. This is the classifier's entire output contract - the label is a human name and is never an output key, so renaming a label changes nothing about what a version computes. Keys must match ^[a-z][a-z0-9_]\*$, be unique, and not be 'meta' or 'inputs'. At most 20 fields."
+        ),
+    include_homepage: zod
+        .boolean()
+        .default(growthAiEnrichmentSaveCreateBodyIncludeHomepageDefault)
+        .describe(
+            "Fetch the org's homepage via Firecrawl (cached 30 days across every label) and add homepage_summary, homepage_excerpt, and homepage_fetch_outcome to this label's inputs, alongside the archived Harmonic payload."
         ),
 })

@@ -439,7 +439,16 @@ class EnrichmentPromptConfigAdmin(admin.ModelAdmin):
             return readonly
         has_results = EnrichmentLabelResult.objects.filter(label_name=obj.name, prompt_version=obj.version).exists()
         if has_results:
-            readonly = (*readonly, "name", "version", "prompt_text", "model", "input_fields", "output_fields")
+            readonly = (
+                *readonly,
+                "name",
+                "version",
+                "prompt_text",
+                "model",
+                "input_fields",
+                "output_fields",
+                "include_homepage",
+            )
         return readonly
 
     def save_model(

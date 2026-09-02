@@ -208,7 +208,9 @@ class Command(BaseCommand):
                         counts["consent_revoked_after_attempt"] += 1
                     return
                 signup_domain = signup_domain_for_organization(fetch.organization)
-                output = classify_payload(config, fetch.payload, signup_domain, client)
+                output = classify_payload(
+                    config, fetch.payload, signup_domain, client, organization_id=fetch.organization_id
+                )
                 # Popped rather than left inline: output is stored as-is, and duplicating the
                 # inputs snapshot inside it would double-store and bloat every row.
                 inputs = output.pop("inputs", {})
