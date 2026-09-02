@@ -339,6 +339,47 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     },
 }
 
+/**
+ * Detects the caller sending a required object parameter's *contents* in place of
+ * the parameter itself — `{dateRange, limit}` where `{query: {dateRange, limit}}`
+ * was wanted. Zod strips the misplaced keys, so an unwrapped payload and an empty
+ * one both surface as the same bare `missing required parameter`, and the caller
+ * has no way to tell which mistake it made.
+ *
+ * Decided by re-parsing rather than by reading the schema, so it holds for any
+ * wrapper shape: nest the input under the missing key and see whether the schema
+ * accepts it. Confident when the wrapped value either parses to something
+ * non-empty, or fails only on paths *inside* the wrapper — both mean the nested
+ * schema recognized the content. A payload of undeclared keys parses to `{}` and
+ * is correctly rejected, as is a caller that sent nothing at all.
+ */
+function looksLikeUnwrappedPayload(
+    issuePath: ReadonlyArray<PropertyKey>,
+    input: unknown,
+    schema: ZodObjectAny | undefined
+): boolean {
+    if (!schema || issuePath.length !== 1) {
+        return false
+    }
+    const key = String(issuePath[0])
+    if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+        return false
+    }
+    const keys = Object.keys(input)
+    if (keys.length === 0 || keys.includes(key)) {
+        return false
+    }
+
+    const wrapped = schema.safeParse({ [key]: input })
+    if (wrapped.success) {
+        const nested = (wrapped.data as Record<string, unknown>)[key]
+        return typeof nested === 'object' && nested !== null && Object.keys(nested).length > 0
+    }
+    // Every remaining complaint sits under the wrapper: the nested schema read the
+    // content and rejected specific fields, so the nesting itself was the mistake.
+    return wrapped.error.issues.every((issue) => issue.path.length > 1 && String(issue.path[0]) === key)
+}
+
 /** Turns a Zod validation failure into a short, field-named message the model
  *  can act on. Without it, a missing/`undefined` path segment slips through to
  *  the HTTP layer and the API returns a generic 404 that reads as "entity does
@@ -350,11 +391,19 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
  *  key is absent without the option, and the check degrades to the wrong-type
  *  message). `reportInput` embeds raw input values in the ZodError, including
  *  its `.message` — keep the error local; never log or capture it. */
-export function formatInputValidationError(toolName: string, error: z.ZodError): string {
+export function formatInputValidationError(
+    toolName: string,
+    error: z.ZodError,
+    input?: unknown,
+    schema?: ZodObjectAny
+): string {
     const parts = error.issues.map((issue) => {
         const path = issue.path.map(String).join('.')
         if (issue.code === 'invalid_type') {
             if ('input' in issue && issue.input === undefined) {
+                if (looksLikeUnwrappedPayload(issue.path, input, schema)) {
+                    return `missing required parameter: ${path}; the fields you sent belong inside it, so resend them as {"${path}": {...}}`
+                }
                 return `missing required parameter: ${path}`
             }
             return `parameter "${path}" must be of type ${issue.expected}`
@@ -934,7 +983,7 @@ export function createExecTool(
                     // field. Dispatch the parsed output so coerced values and defaults apply.
                     const validation = toolSchema.safeParse(input, { reportInput: true })
                     if (!validation.success) {
-                        const message = formatInputValidationError(tool.name, validation.error)
+                        const message = formatInputValidationError(tool.name, validation.error, input, tool.schema)
                         trackInnerCall?.(tool.name, {
                             duration_ms: 0,
                             success: false,
