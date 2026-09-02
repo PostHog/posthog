@@ -422,7 +422,13 @@ class TestScoutReportAPI(APIBaseTest):
             created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
         TaskRun.objects.filter(pk=run.task_run_id).update(status=TaskRun.Status.COMPLETED)
 
-        with pytest.raises(InvalidScoutReportError, match="not in progress"):
+        # Bypass both pre-transaction checks so this specifically proves the locked check inside the
+        # write transaction rejects a run that terminalized while the safety judge was pending.
+        with (
+            _safe_judge(),
+            patch("products.signals.backend.scout_harness.tools.report._assert_edit_gates"),
+            pytest.raises(InvalidScoutReportError, match="not in progress"),
+        ):
             edit_report_sync(team=self.team, run=run, report_id=created["report_id"], summary="Late rewrite")
 
     def _latest_artefact(self, report_id: str, artefact_type: str) -> SignalReportArtefact | None:

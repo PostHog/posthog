@@ -1347,6 +1347,17 @@ def _do_edit_report(
     # instead of leaving the report half-changed. The side effects below (autostart, telemetry,
     # delivery) stay outside, and the `on_commit` hooks these writes register fire on this commit.
     with transaction.atomic():
+        # Cancellation also locks the TaskRun row before terminalizing it. Lock that same row through
+        # the report writes so cancellation and authorship have a defined order: if cancellation wins,
+        # this edit sees the terminal status and fails; if this edit wins, cancellation waits for it.
+        locked_run = (
+            SignalScoutRun.all_teams.select_related("task_run")
+            .select_for_update(of=("task_run",))
+            .filter(pk=run.pk, team_id=team.id)
+            .first()
+        )
+        if locked_run is None or locked_run.task_run.status != tasks_facade.TaskRunStatus.IN_PROGRESS:
+            raise InvalidScoutReportError("edit_report blocked because the task run is not in progress")
         if title is not None or summary is not None:
             updated_fields = update_scout_report(
                 team_id=team.id,
