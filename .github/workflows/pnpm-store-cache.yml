@@ -41,6 +41,8 @@ env:
 jobs:
     write:
         name: Write pnpm store (${{ matrix.runner }})
+        # The dry run installs with build scripts on a Depot runner, so it is for same-repo PRs only.
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         runs-on: ${{ matrix.runner }}
         timeout-minutes: 30
         strategy:
