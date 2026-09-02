@@ -249,7 +249,7 @@ def test_build_check_properties_cited() -> None:
         run_id="run-1",
         prompt_id="prompt-1",
         prompt_text="What is the best session replay tool?",
-        prompt_source="user_reported",
+        prompt_source="imported",
         prompt_hash="abc",
         target_domains=["posthog.com"],
     )

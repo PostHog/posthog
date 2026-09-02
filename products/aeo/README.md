@@ -8,7 +8,7 @@ Everything is built from existing machinery:
 - **Breadth (Track B)** uses Exa `/answer` — its citations are Exa's own (a proxy, not a measurement of ChatGPT/Claude behavior), useful as a cheap retrievability check and as a comparison baseline against Track A.
 - **Storage**: the citation records are ordinary events (one `$aeo_citation_check` per prompt × engine × run); the prompt set is one small Postgres table (`posthog_aeo_prompt`). No new event/ClickHouse tables.
 - **Alerting** is a per-team signals scout (see `scout/SKILL.md`) that reads those events and files inbox/Slack reports on citation-rate drops or spikes.
-- **Data handling**: `user_reported` prompts are real signup free-text (`referral_source_ai_prompt`). They are forwarded to the answer engines (Claude, OpenAI, and Exa act as sub-processors) and stored in `prompt_text`. Seeding drops any candidate longer than a real prompt (`MAX_PROMPT_LENGTH`), so an oversized capture payload cannot reach an engine. This is acceptable for the posthog.com-scoped POC; revisit the raw-text capture and egress before any rollout beyond PostHog's own team.
+- **The prompt set** is written by hand or imported from a CSV, so every prompt sent to an engine is one a person reviewed. Deriving prompts from first-party data (signup free-text, AI-landed pages, AI-crawled paths, search-console queries) is deliberately out of this POC: those sources put visitor-supplied text into a live engine call, and they need the prompt-injection handling the rest of our AI tooling has first.
 
 ## Setup
 
@@ -27,11 +27,8 @@ The scheduled task is additionally gated per team by the `aeo-citation-tracking`
 ## Usage
 
 ```bash
-# 1. Seed prompts from first-party data (add --expand to derive prompts from
-#    AI-landed and AI-crawled pages via one gateway LLM call):
-python manage.py seed_aeo_prompts --team-id <id> --expand
-
-# Add a hand-written control set (the baseline seeding must beat):
+# 1. Seed the prompt set from a CSV (a `prompt` header column, or one prompt
+#    per line). Use --csv-source manual for a hand-written set:
 python manage.py seed_aeo_prompts --team-id <id> --csv control_prompts.csv --csv-source manual
 
 # 2. Smoke test — 3 prompts, real engine calls, nothing captured:
@@ -45,15 +42,15 @@ python manage.py run_aeo_citation_checks --team-id <id>
 
 `$aeo_citation_check` — one per prompt × engine × run:
 
-| Property                                                                 | Meaning                                                                                                                           |
-| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| `aeo_run_id`, `prompt_id`, `prompt_hash`, `prompt_text`, `prompt_source` | Which prompt, from which seeding source (`user_reported`, `ai_entry_page`, `crawled_content`, `gsc_query`, `imported`, `manual`). |
-| `engine`, `model`                                                        | `claude-web-search`, `openai-web-search`, or `exa-answer`.                                                                        |
-| `cited`                                                                  | Whether a target-domain URL appears in the answer's citations.                                                                    |
-| `cited_urls`, `target_urls`, `target_best_position`, `top_cited_domains` | The citation record.                                                                                                              |
-| `retrieved_urls`, `search_queries`                                       | What the engine saw / searched (Anthropic exposes retrieved results; others don't).                                               |
-| `check_failed`, `error`                                                  | Engine failure — kept as events so the scout can tell "engine broke" from "citations disappeared".                                |
-| `cost_usd` / `gateway_trace_id`                                          | Exa cost, or the trace id joining to the gateway's `$ai_generation` event (which carries token + web-search costs).               |
+| Property                                                                 | Meaning                                                                                                             |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| `aeo_run_id`, `prompt_id`, `prompt_hash`, `prompt_text`, `prompt_source` | Which prompt, and whether it was `imported` from a CSV or written by hand (`manual`).                               |
+| `engine`, `model`                                                        | `claude-web-search`, `openai-web-search`, or `exa-answer`.                                                          |
+| `cited`                                                                  | Whether a target-domain URL appears in the answer's citations.                                                      |
+| `cited_urls`, `target_urls`, `target_best_position`, `top_cited_domains` | The citation record.                                                                                                |
+| `retrieved_urls`, `search_queries`                                       | What the engine saw / searched (Anthropic exposes retrieved results; others don't).                                 |
+| `check_failed`, `error`                                                  | Engine failure — kept as events so the scout can tell "engine broke" from "citations disappeared".                  |
+| `cost_usd` / `gateway_trace_id`                                          | Exa cost, or the trace id joining to the gateway's `$ai_generation` event (which carries token + web-search costs). |
 
 ## The join (the product thesis)
 
@@ -84,4 +81,4 @@ Roughly \$2–4/day at 50 prompts × 3 engines × 1 run/day: provider web-search
 
 ## Out of scope
 
-Sentiment/quality scoring, rank tracking, competitor share-of-voice, new ClickHouse tables, consumer-surface (web UI) checking, multi-tenant rollout.
+Seeding prompts from first-party data, sentiment/quality scoring, rank tracking, competitor share-of-voice, new ClickHouse tables, consumer-surface (web UI) checking, multi-tenant rollout.

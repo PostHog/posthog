@@ -9,26 +9,17 @@ class AEOPrompt(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDT
     One candidate question we run against answer engines to check whether the
     team's domain gets cited (AEO citation-tracking POC).
 
-    Prompts are seeded from first-party data (user-reported signup prompts,
-    AI-channel landing pages, AI-agent-crawled content, search queries) or
-    entered by hand as a control set. The runner executes every active prompt
+    Prompts are entered by hand as a control set or imported from a CSV. The
+    runner executes every active prompt
     against each configured engine and captures one `$aeo_citation_check`
     event per prompt x engine — the citation record itself lives in events,
     not in Postgres.
     """
 
     class Source(models.TextChoices):
-        # Free-text prompts users reported at signup ("what prompt led you here").
-        USER_REPORTED = "user_reported", "User reported"
-        # Derived from pages where AI-channel sessions land.
-        AI_ENTRY_PAGE = "ai_entry_page", "AI entry page"
-        # Derived from content paths AI agents crawl.
-        CRAWLED_CONTENT = "crawled_content", "Crawled content"
-        # Derived from search-console query data.
-        GSC_QUERY = "gsc_query", "Search console query"
         # Imported from a CSV (e.g. an existing AEO tool's prompt export).
         IMPORTED = "imported", "Imported"
-        # Hand-written control set, the baseline first-party seeding must beat.
+        # Hand-written control set.
         MANUAL = "manual", "Manual"
 
     # related_name="+" on both core relations: nothing outside this product may
@@ -49,12 +40,12 @@ class AEOPrompt(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDT
     prompt_source = models.CharField(
         max_length=32,
         choices=Source.choices,
-        help_text="Where this prompt came from — the seeded-vs-manual comparison is the POC's main experiment.",
+        help_text="Where this prompt came from.",
     )
     evidence = models.JSONField(
         default=dict,
         blank=True,
-        help_text="Why this prompt made the set (signup counts, entry paths, crawl counts, query clicks).",
+        help_text="Why this prompt made the set (for a CSV import, the file it came from).",
     )
     rank = models.FloatField(default=0, help_text="Seeding score; higher runs first when the set is truncated.")
     active = models.BooleanField(default=True, help_text="Only active prompts are executed by the runner.")

@@ -43,14 +43,10 @@ class Migration(migrations.Migration):
                     "prompt_source",
                     models.CharField(
                         choices=[
-                            ("user_reported", "User reported"),
-                            ("ai_entry_page", "AI entry page"),
-                            ("crawled_content", "Crawled content"),
-                            ("gsc_query", "Search console query"),
                             ("imported", "Imported"),
                             ("manual", "Manual"),
                         ],
-                        help_text="Where this prompt came from — the seeded-vs-manual comparison is the POC's main experiment.",
+                        help_text="Where this prompt came from.",
                         max_length=32,
                     ),
                 ),
@@ -59,7 +55,7 @@ class Migration(migrations.Migration):
                     models.JSONField(
                         blank=True,
                         default=dict,
-                        help_text="Why this prompt made the set (signup counts, entry paths, crawl counts, query clicks).",
+                        help_text="Why this prompt made the set (for a CSV import, the file it came from).",
                     ),
                 ),
                 (
