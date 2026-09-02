@@ -1398,6 +1398,7 @@ export type ActivityLogListParams = {
      * * `DataQualityCheck` - DataQualityCheck
      * * `Billing` - Billing
      * * `Loop` - Loop
+     * * `StamphogRepoConfig` - StamphogRepoConfig
      * @minLength 1
      */
     scope?: ActivityLogListScope
@@ -1494,6 +1495,7 @@ export const ActivityLogListScope = {
     DataQualityCheck: 'DataQualityCheck',
     Billing: 'Billing',
     Loop: 'Loop',
+    StamphogRepoConfig: 'StamphogRepoConfig',
 } as const
 
 /**
@@ -1577,6 +1579,7 @@ export const ActivityLogListScope = {
  * * `DataQualityCheck` - DataQualityCheck
  * * `Billing` - Billing
  * * `Loop` - Loop
+ * * `StamphogRepoConfig` - StamphogRepoConfig
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
@@ -1661,6 +1664,7 @@ export const ActivityLogListScopesItem = {
     DataQualityCheck: 'DataQualityCheck',
     Billing: 'Billing',
     Loop: 'Loop',
+    StamphogRepoConfig: 'StamphogRepoConfig',
 } as const
 
 export type AdvancedActivityLogsListParams = {
