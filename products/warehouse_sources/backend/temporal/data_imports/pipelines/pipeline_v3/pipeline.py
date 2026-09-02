@@ -270,6 +270,9 @@ class PipelineV3(Generic[ResumableData]):
                         workflow_id=current_workflow_id(),
                         workflow_run_id=current_workflow_run_id(),
                         sibling_run_uuids=run_uuids,
+                        # Snapshotted on the job when the run started. Empty for every run before
+                        # destinations, and every run of a team the flag is off for.
+                        destination_ids=list(self._job.destination_ids or []),
                     ),
                 )
             )

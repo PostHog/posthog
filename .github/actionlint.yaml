@@ -6,6 +6,9 @@ self-hosted-runner:
         - depot-ubuntu-24.04-4
         - depot-ubuntu-24.04-8
         - depot-macos-15
+        - depot-macos-26
+        - depot-ubuntu-24.04-arm-4
+        - depot-windows-2022-4
         - ubuntu-24.04-8core
 
 # The vendored .github/actions/paths-filter emits one output per filter name at

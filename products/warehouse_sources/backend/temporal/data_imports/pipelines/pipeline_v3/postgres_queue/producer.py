@@ -73,6 +73,7 @@ class PostgresProducer:
         workflow_id: str | None = None,
         workflow_run_id: str | None = None,
         sibling_run_uuids: list[str] | None = None,
+        destination_ids: list[str] | None = None,
     ) -> None:
         self._team_id = team_id
         self._job_id = job_id
@@ -96,6 +97,7 @@ class PostgresProducer:
         self._workflow_run_id = workflow_run_id
         # The other tables this same run writes, so superseding older attempts spares them.
         self._sibling_run_uuids = sibling_run_uuids or []
+        self._destination_ids: list[str] = list(destination_ids or [])
 
         self._conn = _connect_with_retry(database_url)
         self._batches_sent = 0
@@ -169,17 +171,17 @@ class PostgresProducer:
 
         self._conn.execute(
             f"""
-            INSERT INTO {BATCH_TABLE} (
-                team_id, schema_id, source_id, job_id, run_uuid,
-                batch_index, s3_path, row_count, byte_size, is_final_batch,
-                total_batches, total_rows, sync_type, cumulative_row_count,
-                resource_name, is_resume, is_first_ever_sync, metadata, created_at
-            ) VALUES (
-                %(team_id)s, %(schema_id)s, %(source_id)s, %(job_id)s, %(run_uuid)s,
-                %(batch_index)s, %(s3_path)s, %(row_count)s, %(byte_size)s, %(is_final_batch)s,
-                %(total_batches)s, %(total_rows)s, %(sync_type)s, %(cumulative_row_count)s,
-                %(resource_name)s, %(is_resume)s, %(is_first_ever_sync)s, %(metadata)s, now()
-            )
+        INSERT INTO {BATCH_TABLE} (
+            team_id, schema_id, source_id, job_id, run_uuid,
+            batch_index, s3_path, row_count, byte_size, is_final_batch,
+            total_batches, total_rows, sync_type, cumulative_row_count,
+            resource_name, is_resume, is_first_ever_sync, metadata, destination_ids, created_at
+        ) VALUES (
+            %(team_id)s, %(schema_id)s, %(source_id)s, %(job_id)s, %(run_uuid)s,
+            %(batch_index)s, %(s3_path)s, %(row_count)s, %(byte_size)s, %(is_final_batch)s,
+            %(total_batches)s, %(total_rows)s, %(sync_type)s, %(cumulative_row_count)s,
+            %(resource_name)s, %(is_resume)s, %(is_first_ever_sync)s, %(metadata)s, %(destination_ids)s, now()
+        )
             """,
             {
                 "team_id": self._team_id,
@@ -200,6 +202,7 @@ class PostgresProducer:
                 "is_resume": self._is_resume,
                 "is_first_ever_sync": self._is_first_ever_sync,
                 "metadata": json.dumps(metadata),
+                "destination_ids": json.dumps(self._destination_ids),
             },
         )
 

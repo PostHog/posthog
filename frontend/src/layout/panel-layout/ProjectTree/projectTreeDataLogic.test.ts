@@ -3,7 +3,6 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import { UserProductListReason } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { customProductsLogic } from './customProductsLogic'
@@ -40,8 +39,6 @@ describe('projectTreeDataLogic', () => {
                 id: 'abc',
                 product_path: 'Session replay',
                 enabled: true,
-                reason: UserProductListReason.PRODUCT_INTENT,
-                reason_text: null,
                 created_at: '2026-01-01T00:00:00Z',
                 updated_at: '2026-01-01T00:00:00Z',
             },

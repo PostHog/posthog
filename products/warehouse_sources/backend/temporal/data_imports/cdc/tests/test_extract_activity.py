@@ -997,6 +997,7 @@ class TestCDCExtractActivity:
         mock_reader.read_changes.return_value = iter([])
         mock_reader.truncated_tables = []
         mock_reader.last_rows_consumed = 0
+        mock_reader.current_position.return_value = "0/900"
         mock_adapter = MagicMock()
         mock_adapter.create_reader.return_value = mock_reader
         mock_get_adapter.return_value = mock_adapter
@@ -1004,8 +1005,10 @@ class TestCDCExtractActivity:
         inputs = CDCExtractInput(team_id=1, source_id=source.id)
         cdc_extract_activity(inputs)
 
-        # No slot advance and reader still cleaned up
-        mock_reader.confirm_position.assert_not_called()
+        # The peek examined everything up to the pre-read position and found nothing to sync, so the
+        # slot must still move. Leaving it pinned makes a busy source retain WAL on every quiet run
+        # until the lag safety net drops the slot.
+        mock_reader.confirm_position.assert_called_once_with("0/900")
         mock_reader.close.assert_called_once()
 
         # Schema marked completed even with no changes
@@ -3099,9 +3102,13 @@ class _ScriptedReader:
         self.confirmed_positions: list[str] = []
         self.on_row_calls = 0
         self.upto_nchanges_calls: list[int | None] = []
+        self.pre_read_position = "0/900"
 
     def connect(self):
         pass
+
+    def current_position(self):
+        return self.pre_read_position
 
     def get_primary_key_columns(self, schema, tables):
         return {}
@@ -3133,6 +3140,47 @@ class _ScriptedReader:
 
     def close(self):
         pass
+
+
+class TestQuietRunSlotAdvance:
+    """A run that decodes nothing releases the WAL it examined, so a quiet publication on a busy
+    source stops retaining WAL until the lag safety net drops the slot. The peek must have reached
+    the end of the backlog first: a short read leaves records below that position unexamined."""
+
+    @pytest.mark.parametrize(
+        "drained,pre_read,already_confirmed,expected_advances",
+        [
+            (True, "0/900", None, ["0/900"]),
+            (False, "0/900", None, []),
+            (True, None, None, []),
+            (True, "0/900", "0/500", []),
+        ],
+    )
+    def test_quiet_run_advance_conditions(self, drained, pre_read, already_confirmed, expected_advances):
+        source = _make_source()
+        act = _make_extract_activity(source)
+        act.cdc_schemas = [_make_schema("users", source=source)]
+        act.reader = MagicMock(last_commit_end_lsn=None)
+        act._pre_read_position = pre_read
+        act._backlog_drained = drained
+        act.last_confirmed_lsn = already_confirmed
+
+        act._handle_no_changes([])
+
+        assert [c.args[0] for c in act.reader.confirm_position.call_args_list] == expected_advances
+
+    def test_a_failed_quiet_advance_does_not_fail_the_run(self):
+        source = _make_source()
+        act = _make_extract_activity(source)
+        act.cdc_schemas = [_make_schema("users", source=source)]
+        act.reader = MagicMock(last_commit_end_lsn=None)
+        act.reader.confirm_position.side_effect = RuntimeError("slot is active for PID 42")
+        act._pre_read_position = "0/900"
+        act._backlog_drained = True
+
+        act._handle_no_changes([])
+
+        assert act.cdc_schemas[0].status == ExternalDataSchema.Status.COMPLETED
 
 
 class TestSuccessRepaintGuards:

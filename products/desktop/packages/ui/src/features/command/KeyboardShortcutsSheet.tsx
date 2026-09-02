@@ -6,7 +6,7 @@ import {
   getShortcutsByCategory,
   type ShortcutCategory,
 } from "@posthog/ui/features/command/keyboard-shortcuts";
-import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
+import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { useQuickAskShortcut } from "@posthog/ui/features/quick-ask/useQuickAskShortcut";
 import { Box, Dialog, Flex, Text } from "@radix-ui/themes";
 import { useMemo, useState } from "react";
@@ -132,14 +132,14 @@ export function KeyboardShortcutsList({
   // Several keys change owner with the layout, so the sheet has to know which
   // one is on rather than listing keys nothing handles.
   const channelsLayout = useChannelsLayout();
-  const channelReportsEnabled = useChannelReportsEnabled();
+  const inboxAvailable = useInboxAvailable();
   const shortcutsByCategory = useMemo(
     () =>
       getShortcutsByCategory({
         channelsLayout,
-        inboxEnabled: !channelReportsEnabled,
+        inboxEnabled: inboxAvailable,
       }),
-    [channelsLayout, channelReportsEnabled],
+    [channelsLayout, inboxAvailable],
   );
 
   const categoryOrder: ShortcutCategory[] = [

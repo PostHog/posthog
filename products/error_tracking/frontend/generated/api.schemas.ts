@@ -836,23 +836,26 @@ export interface PatchedErrorTrackingIssueWriteApi {
     description?: string | null
 }
 
-/**
- * Read-only serializer for issue contract types returned by the facade.
- */
-export interface PatchedErrorTrackingIssueReadApi {
-    id?: string
-    status?: string
-    /** Issue severity, or null when no severity is assigned. */
-    severity?: ErrorTrackingIssueSeverityApi | null
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    description?: string | null
-    /** @nullable */
-    first_seen?: string | null
-    assignee?: ErrorTrackingIssueAssigneeReadApi | null
-    external_issues?: ErrorTrackingExternalReferenceResultApi[]
-    cohort?: ErrorTrackingIssueCohortReadApi | null
+export type ErrorTrackingIssueAssigneeIdApi = number | string
+
+export interface ErrorTrackingIssueAssigneeWriteApi {
+    /** User ID or role UUID to assign the issue to. */
+    id: ErrorTrackingIssueAssigneeIdApi
+    /** Assignment target type: user or role.
+     *
+     * * `user` - user
+     * * `role` - role */
+    type: AssigneeTypeEnumApi
+}
+
+export interface PatchedErrorTrackingIssueAssignRequestApi {
+    /** Assignment target. Set to null or omit to remove the current assignment. */
+    assignee?: ErrorTrackingIssueAssigneeWriteApi | null
+}
+
+export interface ErrorTrackingIssueAssignResponseApi {
+    /** Whether the assignment update completed successfully. */
+    success: boolean
 }
 
 export interface ErrorTrackingIssueMergeRequestApi {
@@ -1292,7 +1295,7 @@ export const ErrorTrackingIssueStatusEnumApi = {
 
 export interface ErrorTrackingAssigneeApi {
     /** User ID or role UUID to filter by. */
-    id: string | number | null
+    id: string | number
     /** Assignee target type: user or role.
      *
      * * `user` - user

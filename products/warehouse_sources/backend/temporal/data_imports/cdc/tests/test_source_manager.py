@@ -276,6 +276,7 @@ class TestBufferedGating:
                 "unrecognized_table_mode",
                 {"job_inputs": {"cdc_ingest_mode": "buffered"}, "cdc_table_mode": "something_new"},
             ),
+            ("job_inputs_not_a_mapping", {"job_inputs": "buffered"}),
             ("still_snapshotting", {"job_inputs": {"cdc_ingest_mode": "buffered"}, "cdc_mode": "snapshot"}),
         ]
     )

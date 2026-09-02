@@ -165,13 +165,16 @@ def get_field_access_control_map(model_class: type[Model]) -> dict[str, tuple[AP
     Dynamically retrieve field-level access control requirements from model fields.
     This function looks for fields decorated with @requires_access.
     """
-    field_access_map = {}
+    field_access_map: dict[str, tuple[APIScopeObject, AccessControlLevel]] = {}
 
     # Iterate through all fields in the model
     for field in model_class._meta.get_fields():
         # Check if the field has access control metadata
         if hasattr(field, "_access_control_resource") and hasattr(field, "_access_control_level"):
-            field_access_map[field.name] = (field._access_control_resource, field._access_control_level)
+            field_access_map[field.name] = (
+                cast(APIScopeObject, field._access_control_resource),
+                cast(AccessControlLevel, field._access_control_level),
+            )
 
     return field_access_map
 
@@ -277,6 +280,9 @@ class ResolvedAccess:
     # (the source a table inherited from), so a display can name it. None when the rule is
     # resource-wide or no rule decided.
     source_resource_id: Optional[str] = None
+    # Display name of the member or role whose row decided. Enforcement never sets or reads
+    # it; the resolution preview fills it so explanations can name the deciding subject.
+    subject_name: Optional[str] = None
 
 
 def model_to_resource(model: Model) -> Optional[APIScopeObject]:
@@ -559,6 +565,7 @@ class UserAccessControl:
         """
         Adds the 3 main filter options to the query
         """
+        filters = self._db_filters(filters)
         return (
             Q(  # Access controls applying to this team
                 **filters, organization_member=None, role=None
@@ -576,6 +583,18 @@ class UserAccessControl:
                 **filters, organization_member=None, role__in=self._user_role_ids
             )
         )
+
+    @staticmethod
+    def _db_filters(filters: dict[str, Any]) -> dict[str, Any]:
+        """Replace `team__organization_id` with `team_id__in` (the org's teams) for the DB query.
+        The org id is a posthog_team column, so as a join predicate it forces a scan over every
+        org's rows. A team_id predicate uses the index on ee_accesscontrol."""
+        organization_id = filters.get("team__organization_id")
+        if organization_id is None:
+            return filters
+        db_filters = {k: v for k, v in filters.items() if k != "team__organization_id"}
+        db_filters["team_id__in"] = Team.objects.filter(organization_id=organization_id).values("id")
+        return db_filters
 
     def _can_serve_from_preload(self, filters: dict) -> bool:
         """The preloaded set is `WHERE team_id = self._team.id` (+ the OR-3 precedence), so it

@@ -35,7 +35,10 @@ The gateway experience has these pages and workflows:
 
 - **MCP servers**: Browse the catalog, search by server details, filter by category, and see connection status.
   Users with permission can add a hosted custom server and choose OAuth or API key authentication.
-  Admins can set its team availability, and eligible users can grant initial agent access.
+  Admins can set its team availability.
+  Every connection is shared with the built-in PostHog agents automatically when the connecting user may manage agent access (admins always, members while team settings allow it).
+  The add-server form picks how far that share reaches: only the user's own runs (the default), or every agent run in the project.
+  Connecting a catalog server shares it for the user's own runs; the server page widens it to the team or revokes it.
   Connecting starts the appropriate authorization flow, while an existing connection opens its configuration.
 - **Server details**: Manage a personal connection by enabling, reconnecting, disconnecting, or removing it.
   Admins can also manage team and member access.
@@ -94,6 +97,28 @@ Can't be added:
 - Servers that aren't publicly reachable — private IPs, VPN-only hosts, and internal domains are blocked by SSRF protection.
 - Non-HTTP transports (WebSocket-only) and legacy HTTP+SSE dual-endpoint servers — the probe and proxy speak streamable HTTP only.
 - Any URL that fails the probe (`speaks_mcp: false`) — never ship an unprobed URL.
+
+### Internal endpoint escape hatch
+
+Cloud operators can allow a small number of private Streamable HTTP endpoints
+for internal dogfooding with the `MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM`
+environment variable. Its value is a JSON object keyed by team ID; every entry
+must be a complete MCP URL, for example:
+
+```text
+MCP_STORE_INTERNAL_ALLOWED_URLS_BY_TEAM={"2":["http://grafana-mcp.monitoring.svc.cluster.local/mcp"]}
+```
+
+Matching is byte-for-byte and team-scoped. Configuring an endpoint does not
+allow another team, path, host, port, trailing-slash variant, or any other
+private address. Requests to an allowed endpoint bypass the process HTTP proxy on this MCP-only code path so
+cluster-local traffic is not sent to Smokescreen; the process-wide `NO_PROXY`
+configuration is unchanged.
+
+This setting only makes the endpoint reachable. Operators must separately
+restrict it with a NetworkPolicy and application authentication, and create the
+internal installation explicitly. Internal endpoints do not belong in
+`backend/catalog.py` and are never made visible in the public marketplace.
 
 Known gap: API keys are sent as `Authorization: Bearer <key>`, so servers that require a custom header (`X-API-Key`, ...) or exotic auth (signed JWTs, mTLS, IP allowlists) pass the probe but fail at first real install.
 A real end-to-end install (Gate B in the skill) is the only check that catches these.
