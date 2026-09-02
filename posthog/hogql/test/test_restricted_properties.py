@@ -3,7 +3,7 @@ from collections.abc import Iterator
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import _construct_database_root_node
+from posthog.hogql.database.database import build_database_root_node
 from posthog.hogql.database.models import StringJSONDatabaseField, Table, TableNode
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.restricted_properties import RESTRICTABLE_JSON_BLOB_COLUMNS, restricted_property_keys_for_table_type
@@ -75,7 +75,7 @@ def test_every_restrictable_blob_column_is_covered_by_a_dispatch_branch():
     context = HogQLContext(team_id=1, restricted_properties=_restrictions_covering_every_property_class())
 
     unscrubbed: set[tuple[str, str]] = set()
-    for table in _tables_in_node(_construct_database_root_node(include_posthog_tables=True)):
+    for table in _tables_in_node(build_database_root_node(include_posthog_tables=True)):
         for candidate in _with_nested_tables(table):
             for column in _restrictable_blob_columns(candidate):
                 group_match = _GROUP_PROPERTIES_COLUMN.fullmatch(column)
