@@ -19,6 +19,12 @@ const BASE_AI_CHANNELS: TicketChannel[] = ['widget', 'email', 'slack']
 /** Kept in sync with SUPPORT_SLACK_FILE_SCOPES in products/conversations/backend/support_slack.py. */
 const SLACK_FILE_SCOPES = ['files:read', 'files:write']
 
+/** The email endpoints explain why a request failed, so show that instead of a generic message. */
+function emailErrorMessage(error: unknown, fallback: string): string {
+    const failure = error as { data?: { error?: string }; detail?: string } | null
+    return failure?.data?.error || failure?.detail || fallback
+}
+
 export function aiAllChannelsForFeatureFlags(featureFlags: Record<string, boolean | string>): TicketChannel[] {
     const channels: TicketChannel[] = [...BASE_AI_CHANNELS]
     if (featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_TEAMS_ENABLED]) {
@@ -1396,8 +1402,8 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                     },
                 })
                 lemonToast.success('Email address connected')
-            } catch {
-                lemonToast.error('Failed to connect email')
+            } catch (error) {
+                lemonToast.error(emailErrorMessage(error, 'Failed to connect email. Please try again.'))
                 actions.connectEmailDone(null)
             }
         },
@@ -1445,8 +1451,8 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 } else {
                     lemonToast.warning('Domain not yet verified. Please check your DNS records and try again.')
                 }
-            } catch {
-                lemonToast.error('Failed to verify domain')
+            } catch (error) {
+                lemonToast.error(emailErrorMessage(error, 'Failed to verify domain. Please try again.'))
                 actions.verifyEmailDomainDone(configId, false, null)
             }
         },
@@ -1458,8 +1464,8 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 })
                 actions.sendTestEmailDone(configId)
                 lemonToast.success(`Test email sent to ${response.sent_to}`)
-            } catch {
-                lemonToast.error('Failed to send test email. Check SMTP settings.')
+            } catch (error) {
+                lemonToast.error(emailErrorMessage(error, 'Failed to send test email. Check SMTP settings.'))
                 actions.sendTestEmailDone(configId)
             }
         },

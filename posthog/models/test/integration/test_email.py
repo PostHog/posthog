@@ -78,7 +78,7 @@ class TestEmailIntegrationDomainValidation(BaseTest):
             EmailIntegration.create_native_integration(
                 config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
             )
-        assert "not supported" in str(exc.value)
+        assert "gmail.com" in str(exc.value)
 
         # Test with a disposable email domain
         disposable_domain = next(iter(disposable_email_domains_list))
@@ -89,7 +89,6 @@ class TestEmailIntegrationDomainValidation(BaseTest):
                 config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
             )
         assert disposable_domain in str(exc.value)
-        assert "not supported" in str(exc.value)
 
     @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
     def test_cross_org_guard_blocks_mixed_case_domain(self, mock_create_email_domain):
@@ -141,7 +140,7 @@ class TestEmailIntegrationDomainValidation(BaseTest):
                 organization_id=str(self.organization.id),
                 created_by=self.user,
             )
-        assert "not supported" in str(exc.value)
+        assert email.split("@")[1].lower() in str(exc.value)
 
 
 class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):

@@ -42,7 +42,10 @@ class EmailIntegration:
         provider: str = config.get("provider", "ses")
 
         if domain in free_email_domains_list or domain in disposable_email_domains_list:
-            raise ValidationError(f"Email domain {domain} is not supported. Please use a custom domain.")
+            raise ValidationError(
+                f"We can't send email from {domain}. Sending needs DNS records on a domain you own, "
+                "so use an address like hello@yourcompany.com."
+            )
 
         # Check if any other integration already exists in a different team with the same domain,
         # if so, ensure this team is part of the same organization. If not, we block creation.
