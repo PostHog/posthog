@@ -113,6 +113,24 @@ class NewReportMatch:
 MatchResult = ExistingReportMatch | NewReportMatch
 
 
+def build_split_report_match(signal_description: str, specificity: SpecificityMetadata) -> NewReportMatch:
+    """Build the new report for a signal a group rejected on specificity.
+
+    The title and the summary both come from this signal. A split child never mixes one
+    finding's title with another finding's summary, so a reviewer lands on the right problem.
+    """
+    description = signal_description.strip()
+    title = description.split("\n", 1)[0].strip()
+    return NewReportMatch(
+        title=title,
+        summary=description,
+        match_metadata=NoMatchMetadata(
+            reason=f'PR-specificity rejected: "{specificity.pr_title}" — {specificity.reason}',
+            specificity_rejection=specificity,
+        ),
+    )
+
+
 @dataclass
 class TeamSignalGroupingInput:
     """Inputs for the team signal grouping entity workflow."""
