@@ -64,6 +64,9 @@ _MAX_DESCRIPTION_LENGTH = 1_000
 _MAX_PROMPT_LENGTH = 20_000
 _MAX_RATIONALE_LENGTH = 500
 _MAX_DRAFT_TAGS = 12
+# Every drafted vocabulary ends with this catch-all. The response schema forces at least one tag, so
+# without one a session the dimension does not describe is pushed into the least wrong real category.
+_NOT_APPLICABLE_TAG = "N/A"
 _DEFAULT_SCALE = (0, 10)
 # Draft-only sanity bounds. Create accepts any min < max, but a drafted scale outside every plausible
 # rubric (0-10, 1-5, 0-100) is model noise, not intent, so it falls back to the default.
@@ -372,7 +375,8 @@ Pick the single type that best fits the goal, then draft the scanner:
   is about (e.g. a checkout question when most sessions never open checkout), so those sessions aren't
   forced into a no.
 - For classifiers: 4-8 lowercase snake_case tags that are distinct, non-overlapping categories along the
-  dimension. No vague catch-alls ("other", "misc").
+  dimension. No vague catch-alls ("other", "misc", "n/a"): an "N/A" category is added for you, and it
+  covers the sessions the dimension does not describe.
 - filter_screens / filter_events: when the goal targets one specific flow, screen, or feature, narrow which
   sessions get scanned: up to 1 screen and up to 2 events a session must include, each copied EXACTLY from
   the briefing's screens and custom events lists (anything not in those lists is discarded). The filters
@@ -581,8 +585,16 @@ def _normalized_config(parsed: _LlmDraft) -> dict[str, Any]:
             scanner_config["allow_inconclusive"] = True
     elif parsed.scanner_type == "classifier":
         # Order-preserving dedup of slugified tags, dropping anything that slugs to empty.
-        tags = list(dict.fromkeys(s for t in parsed.tags if (s := slugify_tag(t))))[:_MAX_DRAFT_TAGS]
-        scanner_config["tags"] = tags
+        tags = list(dict.fromkeys(s for t in parsed.tags if (s := slugify_tag(t))))
+        # The catch-all goes last and is never a duplicate of a drafted tag, so a session the
+        # dimension does not describe has somewhere to land.
+        na_slug = slugify_tag(_NOT_APPLICABLE_TAG)
+        tags = [t for t in tags if t != na_slug][: _MAX_DRAFT_TAGS - 1]
+        # The catch-all can't stand in for a vocabulary, so a draft that lost every real tag still fails
+        # here rather than opening the wizard on a classifier that only ever answers "N/A".
+        if not tags:
+            raise DraftError("draft config invalid: classifier has no categories")
+        scanner_config["tags"] = [*tags, _NOT_APPLICABLE_TAG]
         scanner_config["multi_label"] = parsed.multi_label
     elif parsed.scanner_type == "scorer":
         scale_min, scale_max = parsed.scale_min, parsed.scale_max
@@ -769,7 +781,8 @@ Pick the single type that best fits the goal, then draft the scanner:
   is about (e.g. a checkout question when most sessions never open checkout), so those sessions aren't
   forced into a no.
 - For classifiers: 4-8 lowercase snake_case tags that are distinct, non-overlapping categories along the
-  dimension. No vague catch-alls ("other", "misc").
+  dimension. No vague catch-alls ("other", "misc", "n/a"): an "N/A" category is added for you, and it
+  covers the sessions the dimension does not describe.
 - filter_pages and filter_events: which sessions get scanned. Two ways to narrow, and you can use
   either or both.
   - filter_pages: the pages list is what the product actually calls things, so map the goal's words

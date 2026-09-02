@@ -155,8 +155,15 @@ class TestFinalize:
             )
         )
 
-        assert result.scanner_config["tags"] == ["pricing_page", "abandoned_cart"]
+        assert result.scanner_config["tags"] == ["pricing_page", "abandoned_cart", "N/A"]
         assert result.scanner_config["multi_label"] is True
+
+    def test_classifier_always_gets_one_catch_all_category_last(self):
+        # A session the dimension does not describe needs somewhere to land, and a catch-all the model
+        # drafted itself must not end up alongside the one added here.
+        result = _finalize(_draft(scanner_type="classifier", tags=["browsing", "n/a", "purchasing"]))
+
+        assert result.scanner_config["tags"] == ["browsing", "purchasing", "N/A"]
 
     @pytest.mark.parametrize(
         "scale_min,scale_max",
@@ -456,7 +463,7 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
             "scanner_type": "classifier",
             "scanner_config": {
                 "prompt": "Classify the session by primary user intent.",
-                "tags": ["browsing", "purchasing"],
+                "tags": ["browsing", "purchasing", "N/A"],
                 "multi_label": False,
             },
             "rationale": "A classifier fits because you want the mix of visit intents, not a single yes/no.",

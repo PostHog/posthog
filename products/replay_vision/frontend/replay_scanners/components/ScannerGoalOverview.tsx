@@ -160,7 +160,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
 
     return (
         <div className="flex flex-col gap-3">
-            <OverviewSection label="What it understood" scannerId={scannerId}>
+            <OverviewSection label="Agent overview" scannerId={scannerId}>
                 <div className="text-sm">{goalDraft?.rationale?.trim() || scanner.description}</div>
             </OverviewSection>
 
@@ -346,7 +346,7 @@ function ScannerGoalOverviewSkeleton(): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
             <DraftLoadingBar />
-            {['What it understood', 'Name', 'What it will ask', 'Eligible recordings', 'Sampling and budget'].map(
+            {['Agent overview', 'Name', 'What it will ask', 'Eligible recordings', 'Sampling and budget'].map(
                 (label) => (
                     <div key={label} className="bg-bg-light border rounded-lg p-4 space-y-2">
                         <div className="text-xs text-tertiary uppercase tracking-wide">{label}</div>
