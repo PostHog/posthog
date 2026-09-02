@@ -37,9 +37,29 @@ class Migration(migrations.Migration):
                         choices=[
                             ("admin", "Django admin"),
                             ("provisioning", "Provisioning"),
+                            ("retry", "Retry"),
                         ],
                         default="admin",
                         max_length=32,
+                    ),
+                ),
+                (
+                    "scope",
+                    models.CharField(
+                        choices=[
+                            ("entire_organization", "Entire organization"),
+                            ("selected_views", "Selected views"),
+                        ],
+                        default="entire_organization",
+                        max_length=32,
+                    ),
+                ),
+                (
+                    "selected_saved_query_ids",
+                    models.JSONField(
+                        blank=True,
+                        default=list,
+                        encoder=django.core.serializers.json.DjangoJSONEncoder,
                     ),
                 ),
                 (
@@ -89,6 +109,16 @@ class Migration(migrations.Migration):
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="+",
                         to="posthog.organization",
+                    ),
+                ),
+                (
+                    "retry_of",
+                    models.ForeignKey(
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="retry_jobs",
+                        to="managed_warehouse.managedwarehouseviewtranslationjob",
                     ),
                 ),
             ],

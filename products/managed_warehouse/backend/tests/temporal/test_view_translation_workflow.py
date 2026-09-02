@@ -1,6 +1,8 @@
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.schema import HogQLQuery
@@ -117,6 +119,73 @@ class TestManagedWarehouseViewTranslationActivities(BaseTest):
         ]
         assert job.status == ManagedWarehouseViewTranslationJob.Status.RUNNING
         assert job.total_count == 2
+
+    def test_prepare_snapshots_only_selected_views(self) -> None:
+        second_team = Team.objects.create(organization=self.organization)
+        unselected = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="unselected_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+        )
+        selected = DataWarehouseSavedQuery.objects.create(
+            team=second_team,
+            name="selected_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 2"},
+        )
+        job = ManagedWarehouseViewTranslationJob.objects.create(
+            organization=self.organization,
+            scope=ManagedWarehouseViewTranslationJob.Scope.SELECTED_VIEWS,
+            selected_saved_query_ids=[str(selected.id)],
+        )
+
+        with (
+            patch(
+                "products.managed_warehouse.backend.temporal.view_translation_workflow.get_ready_trino_catalog_name",
+                return_value="managed_catalog",
+            ),
+            patch(
+                "products.managed_warehouse.backend.temporal.view_translation_workflow.list_org_team_memberships",
+                return_value=[_membership(self.team, enabled=True), _membership(second_team, enabled=True)],
+            ),
+        ):
+            preparation = self.activity_environment.run(
+                prepare_managed_warehouse_view_translation_activity,
+                str(job.id),
+            )
+
+        results = ManagedWarehouseViewTranslationResult.all_teams.filter(job=job)
+        assert preparation.team_ids == (second_team.id,)
+        assert list(results.values_list("saved_query_id", flat=True)) == [selected.id]
+        assert not results.filter(saved_query_id=unselected.id).exists()
+
+    def test_prepare_rejects_a_selected_view_outside_enabled_organization_teams(self) -> None:
+        disabled_team = Team.objects.create(organization=self.organization)
+        selected = DataWarehouseSavedQuery.objects.create(
+            team=disabled_team,
+            name="disabled_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+        )
+        job = ManagedWarehouseViewTranslationJob.objects.create(
+            organization=self.organization,
+            scope=ManagedWarehouseViewTranslationJob.Scope.SELECTED_VIEWS,
+            selected_saved_query_ids=[str(selected.id)],
+        )
+
+        with (
+            patch(
+                "products.managed_warehouse.backend.temporal.view_translation_workflow.get_ready_trino_catalog_name",
+                return_value="managed_catalog",
+            ),
+            patch(
+                "products.managed_warehouse.backend.temporal.view_translation_workflow.list_org_team_memberships",
+                return_value=[_membership(disabled_team, enabled=False)],
+            ),
+            pytest.raises(ApplicationError, match="unavailable or are not enabled"),
+        ):
+            self.activity_environment.run(
+                prepare_managed_warehouse_view_translation_activity,
+                str(job.id),
+            )
 
     def test_compile_continues_after_failures_and_preserves_saved_queries(self) -> None:
         saved_queries = [

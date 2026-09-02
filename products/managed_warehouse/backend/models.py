@@ -163,6 +163,11 @@ class ManagedWarehouseViewTranslationJob(CreatedMetaFields, UpdatedMetaFields, U
     class TriggerSource(models.TextChoices):
         ADMIN = "admin", "Django admin"
         PROVISIONING = "provisioning", "Provisioning"
+        RETRY = "retry", "Retry"
+
+    class Scope(models.TextChoices):
+        ENTIRE_ORGANIZATION = "entire_organization", "Entire organization"
+        SELECTED_VIEWS = "selected_views", "Selected views"
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
@@ -186,6 +191,15 @@ class ManagedWarehouseViewTranslationJob(CreatedMetaFields, UpdatedMetaFields, U
         db_constraint=False,
     )
     trigger_source = models.CharField(max_length=32, choices=TriggerSource.choices, default=TriggerSource.ADMIN)
+    scope = models.CharField(max_length=32, choices=Scope.choices, default=Scope.ENTIRE_ORGANIZATION)
+    selected_saved_query_ids = models.JSONField(default=list, blank=True, encoder=DjangoJSONEncoder)
+    retry_of = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="retry_jobs",
+    )
     status = models.CharField(max_length=32, choices=Status.choices, default=Status.PENDING)
     workflow_id = models.CharField(max_length=400, null=True, blank=True)
     workflow_run_id = models.CharField(max_length=400, null=True, blank=True)

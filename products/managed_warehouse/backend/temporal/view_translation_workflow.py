@@ -63,17 +63,45 @@ def prepare_managed_warehouse_view_translation_activity(job_id: str) -> ViewTran
         raise RuntimeError("The managed warehouse team membership service is unavailable")
 
     enabled_team_ids = {membership.team_id for membership in memberships if membership.enabled}
-    team_ids = tuple(
+    enabled_org_team_ids = tuple(
         Team.objects.filter(id__in=enabled_team_ids, organization_id=organization_id)
         .order_by("id")
         .values_list("id", flat=True)
     )
-    saved_queries = list(
-        DataWarehouseSavedQuery.objects.filter(team_id__in=team_ids, deleted=False)
+    saved_queries_query = (
+        DataWarehouseSavedQuery.objects.filter(team_id__in=enabled_org_team_ids, deleted=False)
         .exclude(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
         .only("id", "team_id", "name", "query", "is_materialized")
         .order_by("team_id", "id")
     )
+    if job.scope == ManagedWarehouseViewTranslationJob.Scope.ENTIRE_ORGANIZATION:
+        if job.selected_saved_query_ids:
+            raise ApplicationError(
+                "An organization-wide translation job cannot contain selected view IDs",
+                non_retryable=True,
+            )
+        saved_queries = list(saved_queries_query)
+        team_ids = enabled_org_team_ids
+    elif job.scope == ManagedWarehouseViewTranslationJob.Scope.SELECTED_VIEWS:
+        if not isinstance(job.selected_saved_query_ids, list) or not job.selected_saved_query_ids:
+            raise ApplicationError("The translation job does not contain selected view IDs", non_retryable=True)
+        try:
+            selected_saved_query_ids = {UUID(str(value)) for value in job.selected_saved_query_ids}
+        except (TypeError, ValueError) as error:
+            raise ApplicationError(
+                "The translation job contains an invalid selected view ID",
+                non_retryable=True,
+            ) from error
+        saved_queries = list(saved_queries_query.filter(id__in=selected_saved_query_ids))
+        if {saved_query.id for saved_query in saved_queries} != selected_saved_query_ids:
+            raise ApplicationError(
+                "One or more selected views are unavailable or are not enabled for this organization",
+                non_retryable=True,
+            )
+        team_ids = tuple(sorted({saved_query.team_id for saved_query in saved_queries}))
+    else:
+        raise ApplicationError(f"Unsupported translation scope: {job.scope}", non_retryable=True)
+
     results = [
         ManagedWarehouseViewTranslationResult(
             job=job,
