@@ -147,6 +147,7 @@ export function useUpdateLoopHogFlow(loopId: string) {
         existing,
         formValuesToHogFlowWrite(values, {
           enabled: existing.status === "active",
+          existing,
         }),
       );
       return applyHogFlowToCache(queryClient, loopsClient, flow);

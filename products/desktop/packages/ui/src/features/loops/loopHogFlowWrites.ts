@@ -12,6 +12,18 @@ import type { LoopSchemas } from "@posthog/api-client/loops";
 import type { LoopHogFlowWrite } from "./loopHogFlowMapping";
 import { hogFlowScheduleMatches } from "./loopScheduleRRule";
 
+/** The graph saved but the schedule row did not follow. The loop is live with
+ * its old cadence (or none), so the person has to save again. */
+export class LoopScheduleSaveError extends Error {
+  readonly cause: unknown;
+
+  constructor(cause: unknown) {
+    super("Loop saved, but its schedule didn't update.");
+    this.name = "LoopScheduleSaveError";
+    this.cause = cause;
+  }
+}
+
 /**
  * The request sequences behind saving a workflow-backed loop. A loop is a
  * workflow plus, for a schedule trigger, one schedule row; these keep the two
@@ -63,12 +75,31 @@ export async function updateLoopHogFlow(
   existing: Pick<Schemas.HogFlow, "id" | "schedules">,
   write: LoopHogFlowWrite,
 ): Promise<Schemas.HogFlow> {
-  // Status is owned by the enable toggle, and the origin tag is immutable
-  // after create, so neither travels with an edit.
-  const { status: _status, origin_product: _origin, ...content } = write.flow;
+  // Status is owned by the enable toggle, the origin tag is immutable after
+  // create, and the exit condition may have been changed in the workflow
+  // editor, so none of them travel with an edit.
+  const {
+    status: _status,
+    origin_product: _origin,
+    exit_condition: _exit,
+    ...content
+  } = write.flow;
   const flow = await patchHogFlow(client, projectId, existing.id, content);
-  const current = existing.schedules?.[0];
+  try {
+    return await reconcileSchedule(client, projectId, existing, flow, write);
+  } catch (error) {
+    throw new LoopScheduleSaveError(error);
+  }
+}
 
+async function reconcileSchedule(
+  client: ApiClient,
+  projectId: string,
+  existing: Pick<Schemas.HogFlow, "id" | "schedules">,
+  flow: Schemas.HogFlow,
+  write: LoopHogFlowWrite,
+): Promise<Schemas.HogFlow> {
+  const current = existing.schedules?.[0];
   if (!write.schedule) {
     for (const schedule of existing.schedules ?? []) {
       await deleteHogFlowSchedule(client, projectId, existing.id, schedule.id);

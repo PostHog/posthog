@@ -77,6 +77,7 @@ function flowFromWrite(
     updated_at: "2026-09-02T08:00:00Z",
     created_by: { id: 5 },
     actions: flow.actions,
+    edges: flow.edges,
     schedules: schedule
       ? [
           {
@@ -156,6 +157,12 @@ describe("loopHogFlowMapping", () => {
           {
             key: "event_type",
             value: ["pull_request"],
+            operator: "exact",
+            type: "event",
+          },
+          {
+            key: "actor_access",
+            value: ["write"],
             operator: "exact",
             type: "event",
           },
@@ -338,10 +345,10 @@ describe("loopHogFlowMapping", () => {
 
   it.each([
     [
-      "an actor filter added in the workflow editor",
+      "a specific-people filter added in the workflow editor",
       {
-        key: "actor_access",
-        value: ["write"],
+        key: "sender",
+        value: ["octocat"],
         operator: "exact",
         type: "event",
       },
@@ -440,5 +447,55 @@ describe("loopHogFlowMapping", () => {
       created_at: "2026-09-02T09:00:00Z",
       completed_at: null,
     });
+  });
+
+  it("marks a GitHub loop open to anyone as foreign", () => {
+    const flow = flowFromWrite(githubValues());
+    const trigger = (flow.actions as Array<Record<string, unknown>>)[0];
+    const filters = (trigger.config as Record<string, unknown>).filters as {
+      properties: Record<string, unknown>[];
+    };
+    filters.properties = filters.properties.filter(
+      (property) => property.key !== "actor_access",
+    );
+    expect(isLoopShapedHogFlow(flow)).toBe(false);
+  });
+
+  it("marks a graph with an extra edge as foreign", () => {
+    const flow = flowFromWrite(scheduleValues());
+    (flow.edges as unknown[]).push({
+      from: "trigger",
+      to: "exit",
+      type: "continue",
+    });
+    expect(isLoopShapedHogFlow(flow)).toBe(false);
+  });
+
+  it("keeps task inputs the form does not manage when rewriting an existing flow", () => {
+    const existing = flowFromWrite(
+      scheduleValues({
+        repositories: [{ github_integration_id: 7, full_name: "example/app" }],
+      }),
+    );
+    const inputs = taskAction(existing).config as {
+      inputs: Record<string, unknown>;
+    };
+    inputs.inputs.max_parallel_tasks = { value: 2 };
+    inputs.inputs.title = { value: "Triage" };
+
+    const { flow } = formValuesToHogFlowWrite(
+      scheduleValues({ instructions: "Updated prompt", repositories: [] }),
+      { enabled: true, existing },
+    );
+    expect(flow.actions[1].config).toMatchObject({
+      inputs: {
+        prompt: { value: "Updated prompt" },
+        max_parallel_tasks: { value: 2 },
+        title: { value: "Triage" },
+      },
+    });
+    expect(
+      (flow.actions[1].config as { inputs: object }).inputs,
+    ).not.toHaveProperty("repository");
   });
 });

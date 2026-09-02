@@ -1,4 +1,4 @@
-import { TextArea } from "@radix-ui/themes";
+import { Textarea } from "@posthog/quill";
 import type { LoopFormValues } from "../loopFormTypes";
 import { Field } from "./LoopFormPrimitives";
 import { LoopTeamSkillsFields } from "./LoopTeamSkillsFields";
@@ -20,7 +20,7 @@ export function LoopWorkflowPromptFields({
   return (
     <>
       <Field label="Instructions" required>
-        <TextArea
+        <Textarea
           value={values.instructions}
           placeholder="Summarize failing CI runs from the last 24 hours and post the summary to #eng-standup."
           disabled={disabled}
