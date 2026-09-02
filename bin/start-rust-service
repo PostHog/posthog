@@ -363,6 +363,9 @@ case "$RS_SVC" in
     export KAFKA_HOSTS="${KAFKA_HOSTS:-localhost:9092}"
     export KAFKA_PERSON_STATE_TOPIC=personhog_updates
     export FALLBACK_DATABASE_URL="postgres://posthog:posthog@${PGHOST:-localhost}:${PGPORT:-5432}/posthog_persons"
+    # Pair with the identity service's and the writer's default table, or
+    # leader cache misses read a table the identity never wrote.
+    export FALLBACK_TABLE="${FALLBACK_TABLE:-personhog_person_tmp}"
     export METRICS_PORT=9102
     ;;
 
