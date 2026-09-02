@@ -58,6 +58,7 @@ _REQUIRED_NOTE_SCOPES = ("signal_scout:write", "llm_skill:write")
 # format change degrades to forwarding the whole prompt rather than dropping the note.
 _PROMPT_PREFIXES = (
     "let's discuss this posthog inbox report:",
+    "answer this question about the posthog inbox report at ",
     "a user sent this about the posthog inbox report at ",
 )
 

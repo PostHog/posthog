@@ -224,7 +224,7 @@ The fleet's reviewer map should compound over time.
 
 Rewrite `title`/`summary`, append a note, set `suggested_reviewers`, and/or replace `charts` / `suggested_prompts` on a report that already exists.
 Pass `run_id` (the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`, `suggested_reviewers`, `charts`, `suggested_prompts`.
-An edit that supplies content (`title`, `summary`, `charts`, `suggested_prompts`) passes the same safety judge as `emit_report`; an unsafe edit is rejected whole and the report keeps what it had.
+An edit that supplies content (`title`, `summary`, `charts`, `suggested_prompts`, `append_note`) passes the same safety judge as `emit_report`; an unsafe edit is rejected whole and the report keeps what it had.
 
 `edit_report` can target **any** of the team's inbox reports — not just ones a scout authored.
 That makes it the right tool when a later run learns something about a report the pipeline (or another scout) created.

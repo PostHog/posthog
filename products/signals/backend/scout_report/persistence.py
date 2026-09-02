@@ -313,12 +313,17 @@ def update_scout_report(
     title: str | None = None,
     summary: str | None = None,
     attribution: ArtefactAttribution | None = None,
+    reviewed: bool = False,
 ) -> list[str]:
     """Rewrite an existing report's `title`/`summary` in place (the `edit_report` content path).
 
     Team-scoped fail-closed: a `report_id` the team doesn't own raises, never silently no-ops. Returns
     the modified field names. Title/summary edits are best-effort authorship — the pipeline may later
     re-research and overwrite them (decision #6); that is documented in the scout-facing contract.
+
+    `reviewed=True` means the caller ran the safety judge over exactly this title/summary before
+    calling (the `edit_report` tool path), so the save re-embeds the report instead of retracting its
+    embedding. The default keeps unjudged callers fail-closed.
 
     When `attribution` is supplied and the content actually changes, a typed `title_change` /
     `summary_change` artefact is appended to the report's work log for each edited field, recording the
@@ -340,10 +345,12 @@ def update_scout_report(
         old_title, old_summary = report.title, report.summary
         updated_fields = report.update_authored_content(title=title, summary=summary)
         if updated_fields:
-            # Agent-authored text that the safety judge has not seen; the report's existing verdict was
-            # reached on the text this edit replaces. Marking the save retracts the report's embedding
-            # rather than indexing unreviewed content under a stale approval (see receivers.py).
-            report._unreviewed_edit = True  # type: ignore[attr-defined]
+            if not reviewed:
+                # Agent-authored text that the safety judge has not seen; the report's existing verdict
+                # was reached on the text this edit replaces. Marking the save retracts the report's
+                # embedding rather than indexing unreviewed content under a stale approval (see
+                # receivers.py).
+                report._unreviewed_edit = True  # type: ignore[attr-defined]
             report.save(update_fields=updated_fields)
             if attribution is not None:
                 edit_artefacts: list[TitleChange | SummaryChange] = []

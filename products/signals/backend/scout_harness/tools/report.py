@@ -1359,12 +1359,16 @@ def _do_edit_report(
         if locked_run is None or locked_run.task_run.status != tasks_facade.TaskRunStatus.IN_PROGRESS:
             raise InvalidScoutReportError("edit_report blocked because the task run is not in progress")
         if title is not None or summary is not None:
+            # `reviewed=True`: the entrypoints ran the safety judge over exactly this title/summary
+            # before funneling here, so the save re-embeds the report instead of tombstoning its
+            # embedding as an unreviewed rewrite would.
             updated_fields = update_scout_report(
                 team_id=team.id,
                 report_id=report_id,
                 title=title,
                 summary=summary,
                 attribution=attribution,
+                reviewed=True,
             )
         # Replace the report's `suggested_reviewers` status artefact (latest-wins). This is the routing
         # fix — a report authored without a reviewer (so it routes to no one) can have one added after

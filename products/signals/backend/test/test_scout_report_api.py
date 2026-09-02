@@ -227,17 +227,20 @@ class TestScoutReportAPI(APIBaseTest):
         config.output_destinations = {"slack": {"integration_id": 17, "channel": "CSCOUTS|#scout-findings"}}
         config.save(update_fields=["output_destinations"])
         with (
-            _safe_judge(choice=False, explanation="prompt injection"),
             patch(EMBED_PATH),
             patch("products.signals.backend.scout_harness.tools.report.queue_configured_scout_slack_delivery") as queue,
         ):
-            emitted = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json")
+            # The emit's unsafe verdict suppresses the report; the edit itself passes the judge — the
+            # gate under test is the report's status, not the edit's content.
+            with _safe_judge(choice=False, explanation="prompt injection"):
+                emitted = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json")
             report_id = emitted.json()["report_id"]
-            edited = self.client.post(
-                self._edit_url(str(run.id)),
-                data={"report_id": report_id, "append_note": "note on a suppressed report"},
-                format="json",
-            )
+            with _safe_judge():
+                edited = self.client.post(
+                    self._edit_url(str(run.id)),
+                    data={"report_id": report_id, "append_note": "note on a suppressed report"},
+                    format="json",
+                )
         assert emitted.status_code == status.HTTP_200_OK, emitted.json()
         assert edited.status_code == status.HTTP_200_OK, edited.json()
         queue.assert_not_called()
@@ -291,11 +294,12 @@ class TestScoutReportAPI(APIBaseTest):
         run = _make_run(self.team)
         with _safe_judge(), patch(EMBED_PATH):
             created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
-        response = self.client.post(
-            self._edit_url(str(run.id)),
-            data={"report_id": created["report_id"], "title": "new title", "append_note": "re-validated"},
-            format="json",
-        )
+        with _safe_judge():
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": created["report_id"], "title": "new title", "append_note": "re-validated"},
+                format="json",
+            )
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert "title" in response.json()["updated_fields"]
         assert response.json()["note_appended"] is True
@@ -311,11 +315,12 @@ class TestScoutReportAPI(APIBaseTest):
         with _safe_judge(), patch(EMBED_PATH):
             created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
         report_id = created["report_id"]
-        for title in ("first edit", "second edit"):
-            response = self.client.post(
-                self._edit_url(str(run.id)), data={"report_id": report_id, "title": title}, format="json"
-            )
-            assert response.status_code == status.HTTP_200_OK, response.json()
+        with _safe_judge():
+            for title in ("first edit", "second edit"):
+                response = self.client.post(
+                    self._edit_url(str(run.id)), data={"report_id": report_id, "title": title}, format="json"
+                )
+                assert response.status_code == status.HTTP_200_OK, response.json()
         run.refresh_from_db()
         assert run.edited_report_ids == [report_id]
         # The run link on the report's work log dedupes the same way: emit linked the run once, and
@@ -335,13 +340,14 @@ class TestScoutReportAPI(APIBaseTest):
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="pipeline report")
         first_run = _make_run(self.team)
         second_run = _make_run(self.team)
-        for i, run in enumerate((first_run, second_run)):
-            response = self.client.post(
-                self._edit_url(str(run.id)),
-                data={"report_id": str(report.id), "append_note": f"scout context {i}"},
-                format="json",
-            )
-            assert response.status_code == status.HTTP_200_OK, response.json()
+        with _safe_judge():
+            for i, run in enumerate((first_run, second_run)):
+                response = self.client.post(
+                    self._edit_url(str(run.id)),
+                    data={"report_id": str(report.id), "append_note": f"scout context {i}"},
+                    format="json",
+                )
+                assert response.status_code == status.HTTP_200_OK, response.json()
         artefacts = SignalReportArtefact.objects.filter(
             report_id=report.id, type=SignalReportArtefact.ArtefactType.TASK_RUN
         ).order_by("created_at")
@@ -527,6 +533,7 @@ class TestScoutReportAPI(APIBaseTest):
             queued_before_autostart.append(bool(queued_output_ids))
 
         with (
+            _safe_judge(),
             patch(CONNECTED_REPOS_PATH, return_value=_CONNECTED_REPOS),
             patch(
                 "products.signals.backend.scout_harness.tools.report.queue_configured_scout_slack_delivery",
@@ -557,6 +564,7 @@ class TestScoutReportAPI(APIBaseTest):
             created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
         report_id = created["report_id"]
         with (
+            _safe_judge(),
             patch(CONNECTED_REPOS_PATH, return_value=_CONNECTED_REPOS),
             patch(
                 "products.signals.backend.scout_harness.tools.report.get_scout_report_status",
@@ -591,6 +599,7 @@ class TestScoutReportAPI(APIBaseTest):
             created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
         report_id = created["report_id"]
         with (
+            _safe_judge(),
             patch(
                 "products.signals.backend.scout_harness.tools.report._refresh_inferred_repository",
                 side_effect=RuntimeError("repo cache unavailable"),
@@ -786,15 +795,16 @@ class TestScoutReportAPI(APIBaseTest):
             created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
         report_id = created["report_id"]
         original_title = SignalReport.objects.get(id=report_id).title
-        response = self.client.post(
-            self._edit_url(str(run.id)),
-            data={
-                "report_id": report_id,
-                "title": "should not stick",
-                "suggested_reviewers": [{"user_uuid": str(uuid4())}],
-            },
-            format="json",
-        )
+        with _safe_judge():
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": report_id,
+                    "title": "should not stick",
+                    "suggested_reviewers": [{"user_uuid": str(uuid4())}],
+                },
+                format="json",
+            )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert SignalReport.objects.get(id=report_id).title == original_title
 

@@ -27,6 +27,11 @@ class TestExtractQuestion(SimpleTestCase):
         [
             ("strips_url_prefix", _PROMPT, "Is this still happening?"),
             ("strips_action_capable_prefix", _ACTION_PROMPT, "Create the alert this report recommends"),
+            (
+                "strips_answer_this_question_prefix",
+                "Answer this question about the PostHog Inbox report at https://x.example/r/1:\n\nIs it fixed?",
+                "Is it fixed?",
+            ),
             ("no_prefix_returns_whole", "Why does stripe not sync?", "Why does stripe not sync?"),
             ("single_newline_still_strips_prefix", "Let's discuss this PostHog Inbox report: x\nWhy?", "Why?"),
             ("prefix_with_no_question_returns_blank", "Let's discuss this PostHog Inbox report: x\n\n   ", ""),
