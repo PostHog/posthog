@@ -62,16 +62,16 @@ const FAILING_STATUSES = ['failed', 'errored']
  * raises. Kept short because it sits beside the status tag, which already says it failed.
  */
 export function failingForLabel(
-    check: Pick<DataQualityCheckApi, 'last_status' | 'last_succeeded_at'>,
+    check: Pick<DataQualityCheckApi, 'last_status' | 'last_succeeded_at' | 'failing_since'>,
     now: Dayjs = dayjs()
 ): string | null {
     if (!FAILING_STATUSES.includes(check.last_status ?? '')) {
         return null
     }
-    if (!check.last_succeeded_at) {
-        return 'never passed'
+    if (check.failing_since) {
+        return `for ${dayjs(check.failing_since).from(now, true)}`
     }
-    return `for ${dayjs(check.last_succeeded_at).from(now, true)}`
+    return check.last_succeeded_at ? null : 'never passed'
 }
 
 export function checkTypeLabel(checkType: string): string {
