@@ -191,20 +191,6 @@ struct BuilderConfig {
     /// repaired stops counting as the team's previous observation.
     #[envconfig(from = "FLAGS_CACHE_SHADOW_MISMATCH_TTL", default = "86400")]
     shadow_mismatch_ttl_seconds: u64,
-
-    /// The shortest gap between the two observations that can confirm a mismatch,
-    /// which is the lower bound on the window the TTL bounds above. Two
-    /// invalidations for one team that fall just outside
-    /// `FLAGS_CACHE_COALESCE_WINDOW_MS` become two builds a fraction of a second
-    /// apart, and a row that is written between their two Postgres reads then
-    /// confirms as a parity defect. Sized above one cohort recalculation episode,
-    /// which holds `is_calculating` for seconds to minutes, and far below the TTL
-    /// so a quiet team still confirms persistent drift.
-    #[envconfig(
-        from = "FLAGS_CACHE_SHADOW_MIN_CONFIRM_INTERVAL_SECONDS",
-        default = "60"
-    )]
-    shadow_min_confirm_interval_seconds: u64,
 }
 
 /// All offsets and timing for a single team's coalesced invalidations. Generic
@@ -388,7 +374,6 @@ async fn consume_loop(
     let mismatch_tracker = MismatchTracker::new(
         redis_client,
         Duration::from_secs(cfg.shadow_mismatch_ttl_seconds),
-        Duration::from_secs(cfg.shadow_min_confirm_interval_seconds),
     );
 
     loop {
@@ -1269,7 +1254,7 @@ mod tests {
     ) -> feature_flags::flags::cache_shadow::ShadowObservation {
         use common_redis::{MockRedisClient, MockRedisValue};
         use feature_flags::flags::cache_shadow::{
-            diff_live_entry, MismatchTracker, ShadowLiveEntry,
+            diff_live_entry, MismatchTracker, ShadowLiveEntry, MIN_CONFIRM_INTERVAL,
         };
         use feature_flags::flags::flag_models::{
             EvaluationMetadata, FeatureFlag, HypercacheFlagsWrapper,
@@ -1301,12 +1286,9 @@ mod tests {
         };
 
         let ttl = StdDuration::from_secs(3600);
-        // The second observation has to sit at least this far past the first, or
-        // the confirmation window is still closed and nothing confirms.
-        let min_confirm = StdDuration::from_secs(60);
         let first_at = SystemTime::UNIX_EPOCH + StdDuration::from_secs(1_000);
         let redis = MockRedisClient::new();
-        let first = MismatchTracker::new(Arc::new(redis.clone()), ttl, min_confirm)
+        let first = MismatchTracker::new(Arc::new(redis.clone()), ttl)
             .observe(1, diff_live_entry(&built, &live), first_at)
             .await;
         if !confirmed {
@@ -1321,8 +1303,14 @@ mod tests {
                 next.get_ret(&call.key, Ok(value));
             }
         }
-        MismatchTracker::new(Arc::new(next), ttl, min_confirm)
-            .observe(1, diff_live_entry(&built, &live), first_at + min_confirm)
+        // The second observation has to sit at least MIN_CONFIRM_INTERVAL past the
+        // first, or the confirmation window is still closed and nothing confirms.
+        MismatchTracker::new(Arc::new(next), ttl)
+            .observe(
+                1,
+                diff_live_entry(&built, &live),
+                first_at + MIN_CONFIRM_INTERVAL,
+            )
             .await
     }
 

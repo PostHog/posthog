@@ -473,6 +473,20 @@ const STORE_TIMEOUT: Duration = Duration::from_millis(500);
 /// some builds and not others.
 const MAX_STORED_FINGERPRINTS: usize = 256;
 
+/// The shortest gap between two observations that can confirm a mismatch, which is
+/// the lower bound on the window `FLAGS_CACHE_SHADOW_MISMATCH_TTL` bounds above.
+/// Two invalidations for one team that fall just outside
+/// `FLAGS_CACHE_COALESCE_WINDOW_MS` become two builds a fraction of a second apart,
+/// and a row written between their two Postgres reads then confirms as a parity
+/// defect. Sized above one cohort recalculation episode, which holds
+/// `is_calculating` for seconds to minutes, and far below the TTL so a quiet team
+/// still confirms persistent drift.
+///
+/// A constant where the TTL beside it is a setting, because this bound tunes shadow
+/// telemetry on a path that never writes the cache and never serves a request. A
+/// change to it can wait for a deploy of this binary.
+pub const MIN_CONFIRM_INTERVAL: Duration = Duration::from_secs(60);
+
 /// The tracker's stored state for one team: each fingerprint from the team's last
 /// shadow build, against the time the first build that saw it observed it.
 ///
@@ -539,7 +553,7 @@ async fn with_timeout<T>(
 }
 
 /// Repeat-offender suppression: a mismatch counts only when the tracker has held
-/// the same fingerprint for at least `min_confirm_interval`, across builds no more
+/// the same fingerprint for at least `MIN_CONFIRM_INTERVAL`, across builds no more
 /// than `ttl` apart. A shadow build races Python's own rebuild of the same team,
 /// so a single-shot mismatch is expected noise; Python repairs the entry and the
 /// next shadow build of the team comes back clean, clearing the pending state.
@@ -565,26 +579,17 @@ pub struct MismatchTracker {
     /// The same client the hypercache writer and reader use.
     redis: Arc<dyn Client + Send + Sync>,
     ttl: Duration,
-    min_confirm_interval: Duration,
 }
 
 impl MismatchTracker {
-    pub fn new(
-        redis: Arc<dyn Client + Send + Sync>,
-        ttl: Duration,
-        min_confirm_interval: Duration,
-    ) -> Self {
-        Self {
-            redis,
-            ttl,
-            min_confirm_interval,
-        }
+    pub fn new(redis: Arc<dyn Client + Send + Sync>, ttl: Duration) -> Self {
+        Self { redis, ttl }
     }
 
     /// Fold one shadow build's diffs into the store and split them into confirmed
     /// and first-sight. A diff confirms when its fingerprint was also in the
     /// team's previous, unexpired observation *and* that observation is at least
-    /// `min_confirm_interval` old. An empty `diffs` clears the team's pending
+    /// `MIN_CONFIRM_INTERVAL` old. An empty `diffs` clears the team's pending
     /// state.
     ///
     /// `now` comes from the caller rather than from a clock read here, so the
@@ -665,7 +670,7 @@ impl MismatchTracker {
 
         // `saturating_sub` covers a stored time ahead of this pod's clock, which
         // resolves to no elapsed time and therefore to first sight.
-        let min_interval = self.min_confirm_interval.as_secs();
+        let min_interval = MIN_CONFIRM_INTERVAL.as_secs();
         let (confirmed, first_sight) = diffs.into_iter().partition(|d| {
             prior
                 .get(&d.fingerprint)
@@ -1142,7 +1147,6 @@ mod tests {
     }
 
     const TRACKER_TTL: Duration = Duration::from_secs(3600);
-    const MIN_CONFIRM_INTERVAL: Duration = Duration::from_secs(60);
     const PENDING_KEY_TEAM_7: &str = "posthog:1:feature_flags/shadow_mismatch/7";
 
     /// A wall clock reading `secs` after the epoch. The tracker compares the
@@ -1187,7 +1191,7 @@ mod tests {
     }
 
     fn tracker(redis: &MockRedisClient) -> MismatchTracker {
-        MismatchTracker::new(Arc::new(redis.clone()), TRACKER_TTL, MIN_CONFIRM_INTERVAL)
+        MismatchTracker::new(Arc::new(redis.clone()), TRACKER_TTL)
     }
 
     /// The store as the team's next shadow build finds it, in a new process.
