@@ -15,18 +15,20 @@ on:
         branches:
             - master
     schedule:
-        # Hourly jest run against the newest master state. Master pushes no longer run
-        # jest per commit — the merge queue's trunk-merge/** run already gated every
-        # commit before it landed — so this is where master's jest coverage and its
-        # Trunk flaky-test baseline come from. Typecheck, format and bundle size stay
-        # on every push, because they are cheap and per-commit meaningful.
+        # Where master's jest coverage and its Trunk flaky-test baseline come from.
+        # The merge queue's trunk-merge/** run gates every commit before it lands, so
+        # the push lane does not repeat the suite. Typecheck, format and bundle size
+        # run on every push instead, being cheap and per-commit meaningful.
         # Offset from the other hourly CI crons so the runs do not all fire at once.
         - cron: '7 * * * *'
 
 concurrency:
-    # Scheduled runs share the ref group with master pushes and do not cancel, so a
-    # slow hourly run queues the next one instead of stacking runs.
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # The hourly lane gets its own group, so it queues behind itself rather than
+    # behind master pushes. Sharing the ref group would let a slow hourly run hold
+    # the group while pushes pile up pending, and GitHub keeps only the newest
+    # pending run per group — so the older push, and its per-commit checks, would
+    # be dropped.
+    group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'scheduled' || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:

@@ -296,6 +296,18 @@ Crons are offset so the runs do not all fire at once, and the offsets live here 
 
 Adding a seventh: pick an unused minute, add the row, and keep the gap at ten minutes.
 
+**Give the cron its own concurrency group.**
+`cancel-in-progress` is false outside pull requests, but GitHub still keeps at most one _pending_ run per group, so a newer run replaces an older pending one.
+An hourly run that shares the ref group with master pushes therefore holds the group for its whole duration while pushes queue behind it, and each new push discards the previous pending one along with whatever per-commit checks it carried.
+
+```yaml
+group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'scheduled' || github.head_ref || github.ref }}
+```
+
+That keeps hourly runs queueing behind each other rather than stacking, and leaves push behavior untouched.
+`ci-backend.yml` reaches the same place from the other side: its push arm is already keyed per SHA, so pushes never share a group with the cron.
+Prefer the `'scheduled'` key when the push lane still runs real per-commit work, because a per-SHA push arm also gives up the deduplication that collapses a burst of master pushes into one run.
+
 **The paths filter must be skipped on `schedule`, and every output it feeds must default to `true`.**
 On a cron the action has nothing to diff against: it gets no `base` input, so base resolves to the default branch and equals head, and `before` is set only on push events.
 It falls back to the last commit alone, so one docs-only commit narrows the hourly run to nothing and reports green having tested almost nothing — a silent failure, not a red one.

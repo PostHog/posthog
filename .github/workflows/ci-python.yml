@@ -6,9 +6,9 @@ on:
             - master
     pull_request:
     schedule:
-        # Hourly run against the newest master state. Master pushes no longer run the
-        # checks per commit — the merge queue's trunk-merge/** run already gated every
-        # commit before it landed — so this is where master's coverage comes from.
+        # Where master's coverage for these checks comes from. The merge queue's
+        # trunk-merge/** run gates every commit before it lands, so the push lane does
+        # not repeat them.
         # Offset from the other hourly CI crons so the runs do not all fire at once.
         - cron: '43 * * * *'
 
@@ -17,7 +17,12 @@ permissions:
     pull-requests: read
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # The hourly lane gets its own group, so it queues behind itself rather than
+    # behind master pushes. Sharing the ref group would let a slow hourly run hold
+    # the group while pushes pile up pending, and GitHub keeps only the newest
+    # pending run per group — so the older push, and its per-commit checks, would
+    # be dropped.
+    group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'scheduled' || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
