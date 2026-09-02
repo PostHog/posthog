@@ -298,6 +298,14 @@ def get_scout_report_title(*, team_id: int, report_id: str) -> str | None:
     return SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("title", flat=True).first()
 
 
+def scout_report_exists(*, team_id: int, report_id: str) -> bool:
+    """Team-scoped existence check for the edit path's pre-judge gate. Validates the id shape the way
+    the write paths do, so a malformed id is a caller error rather than an uncaught 500. A cost gate
+    only — the write paths keep their own fail-closed resolution under their transactions."""
+    _validate_report_id(report_id)
+    return SignalReport.objects.filter(team_id=team_id, id=report_id).exists()
+
+
 def get_scout_report_status(*, team_id: int, report_id: str) -> SignalReport.Status | None:
     """Team-scoped status lookup, for the edit path's Slack-delivery gate: only a surfaced report may
     have its content pushed to a configured destination, matching emit. Returns None when the report
@@ -374,10 +382,11 @@ def update_scout_report(
             # embedding row may be a tombstone from an earlier unreviewed edit, and only a save marked
             # as re-indexable lets the receiver restore it (see receivers.py). The receiver cannot see
             # whether the row is live, so this spends one re-embed of identical text when it was — a
-            # judged re-send is rare, and a supersede write is cheap. No change artefacts: nothing
-            # changed.
+            # judged re-send is rare, and a supersede write is cheap. No change artefacts, and
+            # `updated_at` stays out of the save: nothing changed, so the report must not jump the
+            # inbox's recency ordering or read as edited.
             report._reviewed_reindex = True  # type: ignore[attr-defined]
-            report.save(update_fields=["title", "summary", "updated_at"])
+            report.save(update_fields=["title", "summary"])
 
     logger.info(
         "signals_scout.edit_report: content updated",

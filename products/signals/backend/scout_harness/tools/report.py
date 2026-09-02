@@ -76,6 +76,7 @@ from products.signals.backend.scout_report import (
     get_scout_report_title,
     record_report_edit,
     record_scout_run_task_artefact,
+    scout_report_exists,
     set_report_charts,
     set_report_suggested_prompts,
     set_scout_report_inferred_repository,
@@ -460,21 +461,25 @@ def _build_suggested_reviewers(
         entries_by_login.setdefault(scout_entry.github_login, scout_entry)
     entries = list(entries_by_login.values())[:MAX_SUGGESTED_REVIEWERS]
 
-    # Stamp owner provenance on picks that match a current owner. Recomputed from the live owner set
-    # every call, so a former owner picked as a plain reviewer isn't left flagged (which would keep
-    # excluding them from autostart identity). This marks identity eligibility only; it never adds,
-    # removes, or reorders a reviewer.
-    owners = _owner_logins(team, skill_name) if skill_name else set()
-    if owners:
-        entries = [
-            e
-            if e.github_login not in owners
-            else SuggestedReviewerEntry(github_login=e.github_login, reason=e.reason, is_skill_owner=True)
-            for e in entries
-        ]
-
     if not entries:
         return None
+    # Stamp owner provenance on picks that match a current owner (see `_stamp_owner_provenance`).
+    return _stamp_owner_provenance(team, SuggestedReviewers(root=entries), skill_name=skill_name)
+
+
+def _stamp_owner_provenance(team: Team, reviewers: SuggestedReviewers, *, skill_name: str | None) -> SuggestedReviewers:
+    """Stamp `is_skill_owner` on picks that match a current skill owner, from the live owner set.
+
+    Recomputed on every call, in both directions: a fresh owner gets the stamp and a former owner
+    picked as a plain reviewer loses it (a stale True would keep excluding them from autostart
+    identity). This marks identity eligibility only; it never adds, removes, or reorders a reviewer.
+    Applied at build time AND re-applied at the write inside `_do_edit_report`'s transaction — the
+    safety-judge call sits between the two, and autostart trusts the stored stamp, so an owner added
+    during that wait must not slip through as an identity candidate.
+    """
+    owners = _owner_logins(team, skill_name) if skill_name else set()
+    # model_copy keeps every other field (name, commit evidence) exactly as the entry carries it.
+    entries = [e.model_copy(update={"is_skill_owner": e.github_login in owners}) for e in reviewers.root]
     return SuggestedReviewers(root=entries)
 
 
@@ -1134,6 +1139,12 @@ async def emit_report(
         if surfaced
         else None
     )
+    if surfaced and reviewers is not None:
+        # Re-stamp owner provenance from the live owner set after the judge wait (see
+        # `_stamp_owner_provenance`) — autostart trusts the stored stamp.
+        reviewers = await database_sync_to_async(_stamp_owner_provenance, thread_sensitive=False)(
+            team, reviewers, skill_name=run.skill_name
+        )
     persisted = await database_sync_to_async(create_scout_report, thread_sensitive=False)(
         team_id=team.id,
         title=title,
@@ -1147,7 +1158,10 @@ async def emit_report(
         priority=priority_assessment if surfaced else None,
         suggested_reviewers=reviewers if surfaced else None,
         charts=chart_contents,
-        suggested_prompts=prompt_contents,
+        # A judged-unsafe report keeps its prose for audit, but not its prompts: a suppressed report
+        # is still reachable from the Dismissed view, where a click would hand the judge-rejected
+        # wording to an action-capable agent run.
+        suggested_prompts=prompt_contents if judgement.safety.choice else (),
         # Don't index the backing observations of a safety-suppressed (unsafe) report — they'd
         # otherwise become semantic-search / matching context despite never surfacing.
         emit_signals=judgement.safety.choice,
@@ -1263,6 +1277,10 @@ def emit_report_sync(
         if surfaced
         else None
     )
+    if surfaced and reviewers is not None:
+        # Re-stamp owner provenance from the live owner set after the judge wait (see
+        # `_stamp_owner_provenance`) — autostart trusts the stored stamp.
+        reviewers = _stamp_owner_provenance(team, reviewers, skill_name=run.skill_name)
     persisted = create_scout_report(
         team_id=team.id,
         title=title,
@@ -1276,7 +1294,10 @@ def emit_report_sync(
         priority=priority_assessment if surfaced else None,
         suggested_reviewers=reviewers if surfaced else None,
         charts=chart_contents,
-        suggested_prompts=prompt_contents,
+        # A judged-unsafe report keeps its prose for audit, but not its prompts: a suppressed report
+        # is still reachable from the Dismissed view, where a click would hand the judge-rejected
+        # wording to an action-capable agent run.
+        suggested_prompts=prompt_contents if judgement.safety.choice else (),
         # Don't index the backing observations of a safety-suppressed (unsafe) report — they'd
         # otherwise become semantic-search / matching context despite never surfacing.
         emit_signals=judgement.safety.choice,
@@ -1367,6 +1388,11 @@ def _do_edit_report(
                 attribution=attribution,
                 reviewed=title is not None and summary is not None,
             )
+        # Re-stamp owner provenance from the live owner set at the write: the safety-judge call sits
+        # between resolution and this transaction, autostart trusts the stored stamp, and an owner
+        # added during that wait must not remain an identity candidate.
+        if reviewers is not None:
+            reviewers = _stamp_owner_provenance(team, reviewers, skill_name=run.skill_name)
         # Replace the report's `suggested_reviewers` status artefact (latest-wins). This is the routing
         # fix — a report authored without a reviewer (so it routes to no one) can have one added after
         # the fact. `reviewers` is None for empty/all-blank input, which leaves existing ones untouched.
@@ -1550,12 +1576,8 @@ def _assert_edit_gates(team: Team, run: SignalScoutRun, report_id: str) -> None:
         raise InvalidScoutReportError("edit_report blocked because the task run is not in progress")
     # A malformed or foreign report_id must fail here, before the judge LLM call — a hallucinating
     # or retrying scout would otherwise pay full judge latency per bad id only to 400 at the write.
-    # Cost gate only: the write path re-resolves the report team-scoped under its own transaction.
-    try:
-        uuid.UUID(str(report_id))
-    except (ValueError, AttributeError, TypeError):
-        raise InvalidScoutReportError(f"report_id is not a valid UUID: {report_id!r}")
-    if not SignalReport.objects.filter(team_id=team.id, id=report_id).exists():
+    # Cost gate only, owned by the scout_report service like every other report read.
+    if not scout_report_exists(team_id=team.id, report_id=report_id):
         raise InvalidScoutReportError(f"report {report_id} not found for team {team.id}")
 
 

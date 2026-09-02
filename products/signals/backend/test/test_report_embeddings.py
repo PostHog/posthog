@@ -371,6 +371,8 @@ class TestReportEmbeddingReceiver(BaseTest):
             report.save(update_fields=["title", "updated_at"])
         assert self.tombstone.call_count == 1
         self.embed.reset_mock()
+        report.refresh_from_db()
+        updated_at_before = report.updated_at
         with self.captureOnCommitCallbacks(execute=True):
             update_scout_report(
                 team_id=self.team.id,
@@ -381,6 +383,9 @@ class TestReportEmbeddingReceiver(BaseTest):
             )
         assert self.embed.call_count == 1
         assert self.embed.call_args.kwargs["content"] == REPORT_DOCUMENT
+        # Nothing changed, so the report must not jump the inbox's recency ordering.
+        report.refresh_from_db()
+        assert report.updated_at == updated_at_before
 
     @parameterized.expand([("no_verdicts", []), ("cascading_verdicts", [False, True])])
     def test_hard_deleting_a_report_retracts_it_exactly_once(self, _name: str, verdicts: list[bool]) -> None:
