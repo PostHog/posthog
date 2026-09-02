@@ -1221,6 +1221,20 @@ class SignalReportViewSet(
         # Filters on the `priority_rank` annotation, which must be applied first.
         # Reports without a priority artefact (coalesced to "~") are excluded when this filter is set.
         priority_filter = self.request.query_params.get("priority")
+        if not priority_filter and self.request.query_params.get("use_priority_preference", "false").lower() == "true":
+            user = cast(User, self.request.user)
+            personal_threshold = (
+                SignalUserAutonomyConfig.objects.filter(user=user).values_list("autostart_priority", flat=True).first()
+            )
+            project_threshold = (
+                SignalTeamConfig.objects.filter(team=self.team)
+                .values_list("default_autostart_priority", flat=True)
+                .first()
+                or AutonomyPriority.P4
+            )
+            threshold = personal_threshold or project_threshold
+            values = AutonomyPriority.values[: AutonomyPriority.values.index(threshold) + 1]
+            return queryset.filter(priority_rank__in=values)
         if not priority_filter:
             return queryset
 
@@ -1764,6 +1778,16 @@ class SignalReportViewSet(
                 description=(
                     "Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. "
                     "Reports without a priority assignment are excluded when this filter is set."
+                ),
+            ),
+            OpenApiParameter(
+                name="use_priority_preference",
+                type=OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "When true and priority is omitted, include priorities at or above the requesting user's "
+                    "personal PR-generation threshold, falling back to the project threshold."
                 ),
             ),
             OpenApiParameter(

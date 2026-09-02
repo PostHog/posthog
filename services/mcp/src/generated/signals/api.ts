@@ -117,6 +117,12 @@ export const SignalsReportsListQueryParams = /* @__PURE__ */ zod.object({
         .optional()
         .describe("Only reports associated with this task (via the report's task associations)."),
     teammate_uuid: zod.string().optional().describe('PostHog user UUID used when scope=teammate.'),
+    use_priority_preference: zod
+        .boolean()
+        .optional()
+        .describe(
+            "When true and priority is omitted, include priorities at or above the requesting user's personal PR-generation threshold, falling back to the project threshold."
+        ),
     view: zod
         .string()
         .optional()

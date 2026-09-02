@@ -2,7 +2,8 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "limit": {
-            "maximum": 100,
+            "default": 10,
+            "maximum": 10,
             "minimum": 1,
             "type": "integer"
         },
@@ -12,6 +13,7 @@
             "type": "integer"
         },
         "priorities": {
+            "description": "Priorities to include. When omitted, uses the requesting user's personal PR-generation threshold, falling back to the project threshold.",
             "items": {
                 "enum": ["P0", "P1", "P2", "P3", "P4"],
                 "type": "string"

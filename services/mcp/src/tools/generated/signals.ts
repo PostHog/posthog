@@ -222,14 +222,14 @@ const inboxReportsBulkSetState = (): ToolBase<
     },
 })
 
-const InboxReportsGetInboxSchema = ReportInboxInputSchema
+const SelfDrivingInboxGetSchema = ReportInboxInputSchema
 
-const inboxReportsGetInbox = (): ToolBase<typeof InboxReportsGetInboxSchema, Schemas.PaginatedSignalReportList> => ({
-    name: 'inbox-reports-get-inbox',
-    schema: InboxReportsGetInboxSchema,
-    handler: async (context: Context, params: z.infer<typeof InboxReportsGetInboxSchema>) => {
+const selfDrivingInboxGet = (): ToolBase<typeof SelfDrivingInboxGetSchema, Schemas.PaginatedSignalReportList> => ({
+    name: 'self-driving-inbox-get',
+    schema: SelfDrivingInboxGetSchema,
+    handler: async (context: Context, params: z.infer<typeof SelfDrivingInboxGetSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const parsedParams = InboxReportsGetInboxSchema.parse(params)
+        const parsedParams = SelfDrivingInboxGetSchema.parse(params)
         const result = await context.api.request<Schemas.PaginatedSignalReportList>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/`,
@@ -308,6 +308,7 @@ const inboxReportsList = (): ToolBase<
                 suggested_reviewers: params.suggested_reviewers,
                 task_id: params.task_id,
                 teammate_uuid: params.teammate_uuid,
+                use_priority_preference: params.use_priority_preference,
                 view: params.view,
             },
         })
@@ -1848,7 +1849,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-report-artefacts-retrieve': inboxReportArtefactsRetrieve,
     'inbox-report-artefacts-update': inboxReportArtefactsUpdate,
     'inbox-reports-bulk-set-state': inboxReportsBulkSetState,
-    'inbox-reports-get-inbox': inboxReportsGetInbox,
+    'self-driving-inbox-get': selfDrivingInboxGet,
     'inbox-reports-list': inboxReportsList,
     'inbox-reports-retrieve': inboxReportsRetrieve,
     'inbox-reports-set-state': inboxReportsSetState,

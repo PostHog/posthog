@@ -189,12 +189,17 @@ export const ReportInboxInputSchema = z
             .default('entire_project')
             .describe('Limit results by suggested reviewer, or search the entire project.'),
         teammate_uuid: z.string().uuid().optional().describe('PostHog user UUID required when scope is teammate.'),
-        priorities: z.array(z.enum(['P0', 'P1', 'P2', 'P3', 'P4'])).optional(),
+        priorities: z
+            .array(z.enum(['P0', 'P1', 'P2', 'P3', 'P4']))
+            .optional()
+            .describe(
+                "Priorities to include. When omitted, uses the requesting user's personal PR-generation threshold, falling back to the project threshold."
+            ),
         source_products: z.array(z.string()).optional(),
         scouts: z.array(z.string()).optional().describe('Scout skill_name slugs to include.'),
         search: z.string().optional().describe('Case-insensitive substring match against report title and summary.'),
         sort: z.enum(['priority', 'last_updated', 'newest', 'oldest']).default('priority'),
-        limit: z.number().int().min(1).max(100).optional(),
+        limit: z.number().int().min(1).max(10).default(10),
         offset: z.number().int().min(0).optional(),
     })
     .superRefine((data, context) => {
@@ -205,6 +210,7 @@ export const ReportInboxInputSchema = z
     .transform(({ priorities, source_products, scouts, ...query }) => ({
         ...query,
         priority: priorities?.join(','),
+        use_priority_preference: priorities === undefined ? true : undefined,
         source_product: source_products?.join(','),
         scout: scouts?.join(','),
     }))

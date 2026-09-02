@@ -5757,20 +5757,6 @@
             "readOnlyHint": false
         }
     },
-    "inbox-reports-get-inbox": {
-        "description": "Get a prioritized, actionable report inbox for the current project. Defaults to ready reports that are immediately actionable, are not already being handled, and have no implementation PR, ordered P0 through P4 with unprioritized reports last. Choose another view for reports needing human input, implementation PRs being monitored, resolved or dismissed reports, or reports judged not actionable. Filter by reviewer scope, priority, source product, scout, or text search. Use inbox-report-artefacts-list to read a report's evidence and work log before acting on it.",
-        "category": "Signals",
-        "feature": "signals",
-        "summary": "Get report inbox",
-        "title": "Get report inbox",
-        "required_scopes": ["task:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "inbox-reports-list": {
         "description": "List signal reports for the current project. A signal report is a cluster of related observations (signals) that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers (PostHog user UUIDs), and task_id (only reports associated with that task — pass your own task id to see which reports you are already working against). Some statuses are hidden by default (currently suppressed, i.e. human-dismissed); pass `include_all_statuses=true` to list reports in every status — do this when deduplicating against the full inbox state, and read each row's `status` (plus `dismissal_reason` / `dismissal_note` on dismissed rows) before acting. For picking up work, filter to `ready` — earlier statuses are still moving through the pipeline, and `pending_input` reports are waiting on a human. Each report's full work log — signal findings (evidence), judgments, and log entries — is readable via inbox-report-artefacts-list; read it before acting on a report. Results are paginated and ordered by '-is_suggested_reviewer,status,-updated_at' by default. To find the self-driving reports for one source record — e.g. what the inbox already investigated for a specific support ticket — pass that record's id as `source_id` together with exactly one `source_product` (for a support ticket: `source_product=conversations` and the ticket's UUID as `source_id`); add `include_all_statuses=true` to include dismissed ones.",
         "category": "Signals",
@@ -10115,6 +10101,20 @@
         "summary": "Search the fleet scratchpad",
         "title": "Search the fleet scratchpad",
         "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "self-driving-inbox-get": {
+        "description": "Get the top 10 prioritized, actionable self-driving reports for the current project, including their summaries. By default this uses the requesting user's personal PR-generation threshold, falling back to the project threshold. Choose another view for reports needing human input, implementation PRs being monitored, resolved or dismissed reports, or reports judged not actionable. Filter by reviewer scope, priority, source product, scout, or text search, and use offset to page through further results. Use inbox-report-artefacts-list to read a report's evidence and work log before acting on it.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get self-driving inbox",
+        "title": "Get self-driving inbox",
+        "required_scopes": ["task:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

@@ -85,6 +85,10 @@
             "description": "PostHog user UUID used when scope=teammate.",
             "type": "string"
         },
+        "use_priority_preference": {
+            "description": "When true and priority is omitted, include priorities at or above the requesting user's personal PR-generation threshold, falling back to the project threshold.",
+            "type": "boolean"
+        },
         "view": {
             "description": "Apply an inbox view: actionable, needs_input, monitoring, resolved, dismissed, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters.",
             "type": "string"

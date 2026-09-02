@@ -127,7 +127,7 @@ tools:
             `results` (one entry per id, in request order) and the `transitioned_count` / `skipped_count` /
             `failed_count` / `not_found_count` summary. An id whose transition isn't allowed from its current status
             comes back as `skipped` (the single-report 409) while the rest still go through.
-    inbox-reports-get-inbox:
+    self-driving-inbox-get:
         operation: signals_reports_list
         enabled: true
         scopes:
@@ -139,14 +139,14 @@ tools:
         input_schema: ReportInboxInputSchema
         enrich_url: '{id}'
         list: true
-        title: Get report inbox
+        title: Get self-driving inbox
         description: >
-            Get a prioritized, actionable report inbox for the current project. Defaults to ready reports that are
-            immediately actionable, are not already being handled, and have no implementation PR, ordered P0 through P4
-            with unprioritized reports last. Choose another view for reports needing human input, implementation PRs
-            being monitored, resolved or dismissed reports, or reports judged not actionable. Filter by reviewer scope,
-            priority, source product, scout, or text search. Use inbox-report-artefacts-list to read a report's evidence
-            and work log before acting on it.
+            Get the top 10 prioritized, actionable self-driving reports for the current project, including their
+            summaries. By default this uses the requesting user's personal PR-generation threshold, falling back to the
+            project threshold. Choose another view for reports needing human input, implementation PRs being monitored,
+            resolved or dismissed reports, or reports judged not actionable. Filter by reviewer scope, priority, source
+            product, scout, or text search, and use offset to page through further results. Use inbox-report-artefacts-list
+            to read a report's evidence and work log before acting on it.
         response:
             include:
                 - id
