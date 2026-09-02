@@ -12,7 +12,7 @@ catalog sync jobs alike.
 
 import json
 import secrets
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import Literal
 from urllib.parse import urlencode, urljoin
@@ -71,18 +71,18 @@ class ProbeResult:
         return self.auth_flavor == "open"
 
 
-def probe_mcp_server(url: str) -> ProbeResult:
+def probe_mcp_server(url: str, scope_allowlist: Sequence[str] | None = None) -> ProbeResult:
     """Probe ``url`` and return a :class:`ProbeResult`. Never raises."""
     result = ProbeResult()
     try:
-        _run_probe(url, result)
+        _run_probe(url, result, scope_allowlist)
     except Exception as exc:
         logger.exception("MCP server probe failed unexpectedly", server_url=url)
         result.errors.append(f"Probe aborted unexpectedly: {exc}")
     return result
 
 
-def _run_probe(url: str, result: ProbeResult) -> None:
+def _run_probe(url: str, result: ProbeResult, scope_allowlist: Sequence[str] | None) -> None:
     outcome = _probe_initialize(url, result)
     if outcome == "failed":
         return
@@ -104,14 +104,14 @@ def _run_probe(url: str, result: ProbeResult) -> None:
     # strongest MCP evidence available without credentials.
     result.speaks_mcp = True
     result.oauth_metadata = metadata
-    client_id = _register_probe_client(metadata, result)
+    client_id = _register_probe_client(metadata, result, scope_allowlist)
     if client_id is None:
         result.auth_flavor = "oauth_shared"
         return
 
     result.auth_flavor = "oauth_dcr"
     result.dcr_registered = True
-    result.authorize_endpoint_ok = _check_authorize_endpoint(metadata, client_id, result)
+    result.authorize_endpoint_ok = _check_authorize_endpoint(metadata, client_id, result, scope_allowlist)
 
 
 def _probe_redirect_uri() -> str:
@@ -229,12 +229,12 @@ def _discover_metadata(url: str, result: ProbeResult, *, auth_required: bool) ->
         return None
 
 
-def _register_probe_client(metadata: dict, result: ProbeResult) -> str | None:
+def _register_probe_client(metadata: dict, result: ProbeResult, scope_allowlist: Sequence[str] | None) -> str | None:
     """Mint a real DCR client. Returns its client_id, or None when DCR is unavailable."""
     if not metadata.get("registration_endpoint"):
         return None
     try:
-        registration = register_dcr_client(metadata, _probe_redirect_uri())
+        registration = register_dcr_client(metadata, _probe_redirect_uri(), scope_allowlist)
     except ValueError as exc:
         # Mirrors views._register_dcr_client_or_raise: ValueError means DCR isn't supported.
         result.errors.append(f"Dynamic Client Registration not supported: {exc}")
@@ -245,7 +245,7 @@ def _register_probe_client(metadata: dict, result: ProbeResult) -> str | None:
     return registration.client_id
 
 
-def _build_authorize_url(metadata: dict, client_id: str) -> str | None:
+def _build_authorize_url(metadata: dict, client_id: str, scope_allowlist: Sequence[str] | None) -> str | None:
     authorization_endpoint = metadata.get("authorization_endpoint")
     if not isinstance(authorization_endpoint, str) or not authorization_endpoint:
         return None
@@ -260,16 +260,21 @@ def _build_authorize_url(metadata: dict, client_id: str) -> str | None:
         "code_challenge": code_challenge,
         "code_challenge_method": "S256",
     }
-    if scopes := requested_oauth_scopes(metadata):
+    if scopes := requested_oauth_scopes(metadata, scope_allowlist):
         query_params["scope"] = " ".join(scopes)
     if resource := oauth_resource(metadata):
         query_params["resource"] = resource
     return f"{authorization_endpoint}?{urlencode(query_params)}"
 
 
-def _check_authorize_endpoint(metadata: dict, client_id: str, result: ProbeResult) -> bool:
+def _check_authorize_endpoint(
+    metadata: dict,
+    client_id: str,
+    result: ProbeResult,
+    scope_allowlist: Sequence[str] | None,
+) -> bool:
     """GET the authorization URL and report whether it serves a plausible login/consent page."""
-    authorize_url = _build_authorize_url(metadata, client_id)
+    authorize_url = _build_authorize_url(metadata, client_id, scope_allowlist)
     if authorize_url is None:
         result.errors.append("OAuth metadata is missing authorization_endpoint")
         return False

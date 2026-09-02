@@ -3867,7 +3867,14 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         return MCPServerTemplate.objects.create(**defaults)
 
     def test_install_template_oauth_returns_redirect_url(self):
-        template = self._template()
+        template = self._template(
+            oauth_scope_allowlist=["read"],
+            oauth_metadata={
+                "authorization_endpoint": "https://auth.test.example.com/authorize",
+                "token_endpoint": "https://auth.test.example.com/token",
+                "scopes_supported": ["read", "write"],
+            },
+        )
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
@@ -3880,6 +3887,7 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         assert urlparse(redirect_url).netloc == "auth.test.example.com"
         params = parse_qs(urlparse(redirect_url).query)
         assert params["client_id"][0] == "template-client-id"
+        assert params["scope"] == ["read"]
 
         installation = MCPServerInstallation.objects.get(url=template.url, user=self.user)
         assert installation.template_id == template.id

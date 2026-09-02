@@ -1,1 +1,1 @@
-0028_backfill_gateway_server_auth_type
+0029_add_mcp_template_oauth_scope_allowlist

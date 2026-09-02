@@ -33,6 +33,7 @@ class MCPServerTemplateAdminForm(forms.ModelForm):
             "category",
             "oauth_issuer_url",
             "oauth_metadata",
+            "oauth_scope_allowlist",
             "is_active",
         )
 

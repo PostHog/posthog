@@ -3,11 +3,10 @@
 Semantics, chosen so the sync can run unattended at every app startup:
 
 - Rows are keyed on ``url``. A catalog entry with no row **creates** one; an entry with an
-  existing row **updates content fields only** (name, description, auth_type, category,
-  icon_domain, docs_url). A changed ``url`` is therefore a new identity: the sync creates a
-  fresh row and leaves the old row — and installations pointing at it — untouched. Retire
-  the old row by deactivating it in admin; the sync logs a warning for every *active* row
-  with no catalog entry so an orphaned row can't linger unnoticed.
+  existing row **updates content fields only**. A changed ``url`` is therefore a new identity:
+  the sync creates a fresh row and leaves the old row — and installations pointing at it —
+  untouched. Retire the old row by deactivating it in admin; the sync logs a warning for every
+  *active* row with no catalog entry so an orphaned row can't linger unnoticed.
 - The sync never touches operational state: ``is_active`` after creation,
   ``oauth_credentials`` (operator-provisioned shared client creds), or ``oauth_metadata``
   once set. Rows absent from the catalog (admin-added or removed entries) are left alone.
@@ -41,7 +40,22 @@ from .probe import ProbeResult, probe_mcp_server
 
 logger = structlog.get_logger(__name__)
 
-_CONTENT_FIELDS = ("name", "description", "auth_type", "category", "icon_domain", "docs_url")
+_CONTENT_FIELDS = (
+    "name",
+    "description",
+    "auth_type",
+    "category",
+    "icon_domain",
+    "docs_url",
+    "oauth_scope_allowlist",
+)
+
+
+def _entry_field_value(entry: CatalogEntry, field: str) -> object:
+    value = getattr(entry, field)
+    if field == "oauth_scope_allowlist" and value is not None:
+        return list(value)
+    return value
 
 
 @dataclass
@@ -76,13 +90,14 @@ def _create_template(entry: CatalogEntry, skip_probe: bool, counts: SyncCounts) 
         category=entry.category,
         icon_domain=entry.icon_domain,
         docs_url=entry.docs_url,
+        oauth_scope_allowlist=_entry_field_value(entry, "oauth_scope_allowlist"),
         is_active=False,
     )
     counts.created += 1
     if skip_probe or entry.disabled:
         return
 
-    probe = probe_mcp_server(entry.url)
+    probe = probe_mcp_server(entry.url, scope_allowlist=entry.oauth_scope_allowlist)
     update_fields = []
     if probe.oauth_metadata and not template.oauth_metadata:
         # Persisting discovered metadata saves the operator the admin "discover metadata"
@@ -108,9 +123,9 @@ def _create_template(entry: CatalogEntry, skip_probe: bool, counts: SyncCounts) 
 
 
 def _update_template(template: MCPServerTemplate, entry: CatalogEntry, counts: SyncCounts) -> None:
-    changed = [f for f in _CONTENT_FIELDS if getattr(template, f) != getattr(entry, f)]
+    changed = [f for f in _CONTENT_FIELDS if getattr(template, f) != _entry_field_value(entry, f)]
     for f in changed:
-        setattr(template, f, getattr(entry, f))
+        setattr(template, f, _entry_field_value(entry, f))
     if entry.disabled and template.is_active:
         template.is_active = False
         changed.append("is_active")

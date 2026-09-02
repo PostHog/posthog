@@ -67,7 +67,7 @@ Settings supplies its own navigation shell so the gateway workflows fit the main
 The catalog is **code**: `backend/catalog.py` holds one `CatalogEntry` per server.
 At app startup, every environment queues `sync_mcp_server_templates` (see `backend/tasks/tasks.py`, queued from `backend/apps.py`), which upserts entries into `MCPServerTemplate` rows:
 
-- Rows are keyed on `url`. New entries are created; existing rows get **content fields** updated (name, description, auth_type, category, icon_domain, docs_url). The catalog owns content — edit it in code, not admin.
+- Rows are keyed on `url`. New entries are created; existing rows get **content fields** updated (name, description, auth type, category, icon, docs URL, and OAuth scope allowlist). The catalog owns content. Edit it in code, not admin.
 - **Operational state stays operator-owned**: the sync preserves `is_active`, `oauth_credentials`, and `oauth_metadata` after creation unless an auth change or suspension must fail closed. Rows absent from the catalog remain untouched.
 - **Activation gate**: a newly created entry is probed live (`backend/probe.py` — MCP initialize handshake, OAuth metadata discovery, a real DCR registration, authorization-endpoint liveness). It is born active only when the probe passes for the auth model the catalog declares. Servers that need shared OAuth credentials (no DCR) are born inactive until an operator provisions them.
 - **Temporary suspension**: `disabled=True` keeps a catalog entry inactive and deactivates an existing row on the next sync. Removing it does not reactivate the row; an operator must re-vet it first.
@@ -154,12 +154,20 @@ To show brand icons on a self-hosted instance, create a logo.dev account, genera
 - **OAuth without DCR** ("shared creds"): an operator registers one OAuth app with the vendor and pastes `client_id`/`client_secret` into Django admin (stored encrypted per template). The sync pre-fills `oauth_metadata` from discovery; installs then share the client while each user gets their own tokens. Redirect URI: `{SITE_URL}/api/mcp_store/oauth_redirect/`.
 - **API key**: users supply their own key at install; nothing on the template.
 
+OAuth catalog entries can set `oauth_scope_allowlist` to limit registration and authorization to reviewed scopes. Without an allowlist, the client requests every scope advertised by the server. Shared clients derive their token endpoint authentication method from discovered metadata unless `oauth_credentials.token_endpoint_auth_method` overrides it.
+
 ## Operator runbook: activating a shared-creds server
 
-1. Register an OAuth app in the vendor's developer console with redirect URI `https://us.posthog.com/api/mcp_store/oauth_redirect/` (repeat for EU with the EU host).
-2. Django admin → MCP server templates → the server: paste client ID and client secret.
-3. `oauth_metadata` should already be populated by the sync; if empty, run the "Discover metadata" admin action.
-4. Tick "is active". Repeat per environment — templates are per-database rows.
+1. Register these redirect URIs in the vendor's developer console:
+   - `https://us.posthog.com/api/mcp_store/oauth_redirect/`
+   - `https://eu.posthog.com/api/mcp_store/oauth_redirect/`
+2. Request only the scopes in the catalog entry's `oauth_scope_allowlist` and complete any provider review.
+3. Django admin → MCP server templates → the server: paste client ID and client secret.
+4. Confirm the discovered metadata and token endpoint authentication method. Run the "Discover metadata" admin action if metadata is empty.
+5. Complete one internal authorization and tool discovery in each environment.
+6. Tick "is active". Repeat per environment because templates are per-database rows.
+
+If the catalog entry has `disabled=True`, remove the suspension in a follow-up only after these checks pass. Removing the suspension does not reactivate an existing row.
 
 ## Reaching connected servers from an agent
 

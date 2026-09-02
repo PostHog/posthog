@@ -125,6 +125,7 @@ class SensitiveConfig(TypedDict, total=False):
 class TemplateOAuthCredentials(TypedDict, total=False):
     client_id: str
     client_secret: str
+    token_endpoint_auth_method: str
 
 
 InstallSource = Literal["posthog", "twig", "posthog-code"]
@@ -168,6 +169,7 @@ class MCPServerTemplate(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     category = models.CharField(max_length=20, choices=CATEGORY_CHOICES, default="dev", db_default="dev")
     oauth_issuer_url = models.URLField(max_length=2048, blank=True, default="")
     oauth_metadata = models.JSONField(default=dict, blank=True)
+    oauth_scope_allowlist = models.JSONField(null=True, blank=True, default=None)
     oauth_credentials = EncryptedJSONField(default=dict, blank=True)
     is_active = models.BooleanField(default=False)
 

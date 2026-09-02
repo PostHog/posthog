@@ -994,11 +994,16 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         return None
 
     def _register_dcr_client_or_raise(
-        self, metadata: dict, redirect_uri: str, *, server_url: str = ""
+        self,
+        metadata: dict,
+        redirect_uri: str,
+        *,
+        server_url: str = "",
+        scope_allowlist: list[str] | tuple[str, ...] | None = None,
     ) -> DcrClientRegistration:
         log_context = {"error": ""} if not server_url else {"server_url": server_url, "error": ""}
         try:
-            return register_dcr_client(metadata, redirect_uri)
+            return register_dcr_client(metadata, redirect_uri, scope_allowlist)
         except ValueError as e:
             log_context["error"] = str(e)
             logger.warning("DCR not supported", **log_context)
@@ -1020,6 +1025,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         redirect_uri: str,
         state_token: str,
         code_challenge: str,
+        scope_allowlist: list[str] | tuple[str, ...] | None = None,
     ) -> str:
         query_params = {
             "client_id": client_id,
@@ -1029,7 +1035,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
         }
-        if scopes := requested_oauth_scopes(metadata):
+        if scopes := requested_oauth_scopes(metadata, scope_allowlist):
             query_params["scope"] = " ".join(scopes)
         if resource := oauth_resource(metadata):
             query_params["resource"] = resource
@@ -1450,6 +1456,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                     metadata,
                     redirect_uri,
                     server_url=template.url,
+                    scope_allowlist=template.oauth_scope_allowlist,
                 )
             except DCRNotSupportedError:
                 if created:
@@ -1517,6 +1524,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 redirect_uri=redirect_uri,
                 state_token=token,
                 code_challenge=pkce.code_challenge,
+                scope_allowlist=template.oauth_scope_allowlist,
             )
         except OAuthAuthorizeURLError as exc:
             logger.warning(
@@ -1935,6 +1943,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 redirect_uri=redirect_uri,
                 state_token=token,
                 code_challenge=pkce.code_challenge,
+                scope_allowlist=template.oauth_scope_allowlist,
             )
         except OAuthAuthorizeURLError as exc:
             logger.warning(

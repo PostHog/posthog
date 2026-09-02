@@ -27,6 +27,7 @@ def _entry(
     category: str = "dev",
     icon_domain: str = "linear.app",
     docs_url: str = "",
+    oauth_scope_allowlist: tuple[str, ...] | None = None,
     disabled: bool = False,
 ) -> CatalogEntry:
     return CatalogEntry(
@@ -37,6 +38,7 @@ def _entry(
         category=category,
         icon_domain=icon_domain,
         docs_url=docs_url,
+        oauth_scope_allowlist=oauth_scope_allowlist,
         disabled=disabled,
     )
 
@@ -66,6 +68,10 @@ class TestCatalogEntries(SimpleTestCase):
             assert entry.url.startswith("https://"), entry.url
             assert entry.name and entry.description, entry.url
             assert entry.icon_domain == normalize_mcp_icon_domain(entry.icon_domain), entry.url
+            if entry.oauth_scope_allowlist is not None:
+                assert entry.auth_type == "oauth", entry.url
+                assert len(entry.oauth_scope_allowlist) == len(set(entry.oauth_scope_allowlist)), entry.url
+                assert all(entry.oauth_scope_allowlist), entry.url
 
 
 class TestSyncMCPCatalog(TestCase):
@@ -107,12 +113,15 @@ class TestSyncMCPCatalog(TestCase):
         with patch("products.mcp_store.backend.catalog_sync.probe_mcp_server", return_value=probe_result) as probe_mock:
             counts = sync_mcp_catalog(entries=[entry])
 
-        probe_mock.assert_called_once_with(entry.url)
+        probe_mock.assert_called_once_with(entry.url, scope_allowlist=entry.oauth_scope_allowlist)
         template = MCPServerTemplate.objects.get(url=entry.url)
         assert counts.created == 1
         assert template.is_active is expect_active
         assert template.name == entry.name
         assert template.icon_domain == entry.icon_domain
+        assert template.oauth_scope_allowlist == (
+            list(entry.oauth_scope_allowlist) if entry.oauth_scope_allowlist is not None else None
+        )
         if probe_result.oauth_metadata:
             assert template.oauth_metadata == probe_result.oauth_metadata
             assert template.oauth_issuer_url == probe_result.oauth_metadata.get("issuer", "")
@@ -132,13 +141,22 @@ class TestSyncMCPCatalog(TestCase):
         )
 
         with patch("products.mcp_store.backend.catalog_sync.probe_mcp_server") as probe_mock:
-            counts = sync_mcp_catalog(entries=[_entry(description="New description.", category="dev")])
+            counts = sync_mcp_catalog(
+                entries=[
+                    _entry(
+                        description="New description.",
+                        category="dev",
+                        oauth_scope_allowlist=("read",),
+                    )
+                ]
+            )
 
         probe_mock.assert_not_called()
         template.refresh_from_db()
         assert counts.updated == 1
         assert template.description == "New description."
         assert template.category == "dev"
+        assert template.oauth_scope_allowlist == ["read"]
         assert template.is_active is True
         assert template.oauth_credentials == {"client_id": "shared-client", "client_secret": "shhh"}
         assert template.oauth_metadata == {"authorization_endpoint": "https://auth.linear.app/authorize"}

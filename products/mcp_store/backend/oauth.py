@@ -3,7 +3,7 @@ import base64
 import hashlib
 import secrets
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -100,12 +100,16 @@ def _as_string_list(value: object) -> list[str]:
     return [item for item in value if isinstance(item, str)]
 
 
-def requested_oauth_scopes(metadata: dict) -> list[str]:
+def requested_oauth_scopes(metadata: dict, scope_allowlist: Sequence[str] | None = None) -> list[str]:
     """Return the exact scopes we should request from this provider."""
     resource_scopes = _as_string_list(metadata.get("resource_scopes_supported"))
-    if resource_scopes:
-        return resource_scopes
-    return _as_string_list(metadata.get("scopes_supported"))
+    advertised_scopes = resource_scopes or _as_string_list(metadata.get("scopes_supported"))
+    if scope_allowlist is None:
+        return advertised_scopes
+    if not advertised_scopes:
+        return list(dict.fromkeys(scope_allowlist))
+    advertised = set(advertised_scopes)
+    return list(dict.fromkeys(scope for scope in scope_allowlist if scope in advertised))
 
 
 def requested_oauth_grant_types(metadata: dict) -> list[str]:
@@ -340,7 +344,9 @@ def _describe_dcr_rejection(resp: requests.Response) -> str:
     return f"The server rejected registration (HTTP {resp.status_code})."
 
 
-def register_dcr_client(metadata: dict, redirect_uri: str) -> DcrClientRegistration:
+def register_dcr_client(
+    metadata: dict, redirect_uri: str, scope_allowlist: Sequence[str] | None = None
+) -> DcrClientRegistration:
     """Run RFC 7591 Dynamic Client Registration.
 
     Some servers (e.g. Supabase) register a confidential client even when we
@@ -362,7 +368,7 @@ def register_dcr_client(metadata: dict, redirect_uri: str) -> DcrClientRegistrat
         "response_types": ["code"],
         "token_endpoint_auth_method": token_endpoint_auth_method,
     }
-    if scopes := requested_oauth_scopes(metadata):
+    if scopes := requested_oauth_scopes(metadata, scope_allowlist):
         payload["scope"] = " ".join(scopes)
 
     _validate_url(registration_endpoint)
@@ -432,11 +438,11 @@ class TokenRefreshError(Exception):
     pass
 
 
-def _credential_auth_method(credentials: dict, auth_method_key: str, client_secret: str | None) -> str:
+def _credential_auth_method(credentials: dict, auth_method_key: str, client_secret: str | None, metadata: dict) -> str:
     method = credentials.get(auth_method_key)
     if isinstance(method, str) and method in SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS:
         return method
-    return DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD if client_secret else "none"
+    return select_token_endpoint_auth_method(metadata, has_client_secret=bool(client_secret))
 
 
 @frozen
@@ -470,7 +476,7 @@ def resolve_installation_oauth_context(installation: MCPServerInstallation) -> I
             if not metadata:
                 raise ValueError("Template missing OAuth metadata")
             client_secret = credentials.get("client_secret") or None
-            auth_method = _credential_auth_method(credentials, "token_endpoint_auth_method", client_secret)
+            auth_method = _credential_auth_method(credentials, "token_endpoint_auth_method", client_secret, metadata)
             return InstallationOAuthContext(
                 metadata=metadata,
                 client_id=shared_client_id,
@@ -486,7 +492,7 @@ def resolve_installation_oauth_context(installation: MCPServerInstallation) -> I
         client_secret = sensitive.get("dcr_client_secret") or None
         if not metadata or not client_id:
             raise ValueError("DCR template installation missing OAuth metadata or dcr_client_id")
-        auth_method = _credential_auth_method(sensitive, "dcr_token_endpoint_auth_method", client_secret)
+        auth_method = _credential_auth_method(sensitive, "dcr_token_endpoint_auth_method", client_secret, metadata)
         return InstallationOAuthContext(
             metadata=metadata,
             client_id=client_id,
@@ -499,7 +505,7 @@ def resolve_installation_oauth_context(installation: MCPServerInstallation) -> I
     client_secret = sensitive.get("dcr_client_secret") or None
     if not metadata or not client_id:
         raise ValueError("Installation missing OAuth metadata or client_id")
-    auth_method = _credential_auth_method(sensitive, "dcr_token_endpoint_auth_method", client_secret)
+    auth_method = _credential_auth_method(sensitive, "dcr_token_endpoint_auth_method", client_secret, metadata)
     return InstallationOAuthContext(
         metadata=metadata,
         client_id=client_id,
