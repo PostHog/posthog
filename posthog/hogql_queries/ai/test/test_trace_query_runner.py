@@ -448,8 +448,9 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         ).calculate()
         self.assertEqual(len(response.results), 0)
 
+    @freeze_time("2024-12-02T00:00:00Z")
     def test_capture_range(self):
-        """Test the 10-minute capture range window."""
+        """Test the capture range window includes events before and well after the trace start."""
         _create_person(distinct_ids=["person1"], team=self.team)
         _create_ai_generation_event(
             distinct_id="person1",
@@ -463,8 +464,14 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
             team=self.team,
             timestamp=datetime(2024, 12, 1, 0, 10),
         )
+        # Late-arriving span hours after the trace started — must still be captured.
+        _create_ai_generation_event(
+            distinct_id="person1",
+            trace_id="trace1",
+            team=self.team,
+            timestamp=datetime(2024, 12, 1, 5, 0),
+        )
 
-        # Events within 10 minutes should be included
         response = TraceQueryRunner(
             team=self.team,
             query=TraceQuery(
@@ -473,7 +480,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
         self.assertEqual(len(response.results), 1)
-        self.assertEqual(len(response.results[0].events), 2)
+        self.assertEqual(len(response.results[0].events), 3)
 
     def test_overlap_semantics_trace_started_before_window(self):
         _create_person(distinct_ids=["person1"], team=self.team)
