@@ -54,6 +54,14 @@ class ClampRolloutPercentagesMigrationTest(TestMigrations):
             },
         ).id
         self.two_over_id = make_flag("two-over", {"groups": [], "multivariate": variants(60, 60)}).id
+        # Decimal inputs whose remainder lands whole: the only shape where the int conversion
+        # changes the stored value, 33.0 without it and 33 with it.
+        self.whole_remainder_id = make_flag(
+            "whole-remainder", {"groups": [], "multivariate": variants(33.5, 33.5, 50)}
+        ).id
+        self.drifting_remainder_id = make_flag(
+            "drifting-remainder", {"groups": [], "multivariate": variants(10.1, 20.2, 30.3, 50.5)}
+        ).id
         self.first_takes_all_id = make_flag("first-takes-all", {"groups": [], "multivariate": variants(150, 10)}).id
         self.unreachable_id = make_flag("unreachable", {"groups": [], "multivariate": variants(50, 50, 50)}).id
         self.fractional_id = make_flag("fractional", {"groups": [], "multivariate": variants(33.33, 33.33, 50)}).id
@@ -150,8 +158,15 @@ class ClampRolloutPercentagesMigrationTest(TestMigrations):
         assert rollouts(self._filters(self.unreachable_id)) == [50, 50, 0]
 
     def test_keeps_whole_numbers_as_integers(self) -> None:
-        # A float here would re-break the .NET and Java SDKs that #84957 fixed.
+        # A float here would re-break the .NET and Java SDKs that #84957 fixed. The decimal
+        # fixture is the one that pins the conversion: its remainder is whole, so without it
+        # the stored value would be 33.0.
         assert [type(r) for r in rollouts(self._filters(self.straddling_id))] == [int, int, int]
+        assert rollouts(self._filters(self.whole_remainder_id)) == [33.5, 33.5, 33]
+        assert [type(r) for r in rollouts(self._filters(self.whole_remainder_id))] == [float, float, int]
+
+    def test_rounds_the_remainder_instead_of_storing_a_float_artifact(self) -> None:
+        assert rollouts(self._filters(self.drifting_remainder_id)) == [10.1, 20.2, 30.3, 39.4]
 
     def test_keeps_real_decimals(self) -> None:
         assert rollouts(self._filters(self.fractional_id)) == [33.33, 33.33, 33.34]

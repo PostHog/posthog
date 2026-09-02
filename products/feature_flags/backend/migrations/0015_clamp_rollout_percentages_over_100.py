@@ -20,7 +20,7 @@ def _clamped(rollouts: list[float]) -> list[float] | None:
     already 40/40/20. Verified against the Rust server, plus the Python, Go, .NET and JS SDKs.
     Whole numbers stay ints because the .NET and Java SDKs deserialize rollout percentages as
     integers (#84957)."""
-    if any(isinstance(r, bool) or not isinstance(r, int | float) for r in rollouts):
+    if any(isinstance(r, bool) or not isinstance(r, int | float) or r < 0 for r in rollouts):
         return None
     total = sum(rollouts)
     if total <= 100 + VARIANT_ROLLOUT_SUM_TOLERANCE:
@@ -30,7 +30,9 @@ def _clamped(rollouts: list[float]) -> list[float] | None:
     used: float = 0
     for rollout in rollouts:
         headroom = 100 - used
-        value = rollout if rollout <= headroom else max(headroom, 0)
+        # Rounded because `used` accumulates in binary floating point: without it a set like
+        # 10.1/20.2/30.3/50.5 leaves a remainder of 39.400000000000006 in the stored filters.
+        value = rollout if rollout <= headroom else round(max(headroom, 0), 10)
         if float(value).is_integer():
             value = int(value)
         clamped.append(value)
@@ -89,6 +91,12 @@ def clamp_rollout_percentages_over_100(apps, schema_editor):
     can return: an over-100 flag still matched its last variant there, and a clamped one returns
     no variant, exactly as a correctly summing flag always has. Odds are 1 in 2^60.
 
+    Two places do see a difference, both of them corrections. The experiment sample-ratio check
+    and the uneven-split warning build their expected counts from these stored percentages, so a
+    40/40/40 flag stops reporting a mismatch it never really had. And `.update()` fires no
+    post_save, so the flag-definitions cache serves the pre-clamp payload until the hypercache
+    verification task repairs the drift; both values pick the same variant meanwhile.
+
     A sum under 100 is left alone, because the shortfall is a slice of users who match the flag
     and get no variant, and handing it to someone is the customer's call.
 
@@ -108,7 +116,11 @@ def clamp_rollout_percentages_over_100(apps, schema_editor):
     while True:
         # _base_manager documents that soft-deleted rows are in scope (a historical model's
         # manager is plain anyway). Nothing here touches payloads, so encrypted flags are in scope.
-        rows = list(FeatureFlag._base_manager.filter(id__gt=last_id).order_by("id").only("id", "filters")[:BATCH_SIZE])
+        rows = list(
+            FeatureFlag._base_manager.filter(id__gt=last_id)
+            .order_by("id")
+            .only("id", "filters", "ensure_experience_continuity")[:BATCH_SIZE]
+        )
         if not rows:
             break
         last_id = rows[-1].id
