@@ -358,10 +358,10 @@ jobs:
             - name: Download the last published durations
               # The selector's full-run cutoff and shard sizing read .test_durations,
               # which is not in the repo. The timing workflow saves it to the Actions
-              # cache from a Depot runner, and GitHub-hosted jobs like this one read
-              # a separate cache store, so a cache restore here can never hit. Take
-              # the artifact the timing workflow publishes instead; if that is gone
-              # too, the selector estimates without durations until the next timing run.
+              # cache from a Depot runner. GitHub-hosted jobs like this one read a
+              # separate cache store, so a cache restore here can never hit. Take the
+              # artifact the timing workflow publishes instead; if that is gone too,
+              # the selector estimates without durations until the next timing run.
               continue-on-error: true
               env:
                   GH_TOKEN: ${{ github.token }}
@@ -369,7 +369,7 @@ jobs:
                   run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci-backend-update-test-timing.yml \
                       --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
                   if [ -z "$run_id" ]; then
-                      echo "::warning::No successful timing run to fall back to, sharding without durations"
+                      echo "::warning::No successful timing run, sharding without durations"
                       exit 0
                   fi
                   gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
