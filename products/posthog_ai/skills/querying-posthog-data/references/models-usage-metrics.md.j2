@@ -8,17 +8,7 @@ Usage metrics are team-defined numeric measures that render on Customer Analytic
 
 ### Columns
 
-Column | Type | Nullable | Description
-`id` | uuid | NOT NULL | Primary key
-`team_id` | integer | NOT NULL | Team this metric belongs to
-`group_type_index` | integer | NOT NULL | **Legacy / effectively unused.** Retained for backward compatibility but the query runner ignores it — every team-owned metric is evaluated against the current entity regardless of this value. Safe to omit from `SELECT` and do not filter on it
-`name` | varchar(255) | NOT NULL | Human-readable metric name
-`format` | varchar(64) | NOT NULL | `numeric` or `currency` — controls UI formatting
-`interval` | integer | NOT NULL | Rolling time window in days used when computing the metric (default 7)
-`display` | varchar(64) | NOT NULL | `number` or `sparkline` — controls UI visualization
-`filters` | jsonb | NOT NULL | HogQL filter definition: `{"events": [...], "properties": [...]}`. Same shape as HogFunction filters
-`math` | varchar(16) | NOT NULL | Aggregation: `count` (count matching events) or `sum` (sum `math_property`)
-`math_property` | varchar(255) | NULL | Event property to sum. Required when `math='sum'`, must be null when `math='count'`
+{{ schema_columns('system.usage_metrics') }}
 
 ### Key relationships
 
