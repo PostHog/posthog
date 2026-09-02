@@ -535,6 +535,9 @@ export interface tracingDataLogicActions {
             ts?: string | null
         }
     }
+    refreshQuery: () => {
+        value: true
+    }
     runQuery: () => {
         value: true
     }
@@ -681,6 +684,10 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         // A completed 2D brush on the latency heatmap — maps to a date range + duration chips.
         applyHeatmapBrush: (selection: HeatmapBrushSelection) => ({ selection }),
         runQuery: true,
+        // An explicit user refresh. Same fetches as runQuery, but the scope-skip caches below
+        // are dropped first, so the charts and the count re-hit the API even though nothing
+        // about the query changed.
+        refreshQuery: true,
         fetchNextPage: true,
         loadMoreTraceSpans: true,
         setTracePagination: (hasMore: boolean, nextOffset: number | null) => ({ hasMore, nextOffset }),
@@ -1382,7 +1389,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         handleFilterChange: ({ filterType, extraProps }) => {
             posthog.capture('tracing filter changed', { filter_type: filterType, ...extraProps })
             actions.runQuery()
@@ -1445,6 +1452,12 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
         // while the user moves windows around within it. The compare-flame refetch (viewer UI
         // state) lives in tracingViewerLogic.
         updateComparisonWindows: () => actions.fetchAggregation(),
+        refreshQuery: () => {
+            cache.sparklineScope = undefined
+            cache.matchingCountsScope = undefined
+            cache.latencyHeatmapScope = undefined
+            actions.runQuery()
+        },
         runQuery: () => {
             actions.clearSpans()
             // The time sparkline is always fetched — it keeps the chart warm when the user flips back
