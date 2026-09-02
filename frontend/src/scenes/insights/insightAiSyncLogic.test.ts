@@ -9,9 +9,10 @@ import { insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlerts
 import { subscriptionsLogic } from 'products/subscriptions/frontend/components/Subscriptions/subscriptionsLogic'
 
 import { urls } from '../urls'
-import { insightAiSyncLogic, insightToolTargetsCurrentInsight } from './insightAiSyncLogic'
+import { insightAiSyncLogic } from './insightAiSyncLogic'
 import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
+import { insightToolTargetsCurrentInsight } from './insightToolTargeting'
 import { insightsApi } from './utils/api'
 
 const deferred = <T>(): { promise: Promise<T>; resolve: (value: T) => void } => {
@@ -246,6 +247,58 @@ describe('insightAiSyncLogic', () => {
         expect(insightSceneLogic.values.savedInsight.name).toBe('Saved name')
         expect(insightData.values.query).toEqual(savedQuery)
         expect(logic.values).toMatchObject({ hasPendingAiConflict: false, isApplyingAiChanges: false })
+    })
+
+    it('keeps a later persisted view-mode metadata update canonical when an older AI reload succeeds', async () => {
+        jest.useFakeTimers()
+        const aiReload = deferred<QueryBasedInsightModel | null>()
+        const metadataSave = deferred<QueryBasedInsightModel>()
+        const getByShortId = jest.spyOn(insightsApi, 'getByShortId').mockReturnValueOnce(aiReload.promise)
+        const update = jest.spyOn(insightsApi, 'update').mockReturnValueOnce(metadataSave.promise)
+        const persistedQuery = insightLogicProps.cachedInsight?.query
+
+        try {
+            logic.actions.agentToolCompleted('insight-update', { id: 42 })
+            await jest.advanceTimersByTimeAsync(100)
+            expect(getByShortId).toHaveBeenCalledTimes(1)
+
+            insightSceneLogic.actions.setInsightMetadata({ favorited: true, name: 'Persisted metadata name' })
+            expect(update).toHaveBeenCalledWith(42, { favorited: true, name: 'Persisted metadata name' })
+
+            metadataSave.resolve({
+                ...insightLogicProps.cachedInsight,
+                favorited: true,
+                name: 'Persisted metadata name',
+                query: persistedQuery,
+            } as QueryBasedInsightModel)
+            await jest.advanceTimersByTimeAsync(0)
+            await jest.advanceTimersByTimeAsync(300)
+
+            aiReload.resolve({
+                ...insightLogicProps.cachedInsight,
+                favorited: false,
+                name: 'Older AI name',
+                query: { kind: NodeKind.HogQLQuery, query: 'select stale' },
+            } as QueryBasedInsightModel)
+            await jest.advanceTimersByTimeAsync(0)
+
+            expect(insightSceneLogic.values.insight).toMatchObject({
+                favorited: true,
+                name: 'Persisted metadata name',
+            })
+            expect(insightSceneLogic.values.savedInsight).toMatchObject({
+                favorited: true,
+                name: 'Persisted metadata name',
+            })
+            expect(insightData.values.query).toEqual(persistedQuery)
+            expect(insightSceneLogic.values.insightChanged).toBe(false)
+            expect(insightData.values.queryChanged).toBe(false)
+            expect(logic.values).toMatchObject({ hasPendingAiConflict: false, isApplyingAiChanges: false })
+        } finally {
+            update.mockRestore()
+            getByShortId.mockRestore()
+            jest.useRealTimers()
+        }
     })
 
     it('keeps edits made after a save when the older AI reload settles', () => {

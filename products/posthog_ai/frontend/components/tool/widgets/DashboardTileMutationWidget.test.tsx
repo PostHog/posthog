@@ -81,4 +81,21 @@ describe('DashboardTileMutationWidget', () => {
 
         expect(screen.getByText('Call dashboard-widgets-batch-update')).toBeInTheDocument()
     })
+
+    it('falls back to the generic card when a text tile update returns a different tile', () => {
+        render(
+            <DashboardTileMutationWidget
+                message={makeMessage({
+                    resolvedKey: 'dashboard-update-text-tile',
+                    innerToolName: 'dashboard-update-text-tile',
+                    innerInput: { id: 5, tile_id: 101 },
+                    rawOutput: JSON.stringify({ id: 102 }),
+                })}
+                isLastInGroup
+            />
+        )
+
+        expect(screen.getByText('Call dashboard-update-text-tile')).toBeInTheDocument()
+        expect(screen.queryByText('Dashboard updated')).not.toBeInTheDocument()
+    })
 })

@@ -15,6 +15,7 @@ import { router } from 'kea-router'
 
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightToolTargetsCurrentInsight } from 'scenes/insights/insightToolTargeting'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { urls } from 'scenes/urls'
 
@@ -61,13 +62,11 @@ const sameId = (left: unknown, right: unknown): boolean => {
     return leftId !== null && rightId !== null && String(leftId) === String(rightId)
 }
 
-const INSIGHT_ID_ALIASES = ['id', 'insightId', 'insight_id', 'short_id', 'shortId'] as const
-
 const clearAiReloadCache = (cache: Record<string, any>): void => {
     cache.aiReloadMetadataUpdate = undefined
     cache.aiReloadQuery = undefined
     cache.aiReloadSavedInsight = undefined
-    cache.aiReloadWasSupersededBySave = false
+    cache.aiReloadWasSupersededByPersistentWrite = false
     cache.aiReloadConflictRevision = undefined
 }
 
@@ -76,36 +75,6 @@ type AiReloadState = 'idle' | 'loading' | 'loading_with_queued_refresh'
 interface AiConflictState {
     pending: boolean
     revision: number
-}
-
-/**
- * Mirrors the backend's primary-key-first lookup without allowing a numeric short ID to target a
- * different insight in the client. A numeric value can therefore only name this insight by its ID;
- * non-numeric values can name it by its short ID. When multiple aliases are supplied, each must
- * resolve to this same insight.
- */
-export const insightToolTargetsCurrentInsight = (
-    innerInput: Record<string, unknown>,
-    insight: Pick<Partial<QueryBasedInsightModel>, 'id' | 'short_id'>
-): boolean => {
-    if (!insight.id || !insight.short_id) {
-        return false
-    }
-
-    const references = INSIGHT_ID_ALIASES.map((alias) => innerInput[alias]).filter(
-        (reference): reference is unknown => reference !== undefined && reference !== null
-    )
-
-    return (
-        references.length > 0 &&
-        references.every((reference) => {
-            const normalizedReference = asId(reference)
-            if (typeof normalizedReference === 'number') {
-                return normalizedReference === insight.id
-            }
-            return normalizedReference === insight.short_id
-        })
-    )
 }
 
 export interface InsightAiSyncLogicProps {
@@ -268,6 +237,106 @@ export interface insightAiSyncLogicActions {
             Pick<QueryBasedInsightModel<Node<Record<string, any>>>, 'description' | 'favorited' | 'name' | 'tags'>
         >
     } // insightLogic
+    setInsightMetadataSuccess: (
+        insight: {
+            _create_in_folder?: string | null | undefined
+            alerts?: import('products/alerts/frontend/types').AlertType[] | undefined
+            cache_target_age?: string | null | undefined
+            created_at?: string | undefined
+            created_by?: null | import('~/types').UserBasicType | undefined
+            dashboard_tiles?: import('~/types').DashboardTileBasicType[] | null | undefined
+            dashboards?: number[] | null | undefined
+            deleted?: boolean | undefined
+            derived_name?: string | null | undefined
+            description?: string | undefined
+            disable_baseline?: boolean | undefined
+            favorited?: boolean | undefined
+            filter_override_context?:
+                | null
+                | import('products/product_analytics/frontend/generated/api.schemas').InsightFilterOverrideContextApi
+                | undefined
+            id?: number | undefined
+            is_cached?: boolean | undefined
+            is_sample?: boolean | undefined
+            last_modified_at?: string | undefined
+            last_modified_by?: null | import('~/types').UserBasicType | undefined
+            last_refresh?: string | null | undefined
+            last_viewed_at?: string | null | undefined
+            name?: string | undefined
+            next?: string | undefined
+            next_allowed_client_refresh?: string | null | undefined
+            order?: number | null | undefined
+            query?: Node<Record<string, any>> | null | undefined
+            query_status?: import('../../queries/schema').QueryStatus | undefined
+            resolved_date_range?: null | import('../../queries/schema').ResolvedDateRangeResponse | undefined
+            result?: any
+            saved?: boolean | undefined
+            short_id?: import('~/types').InsightShortId | undefined
+            tags?: string[] | undefined
+            timezone?: string | null | undefined
+            updated_at?: string | undefined
+            user_access_level?: import('~/types').AccessControlLevel | undefined
+            view_count?: number | undefined
+            viewers?: import('~/types').UserBasicType[] | undefined
+        },
+        payload?:
+            | {
+                  metadataUpdate: Partial<
+                      Pick<
+                          QueryBasedInsightModel<Node<Record<string, any>>>,
+                          'description' | 'favorited' | 'name' | 'tags'
+                      >
+                  >
+              }
+            | undefined
+    ) => {
+        insight: {
+            _create_in_folder?: string | null | undefined
+            alerts?: import('products/alerts/frontend/types').AlertType[] | undefined
+            cache_target_age?: string | null | undefined
+            created_at?: string | undefined
+            created_by?: null | import('~/types').UserBasicType | undefined
+            dashboard_tiles?: import('~/types').DashboardTileBasicType[] | null | undefined
+            dashboards?: number[] | null | undefined
+            deleted?: boolean | undefined
+            derived_name?: string | null | undefined
+            description?: string | undefined
+            disable_baseline?: boolean | undefined
+            favorited?: boolean | undefined
+            filter_override_context?:
+                | null
+                | import('products/product_analytics/frontend/generated/api.schemas').InsightFilterOverrideContextApi
+                | undefined
+            id?: number | undefined
+            is_cached?: boolean | undefined
+            is_sample?: boolean | undefined
+            last_modified_at?: string | undefined
+            last_modified_by?: null | import('~/types').UserBasicType | undefined
+            last_refresh?: string | null | undefined
+            last_viewed_at?: string | null | undefined
+            name?: string | undefined
+            next?: string | undefined
+            next_allowed_client_refresh?: string | null | undefined
+            order?: number | null | undefined
+            query?: Node<Record<string, any>> | null | undefined
+            query_status?: import('../../queries/schema').QueryStatus | undefined
+            resolved_date_range?: null | import('../../queries/schema').ResolvedDateRangeResponse | undefined
+            result?: any
+            saved?: boolean | undefined
+            short_id?: import('~/types').InsightShortId | undefined
+            tags?: string[] | undefined
+            timezone?: string | null | undefined
+            updated_at?: string | undefined
+            user_access_level?: import('~/types').AccessControlLevel | undefined
+            view_count?: number | undefined
+            viewers?: import('~/types').UserBasicType[] | undefined
+        }
+        payload?: {
+            metadataUpdate: Partial<
+                Pick<QueryBasedInsightModel<Node<Record<string, any>>>, 'description' | 'favorited' | 'name' | 'tags'>
+            >
+        }
+    } // insightLogic
     agentToolCompleted: (
         toolName: string,
         innerInput: Record<string, unknown> | null
@@ -328,6 +397,7 @@ export const insightAiSyncLogic: LogicWrapper<insightAiSyncLogicType> = kea<insi
                 'saveInsightSuccess',
                 'setInsight',
                 'setInsightMetadataLocal',
+                'setInsightMetadataSuccess',
             ],
             insightDataLogic(insightLogicProps),
             ['setQuery'],
@@ -420,14 +490,24 @@ export const insightAiSyncLogic: LogicWrapper<insightAiSyncLogicType> = kea<insi
             if (!values.isApplyingAiChanges) {
                 return
             }
-            cache.aiReloadWasSupersededBySave = true
+            cache.aiReloadWasSupersededByPersistentWrite = true
             cache.aiReloadMetadataUpdate = undefined
             cache.aiReloadQuery = undefined
             cache.aiReloadSavedInsight = undefined
             cache.aiReloadConflictRevision = values.aiConflictState.revision
         },
+        setInsightMetadataSuccess: ({ insight }) => {
+            if (!values.isApplyingAiChanges) {
+                return
+            }
+            cache.aiReloadWasSupersededByPersistentWrite = true
+            cache.aiReloadMetadataUpdate = undefined
+            cache.aiReloadQuery = undefined
+            cache.aiReloadSavedInsight = insight
+            cache.aiReloadConflictRevision = values.aiConflictState.revision
+        },
         setInsight: ({ insight, options }) => {
-            if (cache.aiReloadWasSupersededBySave && options.fromPersistentApi) {
+            if (cache.aiReloadWasSupersededByPersistentWrite && options.fromPersistentApi) {
                 cache.aiReloadSavedInsight = insight
             }
         },
@@ -437,13 +517,13 @@ export const insightAiSyncLogic: LogicWrapper<insightAiSyncLogicType> = kea<insi
             }
 
             const hadQueuedRefresh = values.aiReloadState === 'loading_with_queued_refresh'
-            const wasSupersededBySave = !!cache.aiReloadWasSupersededBySave
+            const wasSupersededByPersistentWrite = !!cache.aiReloadWasSupersededByPersistentWrite
             const conflictRevisionAtBoundary = cache.aiReloadConflictRevision
             const metadataUpdate = cache.aiReloadMetadataUpdate
             const query = cache.aiReloadQuery
             const hadLocalEdits = metadataUpdate !== undefined || query !== undefined
 
-            if (wasSupersededBySave && cache.aiReloadSavedInsight) {
+            if (wasSupersededByPersistentWrite && cache.aiReloadSavedInsight) {
                 const savedInsight = cache.aiReloadSavedInsight
                 actions.setInsight(savedInsight, { fromPersistentApi: true, overrideQuery: true })
                 if (metadataUpdate) {
@@ -452,7 +532,7 @@ export const insightAiSyncLogic: LogicWrapper<insightAiSyncLogicType> = kea<insi
                 if (query !== undefined) {
                     actions.setQuery(query)
                 }
-            } else if (!wasSupersededBySave && hadLocalEdits) {
+            } else if (!wasSupersededByPersistentWrite && hadLocalEdits) {
                 if (metadataUpdate) {
                     actions.setInsightMetadataLocal(metadataUpdate)
                 }
@@ -466,7 +546,9 @@ export const insightAiSyncLogic: LogicWrapper<insightAiSyncLogicType> = kea<insi
                 conflictRevisionAtBoundary === undefined ||
                 values.aiConflictState.revision !== conflictRevisionAtBoundary
             const keepConflict =
-                hasNewerConflict || (!wasSupersededBySave && hadLocalEdits) || (hadQueuedRefresh && hasUnsavedChanges)
+                hasNewerConflict ||
+                (!wasSupersededByPersistentWrite && hadLocalEdits) ||
+                (hadQueuedRefresh && hasUnsavedChanges)
             const startQueuedRefresh = hadQueuedRefresh && !hasUnsavedChanges
 
             clearAiReloadCache(cache)
@@ -481,12 +563,12 @@ export const insightAiSyncLogic: LogicWrapper<insightAiSyncLogicType> = kea<insi
             }
 
             const hadQueuedRefresh = values.aiReloadState === 'loading_with_queued_refresh'
-            const wasSupersededBySave = !!cache.aiReloadWasSupersededBySave
+            const wasSupersededByPersistentWrite = !!cache.aiReloadWasSupersededByPersistentWrite
             const hadLocalEdits = cache.aiReloadMetadataUpdate !== undefined || cache.aiReloadQuery !== undefined
             const hasUnsavedChanges = values.insightChanged || values.queryChanged
             const keepConflict =
                 values.hasPendingAiConflict ||
-                (!wasSupersededBySave && hadLocalEdits) ||
+                (!wasSupersededByPersistentWrite && hadLocalEdits) ||
                 (hadQueuedRefresh && hasUnsavedChanges)
             const startQueuedRefresh = hadQueuedRefresh && !hasUnsavedChanges
 

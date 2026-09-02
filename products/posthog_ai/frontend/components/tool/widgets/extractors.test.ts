@@ -252,6 +252,12 @@ describe('mcp tool adapter extractors', () => {
 
         it.each([
             ['text tile without its response tile id', 'dashboard-create-text-tile', {}, { id: 5 }],
+            [
+                'updated text tile whose response id disagrees with the requested tile',
+                'dashboard-update-text-tile',
+                { id: 102 },
+                { id: 5, tile_id: 101 },
+            ],
             ['batch add without its tiles response', 'dashboard-widgets-batch-add', {}, { id: 5 }],
             [
                 'batch add with an empty response tiles array',

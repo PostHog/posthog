@@ -311,11 +311,18 @@ export function extractDashboardMutationRevealTarget(message: ToolCallMessage): 
     }
 
     switch (message.resolvedKey) {
-        case 'dashboard-create-text-tile':
-        case 'dashboard-update-text-tile': {
+        case 'dashboard-create-text-tile': {
             const dashboardId = asPositiveInteger(input.id)
             const tileId = asPositiveInteger(output.id)
             return dashboardId !== null && tileId !== null ? { dashboardId, tileId } : null
+        }
+        case 'dashboard-update-text-tile': {
+            const dashboardId = asPositiveInteger(input.id)
+            const requestedTileId = asPositiveInteger(input.tile_id)
+            const responseTileId = asPositiveInteger(output.id)
+            return dashboardId !== null && requestedTileId !== null && responseTileId === requestedTileId
+                ? { dashboardId, tileId: requestedTileId }
+                : null
         }
         case 'dashboard-widgets-batch-add': {
             const dashboardId = asPositiveInteger(input.id)
