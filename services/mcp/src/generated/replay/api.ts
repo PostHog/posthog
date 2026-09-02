@@ -17,152 +17,141 @@ import * as zod from 'zod'
  * the input sizes are recorded as span attributes — a slow response on a team
  * with many playlists then shows up as a wide span against a large db_count.
  */
-export const SessionRecordingPlaylistsListParams = () =>
-    zod.object({
-        project_id: zod
-            .string()
-            .describe(
-                "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-            ),
-    })
+export const SessionRecordingPlaylistsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
-export const SessionRecordingPlaylistsListQueryParams = () =>
-    zod.object({
-        created_by: zod.number().optional(),
-        limit: zod.number().optional().describe('Number of results to return per page.'),
-        offset: zod.number().optional().describe('The initial index from which to return the results.'),
-        short_id: zod.string().optional(),
-    })
+export const SessionRecordingPlaylistsListQueryParams = () => zod.object({
+    created_by: zod.number().optional(),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    short_id: zod.string().optional(),
+})
 
-export const SessionRecordingPlaylistsCreateParams = () =>
-    zod.object({
-        project_id: zod
-            .string()
-            .describe(
-                "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-            ),
-    })
+export const SessionRecordingPlaylistsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
 export const sessionRecordingPlaylistsCreateBodyNameMax = 400
 
 export const sessionRecordingPlaylistsCreateBodyDerivedNameMax = 400
 
-export const SessionRecordingPlaylistsCreateBody = () =>
-    zod.object({
-        name: zod
-            .string()
-            .max(sessionRecordingPlaylistsCreateBodyNameMax)
-            .nullish()
-            .describe('Human-readable name for the playlist.'),
-        derived_name: zod.string().max(sessionRecordingPlaylistsCreateBodyDerivedNameMax).nullish(),
-        description: zod.string().optional().describe("Optional description of the playlist's purpose or contents."),
-        pinned: zod.boolean().optional().describe('Whether this playlist is pinned to the top of the list.'),
-        deleted: zod.boolean().optional().describe('Set to true to soft-delete the playlist.'),
-        filters: zod
-            .unknown()
-            .optional()
-            .describe(
-                "JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, you must include the existing filters alongside any other changes — omitting filters will be treated as removing them."
-            ),
-        type: zod
-            .union([
-                zod.enum(['collection', 'filters']).describe('\* `collection` - Collection\n\* `filters` - Filters'),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                "Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.\n\n\* `collection` - Collection\n\* `filters` - Filters"
-            ),
-    })
+export const SessionRecordingPlaylistsCreateBody = () => zod.object({
+    name: zod
+        .string()
+        .max(sessionRecordingPlaylistsCreateBodyNameMax)
+        .nullish()
+        .describe('Human-readable name for the playlist.'),
+    derived_name: zod.string().max(sessionRecordingPlaylistsCreateBodyDerivedNameMax).nullish(),
+    description: zod.string().optional().describe("Optional description of the playlist's purpose or contents."),
+    pinned: zod.boolean().optional().describe('Whether this playlist is pinned to the top of the list.'),
+    deleted: zod.boolean().optional().describe('Set to true to soft-delete the playlist.'),
+    filters: zod
+        .unknown()
+        .optional()
+        .describe(
+            "JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, you must include the existing filters alongside any other changes — omitting filters will be treated as removing them."
+        ),
+    type: zod
+        .union([
+            zod.enum(['collection', 'filters']).describe('\* `collection` - Collection\n\* `filters` - Filters'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.\n\n\* `collection` - Collection\n\* `filters` - Filters"
+        ),
+})
 
-export const SessionRecordingPlaylistsRetrieveParams = () =>
-    zod.object({
-        project_id: zod
-            .string()
-            .describe(
-                "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-            ),
-        short_id: zod.string(),
-    })
+export const SessionRecordingPlaylistsRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    short_id: zod.string(),
+})
 
-export const SessionRecordingPlaylistsPartialUpdateParams = () =>
-    zod.object({
-        project_id: zod
-            .string()
-            .describe(
-                "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-            ),
-        short_id: zod.string(),
-    })
+export const SessionRecordingPlaylistsPartialUpdateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+    short_id: zod.string(),
+})
 
 export const sessionRecordingPlaylistsPartialUpdateBodyNameMax = 400
 
 export const sessionRecordingPlaylistsPartialUpdateBodyDerivedNameMax = 400
 
-export const SessionRecordingPlaylistsPartialUpdateBody = () =>
-    zod.object({
-        name: zod
-            .string()
-            .max(sessionRecordingPlaylistsPartialUpdateBodyNameMax)
-            .nullish()
-            .describe('Human-readable name for the playlist.'),
-        derived_name: zod.string().max(sessionRecordingPlaylistsPartialUpdateBodyDerivedNameMax).nullish(),
-        description: zod.string().optional().describe("Optional description of the playlist's purpose or contents."),
-        pinned: zod.boolean().optional().describe('Whether this playlist is pinned to the top of the list.'),
-        deleted: zod.boolean().optional().describe('Set to true to soft-delete the playlist.'),
-        filters: zod
-            .unknown()
-            .optional()
-            .describe(
-                "JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, you must include the existing filters alongside any other changes — omitting filters will be treated as removing them."
-            ),
-    })
+export const SessionRecordingPlaylistsPartialUpdateBody = () => zod.object({
+    name: zod
+        .string()
+        .max(sessionRecordingPlaylistsPartialUpdateBodyNameMax)
+        .nullish()
+        .describe('Human-readable name for the playlist.'),
+    derived_name: zod.string().max(sessionRecordingPlaylistsPartialUpdateBodyDerivedNameMax).nullish(),
+    description: zod.string().optional().describe("Optional description of the playlist's purpose or contents."),
+    pinned: zod.boolean().optional().describe('Whether this playlist is pinned to the top of the list.'),
+    deleted: zod.boolean().optional().describe('Set to true to soft-delete the playlist.'),
+    filters: zod
+        .unknown()
+        .optional()
+        .describe(
+            "JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, you must include the existing filters alongside any other changes — omitting filters will be treated as removing them."
+        ),
+})
 
-export const SessionRecordingsRetrieveParams = () =>
-    zod.object({
-        id: zod.string().describe('A UUID string identifying this session recording.'),
-        project_id: zod
-            .string()
-            .describe(
-                "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-            ),
-    })
+export const SessionRecordingsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this session recording.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
-export const SessionRecordingsDestroyParams = () =>
-    zod.object({
-        id: zod.string().describe('A UUID string identifying this session recording.'),
-        project_id: zod
-            .string()
-            .describe(
-                "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-            ),
-    })
+export const SessionRecordingsDestroyParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this session recording.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
 /**
  * Delete a batch of session recordings by session ID. Deletion is permanent and cannot be undone. IDs that don't match an existing recording are skipped and counted in `total_requested` but not `deleted_count`.
  */
-export const SessionRecordingsBulkDeleteCreateParams = () =>
-    zod.object({
-        project_id: zod
-            .string()
-            .describe(
-                "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-            ),
-    })
+export const SessionRecordingsBulkDeleteCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
 export const sessionRecordingsBulkDeleteCreateBodySessionRecordingIdsMax = 100
 
-export const SessionRecordingsBulkDeleteCreateBody = () =>
-    zod.object({
-        session_recording_ids: zod
-            .array(zod.string())
-            .min(1)
-            .max(sessionRecordingsBulkDeleteCreateBodySessionRecordingIdsMax)
-            .describe('Session IDs of the recordings to delete (max 100 per call).'),
-        date_from: zod
-            .string()
-            .nullish()
-            .describe(
-                "Earliest start time of the recordings, as an ISO date or a relative offset like '-30d'. Providing this narrows the lookup and speeds up the request; defaults to the project's recording retention period."
-            ),
-    })
+export const SessionRecordingsBulkDeleteCreateBody = () => zod.object({
+    session_recording_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(sessionRecordingsBulkDeleteCreateBodySessionRecordingIdsMax)
+        .describe('Session IDs of the recordings to delete (max 100 per call).'),
+    date_from: zod
+        .string()
+        .nullish()
+        .describe(
+            "Earliest start time of the recordings, as an ISO date or a relative offset like '-30d'. Providing this narrows the lookup and speeds up the request; defaults to the project's recording retention period."
+        ),
+})

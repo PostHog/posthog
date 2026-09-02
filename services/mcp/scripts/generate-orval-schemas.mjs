@@ -181,20 +181,24 @@ function postprocessOrvalOutput(outputFile) {
         /\n\s*\.describe\(\n\s*(['"`])\* `(?:\\.|(?!\1)[\s\S])*?\1\n\s*\)(?=\s*(?:\.(?:optional|nullish)\(\)\s*)?\.describe\()/g,
         ''
     )
-    // Exported schemas become builder functions, so a pod holds no schema
-    // objects between calls (see lib/lazy-zod-schemas.mjs). Unused builders
-    // tree-shake without a @__PURE__ annotation.
-    const { source } = lazifyZodSchemas(withoutRedundantEnumDescriptions, outputFile)
-    fs.writeFileSync(outputFile, source)
+    fs.writeFileSync(outputFile, withoutRedundantEnumDescriptions)
 }
 
+// The generated modules are exempt from oxfmt (.prettierignore), so the layout
+// this pipeline writes is what stays in the repo. Format the raw Orval output
+// once with the ignore file bypassed, then rewrite the exports into builder
+// functions with a splice that keeps every other line untouched. A formatter
+// pass over the builder form would move the body of every schema one indent
+// level and turn a regeneration into a full-file diff.
 function formatGeneratedFiles(files) {
-    const result = spawnSync(path.join(repoRoot, 'bin/hogli'), ['format:js', ...files], {
+    const emptyIgnore = path.join(os.tmpdir(), 'oxfmt-empty-ignore')
+    fs.writeFileSync(emptyIgnore, '')
+    const result = spawnSync('pnpm', ['exec', 'oxfmt', '--ignore-path', emptyIgnore, ...files], {
         stdio: 'pipe',
-        cwd: repoRoot,
+        cwd: mcpRoot,
     })
     if (result.status !== 0) {
-        console.warn(`hogli format:js failed:\n${result.stderr?.toString() ?? ''}${result.stdout?.toString() ?? ''}`)
+        console.warn(`oxfmt failed:\n${result.stderr?.toString() ?? ''}${result.stdout?.toString() ?? ''}`)
     }
 }
 
@@ -272,4 +276,11 @@ console.log(`MCP Orval: ${outputDirs.length} module(s), ${totalEnabledOps} enabl
 if (outputDirs.length > 0) {
     const generatedFiles = outputDirs.map((d) => path.join(d, 'api.ts'))
     formatGeneratedFiles(generatedFiles)
+    // Exported schemas become builder functions, so a pod holds no schema
+    // objects between calls (see lib/lazy-zod-schemas.mjs). Unused builders
+    // tree-shake without a @__PURE__ annotation.
+    for (const file of generatedFiles) {
+        const { source } = lazifyZodSchemas(fs.readFileSync(file, 'utf-8'), file)
+        fs.writeFileSync(file, source)
+    }
 }

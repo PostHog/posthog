@@ -8,104 +8,99 @@
  */
 import * as zod from 'zod'
 
-export const IntegrationsListParams = () =>
-    zod.object({
-        project_id: zod
-            .string()
-            .describe(
-                "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-            ),
-    })
+export const IntegrationsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
-export const IntegrationsListQueryParams = () =>
-    zod.object({
-        kind: zod
-            .enum([
-                'anthropic',
-                'apns',
-                'aws-redshift',
-                'aws-s3',
-                'azure-blob',
-                'bing-ads',
-                'clickup',
-                'customerio-app',
-                'customerio-track',
-                'customerio-webhook',
-                'databricks',
-                'email',
-                'firebase',
-                'github',
-                'gitlab',
-                'google-ads',
-                'google-analytics',
-                'google-calendar',
-                'google-cloud-service-account',
-                'google-cloud-storage',
-                'google-pubsub',
-                'google-search-console',
-                'google-sheets',
-                'hubspot',
-                'instagram',
-                'intercom',
-                'jira',
-                'linear',
-                'linkedin-ads',
-                'meta-ads',
-                'pardot',
-                'pinterest-ads',
-                'postgresql',
-                'posthog',
-                'reddit-ads',
-                'resend',
-                's3-compatible',
-                'salesforce',
-                'slack',
-                'slack-posthog-code',
-                'snapchat',
-                'snowflake',
-                'stripe',
-                'tiktok-ads',
-                'twilio',
-                'vercel',
-                'youtube-analytics',
-            ])
-            .optional()
-            .describe(
-                '\* `anthropic` - Anthropic\n\* `apns` - Apple Push\n\* `aws-redshift` - Aws Redshift\n\* `aws-s3` - Aws S3\n\* `azure-blob` - Azure Blob\n\* `bing-ads` - Bing Ads\n\* `clickup` - Clickup\n\* `customerio-app` - Customerio App\n\* `customerio-track` - Customerio Track\n\* `customerio-webhook` - Customerio Webhook\n\* `databricks` - Databricks\n\* `email` - Email\n\* `firebase` - Firebase\n\* `github` - Github\n\* `gitlab` - Gitlab\n\* `google-ads` - Google Ads\n\* `google-analytics` - Google Analytics\n\* `google-calendar` - Google Calendar\n\* `google-cloud-service-account` - Google Cloud Service Account\n\* `google-cloud-storage` - Google Cloud Storage\n\* `google-pubsub` - Google Pubsub\n\* `google-search-console` - Google Search Console\n\* `google-sheets` - Google Sheets\n\* `hubspot` - Hubspot\n\* `instagram` - Instagram\n\* `intercom` - Intercom\n\* `jira` - Jira\n\* `linear` - Linear\n\* `linkedin-ads` - Linkedin Ads\n\* `meta-ads` - Meta Ads\n\* `pardot` - Pardot\n\* `pinterest-ads` - Pinterest Ads\n\* `postgresql` - Postgresql\n\* `posthog` - Posthog\n\* `reddit-ads` - Reddit Ads\n\* `resend` - Resend\n\* `s3-compatible` - S3 Compatible\n\* `salesforce` - Salesforce\n\* `slack` - Slack\n\* `slack-posthog-code` - Slack Posthog Code\n\* `snapchat` - Snapchat\n\* `snowflake` - Snowflake\n\* `stripe` - Stripe\n\* `tiktok-ads` - Tiktok Ads\n\* `twilio` - Twilio\n\* `vercel` - Vercel\n\* `youtube-analytics` - Youtube Analytics'
-            ),
-        limit: zod.number().optional().describe('Number of results to return per page.'),
-        offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    })
+export const IntegrationsListQueryParams = () => zod.object({
+    kind: zod
+        .enum([
+            'anthropic',
+            'apns',
+            'aws-redshift',
+            'aws-s3',
+            'azure-blob',
+            'bing-ads',
+            'clickup',
+            'customerio-app',
+            'customerio-track',
+            'customerio-webhook',
+            'databricks',
+            'email',
+            'firebase',
+            'github',
+            'gitlab',
+            'google-ads',
+            'google-analytics',
+            'google-calendar',
+            'google-cloud-service-account',
+            'google-cloud-storage',
+            'google-pubsub',
+            'google-search-console',
+            'google-sheets',
+            'hubspot',
+            'instagram',
+            'intercom',
+            'jira',
+            'linear',
+            'linkedin-ads',
+            'meta-ads',
+            'pardot',
+            'pinterest-ads',
+            'postgresql',
+            'posthog',
+            'reddit-ads',
+            'resend',
+            's3-compatible',
+            'salesforce',
+            'slack',
+            'slack-posthog-code',
+            'snapchat',
+            'snowflake',
+            'stripe',
+            'tiktok-ads',
+            'twilio',
+            'vercel',
+            'youtube-analytics',
+        ])
+        .optional()
+        .describe(
+            '\* `anthropic` - Anthropic\n\* `apns` - Apple Push\n\* `aws-redshift` - Aws Redshift\n\* `aws-s3` - Aws S3\n\* `azure-blob` - Azure Blob\n\* `bing-ads` - Bing Ads\n\* `clickup` - Clickup\n\* `customerio-app` - Customerio App\n\* `customerio-track` - Customerio Track\n\* `customerio-webhook` - Customerio Webhook\n\* `databricks` - Databricks\n\* `email` - Email\n\* `firebase` - Firebase\n\* `github` - Github\n\* `gitlab` - Gitlab\n\* `google-ads` - Google Ads\n\* `google-analytics` - Google Analytics\n\* `google-calendar` - Google Calendar\n\* `google-cloud-service-account` - Google Cloud Service Account\n\* `google-cloud-storage` - Google Cloud Storage\n\* `google-pubsub` - Google Pubsub\n\* `google-search-console` - Google Search Console\n\* `google-sheets` - Google Sheets\n\* `hubspot` - Hubspot\n\* `instagram` - Instagram\n\* `intercom` - Intercom\n\* `jira` - Jira\n\* `linear` - Linear\n\* `linkedin-ads` - Linkedin Ads\n\* `meta-ads` - Meta Ads\n\* `pardot` - Pardot\n\* `pinterest-ads` - Pinterest Ads\n\* `postgresql` - Postgresql\n\* `posthog` - Posthog\n\* `reddit-ads` - Reddit Ads\n\* `resend` - Resend\n\* `s3-compatible` - S3 Compatible\n\* `salesforce` - Salesforce\n\* `slack` - Slack\n\* `slack-posthog-code` - Slack Posthog Code\n\* `snapchat` - Snapchat\n\* `snowflake` - Snowflake\n\* `stripe` - Stripe\n\* `tiktok-ads` - Tiktok Ads\n\* `twilio` - Twilio\n\* `vercel` - Vercel\n\* `youtube-analytics` - Youtube Analytics'
+        ),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
 
-export const IntegrationsRetrieveParams = () =>
-    zod.object({
-        id: zod.number().describe('A unique integer value identifying this integration.'),
-        project_id: zod
-            .string()
-            .describe(
-                "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-            ),
-    })
+export const IntegrationsRetrieveParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this integration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
-export const IntegrationsDestroyParams = () =>
-    zod.object({
-        id: zod.number().describe('A unique integer value identifying this integration.'),
-        project_id: zod
-            .string()
-            .describe(
-                "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-            ),
-    })
+export const IntegrationsDestroyParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this integration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
-export const IntegrationsChannelsRetrieveParams = () =>
-    zod.object({
-        id: zod.number().describe('A unique integer value identifying this integration.'),
-        project_id: zod
-            .string()
-            .describe(
-                "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-            ),
-    })
+export const IntegrationsChannelsRetrieveParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this integration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
 export const integrationsChannelsRetrieveQueryLimitDefault = 50
 export const integrationsChannelsRetrieveQueryLimitMax = 200
@@ -115,34 +110,32 @@ export const integrationsChannelsRetrieveQueryOffsetMin = 0
 
 export const integrationsChannelsRetrieveQuerySearchDefault = ``
 
-export const IntegrationsChannelsRetrieveQueryParams = () =>
-    zod.object({
-        limit: zod
-            .number()
-            .min(1)
-            .max(integrationsChannelsRetrieveQueryLimitMax)
-            .default(integrationsChannelsRetrieveQueryLimitDefault)
-            .describe('Maximum number of channels to return per request (max 200).'),
-        offset: zod
-            .number()
-            .min(integrationsChannelsRetrieveQueryOffsetMin)
-            .default(integrationsChannelsRetrieveQueryOffsetDefault)
-            .describe('Number of channels to skip before returning results.'),
-        search: zod
-            .string()
-            .default(integrationsChannelsRetrieveQuerySearchDefault)
-            .describe('Optional case-insensitive channel name or ID search query.'),
-    })
+export const IntegrationsChannelsRetrieveQueryParams = () => zod.object({
+    limit: zod
+        .number()
+        .min(1)
+        .max(integrationsChannelsRetrieveQueryLimitMax)
+        .default(integrationsChannelsRetrieveQueryLimitDefault)
+        .describe('Maximum number of channels to return per request (max 200).'),
+    offset: zod
+        .number()
+        .min(integrationsChannelsRetrieveQueryOffsetMin)
+        .default(integrationsChannelsRetrieveQueryOffsetDefault)
+        .describe('Number of channels to skip before returning results.'),
+    search: zod
+        .string()
+        .default(integrationsChannelsRetrieveQuerySearchDefault)
+        .describe('Optional case-insensitive channel name or ID search query.'),
+})
 
-export const IntegrationsGithubReposRetrieveParams = () =>
-    zod.object({
-        id: zod.number().describe('A unique integer value identifying this integration.'),
-        project_id: zod
-            .string()
-            .describe(
-                "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-            ),
-    })
+export const IntegrationsGithubReposRetrieveParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this integration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
 export const integrationsGithubReposRetrieveQueryLimitDefault = 100
 export const integrationsGithubReposRetrieveQueryLimitMax = 500
@@ -152,54 +145,50 @@ export const integrationsGithubReposRetrieveQueryOffsetMin = 0
 
 export const integrationsGithubReposRetrieveQuerySearchDefault = ``
 
-export const IntegrationsGithubReposRetrieveQueryParams = () =>
-    zod.object({
-        limit: zod
-            .number()
-            .min(1)
-            .max(integrationsGithubReposRetrieveQueryLimitMax)
-            .default(integrationsGithubReposRetrieveQueryLimitDefault)
-            .describe('Maximum number of repositories to return per request (max 500).'),
-        offset: zod
-            .number()
-            .min(integrationsGithubReposRetrieveQueryOffsetMin)
-            .default(integrationsGithubReposRetrieveQueryOffsetDefault)
-            .describe('Number of repositories to skip before returning results.'),
-        search: zod
-            .string()
-            .default(integrationsGithubReposRetrieveQuerySearchDefault)
-            .describe('Optional case-insensitive repository name search query.'),
-    })
+export const IntegrationsGithubReposRetrieveQueryParams = () => zod.object({
+    limit: zod
+        .number()
+        .min(1)
+        .max(integrationsGithubReposRetrieveQueryLimitMax)
+        .default(integrationsGithubReposRetrieveQueryLimitDefault)
+        .describe('Maximum number of repositories to return per request (max 500).'),
+    offset: zod
+        .number()
+        .min(integrationsGithubReposRetrieveQueryOffsetMin)
+        .default(integrationsGithubReposRetrieveQueryOffsetDefault)
+        .describe('Number of repositories to skip before returning results.'),
+    search: zod
+        .string()
+        .default(integrationsGithubReposRetrieveQuerySearchDefault)
+        .describe('Optional case-insensitive repository name search query.'),
+})
 
-export const IntegrationsJiraProjectsRetrieveParams = () =>
-    zod.object({
-        id: zod.number().describe('A unique integer value identifying this integration.'),
-        project_id: zod
-            .string()
-            .describe(
-                "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-            ),
-    })
+export const IntegrationsJiraProjectsRetrieveParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this integration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
-export const IntegrationsLinearTeamsRetrieveParams = () =>
-    zod.object({
-        id: zod.number().describe('A unique integer value identifying this integration.'),
-        project_id: zod
-            .string()
-            .describe(
-                "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-            ),
-    })
+export const IntegrationsLinearTeamsRetrieveParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this integration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
-export const IntegrationsUsersRetrieveParams = () =>
-    zod.object({
-        id: zod.number().describe('A unique integer value identifying this integration.'),
-        project_id: zod
-            .string()
-            .describe(
-                "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-            ),
-    })
+export const IntegrationsUsersRetrieveParams = () => zod.object({
+    id: zod.number().describe('A unique integer value identifying this integration.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
 export const integrationsUsersRetrieveQueryForceRefreshDefault = false
 export const integrationsUsersRetrieveQueryLimitDefault = 50
@@ -211,62 +200,59 @@ export const integrationsUsersRetrieveQueryOffsetMin = 0
 export const integrationsUsersRetrieveQuerySearchDefault = ``
 export const integrationsUsersRetrieveQueryUserIdDefault = ``
 
-export const IntegrationsUsersRetrieveQueryParams = () =>
-    zod.object({
-        force_refresh: zod
-            .boolean()
-            .default(integrationsUsersRetrieveQueryForceRefreshDefault)
-            .describe(
-                'Bypass the 1 hour member cache. Honored only for browser session callers; API key, OAuth, and MCP callers always read through the cache.'
-            ),
-        limit: zod
-            .number()
-            .min(1)
-            .max(integrationsUsersRetrieveQueryLimitMax)
-            .default(integrationsUsersRetrieveQueryLimitDefault)
-            .describe('Maximum number of members to return per request (max 200).'),
-        offset: zod
-            .number()
-            .min(integrationsUsersRetrieveQueryOffsetMin)
-            .default(integrationsUsersRetrieveQueryOffsetDefault)
-            .describe('Number of members to skip before returning results.'),
-        search: zod
-            .string()
-            .default(integrationsUsersRetrieveQuerySearchDefault)
-            .describe('Optional case-insensitive member name or ID search query.'),
-        user_id: zod
-            .string()
-            .default(integrationsUsersRetrieveQueryUserIdDefault)
-            .describe(
-                'Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that member.'
-            ),
-    })
+export const IntegrationsUsersRetrieveQueryParams = () => zod.object({
+    force_refresh: zod
+        .boolean()
+        .default(integrationsUsersRetrieveQueryForceRefreshDefault)
+        .describe(
+            'Bypass the 1 hour member cache. Honored only for browser session callers; API key, OAuth, and MCP callers always read through the cache.'
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(integrationsUsersRetrieveQueryLimitMax)
+        .default(integrationsUsersRetrieveQueryLimitDefault)
+        .describe('Maximum number of members to return per request (max 200).'),
+    offset: zod
+        .number()
+        .min(integrationsUsersRetrieveQueryOffsetMin)
+        .default(integrationsUsersRetrieveQueryOffsetDefault)
+        .describe('Number of members to skip before returning results.'),
+    search: zod
+        .string()
+        .default(integrationsUsersRetrieveQuerySearchDefault)
+        .describe('Optional case-insensitive member name or ID search query.'),
+    user_id: zod
+        .string()
+        .default(integrationsUsersRetrieveQueryUserIdDefault)
+        .describe(
+            'Look up one member directly by Slack member ID (e.g. U0123ABC). When set, `search`, `limit`, and `offset` are ignored and the response holds at most that member.'
+        ),
+})
 
 /**
  * Replay an API request against the connected PostHog project. The server injects the connection's token; the response is passed through.
  * @summary Forward a request through a PostHog connection
  */
-export const PosthogConnectionsForwardCreateParams = () =>
-    zod.object({
-        id: zod.string(),
-        project_id: zod
-            .string()
-            .describe(
-                "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-            ),
-    })
+export const PosthogConnectionsForwardCreateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
 
-export const PosthogConnectionsForwardCreateBody = () =>
-    zod.object({
-        method: zod
-            .enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
-            .describe('\* `GET` - GET\n\* `POST` - POST\n\* `PUT` - PUT\n\* `PATCH` - PATCH\n\* `DELETE` - DELETE')
-            .describe(
-                "HTTP method to use against the target project's API.\n\n\* `GET` - GET\n\* `POST` - POST\n\* `PUT` - PUT\n\* `PATCH` - PATCH\n\* `DELETE` - DELETE"
-            ),
-        path: zod
-            .string()
-            .describe('Relative target API path with no host or scheme, e.g. `api\/projects\/2\/insights\/`.'),
-        query: zod.record(zod.string(), zod.string()).optional().describe('Query parameters to send to the target.'),
-        data: zod.unknown().optional().describe('JSON request body for write methods.'),
-    })
+export const PosthogConnectionsForwardCreateBody = () => zod.object({
+    method: zod
+        .enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
+        .describe('\* `GET` - GET\n\* `POST` - POST\n\* `PUT` - PUT\n\* `PATCH` - PATCH\n\* `DELETE` - DELETE')
+        .describe(
+            "HTTP method to use against the target project's API.\n\n\* `GET` - GET\n\* `POST` - POST\n\* `PUT` - PUT\n\* `PATCH` - PATCH\n\* `DELETE` - DELETE"
+        ),
+    path: zod
+        .string()
+        .describe('Relative target API path with no host or scheme, e.g. `api\/projects\/2\/insights\/`.'),
+    query: zod.record(zod.string(), zod.string()).optional().describe('Query parameters to send to the target.'),
+    data: zod.unknown().optional().describe('JSON request body for write methods.'),
+})
