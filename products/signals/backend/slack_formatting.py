@@ -141,11 +141,10 @@ _BOLD_RUN_RE = re.compile(r"^[ \t]*(?:\*\*(?!\s)((?:[^*\n]|\*(?!\*))+)\*\*|__(?!
 # is required, so a bold word that only opens a sentence (`**31** organizations reported …`) is
 # prose rather than a label.
 _BOLD_LEAD_SEPARATOR_RE = re.compile(r"(?::[ \t]|[ \t][-–—][ \t])\S")
-_MAX_ATX_LEVEL = 6
-# How far below the deepest heading present a bold seam ranks. A heading therefore always outranks a
-# bold label, and a label alone on its line outranks one that shares the line with prose.
-_BOLD_LABEL_DEPTH = 1
-_BOLD_LEAD_DEPTH = 2
+# A bold seam ranks below every ATX heading, which stops at level 6, so a heading is always the
+# primary seam. A label alone on its line outranks one that shares the line with prose.
+_BOLD_LABEL_LEVEL = 7
+_BOLD_LEAD_LEVEL = 8
 
 
 @frozen
@@ -157,7 +156,7 @@ class _MarkdownSeam:
     level: int
 
 
-def _bold_seam_depth(line: str) -> int | None:
+def _bold_seam_level(line: str) -> int | None:
     """How deep the line's bold section label ranks, or None when the line holds no label.
 
     A label alone on its line ranks shallower than one followed by prose, so a summary that marks
@@ -168,13 +167,11 @@ def _bold_seam_depth(line: str) -> int | None:
     label = match.group(1) or match.group(2)
     rest = line[match.end() :]
     if rest.strip() in ("", ":"):
-        return _BOLD_LABEL_DEPTH
-    # A colon inside the run (`**Evidence:** the count fell`) already separates label from prose.
-    if label.endswith(":") and rest[:1] in (" ", "\t") and rest.strip():
-        return _BOLD_LEAD_DEPTH
-    if _BOLD_LEAD_SEPARATOR_RE.match(rest):
-        return _BOLD_LEAD_DEPTH
-    return None
+        return _BOLD_LABEL_LEVEL
+    # A colon closing the run (`**Evidence:** the count fell`) separates label from prose as well, so
+    # it stands in for the colon separator.
+    separated = f":{rest}" if label.endswith(":") else rest
+    return _BOLD_LEAD_LEVEL if _BOLD_LEAD_SEPARATOR_RE.match(separated) else None
 
 
 def _markdown_seams(text: str) -> list[_MarkdownSeam]:
@@ -182,8 +179,7 @@ def _markdown_seams(text: str) -> list[_MarkdownSeam]:
 
     Seams inside a fenced code block are skipped, so a `# ` or `**…**` line of a snippet stays code.
     A bold label counts only where a paragraph opens, so a bold run inside a paragraph is prose."""
-    headings: list[_MarkdownSeam] = []
-    bold: list[tuple[int, int]] = []
+    seams: list[_MarkdownSeam] = []
     fence: str | None = None  # marker of the currently open fence, else None
     after_blank = True  # the start of the text opens a paragraph, the same as a blank line does
     offset = 0
@@ -198,18 +194,14 @@ def _markdown_seams(text: str) -> list[_MarkdownSeam]:
         else:
             heading_match = _MARKDOWN_HEADING_RE.match(line)
             if heading_match:
-                headings.append(_MarkdownSeam(offset=offset, level=len(heading_match.group(1))))
+                seams.append(_MarkdownSeam(offset=offset, level=len(heading_match.group(1))))
             elif after_blank:
-                depth = _bold_seam_depth(line)
-                if depth is not None:
-                    bold.append((offset, depth))
+                bold_level = _bold_seam_level(line)
+                if bold_level is not None:
+                    seams.append(_MarkdownSeam(offset=offset, level=bold_level))
         offset += len(line) + 1  # +1 for the "\n" that split dropped
         after_blank = not line.strip()
-    # Ranking bold below every heading present, rather than at a fixed level, keeps a summary that
-    # mixes both splitting at its headings whatever depth those headings sit at.
-    base_level = max((heading.level for heading in headings), default=_MAX_ATX_LEVEL)
-    seams = headings + [_MarkdownSeam(offset=start, level=base_level + depth) for start, depth in bold]
-    return sorted(seams, key=lambda seam: seam.offset)
+    return seams
 
 
 def _split_seam_level(levels: list[int]) -> int:
