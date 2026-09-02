@@ -232,14 +232,17 @@ describe('hogFunctionConfigurationLogic', () => {
             expect(globals.event).toBeUndefined()
         })
 
-        it('surfaces validation errors on `type` as a toast, since no form field renders them', async () => {
-            // The feature-flag gate and the enabled-function cap both reject with attr `type`;
-            // without the toast the Save button fails with no visible feedback at all.
+        // `type` and `template_id` reject with no rendered form field (the feature-flag gate and
+        // enabled-function cap use `type`; a removed template uses `template_id`), so without the
+        // toast the Save button fails with no visible feedback at all.
+        it.each([
+            ['type', 'Log transformations are not enabled for this team.'],
+            ['template_id', "No template found for id 'template-log-transformation-default'"],
+        ])('surfaces validation errors on `%s` as a toast, since no form field renders them', async (attr, detail) => {
             const toastSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'id')
-            const detail = 'Log transformations are not enabled for this team.'
             mockApi.create.mockRejectedValue({
                 status: 400,
-                data: { type: 'validation_error', code: 'invalid_input', attr: 'type', detail },
+                data: { type: 'validation_error', code: 'invalid_input', attr, detail },
             })
             await expectLogic(logic).toDispatchActions(['loadTemplate', 'loadTemplateSuccess'])
 

@@ -1185,7 +1185,17 @@ class HogFunctionViewSet(
         )
 
         if res.status_code != 200:
-            return Response({"status": "error"}, status=res.status_code)
+            # Forward the worker's failure detail so the test panel can show why it failed,
+            # instead of a bare "Error". The worker sends `errors` (a list) or `error` (a string).
+            try:
+                body = res.json()
+            except ValueError:
+                body = {}
+            errors = body.get("errors") or ([body["error"]] if body.get("error") else [])
+            return Response(
+                {"status": "error", "errors": errors, "logs": body.get("logs", [])},
+                status=res.status_code,
+            )
 
         return Response(res.json())
 

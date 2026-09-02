@@ -361,6 +361,11 @@ export function HogFunctionTest(): JSX.Element {
                         {testResult ? (
                             <div className="deprecated-space-y-2" data-attr="test-results">
                                 <LemonBanner
+                                    // Worker errors can echo a third-party response body with customer data,
+                                    // so keep the banner text out of session replay, like the log table below.
+                                    // break-words lets a long unbroken token (a URL or JSON body) wrap instead
+                                    // of being clipped by LemonBanner's overflow-hidden content box.
+                                    className="ph-no-capture whitespace-pre-line break-words"
                                     type={
                                         testResult.status === 'success'
                                             ? 'success'
@@ -375,7 +380,9 @@ export function HogFunctionTest(): JSX.Element {
                                           ? `${
                                                 type.charAt(0).toUpperCase() + type.slice(1)
                                             } was skipped because the event did not match the filter criteria`
-                                          : 'Error'}
+                                          : testResult.errors?.length
+                                            ? testResult.errors.join('\n')
+                                            : 'Error'}
                                 </LemonBanner>
 
                                 {(type === 'transformation' || type === 'transformation_log') &&

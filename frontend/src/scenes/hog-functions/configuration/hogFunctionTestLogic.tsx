@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import type { editor } from 'monaco-editor'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -509,12 +510,22 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                           ? { record: parsedData }
                           : parsedData
 
+                const captureTest = (status: string): void => {
+                    posthog.capture('hog function test invocation', {
+                        type: values.type,
+                        template_id: values.templateId,
+                        status,
+                    })
+                }
+
                 try {
                     const res = await api.hogFunctions.createTestInvocation(props.id ?? 'new', {
                         globals,
                         mock_async_functions: data.mock_async_functions,
                         configuration,
                     })
+
+                    captureTest(res.status)
 
                     // Modify the result to match better our globals format
                     if (values.type === 'transformation' && res.result) {
@@ -523,8 +534,21 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
 
                     actions.setTestResult(res)
                 } catch (e: any) {
+                    captureTest('error')
+
                     if (e?.data?.configuration?.filters?.non_field_errors) {
                         lemonToast.error(`Testing failed: ${e.data.configuration.filters.non_field_errors}`)
+                        return
+                    }
+                    // A non-200 from the worker proxy forwards its failure detail as `errors`.
+                    const forwardedErrors: string[] | undefined = e?.data?.errors
+                    if (forwardedErrors?.length) {
+                        actions.setTestResult({
+                            status: 'error',
+                            logs: e.data.logs ?? [],
+                            result: null,
+                            errors: forwardedErrors,
+                        })
                         return
                     }
                     lemonToast.error(`An unexpected server error occurred while testing the function: ${e}`)

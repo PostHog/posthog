@@ -1972,9 +1972,11 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             const maybeValidationError = errorObject.data
 
             if (maybeValidationError?.type === 'validation_error' && maybeValidationError.attr) {
-                // Errors on `type` (the feature gate and the enabled-function cap reject there)
-                // have no rendered form field, so a toast is the only way the user sees them.
-                if (maybeValidationError.attr === 'type') {
+                // Some attrs have no rendered form field, so the manual error set below renders
+                // nowhere and a toast is the only way the user sees them: `type` (the feature gate
+                // and the enabled-function cap reject there) and `template_id` (the save is
+                // rejected when the function's template no longer exists).
+                if (maybeValidationError.attr === 'type' || maybeValidationError.attr === 'template_id') {
                     lemonToast.error(maybeValidationError.detail)
                 }
                 setTimeout(() => {

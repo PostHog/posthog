@@ -2157,6 +2157,21 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "value": "http://localhost:2080/0e02d917-563f-4050-9725-aad881b69937",
             }
 
+    def test_test_invocation_forwards_worker_error(self):
+        with patch(
+            "products.cdp.backend.api.hog_function.create_hog_invocation_test"
+        ) as mock_create_hog_invocation_test:
+            res = MagicMock(status_code=500, json=lambda: {"errors": ["Connection refused"]})
+            mock_create_hog_invocation_test.return_value = res
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/new/invocations/",
+                data={"configuration": {**EXAMPLE_FULL}},
+            )
+
+            assert response.status_code == 500, response.json()
+            assert response.json() == {"status": "error", "errors": ["Connection refused"], "logs": []}
+
     # warehouse_source_webhook is intentionally omitted: it's excluded from the viewset queryset
     # entirely (see test_warehouse_source_webhook_excluded), so its rerun endpoint 404s before the
     # rerunnable-type guard is ever reached — it can't exercise the 400 this test asserts.
