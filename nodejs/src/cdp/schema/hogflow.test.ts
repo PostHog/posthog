@@ -88,5 +88,17 @@ describe('hogflow schema', () => {
             })
             expect(parsed.conversion?.events).toBeUndefined()
         })
+
+        it('accepts a conversion goal carrying only the duration-string window', () => {
+            // A workflow migrated onto `window` has no `window_minutes` key at all. Requiring one
+            // fails the whole flow to parse, which stops it running rather than just mis-reading the
+            // window.
+            const parsed = HogFlowSchema.parse({
+                ...baseHogFlow,
+                conversion: { window: '60d', filters: {}, bytecode: [] },
+            })
+            expect(parsed.conversion?.window).toBe('60d')
+            expect(parsed.conversion?.window_minutes).toBeUndefined()
+        })
     })
 })
