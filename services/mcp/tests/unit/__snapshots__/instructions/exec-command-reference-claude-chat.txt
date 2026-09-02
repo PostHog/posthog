@@ -20,7 +20,7 @@ Load all matching topics in one `learn` command first. Topics are cumulative.
 - urls: Load before writing any PostHog app link or URL.
 - feedback: Send feedback about PostHog.
 
-**Metrics & SQL trust**: for any metric question (business or operational), and before writing SQL or joins, run `learn analytics` — the catalog defines governed metrics (`system.information_schema.metrics`), certified tables/views, and verified joins. Check it before insights or raw SQL and state the outcome in query context.
+**Metrics & SQL trust**: for any metric question (business or operational), inspect the complete governed catalog with `metric-list` before insights, domain tools, or raw SQL. Use `metric-describe` for a candidate's definition, including HogQL or SQL, before adapting it. Run `learn analytics` before writing SQL or joins — it covers certified tables/views and verified joins. State the catalog outcome in query context.
 
 **SCHEMA DRILL-DOWN RULE — HARD REQUIREMENT**
 
