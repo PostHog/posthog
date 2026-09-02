@@ -2,9 +2,10 @@ import md5 from 'md5'
 
 export const GRAVATAR_MANAGE_URL = 'https://gravatar.com/profile/avatars'
 
-export function gravatarUrl(identifier: string, size: number = 96): string {
+export function gravatarUrl(identifier: string, refreshKey?: number): string {
     const hash = md5(identifier.trim().toLowerCase())
-    return `https://www.gravatar.com/avatar/${hash}?s=${size}&d=404`
+    const url = `https://www.gravatar.com/avatar/${hash}?s=96&d=404`
+    return refreshKey ? `${url}&_=${refreshKey}` : url
 }
 
 export function probeImage(url: string): Promise<boolean> {

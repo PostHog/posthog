@@ -28,10 +28,12 @@ export interface ProfilePictureProps {
     title?: string
     index?: number
     type?: 'person' | 'bot' | 'system'
+    /** Change this value to fetch the Gravatar again, bypassing the browser cache. */
+    refreshKey?: number
 }
 
 export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePictureProps>(function ProfilePicture(
-    { user, name, size = 'lg', showName, className, index, title, type = 'person' },
+    { user, name, size = 'lg', showName, className, index, title, type = 'person', refreshKey },
     ref
 ) {
     const { user: currentUser } = useValues(userLogic)
@@ -56,9 +58,9 @@ export const ProfilePicture = React.forwardRef<HTMLSpanElement, ProfilePicturePr
         // Check if Gravatar exists
         const identifier = email || (name?.includes('@') ? name : undefined)
         if (identifier) {
-            return buildGravatarUrl(identifier)
+            return buildGravatarUrl(identifier, refreshKey)
         }
-    }, [email, hedgehogProfile, name])
+    }, [email, hedgehogProfile, name, refreshKey])
 
     useEffect(() => {
         const controller = new AbortController()

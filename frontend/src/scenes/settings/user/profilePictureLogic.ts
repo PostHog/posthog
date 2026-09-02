@@ -24,7 +24,7 @@ export interface profilePictureLogicValues {
     user: UserType | null // userLogic
     gravatarChecking: boolean
     gravatarEmail: string | null
-    gravatarRecheckCount: number
+    gravatarRefreshKey: number
     gravatarStatus: GravatarStatus
     usesHedgehogAsProfilePicture: boolean
 }
@@ -63,7 +63,7 @@ export interface profilePictureLogicActions {
         value: true
     }
     recheckGravatar: () => {
-        value: true
+        refreshKey: number
     }
     setGravatarStatus: (status: GravatarStatus) => {
         status: GravatarStatus
@@ -82,7 +82,7 @@ export interface profilePictureLogicMeta {
             },
             previousState: any
         ) => void | Promise<void>
-        probeGravatarIfEmailChanged: (
+        probeGravatarIfUserChanged: (
             payload: any,
             breakpoint: BreakPointFunction,
             action: {
@@ -113,13 +113,14 @@ export const profilePictureLogic = kea<profilePictureLogicType>([
     })),
     actions({
         checkGravatar: true,
-        recheckGravatar: true,
+        recheckGravatar: () => ({ refreshKey: Date.now() }),
         setGravatarStatus: (status: GravatarStatus) => ({ status }),
     }),
     reducers({
         gravatarStatus: [
             'unknown' as GravatarStatus,
             {
+                checkGravatar: () => 'unknown',
                 setGravatarStatus: (_, { status }) => status,
             },
         ],
@@ -131,10 +132,10 @@ export const profilePictureLogic = kea<profilePictureLogicType>([
                 setGravatarStatus: () => false,
             },
         ],
-        gravatarRecheckCount: [
+        gravatarRefreshKey: [
             0,
             {
-                recheckGravatar: (state) => state + 1,
+                recheckGravatar: (_, { refreshKey }) => refreshKey,
             },
         ],
     }),
@@ -155,12 +156,19 @@ export const profilePictureLogic = kea<profilePictureLogicType>([
                 actions.setGravatarStatus('missing')
                 return
             }
-            const loaded = await probeImage(gravatarUrl(email))
+            if (values.usesHedgehogAsProfilePicture) {
+                actions.setGravatarStatus('unknown')
+                return
+            }
+            const loaded = await probeImage(gravatarUrl(email, values.gravatarRefreshKey))
             breakpoint()
             actions.setGravatarStatus(loaded ? 'found' : 'missing')
         },
-        probeGravatarIfEmailChanged: (_, __, ___, previousState) => {
-            if (selectors.gravatarEmail(previousState) !== values.gravatarEmail) {
+        probeGravatarIfUserChanged: (_, __, ___, previousState) => {
+            const emailChanged = selectors.gravatarEmail(previousState) !== values.gravatarEmail
+            const hedgehogChanged =
+                selectors.usesHedgehogAsProfilePicture(previousState) !== values.usesHedgehogAsProfilePicture
+            if (emailChanged || hedgehogChanged) {
                 actions.checkGravatar()
             }
         },
@@ -168,8 +176,8 @@ export const profilePictureLogic = kea<profilePictureLogicType>([
     listeners(({ sharedListeners }) => ({
         checkGravatar: sharedListeners.probeGravatar,
         recheckGravatar: sharedListeners.probeGravatar,
-        loadUserSuccess: sharedListeners.probeGravatarIfEmailChanged,
-        updateUserSuccess: sharedListeners.probeGravatarIfEmailChanged,
+        loadUserSuccess: sharedListeners.probeGravatarIfUserChanged,
+        updateUserSuccess: sharedListeners.probeGravatarIfUserChanged,
     })),
     afterMount(({ actions }) => {
         actions.checkGravatar()

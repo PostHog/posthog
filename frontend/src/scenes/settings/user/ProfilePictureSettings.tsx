@@ -9,20 +9,31 @@ import { userLogic } from 'scenes/userLogic'
 
 import { GravatarStatus, profilePictureLogic } from './profilePictureLogic'
 
-function gravatarDescription(status: GravatarStatus, email: string): string {
+function gravatarDescription(status: GravatarStatus, email: string): JSX.Element {
+    const maskedEmail = <span className="ph-no-capture">{email}</span>
     switch (status) {
         case 'unknown':
-            return `Checking Gravatar for ${email}.`
+            return <>Checking Gravatar for {maskedEmail}.</>
         case 'found':
-            return `This picture comes from Gravatar, matched to ${email}. Change it there, then check again to see it here.`
+            return (
+                <>
+                    This picture comes from Gravatar, matched to {maskedEmail}. Change it there, then check again to see
+                    it here.
+                </>
+            )
         case 'missing':
-            return `No picture yet. Add one on Gravatar for ${email} and it shows here and anywhere teammates see you.`
+            return (
+                <>
+                    No picture yet. Add one on Gravatar for {maskedEmail} and it shows here and anywhere teammates see
+                    you.
+                </>
+            )
     }
 }
 
 export function ProfilePictureSettings(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { gravatarStatus, gravatarChecking, gravatarRecheckCount, usesHedgehogAsProfilePicture } =
+    const { gravatarStatus, gravatarChecking, gravatarEmail, gravatarRefreshKey, usesHedgehogAsProfilePicture } =
         useValues(profilePictureLogic)
     const { recheckGravatar } = useActions(profilePictureLogic)
 
@@ -30,7 +41,12 @@ export function ProfilePictureSettings(): JSX.Element {
 
     return (
         <div className="flex items-center gap-4">
-            <ProfilePicture key={gravatarRecheckCount} user={user} size="xxl" />
+            <ProfilePicture
+                key={`${gravatarEmail}:${gravatarRefreshKey}`}
+                user={user}
+                size="xxl"
+                refreshKey={gravatarRefreshKey}
+            />
             <div className="flex min-w-0 flex-col gap-2">
                 {usesHedgehogAsProfilePicture ? (
                     <>
