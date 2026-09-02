@@ -181,11 +181,12 @@ export function CodeEditor({
     const vimStatusBarRef = useRef<HTMLDivElement | null>(null)
 
     const [realKey] = useState(() => codeEditorIndex++)
-    // Monaco expects a string; a non-string `value` throws `t.create is not a function`
-    // deep in its model setup. Normalize once so the editor and codeEditorLogic (which sends
-    // the value in metadata requests) agree on the text. Keep null/undefined as-is so the
-    // editor stays uncontrolled.
-    const normalizedValue = value == null || typeof value === 'string' ? value : String(value)
+    // Monaco expects a string; a non-string `value` throws `t.create is not a function` deep in
+    // its model setup. Serialize objects and arrays as pretty JSON so the content stays visible
+    // (not `[object Object]`) and matches CodeEditorResizeable's height calc. Normalize once so
+    // the editor and codeEditorLogic (which sends the value in metadata requests) agree on the
+    // text. Keep null/undefined as-is so the editor stays uncontrolled.
+    const normalizedValue = value == null || typeof value === 'string' ? value : JSON.stringify(value, null, 2)
     const builtCodeEditorLogic = codeEditorLogic({
         key: queryKey ?? `new/${realKey}`,
         query: normalizedValue ?? '',
