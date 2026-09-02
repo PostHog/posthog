@@ -9,6 +9,7 @@ import { annotationsEmptyState } from 'products/annotations/frontend/emptyState/
 import { webScriptsEmptyState } from 'products/cdp/frontend/emptyState/webScriptsEmptyState'
 import { cohortsEmptyState } from 'products/cohorts/frontend/emptyState/cohortsEmptyState'
 import { supportEmptyState } from 'products/conversations/frontend/emptyState/supportEmptyState'
+import { customerAnalyticsEmptyState } from 'products/customer_analytics/frontend/emptyState/customerAnalyticsEmptyState'
 import { dashboardsEmptyState } from 'products/dashboards/frontend/emptyState/dashboardsEmptyState'
 import { dataWarehouseEmptyState } from 'products/data_warehouse/frontend/emptyState/dataWarehouseEmptyState'
 import { earlyAccessFeaturesEmptyState } from 'products/early_access_features/frontend/emptyState/earlyAccessFeaturesEmptyState'
@@ -338,4 +339,10 @@ export const MarketingAnalyticsNeedsSetup: ProductEmptyStateStory = productEmpty
             },
         },
     }
+)
+
+// Customer analytics detection is synchronous (groups access from the team), so no mocks needed.
+export const CustomerAnalyticsNeedsSetup: ProductEmptyStateStory = productEmptyStateStory(
+    customerAnalyticsEmptyState,
+    'needs-setup'
 )

@@ -60,7 +60,7 @@ Rows marked "in review" are not on `master` yet. See "Regenerating the lists" fo
 | Data warehouse sources | `products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene.tsx`             | on master             |
 | Workflows              | `products/workflows/frontend/WorkflowsScene.tsx`                                    | on master             |
 | Marketing analytics    | `frontend/src/scenes/marketing-analytics/MarketingAnalyticsScene.tsx`               | on master             |
-| Customer analytics     | `products/customer_analytics/frontend/CustomerAnalyticsScene.tsx`                   | in review             |
+| Customer analytics     | `products/customer_analytics/frontend/CustomerAnalyticsScene.tsx`                   | on master             |
 | Actions                | `products/actions/frontend/pages/Actions.tsx`                                       | on master             |
 | Annotations            | `frontend/src/scenes/annotations/Annotations.tsx`                                   | on master             |
 | Cohorts                | `frontend/src/scenes/cohorts/Cohorts.tsx`                                           | on master             |
