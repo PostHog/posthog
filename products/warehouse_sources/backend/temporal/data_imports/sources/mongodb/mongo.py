@@ -590,6 +590,18 @@ MONGO_DOCUMENT_MISSING_ID_ERROR = (
 )
 
 
+# Raised in place of the pymongo CursorNotFound the resume path can't recover from, because
+# pymongo's `_format_detailed_error` appends the whole server response (clusterTime, signature
+# bytes, BSON ids) to that error and `latest_error` shows it to the customer verbatim. A cursor
+# killed before it read a single document is a cluster-side event that a later run recovers from,
+# so match this in the source's get_retryable_errors rather than get_non_retryable_errors.
+MONGO_CURSOR_LOST_ERROR = (
+    "PostHog lost its read cursor on this MongoDB collection before it read any documents. MongoDB "
+    "closes a cursor when its session expires or when the cluster fails over to another node. "
+    "PostHog retries the sync automatically. If it keeps failing, contact support."
+)
+
+
 def mongo_source(
     connection_string: str,
     collection_name: str,
@@ -646,10 +658,13 @@ def mongo_source(
 
             last_id: Any = None
 
-            def open_resumable_cursor() -> Cursor[Any]:
-                # Sorting by _id makes the read order deterministic, which is what lets an expired
+            def open_cursor(*, no_cursor_timeout: bool) -> Cursor[Any]:
+                # Sorting by _id makes the read order deterministic, which is what lets a killed
                 # cursor be reopened after the last document we saw. _id is always uniquely indexed,
-                # so this is an index scan rather than a blocking sort.
+                # so this is an index scan rather than a blocking sort. Every read is ordered, the
+                # first one included, because an unordered read can't be resumed: the documents left
+                # behind an unordered scan aren't the ones an `_id` predicate selects, so resuming it
+                # would skip rows.
                 clauses = [clause for clause in (query, {} if last_id is None else {"_id": {"$gt": last_id}}) if clause]
                 if not clauses:
                     resume_query: dict[str, Any] = {}
@@ -657,15 +672,18 @@ def mongo_source(
                     resume_query = clauses[0]
                 else:
                     resume_query = {"$and": clauses}
-                return read_collection.find(resume_query, batch_size=chunk_size).sort("_id", ASCENDING)
+                options: dict[str, Any] = {"batch_size": chunk_size}
+                if no_cursor_timeout:
+                    options["no_cursor_timeout"] = True
+                return read_collection.find(resume_query, **options).sort("_id", ASCENDING)
 
             # Between chunks, the pipeline writes/merges the accumulated Arrow table before pulling
             # more rows, which can pause consumption of this cursor well past MongoDB's default
-            # 10-minute idle-cursor timeout — the server then kills it, and the next getMore raises
-            # CursorNotFound. no_cursor_timeout disables that server-side expiry; we close the cursor
-            # explicitly in the finally block below so it doesn't linger on the server instead.
-            cursor = read_collection.find(query, batch_size=chunk_size, no_cursor_timeout=True)
+            # 10-minute idle-cursor timeout. no_cursor_timeout disables that one expiry, which is
+            # why it isn't enough on its own — see the CursorNotFound handler below. We close the
+            # cursor explicitly in the finally block so it doesn't linger on the server instead.
             no_cursor_timeout_honored = True
+            cursor = open_cursor(no_cursor_timeout=True)
             rows_since_cursor_opened = 0
 
             try:
@@ -699,19 +717,21 @@ def mongo_source(
 
                             yield result
                         return
-                    except CursorNotFound:
-                        # Only reachable once the server-side timeout is back in play, i.e. after the
-                        # fallback below dropped no_cursor_timeout. That read is _id-ordered, so pick
-                        # up after the last document instead of failing the whole sync. Requiring
+                    except CursorNotFound as e:
+                        # no_cursor_timeout only disables the idle-cursor timeout. MongoDB still
+                        # reaps a cursor whose logical session expires (30 minutes idle by default),
+                        # and a failover or a mongos restart kills one too — so this is reachable
+                        # whether or not the option was honored. The read is _id-ordered, so pick up
+                        # after the last document instead of failing the whole sync. Requiring
                         # progress since the cursor opened stops a cursor that dies immediately from
                         # looping forever on the same query.
-                        if no_cursor_timeout_honored or rows_since_cursor_opened == 0:
-                            raise
+                        if rows_since_cursor_opened == 0:
+                            raise CursorNotFound(MONGO_CURSOR_LOST_ERROR) from e
                         logger.debug(
-                            f"MongoDB: cursor expired for collection={collection_name}; resuming after _id={last_id}"
+                            f"MongoDB: cursor lost for collection={collection_name}; resuming after _id={last_id}"
                         )
                         cursor.close()
-                        cursor = open_resumable_cursor()
+                        cursor = open_cursor(no_cursor_timeout=no_cursor_timeout_honored)
                         rows_since_cursor_opened = 0
                     except OperationFailure as e:
                         # The option is rejected when the cursor is opened, before any document is
@@ -725,7 +745,7 @@ def mongo_source(
                         )
                         cursor.close()
                         no_cursor_timeout_honored = False
-                        cursor = open_resumable_cursor()
+                        cursor = open_cursor(no_cursor_timeout=False)
                         rows_since_cursor_opened = 0
             finally:
                 cursor.close()
