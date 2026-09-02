@@ -57,4 +57,28 @@ describe('Reload', () => {
             expect(cancel()).toBeNull()
         })
     })
+
+    it('hides cancel while paginating, since that request carries no abort signal', async () => {
+        // Own logic with autoLoad off, so the only request in flight is the pagination one.
+        const paginatingProps: DataNodeLogicProps = { ...logicProps, key: 'reload-paginating-test', autoLoad: false }
+        const paginatingLogic = dataNodeLogic(paginatingProps)
+        paginatingLogic.mount()
+
+        paginatingLogic.actions.setResponse({ results: [['person']], hasMore: true } as any)
+        paginatingLogic.actions.loadNextData()
+        await expectLogic(paginatingLogic).toMatchValues({ responseLoading: true, dataLoading: false })
+
+        const { container } = render(
+            <BindLogic logic={dataNodeLogic} props={paginatingProps}>
+                <Reload />
+            </BindLogic>
+        )
+        const reload = (): Element | null => container.querySelector('[data-attr="reload-query"]')
+        const cancel = (): Element | null => container.querySelector('[data-attr="cancel-query"]')
+
+        expect(reload()?.getAttribute('aria-disabled')).toBe('true')
+        expect(cancel()).toBeNull()
+
+        paginatingLogic.unmount()
+    })
 })

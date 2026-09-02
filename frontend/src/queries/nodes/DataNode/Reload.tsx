@@ -10,7 +10,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { shouldQueryBeAsync } from '~/queries/utils'
 
 export function Reload(): JSX.Element {
-    const { responseLoading, query } = useValues(dataNodeLogic)
+    const { responseLoading, dataLoading, query } = useValues(dataNodeLogic)
     const { loadData, cancelQuery } = useActions(dataNodeLogic)
 
     return (
@@ -26,7 +26,8 @@ export function Reload(): JSX.Element {
             >
                 Reload
             </LemonButton>
-            {responseLoading && (
+            {/* Only the main query carries the abort signal, so Cancel shows for it, not for pagination. */}
+            {dataLoading && (
                 <LemonButton
                     type="secondary"
                     onClick={cancelQuery}
