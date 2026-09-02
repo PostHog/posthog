@@ -25,6 +25,9 @@ MAX_CONCURRENT_WORKFLOW_TASKS: int | None = get_from_env(
     "MAX_CONCURRENT_WORKFLOW_TASKS", None, optional=True, type_cast=int
 )
 MAX_CONCURRENT_ACTIVITIES: int | None = get_from_env("MAX_CONCURRENT_ACTIVITIES", None, optional=True, type_cast=int)
+# Batch trace summarization model; overridable so a fleet-wide model rollback is a config change
+# plus a worker restart, not a deploy.
+LLMA_SUMMARIZATION_MODEL: str = get_from_env("LLMA_SUMMARIZATION_MODEL", "gpt-5-nano")
 TARGET_MEMORY_USAGE: float | None = get_from_env("TARGET_MEMORY_USAGE", None, optional=True, type_cast=float)
 TARGET_CPU_USAGE: float | None = get_from_env("TARGET_CPU_USAGE", None, optional=True, type_cast=float)
 
