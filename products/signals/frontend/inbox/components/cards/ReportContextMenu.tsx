@@ -199,7 +199,9 @@ function ReportContextMenuItems({
     // behavior), so the link actions a person expects there come back as menu items.
     const browserLinkItems = (
         <>
-            <ContextMenuSeparator />
+            {/* This separator sits outside a padded menu group. Its default negative margin sets
+                horizontal overflow on ScrollableShadows and adds a shadow to the menu's right edge. */}
+            <ContextMenuSeparator className="mx-0" />
             <ContextMenuGroup>
                 <ContextMenuItem asChild>
                     <ButtonPrimitive
