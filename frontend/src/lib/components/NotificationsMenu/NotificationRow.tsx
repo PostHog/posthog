@@ -143,7 +143,7 @@ export function NotificationRow({
 }): JSX.Element {
     const { navigateToNotification, notificationClicked, toggleRead, markAsRead, archiveNotification } =
         useActions(sidePanelNotificationsLogic)
-    const { projectNameForNotification, sourcePathForNotification, manuallyToggledIds, archivingEnabled } =
+    const { projectNameForNotification, sourcePathForNotification, manuallyToggledIds } =
         useValues(sidePanelNotificationsLogic)
 
     // Don't auto-mark a notification the user deliberately toggled this session — respect their intent.
@@ -251,14 +251,12 @@ export function NotificationRow({
                     </div>
                     {!readOnly && (
                         <div className={`shrink-0 flex items-center gap-1 ${ROW_ACTION_REVEAL_CLASSES}`}>
-                            {archivingEnabled && (
-                                <NotificationActionButton
-                                    icon={<IconArchive className="size-4" />}
-                                    tooltip="Archive"
-                                    onClick={handleArchive}
-                                    tone="danger"
-                                />
-                            )}
+                            <NotificationActionButton
+                                icon={<IconArchive className="size-4" />}
+                                tooltip="Archive"
+                                onClick={handleArchive}
+                                tone="danger"
+                            />
                             <NotificationReadToggle read={notification.read} onToggle={handleToggleRead} />
                         </div>
                     )}

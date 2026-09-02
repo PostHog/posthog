@@ -30,13 +30,12 @@ export function NotificationsPanel(): JSX.Element {
         isLoadingMore,
         isLoadingMoreArchived,
         hasArchivableNotifications,
-        archivingEnabled,
     } = useValues(sidePanelNotificationsLogic)
     const { markAllAsRead, loadMoreNotifications, loadMoreArchived, archiveAll } =
         useActions(sidePanelNotificationsLogic)
     const { closePanel } = useActions(panelLayoutLogic)
 
-    const isArchivedTab = archivingEnabled && activeTab === 'archived'
+    const isArchivedTab = activeTab === 'archived'
     const filteredGroups = isArchivedTab
         ? archivedGroups
         : activeTab === 'unread'
@@ -90,33 +89,32 @@ export function NotificationsPanel(): JSX.Element {
         </div>
     )
 
-    const panelActions =
-        !archivingEnabled || isArchivedTab
-            ? undefined
-            : [
-                  {
-                      'data-attr': 'notifications-view-archived',
-                      onClick: () => setActiveTab('archived'),
-                      children: (
-                          <>
-                              <IconArrowRight />
-                              View archived
-                          </>
-                      ),
-                  },
-                  hasArchivableNotifications
-                      ? {
-                            'data-attr': 'notifications-archive-all',
-                            onClick: () => archiveAll(),
-                            children: (
-                                <>
-                                    <IconArchive />
-                                    Archive all
-                                </>
-                            ),
-                        }
-                      : null,
-              ]
+    const panelActions = isArchivedTab
+        ? undefined
+        : [
+              {
+                  'data-attr': 'notifications-view-archived',
+                  onClick: () => setActiveTab('archived'),
+                  children: (
+                      <>
+                          <IconArrowRight />
+                          View archived
+                      </>
+                  ),
+              },
+              hasArchivableNotifications
+                  ? {
+                        'data-attr': 'notifications-archive-all',
+                        onClick: () => archiveAll(),
+                        children: (
+                            <>
+                                <IconArchive />
+                                Archive all
+                            </>
+                        ),
+                    }
+                  : null,
+          ]
 
     return (
         <PanelLayoutPanel searchField={header} panelActionsNewSceneLayout={panelActions}>
