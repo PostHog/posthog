@@ -51641,9 +51641,9 @@ export namespace Schemas {
       idle_timeout_seconds?: number | null;
       /** True when this call restarted a live kernel to apply a new size. Restarting discards every materialized dataframe, so cells that referenced one must run again. */
       restarted: boolean;
-      /** True when a kernel is live and still needs a restart for this config to take effect, which happens for an idle timeout change. A resize restarts on its own, so it reports False here. */
+      /** True when a kernel is live and this call did not restart it, so the running sandbox may not match the saved config. A resize restarts the kernel and reports False on success, or True if that restart fails. An idle-timeout change and a no-op on a live kernel also report True. */
       restart_required: boolean;
-      /** What the configured shape costs per hour in USD while the sandbox is alive, at this region's rates. A resize restarts a live kernel, so this is the running sandbox's rate unless restart_required is true. */
+      /** What this sandbox shape costs per hour in USD while it is alive, at this region's rates. It tracks the running sandbox while a kernel is live, otherwise the configured shape. After a failed resize this stays the running sandbox's rate, not the size that failed to apply. */
       hourly_price: number;
       /**
          * Compute preset the configured shape matches, or null when it was tuned by hand.
