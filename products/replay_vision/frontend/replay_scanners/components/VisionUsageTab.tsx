@@ -5,6 +5,7 @@ import { LemonButton, LemonCard, LemonSwitch, Link, Spinner, Tooltip } from '@po
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -13,7 +14,13 @@ import { VisionDocsLink } from '../../components/DocsLink'
 import { CreditPriceNote } from '../../components/PricingLink'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
-import { creditsToUsd, formatCreditCount, formatCreditsMaybeUsd } from '../../utils/credits'
+import {
+    creditsToUsd,
+    formatCreditCount,
+    formatCreditNumber,
+    formatCreditsMaybeUsd,
+    formatCreditsRange,
+} from '../../utils/credits'
 import { verdictColorVar, verdictTextClass } from '../../utils/spendVerdict'
 import { STARTUP_CAP_EXPLANATION } from '../../utils/startupCap'
 import { ReplayScanner } from '../types'
@@ -21,6 +28,11 @@ import { visionUsageLogic } from '../visionUsageLogic'
 import { SpendTrajectoryChart } from './SpendTrajectoryChart'
 
 const ORG_WIDE_NOTE = 'Spend and limits are shared by every project in the organization.'
+const BILLING_URL = urls.organizationBilling([ProductKey.REPLAY_VISION])
+
+function TilePlaceholder({ loading }: { loading: boolean }): JSX.Element {
+    return <span className="text-2xl font-semibold">{loading ? <Spinner /> : '—'}</span>
+}
 
 export function VisionUsageTab(): JSX.Element {
     const {
@@ -168,12 +180,12 @@ export function VisionUsageTab(): JSX.Element {
                     {quota ? (
                         <Tooltip title={spendTooltip}>
                             <span className="text-2xl font-semibold tabular-nums">
-                                {Math.round(quota.credits_used).toLocaleString('en-US')}{' '}
+                                {formatCreditNumber(quota.credits_used)}{' '}
                                 <span className="text-sm font-normal text-secondary">credits</span>
                             </span>
                         </Tooltip>
                     ) : (
-                        <span className="text-2xl font-semibold">{quotaLoading ? <Spinner /> : '—'}</span>
+                        <TilePlaceholder loading={quotaLoading} />
                     )}
                     {quota && showUsd && (
                         <span className="text-xs text-secondary tabular-nums">
@@ -194,11 +206,11 @@ export function VisionUsageTab(): JSX.Element {
                     </span>
                     {quota && projectedTotalCredits !== null ? (
                         <span className={`text-2xl font-semibold tabular-nums ${statusText}`}>
-                            {projectedTotalCredits.toLocaleString('en-US')}{' '}
+                            {formatCreditNumber(projectedTotalCredits)}{' '}
                             <span className="text-sm font-normal text-secondary">credits</span>
                         </span>
                     ) : (
-                        <span className="text-2xl font-semibold">{quotaLoading ? <Spinner /> : '—'}</span>
+                        <TilePlaceholder loading={quotaLoading} />
                     )}
                     <span
                         className={`text-xs tabular-nums ${verdict.kind === 'paused' || capDate ? 'text-danger' : 'text-secondary'}`}
@@ -213,10 +225,7 @@ export function VisionUsageTab(): JSX.Element {
                     </span>
                     {(verdict.kind === 'paused' || capDate !== null) && (
                         <span className="text-xs">
-                            <Link to={urls.organizationBilling([ProductKey.REPLAY_VISION])}>
-                                Increase your spending limit
-                            </Link>{' '}
-                            to keep scanning.
+                            <Link to={BILLING_URL}>Increase your spending limit</Link> to keep scanning.
                         </span>
                     )}
                 </LemonCard>
@@ -225,25 +234,22 @@ export function VisionUsageTab(): JSX.Element {
                     {quota ? (
                         <Tooltip title={ORG_WIDE_NOTE}>
                             <span className="text-2xl font-semibold tabular-nums">
-                                {hasCap ? Math.round(quota.credit_limit ?? 0).toLocaleString('en-US') : 'None set'}
+                                {hasCap ? formatCreditNumber(quota.credit_limit ?? 0) : 'None set'}
                                 {hasCap && <span className="text-sm font-normal text-secondary"> credits</span>}
                             </span>
                         </Tooltip>
                     ) : (
-                        <span className="text-2xl font-semibold">{quotaLoading ? <Spinner /> : '—'}</span>
+                        <TilePlaceholder loading={quotaLoading} />
                     )}
                     <span className="text-xs text-secondary tabular-nums">
                         {hasCap ? (
                             <>
                                 {showUsd ? `≈ ${creditsToUsd(billedLimitCredits)} billed at most · ` : ''}
-                                <Link to={urls.organizationBilling([ProductKey.REPLAY_VISION])}>change</Link>
+                                <Link to={BILLING_URL}>change</Link>
                             </>
                         ) : (
                             <>
-                                <Link to={urls.organizationBilling([ProductKey.REPLAY_VISION])}>
-                                    Set a spending limit
-                                </Link>{' '}
-                                to control spend.
+                                <Link to={BILLING_URL}>Set a spending limit</Link> to control spend.
                             </>
                         )}
                     </span>
@@ -251,7 +257,7 @@ export function VisionUsageTab(): JSX.Element {
                 <LemonCard hoverEffect={false} className="p-4 flex flex-col gap-1" data-attr="vision-usage-tile-resets">
                     <span className="text-muted text-xs font-medium uppercase">Resets in</span>
                     <span className="text-2xl font-semibold tabular-nums">
-                        {daysToReset !== null ? `${daysToReset} ${daysToReset === 1 ? 'day' : 'days'}` : '—'}
+                        {daysToReset !== null ? pluralize(daysToReset, 'day') : '—'}
                     </span>
                     <span className="text-xs text-secondary">{resetsOn ? resetsOn.format('MMMM D') : ''}</span>
                 </LemonCard>
@@ -263,7 +269,7 @@ export function VisionUsageTab(): JSX.Element {
                     {quota && (
                         <span className="text-xs text-secondary tabular-nums">
                             {hasCap
-                                ? `${Math.round(quota.credits_used).toLocaleString('en-US')} of ${formatCreditCount(quota.credit_limit ?? 0)}`
+                                ? formatCreditsRange(quota.credits_used, quota.credit_limit ?? 0)
                                 : formatCreditCount(quota.credits_used)}
                             {resetsOn ? ` · resets ${resetsOn.format('MMMM D')}` : ''}
                         </span>
@@ -274,7 +280,7 @@ export function VisionUsageTab(): JSX.Element {
                         <SpendTrajectoryChart
                             quota={quota}
                             dailyCredits={spendSeries}
-                            projectedTotal={verdict.projectedDemandCredits ?? quota.credits_used}
+                            projectedTotal={projectedTotalCredits ?? quota.credits_used}
                             capReachDate={verdict.projection.capReachDate}
                             statusVar={verdictColorVar(verdict.kind)}
                         />
@@ -320,8 +326,7 @@ export function VisionUsageTab(): JSX.Element {
                 footer={
                     hiddenScannerCount > 0 ? (
                         <div className="px-3 py-2 text-xs text-secondary">
-                            {hiddenScannerCount} scanner{hiddenScannerCount === 1 ? '' : 's'} with no spend or estimate
-                            this billing period
+                            {pluralize(hiddenScannerCount, 'scanner')} with no spend or estimate this billing period
                         </div>
                     ) : undefined
                 }

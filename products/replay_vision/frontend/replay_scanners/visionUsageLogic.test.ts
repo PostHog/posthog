@@ -128,6 +128,10 @@ describe('visionUsageLogic', () => {
         })
 
         it('does not retry a failed period on the next quota refetch, but does on request', async () => {
+            // Let the mount's successful load settle before swapping in the failing mock.
+            await expectLogic(logic).toFinishAllListeners()
+            logic.unmount()
+            spendSeriesRequests = 0
             useMocks({
                 get: {
                     '/api/projects/:team/vision/quota/spend_series/': () => {
@@ -136,14 +140,16 @@ describe('visionUsageLogic', () => {
                     },
                 },
             })
-            await expectLogic(logic).toFinishAllListeners()
+            logic = visionUsageLogic()
+            logic.mount()
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toMatchValues({ spendSeries: null, spendSeriesFailed: true })
             const quotaA = makeQuota({ period_start: PERIOD_A, period_end: PERIOD_A_END })
 
             await expectLogic(logic, () => {
                 logic.actions.loadQuotaSuccess(quotaA)
-            })
-                .toFinishAllListeners()
-                .toMatchValues({ spendSeries: null, spendSeriesFailed: true })
+            }).toFinishAllListeners()
             await expectLogic(logic, () => {
                 logic.actions.loadQuotaSuccess({ ...quotaA, credits_used: 7 })
             }).toFinishAllListeners()

@@ -15,7 +15,11 @@ from posthog.date_util import start_of_month
 from posthog.models.organization import Organization
 from posthog.settings.utils import get_from_env
 
-from products.replay_vision.backend.billing import FREE_TIER_MONTHLY_CREDITS, observation_credits_for_model
+from products.replay_vision.backend.billing import (
+    ESTIMATE_MONTH_DAYS,
+    FREE_TIER_MONTHLY_CREDITS,
+    observation_credits_for_model,
+)
 from products.replay_vision.backend.models.replay_observation import (
     IN_FLIGHT_STATUSES,
     ObservationStatus,
@@ -179,11 +183,16 @@ def _as_utc(value: datetime) -> datetime:
 def _roll_period_forward(start: datetime, end: datetime, now: datetime) -> BillingPeriod:
     """Advance a stale synced period along its own cadence until it contains `now`."""
     whole_months = (end.year - start.year) * 12 + end.month - start.month
-    # Anniversary plans keep their day of month, so a whole-month period rolls by calendar months.
+    # Anniversary plans keep their day of month, so a whole-month period rolls by calendar months
+    # from the original start: re-anchoring on a February-clamped end would drift a day-31 plan.
     if whole_months > 0 and start + relativedelta(months=whole_months) == end:
-        while now >= end:
-            start, end = end, end + relativedelta(months=whole_months)
-        return BillingPeriod(start=start, end=end)
+        steps = 0
+        while start + relativedelta(months=whole_months * (steps + 1)) <= now:
+            steps += 1
+        return BillingPeriod(
+            start=start + relativedelta(months=whole_months * steps),
+            end=start + relativedelta(months=whole_months * (steps + 1)),
+        )
     length = end - start
     elapsed = (now - start) // length
     start = start + elapsed * length
@@ -256,13 +265,12 @@ def credits_used_by_scanner(organization_id: UUID, scanner_ids: list[UUID]) -> d
 class ScannerBudget(QuotaState):
     """A scanner's own allowance, carrying what one more observation costs.
 
-    `credits_used` is the full draw: settled receipts plus live reservations. `settled_credits` is
-    only what has actually posted to the ledger. Defaults exist only to satisfy the dataclass
-    field-order rule, as `QuotaSnapshot` does; every constructor passes both.
+    `credits_used` is the full draw: settled receipts plus live reservations, split as
+    `credits_settled` and `credits_reserved`. The default exists only to satisfy the dataclass
+    field-order rule, as `QuotaSnapshot` does; every constructor passes it.
     """
 
     credits_per_observation: int = 0
-    settled_credits: int = 0
 
     @property
     def blocked(self) -> bool:
@@ -281,7 +289,7 @@ class ScannerBudget(QuotaState):
         A reservation can release without ever writing a receipt (a failed observation), so an
         irreversible reaction to a cap must not fire on a transient in-flight spike.
         """
-        return replace(self, credits_used=self.settled_credits).blocked
+        return replace(self, credits_used=self.credits_settled).blocked
 
 
 def _scanner_in_flight_credits(
@@ -373,7 +381,8 @@ def compute_scanner_budgets(
             period_end=period.end,
             # A scanner outside this org or deleted mid-read has no model; pricing "" would log a warning.
             credits_per_observation=observation_credits_for_model(config[1]) if config else 0,
-            settled_credits=settled_credits,
+            credits_settled=settled_credits,
+            credits_reserved=reserved,
         )
     return result
 
@@ -385,18 +394,31 @@ def compute_scanner_budget(scanner: ReplayScanner, period: BillingPeriod | None 
 
 
 def _sum_enabled_scanner_estimated_credits(organization_id: UUID, exclude_scanner_id: UUID | None = None) -> int:
-    """Projected monthly credit spend from the org's enabled scanners' cached estimates."""
+    """Projected monthly credit spend of the org's enabled scanners' cached estimates.
+
+    A capped scanner can only spend what its limit has left this period. Surfaces pro-rate this
+    30-day rate over the days left, so that headroom is folded back into a rate: the pro-rated
+    share then lands on exactly the remaining cap, never past it.
+    """
     scanners = ReplayScanner.objects.filter(team__organization_id=organization_id, enabled=True)
     if exclude_scanner_id is not None:
         scanners = scanners.exclude(pk=exclude_scanner_id)
     # Credit weighting happens in Python: the per-model price table lives in code, and orgs have few scanners.
-    rows = scanners.values_list("model", "estimated_monthly_observations", "credit_limit")
+    rows = list(scanners.values_list("id", "model", "estimated_monthly_observations", "credit_limit"))
+    capped_ids = [scanner_id for scanner_id, _, _, credit_limit in rows if credit_limit is not None]
+    budgets = compute_scanner_budgets(organization_id, capped_ids) if capped_ids else {}
+    now = datetime.now(UTC)
     total = 0
-    for model, estimate, credit_limit in rows:
-        projected = observation_credits_for_model(model) * (estimate or 0)
-        # A capped scanner stops at its limit, so its estimate cannot project past it.
-        total += projected if credit_limit is None else min(projected, credit_limit)
-    return total
+    for scanner_id, model, estimate, _credit_limit in rows:
+        rate = observation_credits_for_model(model) * (estimate or 0)
+        budget = budgets.get(scanner_id)
+        if budget is None or budget.remaining is None:
+            total += rate
+            continue
+        days_left = max((budget.period_end - now).total_seconds() / 86400, 0)
+        headroom_rate = budget.remaining * ESTIMATE_MONTH_DAYS / days_left if days_left > 0 else rate
+        total += min(rate, headroom_rate)
+    return round(total)
 
 
 def _sum_active_backfill_remaining_credits(organization_id: UUID) -> int:
@@ -557,9 +579,7 @@ def daily_spend_series(organization_id: UUID) -> DailySpendSeries:
     first_day = period.start.date()
     day_count = (now.date() - first_day).days + 1
     days = tuple(
-        DailySpend(
-            date=first_day + timedelta(days=offset), credits=credits_by_day.get(first_day + timedelta(days=offset), 0)
-        )
-        for offset in range(day_count)
+        DailySpend(date=day, credits=credits_by_day.get(day, 0))
+        for day in (first_day + timedelta(days=offset) for offset in range(day_count))
     )
     return DailySpendSeries(period_start=period.start, period_end=period.end, days=days)

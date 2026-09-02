@@ -1,7 +1,7 @@
 import type { VisionQuotaApi } from '../generated/api.schemas'
 import { formatCreditCount } from './credits'
 import { type QuotaContribution, buildQuotaMeter } from './quotaContributions'
-import type { QuotaProjection } from './quotaProjection'
+import { QUOTA_STATUS_STYLES, type QuotaProjection } from './quotaProjection'
 
 export type SpendVerdictKind = 'safe' | 'warning' | 'danger' | 'paused' | 'uncapped'
 
@@ -23,24 +23,11 @@ export interface SpendVerdict {
     hasCap: boolean
 }
 
-const PILL_TAG_TYPES: Record<SpendVerdictKind, 'success' | 'warning' | 'danger' | 'muted'> = {
-    safe: 'success',
-    warning: 'warning',
-    danger: 'danger',
-    paused: 'danger',
-    uncapped: 'muted',
-}
-
-/** LemonTag type carrying a verdict's colour, so every pill renders the same status the same way. */
-export function verdictTagType(kind: SpendVerdictKind): 'success' | 'warning' | 'danger' | 'muted' {
-    return PILL_TAG_TYPES[kind]
-}
-
 const TEXT_CLASS: Record<SpendVerdictKind, string> = {
-    safe: 'text-success',
-    warning: 'text-warning',
-    danger: 'text-danger',
-    paused: 'text-danger',
+    safe: QUOTA_STATUS_STYLES.safe.text,
+    warning: QUOTA_STATUS_STYLES.warning.text,
+    danger: QUOTA_STATUS_STYLES.danger.text,
+    paused: QUOTA_STATUS_STYLES.danger.text,
     uncapped: 'text-secondary',
 }
 
@@ -91,8 +78,7 @@ export function spendVerdict(
     const base = { spentPct, projectedPct, periodEndPct, projectedDemandCredits, projection, hasCap }
 
     if (!hasCap) {
-        const monthly = contributions.reduce((sum, c) => (c.kind === 'monthly-rate' ? sum + c.credits : sum), 0)
-        const oneOffs = contributions.reduce((sum, c) => (c.kind === 'one-off' ? sum + c.credits : sum), 0)
+        const { rateTotal: monthly, oneOffTotal: oneOffs } = model
         return {
             ...base,
             kind: 'uncapped',

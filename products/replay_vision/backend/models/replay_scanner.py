@@ -406,8 +406,10 @@ class ReplayScanner(UUIDModel):
                         self.scanner_version = old.scanner_version + 1
                         extra_fields.append("scanner_version")
                     if changed & self._ESTIMATE_FIELDS:
+                        # A config edit must not wait out a backoff the old config earned.
                         self.estimated_at = None
-                        extra_fields.append("estimated_at")
+                        self.estimate_attempted_at = None
+                        extra_fields.extend(["estimated_at", "estimate_attempted_at"])
                     if track_enabled and not old.enabled and self.enabled:
                         # Re-enabling restarts the sweep from now — don't backfill (and bill) the disabled gap.
                         self.last_swept_at = initial_watermark()

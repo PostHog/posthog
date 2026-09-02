@@ -15,7 +15,7 @@ export interface QuotaScenario {
     /** Per-scanner rows for the usage tab; null keeps the real rows. */
     usageScanners: FakeUsageScanner[] | null
     /** Settled credits per UTC day from the period start to today; null keeps the real series request. */
-    dailySpend: VisionSpendSeriesApi['days'] | null
+    dailySpend: VisionSpendSeriesApi
 }
 
 export interface FakeUsageScanner {
@@ -53,6 +53,8 @@ function buildQuota(overrides: Partial<VisionQuotaApi>): VisionQuotaApi {
         scanners_monthly_credits: 2100,
         backfills_committed_credits: 300,
         free_monthly_credits: 500,
+        credits_settled: 1850,
+        credits_reserved: 0,
     }
     return { ...base, ...overrides } as VisionQuotaApi
 }
@@ -110,11 +112,9 @@ function scaleScanners(spendFactor: number, estimateFactor: number): FakeUsageSc
  * A believable daily burn landing on `total`: gently accelerating, dipping on weekends, with
  * deterministic noise (sine-based, so every render draws the same series).
  */
-function rampSpend(total: number, days: number): VisionSpendSeriesApi['days'] {
+function rampSpend(total: number): VisionSpendSeriesApi {
+    const days = SCENARIO_DAYS_ELAPSED
     const start = dayjs.utc().subtract(SCENARIO_DAYS_ELAPSED, 'day').startOf('day')
-    if (days <= 0) {
-        return []
-    }
     const weights = Array.from({ length: days }, (_, i) => {
         const weekday = start.add(i, 'day').day()
         const weekendDip = weekday === 0 || weekday === 6 ? 0.45 : 1
@@ -126,18 +126,18 @@ function rampSpend(total: number, days: number): VisionSpendSeriesApi['days'] {
     const daily = weights.map((w) => Math.round((total * w) / weightTotal))
     // Per-day rounding drifts off `total`; settle the difference on the last day so the sum is exact.
     daily[daily.length - 1] += total - daily.reduce((sum, v) => sum + v, 0)
-    return daily.map((credits, i) => ({ date: start.add(i, 'day').format('YYYY-MM-DD'), credits }))
-}
-
-function daysElapsedThisPeriod(): number {
-    return SCENARIO_DAYS_ELAPSED
+    return {
+        period_start: start.toISOString(),
+        period_end: start.add(30, 'day').toISOString(),
+        days: daily.map((credits, i) => ({ date: start.add(i, 'day').format('YYYY-MM-DD'), credits })),
+    }
 }
 
 const SCENARIOS: Record<string, () => Omit<QuotaScenario, 'key'>> = {
     'on-track': () => ({
         quota: buildQuota({}),
         usageScanners: FAKE_SCANNERS,
-        dailySpend: rampSpend(1850, daysElapsedThisPeriod()),
+        dailySpend: rampSpend(1850),
     }),
     'nearing-limit': () => ({
         quota: buildQuota({
@@ -147,7 +147,7 @@ const SCENARIOS: Record<string, () => Omit<QuotaScenario, 'key'>> = {
             scanners_monthly_credits: 4100,
         }),
         usageScanners: scaleScanners(1.4, 4100 / 2100),
-        dailySpend: rampSpend(2600, daysElapsedThisPeriod()),
+        dailySpend: rampSpend(2600),
     }),
     'limit-soon': () => ({
         quota: buildQuota({
@@ -157,12 +157,12 @@ const SCENARIOS: Record<string, () => Omit<QuotaScenario, 'key'>> = {
             scanners_monthly_credits: 7500,
         }),
         usageScanners: scaleScanners(2.1, 7500 / 2100),
-        dailySpend: rampSpend(3900, daysElapsedThisPeriod()),
+        dailySpend: rampSpend(3900),
     }),
     paused: () => ({
         quota: buildQuota({ credits_used: 5000, remaining: 0, exhausted: true }),
         usageScanners: scaleScanners(2.7, 7500 / 2100),
-        dailySpend: rampSpend(5000, daysElapsedThisPeriod()),
+        dailySpend: rampSpend(5000),
     }),
     'free-plan': () => ({
         quota: buildQuota({
@@ -175,7 +175,7 @@ const SCENARIOS: Record<string, () => Omit<QuotaScenario, 'key'>> = {
             free_monthly_credits: 500,
         }),
         usageScanners: scaleScanners(1 / 7, 420 / 2100),
-        dailySpend: rampSpend(260, daysElapsedThisPeriod()),
+        dailySpend: rampSpend(260),
     }),
     'free-paused': () => ({
         quota: buildQuota({
@@ -186,7 +186,7 @@ const SCENARIOS: Record<string, () => Omit<QuotaScenario, 'key'>> = {
             free_monthly_credits: 500,
         }),
         usageScanners: scaleScanners(1 / 4, 420 / 2100),
-        dailySpend: rampSpend(500, daysElapsedThisPeriod()),
+        dailySpend: rampSpend(500),
     }),
     'zero-limit': () => ({
         quota: buildQuota({
@@ -199,12 +199,12 @@ const SCENARIOS: Record<string, () => Omit<QuotaScenario, 'key'>> = {
             backfills_committed_credits: 0,
         }),
         usageScanners: FAKE_SCANNERS.map((s) => ({ ...s, credits_this_month: 0, observations_this_month: 0 })),
-        dailySpend: [],
+        dailySpend: rampSpend(0),
     }),
     'no-limit': () => ({
         quota: buildQuota({ credit_limit: null, remaining: null }),
         usageScanners: FAKE_SCANNERS,
-        dailySpend: rampSpend(1850, daysElapsedThisPeriod()),
+        dailySpend: rampSpend(1850),
     }),
     empty: () => ({
         quota: buildQuota({
@@ -215,7 +215,7 @@ const SCENARIOS: Record<string, () => Omit<QuotaScenario, 'key'>> = {
             backfills_committed_credits: 0,
         }),
         usageScanners: [],
-        dailySpend: [],
+        dailySpend: rampSpend(0),
     }),
 }
 

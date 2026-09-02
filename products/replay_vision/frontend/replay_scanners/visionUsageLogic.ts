@@ -13,6 +13,7 @@ import {
 import type { VisionQuotaApi, VisionSpendSeriesApi } from '../generated/api.schemas'
 import { refreshVisionQuota, visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { fleetContributions } from '../utils/quotaContributions'
+import { hasCreditLimit } from '../utils/quotaProjection'
 import { currentQuotaScenario } from '../utils/quotaScenarios'
 import { type SpendVerdict, spendVerdict } from '../utils/spendVerdict'
 import type { ReplayScanner } from './types'
@@ -24,6 +25,8 @@ interface visionUsageLogicValues {
     usageScanners: ReplayScanner[]
     usageScannersLoading: boolean
     togglingScannerIds: string[]
+    spendSeriesResponse: VisionSpendSeriesApi | null
+    spendSeriesResponseLoading: boolean
     spendSeries: SpendSeries | null
     spendSeriesLoading: boolean
     spendSeriesFailed: boolean
@@ -47,7 +50,9 @@ interface visionUsageLogicActions {
     setScannerEnabled: (id: string, enabled: boolean) => { id: string; enabled: boolean }
     finishTogglingScanner: (id: string) => { id: string }
     loadSpendSeries: () => void
-    loadSpendSeriesSuccess: (spendSeries: SpendSeries | null) => { spendSeries: SpendSeries | null }
+    loadSpendSeriesSuccess: (spendSeriesResponse: VisionSpendSeriesApi | null) => {
+        spendSeriesResponse: VisionSpendSeriesApi | null
+    }
     loadSpendSeriesFailure: (error: string) => { error: string }
     loadQuotaSuccess: (quota: VisionQuotaApi | null) => { quota: VisionQuotaApi | null }
 }
@@ -71,21 +76,18 @@ export const visionUsageLogic = kea<visionUsageLogicType>([
         setScannerEnabled: (id: string, enabled: boolean) => ({ id, enabled }),
         finishTogglingScanner: (id: string) => ({ id }),
     }),
-    loaders(({ values }) => ({
-        spendSeries: [
-            null as SpendSeries | null,
+    loaders(() => ({
+        // The series names its own period, so it loads alongside the quota instead of waiting behind it.
+        spendSeriesResponse: [
+            null as VisionSpendSeriesApi | null,
             {
-                loadSpendSeries: async (): Promise<SpendSeries | null> => {
+                loadSpendSeries: async (): Promise<VisionSpendSeriesApi | null> => {
                     const scenario = currentQuotaScenario()
                     if (scenario) {
-                        return scenario.dailySpend ?? []
+                        return scenario.dailySpend
                     }
                     const teamId = teamLogic.values.currentTeamId
-                    if (!teamId || !values.quota?.period_start) {
-                        return null
-                    }
-                    const response = await environmentVisionQuotaSpendSeriesRetrieve(String(teamId))
-                    return response.days
+                    return teamId ? await environmentVisionQuotaSpendSeriesRetrieve(String(teamId)) : null
                 },
             },
         ],
@@ -123,6 +125,11 @@ export const visionUsageLogic = kea<visionUsageLogicType>([
         ],
     }),
     selectors({
+        spendSeries: [
+            (s) => [s.spendSeriesResponse],
+            (response: VisionSpendSeriesApi | null): SpendSeries | null => response?.days ?? null,
+        ],
+        spendSeriesLoading: [(s) => [s.spendSeriesResponseLoading], (loading: boolean): boolean => loading],
         verdict: [
             (s) => [s.displayQuota, s.onFreePlan],
             (quota: VisionQuotaApi | null, onFreePlan: boolean): SpendVerdict =>
@@ -149,34 +156,35 @@ export const visionUsageLogic = kea<visionUsageLogicType>([
         ],
         resetsOn: [
             (s) => [s.displayQuota],
-            (quota: VisionQuotaApi | null): dayjs.Dayjs | null => (quota?.period_end ? dayjs(quota.period_end) : null),
+            // UTC, like the ledger's day buckets and the chart axis, so every surface names the same reset day.
+            (quota: VisionQuotaApi | null): dayjs.Dayjs | null =>
+                quota?.period_end ? dayjs.utc(quota.period_end) : null,
         ],
         daysToReset: [
             (s) => [s.resetsOn],
             (resetsOn: dayjs.Dayjs | null): number | null =>
-                resetsOn ? Math.max(resetsOn.startOf('day').diff(dayjs().startOf('day'), 'day'), 0) : null,
+                resetsOn ? Math.max(resetsOn.startOf('day').diff(dayjs.utc().startOf('day'), 'day'), 0) : null,
         ],
         // What the period will actually cost: spend stops at the limit, so demand past it is not billed.
         projectedTotalCredits: [
             (s) => [s.displayQuota, s.verdict],
             (quota: VisionQuotaApi | null, verdict: SpendVerdict): number | null => {
-                if (!quota || verdict.projectedDemandCredits === null) {
+                const demand = verdict.projectedDemandCredits
+                if (demand === null) {
                     return null
                 }
-                return verdict.hasCap
-                    ? Math.min(verdict.projectedDemandCredits, quota.credit_limit ?? 0)
-                    : verdict.projectedDemandCredits
+                return hasCreditLimit(quota) ? Math.min(demand, quota.credit_limit) : demand
             },
         ],
         projectedPctOfLimit: [
             (s) => [s.displayQuota, s.projectedTotalCredits],
             (quota: VisionQuotaApi | null, projectedTotalCredits: number | null): number | null =>
-                quota && projectedTotalCredits !== null && (quota.credit_limit ?? 0) > 0
-                    ? Math.round((projectedTotalCredits / (quota.credit_limit ?? 1)) * 100)
+                hasCreditLimit(quota) && quota.credit_limit > 0 && projectedTotalCredits !== null
+                    ? Math.round((projectedTotalCredits / quota.credit_limit) * 100)
                     : null,
         ],
     }),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values }) => ({
         loadUsageScanners: async () => {
             const scenario = currentQuotaScenario()
             if (scenario?.usageScanners) {
@@ -219,24 +227,23 @@ export const visionUsageLogic = kea<visionUsageLogicType>([
                 actions.finishTogglingScanner(scanner.id)
             }
         },
-        // The chart is period-scoped, so it can only run once the quota names the period. Quota
-        // refetches after scanner toggles keep the same period, and settled daily spend doesn't
-        // move with them, so a loaded series is only refreshed when the period changes.
+        // Quota refetches after scanner toggles keep the same period, and settled daily spend doesn't
+        // move with them, so a loaded series is only refreshed when the period changes. A failed load
+        // is not retried on every refetch either; the chart offers a retry instead.
         loadQuotaSuccess: ({ quota }) => {
-            const periodStart = quota?.period_start
-            if (periodStart && !values.spendSeriesLoading && periodStart !== cache.spendSeriesPeriodStart) {
+            const loaded = values.spendSeriesResponse
+            if (
+                quota?.period_start &&
+                loaded &&
+                !values.spendSeriesLoading &&
+                dayjs.utc(loaded.period_start).valueOf() !== dayjs.utc(quota.period_start).valueOf()
+            ) {
                 actions.loadSpendSeries()
             }
         },
-        loadSpendSeries: () => {
-            // Recorded on request rather than success so a failed period is not retried on every quota refetch.
-            cache.spendSeriesPeriodStart = values.quota?.period_start
-        },
     })),
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions }) => {
         actions.loadUsageScanners()
-        if (values.quota && !values.spendSeriesLoading) {
-            actions.loadSpendSeries()
-        }
+        actions.loadSpendSeries()
     }),
 ])

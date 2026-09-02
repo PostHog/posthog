@@ -1,13 +1,11 @@
-import { dayjs } from 'lib/dayjs'
-
 import type { VisionQuotaApi } from '../generated/api.schemas'
 import {
-    ESTIMATE_MONTH_DAYS,
     QUOTA_STATUS_STYLES,
     QUOTA_WARN_THRESHOLD,
     type QuotaProjection,
     type QuotaStatus,
     hasCreditLimit,
+    projectDemandCredits,
     projectQuota,
 } from './quotaProjection'
 
@@ -52,6 +50,10 @@ export interface QuotaMeterModel {
     periodEndPct: number
     /** Projected period-end demand in credits, unclamped and unrounded by the percentage; null without a quota. */
     periodEndCredits: number | null
+    /** Sum of the monthly-rate contributions, credits per 30 days. */
+    rateTotal: number
+    /** Sum of the one-off contributions, charged once. */
+    oneOffTotal: number
     hasCap: boolean
 }
 
@@ -88,8 +90,8 @@ export function buildQuotaMeter(quota: VisionQuotaApi | null, contributions: Quo
     const cap = hasCap ? quota.credit_limit : 0
     const rateTotal = contributions.reduce((sum, c) => (c.kind === 'monthly-rate' ? sum + c.credits : sum), 0)
     const oneOffTotal = contributions.reduce((sum, c) => (c.kind === 'one-off' ? sum + c.credits : sum), 0)
-    // The contributions are the whole projection, so move `projectQuota` off the stored fleet rate onto them.
-    const projection = projectQuota(quota, rateTotal - (quota?.scanners_monthly_credits ?? 0), oneOffTotal)
+    // The contributions are the whole projection, so the stored fleet rate is not consulted here.
+    const projection = projectQuota(quota, { monthlyRateCredits: rateTotal, oneOffCredits: oneOffTotal })
 
     const asPct = (credits: number): number => (hasCap && cap > 0 ? (credits / cap) * 100 : 0)
     const segments = contributions.map((c) => ({
@@ -109,7 +111,6 @@ export function buildQuotaMeter(quota: VisionQuotaApi | null, contributions: Quo
 
     const periodEndPctExact = projection.usedPct + segments.reduce((sum, s) => sum + s.pct, 0)
     const periodEndPct = Math.round(periodEndPctExact)
-    const periodEndCredits = quota ? Math.round(periodEndCreditsFor(quota, rateTotal, oneOffTotal)) : null
     // One verdict, from the same total the bar draws. Deriving it per card produced a headline that
     // could read green beside a bar sitting past the limit marker.
     const status: QuotaStatus =
@@ -129,14 +130,11 @@ export function buildQuotaMeter(quota: VisionQuotaApi | null, contributions: Quo
                 : segment
         ),
         periodEndPct,
-        periodEndCredits,
+        periodEndCredits: quota
+            ? Math.round(projectDemandCredits(quota, { monthlyRateCredits: rateTotal, oneOffCredits: oneOffTotal }))
+            : null,
+        rateTotal,
+        oneOffTotal,
         hasCap,
     }
-}
-
-/** Credits first, percentages second: rounding the percentage quantized headlines to 1% of the limit. */
-function periodEndCreditsFor(quota: VisionQuotaApi, rateTotal: number, oneOffTotal: number): number {
-    const periodEnd = dayjs(quota.period_end)
-    const daysLeft = Math.max(periodEnd.diff(dayjs(), 'day', true), 0)
-    return quota.credits_used + (Math.max(rateTotal, 0) / ESTIMATE_MONTH_DAYS) * daysLeft + Math.max(oneOffTotal, 0)
 }

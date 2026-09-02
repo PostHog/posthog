@@ -71,43 +71,41 @@ export function isFreeAllocationOnly(quota: VisionQuotaApi | null): boolean {
     return billableCredits(quota.credit_limit, quota.free_monthly_credits) === 0
 }
 
-/**
- * Project credit spend to period end from the enabled fleet's summed per-scanner estimates.
- * `scannerProjectedMonthlyCreditsDelta` adjusts the fleet rate for a scanner being edited:
- * its proposed monthly credit estimate minus the stored contribution already in the sum.
- * `oneOffCredits` are charged once (backfills), so they count toward the cap-reach date but not the rate.
- */
-export function projectQuota(
-    quota: VisionQuotaApi | null,
-    scannerProjectedMonthlyCreditsDelta: number = 0,
-    oneOffCredits: number = 0
-): QuotaProjection {
+export interface ProjectionInputs {
+    /** Fleet rate in credits per 30 days; defaults to the quota's stored `scanners_monthly_credits`. */
+    monthlyRateCredits?: number
+    /** Charged once (backfills), so they count toward the cap-reach date but not the rate. */
+    oneOffCredits?: number
+}
+
+/** Credits the period ends on: spend so far, the rate pro-rated over the days left, and the one-offs. Unclamped. */
+export function projectDemandCredits(quota: VisionQuotaApi, inputs: ProjectionInputs = {}): number {
+    const daysRemaining = Math.max(dayjs.utc(quota.period_end).diff(dayjs(), 'day', true), 0)
+    const rate = Math.max(inputs.monthlyRateCredits ?? quota.scanners_monthly_credits, 0) / ESTIMATE_MONTH_DAYS
+    return quota.credits_used + rate * daysRemaining + Math.max(inputs.oneOffCredits ?? 0, 0)
+}
+
+/** Project credit spend to period end from a fleet rate and the one-offs already committed. */
+export function projectQuota(quota: VisionQuotaApi | null, inputs: ProjectionInputs = {}): QuotaProjection {
     if (!hasCreditLimit(quota)) {
         return EMPTY
     }
     const now = dayjs()
     const used = quota.credits_used
     const cap = quota.credit_limit
+    const periodEnd = dayjs.utc(quota.period_end)
+    const resetsOn = periodEnd.format('MMMM D')
     if (cap === 0) {
         // A $0 spend limit blocks everything; there is no ratio to project against.
-        return {
-            ...EMPTY,
-            status: 'danger',
-            exhausted: quota.exhausted,
-            usedPct: 100,
-            resetsOn: quota.period_end ? dayjs(quota.period_end).format('MMMM D') : null,
-        }
+        return { ...EMPTY, status: 'danger', exhausted: quota.exhausted, usedPct: 100, resetsOn }
     }
-    const periodEnd = quota.period_end ? dayjs(quota.period_end) : null
-    const daysRemaining = periodEnd ? Math.max(periodEnd.diff(now, 'day', true), 0) : 0
-    const resetsOn = periodEnd ? periodEnd.format('MMMM D') : null
-
-    const projectedMonthly = Math.max(quota.scanners_monthly_credits + scannerProjectedMonthlyCreditsDelta, 0)
-    const combinedDailyRate = projectedMonthly / ESTIMATE_MONTH_DAYS
-    const projectedAdditional = combinedDailyRate * daysRemaining + Math.max(oneOffCredits, 0)
+    const oneOffCredits = Math.max(inputs.oneOffCredits ?? 0, 0)
+    const combinedDailyRate =
+        Math.max(inputs.monthlyRateCredits ?? quota.scanners_monthly_credits, 0) / ESTIMATE_MONTH_DAYS
+    const projectedAdditional = projectDemandCredits(quota, inputs) - used
 
     const projectedPeriodEndRatio = (used + projectedAdditional) / cap
-    const committed = used + Math.max(oneOffCredits, 0)
+    const committed = used + oneOffCredits
     // One-offs are charged as soon as they run, so they eat headroom before the rate does.
     const capReachDate =
         used < cap && committed >= cap
@@ -115,7 +113,7 @@ export function projectQuota(
             : combinedDailyRate > 0 && committed < cap
               ? now.add((cap - committed) / combinedDailyRate, 'day')
               : null
-    const capReachInPeriod = !!(capReachDate && periodEnd && !capReachDate.isAfter(periodEnd))
+    const capReachInPeriod = !!capReachDate && !capReachDate.isAfter(periodEnd)
 
     // `used >= cap` without `exhausted`: a display clamp (startup cap) lowered the limit below spend,
     // so the backend isn't blocking yet. Being over the limit must not read quieter than approaching it.
@@ -174,7 +172,7 @@ export function quotaBannerState(
     if (!hasCreditLimit(quota)) {
         return { kind: null }
     }
-    const resetsOn = dayjs(quota.period_end).format('MMMM D')
+    const resetsOn = dayjs.utc(quota.period_end).format('MMMM D')
     if (quota.exhausted) {
         return { kind: 'exhausted', resetsOn, quota }
     }

@@ -1,5 +1,7 @@
+import { memo } from 'react'
+
 import { dayjs } from 'lib/dayjs'
-import { compactNumber } from 'lib/utils/numbers'
+import { clamp, compactNumber } from 'lib/utils/numbers'
 
 import type { VisionQuotaApi } from '../../generated/api.schemas'
 import { formatCreditCount, formatCreditNumber } from '../../utils/credits'
@@ -19,7 +21,7 @@ interface SpendTrajectoryChartProps {
     quota: VisionQuotaApi
     /** Settled credits per UTC day of the period, oldest first. */
     dailyCredits: SpendSeries
-    /** Projected period-end demand in credits, unclamped; the chart pauses the drawn line at the limit. */
+    /** Credits the period is projected to end on, already held at the limit where one applies. */
     projectedTotal: number
     /** When demand crosses the limit inside the period, the date the verdict computed for it. */
     capReachDate: dayjs.Dayjs | null
@@ -74,7 +76,7 @@ function Label({
  * projection never exceeds it: when demand crosses, the line flattens at the crossing and the
  * crossing carries the date. Percentages stay off the chart.
  */
-export function SpendTrajectoryChart({
+function SpendTrajectoryChartInner({
     quota,
     dailyCredits,
     projectedTotal,
@@ -85,7 +87,7 @@ export function SpendTrajectoryChart({
     const periodStart = dayjs.utc(quota.period_start)
     const periodEnd = dayjs.utc(quota.period_end)
     const periodDays = Math.max(periodEnd.diff(periodStart, 'day', true), 1)
-    const todayDay = Math.min(Math.max(dayjs.utc().diff(periodStart, 'day', true), 0), periodDays)
+    const todayDay = clamp(dayjs.utc().diff(periodStart, 'day', true), 0, periodDays)
 
     let runningTotal = 0
     const cumulative: { day: number; value: number }[] = []
@@ -93,10 +95,11 @@ export function SpendTrajectoryChart({
         runningTotal += entry.credits
         // A day's bucket is complete at its end; today's is only as complete as the clock.
         const dayEnd = dayjs.utc(entry.date).diff(periodStart, 'day', true) + 1
-        cumulative.push({ day: Math.min(Math.max(dayEnd, 0), todayDay), value: runningTotal })
+        cumulative.push({ day: clamp(dayEnd, 0, todayDay), value: runningTotal })
     }
-    // The ledger only holds settled spend; reserved in-flight credits lift today's point so the chart agrees with the tiles.
-    const spentTotal = Math.max(runningTotal, quota.credits_used)
+    // The ledger only holds settled spend, so reserved in-flight credits sit on top of today's point; the
+    // quota total still wins when the series was fetched before the last receipts landed.
+    const spentTotal = Math.max(runningTotal + quota.credits_reserved, quota.credits_used)
     if (cumulative.length > 0 && spentTotal > runningTotal) {
         cumulative[cumulative.length - 1] = { ...cumulative[cumulative.length - 1], value: spentTotal }
     }
@@ -125,6 +128,7 @@ export function SpendTrajectoryChart({
 
     // The crossing sits on the verdict's date, so the dot, its label and the tile all name the same day.
     const crossingDay = capReachDate ? capReachDate.diff(periodStart, 'day', true) : null
+    const crossingDate = capReachDate?.format('MMM D')
     const crossing: Point | null =
         cap !== null && crossingDay !== null && spentTotal < cap && crossingDay > todayDay && crossingDay <= periodDays
             ? { x: xForDay(crossingDay), y: yForCredits(cap) }
@@ -174,7 +178,7 @@ export function SpendTrajectoryChart({
     const crossingLabelRight = crossing !== null && crossing.x + 90 <= WIDTH - PAD_X
 
     const caption = crossing
-        ? `Hits the limit around ${capReachDate?.format('MMM D')}. Scanning pauses until ${periodEnd.format('MMM D')}.`
+        ? `Hits the limit around ${crossingDate}. Scanning pauses until ${periodEnd.format('MMM D')}.`
         : pausedAtLimit
           ? `Scanning is paused at the limit until ${periodEnd.format('MMM D')}.`
           : null
@@ -325,7 +329,7 @@ export function SpendTrajectoryChart({
                             anchor={crossingLabelRight ? 'start' : 'end'}
                             className="font-semibold text-danger"
                         >
-                            Limit · {capReachDate?.format('MMM D')}
+                            Limit · {crossingDate}
                         </Label>
                     )}
                     {!crossing && (
@@ -348,3 +352,6 @@ export function SpendTrajectoryChart({
         </div>
     )
 }
+
+// Props are loader and selector outputs, so a scanner toggle re-rendering the tab need not redraw the chart.
+export const SpendTrajectoryChart = memo(SpendTrajectoryChartInner)

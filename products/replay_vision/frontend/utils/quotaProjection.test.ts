@@ -53,13 +53,15 @@ describe('projectQuota', () => {
 
     it('counts one-off credits against headroom before the rate', () => {
         // 5,000 used + 4,000 committed leaves 1,000 for a 100/day rate: 10 days, not 50.
-        const proj = projectQuota(makeQuota({ credits_used: 5_000, scanners_monthly_credits: 3_000 }), 0, 4_000)
+        const proj = projectQuota(makeQuota({ credits_used: 5_000, scanners_monthly_credits: 3_000 }), {
+            oneOffCredits: 4_000,
+        })
         expect(proj.capReachDate?.diff(dayjs(), 'day', true)).toBeCloseTo(10, 0)
         expect(proj.status).toBe('danger')
     })
 
     it('reaches the cap today when one-offs alone overshoot it', () => {
-        const proj = projectQuota(makeQuota({ credits_used: 5_000 }), 0, 6_000)
+        const proj = projectQuota(makeQuota({ credits_used: 5_000 }), { oneOffCredits: 6_000 })
         expect(proj.capReachDate?.diff(dayjs(), 'minute')).toBe(0)
         expect(proj.status).toBe('danger')
     })
@@ -88,15 +90,17 @@ describe('projectQuota', () => {
 
     it('a positive scanner delta raises the projection on top of the fleet sum', () => {
         const base = projectQuota(makeQuota({ credits_used: 1_000, scanners_monthly_credits: 3_000 }))
-        const withDelta = projectQuota(makeQuota({ credits_used: 1_000, scanners_monthly_credits: 3_000 }), 6_000)
+        const withDelta = projectQuota(makeQuota({ credits_used: 1_000, scanners_monthly_credits: 3_000 }), {
+            monthlyRateCredits: 9_000,
+        })
         expect(withDelta.projectedPct).toBeGreaterThan(base.projectedPct)
     })
 
     it('a negative scanner delta lowers the projection and clamps at zero', () => {
         // 2,000/month over a 30-day period × 20 remaining days = ~1,333 of the 10,000 cap.
-        const lowered = projectQuota(makeQuota({ scanners_monthly_credits: 3_000 }), -1_000)
+        const lowered = projectQuota(makeQuota({ scanners_monthly_credits: 3_000 }), { monthlyRateCredits: 2_000 })
         expect(lowered.projectedPct).toBeCloseTo(13.33, 1)
-        const clamped = projectQuota(makeQuota({ scanners_monthly_credits: 3_000 }), -9_000)
+        const clamped = projectQuota(makeQuota({ scanners_monthly_credits: 3_000 }), { monthlyRateCredits: -6_000 })
         expect(clamped.projectedPct).toBe(0)
     })
 

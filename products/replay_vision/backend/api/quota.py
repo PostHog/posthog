@@ -71,8 +71,8 @@ class VisionQuotaSerializer(serializers.Serializer):
     scanners_monthly_credits = serializers.IntegerField(
         read_only=True,
         help_text=(
-            "Credit-weighted sum of enabled scanners' projected observations/month across the organization, "
-            "each scanner clamped to its own credit limit. "
+            "Credit-weighted sum of enabled scanners' projected observations/month across the organization. "
+            "A capped scanner contributes at most what its own credit limit has left this period, folded back into a 30-day rate. "
             "A monthly rate: only the part falling in the days left of the period lands this period. "
             "Scanners without a computed estimate contribute 0."
         ),

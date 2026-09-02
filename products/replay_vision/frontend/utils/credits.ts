@@ -1,4 +1,4 @@
-import { humanFriendlyCurrency } from 'lib/utils/numbers'
+import { humanFriendlyCurrency, humanFriendlyNumber } from 'lib/utils/numbers'
 
 /** 1 credit = $0.01. Amounts arrive from the API as integer credits. Credits are the unit we bill, so credits are
  * what we show. The dollar anchor is reserved for the spend surfaces (the spend meter, the scanner list's
@@ -19,7 +19,7 @@ export function billableCredits(credits: number, freeCredits: number): number {
 
 /** The bare number half of `formatCreditCount`, e.g. 1234.4 -> "1,234". */
 export function formatCreditNumber(credits: number): string {
-    return Math.round(credits).toLocaleString('en-US')
+    return humanFriendlyNumber(credits, 0)
 }
 
 /** e.g. 500 -> "500 credits", 1 -> "1 credit". */

@@ -242,7 +242,9 @@ class TestRefreshScannerEstimate:
         scanner.refresh_from_db()
         assert scanner.estimated_monthly_observations == 30
         assert scanner.estimated_at is not None
-        assert scanner.estimate_attempted_at == scanner.estimated_at
+        # The attempt is stamped when the query starts, so it never trails the success stamp.
+        assert scanner.estimate_attempted_at is not None
+        assert scanner.estimate_attempted_at <= scanner.estimated_at
 
     def test_raises_and_stamps_only_the_attempt_when_the_estimate_query_errors(self) -> None:
         scanner = _make_scanner()

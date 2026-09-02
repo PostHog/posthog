@@ -110,6 +110,18 @@ OBSERVATION_CREDITS_BY_MODEL: dict[str, int] = {
 _FALLBACK_CREDITS = max(OBSERVATION_CREDITS_BY_MODEL.values())
 
 
+# Scanner estimates are a rate per this many days, whatever the billing period's length.
+ESTIMATE_MONTH_DAYS = 30
+
+
+def projected_monthly_credits(model: str, estimated_observations: int | None, credit_limit: int | None) -> int | None:
+    """A scanner's 30-day credit rate, capped at its own limit; None while no estimate exists."""
+    if estimated_observations is None:
+        return None
+    credits = observation_credits_for_model(model) * estimated_observations
+    return credits if credit_limit is None else min(credits, credit_limit)
+
+
 def observation_credits_for_model(model: str) -> int:
     credits = OBSERVATION_CREDITS_BY_MODEL.get(model)
     if credits is None:

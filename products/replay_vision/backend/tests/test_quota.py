@@ -357,7 +357,7 @@ class TestComputeScannerBudget(_VisionQuotaTestCase):
         self._make_observation(status=ObservationStatus.RUNNING)
         budget = compute_scanner_budget(self.scanner)
         assert budget.credits_used == 30
-        assert budget.settled_credits == 15
+        assert budget.credits_settled == 15
 
     def test_an_observation_settling_between_the_budget_reads_never_vanishes(self) -> None:
         # Reservations are read before receipts, so a settlement between the reads is seen by both
@@ -493,7 +493,7 @@ class TestScannerBudgetBlocked(SimpleTestCase):
             period_start=datetime(2026, 8, 1, tzinfo=UTC),
             period_end=datetime(2026, 9, 1, tzinfo=UTC),
             credits_per_observation=15,
-            settled_credits=credits_used,
+            credits_settled=credits_used,
         )
         assert budget.exhausted == expected_exhausted
         assert budget.blocked == expected_blocked
@@ -515,7 +515,7 @@ class TestScannerBudgetBlocked(SimpleTestCase):
             period_start=datetime(2026, 8, 1, tzinfo=UTC),
             period_end=datetime(2026, 9, 1, tzinfo=UTC),
             credits_per_observation=0,
-            settled_credits=credits_used,
+            credits_settled=credits_used,
         )
         assert budget.exhausted == expected_exhausted
         assert budget.blocked == expected_blocked
@@ -530,7 +530,7 @@ class TestScannerBudgetBlocked(SimpleTestCase):
     def test_blocked_by_settled_spend_ignores_live_reservations(
         self,
         _name: str,
-        settled_credits: int,
+        credits_settled: int,
         credits_used: int,
         expected_blocked: bool,
         expected_blocked_by_settled: bool,
@@ -541,7 +541,7 @@ class TestScannerBudgetBlocked(SimpleTestCase):
             period_start=datetime(2026, 8, 1, tzinfo=UTC),
             period_end=datetime(2026, 9, 1, tzinfo=UTC),
             credits_per_observation=15,
-            settled_credits=settled_credits,
+            credits_settled=credits_settled,
         )
         assert budget.blocked == expected_blocked
         assert budget.blocked_by_settled_spend == expected_blocked_by_settled
@@ -745,6 +745,14 @@ class TestCurrentPeriodBounds(SimpleTestCase):
             # A lagging sync keeps the mid-month anniversary instead of snapping to the calendar month.
             ("stale_anniversary_rolls_by_month", "2026-08-15", "2026-09-15", "2026-09-20", "2026-09-15", "2026-10-15"),
             ("rolls_across_several_periods", "2026-08-15", "2026-09-15", "2026-12-01", "2026-11-15", "2026-12-15"),
+            (
+                "month_end_anniversary_keeps_its_day",
+                "2026-01-31",
+                "2026-02-28",
+                "2026-04-05",
+                "2026-03-31",
+                "2026-04-30",
+            ),
             ("yearly_plan_rolls_by_year", "2025-03-01", "2026-03-01", "2026-06-10", "2026-03-01", "2027-03-01"),
             # A period that is not a whole number of months rolls by its own length.
             ("fixed_length_rolls_by_length", "2026-08-01", "2026-08-31", "2026-09-05", "2026-08-31", "2026-09-30"),
@@ -799,11 +807,13 @@ class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
         snapshot = compute_quota_snapshot(organization_id=self.organization.id)
         assert snapshot.projected_monthly_credits == 0
 
-    def test_a_capped_scanner_projects_at_most_its_limit(self) -> None:
+    @freeze_time("2026-09-16T00:00:00Z")
+    def test_a_capped_scanner_projects_at_most_its_remaining_limit(self) -> None:
         self._make_scanner(team=self.team, name="capped", estimate=100, credit_limit=200)  # 1500 uncapped
         self._make_scanner(team=self.team, name="roomy", estimate=10, credit_limit=9000)  # 150, under its cap
         snapshot = compute_quota_snapshot(organization_id=self.organization.id)
-        assert snapshot.projected_monthly_credits == 200 + 150
+        # 15 of 30 days left: the 200 headroom pro-rated back to a 30-day rate is 400.
+        assert snapshot.projected_monthly_credits == 400 + 150
 
     def test_other_orgs_scanners_not_counted(self) -> None:
         other_org = Organization.objects.create(name="other-projection-org")

@@ -63,7 +63,11 @@ from products.replay_vision.backend.api.trigger import (
     check_team_in_flight_capacity,
     start_apply_scanner_workflow,
 )
-from products.replay_vision.backend.billing import observation_credits_case, observation_credits_for_model
+from products.replay_vision.backend.billing import (
+    observation_credits_case,
+    observation_credits_for_model,
+    projected_monthly_credits,
+)
 from products.replay_vision.backend.digest import provision_scanner_digest
 from products.replay_vision.backend.feedback_themes import cached_feedback_themes
 from products.replay_vision.backend.impact import (
@@ -517,11 +521,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
 
     @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_estimated_monthly_credits(self, scanner: ReplayScanner) -> int | None:
-        if scanner.estimated_monthly_observations is None:
-            return None
-        credits = scanner.estimated_monthly_observations * observation_credits_for_model(scanner.model)
-        # The scanner stops at its own cap, so the projection can't exceed it.
-        return credits if scanner.credit_limit is None else min(credits, scanner.credit_limit)
+        return projected_monthly_credits(scanner.model, scanner.estimated_monthly_observations, scanner.credit_limit)
 
     def _page_scanner_ids(self, scanner: ReplayScanner) -> list[UUID]:
         root = self.root
