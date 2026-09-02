@@ -2604,11 +2604,11 @@ class EvaluationReasonsResponseSerializer(serializers.Serializer):
 class FeatureFlagRolloutSummarySerializer(serializers.Serializer):
     effectively_full_rollout = serializers.BooleanField(
         help_text=(
-            "True if the flag is effectively rolled out to everyone, independent of recent evaluation. "
+            "True if the flag is effectively rolled out to everyone, independent of whether an SDK has called it. "
             "For boolean flags this means at least one release condition targets 100% with no property "
             "filters (or there are no release conditions); for multivariate flags it means a single variant "
             "is served to 100% via a fully rolled out release condition. This is the signal for "
-            "'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation."
+            "'fully rolled out' / GA. Unlike `status`, it does not depend on $feature_flag_called events."
         )
     )
     has_targeting_conditions = serializers.BooleanField(
@@ -2634,9 +2634,10 @@ class FeatureFlagRolloutSummarySerializer(serializers.Serializer):
 class FeatureFlagStatusResponseSerializer(serializers.Serializer):
     status = serializers.CharField(
         help_text=(
-            "Flag staleness/evaluation status: active, stale, archived, deleted, or unknown. 'active' means the flag "
-            "was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled "
-            "out. Use the `rollout` object to determine rollout completeness."
+            "Flag staleness status: active, stale, archived, deleted, or unknown. The usage part of the "
+            "verdict comes from $feature_flag_called events, which only exist when an SDK sends them, so a "
+            "flag with no such events can still serve traffic. 'active' does NOT mean the flag is fully "
+            "rolled out. Use the `rollout` object to determine rollout completeness."
         )
     )
     reason = serializers.CharField(help_text="Human-readable explanation of the status")

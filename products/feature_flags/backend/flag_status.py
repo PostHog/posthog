@@ -34,7 +34,7 @@ class FeatureFlagStatus(StrEnum):
 
 @dataclass
 class FeatureFlagRolloutSummary:
-    # Whether the flag is effectively rolled out to everyone, independent of recent evaluation.
+    # Whether the flag is effectively rolled out to everyone, independent of whether an SDK has called it.
     effectively_full_rollout: bool
     # Whether any release condition has property filters (conditionally targeted vs. blanket rollout).
     has_targeting_conditions: bool
@@ -93,8 +93,10 @@ def filter_stale_flags(queryset: QuerySet) -> QuerySet:
     Postgres rejects the query only when the outer scope holds no `posthog_featureflag`.
     """
     # Get stale flags using the best available signal:
-    # 1. If last_called_at exists: flag hasn't been called in 30+ days
+    # 1. If last_called_at exists: no flag call event for 30+ days
     # 2. If last_called_at is NULL: flag is 100% rolled out and 30+ days old
+    # `last_called_at` follows `$feature_flag_called` events, so NULL means no client analytics
+    # rather than no evaluation. That is why branch 2 asks the configuration instead.
     stale_threshold = stale_flag_threshold()
     usage_based_stale = Q(last_called_at__lt=stale_threshold, active=True)
     # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
@@ -169,8 +171,9 @@ def filter_flags_by_active_param(queryset: QuerySet, value: str | bool) -> Query
 # Status can be one of the following:
 # - ACTIVE: The feature flag is actively evaluated and in use.
 # - STALE: The feature flag is likely safe to remove. Detection uses the best available signal:
-#       1. If last_called_at exists: flag hasn't been called in 30+ days (usage-based)
+#       1. If last_called_at exists: no flag call event for 30+ days (usage-based)
 #       2. If last_called_at is NULL: flag is 100% rolled out and 30+ days old (config-based)
+#   Neither signal sees server-side evaluation, so the reasons speak about flag call events.
 # - ARCHIVED: The feature flag has been archived (done for good, kept for historical data).
 # - DELETED: The feature flag has been soft deleted.
 # - UNKNOWN: The feature flag is not found in the database.
@@ -224,10 +227,10 @@ class FeatureFlagStatusChecker:
             # Flag has recent usage
             days_since_called = (datetime.now(UTC) - flag.last_called_at).days
             if days_since_called == 0:
-                return FeatureFlagStatus.ACTIVE, "Flag was called today"
+                return FeatureFlagStatus.ACTIVE, "A flag call event occurred today"
             return (
                 FeatureFlagStatus.ACTIVE,
-                f"Flag was last called {days_since_called} day{'s' if days_since_called != 1 else ''} ago",
+                f"A flag call event last occurred {days_since_called} day{'s' if days_since_called != 1 else ''} ago",
             )
         else:
             # No usage data - fall back to configuration-based detection
@@ -238,19 +241,19 @@ class FeatureFlagStatusChecker:
                 if is_fully_rolled_out:
                     return FeatureFlagStatus.STALE, rolled_out_reason
 
-        return FeatureFlagStatus.ACTIVE, "Flag has no usage data yet"
+        return FeatureFlagStatus.ACTIVE, "No flag call events for this flag, so its usage is unknown"
 
     def is_flag_stale_by_usage(self, flag: FeatureFlag) -> tuple[bool, FeatureFlagStatusReason]:
         """
         Check if flag is stale based on usage data (last_called_at).
-        A flag is stale if it hasn't been called in 30+ days.
+        A flag is stale if no flag call event occurred for it in 30+ days.
         """
         assert flag.last_called_at is not None, "last_called_at must not be None"
         stale_threshold = stale_flag_threshold()
 
         if flag.last_called_at < stale_threshold:
             days_since_called = (datetime.now(UTC) - flag.last_called_at).days
-            return True, f"Flag has not been called in {days_since_called} days"
+            return True, f"No flag call events for this flag in {days_since_called} days"
 
         return False, ""
 
