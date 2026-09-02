@@ -4,7 +4,7 @@
 {% block section %}
     <!-- prettier-ignore -->
     <p>
-        We paused email sending for the workflow <b>{{ hog_flow_name }}</b> in project <b>{{ team }}</b>. Its other steps still run, and every other workflow in the project keeps sending.
+        We paused email sending for the workflow <b>{{ hog_flow_name }}</b> in project <b>{{ team }}</b>. Only this workflow's email sending is paused; its other steps still run.
     </p>
     <p>
         Why: <b>{{ reason }}</b>
