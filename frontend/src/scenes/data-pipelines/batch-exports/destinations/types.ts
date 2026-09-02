@@ -1,13 +1,16 @@
 import type React from 'react'
 
 import type { DatabaseSchemaField } from '~/queries/schema/schema-general'
-import type { BatchExportService } from '~/types'
+import type { BatchExportService, IntegrationType } from '~/types'
 
 export type BatchExportServiceType = BatchExportService['type']
 
 export interface DestinationContext {
     isNew: boolean
     formValues: Record<string, any>
+    // The Integration currently picked in the form, when the destination uses one. Null while
+    // integrations are still loading, or when the picked one no longer exists.
+    selectedIntegration?: IntegrationType | null
 }
 
 // Overrides applied to the events table preview shown in the HogQL model picker.
@@ -40,5 +43,5 @@ export interface DestinationDefinition {
     eventTableOverrides?: EventTableOverrides
     // Lift integration_id from destination.integration during deserialize and push it back during save.
     usesIntegration?: boolean
-    Fields: React.FC<{ isNew: boolean; formValues: Record<string, any> }>
+    Fields: React.FC<DestinationContext>
 }
