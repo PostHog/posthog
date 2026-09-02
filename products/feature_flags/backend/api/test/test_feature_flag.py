@@ -5086,22 +5086,42 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # now enable enriched analytics
         instance.has_enriched_analytics = True
         instance.save()
+        mock_report_user_action.reset_mock()
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/{flag_id}/enrich_usage_dashboard",
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Deprecation"], "true")
+        self.assertNotIn("Sunset", response)
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "deprecated feature flag usage dashboard endpoint called",
+            {"endpoint": "enrich_usage_dashboard", "outcome": "success"},
+            team=instance.team,
+            organization=self.organization,
+        )
 
         # now try enriching again
+        mock_report_user_action.reset_mock()
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/{flag_id}/enrich_usage_dashboard",
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response["Deprecation"], "true")
+        self.assertNotIn("Sunset", response)
         self.assertEqual(
             response.json(),
             {"error": "Usage dashboard already has enriched data", "success": False},
+        )
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "deprecated feature flag usage dashboard endpoint called",
+            {"endpoint": "enrich_usage_dashboard", "outcome": "error"},
+            team=instance.team,
+            organization=self.organization,
         )
 
     @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
@@ -5147,21 +5167,29 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         flag_id = response.json()["id"]
+        flag = FeatureFlag.objects.get(id=flag_id)
+        mock_report_user_action.reset_mock()
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/{flag_id}/enrich_usage_dashboard",
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response["Deprecation"], "true")
+        self.assertNotIn("Sunset", response)
         self.assertEqual(
             response.json(),
             {
-                "error": (
-                    "Usage dashboard not found. Create one first with "
-                    "POST /api/projects/{project_id}/feature_flags/{id}/dashboard/"
-                ),
+                "error": "Usage dashboard not found. Usage charts are available on the feature flag Usage tab.",
                 "success": False,
             },
+        )
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "deprecated feature flag usage dashboard endpoint called",
+            {"endpoint": "enrich_usage_dashboard", "outcome": "error"},
+            team=flag.team,
+            organization=self.organization,
         )
 
     def test_dashboard_endpoint_is_idempotent(self) -> None:
@@ -5182,6 +5210,81 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(instance.usage_dashboard_id, first_dashboard_id)
         self.assertTrue(Dashboard.objects.filter(id=first_dashboard_id, deleted=False).exists())
+
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
+    def test_dashboard_endpoint_announces_deprecation_and_reports_usage(
+        self, mock_report_user_action: MagicMock
+    ) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="deprecated-dashboard-endpoint")
+
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/dashboard")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"success": True})
+        self.assertEqual(response["Deprecation"], "true")
+        self.assertEqual(response["Sunset"], "Fri, 25 Sep 2026 00:00:00 GMT")
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "deprecated feature flag usage dashboard endpoint called",
+            {"endpoint": "dashboard", "outcome": "created"},
+            team=flag.team,
+            organization=self.organization,
+        )
+
+        mock_report_user_action.reset_mock()
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/dashboard")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "deprecated feature flag usage dashboard endpoint called",
+            {"endpoint": "dashboard", "outcome": "existing"},
+            team=flag.team,
+            organization=self.organization,
+        )
+
+    @patch("products.feature_flags.backend.api.feature_flag.capture_exception")
+    @patch("products.feature_flags.backend.api.feature_flag.report_user_action")
+    @patch("products.feature_flags.backend.api.feature_flag._create_usage_dashboard", side_effect=RuntimeError)
+    def test_dashboard_endpoint_deprecation_headers_are_returned_on_error(
+        self,
+        mock_create_usage_dashboard: MagicMock,
+        mock_report_user_action: MagicMock,
+        mock_capture_exception: MagicMock,
+    ) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="dashboard-generation-error")
+
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/dashboard")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json(), {"success": False, "error": "Unable to generate usage dashboard"})
+        self.assertEqual(response["Deprecation"], "true")
+        self.assertEqual(response["Sunset"], "Fri, 25 Sep 2026 00:00:00 GMT")
+        mock_report_user_action.assert_called_once_with(
+            self.user,
+            "deprecated feature flag usage dashboard endpoint called",
+            {"endpoint": "dashboard", "outcome": "error"},
+            team=flag.team,
+            organization=self.organization,
+        )
+        mock_capture_exception.assert_called_once()
+        mock_create_usage_dashboard.assert_called_once()
+
+    @patch(
+        "products.feature_flags.backend.api.feature_flag.report_user_action",
+        side_effect=RuntimeError("telemetry unavailable"),
+    )
+    def test_dashboard_endpoint_ignores_telemetry_failures(self, mock_report_user_action: MagicMock) -> None:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="dashboard-telemetry-error")
+
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/dashboard")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Deprecation"], "true")
+        self.assertEqual(response["Sunset"], "Fri, 25 Sep 2026 00:00:00 GMT")
+        flag.refresh_from_db()
+        self.assertIsNotNone(flag.usage_dashboard_id)
+        mock_report_user_action.assert_called_once()
 
     def test_dashboard_endpoint_regenerates_after_dashboard_is_deleted(self) -> None:
         response = self.client.post(
@@ -5213,6 +5316,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("has been deleted", response.json()["error"])
+        self.assertEqual(response["Deprecation"], "true")
+        if endpoint == "dashboard":
+            self.assertEqual(response["Sunset"], "Fri, 25 Sep 2026 00:00:00 GMT")
+        else:
+            self.assertNotIn("Sunset", response)
         flag.refresh_from_db()
         self.assertIsNone(flag.usage_dashboard_id)
 

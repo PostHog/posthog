@@ -9,7 +9,7 @@ import functools
 from collections.abc import Iterable, Iterator
 from dataclasses import asdict
 from datetime import datetime, timedelta
-from typing import Any, NoReturn, Optional, cast
+from typing import Any, Literal, NoReturn, Optional, cast
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
@@ -142,6 +142,8 @@ scope_audit_logger = structlog.get_logger("posthog.feature_flag_scope_audit")
 # Dedicated name for the same startup-ordering reason as scope_audit_logger above. Emits
 # the violations that would have been 400s while the #50084 enforcement kill switch is off.
 filters_enforcement_logger = structlog.get_logger("posthog.feature_flag_filters_enforcement")
+
+FEATURE_FLAG_USAGE_DASHBOARD_SUNSET = "Fri, 25 Sep 2026 00:00:00 GMT"
 
 # DRF error messages echo caller-controlled input (a ChoiceField repeats the rejected value)
 # and bodies up to 20MB reach validation before the filter-size check runs, so an unbounded
@@ -1169,6 +1171,14 @@ class FeatureFlagExperimentSetMetadataSerializer(serializers.Serializer):
     )
 
 
+class FeatureFlagUsageDashboardSuccessSerializer(serializers.Serializer):
+    success = serializers.BooleanField(help_text="Whether the usage dashboard operation completed successfully.")
+
+
+class FeatureFlagUsageDashboardErrorSerializer(FeatureFlagUsageDashboardSuccessSerializer):
+    error = serializers.CharField(help_text="Why the usage dashboard operation failed.")
+
+
 class FeatureFlagSerializer(
     TaggedItemSerializerMixin,
     EvaluationContextSerializerMixin,
@@ -1199,9 +1209,9 @@ class FeatureFlagSerializer(
         read_only=True,
         allow_null=True,
         help_text=(
-            "Dashboard of saved usage insights for this flag, or null if it has none. "
-            "Flags do not get one on creation; create it with "
-            "POST /api/projects/{project_id}/feature_flags/{id}/dashboard/."
+            "Legacy dashboard of saved usage insights for this flag, or null if it has none. "
+            "New flags show usage charts inline instead. The dashboard creation endpoint is deprecated "
+            "and will be removed after September 25, 2026."
         ),
     )
     analytics_dashboards = TeamScopedPrimaryKeyRelatedField(
@@ -3316,17 +3326,54 @@ class FeatureFlagViewSet(
             status=400,
         )
 
+    @staticmethod
+    def _with_usage_dashboard_deprecation_headers(response: Response, *, include_sunset: bool = True) -> Response:
+        response["Deprecation"] = "true"
+        if include_sunset:
+            response["Sunset"] = FEATURE_FLAG_USAGE_DASHBOARD_SUNSET
+        return response
+
+    def _report_usage_dashboard_endpoint_call(
+        self,
+        request: request.Request,
+        endpoint: Literal["dashboard", "enrich_usage_dashboard"],
+        outcome: Literal["created", "existing", "success", "error"],
+    ) -> None:
+        try:
+            report_user_action(
+                request.user,
+                "deprecated feature flag usage dashboard endpoint called",
+                {"endpoint": endpoint, "outcome": outcome},
+                team=self.team,
+                organization=self.team.organization,
+            )
+        except Exception:
+            logger.exception("Failed to report deprecated feature flag usage dashboard endpoint call")
+
     # No UI surface calls this, since the Usage tab renders its charts inline. It exists for API
-    # users who want a saved usage dashboard.
-    @extend_schema(request=None)
+    # users who want a saved usage dashboard. It remains functional until the announced sunset.
+    @extend_schema(
+        request=None,
+        responses={
+            status.HTTP_200_OK: FeatureFlagUsageDashboardSuccessSerializer,
+            status.HTTP_400_BAD_REQUEST: FeatureFlagUsageDashboardErrorSerializer,
+        },
+        deprecated=True,
+        description=(
+            "Deprecated. Ensures a saved usage dashboard exists for a feature flag. "
+            "This endpoint will be removed after September 25, 2026; usage charts remain available "
+            "on the feature flag Usage tab."
+        ),
+    )
     @action(methods=["POST"], detail=True)
-    def dashboard(self, request: request.Request, **kwargs):
+    def dashboard(self, request: request.Request, **kwargs: Any) -> Response:
         from products.dashboards.backend.models.dashboard import Dashboard
 
         feature_flag: FeatureFlag = self.get_object()
         rejection = self._deleted_flag_rejection(feature_flag, "generating a usage dashboard")
         if rejection is not None:
-            return rejection
+            self._report_usage_dashboard_endpoint_call(request, "dashboard", "error")
+            return self._with_usage_dashboard_deprecation_headers(rejection)
         try:
             # The FK on the flag isn't cleared by a dashboard soft-delete, so look the id up
             # through the manager that excludes deleted rows rather than via the FK accessor,
@@ -3340,73 +3387,108 @@ class FeatureFlagViewSet(
             )
             if usage_dashboard is None:
                 usage_dashboard = _create_usage_dashboard(feature_flag, request.user)
+                outcome: Literal["created", "existing"] = "created"
+            else:
+                outcome = "existing"
 
             if feature_flag.has_enriched_analytics and not feature_flag.usage_dashboard_has_enriched_insights:
                 add_enriched_insights_to_feature_flag_dashboard(feature_flag, usage_dashboard)
 
         except Exception as e:
             capture_exception(e)
-            return Response(
-                {
-                    "success": False,
-                    "error": f"Unable to generate usage dashboard",
-                },
-                status=400,
+            self._report_usage_dashboard_endpoint_call(request, "dashboard", "error")
+            return self._with_usage_dashboard_deprecation_headers(
+                Response(
+                    {
+                        "success": False,
+                        "error": "Unable to generate usage dashboard",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             )
 
-        return Response({"success": True}, status=200)
+        self._report_usage_dashboard_endpoint_call(request, "dashboard", outcome)
+        return self._with_usage_dashboard_deprecation_headers(Response({"success": True}, status=status.HTTP_200_OK))
 
-    @extend_schema(request=None)
+    @extend_schema(
+        request=None,
+        responses={
+            status.HTTP_200_OK: FeatureFlagUsageDashboardSuccessSerializer,
+            status.HTTP_400_BAD_REQUEST: FeatureFlagUsageDashboardErrorSerializer,
+        },
+        deprecated=True,
+        description=(
+            "Deprecated. Adds enriched insights to an existing legacy feature flag usage dashboard. "
+            "No removal date has been set; usage charts remain available on the feature flag Usage tab."
+        ),
+    )
     @action(methods=["POST"], detail=True)
-    def enrich_usage_dashboard(self, request: request.Request, **kwargs):
+    def enrich_usage_dashboard(self, request: request.Request, **kwargs: Any) -> Response:
         feature_flag: FeatureFlag = self.get_object()
         rejection = self._deleted_flag_rejection(feature_flag, "enriching its usage dashboard")
         if rejection is not None:
-            return rejection
+            self._report_usage_dashboard_endpoint_call(request, "enrich_usage_dashboard", "error")
+            return self._with_usage_dashboard_deprecation_headers(rejection, include_sunset=False)
         usage_dashboard = feature_flag.usage_dashboard
 
         if not usage_dashboard:
-            return Response(
-                {
-                    "success": False,
-                    "error": (
-                        "Usage dashboard not found. Create one first with "
-                        "POST /api/projects/{project_id}/feature_flags/{id}/dashboard/"
-                    ),
-                },
-                status=400,
+            self._report_usage_dashboard_endpoint_call(request, "enrich_usage_dashboard", "error")
+            return self._with_usage_dashboard_deprecation_headers(
+                Response(
+                    {
+                        "success": False,
+                        "error": "Usage dashboard not found. Usage charts are available on the feature flag Usage tab.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                ),
+                include_sunset=False,
             )
 
         if feature_flag.usage_dashboard_has_enriched_insights:
-            return Response(
-                {
-                    "success": False,
-                    "error": f"Usage dashboard already has enriched data",
-                },
-                status=400,
+            self._report_usage_dashboard_endpoint_call(request, "enrich_usage_dashboard", "error")
+            return self._with_usage_dashboard_deprecation_headers(
+                Response(
+                    {
+                        "success": False,
+                        "error": "Usage dashboard already has enriched data",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                ),
+                include_sunset=False,
             )
 
         if not feature_flag.has_enriched_analytics:
-            return Response(
-                {
-                    "success": False,
-                    "error": f"No enriched analytics available for this feature flag",
-                },
-                status=400,
+            self._report_usage_dashboard_endpoint_call(request, "enrich_usage_dashboard", "error")
+            return self._with_usage_dashboard_deprecation_headers(
+                Response(
+                    {
+                        "success": False,
+                        "error": "No enriched analytics available for this feature flag",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                ),
+                include_sunset=False,
             )
         try:
             add_enriched_insights_to_feature_flag_dashboard(feature_flag, usage_dashboard)
         except Exception as e:
             capture_exception(e)
-            return Response(
-                {
-                    "success": False,
-                    "error": f"Unable to enrich usage dashboard",
-                },
-                status=400,
+            self._report_usage_dashboard_endpoint_call(request, "enrich_usage_dashboard", "error")
+            return self._with_usage_dashboard_deprecation_headers(
+                Response(
+                    {
+                        "success": False,
+                        "error": "Unable to enrich usage dashboard",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                ),
+                include_sunset=False,
             )
 
-        return Response({"success": True}, status=200)
+        self._report_usage_dashboard_endpoint_call(request, "enrich_usage_dashboard", "success")
+        return self._with_usage_dashboard_deprecation_headers(
+            Response({"success": True}, status=status.HTTP_200_OK), include_sunset=False
+        )
 
     @extend_schema(
         responses={200: DependentFlagSerializer(many=True)},

@@ -39063,7 +39063,7 @@ export namespace Schemas {
       tags?: unknown[];
       evaluation_contexts?: unknown[];
       /**
-         * Dashboard of saved usage insights for this flag, or null if it has none. Flags do not get one on creation; create it with POST /api/projects/{project_id}/feature_flags/{id}/dashboard/.
+         * Legacy dashboard of saved usage insights for this flag, or null if it has none. New flags show usage charts inline instead. The dashboard creation endpoint is deprecated and will be removed after September 25, 2026.
          * @nullable
          */
       readonly usage_dashboard: number | null;
@@ -39299,6 +39299,18 @@ export namespace Schemas {
       evaluation_distinct_id: string | null;
       /** Detailed analysis of each condition in the feature flag */
       conditions: FeatureFlagConditionAnalysis[];
+    }
+
+    export interface FeatureFlagUsageDashboardError {
+      /** Whether the usage dashboard operation completed successfully. */
+      success: boolean;
+      /** Why the usage dashboard operation failed. */
+      error: string;
+    }
+
+    export interface FeatureFlagUsageDashboardSuccess {
+      /** Whether the usage dashboard operation completed successfully. */
+      success: boolean;
     }
 
     export type FeatureFlagVersionResponseFilters = { [key: string]: unknown };
