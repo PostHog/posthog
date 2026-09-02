@@ -79,16 +79,16 @@ def record_logodev_api_response(
 ) -> None:
     """Record one logo.dev API response. The scope is always the instance's single account —
     logo.dev meters per token and each instance holds exactly one."""
-    status_code, headers, request_method, request_url = unpack_requests_response(response)
+    primitives = unpack_requests_response(response)
     logodev_egress.record_response(
-        status_code,
-        headers,
+        primitives.status_code,
+        primitives.headers,
         source=source,
         scope="default",
         method=method,
         endpoint=endpoint,
-        request_method=request_method,
-        request_url=request_url,
+        request_method=primitives.request_method,
+        request_url=primitives.request_url,
     )
 
 

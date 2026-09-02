@@ -54,16 +54,16 @@ def record_vapi_api_response(
     method: str,
     endpoint: str,
 ) -> None:
-    status_code, headers, request_method, request_url = unpack_requests_response(response)
+    primitives = unpack_requests_response(response)
     vapi_egress.record_response(
-        status_code,
-        headers,
+        primitives.status_code,
+        primitives.headers,
         source=source,
         scope=scope,
         method=method,
         endpoint=endpoint,
-        request_method=request_method,
-        request_url=request_url,
+        request_method=primitives.request_method,
+        request_url=primitives.request_url,
     )
 
 

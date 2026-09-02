@@ -17,6 +17,8 @@ from urllib.parse import urlparse
 import requests
 from prometheus_client import Counter, Gauge
 
+from posthog.dataclasses import frozen
+
 
 @dataclass(frozen=True)
 class RateLimitSnapshot:
@@ -71,9 +73,18 @@ def default_normalize_endpoint(url: str | None) -> str:
     return "/" + "/".join("{id}" if seg.isdigit() else seg for seg in path.split("/"))
 
 
-def unpack_requests_response(
-    response: requests.Response,
-) -> tuple[int, Mapping[str, str] | None, str | None, str | None]:
+@frozen
+class ResponsePrimitives:
+    """What :meth:`EgressObservability.record_response` needs, independent of the HTTP client that
+    produced it. ``request_method`` and ``request_url`` come from the request, not the response."""
+
+    status_code: int
+    headers: Mapping[str, str] | None
+    request_method: str | None
+    request_url: str | None
+
+
+def unpack_requests_response(response: requests.Response) -> ResponsePrimitives:
     """Pull the primitives :meth:`EgressObservability.record_response` needs off a ``requests.Response``:
     status code, headers, and the prepared request's method/url. A response's ``.request`` (and its
     method/url) may be absent or non-string — a response built without a prepared request, or a test
@@ -84,11 +95,11 @@ def unpack_requests_response(
     request = getattr(response, "request", None)
     req_method = getattr(request, "method", None)
     req_url = getattr(request, "url", None)
-    return (
-        response.status_code,
-        headers,
-        req_method if isinstance(req_method, str) else None,
-        req_url if isinstance(req_url, str) else None,
+    return ResponsePrimitives(
+        status_code=response.status_code,
+        headers=headers,
+        request_method=req_method if isinstance(req_method, str) else None,
+        request_url=req_url if isinstance(req_url, str) else None,
     )
 
 
@@ -211,14 +222,14 @@ def record_outbound_api_response(
     endpoint: str | None = None,
 ) -> None:
     """Domain-keyed convenience for generic callers that hold only a domain string."""
-    status_code, headers, request_method, request_url = unpack_requests_response(response)
+    primitives = unpack_requests_response(response)
     resolve_egress_observability(domain).record_response(
-        status_code,
-        headers,
+        primitives.status_code,
+        primitives.headers,
         source=source,
         scope=scope,
         method=method,
         endpoint=endpoint,
-        request_method=request_method,
-        request_url=request_url,
+        request_method=primitives.request_method,
+        request_url=primitives.request_url,
     )

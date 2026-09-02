@@ -13,12 +13,18 @@ returns/catches aiohttp's types instead of ``requests``'. The two bases share th
 rule via :func:`_raise_if_denied` rather than each encoding it themselves.
 """
 
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import aiohttp
 import requests
+
+# aiohttp is only needed by AsyncEgressClient, and the sync domains import this module during
+# django.setup(). A module-level import would put aiohttp on the startup path of every process.
+if TYPE_CHECKING:
+    import aiohttp
 
 from posthog.egress.limiter.policies import Priority
 
@@ -131,6 +137,8 @@ class AsyncEgressClient(ABC):
         endpoint: str | None = None,
         **kwargs: Any,
     ) -> aiohttp.ClientResponse:
+        import aiohttp  # noqa: PLC0415
+
         await self._gate(scope, source, priority, url)
 
         request_headers = {**self._standard_headers(), **(headers or {})}

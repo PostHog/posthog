@@ -56,16 +56,16 @@ def record_google_workspace_api_response(
     method: str,
     endpoint: str,
 ) -> None:
-    status_code, headers, request_method, request_url = unpack_requests_response(response)
+    primitives = unpack_requests_response(response)
     google_workspace_egress.record_response(
-        status_code,
-        headers,
+        primitives.status_code,
+        primitives.headers,
         source=source,
         scope=account_id,
         method=method,
         endpoint=endpoint,
-        request_method=request_method,
-        request_url=request_url,
+        request_method=primitives.request_method,
+        request_url=primitives.request_url,
     )
 
 

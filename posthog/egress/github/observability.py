@@ -143,16 +143,16 @@ def record_github_api_response(
     """Record one GitHub API response. ``installation_id`` is the GitHub App installation — the shared
     rate-limit budget GitHub meters. Pass it when known so the rate-limit gauges are set; identity-blind
     callers (raw PATs) get request volume only. ``source`` attributes the call to a subsystem."""
-    status_code, headers, request_method, request_url = unpack_requests_response(response)
+    primitives = unpack_requests_response(response)
     github_egress.record_response(
-        status_code,
-        headers,
+        primitives.status_code,
+        primitives.headers,
         source=source,
         scope=installation_id,
         method=method,
         endpoint=endpoint,
-        request_method=request_method,
-        request_url=request_url,
+        request_method=primitives.request_method,
+        request_url=primitives.request_url,
     )
 
 
