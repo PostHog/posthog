@@ -30,7 +30,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { QueryBasedInsightModel } from '~/types'
-import { PropertyOperator, UniversalFilterValue, UniversalFiltersGroup } from '~/types'
+import { PropertyFilterType, PropertyOperator, UniversalFilterValue, UniversalFiltersGroup } from '~/types'
 
 import {
     metricsAttributesRetrieve,
@@ -48,6 +48,7 @@ import { canCreateMetricsInsight, canViewMetrics } from 'products/metrics/fronte
 
 import type { Node } from '../../../../frontend/src/queries/schema/schema-general'
 import type { _MetricNameApi } from '../generated/api.schemas'
+import { type MetricTopMoverRow, topMoverRows } from '../metricsAnomaly'
 import { EMPTY_SERVICE_PATTERN, SERVICE_NAME_KEY } from '../metricsAttributes'
 import { correlationServiceNames } from '../metricsLinks'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
@@ -191,6 +192,7 @@ export interface metricsViewerLogicValues {
     anomalyBadge: MetricsAnomalyBadge | null
     anomalyReport: _MetricAnomalyReportApi | null
     anomalyReportLoading: boolean
+    anomalyTopMovers: MetricTopMoverRow[]
     attributeEndpointFilters: Record<string, string>
     attributeKeyOptions: {
         key: string
@@ -246,6 +248,13 @@ export interface metricsViewerLogicActions {
     setServices: (services: string[]) => {
         services: string[]
     } // metricNamePickerLogic
+    addAttributeFilter: (
+        key: string,
+        value: string
+    ) => {
+        key: string
+        value: string
+    }
     addGoalLine: () => {
         value: true
     }
@@ -428,6 +437,7 @@ export interface metricsViewerLogicMeta {
         chartSeries: (queryResults: _MetricSeriesApi[]) => MetricsChartSeries[]
         hasResults: (queryResults: _MetricSeriesApi[]) => boolean
         anomalyBadge: (anomalyReport: _MetricAnomalyReportApi | null) => MetricsAnomalyBadge | null
+        anomalyTopMovers: (anomalyReport: _MetricAnomalyReportApi | null) => MetricTopMoverRow[]
     }
 }
 
@@ -457,6 +467,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         setGroupByKeys: (groupByKeys: string[]) => ({ groupByKeys }),
         setGroupBySearch: (groupBySearch: string) => ({ groupBySearch }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
+        // Narrows the chart to one label value, from the anomaly panel's ranked movers.
+        addAttributeFilter: (key: string, value: string) => ({ key, value }),
         // Saves the current query as an insight (reusing the last save while the
         // query is unchanged) and opens the dashboard picker for it.
         addToDashboard: true,
@@ -603,6 +615,38 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             if (!objectsEqual(values.selectedServices, values.pickerServices)) {
                 actions.setServices(values.selectedServices)
             }
+        },
+        addAttributeFilter: ({ key, value }) => {
+            const alreadyFiltered = flattenFilterValues(values.filterGroup).some(
+                (filter) =>
+                    'key' in filter &&
+                    filter.key === key &&
+                    'operator' in filter &&
+                    filter.operator === PropertyOperator.Exact &&
+                    toValueStrings('value' in filter ? filter.value : null).includes(value)
+            )
+            if (alreadyFiltered) {
+                return
+            }
+            const inner = values.filterGroup.values[0] as UniversalFiltersGroup
+            actions.setFilterGroup({
+                ...values.filterGroup,
+                values: [
+                    {
+                        ...inner,
+                        values: [
+                            ...inner.values,
+                            {
+                                type: PropertyFilterType.MetricAttribute,
+                                key,
+                                value: [value],
+                                operator: PropertyOperator.Exact,
+                            },
+                        ] as UniversalFiltersGroup['values'],
+                    },
+                    ...values.filterGroup.values.slice(1),
+                ],
+            })
         },
         setMetricName: ({ metricName }) => {
             const metricType = values.items.find((item) => item.name === metricName.trim())?.metric_type
@@ -952,6 +996,13 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         hasResults: [
             (s) => [s.queryResults],
             (results: MetricsViewerSeries[]): boolean => (results[0]?.points.length ?? 0) > 0,
+        ],
+        // The label values behind the current anomaly, ranked. Empty for an ungrouped metric or
+        // when nothing stood out, which the panel reports rather than hiding.
+        anomalyTopMovers: [
+            (s) => [s.anomalyReport],
+            (report: _MetricAnomalyReportApi | null): MetricTopMoverRow[] =>
+                report ? topMoverRows(report.top_movers) : [],
         ],
         // Display shape for the anomaly badge — null when there's no report or the metric is flat.
         anomalyBadge: [
