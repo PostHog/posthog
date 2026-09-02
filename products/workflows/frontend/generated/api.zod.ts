@@ -429,6 +429,12 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
             ),
+        origin_product: zod
+            .union([zod.enum(['loops']).describe('\* `loops` - Loops'), zod.null()])
+            .optional()
+            .describe(
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops'
+            ),
         trigger_masking: zod
             .union([
                 zod.object({
@@ -1797,6 +1803,12 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
                 ),
+            origin_product: zod
+                .union([zod.enum(['loops']).describe('\* `loops` - Loops'), zod.null()])
+                .optional()
+                .describe(
+                    'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops'
+                ),
             created_at: zod.iso.datetime({ offset: true }),
             created_by: zod.object({
                 id: zod.number(),
@@ -2274,7 +2286,9 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
     globals: zod
         .record(zod.string(), zod.unknown())
         .optional()
-        .describe('Test trigger payload, typically {event, person, groups}.'),
+        .describe(
+            "Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: an event matching the trigger filters for event triggers, or for an internal-event trigger an event named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, text, ts) and no person."
+        ),
     mock_async_functions: zod
         .boolean()
         .default(hogFlowsInvocationsCreateBodyMockAsyncFunctionsDefault)
@@ -2526,6 +2540,12 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+            ),
+        origin_product: zod
+            .union([zod.enum(['loops']).describe('\* `loops` - Loops'), zod.null()])
+            .optional()
+            .describe(
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops'
             ),
         trigger_masking: zod
             .union([

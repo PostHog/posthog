@@ -271,6 +271,7 @@ const mockFeatureFlags = vi.hoisted(() => ({
 
 const mockSettingsState = vi.hoisted(() => ({
   customInstructions: "",
+  ste100Enabled: true,
   codexModelAccess: "posthog-gateway" as "posthog-gateway" | "own-subscription",
   claudeModelAccess: "posthog-gateway" as
     | "posthog-gateway"
@@ -488,6 +489,7 @@ describe("SessionService", () => {
     mockHasSessionPromptEventForTaskRun.mockReturnValue(false);
     resetSessionService();
     mockSettingsState.customInstructions = "";
+    mockSettingsState.ste100Enabled = true;
     mockSettingsState.codexModelAccess = "posthog-gateway";
     mockSettingsState.claudeModelAccess = "posthog-gateway";
     mockSettingsState.spokenNotifications = false;
@@ -871,7 +873,10 @@ describe("SessionService", () => {
       });
 
       expect(mockTrpcAgent.start.mutate).toHaveBeenCalledWith(
-        expect.objectContaining({ customInstructions: "synced from file" }),
+        expect.objectContaining({
+          customInstructions:
+            "synced from file\n\nTalk and write only in Simplified Technical English (ASD-STE100).",
+        }),
       );
     });
 
@@ -3070,7 +3075,7 @@ describe("SessionService", () => {
                 sessionUpdate: "agent_message_chunk",
                 content: {
                   type: "text",
-                  text: '<insight id="9pQx3">Checkout funnel</insight>',
+                  text: '<insight id="9pQx3">Checkout funnel</insight> <report id="rep-1">Latency regression</report>',
                 },
               },
             },
@@ -3104,6 +3109,12 @@ describe("SessionService", () => {
             name: "Checkout funnel",
             object_kind: "insight",
             object_id: "9pQx3",
+            source_message_id: "turn-1700000000",
+          },
+          {
+            name: "Latency regression",
+            object_kind: "report",
+            object_id: "rep-1",
             source_message_id: "turn-1700000000",
           },
         ]);

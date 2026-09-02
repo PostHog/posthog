@@ -12,7 +12,7 @@ import { OrganizationMemberType, Region } from '~/types'
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'
 import { AccountsEvents } from './constants'
 
-export type AccountOrganizationMember = Pick<OrganizationMemberType, 'id' | 'user' | 'level'> & {
+export type AccountOrganizationMember = Pick<OrganizationMemberType, 'id' | 'user' | 'level' | 'last_login'> & {
     region: Region.US | Region.EU
 }
 
@@ -58,7 +58,7 @@ const fetchEuMembers = async (externalId: string): Promise<AccountOrganizationMe
             kind: NodeKind.HogQLQuery,
             tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
             query: hogql`
-                select user_id, membership_id, level, first_name, last_name, email, distinct_id
+                select user_id, membership_id, level, first_name, last_name, email, distinct_id, last_login
                 from eu_org_members
                 where organization_id = ${externalId}
                 order by joined_at desc
@@ -76,6 +76,7 @@ const fetchEuMembers = async (externalId: string): Promise<AccountOrganizationMe
                 email: (row[5] as string | null) ?? '',
                 distinct_id: (row[6] as string | null) ?? '',
             } as AccountOrganizationMember['user'],
+            last_login: (row[7] as string | null) ?? null,
             region: Region.EU,
         }))
     } catch (error) {

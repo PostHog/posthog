@@ -26,6 +26,7 @@ from products.signals.backend.report_embeddings import (
     emit_report_tombstone,
     render_report_document,
 )
+from products.signals.backend.scout_harness.suggestions import mark_stale_if_fleet_changed
 from products.signals.backend.tasks import close_dismissed_report_pr
 
 logger = structlog.get_logger(__name__)
@@ -554,6 +555,7 @@ _SNAPSHOT_ARTEFACT_FIELDS = [
     (SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, "priority", "priority"),
     (SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT, "actionability", "actionability"),
     (SignalReportArtefact.ArtefactType.DISMISSAL, "reason", "dismissal_reason"),
+    (SignalReportArtefact.ArtefactType.DISMISSAL, "corrected_repository", "dismissal_corrected_repository"),
 ]
 
 
@@ -614,3 +616,19 @@ def _classification_snapshot(
                 value = None
         snapshot[prop] = value if isinstance(value, str) else None
     return snapshot
+
+
+@receiver(post_save, sender="signals.SignalScoutConfig")
+@receiver(post_delete, sender="signals.SignalScoutConfig")
+def mark_scout_suggestions_stale_on_fleet_change(sender: Any, instance: Any, **kwargs: Any) -> None:
+    """A suggestion batch describes gaps in the fleet it was generated against, so a scout being
+    enabled, disabled, or removed flips a `fresh` batch to `stale`; regeneration waits for the
+    normal refresh. Saves that cannot change the enabled set (`update_fields` without `enabled`)
+    skip the read entirely, and nothing here may fail the config write."""
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and "enabled" not in update_fields:
+        return
+    try:
+        mark_stale_if_fleet_changed(instance.team_id)
+    except Exception:
+        logger.warning("scout_suggestions: failed to mark batch stale", team_id=instance.team_id, exc_info=True)
