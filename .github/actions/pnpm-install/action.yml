@@ -5,10 +5,8 @@ description: |
     Single source of truth for the pnpm cache key. Every node workflow shares
     one namespace (`pnpm-<os>-<lockfile-hash>`), so the store is cached once
     instead of fragmenting across runner-arch casings or per-workflow keys.
-    The entry is written by .github/workflows/pnpm-store-cache.yml from a cold
-    install, so it holds exactly the packages the lockfile pins. A save from
-    here would re-save whatever a prefix-fallback restore brought in, plus the
-    delta of this job's filter set, and the entry would grow without bound.
+    Restore only: .github/workflows/pnpm-store-cache.yml writes the entry on
+    master from a cold install, and explains why no consumer may save it.
 
     Also pre-seeds the Node tool cache (`node-toolcache-<os>-<arch>-<version>`,
     master-gated save) so setup-node makes no GitHub API calls on a hit.
@@ -82,9 +80,8 @@ runs:
               node-version-file: ${{ inputs.node-version-file }}
               token: ${{ inputs.token }}
 
-        # Save only on the default branch. A cache written on a PR/branch ref is
-        # scoped to that ref alone: no other branch can read it, it evicts the
-        # shared master entries, and it only ever helps that one PR's re-runs.
+        # Save only on the default branch: a cache written on a PR ref serves that
+        # PR alone and evicts the shared master entries.
         - name: Save Node tool cache
           if: github.ref == 'refs/heads/master' && steps.node-version.outputs.version != '' && steps.node-toolcache.outputs.cache-hit != 'true'
           uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3

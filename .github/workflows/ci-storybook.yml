@@ -464,8 +464,9 @@ jobs:
             - name: Install package.json dependencies with pnpm
               run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
 
-            # Inside the playwright container pnpm keeps its store on the workspace mount,
-            # a path the pnpm store cache workflow never writes, so one shard saves it.
+            # Inside the playwright container pnpm keeps its store on the workspace mount.
+            # actions/cache keys an entry on key plus path, so this is a separate entry
+            # from the one pnpm-store-cache.yml writes, and one shard saves it.
             - name: Save pnpm cache
               if: github.ref == 'refs/heads/master' && matrix.shard == 1 && matrix.browser == 'chromium' && steps.pnpm-restore.outputs.cache-hit != 'true'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3

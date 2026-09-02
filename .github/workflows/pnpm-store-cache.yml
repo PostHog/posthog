@@ -7,6 +7,10 @@ name: pnpm store cache
 # forward, and the entry would grow with every lockfile change.
 #
 # GitHub-hosted and Depot runners use separate cache stores, so the job runs on both.
+#
+# The ci-storybook visual-regression shards save under the same key from inside the
+# playwright container, where the store sits at another path. actions/cache keys an
+# entry on key plus path, so that is a separate entry this job never touches.
 
 on:
     push:
@@ -48,6 +52,9 @@ jobs:
 
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+            - name: Fix node-gyp permissions
+              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
 
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
