@@ -32,6 +32,11 @@ class Status(models.TextChoices):
     RESOLVED = "resolved", "Resolved"
 
 
+# Statuses the AI-reply coordinator scans. Ticket carries a partial index with the same predicate,
+# so a change here needs a new index migration. makemigrations asks for one.
+AI_REPLY_SCAN_STATUSES = [Status.NEW, Status.OPEN]
+
+
 class Priority(models.TextChoices):
     LOW = "low", "Low"
     MEDIUM = "medium", "Medium"
