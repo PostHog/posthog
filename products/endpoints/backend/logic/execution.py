@@ -126,8 +126,13 @@ _QUERY_PERFORMANCE_ERRORS: dict[type[Exception], tuple[str, str]] = {
 _QUERY_GUARDRAIL_ERRORS: tuple[type[Exception], ...] = (*_QUERY_PERFORMANCE_ERRORS, ClickHouseAtCapacity)
 
 
-# The classes execute() answers with a 400 and counts as status="user_error". A broken customer
-# query is not a PostHog fault, so it must not open an issue in our own error tracking.
+# Classes execute() answers with a 400 and counts as status="user_error", so the endpoint layer
+# skips capture for them. Two tiers reach this gate. ExposedHogQLError and user-safe
+# ExposedCHQueryError also classify as USER_ERROR in the shared query runner, which never captures
+# them — so skipping here keeps a broken customer query out of our error tracking entirely.
+# ResolutionError and HogVMException classify as ERROR in that runner and are captured there before
+# they reach this gate, so skipping here only avoids a second, duplicate capture at the endpoint
+# boundary; removing that upstream capture would need a change to the shared classifier.
 _USER_QUERY_ERRORS: tuple[type[Exception], ...] = (
     ExposedHogQLError,
     ExposedCHQueryError,

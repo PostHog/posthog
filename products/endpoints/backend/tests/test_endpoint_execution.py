@@ -198,6 +198,10 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
     def test_customer_query_errors_are_not_captured_as_posthog_exceptions(
         self, _name: str, error: Exception, expect_capture: bool
     ):
+        # Mocking process_query_model exercises the endpoint-layer capture gate only. The shared
+        # query runner it wraps is a separate boundary that captures ERROR-category classes
+        # (ResolutionError, HogVMException) upstream, so for those this gate only avoids a duplicate
+        # capture here — an issue is still filed by the runner.
         endpoint = create_endpoint_with_version(
             name=f"{_name}_capture",
             team=self.team,
