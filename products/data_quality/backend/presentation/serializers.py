@@ -253,12 +253,24 @@ class DataQualityCheckRunSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Severity this run was judged at. Null for runs recorded before snapshots existed.",
     )
+    check_name = serializers.SerializerMethodField(
+        help_text="Name the check carries now, so a run can be told from the others in its suite. "
+        "Null when the check is unnamed or has been hard deleted -- describe the run by check_type "
+        "and column_name instead."
+    )
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_check_name(self, obj: DataQualityCheckRun) -> str | None:
+        if not obj.quality_check:
+            return None
+        return obj.quality_check.name or None
 
     class Meta:
         model = DataQualityCheckRun
         fields = [
             "id",
             "quality_check",
+            "check_name",
             "suite_run",
             "subject_type",
             "subject_uuid",
