@@ -17,16 +17,14 @@ export interface RefundEligibility {
 /**
  * Decide whether the refund control shows (`canRefund`) and, when it shows but
  * the backend already knows it can't be refunded right now, the copy to display
- * (`disabledReason`). The button is offered only when the flag is on and the
- * report has a billable PR that hasn't been refunded; the server enforces the
- * same rules, so this is a display gate.
+ * (`disabledReason`). The button is offered only when the report has a billable
+ * PR that hasn't been refunded; the server enforces the same rules, so this is
+ * a display gate.
  */
 export function computeRefundEligibility(
   report: SignalReport,
-  flagEnabled: boolean,
 ): RefundEligibility {
   const canRefund =
-    flagEnabled &&
     !!report.implementation_pr_url &&
     !report.refund &&
     !report.billing_exempt_reason;

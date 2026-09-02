@@ -61,8 +61,6 @@ export const TASK_COST_VISIBLE_FLAG = "posthog-code-task-cost-visible";
  * surfaces (see docs/ANNOUNCEMENTS.md).
  */
 export const ANNOUNCEMENTS_FLAG = "posthog-desktop-announcements";
-/** Gates the PR-refund action in the inbox (matches the web SIGNALS_PR_REFUNDS flag). */
-export const SIGNALS_PR_REFUNDS_FLAG = "signals-pr-refunds";
 /**
  * Gates reports living in the channels sidebar: the per-space Reports tab and its
  * report detail route, plus report entries in the feed. Requires project-bluebird.

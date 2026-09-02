@@ -71,7 +71,7 @@ python manage.py seed_refund_test_data --team-id 1
 ```
 
 `seed_inbox_data` reports are billable too (runs are recorded via the production dual-write), but their runs are created "now", so refunds on them always take the excluded path.
-Environment prerequisites (feature flag, local billing service): "Testing refunds locally" in `../../ARCHITECTURE.md`.
+Environment prerequisites (local billing service): "Testing refunds locally" in `../../ARCHITECTURE.md`.
 
 ## Re-ingesting reports
 
