@@ -3208,6 +3208,102 @@ class TestOffsetChunkingConnectRecoveryConflict:
         assert connect_mock.call_count == 5
 
 
+class TestOffsetChunkingWithoutPrimaryKeys:
+    """A table with no primary key has no column that makes the offset-paged read totally ordered,
+    so the recovery-conflict fallback cannot resume without duplicating and dropping rows. It has to
+    re-raise and let Temporal restart the activity on a fresh single cursor, rather than page anyway
+    and finish "successfully" with a corrupt table.
+    """
+
+    class _NamedCursor:
+        def __init__(self):
+            col = mock.Mock()
+            col.name = "id"
+            self.description = [col]
+
+        def execute(self, *args, **kwargs):
+            raise psycopg.errors.SerializationFailure("canceling statement due to conflict with recovery")
+
+        def fetchmany(self, _n):
+            return []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _Connection:
+        def __init__(self):
+            self.autocommit = False
+            self.closed = False
+            self.broken = False
+            self.adapters = mock.Mock()
+
+        def cursor(self, *args, **kwargs):
+            if "name" in kwargs:
+                return TestOffsetChunkingWithoutPrimaryKeys._NamedCursor()
+            return mock.MagicMock()
+
+        def commit(self):
+            return None
+
+        def close(self):
+            self.closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def test_recovery_conflict_without_primary_keys_does_not_offset_page(self):
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        fake_table = mock.Mock()
+        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        fake_table.type = "table"
+        fake_table.columns = []
+        # No `id` column either, so the primary-key fallback in get_rows stays empty.
+        fake_table.__contains__ = mock.Mock(return_value=False)
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+        offset_cursor = mock.MagicMock()
+        with (
+            patch(f"{module}.psycopg.connect", return_value=self._Connection()),
+            patch(f"{module}.psycopg.Cursor", side_effect=lambda _conn: offset_cursor),
+            patch(f"{module}._get_table", return_value=fake_table),
+            patch(f"{module}._is_read_replica", return_value=True),
+            patch(f"{module}._is_duckdb_connection", return_value=False),
+            patch(f"{module}._get_primary_keys", return_value=None),
+            patch(f"{module}._is_partitioned_table", return_value=False),
+            patch(f"{module}._get_table_chunk_size", return_value=_TableChunking(batch_rows=1000, fetch_rows=1000)),
+            patch(f"{module}._get_rows_to_sync", return_value=10),
+            patch(f"{module}._role_subject_to_rls", return_value=False),
+            patch(f"{module}._get_partition_settings", return_value=None),
+            patch(f"{module}.time.sleep"),
+        ):
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["companies"],
+                should_use_incremental_field=False,
+                logger=structlog.get_logger(),
+                db_incremental_field_last_value=None,
+                team_id=1,
+            )
+            with pytest.raises(psycopg.errors.SerializationFailure, match="conflict with recovery"):
+                list(cast(Iterable[Any], response.items()))
+
+        offset_cursor.execute.assert_not_called()
+
+
 class TestOffsetChunkingConnectTimeout:
     """The reconnect that bootstraps offset-chunking recovery can time out establishing the socket
     (`ConnectionTimeout: connection timeout expired`). That's transient — the source was reachable
@@ -4831,6 +4927,47 @@ class TestBuildQuery:
         assert "'2024-01-01'" in rendered
         assert "ORDER BY" in rendered
 
+    # Offset paging re-evaluates the ORDER BY once per chunk, so anything short of a total order
+    # lets tied rows come back in a different sequence per chunk and the pages overlap and skip.
+    @pytest.mark.parametrize(
+        "offset_paging_keys,expected_suffix",
+        [
+            # The healthy server-cursor read streams one consistent snapshot and must stay unordered.
+            (None, None),
+            (["id"], 'ORDER BY "id" ASC'),
+            (["tenant_id", "id"], 'ORDER BY "tenant_id" ASC, "id" ASC'),
+        ],
+    )
+    def test_full_scan_offset_paging_order(self, offset_paging_keys, expected_suffix):
+        query = _build_query("public", "users", False, "table", None, None, None, offset_paging_keys=offset_paging_keys)
+        rendered = self._render(query).rstrip()
+        if expected_suffix is None:
+            assert "ORDER BY" not in rendered
+        else:
+            assert rendered.endswith(expected_suffix)
+
+    @pytest.mark.parametrize(
+        "offset_paging_keys,expected_suffix",
+        [
+            (None, 'ORDER BY "created_at" ASC'),
+            (["id"], 'ORDER BY "created_at" ASC, "id" ASC'),
+            # A cursor that is itself the primary key is already total, so it must not repeat.
+            (["created_at"], 'ORDER BY "created_at" ASC'),
+        ],
+    )
+    def test_incremental_offset_paging_order(self, offset_paging_keys, expected_suffix):
+        query = _build_query(
+            "public",
+            "events",
+            True,
+            "table",
+            "created_at",
+            IncrementalFieldType.Timestamp,
+            "2024-01-01",
+            offset_paging_keys=offset_paging_keys,
+        )
+        assert self._render(query).rstrip().endswith(expected_suffix)
+
     def test_incremental_raises_without_field(self):
         with pytest.raises(ValueError, match="incremental_field and incremental_field_type can't be None"):
             _build_query("public", "events", True, "table", None, None, None)
@@ -5227,6 +5364,29 @@ class TestBuildXminQuery:
         rendered = self._render(query)
         assert "SELECT COUNT(*)" in rendered
         assert "xmin::text::bigint >= 100 AND xmin::text::bigint < 5000" in rendered
+
+    # Every row one transaction wrote shares an xmin, so the cursor alone leaves huge ties — a
+    # bulk-loaded table can be a single group. Offset paging needs the primary key to break them.
+    @pytest.mark.parametrize(
+        "offset_paging_keys,expected_suffix",
+        [
+            (None, "ORDER BY xmin::text::bigint ASC"),
+            (["id"], 'ORDER BY xmin::text::bigint ASC, "id" ASC'),
+        ],
+    )
+    def test_offset_paging_breaks_xmin_ties(self, offset_paging_keys, expected_suffix):
+        query = _build_query(
+            "public",
+            "users",
+            False,
+            "table",
+            None,
+            None,
+            None,
+            xmin_bounds=self._bounds(),
+            offset_paging_keys=offset_paging_keys,
+        )
+        assert self._render(query).rstrip().endswith(expected_suffix)
 
 
 class TestCaptureXminCeiling:

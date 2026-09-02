@@ -2057,6 +2057,18 @@ def build_incremental_condition(
     )
 
 
+def _offset_paging_tiebreak(keys: list[str]) -> sql.Composed:
+    """Trailing ORDER BY terms that make an offset-paged read totally ordered.
+
+    `LIMIT/OFFSET` paging issues one statement per chunk, so every chunk re-evaluates the ORDER BY
+    from scratch. Any order that leaves rows tied lets Postgres return the tied rows in a different
+    sequence per chunk, and the pages then overlap and skip. A full-table scan has no ORDER BY at
+    all, `xmin` repeats across every row one transaction wrote, and an incremental cursor repeats
+    across rows sharing a timestamp — so each needs the primary key appended to break the ties.
+    """
+    return sql.SQL(", ").join(sql.SQL("{col} ASC").format(col=sql.Identifier(key)) for key in keys)
+
+
 def _build_query(
     schema: str,
     table_name: str,
@@ -2073,6 +2085,7 @@ def _build_query(
     primary_keys: Optional[list[str]] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
     xmin_bounds: Optional[XminBounds] = None,
+    offset_paging_keys: Optional[list[str]] = None,
 ) -> sql.Composed:
     projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
     select_clause: sql.Composable = (
@@ -2084,7 +2097,13 @@ def _build_query(
 
     if xmin_bounds is not None:
         return _build_xmin_query(
-            schema, table_name, select_clause, xmin_bounds, row_filter_conditions, add_sampling=bool(add_sampling)
+            schema,
+            table_name,
+            select_clause,
+            xmin_bounds,
+            row_filter_conditions,
+            add_sampling=bool(add_sampling),
+            offset_paging_keys=offset_paging_keys,
         )
 
     if not should_use_incremental_field:
@@ -2113,6 +2132,8 @@ def _build_query(
         )
         if row_filter_conditions:
             query = query + sql.SQL(" WHERE ") + and_join(row_filter_conditions)
+        if offset_paging_keys:
+            query = query + sql.SQL(" ORDER BY ") + _offset_paging_tiebreak(offset_paging_keys)
         return query
 
     if incremental_field is None or incremental_field_type is None:
@@ -2173,7 +2194,11 @@ def _build_query(
     if row_filter_conditions:
         query = query + sql.SQL(" AND ") + and_join(row_filter_conditions)
 
-    return query + sql.SQL(" ORDER BY {field} ASC").format(field=sql.Identifier(incremental_field))
+    ordered = query + sql.SQL(" ORDER BY {field} ASC").format(field=sql.Identifier(incremental_field))
+    tiebreak = [key for key in offset_paging_keys or [] if key != incremental_field]
+    if tiebreak:
+        ordered = ordered + sql.SQL(", ") + _offset_paging_tiebreak(tiebreak)
+    return ordered
 
 
 def _xmin_predicate(bounds: XminBounds) -> sql.Composed:
@@ -2199,6 +2224,7 @@ def _build_xmin_query(
     row_filter_conditions: list[sql.Composable],
     *,
     add_sampling: bool,
+    offset_paging_keys: Optional[list[str]] = None,
 ) -> sql.Composed:
     # `_ph_xmin` is force-projected (system columns never come back from `SELECT *`) and kept out of
     # `compute_projected_columns` so it can't collide with the user's incremental-field machinery.
@@ -2213,6 +2239,8 @@ def _build_xmin_query(
 
     # ORDER BY the cast cursor so the offset-resume path stays correct on a connection drop.
     ordered = query + sql.SQL(" ORDER BY xmin::text::bigint ASC")
+    if offset_paging_keys:
+        ordered = ordered + sql.SQL(", ") + _offset_paging_tiebreak(offset_paging_keys)
     if add_sampling:
         return ordered + sql.SQL(" LIMIT 1000")
     return ordered
@@ -3651,6 +3679,7 @@ def postgres_source(
                     primary_keys=primary_keys,
                     row_filters=row_filters,
                     xmin_bounds=xmin_bounds,
+                    offset_paging_keys=primary_keys,
                 )
 
                 successive_errors = 0
@@ -3949,6 +3978,16 @@ def postgres_source(
                 except psycopg.errors.SerializationFailure as e:
                     # If we hit a SerializationFailure and we're reading from a read replica, we fallback to offset chunking
                     if using_read_replica and "conflict with recovery" in "".join(e.args):
+                        # Offset chunking orders on the primary key to stay total (see
+                        # `_offset_paging_tiebreak`). Without one there is no order that survives
+                        # being re-evaluated per chunk, so paging would duplicate and drop rows
+                        # while still reporting success. Re-raise instead and let Temporal retry
+                        # the whole activity, which re-reads from a single consistent cursor.
+                        if not primary_keys:
+                            logger.debug(
+                                "Recovery conflict on a table with no primary key; cannot resume by offset safely."
+                            )
+                            raise
                         logger.debug(
                             f"Falling back to offset chunking for table due to SerializationFailure error: {e}."
                         )
