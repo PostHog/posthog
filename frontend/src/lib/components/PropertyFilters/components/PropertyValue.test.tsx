@@ -327,8 +327,8 @@ describe('PropertyValue', () => {
     })
 
     it('labels an `organization_id` person filter with the organization name', async () => {
-        // A list of raw org UUIDs is unreadable, so each value is labeled with the
-        // name of the group it resolves to, keeping the id for copying and searching.
+        // A list of raw org UUIDs is unreadable, so a value that resolves to a group shows
+        // that group's name instead. The id itself stays on the hover card.
         render(
             <Provider>
                 <PropertyValue
@@ -341,13 +341,12 @@ describe('PropertyValue', () => {
             </Provider>
         )
 
-        expect(await screen.findByText('(Fjellride AB) uuid-001')).toBeInTheDocument()
+        expect(await screen.findByText('Fjellride AB')).toBeInTheDocument()
         // An id that resolves to no group keeps showing as itself.
         expect(screen.getByText('uuid-unknown')).toBeInTheDocument()
-        // So does a group with no name — `groupDisplayId` falls back to the key
-        // there, which would otherwise render the useless "(uuid) uuid".
+        // So does a group with no name — `groupDisplayId` falls back to the key there,
+        // so the name is dropped rather than replacing the id with a copy of itself.
         expect(screen.getByText('uuid-nameless')).toBeInTheDocument()
-        expect(screen.queryByText('(uuid-nameless) uuid-nameless')).not.toBeInTheDocument()
     })
 
     it('does not resolve group names for an `is set` filter, whose value is a bare boolean', () => {

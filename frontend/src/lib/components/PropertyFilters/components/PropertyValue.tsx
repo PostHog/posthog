@@ -137,8 +137,11 @@ export function PropertyValue({
         [value]
     )
     const groupNames = useGroupKeyNames(groupCardTypeIndex, selectedValues)
-    const withGroupName = (groupKey: string, display: string = groupKey): string =>
-        groupNames[groupKey] ? `(${groupNames[groupKey]}) ${display}` : display
+    // One name source: feature flags ship resolved names on the filter, everything else
+    // resolves them here. The name replaces the id rather than decorating it, matching
+    // `groupDisplayId`, the group picker, and the read-only feature flag views.
+    const displayName = (groupKey: string, fallback: string = groupKey): string =>
+        groupKeyNames?.[groupKey] ?? groupNames[groupKey] ?? fallback
     const groupCardTooltip = (groupKey: string): JSX.Element => (
         <GroupKeyFilterTooltip
             groupTypeIndex={groupCardTypeIndex as GroupTypeIndex}
@@ -359,13 +362,9 @@ export function PropertyValue({
     )
 
     if (!editable) {
-        if (isGroupKeyProperty && groupKeyNames) {
-            const displayValues = selectedValues.map((key) => groupKeyNames[key] || key)
-            return <>{displayValues.join(' or ')}</>
-        }
-        // Keyed on the raw value the group lookup used, but displaying the formatted
-        // one, so decorating a value never costs it `formatPropertyValueForDisplay`.
-        return <>{formattedValues.map((v, i) => withGroupName(selectedValues[i], v)).join(' or ')}</>
+        // Looked up by the raw value the group lookup used, falling back to the formatted
+        // one, so a value resolving to no group keeps `formatPropertyValueForDisplay`.
+        return <>{formattedValues.map((v, i) => displayName(selectedValues[i], v)).join(' or ')}</>
     }
 
     if (isDurationProperty) {
@@ -531,7 +530,9 @@ export function PropertyValue({
                         const groupName = showGroupCardOnValue ? groupNames[name] : undefined
                         return {
                             key: name,
-                            label: withGroupName(name),
+                            // The id, not the name: `label` is what the dropdown's fuzzy search
+                            // indexes, and a name match would commit the typed text as a value.
+                            label: name,
                             value: isFlagDependencyProperty ? _name : undefined, // Preserve original type for flags
                             tooltip: showGroupCardOnValue ? groupCardTooltip(name) : undefined,
                             labelComponent: (
@@ -539,12 +540,11 @@ export function PropertyValue({
                                     key={name}
                                     data-attr={'prop-val-' + index}
                                     className="ph-no-capture flex items-center gap-1.5"
-                                    title={withGroupName(name)}
+                                    title={groupName ?? name}
                                 >
-                                    {/* Prefixed rather than replaced, so the group name doesn't cost
-                                        the value its `(empty string)` marker or boolean formatting. */}
-                                    {groupName ? `(${groupName}) ` : ''}
-                                    {formatLabelContent(isFlagDependencyProperty ? _name : name)}
+                                    {/* A resolved key is always a real group id, so replacing it here
+                                        never costs a value its `(empty string)` or boolean rendering. */}
+                                    {groupName ?? formatLabelContent(isFlagDependencyProperty ? _name : name)}
                                 </span>
                             ),
                         }
@@ -557,7 +557,8 @@ export function PropertyValue({
                               .filter(([, v]) => !displayOptions.some((o) => toString(o.name) === v))
                               .map(([raw, v]) => ({
                                   key: v,
-                                  label: withGroupName(raw, v),
+                                  label: v,
+                                  labelComponent: groupNames[raw] ?? v,
                                   tooltip: groupCardTooltip(raw),
                               }))
                         : []),
