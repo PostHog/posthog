@@ -6,11 +6,16 @@ import {
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
 } from "@posthog/quill";
 import type { Adapter, ModelAccess } from "@posthog/shared";
 import {
   applyModelAccess,
   useAdapterSubscription,
+  type WorkspaceModeForAccess,
 } from "@posthog/ui/features/settings/adapterSubscription";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 
@@ -29,26 +34,42 @@ export const SUBSCRIPTION_LOGIN_ACTION: Record<Adapter, string> = {
   codex: "codex-login",
 };
 
+const CLOUD_ONLY_REASON: Record<Adapter, string> = {
+  claude:
+    "Your Claude plan only works for local and worktree tasks. Cloud tasks always use PostHog credits.",
+  codex:
+    "Your ChatGPT plan only works for local and worktree tasks. Cloud tasks always use PostHog credits.",
+};
+
+const TOOLTIP_DELAY_MS = 150;
+
 interface SubscriptionSubmenuProps {
   adapter: Adapter;
   closeOnChange?: boolean;
+  /** Workspace mode of the task being composed; cloud forces PostHog credits. */
+  workspaceMode?: WorkspaceModeForAccess;
 }
 
 export function SubscriptionSubmenu({
   adapter,
   closeOnChange = false,
+  workspaceMode,
 }: SubscriptionSubmenuProps): React.JSX.Element | null {
   const subscription = useAdapterSubscription(adapter);
   if (!subscription.flagEnabled) {
     return null;
   }
 
+  // Cloud tasks always bill PostHog credits (see effectiveModelAccess), so the
+  // plan option is disabled there instead of silently overriding the pick.
+  const cloudTask = workspaceMode === "cloud";
   const planLabel = PLAN_LABEL[adapter];
-  const value: ModelAccess = subscription.subscriptionOn
-    ? "own-subscription"
-    : "posthog-gateway";
+  const value: ModelAccess =
+    cloudTask || !subscription.subscriptionOn
+      ? "posthog-gateway"
+      : "own-subscription";
   const valueLabel =
-    subscription.subscriptionOn && subscription.loggedIn
+    subscription.subscriptionOn && subscription.loggedIn && !cloudTask
       ? planLabel
       : "PostHog credits";
 
@@ -79,13 +100,33 @@ export function SubscriptionSubmenu({
           >
             PostHog credits
           </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem
-            value="own-subscription"
-            closeOnClick={closeOnChange}
-            disabled={!subscription.loggedIn}
-          >
-            {planLabel}
-          </DropdownMenuRadioItem>
+          {cloudTask ? (
+            <TooltipProvider delay={TOOLTIP_DELAY_MS}>
+              <Tooltip disableHoverablePopup>
+                <TooltipTrigger render={<span className="flex" />}>
+                  <DropdownMenuRadioItem
+                    value="own-subscription"
+                    closeOnClick={closeOnChange}
+                    disabled
+                    className="opacity-60"
+                  >
+                    {planLabel}
+                  </DropdownMenuRadioItem>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-60">
+                  {CLOUD_ONLY_REASON[adapter]}
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            <DropdownMenuRadioItem
+              value="own-subscription"
+              closeOnClick={closeOnChange}
+              disabled={!subscription.loggedIn}
+            >
+              {planLabel}
+            </DropdownMenuRadioItem>
+          )}
         </DropdownMenuRadioGroup>
         {subscription.loggedIn ? null : (
           <DropdownMenuItem

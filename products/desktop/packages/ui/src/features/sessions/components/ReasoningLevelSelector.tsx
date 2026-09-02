@@ -37,6 +37,7 @@ import {
 } from "@posthog/ui/features/sessions/components/HarnessSubmenu";
 import { ModelSelectList } from "@posthog/ui/features/sessions/components/ModelSelectList";
 import { SubscriptionSubmenu } from "@posthog/ui/features/sessions/components/SubscriptionSubmenu";
+import type { WorkspaceModeForAccess } from "@posthog/ui/features/settings/adapterSubscription";
 import type { AgentAdapter } from "@posthog/ui/features/settings/settingsStore";
 import { AnimatedHeight } from "@posthog/ui/primitives/AnimatedHeight";
 import { Spinner } from "@posthog/ui/primitives/Spinner";
@@ -77,6 +78,8 @@ interface ReasoningLevelSelectorProps {
   isLoading?: boolean;
   modelAccess?: ModelAccess;
   showBillingMenu?: boolean;
+  /** Workspace mode of the task being composed; cloud disables plan billing. */
+  workspaceMode?: WorkspaceModeForAccess;
 }
 
 function toDropdownOptions(
@@ -115,6 +118,7 @@ export function ReasoningLevelSelector({
   isLoading,
   modelAccess,
   showBillingMenu,
+  workspaceMode,
 }: ReasoningLevelSelectorProps) {
   const [internalMenuOpen, setInternalMenuOpen] = useState(false);
   const open = menuOpen ?? internalMenuOpen;
@@ -490,7 +494,10 @@ export function ReasoningLevelSelector({
                   />
                 )}
                 {showBillingMenu && adapter && (
-                  <SubscriptionSubmenu adapter={adapter} />
+                  <SubscriptionSubmenu
+                    adapter={adapter}
+                    workspaceMode={workspaceMode}
+                  />
                 )}
                 {hasEffort && (
                   <DropdownMenuSub>

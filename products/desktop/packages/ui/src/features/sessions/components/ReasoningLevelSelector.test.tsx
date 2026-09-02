@@ -6,6 +6,7 @@ import {
 import { Theme } from "@radix-ui/themes";
 import { configure, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { cloneElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ReasoningLevelSelector } from "./ReasoningLevelSelector";
 
@@ -18,6 +19,66 @@ vi.mock("@posthog/ui/utils/browser", () => ({ openUrlInBrowser }));
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: () => true,
 }));
+
+const useAdapterSubscription = vi.hoisted(() => vi.fn());
+vi.mock(
+  "@posthog/ui/features/settings/adapterSubscription",
+  async (importOriginal) => {
+    const actual =
+      await importOriginal<
+        typeof import("@posthog/ui/features/settings/adapterSubscription")
+      >();
+    return {
+      ...actual,
+      useAdapterSubscription,
+    };
+  },
+);
+
+// Base UI tooltips never open under jsdom's zero layout, so render their
+// content unconditionally and assert on it directly (see TaskHeaderActions
+// tests for the same trick). Triggers keep honoring their `render` prop —
+// children are merged into the rendered element, as real Base UI does.
+vi.mock("@posthog/quill", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@posthog/quill")>();
+  const passthrough = ({ children }: { children: React.ReactNode }) => children;
+  const renderPassthrough = ({
+    children,
+    render,
+  }: {
+    children?: React.ReactNode;
+    render?: React.ReactElement;
+  }) =>
+    render && children
+      ? cloneElement(render, undefined, children)
+      : (render ?? children);
+  return {
+    ...actual,
+    TooltipProvider: passthrough,
+    Tooltip: passthrough,
+    TooltipTrigger: renderPassthrough,
+    TooltipContent: passthrough,
+  };
+});
+
+function subscriptionState(
+  overrides?: Partial<{
+    flagEnabled: boolean;
+    subscriptionOn: boolean;
+    loggedIn: boolean;
+  }>,
+) {
+  return {
+    flagEnabled: true,
+    subscriptionOn: true,
+    loggedIn: true,
+    status: { loginState: "logged-in" as const },
+    loginState: "logged-in" as const,
+    needsConnection: false,
+    setSubscriptionOn: () => {},
+    ...overrides,
+  };
+}
 
 const ultracodeDocsUrl = "https://code.claude.com/docs/en/workflows";
 
@@ -787,5 +848,59 @@ describe("ReasoningLevelSelector", () => {
     );
 
     expect(onModelChange).toHaveBeenCalledWith("@cf/zai-org/glm-5.2");
+  }, 20000);
+
+  it.each([
+    ["claude", "Your Claude plan", "Your Claude plan"],
+    ["codex", "Your ChatGPT plan", "Your ChatGPT plan"],
+  ] as const)(
+    "disables the %s plan option for cloud tasks and names the reason",
+    async (adapter, planLabel, reasonPrefix) => {
+      useAdapterSubscription.mockReturnValue(subscriptionState());
+      const user = userEvent.setup({ pointerEventsCheck: 0 });
+      render(
+        <Theme>
+          <ReasoningLevelSelector
+            thoughtOption={thoughtOption()}
+            adapter={adapter}
+            showBillingMenu
+            workspaceMode="cloud"
+          />
+        </Theme>,
+      );
+
+      await openAdvanced(user);
+      await openSub(user, /^Billing/);
+      const planItem = screen.getByRole("menuitemradio", {
+        name: planLabel,
+      });
+      expect(planItem).toHaveAttribute("aria-disabled", "true");
+
+      await expect(
+        screen.findByText(new RegExp(`^${reasonPrefix} only works`)),
+      ).resolves.toBeInTheDocument();
+    },
+    20000,
+  );
+
+  it("keeps the plan option selectable for local tasks", async () => {
+    useAdapterSubscription.mockReturnValue(subscriptionState());
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <Theme>
+        <ReasoningLevelSelector
+          thoughtOption={thoughtOption()}
+          adapter="claude"
+          showBillingMenu
+          workspaceMode="local"
+        />
+      </Theme>,
+    );
+
+    await openAdvanced(user);
+    await openSub(user, /^Billing/);
+    expect(
+      screen.getByRole("menuitemradio", { name: "Your Claude plan" }),
+    ).not.toHaveAttribute("aria-disabled", "true");
   }, 20000);
 });
