@@ -1250,3 +1250,7 @@ environment:
         bin_script: report-jest-timings
         description: 'Render a Jest test-speed report from timing artifacts'
         hidden: true
+    profile_migrations:
+        bin_script: profile_migrations
+        description: 'Profile Django migrations on fresh DBs and render a per-op timing report'
+        hidden: true

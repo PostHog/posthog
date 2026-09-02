@@ -1,1 +1,1 @@
-0003_alter_alertconfiguration_calculation_interval
+0002_squash_2026_08_21_finalize_fks

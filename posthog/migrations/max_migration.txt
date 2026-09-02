@@ -1,1 +1,1 @@
-1333_uploaded_media_library_index
+0003_squash_2026_08_21_schema_addons

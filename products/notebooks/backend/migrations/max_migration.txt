@@ -1,1 +1,1 @@
-0016_generatedwidgetversion_security_review_findings_and_more
+0003_squash_2026_08_21_schema_addons

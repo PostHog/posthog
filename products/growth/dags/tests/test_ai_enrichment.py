@@ -20,6 +20,12 @@ _OUTPUT_FIELDS = [{"key": "is_ai", "type": "boolean", "description": ""}]
 
 
 class _EnrichmentDagTestCase(BaseTest):
+    def setUp(self):
+        super().setUp()
+        # ensure_migration_defaults seeds an active ai_pilled config during
+        # test DB setup; these tests own the full config table.
+        EnrichmentPromptConfig.objects.all().delete()
+
     def _config(self, **overrides: Any) -> EnrichmentPromptConfig:
         params: dict[str, Any] = {
             "name": "test_label",

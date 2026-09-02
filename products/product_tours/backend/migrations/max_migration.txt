@@ -1,1 +1,1 @@
-0007_migrate_feature_flags_models
+0001_squash_2026_08_21_initial

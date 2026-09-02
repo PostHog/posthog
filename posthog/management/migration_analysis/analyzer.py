@@ -1,5 +1,7 @@
 """Main risk analyzer for Django migrations."""
 
+import re
+
 from posthog.management.migration_analysis.models import MigrationRisk, OperationRisk
 from posthog.management.migration_analysis.operations import (
     AddConstraintAnalyzer,
@@ -15,6 +17,7 @@ from posthog.management.migration_analysis.operations import (
     CreateModelAnalyzer,
     DeleteModelAnalyzer,
     DropIndexConcurrentlyAnalyzer,
+    ExtensionAnalyzer,
     RemoveFieldAnalyzer,
     RemoveIndexAnalyzer,
     RemoveIndexConcurrentlyAnalyzer,
@@ -30,6 +33,33 @@ from posthog.management.migration_analysis.operations import (
 )
 from posthog.management.migration_analysis.policies import POSTHOG_POLICIES
 from posthog.management.migration_analysis.utils import OperationCategorizer
+
+# Generated squash tail files (tools/nextgensquash): NNNN_squash_YYYY_MM_DD_*.
+# The name alone proves nothing — a file claiming it must still pass the
+# all-operations-guarded check below.
+_SQUASH_TAIL_NAME_RE = re.compile(r"^\d{4}_squash_\d{4}_\d{2}_\d{2}_")
+
+# Ops from posthog/migration_helpers/squash_idempotent.py: each probes the
+# catalog and no-ops when its object already exists.
+_SQUASH_IDEMPOTENT_MODULE = "posthog.migration_helpers.squash_idempotent"
+
+# Probe-first helpers (posthog/migration_helpers/not_valid_*.py): each checks
+# pg_constraint and skips when the constraint is already present / validated.
+_PROBE_FIRST_HELPER_OPS = frozenset(
+    {"AddConstraintNotValid", "AddForeignKeyNotValid", "ValidateConstraint", "ValidateForeignKey"}
+)
+
+# The two SQL shapes the squash tool forwards into schema_addons files: a
+# DO-block whose body only runs when the constraint is absent, and
+# CREATE INDEX ... IF NOT EXISTS.
+_GUARDED_DO_BLOCK_RE = re.compile(
+    r"DO\s+\$\$\s*BEGIN\s+IF\s+NOT\s+EXISTS\s*\(\s*SELECT\s+1\s+FROM\s+pg_constraint\b.*?END\s*\$\$\s*;?",
+    re.IGNORECASE | re.DOTALL,
+)
+_GUARDED_CREATE_INDEX_RE = re.compile(
+    r"CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?IF\s+NOT\s+EXISTS\b[^;]*;?",
+    re.IGNORECASE,
+)
 
 
 class RiskAnalyzer:
@@ -58,6 +88,13 @@ class RiskAnalyzer:
         "RunPython": RunPythonAnalyzer(),
         "CreateModel": CreateModelAnalyzer(),
         "AlterUniqueTogether": AlterUniqueTogetherAnalyzer(),
+        # Idempotent squash variants (posthog/migration_helpers/squash_idempotent.py)
+        # behave like their parents on a fresh DB and no-op on existing ones —
+        # score them the same instead of taking the unknown-operation path.
+        "AddFieldIfMissing": AddFieldAnalyzer(),
+        "AddIndexIfMissing": AddIndexAnalyzer(),
+        "AddConstraintIfMissing": AddConstraintAnalyzer(),
+        "AlterUniqueTogetherIfMissing": AlterUniqueTogetherAnalyzer(),
         "AlterIndexTogether": AlterIndexTogetherAnalyzer(),
         "RemoveIndex": RemoveIndexAnalyzer(),
         "RemoveIndexConcurrently": RemoveIndexConcurrentlyAnalyzer(),
@@ -69,6 +106,17 @@ class RiskAnalyzer:
         "AddConstraintNotValid": AddConstraintNotValidAnalyzer(),
         "ValidateConstraint": ValidateConstraintAnalyzer(),
         "SeparateDatabaseAndState": SeparateDatabaseAndStateAnalyzer(),
+        # Postgres extension installs are safe under live load. Sharing one
+        # ExtensionAnalyzer instance across the named operations keeps the
+        # registry shape consistent and avoids the "Unknown operation" path.
+        "CreateExtension": ExtensionAnalyzer(),
+        "TrigramExtension": ExtensionAnalyzer(),
+        "BtreeGistExtension": ExtensionAnalyzer(),
+        "BtreeGinExtension": ExtensionAnalyzer(),
+        "CITextExtension": ExtensionAnalyzer(),
+        "HStoreExtension": ExtensionAnalyzer(),
+        "UnaccentExtension": ExtensionAnalyzer(),
+        "CryptoExtension": ExtensionAnalyzer(),
     }
 
     def analyze_migration(self, migration, path: str, file_path: str | None = None) -> MigrationRisk:
@@ -89,6 +137,19 @@ class RiskAnalyzer:
                 forwarded to MigrationRisk for downstream consumers that need to
                 map analyzer verdicts back to PR file paths.
         """
+        if self._is_guarded_catchup_migration(migration):
+            return MigrationRisk(
+                path=path,
+                app=migration.app_label,
+                name=migration.name,
+                operations=[],
+                info_messages=[
+                    "ℹ️  Squash catch-up migration: every operation probes the catalog and no-ops when "
+                    "its object already exists, so it takes no lock on an existing database."
+                ],
+                file_path=file_path,
+            )
+
         # Collect newly created models for this migration (normalized to lowercase for case-insensitive matching)
         # Only count models that are managed=True (skipping unmanaged ones to avoid misleading messages)
         self.newly_created_models = set()
@@ -160,6 +221,46 @@ class RiskAnalyzer:
             info_messages=info_messages,
             file_path=file_path,
         )
+
+    def _is_guarded_catchup_migration(self, migration) -> bool:
+        """True for a generated squash tail file whose every operation is
+        existence-guarded. Such a migration is a squash catch-up: on an
+        existing database each op finds its object present and no-ops, and on a
+        fresh database it runs against brand-new tables with no traffic. The
+        per-operation lock policies are written for DDL acting on live tables,
+        so they would flag these ops for locks they never take. The name gate
+        keeps hand-written migrations that use the same helper ops on the
+        normal path, with its policies intact.
+        """
+        if not migration.operations or not _SQUASH_TAIL_NAME_RE.match(migration.name):
+            return False
+        for op in migration.operations:
+            cls = op.__class__
+            if cls.__module__ == _SQUASH_IDEMPOTENT_MODULE:
+                continue
+            if cls.__name__ in _PROBE_FIRST_HELPER_OPS and cls.__module__.startswith("posthog.migration_helpers"):
+                continue
+            # Django's own ValidateConstraint: Postgres skips a VALIDATE on an
+            # already-validated constraint, so it is a no-op in catch-up runs.
+            if cls.__name__ == "ValidateConstraint" and cls.__module__.startswith("django.contrib.postgres"):
+                continue
+            if cls.__name__ == "RunSQL" and cls.__module__.startswith("django.db.migrations"):
+                if self._runsql_is_existence_guarded(op):
+                    continue
+            return False
+        return True
+
+    @staticmethod
+    def _runsql_is_existence_guarded(op) -> bool:
+        """True when the RunSQL consists only of pg_constraint-guarded DO blocks
+        and CREATE INDEX ... IF NOT EXISTS statements."""
+        sql = op.sql
+        if not isinstance(sql, str):
+            return False
+        remainder = re.sub(r"--[^\n]*", "", sql)
+        remainder = _GUARDED_DO_BLOCK_RE.sub("", remainder)
+        remainder = _GUARDED_CREATE_INDEX_RE.sub("", remainder)
+        return not remainder.strip(" \t\n;")
 
     def _is_safe_on_new_table(self, op, risk: OperationRisk) -> bool:
         """Check if operation is safe because it's on a newly created table."""

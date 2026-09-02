@@ -5,7 +5,9 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("endpoints", "0002_endpoint_cache_age_seconds"), ("data_warehouse", "0004_add_saved_query_origin")]
+    dependencies = [
+        ("endpoints", "0002_endpoint_cache_age_seconds"),
+    ]
 
     operations = [
         migrations.AddField(

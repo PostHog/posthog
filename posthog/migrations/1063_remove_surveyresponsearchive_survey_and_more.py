@@ -6,8 +6,6 @@ from django.db import migrations
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1062_migrate_links_models"),
-        ("surveys", "0001_initial"),
-        ("product_tours", "0006_alter_producttour_linked_surveys"),
     ]
 
     operations = [

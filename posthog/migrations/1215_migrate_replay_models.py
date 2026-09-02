@@ -38,7 +38,9 @@ def reverse_content_types(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "1214_oauthapplication_sessions_revoked_at"), ("replay", "0001_migrate_replay_models")]
+    dependencies = [
+        ("posthog", "1214_oauthapplication_sessions_revoked_at"),
+    ]
 
     operations = [
         migrations.SeparateDatabaseAndState(

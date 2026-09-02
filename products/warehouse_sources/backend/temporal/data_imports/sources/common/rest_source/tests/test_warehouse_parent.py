@@ -180,6 +180,12 @@ def test_resolve_pins_to_last_completed_snapshot_while_parent_is_syncing(tmp_pat
     v0 = v0_table.version()
     v0_timestamp = datetime.fromtimestamp(v0_table.history()[0]["timestamp"] / 1000, tz=UTC)
 
+    # Delta commit timestamps have millisecond resolution. On a fast runner the
+    # overwrite below can land in the same millisecond as v0, and a timestamp
+    # pin then cannot tell the versions apart. Wait out the boundary (<2ms).
+    while datetime.now(tz=UTC) <= v0_timestamp + timedelta(milliseconds=1):
+        pass
+
     # An in-flight full refresh has already committed a partial overwrite on top of v0.
     deltalake.write_deltalake(uri, pa.table({"id": ["partial"], "last_seen": ["x"], "title": ["y"]}), mode="overwrite")
 

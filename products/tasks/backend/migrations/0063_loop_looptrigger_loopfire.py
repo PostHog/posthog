@@ -12,7 +12,6 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1256_userproductlist_default_reason"),
-        ("signals", "0062_add_analytics_anomaly_investigation_source"),
         ("tasks", "0062_sandbox_custom_image_base_reference"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]

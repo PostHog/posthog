@@ -2568,3 +2568,51 @@ class TestHotTableAlterPolicy:
         )
         risk = self._analyze([op])
         assert not any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+
+class TestGuardedCatchupMigrations:
+    """Generated squash tail files (NNNN_squash_YYYY_MM_DD_*) whose every op is
+    existence-guarded skip per-operation lock scoring and policies."""
+
+    GUARDED_FK_SQL = (
+        "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'my_fk') THEN\n"
+        'ALTER TABLE "my_table" ADD CONSTRAINT "my_fk" FOREIGN KEY ("other_id") '
+        'REFERENCES "other_table" ("id") NOT VALID;\nEND IF; END $$;'
+    )
+    GUARDED_INDEX_SQL = 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "my_idx" ON "my_table" ("col"); -- trailing-marker'
+
+    def setup_method(self):
+        self.analyzer = RiskAnalyzer()
+
+    def _migration(self, name, operations):
+        migration_class = type("Migration", (migrations.Migration,), {"operations": operations})
+        return migration_class(name, "posthog")
+
+    def _guarded_ops(self):
+        from posthog.migration_helpers.squash_idempotent import AddFieldIfMissing, AddIndexIfMissing
+
+        return [
+            AddFieldIfMissing(model_name="mymodel", name="col", field=models.IntegerField(null=False)),
+            AddIndexIfMissing(model_name="mymodel", index=models.Index(fields=["col"], name="my_idx")),
+            migrations.RunSQL(sql=self.GUARDED_FK_SQL, reverse_sql=migrations.RunSQL.noop),
+            migrations.RunSQL(sql=self.GUARDED_INDEX_SQL, reverse_sql=migrations.RunSQL.noop),
+            ValidateConstraint(model_name="mymodel", name="my_fk"),
+        ]
+
+    def test_squash_tail_with_only_guarded_ops_is_safe(self):
+        migration = self._migration("0002_squash_2026_08_21_finalize_fks", self._guarded_ops())
+        risk = self.analyzer.analyze_migration(migration, "posthog.0002")
+        assert risk.level == RiskLevel.SAFE
+        assert any("catch-up" in message for message in risk.info_messages)
+
+    def test_squash_tail_with_an_unguarded_op_is_analyzed_normally(self):
+        ops = [*self._guarded_ops(), migrations.RunSQL(sql='CREATE INDEX "no_guard" ON "my_table" ("col");')]
+        migration = self._migration("0003_squash_2026_08_21_schema_addons", ops)
+        risk = self.analyzer.analyze_migration(migration, "posthog.0003")
+        assert not risk.info_messages
+        assert risk.level == RiskLevel.BLOCKED
+
+    def test_guarded_ops_without_the_squash_name_keep_normal_analysis(self):
+        migration = self._migration("0812_backfill_fk", self._guarded_ops())
+        risk = self.analyzer.analyze_migration(migration, "posthog.0812")
+        assert not any("catch-up" in message for message in risk.info_messages)

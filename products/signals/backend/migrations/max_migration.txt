@@ -1,1 +1,1 @@
-0110_signalreportartefact_team_type_recent_idx
+0003_squash_2026_08_21_schema_addons

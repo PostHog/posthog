@@ -1665,7 +1665,11 @@ jobs:
                     if [[ $file =~ rust/persons_migrations ]]; then
                       continue
                     fi
-                    if [[ $file =~ migrations/([0-9]+)_ ]]; then
+                    # Full migration name, not the bare numeric prefix: squash
+                    # files (0001_squash_*) share prefixes with the historical
+                    # files they replace, and sqlmigrate errors on an ambiguous
+                    # prefix.
+                    if [[ $file =~ migrations/([0-9]+_[^/]+)\.py$ ]]; then
                       migration_number="${BASH_REMATCH[1]}"
                       # Get app name by looking at the directory structure
                       # For new structure products/user_interviews/backend/migrations, we want user_interviews
@@ -1682,12 +1686,27 @@ jobs:
                         continue
                       fi
 
+                      # Generated squash files carry replaces= lists thousands
+                      # of names long; their SQL dump is unreviewable and the
+                      # state replay per file adds up across an entire squash
+                      # PR. Detect by content, not by name, so the check can't
+                      # go stale.
+                      if grep -q "replaces = \[" "$file"; then
+                        echo "Skipping $file (squash migration)"
+                        continue
+                      fi
+
                       HAS_NEW_MIGRATIONS=true
                       MIGRATION_COUNT=$((MIGRATION_COUNT + 1))
                       echo "Checking migration $migration_number for app $app_name"
 
-                      # Get SQL output
-                      SQL_OUTPUT=$(python manage.py sqlmigrate $app_name $migration_number)
+                      # Get SQL output. A sqlmigrate failure degrades to a
+                      # placeholder — this comment is informational, and the
+                      # real migrate step below still gates the job.
+                      if ! SQL_OUTPUT=$(python manage.py sqlmigrate $app_name $migration_number 2>&1); then
+                        echo "::warning::sqlmigrate failed for $app_name $migration_number — see job log"
+                        SQL_OUTPUT="-- sqlmigrate failed for this migration (see the Validate migrations job log)"
+                      fi
 
                       # Add to comment body
                       COMMENT_BODY+="#### [\`$file\`](https://github.com/${{ github.repository }}/blob/${{ github.sha }}/$file)\n\`\`\`sql\n$SQL_OUTPUT\n\`\`\`\n\n"

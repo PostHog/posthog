@@ -6,7 +6,6 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("signals", "0011_add_error_tracking_signal_types"),
         ("tasks", "0025_task_internal"),
     ]
 

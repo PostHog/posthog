@@ -8,7 +8,6 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        ("dashboards", "0001_migrate_dashboards_models"),
         ("posthog", "1131_exportedasset_is_system"),
     ]
 

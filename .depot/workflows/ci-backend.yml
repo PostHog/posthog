@@ -63,6 +63,11 @@
 #   strips artifact uploads (above), so those changes are depot-exempt.
 # - OpenAPI types: validation remains a separate job like canonical, but its
 #   auto-commit side effect is dropped
+# - sqlmigrate SQL preview: canonical's check-migrations resolves changed migration files
+#   to full names, skips generated squash files by content, and degrades a sqlmigrate
+#   failure to a placeholder before posting the SQL preview comment. The shadow strips
+#   comment side effects (above) and runs no sqlmigrate loop, so those changes need no
+#   depot bump.
 # - events_json variants: gated on the test-new-events-schema label only; canonical also
 #   doubles the matrices on workflow_dispatch, but shadow dispatches stay legacy-only so
 #   trial runs do the same work as sampled PR runs
