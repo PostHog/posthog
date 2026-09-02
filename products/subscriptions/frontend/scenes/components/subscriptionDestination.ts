@@ -1,7 +1,7 @@
 import { parseCommaSeparatedSlackTargetDisplayLabels } from 'lib/utils/slackChannelValue'
 import { pluralize } from 'lib/utils/strings'
 
-import { TargetTypeEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import { SubscriptionTargetEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 export interface SubscriptionDestination {
     parts: string[]
@@ -50,11 +50,11 @@ function webhookHost(url: string): string {
 
 export function subscriptionDestination(targetType: string, targetValue: string): SubscriptionDestination {
     switch (targetType) {
-        case TargetTypeEnumApi.Email:
+        case SubscriptionTargetEnumApi.Email:
             return emailDestination(targetValue)
-        case TargetTypeEnumApi.Slack:
+        case SubscriptionTargetEnumApi.Slack:
             return slackDestination(targetValue)
-        case TargetTypeEnumApi.Teams:
+        case SubscriptionTargetEnumApi.Teams:
             return webhookDestination(targetValue.includes('://') ? webhookHost(targetValue) : targetValue)
         default:
             return webhookDestination(webhookHost(targetValue))
@@ -63,11 +63,11 @@ export function subscriptionDestination(targetType: string, targetValue: string)
 
 export function deliveryDestination(targetType: string, targetValue: string): SubscriptionDestination {
     switch (targetType.toLowerCase()) {
-        case TargetTypeEnumApi.Email:
+        case SubscriptionTargetEnumApi.Email:
             return emailDestination(targetValue)
-        case TargetTypeEnumApi.Slack:
+        case SubscriptionTargetEnumApi.Slack:
             return slackDestination(targetValue)
-        case TargetTypeEnumApi.Teams:
+        case SubscriptionTargetEnumApi.Teams:
             return webhookDestination(targetValue)
         default:
             return webhookDestination(webhookHost(targetValue))

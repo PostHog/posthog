@@ -25,7 +25,7 @@ import {
     subscriptionsTestDeliveryCreate,
 } from 'products/subscriptions/frontend/generated/api'
 import {
-    TargetTypeEnumApi,
+    SubscriptionTargetEnumApi,
     type AIWindowConfigApi,
     type SubscriptionApi,
     type SubscriptionDeliveryApi,
@@ -34,7 +34,7 @@ import {
 import type { SubscriptionResourceType, UserBasicType, WeekdayType } from '../../../../../frontend/src/types'
 import type { OrganizationType, UserType } from '../../../../../frontend/src/types'
 import type { AIPromptConfigApi } from '../../generated/api.schemas'
-import type { AIWindowConfigModeEnumApi } from '../../generated/api.schemas'
+import type { SubscriptionAIWindowModeEnumApi } from '../../generated/api.schemas'
 import type { DeliveryConfigApi } from '../../generated/api.schemas'
 import { runSubscriptionTestDelivery } from './runSubscriptionTestDelivery'
 import { SUBSCRIPTION_PREFILL_PARAMS } from './subscriptionNudge'
@@ -117,13 +117,13 @@ function isSupportedTargetType(target_type: string): target_type is Subscription
 }
 
 const MISSING_TARGET_VALUE_ERROR: Record<SubscriptionTargetType, string> = {
-    [TargetTypeEnumApi.Email]: 'At least one email is required',
-    [TargetTypeEnumApi.Slack]: 'A channel is required',
-    [TargetTypeEnumApi.Teams]: 'A webhook URL is required',
+    [SubscriptionTargetEnumApi.Email]: 'At least one email is required',
+    [SubscriptionTargetEnumApi.Slack]: 'A channel is required',
+    [SubscriptionTargetEnumApi.Teams]: 'A webhook URL is required',
 }
 
 function isTeamsWebhookKept(target_type: string, storedTeamsWebhookHost: string | null): boolean {
-    return target_type === TargetTypeEnumApi.Teams && storedTeamsWebhookHost !== null
+    return target_type === SubscriptionTargetEnumApi.Teams && storedTeamsWebhookHost !== null
 }
 
 function validateTargetValue(
@@ -145,12 +145,12 @@ function validateTargetValue(
     if (!trimmed) {
         return MISSING_TARGET_VALUE_ERROR[target_type]
     }
-    if (target_type === TargetTypeEnumApi.Email && !trimmed.split(',').every((email) => isEmail(email))) {
+    if (target_type === SubscriptionTargetEnumApi.Email && !trimmed.split(',').every((email) => isEmail(email))) {
         return 'All emails must be valid'
     }
     // The serializer owns the host allowlist and reports its own error on save. This check stays
     // loose on purpose, so it cannot reject a URL the backend would have accepted.
-    if (target_type === TargetTypeEnumApi.Teams && !isHttpsUrl(trimmed)) {
+    if (target_type === SubscriptionTargetEnumApi.Teams && !isHttpsUrl(trimmed)) {
         return 'The webhook URL must start with https://'
     }
     return undefined
@@ -397,7 +397,7 @@ export interface subscriptionLogicActions {
         values?: SubscriptionType
     }
     selectAiAnalysisWindow: (mode: AIWindowConfigApi['mode']) => {
-        mode: AIWindowConfigModeEnumApi | undefined
+        mode: SubscriptionAIWindowModeEnumApi | undefined
     }
     selectAiExamplePrompt: (
         prompt: string,
@@ -507,7 +507,9 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             null as string | null,
             {
                 loadSubscriptionSuccess: (_, { subscription }) =>
-                    subscription?.target_type === TargetTypeEnumApi.Teams ? (subscription.target_value ?? null) : null,
+                    subscription?.target_type === SubscriptionTargetEnumApi.Teams
+                        ? (subscription.target_value ?? null)
+                        : null,
                 replaceTeamsWebhook: () => null,
             },
         ],

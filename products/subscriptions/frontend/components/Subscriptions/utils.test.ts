@@ -1,7 +1,7 @@
 import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
 import { IntegrationType, SubscriptionType } from '~/types'
 
-import { TargetTypeEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import { SubscriptionTargetEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import {
     canNudgeToSubscribe,
@@ -20,7 +20,7 @@ import {
 describe('targetTypeOptions', () => {
     it('offers every destination the API accepts', () => {
         // A destination the backend accepts but the select never offers is unreachable in the UI.
-        expect(targetTypeOptions.map(({ value }) => value)).toEqual(Object.values(TargetTypeEnumApi))
+        expect(targetTypeOptions.map(({ value }) => value)).toEqual(Object.values(SubscriptionTargetEnumApi))
     })
 })
 

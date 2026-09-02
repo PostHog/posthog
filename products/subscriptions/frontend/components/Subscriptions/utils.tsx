@@ -15,7 +15,7 @@ import { InsightShortId, IntegrationType, SubscriptionType, WeekdayType } from '
 
 import IconMicrosoftTeams from 'public/services/microsoft-teams.png'
 
-import { TargetTypeEnumApi, type SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import { SubscriptionTargetEnumApi, type SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
 
@@ -95,10 +95,10 @@ export const urlForSubscription = (
 }
 
 export const targetTypeOptions: LemonSelectOptionLeaf<SubscriptionApi['target_type']>[] = [
-    { value: TargetTypeEnumApi.Email, label: 'Email', icon: <IconLetter /> },
-    { value: TargetTypeEnumApi.Slack, label: 'Slack', icon: <IconSlack /> },
+    { value: SubscriptionTargetEnumApi.Email, label: 'Email', icon: <IconLetter /> },
+    { value: SubscriptionTargetEnumApi.Slack, label: 'Slack', icon: <IconSlack /> },
     {
-        value: TargetTypeEnumApi.Teams,
+        value: SubscriptionTargetEnumApi.Teams,
         label: 'Microsoft Teams',
         icon: <img src={IconMicrosoftTeams} alt="" className="h-4 w-4" />,
     },

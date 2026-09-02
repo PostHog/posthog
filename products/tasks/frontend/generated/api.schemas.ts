@@ -887,9 +887,10 @@ export interface PaginatedSandboxEnvironmentDTOListApi {
  * * `full` - Full
  * * `custom` - Custom
  */
-export type NetworkAccessLevelEnumApi = (typeof NetworkAccessLevelEnumApi)[keyof typeof NetworkAccessLevelEnumApi]
+export type SandboxEnvironmentNetworkAccessLevelEnumApi =
+    (typeof SandboxEnvironmentNetworkAccessLevelEnumApi)[keyof typeof SandboxEnvironmentNetworkAccessLevelEnumApi]
 
-export const NetworkAccessLevelEnumApi = {
+export const SandboxEnvironmentNetworkAccessLevelEnumApi = {
     Trusted: 'trusted',
     Full: 'full',
     Custom: 'custom',
@@ -909,7 +910,7 @@ export interface SandboxEnvironmentWriteApi {
      * * `trusted` - Trusted
      * * `full` - Full
      * * `custom` - Custom */
-    network_access_level?: NetworkAccessLevelEnumApi
+    network_access_level?: SandboxEnvironmentNetworkAccessLevelEnumApi
     /**
      * Allowed domains for custom network access.
      * @maxItems 100
@@ -948,7 +949,7 @@ export interface PatchedSandboxEnvironmentWriteApi {
      * * `trusted` - Trusted
      * * `full` - Full
      * * `custom` - Custom */
-    network_access_level?: NetworkAccessLevelEnumApi
+    network_access_level?: SandboxEnvironmentNetworkAccessLevelEnumApi
     /**
      * Allowed domains for custom network access.
      * @maxItems 100
@@ -1086,9 +1087,9 @@ export interface TaskActivityMarkReadResponseApi {
  * * `personal` - Personal
  * * `general` - General
  */
-export type SystemRoleEnumApi = (typeof SystemRoleEnumApi)[keyof typeof SystemRoleEnumApi]
+export type ChannelSystemRoleEnumApi = (typeof ChannelSystemRoleEnumApi)[keyof typeof ChannelSystemRoleEnumApi]
 
-export const SystemRoleEnumApi = {
+export const ChannelSystemRoleEnumApi = {
     Personal: 'personal',
     General: 'general',
 } as const
@@ -1112,7 +1113,7 @@ export interface ChannelDTOApi {
      *
      * * `personal` - Personal
      * * `general` - General */
-    readonly system_role: SystemRoleEnumApi | null
+    readonly system_role: ChannelSystemRoleEnumApi | null
 }
 
 export interface PaginatedChannelDTOListApi {
@@ -1394,9 +1395,9 @@ export interface PaginatedTaskMentionDTOListApi {
  * * `acp` - ACP
  * * `pi` - Pi
  */
-export type RuntimeEnumApi = (typeof RuntimeEnumApi)[keyof typeof RuntimeEnumApi]
+export type TaskRuntimeEnumApi = (typeof TaskRuntimeEnumApi)[keyof typeof TaskRuntimeEnumApi]
 
-export const RuntimeEnumApi = {
+export const TaskRuntimeEnumApi = {
     Acp: 'acp',
     Pi: 'pi',
 } as const
@@ -1702,7 +1703,7 @@ export interface TaskDetailDTOApi {
      *
      * * `acp` - ACP
      * * `pi` - Pi */
-    runtime: RuntimeEnumApi
+    runtime: TaskRuntimeEnumApi
     /** @nullable */
     repository: string | null
     repositories: string[]
@@ -1760,6 +1761,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `experiments` - Experiments
  * * `signal_report` - Signal Report
  * * `signals_scout` - Signals Scout
+ * * `scout_suggestions` - Signals Scout Suggestions
  * * `support_reply` - Support Reply
  * * `hogdesk` - HogDesk
  * * `review_hog` - ReviewHog
@@ -1770,9 +1772,9 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `task_analysis` - Task Analysis
  * * `workflow` - Workflow
  */
-export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
+export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof typeof TaskOriginProductEnumApi]
 
-export const OriginProductEnumApi = {
+export const TaskOriginProductEnumApi = {
     Onboarding: 'onboarding',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
@@ -1784,6 +1786,7 @@ export const OriginProductEnumApi = {
     Experiments: 'experiments',
     SignalReport: 'signal_report',
     SignalsScout: 'signals_scout',
+    ScoutSuggestions: 'scout_suggestions',
     SupportReply: 'support_reply',
     Hogdesk: 'hogdesk',
     ReviewHog: 'review_hog',
@@ -1847,6 +1850,7 @@ export interface TaskCreateApi {
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
+     * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
@@ -1856,7 +1860,7 @@ export interface TaskCreateApi {
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow */
-    origin_product?: OriginProductEnumApi
+    origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
      * @maxLength 255
@@ -1969,7 +1973,7 @@ export interface TaskCreateApi {
      *
      * * `acp` - ACP
      * * `pi` - Pi */
-    runtime?: RuntimeEnumApi
+    runtime?: TaskRuntimeEnumApi
 }
 
 /**
@@ -2002,6 +2006,7 @@ export interface TaskWriteApi {
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
+     * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
@@ -2011,7 +2016,7 @@ export interface TaskWriteApi {
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow */
-    origin_product?: OriginProductEnumApi
+    origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
      * @maxLength 255
@@ -2140,6 +2145,7 @@ export interface PatchedTaskWriteApi {
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
+     * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
@@ -2149,7 +2155,7 @@ export interface PatchedTaskWriteApi {
      * * `signals_chat` - Signals Chat
      * * `task_analysis` - Task Analysis
      * * `workflow` - Workflow */
-    origin_product?: OriginProductEnumApi
+    origin_product?: TaskOriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
      * @maxLength 255
@@ -4473,6 +4479,21 @@ export interface SlackThreadContextThreadApi {
      * @nullable
      */
     mentioning_slack_user_id: string | null
+    /**
+     * Temporal workflow id of the per-conversation mention queue (`slack-app-mention-<workspace>:<channel>:<thread_ts>`) that serializes the thread's messages before any run exists. Null when the workspace id cannot be resolved.
+     * @nullable
+     */
+    queue_workflow_id: string | null
+    /**
+     * Full Temporal Web UI URL for the mention queue workflow; null when `TEMPORAL_UI_HOST` is unset.
+     * @nullable
+     */
+    queue_workflow_url: string | null
+    /**
+     * Absolute URL to the SlackThreadTaskMapping row in Django admin. Null when no mapping exists.
+     * @nullable
+     */
+    mapping_admin_url: string | null
 }
 
 /**
@@ -4496,6 +4517,8 @@ export interface SlackThreadContextTaskApi {
     created_at: string
     /** Absolute URL to the task detail page in the PostHog app. */
     url: string
+    /** Absolute URL to the Task row in Django admin. */
+    admin_url: string
 }
 
 /**
@@ -4592,6 +4615,8 @@ export interface SlackThreadContextRunApi {
     log_url: string | null
     /** The discovery-agent sandbox that picked this run's repo, when the mention was ambiguous. */
     repo_research: SlackThreadContextRepoResearchApi | null
+    /** Absolute URL to the TaskRun row in Django admin (includes a log download action). */
+    admin_url: string
 }
 
 /**
@@ -4931,6 +4956,7 @@ export type TasksListParams = {
      * * `experiments` - Experiments
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
+     * * `scout_suggestions` - Signals Scout Suggestions
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
@@ -5063,6 +5089,7 @@ export const TasksListExcludeOriginProduct = {
     Experiments: 'experiments',
     SignalReport: 'signal_report',
     SignalsScout: 'signals_scout',
+    ScoutSuggestions: 'scout_suggestions',
     SupportReply: 'support_reply',
     Hogdesk: 'hogdesk',
     ReviewHog: 'review_hog',
