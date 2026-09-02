@@ -724,14 +724,7 @@ class PropertyDefinitionViewSet(
                 QueryContext(
                     project_id=self.project_id,
                     table=(
-                        # `ee_enterprisepropertydefinition` is a multi-table-inheritance child whose
-                        # primary key references `posthog_propertydefinition`, so it holds no row
-                        # without a parent and a left join selects the same rows as a full join. The
-                        # left join keeps the project scope seekable on its own, rather than resting
-                        # on `as_sql` always adding a predicate that is strict on the base table.
-                        # The base table has to stay on the left, because the enterprise columns are
-                        # the nullable side of this relationship, never the other way round.
-                        "posthog_propertydefinition LEFT JOIN ee_enterprisepropertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id"
+                        "ee_enterprisepropertydefinition FULL OUTER JOIN posthog_propertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id"
                         if EE_AVAILABLE
                         else "posthog_propertydefinition"
                     ),
