@@ -99,6 +99,12 @@ class ParentPage:
     fragment_index: int
     row_offset: int
 
+    def position_at(
+        self, row_index: int, table: "ParentTableRef", filter_fingerprint: str | None = None
+    ) -> ScanPosition:
+        """The position of this page's row `row_index` itself, for resuming back into that row."""
+        return self.position_after(row_index - 1, table=table, filter_fingerprint=filter_fingerprint)
+
     def position_after(
         self, row_index: int, table: "ParentTableRef", filter_fingerprint: str | None = None
     ) -> ScanPosition:

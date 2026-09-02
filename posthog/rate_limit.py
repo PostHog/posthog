@@ -1192,8 +1192,10 @@ class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
         return f"throttle_wizard_gateway_token_{hashlib.sha256(ident.encode()).hexdigest()}"
 
 
-def reserve_wizard_mint(request, view) -> str | None:
+def reserve_wizard_mint(request, view, limit: int | None = None) -> str | None:
     """Atomically consume one of this user's daily mints for this program, or raise.
+
+    `limit` replaces the throttle's daily count; None keeps the configured rate.
 
     Called immediately before the mint, after every gate, so a request refused by a
     gate spends nothing, while parallel requests cannot all slip under the ceiling
@@ -1229,7 +1231,7 @@ def reserve_wizard_mint(request, view) -> str | None:
     except Exception as e:
         capture_exception(e)
         return None
-    if count > throttle.num_requests:
+    if count > (throttle.num_requests if limit is None else limit):
         raise exceptions.Throttled(detail="This wizard program has used its daily run limit. Try again tomorrow.")
     return counter
 
@@ -1813,3 +1815,13 @@ class SupportSlackOAuthCallbackThrottle(IPThrottle):
 
     scope = "support_slack_oauth_callback"
     rate = "30/minute"
+
+
+class BatchExportsCountRowsSustainedRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "batch_exports_count_rows_sustained"
+    rate = "120/hour"
+
+
+class BatchExportsCountRowsBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "batch_exports_count_rows_burst"
+    rate = "20/minute"

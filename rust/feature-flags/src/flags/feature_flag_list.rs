@@ -146,8 +146,15 @@ impl FeatureFlagList {
                   f.ensure_experience_continuity,
                   f.version,
                   f.evaluation_runtime,
+                  -- DISTINCT makes Postgres sort the names before it aggregates them, which
+                  -- matches ArrayAgg(..., distinct=True) on the two Python paths that write
+                  -- this cache entry: products/feature_flags/backend/flags_cache.py (batch) and
+                  -- products/feature_flags/backend/models/feature_flag.py (single team, which is
+                  -- also what the cache verifier compares against). Without DISTINCT the array
+                  -- order follows the join, so the sides disagree for a flag with two or more
+                  -- contexts. Keep all three in lockstep.
                   COALESCE(
-                      ARRAY_AGG(ctx.name) FILTER (WHERE ctx.name IS NOT NULL),
+                      ARRAY_AGG(DISTINCT ctx.name) FILTER (WHERE ctx.name IS NOT NULL),
                       '{}'::text[]
                   ) AS evaluation_tags,
                   bucketing_identifier,
@@ -504,15 +511,13 @@ mod tests {
         assert_eq!(flag.key, "flag1");
         assert_eq!(flag.team_id, team.id);
 
-        // Check that evaluation tags were properly fetched
+        // ARRAY_AGG(DISTINCT ...) sorts, so this is not the insertion order.
         let tags = flag
             .evaluation_tags
             .as_ref()
             .expect("Should have evaluation tags");
-        assert_eq!(tags.len(), 3);
-        assert!(tags.contains(&"docs-page".to_string()));
-        assert!(tags.contains(&"marketing-site".to_string()));
-        assert!(tags.contains(&"app".to_string()));
+        let tag_names: Vec<&str> = tags.iter().map(String::as_str).collect();
+        assert_eq!(tag_names, ["app", "docs-page", "marketing-site"]);
     }
 
     #[tokio::test]
