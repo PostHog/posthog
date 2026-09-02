@@ -55,9 +55,9 @@ Rows marked "in review" are not on `master` yet. See "Regenerating the lists" fo
 | Tracing                | `products/tracing/frontend/TracingScene.tsx`                                        | on master             |
 | Metrics                | `products/metrics/frontend/MetricsScene.tsx`                                        | on master             |
 | Surveys                | `frontend/src/scenes/surveys/Surveys.tsx`                                           | on master             |
-| Session replay         | `frontend/src/scenes/session-recordings/SessionRecordings.tsx`                      | in review             |
-| Web vitals             | `frontend/src/scenes/web-analytics/WebAnalyticsScene.tsx`                           | in review             |
-| Data warehouse sources | `products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene.tsx`             | in review             |
+| Session replay         | `frontend/src/scenes/session-recordings/SessionRecordings.tsx`                      | on master             |
+| Web vitals             | `frontend/src/scenes/web-analytics/WebAnalyticsScene.tsx`                           | on master             |
+| Data warehouse sources | `products/data_warehouse/frontend/scenes/SourcesScene/SourcesScene.tsx`             | on master             |
 | Workflows              | `products/workflows/frontend/WorkflowsScene.tsx`                                    | in review             |
 | Marketing analytics    | `frontend/src/scenes/marketing-analytics/MarketingAnalyticsScene.tsx`               | in review             |
 | Customer analytics     | `products/customer_analytics/frontend/CustomerAnalyticsScene.tsx`                   | in review             |
@@ -65,6 +65,7 @@ Rows marked "in review" are not on `master` yet. See "Regenerating the lists" fo
 | Annotations            | `frontend/src/scenes/annotations/Annotations.tsx`                                   | on master             |
 | Cohorts                | `frontend/src/scenes/cohorts/Cohorts.tsx`                                           | on master             |
 | Dashboards             | `frontend/src/scenes/dashboard/dashboards/Dashboards.tsx`                           | on master             |
+| Product analytics      | `frontend/src/scenes/saved-insights/SavedInsights.tsx`                              | on master             |
 
 Only four products resolve their status at app boot, via a `setupProbe` in their manifest:
 LLM analytics, error tracking, MCP analytics, web analytics.
@@ -78,10 +79,9 @@ do not have one yet.
 
 These are the scenes a new user is most likely to land on before they have data.
 
-| Product                | Scene                                                       | Shows instead                                                                          |
-| ---------------------- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Product analytics      | `frontend/src/scenes/saved-insights/SavedInsights.tsx`      | `SavedInsightsEmptyState`, plus a bespoke `SampleDataState` and `sampleDataStateLogic` |
-| Single empty dashboard | `frontend/src/scenes/dashboard/EmptyDashboardComponent.tsx` | `ProductIntroduction`                                                                  |
+| Product                | Scene                                                       | Shows instead         |
+| ---------------------- | ----------------------------------------------------------- | --------------------- |
+| Single empty dashboard | `frontend/src/scenes/dashboard/EmptyDashboardComponent.tsx` | `ProductIntroduction` |
 
 ### Tier 2: cheap, or actively misleading today
 
