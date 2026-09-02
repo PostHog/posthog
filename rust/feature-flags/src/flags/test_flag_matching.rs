@@ -612,6 +612,152 @@ mod tests {
         assert_eq!(industry_analysis.actual_value, Some(json!("tech")));
     }
 
+    /// Regression test: detailed condition analysis must resolve a cohort filter against the
+    /// membership the matcher computed. `match_property` cannot evaluate a cohort filter, so
+    /// every one of them used to report `matched: false`, which made a winning condition claim
+    /// its own properties did not match. The cohort here is dynamic on purpose: the evaluation
+    /// state caches static and realtime memberships only, so a dynamic cohort is the case that
+    /// needs resolving rather than reading back from the cache.
+    #[tokio::test]
+    async fn test_detailed_analysis_resolves_cohort_filters_against_cohort_membership() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let cohort_row = context
+            .insert_cohort(
+                team.id,
+                None,
+                json!({
+                    "properties": {
+                        "type": "OR",
+                        "values": [{
+                            "type": "OR",
+                            "values": [{
+                                "key": "plan",
+                                "type": "person",
+                                "value": "enterprise",
+                                "negation": false,
+                                "operator": "exact"
+                            }]
+                        }]
+                    }
+                }),
+                false,
+            )
+            .await
+            .unwrap();
+
+        context
+            .insert_person(
+                team.id,
+                "cohort_member".to_string(),
+                Some(json!({"plan": "enterprise"})),
+            )
+            .await
+            .unwrap();
+        context
+            .insert_person(
+                team.id,
+                "non_member".to_string(),
+                Some(json!({"plan": "free"})),
+            )
+            .await
+            .unwrap();
+
+        let flag = mock!(FeatureFlag,
+            team_id: team.id,
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: Some(json!(cohort_row.id)),
+                        operator: Some(OperatorType::In),
+                        prop_type: PropertyType::Cohort,
+                        group_type_index: None,
+                        negation: Some(false),
+                        compiled_regex: None,
+                        extra: Default::default(),
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    ..Default::default()
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+                feature_enrollment: None,
+                holdout: None,
+                early_exit: None,
+                extra: Default::default(),
+            }
+        );
+
+        // (distinct_id, in the cohort, expected membership sentence)
+        for (distinct_id, is_member) in [("cohort_member", true), ("non_member", false)] {
+            let mut matcher = FeatureFlagMatcher::new(
+                distinct_id.to_string(),
+                None, // device_id
+                team.id,
+                context.create_postgres_router(),
+                cohort_cache.clone(),
+                empty_group_type_cache(),
+                None,
+            )
+            .with_detailed_analysis(true);
+
+            let flags = flag_list_with_metadata(vec![flag.clone()]);
+            let result = matcher
+                .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None, false)
+                .await
+                .unwrap();
+
+            assert!(!result.errors_while_computing_flags);
+            let flag_details = result.flags.get("test_flag").unwrap();
+            assert_eq!(flag_details.to_value(), FlagValue::Boolean(is_member));
+
+            let conditions = flag_details
+                .conditions
+                .as_ref()
+                .expect("detailed_analysis(true) should populate conditions");
+            assert_eq!(conditions.len(), 1);
+
+            // The contradiction being fixed: the condition analysis must agree with the
+            // condition's own outcome instead of reporting the cohort filter as unmatched.
+            assert_eq!(conditions[0].matched, is_member, "user {distinct_id}");
+            assert_eq!(
+                conditions[0].properties_matched, is_member,
+                "user {distinct_id}"
+            );
+
+            // The sentence the person reads under the badge. A matched condition used to
+            // render the "did not match properties" branch here, directly below MATCHED.
+            let expected_condition = if is_member {
+                "Condition 1 matched and passed 100% rollout"
+            } else {
+                "Condition 1 did not match properties"
+            };
+            assert_eq!(
+                conditions[0].explanation, expected_condition,
+                "user {distinct_id}"
+            );
+
+            let properties = &conditions[0].properties;
+            assert_eq!(properties.len(), 1);
+            assert_eq!(properties[0].matched, is_member, "user {distinct_id}");
+            let expected = if is_member {
+                format!("Person is in cohort {}", cohort_row.id)
+            } else {
+                format!("Person is not in cohort {}", cohort_row.id)
+            };
+            assert_eq!(properties[0].explanation, expected, "user {distinct_id}");
+        }
+    }
+
     /// Helper to create a dependency filter for flag-depends-on-flag patterns.
     fn dep_filter(flag_id: i32, value: FlagValue) -> PropertyFilter {
         mock!(crate::properties::property_models::PropertyFilter,
