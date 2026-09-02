@@ -9,7 +9,7 @@ export function SourcesTab(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <SceneSection
-                title="Managed data warehouse sources"
+                title="PostHog-managed sources"
                 description="PostHog can connect to external sources and automatically import data from them into the PostHog data warehouse"
             >
                 <ManagedSourcesTable />
