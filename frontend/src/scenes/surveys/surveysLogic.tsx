@@ -63,6 +63,12 @@ export interface SurveysFilters {
     archived: boolean
 }
 
+interface UpdateSurveyPayload {
+    id: string
+    updatePayload: any
+    intentContext?: ProductIntentContext
+}
+
 export interface SurveyDataState {
     surveys: Survey[]
     surveysCount: number
@@ -333,7 +339,9 @@ export interface surveysLogicActions {
               }
             | undefined
     }
-    loadSurveys: () => any
+    loadSurveys: () => {
+        value: true
+    }
     loadSurveysFailure: (
         error: string,
         errorObject?: any
@@ -343,10 +351,14 @@ export interface surveysLogicActions {
     }
     loadSurveysSuccess: (
         data: SurveyDataState,
-        payload?: any
+        payload?: {
+            value: true
+        }
     ) => {
         data: SurveyDataState
-        payload?: any
+        payload?: {
+            value: true
+        }
     }
     setIsAppearanceModalOpen: (isOpen: boolean) => {
         isOpen: boolean
@@ -370,19 +382,7 @@ export interface surveysLogicActions {
     setTab: (tab: SurveysTabs) => {
         tab: SurveysTabs
     }
-    updateSurvey: ({
-        id,
-        updatePayload,
-        intentContext,
-    }: {
-        id: string
-        intentContext?: ProductIntentContext
-        updatePayload: any
-    }) => {
-        id: string
-        updatePayload: any
-        intentContext?: ProductIntentContext
-    }
+    updateSurvey: ({ id, updatePayload, intentContext }: UpdateSurveyPayload) => UpdateSurveyPayload
     updateSurveyFailure: (
         error: string,
         errorObject?: any
@@ -397,11 +397,7 @@ export interface surveysLogicActions {
             surveys: Survey[]
             surveysCount: number
         },
-        payload?: {
-            id: string
-            updatePayload: any
-            intentContext?: ProductIntentContext
-        }
+        payload?: UpdateSurveyPayload
     ) => {
         data: {
             searchSurveys: Survey[]
@@ -409,11 +405,7 @@ export interface surveysLogicActions {
             surveys: Survey[]
             surveysCount: number
         }
-        payload?: {
-            id: string
-            updatePayload: any
-            intentContext?: ProductIntentContext
-        }
+        payload?: UpdateSurveyPayload
     }
 }
 
@@ -465,6 +457,7 @@ export const surveysLogic = kea<surveysLogicType>([
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setSurveysFilters: (filters: Partial<SurveysFilters>, replace?: boolean) => ({ filters, replace }),
         setTab: (tab: SurveysTabs) => ({ tab }),
+        loadSurveys: true,
         loadNextPage: true,
         loadNextSearchPage: true,
         setSurveyToDuplicate: (survey: Survey | null) => ({ survey }),
@@ -480,6 +473,9 @@ export const surveysLogic = kea<surveysLogicType>([
             source: SURVEY_CREATED_SOURCE
         ) => ({ toolOutput, source }),
     }),
+    // A loader that reads `values` after its request must `breakpoint()` first: kea breaks pending
+    // breakpoints on unmount, and reading `values` from an unmounted logic throws.
+    // `deleteSurvey` and `updateSurvey` break after their side effects, which must land either way.
     loaders(({ values, actions, cache }) => ({
         data: {
             __default: {
@@ -488,19 +484,21 @@ export const surveysLogic = kea<surveysLogicType>([
                 searchSurveys: [] as Survey[],
                 searchSurveysCount: 0,
             } as SurveyDataState,
-            loadSurveys: async () => {
+            loadSurveys: async (_, breakpoint) => {
                 const requestId = (cache.surveyListRequestSequence = (cache.surveyListRequestSequence ?? 0) + 1)
                 const response = await api.surveys.list(getSurveyListParams(values.filters))
+                breakpoint()
                 if (requestId !== cache.surveyListRequestSequence) {
                     return values.data
                 }
                 loadResponseCountsForSurveys(actions.loadResponsesCount, response.results)
                 return mergeSurveysData(values.data, response)
             },
-            loadNextPage: async () => {
+            loadNextPage: async (_, breakpoint) => {
                 const requestId = (cache.surveyListRequestSequence = (cache.surveyListRequestSequence ?? 0) + 1)
                 const offset = values.data.surveys.length
                 const response = await api.surveys.list(getSurveyListParams(values.filters, undefined, offset))
+                breakpoint()
                 if (requestId !== cache.surveyListRequestSequence) {
                     return values.data
                 }
@@ -530,10 +528,11 @@ export const surveysLogic = kea<surveysLogicType>([
                 loadResponseCountsForSurveys(actions.loadResponsesCount, response.results)
                 return mergeSearchSurveysData(values.data, response)
             },
-            loadNextSearchPage: async () => {
+            loadNextSearchPage: async (_, breakpoint) => {
                 const requestId = (cache.surveyListRequestSequence = (cache.surveyListRequestSequence ?? 0) + 1)
                 const offset = values.data.searchSurveys.length
                 const response = await api.surveys.list(getSurveyListParams(values.filters, values.searchTerm, offset))
+                breakpoint()
                 if (requestId !== cache.surveyListRequestSequence) {
                     return values.data
                 }
@@ -541,25 +540,18 @@ export const surveysLogic = kea<surveysLogicType>([
                 loadResponseCountsForSurveys(actions.loadResponsesCount, response.results)
                 return mergeSearchSurveysData(values.data, response, true)
             },
-            deleteSurvey: async (id) => {
+            deleteSurvey: async (id, breakpoint) => {
                 const surveyId = String(id)
                 await api.surveys.delete(surveyId)
                 deleteFromTree('survey', surveyId)
+                breakpoint()
                 return {
                     ...values.data,
                     surveys: deleteSurvey(values.data.surveys, id),
                     searchSurveys: deleteSurvey(values.data.searchSurveys, id),
                 }
             },
-            updateSurvey: async ({
-                id,
-                updatePayload,
-                intentContext,
-            }: {
-                id: string
-                updatePayload: any
-                intentContext?: ProductIntentContext
-            }) => {
+            updateSurvey: async ({ id, updatePayload, intentContext }: UpdateSurveyPayload, breakpoint) => {
                 const updatedSurvey = await api.surveys.update(id, { ...updatePayload })
                 if (intentContext) {
                     actions.addProductIntent({
@@ -568,6 +560,7 @@ export const surveysLogic = kea<surveysLogicType>([
                         metadata: { survey_id: id },
                     })
                 }
+                breakpoint()
                 return {
                     ...values.data,
                     surveys: updateSurvey(values.data.surveys, id, updatedSurvey),
@@ -577,8 +570,9 @@ export const surveysLogic = kea<surveysLogicType>([
         },
         surveysResponsesCount: {
             __default: {} as { [key: string]: number },
-            loadResponsesCount: async (surveyIds: string[]) => {
+            loadResponsesCount: async (surveyIds: string[], breakpoint) => {
                 const responseCounts = await api.surveys.getResponsesCount(surveyIds.join(','))
+                breakpoint()
                 const countsForRequestedSurveys = Object.fromEntries(surveyIds.map((surveyId) => [surveyId, 0]))
 
                 return { ...values.surveysResponsesCount, ...countsForRequestedSurveys, ...responseCounts }

@@ -1,6 +1,7 @@
 import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 
@@ -227,6 +228,31 @@ describe('surveysLogic', () => {
             expect(responseCountRequests).toHaveLength(2)
             expect(responseCountRequests[1].searchParams.get('survey_ids')).toEqual('survey-2')
             expect(logic.values.surveysResponsesCount).toEqual({ 'survey-1': 12, 'survey-2': 0 })
+        })
+    })
+
+    describe('unmounting while a request is in flight', () => {
+        beforeEach(() => {
+            initKeaTests()
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('does not report an error when the survey list lands after unmount', async () => {
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation()
+            const pendingRequest = deferred<CountedPaginatedResponse<Survey>>()
+            jest.spyOn(api.surveys, 'list').mockImplementation(() => pendingRequest.promise)
+
+            const logic = surveysLogic()
+            logic.mount()
+            logic.unmount()
+
+            pendingRequest.resolve({ count: 1, results: [createTestSurvey('survey-1', 'First survey')] })
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(captureException).not.toHaveBeenCalled()
         })
     })
 
