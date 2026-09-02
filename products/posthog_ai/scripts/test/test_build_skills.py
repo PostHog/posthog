@@ -12,11 +12,13 @@ from typing import Any, cast
 import pytest
 
 from products.posthog_ai.scripts.build_skills import (
+    _TOC_BASELINE_PATH,
     DiscoveredSkill,
     SkillBuilder,
     SkillDiscoverer,
     SkillRenderer,
     _check_tool_references,
+    _has_reference_toc,
     parse_frontmatter,
     validate_frontmatter,
 )
@@ -519,6 +521,86 @@ def test_lint_all_checks_reference_links_against_the_bundle(tmp_path: Path, link
     refs = skill_dir / "references"
     refs.mkdir()
     (refs / "payload.md.j2").write_text("# {{ 'rendered' }}\n")
+
+    builder = SkillBuilder(
+        repo_root=tmp_path,
+        products_dir=tmp_path / "products",
+        output_dir=tmp_path / "output",
+    )
+    assert builder.lint_all() is expected
+
+
+def _long_reference(*sections: str, title: str = "# Title", lead: str = "") -> str:
+    # Long enough that a single section already clears the length threshold, so each case exercises
+    # the section rule rather than the length one.
+    filler = "\n".join(f"line {i}" for i in range(110))
+    body = "\n\n".join(f"{section}\n\n{filler}" for section in sections)
+    return f"{title}\n\n{lead}{body}\n"
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("# Short\n\n## One\n\n## Two\n", None),
+        (_long_reference("## One", "## Two"), False),
+        (_long_reference("## Contents", "## One", "## Two"), True),
+        (_long_reference("## Lead-in", "## Contents", "## One", "## Two"), True),
+        (_long_reference("## Lead-in", "## Also lead-in", "## Contents", "## One"), False),
+        (_long_reference("## Only section"), None),
+        (_long_reference("#### One", "#### Two", title="### Title"), False),
+        (_long_reference("#### Contents", "#### One", "#### Two", title="### Title"), True),
+        (_long_reference("## One", "## Two", lead="```md\n## Contents\n```\n\n"), False),
+    ],
+    ids=[
+        "short-file-exempt",
+        "long-without-contents",
+        "long-with-contents",
+        "contents-after-one-lead-in",
+        "contents-buried-too-deep",
+        "single-section-exempt",
+        "nested-heading-depth-without-contents",
+        "nested-heading-depth-with-contents",
+        "contents-inside-code-fence-does-not-count",
+    ],
+)
+def test_has_reference_toc(text: str, expected: bool | None) -> None:
+    assert _has_reference_toc(text) is expected
+
+
+@pytest.mark.parametrize(
+    "reference_text,baseline,expected",
+    [
+        (_long_reference("## One", "## Two"), None, False),
+        (_long_reference("## One", "## Two"), "products/alpha/skills/long-ref/references/long.md", True),
+        (_long_reference("## One", "## Two"), "products/alpha/skills/long-ref/references/gone.md", False),
+        (_long_reference("## Contents", "## One", "## Two"), None, True),
+        (
+            _long_reference("## Contents", "## One", "## Two"),
+            "products/alpha/skills/long-ref/references/long.md",
+            False,
+        ),
+    ],
+    ids=[
+        "unlisted-long-reference-fails",
+        "baselined-reference-passes",
+        "baseline-entry-for-missing-file-fails",
+        "reference-with-contents-passes",
+        "baseline-entry-that-no-longer-applies-fails",
+    ],
+)
+def test_lint_all_requires_contents_on_long_references(
+    tmp_path: Path, reference_text: str, baseline: str | None, expected: bool
+) -> None:
+    skill_dir = tmp_path / "products" / "alpha" / "skills" / "long-ref"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: long-ref\ndescription: D\n---\n# Body\n")
+    refs = skill_dir / "references"
+    refs.mkdir()
+    (refs / "long.md").write_text(reference_text)
+    if baseline is not None:
+        baseline_file = tmp_path / _TOC_BASELINE_PATH
+        baseline_file.parent.mkdir(parents=True)
+        baseline_file.write_text(f"# comment\n{baseline}\n")
 
     builder = SkillBuilder(
         repo_root=tmp_path,

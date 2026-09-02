@@ -9,6 +9,18 @@ Properties fall into three groups, and the distinction matters: SDK-emitted prop
 for any instrumented customer server, server-stamped ones exist only for PostHog's own
 dogfood traffic, and exec-mode ones only appear when a server runs a single `exec` dispatcher.
 
+## Contents
+
+- Events
+- SDK-emitted properties
+- Server-stamped properties
+- Exec-mode properties
+- The three identifiers
+- Library identity
+- TypeScript SDK behaviour by version
+- Python SDK parity
+- Query gotchas
+
 ## Events
 
 All `$`-prefixed — a non-`$` name would be treated as a customer event.

@@ -322,6 +322,55 @@ def _check_reference_links(entry: Path, repo_root: Path) -> list[str]:
     return errors
 
 
+_CODE_FENCE_RE = re.compile(r"^(?P<fence>```+|~~~+).*?^(?P=fence)", re.MULTILINE | re.DOTALL)
+_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t#]*$", re.MULTILINE)
+
+# A long reference is loaded on demand and often only partly read, so its scope has to be visible
+# from the top. Anything past this many lines with more than one section needs a "Contents" section
+# listing those sections. References already over the line when the check landed are listed in the
+# baseline file and exempt until someone gives them one.
+_TOC_MIN_LINES = 100
+_TOC_MIN_SECTIONS = 2
+# Some references open with a short "read this first" section, so the contents list is allowed to
+# follow one section, but not to sit further down where a partial read misses it.
+_TOC_MAX_LEADING_SECTIONS = 2
+_TOC_BASELINE_PATH = "products/posthog_ai/scripts/reference_toc_baseline.txt"
+
+
+def _load_toc_baseline(repo_root: Path) -> set[str]:
+    """Read the repo-relative reference paths exempt from the contents-section check."""
+    baseline_file = repo_root / _TOC_BASELINE_PATH
+    if not baseline_file.is_file():
+        return set()
+    entries: set[str] = set()
+    for raw_line in baseline_file.read_text().splitlines():
+        line = raw_line.strip()
+        if line and not line.startswith("#"):
+            entries.add(line)
+    return entries
+
+
+def _has_reference_toc(text: str) -> bool | None:
+    """Report whether a long reference file carries a contents section near its top.
+
+    Returns None when the check does not apply, because the file is short or has too few sections
+    for a contents list to say anything. Most references title with ``#`` and section with ``##``,
+    but a few nest a level deeper, so sections are read as the level below the file's own title
+    rather than as a fixed depth.
+    """
+    body = _CODE_FENCE_RE.sub("", text)
+    headings = [(len(match.group(1)), match.group(2).strip()) for match in _HEADING_RE.finditer(body)]
+    levels = sorted({level for level, _ in headings})
+    if len(text.splitlines()) <= _TOC_MIN_LINES or len(levels) < 2:
+        return None
+
+    section_level = levels[1]
+    titles = [title for level, title in headings if level == section_level]
+    if len([title for title in titles if title != "Contents"]) < _TOC_MIN_SECTIONS:
+        return None
+    return "Contents" in titles[:_TOC_MAX_LEADING_SECTIONS]
+
+
 class SkillFrontmatter(BaseModel):
     name: str
     description: str = Field(max_length=_MAX_SKILL_DESCRIPTION_LENGTH)
@@ -625,12 +674,15 @@ class SkillBuilder:
         - Jinja2 syntax validation via parse-only (all .j2 files)
         - Frontmatter validation for product and project skill entry points
         - Tool/skill reference validation in markdown (against the MCP schema registries)
+        - Contents section on long reference files (outside the baseline)
 
         Returns True if all checks pass, False otherwise.
         """
         skills = self.discoverer.discover()
         errors: list[str] = []
         reference_findings: list[ReferenceFinding] = []
+        toc_baseline = _load_toc_baseline(self.repo_root)
+        toc_baseline_satisfied: set[str] = set()
 
         seen: dict[str, DiscoveredSkill] = {}
         for skill in skills:
@@ -694,6 +746,19 @@ class SkillBuilder:
                         _check_tool_references(file_path.read_text(), source_label, tool_names, skill_names)
                     )
 
+                if "references" in file_path.relative_to(skill.source_file.parent).parts and file_path.name.endswith(
+                    (".md", ".md.j2")
+                ):
+                    has_toc = _has_reference_toc(file_path.read_text())
+                    if has_toc is False and source_label not in toc_baseline:
+                        errors.append(
+                            f"Long reference without a contents section: {source_label}. "
+                            f"Add a 'Contents' section at the top, listing the file's section headings, "
+                            f"so an agent that reads part of the file still sees its scope."
+                        )
+                    elif has_toc is not False and source_label in toc_baseline:
+                        toc_baseline_satisfied.add(source_label)
+
             if skill.source_file.suffix != ".j2":
                 raw = skill.source_file.read_text()
                 source_label = str(skill.source_file.relative_to(self.repo_root))
@@ -701,6 +766,17 @@ class SkillBuilder:
                     validate_frontmatter(raw, source_label)
                 except ValueError as e:
                     errors.append(str(e))
+
+        for stale in sorted(toc_baseline_satisfied):
+            errors.append(
+                f"Stale contents-section baseline entry: {stale} no longer needs an exemption. "
+                f"Remove its line from {_TOC_BASELINE_PATH}."
+            )
+        for missing in sorted(entry for entry in toc_baseline if not (self.repo_root / entry).is_file()):
+            errors.append(
+                f"Stale contents-section baseline entry: {missing} does not exist. "
+                f"Remove its line from {_TOC_BASELINE_PATH}."
+            )
 
         # Tool/skill reference findings are advisory: they are surfaced (as CI annotations on the
         # offending line, or plain warnings locally) but never fail the lint, because the check is a

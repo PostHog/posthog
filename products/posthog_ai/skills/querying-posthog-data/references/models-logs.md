@@ -1,5 +1,13 @@
 # Logs
 
+## Contents
+
+- `logs` (data plane)
+- `log_attributes`
+- LogsView (`system.logs_views`)
+- LogsAlertConfiguration (`system.logs_alerts`)
+- Common Query Patterns
+
 ## `logs` (data plane)
 
 OpenTelemetry log entries. One row per log line. Backed by ClickHouse `logs_distributed`.

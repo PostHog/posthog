@@ -53,6 +53,7 @@ Prefer a small set of focused skills, each with rich `references/`, over many th
 - **Name**: lowercase kebab-case, prefer gerund form (`analyzing-llm-traces`, not `llm-analytics`). Never prefix with `posthog-*`.
 - **Description**: third person, specific, include trigger terms and when to use it. Max 1024 chars.
 - **Structure**: `SKILL.md` entry point + `references/` for detailed content. Keep `SKILL.md` under 500 lines.
+- **Long references**: a reference over 100 lines opens with a `## Contents` list of its `##` sections. `hogli lint:skills` enforces it.
 - **Frontmatter**: `name` and `description` are required.
 - **Tone**: describe the workflow and reasoning, not a rigid script. Trust the agent to adapt.
 - **Conciseness**: the agent is smart — only include context it doesn't already have.

@@ -1,0 +1,52 @@
+# References over the length where a contents section is required (see _TOC_MIN_LINES in
+# build_skills.py) that predate the check. Each line is exempt until someone adds the section.
+#
+# Do not add a line for a new reference — write the contents section instead. `hogli lint:skills`
+# fails on a line whose file now has one, or no longer exists, so the list only shrinks.
+products/ai_observability/skills/creating-online-evaluations/references/evaluation-payload.md.j2
+products/ai_observability/skills/exploring-ai-failures/references/finding-traces.md
+products/canvas/skills/building-react-quill-canvases/references/checklist-example.md
+products/canvas/skills/composing-grid-canvases/references/component-example.md
+products/endpoints/skills/creating-an-endpoint/references/materializing.md
+products/engineering_analytics/skills/investigating-ci-failures/references/investigation-queries.md
+products/engineering_analytics/skills/turning-engineering-analytics-into-insights/references/hogql-recipes.md
+products/error_tracking/skills/authoring-error-tracking-alerts/references/event-triggers.md
+products/experiments/skills/debugging-experiments/references/customer-reply.md
+products/experiments/skills/debugging-experiments/references/pulling-the-data.md
+products/experiments/skills/diagnosing-experiment-results/references/diagnostic-snapshot.md
+products/experiments/skills/diagnosing-experiment-results/references/qualitative-feedback.md
+products/mcp_analytics/skills/debugging-mcp-analytics/references/stateless-and-sessions.md
+products/mcp_analytics/skills/debugging-mcp-analytics/references/wizard-and-onboarding.md
+products/mcp_analytics/skills/exploring-mcp-tool-original-user-motive/references/notebook-assembly.md
+products/posthog_ai/skills/auditing-experiments-flags/references/experiment-checks.md
+products/posthog_ai/skills/auditing-experiments-flags/references/flag-checks.md.j2
+products/posthog_ai/skills/querying-posthog-data/references/example-observability-correlation.md
+products/posthog_ai/skills/querying-posthog-data/references/guidelines.md
+products/posthog_ai/skills/querying-posthog-data/references/hogql-extensions.md
+products/posthog_ai/skills/querying-posthog-data/references/models-ai-observability-reviews.md.j2
+products/posthog_ai/skills/querying-posthog-data/references/models-apm-spans.md
+products/posthog_ai/skills/querying-posthog-data/references/models-cohorts.md.j2
+products/posthog_ai/skills/querying-posthog-data/references/models-customer-analytics.md
+products/posthog_ai/skills/querying-posthog-data/references/models-customer-analytics.md.j2
+products/posthog_ai/skills/querying-posthog-data/references/models-data-warehouse.md.j2
+products/posthog_ai/skills/querying-posthog-data/references/models-error-tracking.md.j2
+products/posthog_ai/skills/querying-posthog-data/references/models-metrics.md
+products/posthog_ai/skills/querying-posthog-data/references/models-variables.md
+products/product_analytics/skills/creating-box-plot-insights/references/sql-examples.md
+products/product_analytics/skills/investigate-metric/references/box-plot-playbook.md
+products/replay/skills/debugging-local-replay/references/common-failures.md
+products/replay/skills/diagnosing-missing-recordings/references/examples.md
+products/signals/skills/authoring-scouts/references/lifecycle-and-testing.md
+products/signals/skills/authoring-scouts/references/report-contract.md
+products/signals/skills/exploring-scouts/references/scout-data-model.md
+products/signals/skills/signals-scout-ai-observability/references/lenses.md
+products/signals/skills/signals-scout-anomaly-detection/references/anomaly-methods.md
+products/signals/skills/signals-scout-anomaly-detection/references/report-contract.md
+products/signals/skills/signals-scout-anomaly-detection/references/watchlist-and-memory.md
+products/signals/skills/signals-scout-general/references/conventions.md
+products/signals/skills/signals-scout-mcp-tool-calls/references/queries.md
+products/signals/skills/signals-scout-surveys/references/response-querying.md
+products/signals/skills/signals-scout-tasks/references/queries.md
+products/signals/skills/signals-scout-web-vitals/references/remediation.md
+products/signals/skills/working-with-scouts/references/delegation-recipes.md
+products/tasks/skills/analyzing-task-runs/references/log-schema.md
