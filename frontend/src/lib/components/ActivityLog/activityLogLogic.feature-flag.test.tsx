@@ -171,7 +171,7 @@ describe('the activity log logic', () => {
 
             const actual = logic.values.humanizedActivity
             expect(render(<>{actual[0]?.description}</>).container).toHaveTextContent(
-                'peter removed 2 release conditions on test flag'
+                'peter removed 2 condition sets on test flag'
             )
         })
 
@@ -222,7 +222,7 @@ describe('the activity log logic', () => {
 
             const actual = logic.values.humanizedActivity
             expect(render(<>{actual[0]?.description}</>).container).toHaveTextContent(
-                'peter removed 1 release condition on test flag'
+                'peter removed the condition set for all users on test flag'
             )
         })
 
@@ -266,7 +266,7 @@ describe('the activity log logic', () => {
 
             const actual = logic.values.humanizedActivity
             expect(render(<>{actual[0]?.description}</>).container).toHaveTextContent(
-                'peter changed the filter conditions to apply to 30% of all users, and removed 1 release condition on test flag'
+                'peter removed the condition set for User in ID 98 on test flag'
             )
         })
 
@@ -306,7 +306,7 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                'peter changed the filter conditions to apply to 99% of all users on test flag'
+                'peter added a condition set for all users at 99% on test flag'
             )
         })
 
@@ -348,7 +348,7 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                'peter changed the filter conditions to apply to 100% of User in ID 98, and 100% of User not in ID 411 on with cohort'
+                'peter added condition sets for User in ID 98 at 100% and User not in ID 411 at 100% on with cohort'
             )
         })
 
@@ -381,8 +381,9 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                'peter changed the filter conditions to apply to 77% of all users on with simple rollout change'
+                'peter changed the rollout for all users from 75% to 77% on with simple rollout change'
             )
+            expect(actual[0].expandedView?.label).toEqual('Release conditions')
         })
 
         it('describes a null rollout percentage as 100%', async () => {
@@ -439,7 +440,7 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                'peter changed the filter conditions to apply to 100% of Email address = …@somewhere.dev on with null rollout change'
+                'peter added a condition set for Email address = …@somewhere.dev at 100% on with null rollout change'
             )
         })
 
@@ -509,7 +510,30 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
-                'peter changed the filter conditions to apply to 76% of Initial browser = Chrome , and 99% of Initial browser version = 100 on with two changes'
+                'peter changed the rollout for Initial browser = Chrome from 77% to 76% and Initial browser version = 100 from 100% to 99% on with two changes'
+            )
+        })
+
+        it('lists counts instead of every set when many sets change', async () => {
+            const emailSet = (email: string, rollout: number): Record<string, unknown> => ({
+                properties: [{ key: 'email', type: 'person', value: [email], operator: 'exact' }],
+                rollout_percentage: rollout,
+            })
+            const emails = ['a', 'b', 'c', 'd', 'e'].map((name) => `${name}@example.com`)
+            const logic = await featureFlagsTestSetup('test flag', 'updated', [
+                {
+                    type: ActivityScope.FEATURE_FLAG,
+                    action: 'changed',
+                    field: 'filters',
+                    before: { groups: emails.map((email) => emailSet(email, 50)), multivariate: null },
+                    after: { groups: emails.map((email) => emailSet(email, 100)), multivariate: null },
+                },
+            ])
+
+            const actual = logic.values.humanizedActivity
+
+            expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
+                'peter changed the rollout for 5 condition sets on test flag'
             )
         })
 

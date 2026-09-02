@@ -5,6 +5,7 @@ import {
     ActivityLogItem,
     ChangeMapping,
     Description,
+    ExpandedView,
     HumanizedChange,
     defaultDescriber,
     detectBoolean,
@@ -17,13 +18,16 @@ import { Link } from 'lib/lemon-ui/Link'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
+import { FeatureFlagEvaluationRuntime, FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
+
+import { FeatureFlagReleaseConditionsChange } from 'products/feature_flags/frontend/FeatureFlagReleaseConditionsChange'
 import {
-    AnyPropertyFilter,
-    FeatureFlagEvaluationRuntime,
-    FeatureFlagFilters,
-    FeatureFlagGroupType,
-    FeatureFlagType,
-} from '~/types'
+    ConditionSetAspect,
+    ConditionSetChange,
+    changedAspects,
+    diffReleaseConditionSets,
+    rolloutOf,
+} from 'products/feature_flags/frontend/releaseConditionsDiff'
 
 const getChangedPayloadKeys = (
     filtersBefore: FeatureFlagFilters | undefined,
@@ -53,6 +57,152 @@ const getRuntimeLabel = (runtime: string): string => {
     }
 }
 
+const rolloutLabel = (rollout: number): JSX.Element => <strong className="tabular-nums">{rollout}%</strong>
+
+const conditionSetLabel = (group: FeatureFlagGroupType): JSX.Element => {
+    if (group.description) {
+        return <strong>"{group.description}"</strong>
+    }
+    const properties = group.properties ?? []
+    if (properties.length === 0) {
+        return <strong>{group.aggregation_group_type_index != null ? 'all groups' : 'all users'}</strong>
+    }
+    return (
+        <>
+            <PropertyFilterButton item={properties[0]} />
+            {properties.length > 1 && (
+                <span className="text-muted">
+                    {' '}
+                    and {properties.length - 1} more{' '}
+                    {pluralize(properties.length - 1, 'condition', 'conditions', false)}
+                </span>
+            )}
+        </>
+    )
+}
+
+const joinInline = (parts: JSX.Element[]): JSX.Element => (
+    <>
+        {parts.map((part, index) => (
+            <Fragment key={index}>
+                {index > 0 && (index === parts.length - 1 ? ' and ' : ', ')}
+                {part}
+            </Fragment>
+        ))}
+    </>
+)
+
+const conditionSetsNoun = (count: number): string => pluralize(count, 'condition set', 'condition sets')
+
+// Past this many touched sets the sentence only carries counts; the expanded view has the detail.
+const MAX_DETAILED_SET_CHANGES = 3
+
+const describeConditionSetChanges = (
+    filtersBefore: FeatureFlagFilters | undefined,
+    filtersAfter: FeatureFlagFilters
+): Description[] => {
+    const diff = diffReleaseConditionSets(filtersBefore, filtersAfter)
+    const added = diff.sets.filter((set) => set.status === 'added')
+    const changed = diff.sets.filter((set) => set.status === 'changed')
+    const withAspect = (aspect: ConditionSetAspect): ConditionSetChange[] =>
+        changed.filter((set) => changedAspects(set).includes(aspect))
+    const rolloutChanges = withAspect('rollout')
+    const criteriaChanges = withAspect('criteria')
+    const variantChanges = withAspect('variant')
+    const descriptionOnlyChanges = changed.filter((set) => {
+        const aspects = changedAspects(set)
+        return aspects.length === 1 && aspects[0] === 'description'
+    })
+    const summarize = added.length + changed.length + diff.removed.length > MAX_DETAILED_SET_CHANGES
+
+    const parts: Description[] = []
+    if (rolloutChanges.length) {
+        parts.push(
+            summarize ? (
+                <>changed the rollout for {conditionSetsNoun(rolloutChanges.length)}</>
+            ) : (
+                <>
+                    changed the rollout for{' '}
+                    {joinInline(
+                        rolloutChanges.map((set) => (
+                            <>
+                                {conditionSetLabel(set.group)} from {rolloutLabel(rolloutOf(set.previous ?? set.group))}{' '}
+                                to {rolloutLabel(rolloutOf(set.group))}
+                            </>
+                        ))
+                    )}
+                </>
+            )
+        )
+    }
+    if (criteriaChanges.length) {
+        parts.push(
+            summarize ? (
+                <>changed the criteria for {conditionSetsNoun(criteriaChanges.length)}</>
+            ) : (
+                <>changed the criteria for {joinInline(criteriaChanges.map((set) => conditionSetLabel(set.group)))}</>
+            )
+        )
+    }
+    if (variantChanges.length) {
+        parts.push(
+            summarize ? (
+                <>changed the variant for {conditionSetsNoun(variantChanges.length)}</>
+            ) : (
+                <>
+                    changed the variant for{' '}
+                    {joinInline(
+                        variantChanges.map((set) => (
+                            <>
+                                {conditionSetLabel(set.group)} to <strong>{set.group.variant ?? 'none'}</strong>
+                            </>
+                        ))
+                    )}
+                </>
+            )
+        )
+    }
+    if (descriptionOnlyChanges.length) {
+        parts.push(
+            <>
+                changed the description of{' '}
+                {joinInline(descriptionOnlyChanges.map((set) => <>condition set {set.index + 1}</>))}
+            </>
+        )
+    }
+    if (added.length) {
+        parts.push(
+            summarize ? (
+                <>added {conditionSetsNoun(added.length)}</>
+            ) : (
+                <>
+                    added {added.length === 1 ? 'a condition set' : 'condition sets'} for{' '}
+                    {joinInline(
+                        added.map((set) => (
+                            <>
+                                {conditionSetLabel(set.group)} at {rolloutLabel(rolloutOf(set.group))}
+                            </>
+                        ))
+                    )}
+                </>
+            )
+        )
+    }
+    if (diff.removed.length) {
+        parts.push(
+            diff.removed.length === 1 && !summarize ? (
+                <>removed the condition set for {conditionSetLabel(diff.removed[0].group)}</>
+            ) : (
+                <>removed {conditionSetsNoun(diff.removed.length)}</>
+            )
+        )
+    }
+    if (diff.reordered) {
+        parts.push(<>reordered the condition sets</>)
+    }
+    return parts
+}
+
 const featureFlagActionsMapping: Record<
     keyof FeatureFlagType,
     (change?: ActivityChange, logItem?: ActivityLogItem) => ChangeMapping | null
@@ -74,105 +224,34 @@ const featureFlagActionsMapping: Record<
             suffix: <>{nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}</>,
         }
     },
-    filters: function onChangedFilter(change) {
-        const filtersBefore = change?.before as FeatureFlagFilters
+    filters: function onChangedFilter(change, logItem) {
+        const filtersBefore = change?.before as FeatureFlagFilters | undefined
         const filtersAfter = change?.after as FeatureFlagFilters
 
-        const isBooleanValueFlag = Array.isArray(filtersAfter?.groups)
+        const hasConditionSets = Array.isArray(filtersAfter?.groups)
         const isMultivariateFlag = filtersAfter?.multivariate
 
         const changes: Description[] = []
+        let expandedView: ExpandedView | undefined
 
-        if (isBooleanValueFlag) {
-            if (
-                filtersAfter.groups.length === 0 ||
-                !filtersAfter.groups.some((group) => group.rollout_percentage !== 0)
-            ) {
-                // there are no rollout groups or all are at 0%
-                changes.push(<>changed the filter conditions to apply to no users</>)
-            } else {
+        if (hasConditionSets) {
+            if (!isMultivariateFlag) {
                 getChangedPayloadKeys(filtersBefore, filtersAfter).forEach((key) => {
                     const changedPayload = filtersAfter.payloads?.[key]?.toString() || null
                     changes.push(<SentenceList listParts={[changedPayload]} prefix="changed payload to" />)
                 })
-
-                const groupAdditions: (string | JSX.Element | null)[] = []
-                const groupRemovals: (string | JSX.Element | null)[] = []
-
-                filtersAfter.groups
-                    .filter((groupAfter, index) => {
-                        const groupBefore = filtersBefore?.groups?.[index]
-                        // only keep changes with no "before" state, or those where before and after are different
-                        return !groupBefore || JSON.stringify(groupBefore) !== JSON.stringify(groupAfter)
-                    })
-                    .forEach((groupAfter: FeatureFlagGroupType) => {
-                        const { properties, rollout_percentage = null } = groupAfter
-
-                        if ((properties?.length || 0) > 0) {
-                            const nonEmptyProperties = properties as AnyPropertyFilter[] // above check ensures this is not null
-                            const newButtons =
-                                nonEmptyProperties.map((property, idx) => {
-                                    return (
-                                        <Fragment key={property.key ?? idx}>
-                                            {' '}
-                                            {idx === 0 && (
-                                                <span>
-                                                    <strong className="tabular-nums">
-                                                        {rollout_percentage ?? 100}%
-                                                    </strong>{' '}
-                                                    of{' '}
-                                                </span>
-                                            )}
-                                            <PropertyFilterButton item={property} />
-                                        </Fragment>
-                                    )
-                                }) || []
-                            newButtons[0] = (
-                                <Fragment key={nonEmptyProperties[0].key ?? 0}>
-                                    <span>
-                                        <strong className="tabular-nums">{rollout_percentage ?? 100}%</strong> of{' '}
-                                    </span>
-                                    <PropertyFilterButton
-                                        key={nonEmptyProperties[0].key}
-                                        item={nonEmptyProperties[0]}
-                                    />
-                                </Fragment>
-                            )
-                            groupAdditions.push(...newButtons)
-                        } else {
-                            groupAdditions.push(
-                                <>
-                                    <strong className="tabular-nums">{rollout_percentage ?? 100}%</strong> of{' '}
-                                    <strong>all users</strong>
-                                </>
-                            )
-                        }
-                    })
-
-                if (groupAdditions.length) {
-                    changes.push(
-                        <SentenceList listParts={groupAdditions} prefix="changed the filter conditions to apply to" />
-                    )
-                }
-
-                const removedGroups = (filtersBefore?.groups || []).filter((_, index) => {
-                    const groupAfter = filtersAfter?.groups?.[index]
-                    // only keep changes with no "after" state, they've been removed
-                    return !groupAfter
-                })
-
-                if (removedGroups.length) {
-                    groupRemovals.push(
-                        <>
-                            <strong>removed </strong>{' '}
-                            {pluralize(removedGroups.length, 'release condition', 'release conditions')}
-                        </>
-                    )
-                }
-
-                if (groupRemovals.length) {
-                    changes.push(<SentenceList listParts={groupRemovals} />)
-                }
+            }
+            changes.push(...describeConditionSetChanges(filtersBefore, filtersAfter))
+            expandedView = {
+                label: 'Release conditions',
+                content: (
+                    <FeatureFlagReleaseConditionsChange
+                        flagId={logItem?.item_id ?? ''}
+                        activityId={logItem?.id ?? logItem?.created_at ?? ''}
+                        before={filtersBefore}
+                        after={filtersAfter}
+                    />
+                ),
             }
         }
 
@@ -253,7 +332,7 @@ const featureFlagActionsMapping: Record<
         }
 
         if (changes.length > 0) {
-            return { description: changes }
+            return { description: changes, expandedView }
         }
 
         console.error({ change }, 'could not describe this change')
@@ -498,6 +577,7 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
                 {nameOrLinkToFlag(logItem?.item_id, logItem?.detail.name)}
             </>
         )
+        let expandedView: ExpandedView | undefined
 
         for (const change of logItem.detail.changes || []) {
             if (!change?.field) {
@@ -510,12 +590,15 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
             }
             const possibleLogItem = fieldHandler ? fieldHandler(change, logItem) : null
             if (possibleLogItem) {
-                const { description, suffix } = possibleLogItem
+                const { description, suffix, expandedView: view } = possibleLogItem
                 if (description) {
                     changes = changes.concat(description)
                 }
                 if (suffix) {
                     changeSuffix = suffix
+                }
+                if (view) {
+                    expandedView = view
                 }
             }
         }
@@ -523,6 +606,7 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
         if (changes.length) {
             return {
                 description: <SentenceList listParts={changes} prefix={getActorName(logItem)} suffix={changeSuffix} />,
+                expandedView,
             }
         }
     }

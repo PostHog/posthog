@@ -81,7 +81,7 @@ const Loading = (): JSX.Element => {
     )
 }
 
-export type ActivityLogTabs = 'extended description' | 'diff' | 'raw'
+export type ActivityLogTabs = 'details' | 'extended description' | 'diff' | 'raw'
 
 const ActivityLogDiff = ({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element => {
     const changes = logItem.unprocessed?.detail.changes
@@ -146,7 +146,7 @@ export const ActivityLogRow = ({
     highlighted?: boolean
 }): JSX.Element => {
     const [isExpanded, setIsExpanded] = useState(false)
-    const [activeTab, setActiveTab] = useState<ActivityLogTabs>('diff')
+    const [activeTab, setActiveTab] = useState<ActivityLogTabs>(logItem.expandedView ? 'details' : 'diff')
     const rowRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -228,6 +228,13 @@ export const ActivityLogRow = ({
                         activeKey={activeTab}
                         onChange={(key) => setActiveTab(key as ActivityLogTabs)}
                         tabs={[
+                            logItem.expandedView
+                                ? {
+                                      key: 'details',
+                                      label: logItem.expandedView.label,
+                                      content: logItem.expandedView.content,
+                                  }
+                                : false,
                             logItem.extendedDescription
                                 ? {
                                       key: 'extended description',
