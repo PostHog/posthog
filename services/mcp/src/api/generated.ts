@@ -48933,9 +48933,24 @@ export namespace Schemas {
       error: string;
     }
 
+    export interface _SeriesBandsDateRange {
+      /**
+         * Start of the window. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1wStart, etc.
+         * @nullable
+         */
+      date_from?: string | null;
+      /**
+         * End of the window. Same format as date_from. Omit or null for "now".
+         * @nullable
+         */
+      date_to?: string | null;
+    }
+
     export interface LogsSeriesBandsRequest {
       /** Service whose per-series volume to chart (the log record's service_name). */
       serviceName: string;
+      /** Window to chart. Defaults to the last 7 days. It may span at most 7 days and start at most 35 days ago, past which the volume rollup no longer reaches. */
+      dateRange?: _SeriesBandsDateRange;
       /** Display grain in minutes for buckets and bands. Only hourly is supported today.
        *
        * * `60` - 60 */
