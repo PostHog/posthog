@@ -61,6 +61,7 @@ export function InboxReportContextMenu({
     reportId: report.id,
     reportTitle: report.title,
     cloudRepository,
+    surface: "context_menu",
   });
 
   const isDismissed = report.status === "suppressed";

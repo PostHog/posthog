@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   copyLink: vi.fn(),
   createPr: vi.fn(),
+  createPrSurface: undefined as string | undefined,
   dismissWithReason: vi.fn(),
   openDismissDialog: vi.fn(),
   openResolveDialog: vi.fn(),
@@ -41,10 +42,13 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxRestoreReport", () => ({
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useCreatePrReport", () => ({
-  useCreatePrReport: () => ({
-    createPrReport: mocks.createPr,
-    isCreatingPr: false,
-  }),
+  useCreatePrReport: (options: { surface?: string }) => {
+    mocks.createPrSurface = options.surface;
+    return {
+      createPrReport: mocks.createPr,
+      isCreatingPr: false,
+    };
+  },
 }));
 
 vi.mock("@posthog/ui/features/inbox/hooks/useInboxReports", () => ({
@@ -210,5 +214,13 @@ describe("InboxReportContextMenu", () => {
     await user.click(screen.getByText("Copy link"));
     expect(mocks.copyLink).toHaveBeenCalledWith(report);
     expect(mocks.trackAction).toHaveBeenCalledWith("copy_link");
+  });
+
+  it("creates PR reports on the context_menu surface", () => {
+    openMenu(makeReport());
+
+    // Result telemetry comes from useCreatePrReport, so it must carry the same
+    // surface as the click event or an action splits across two surfaces.
+    expect(mocks.createPrSurface).toBe("context_menu");
   });
 });
