@@ -89,6 +89,7 @@ import {
     taxonomicEventFilterToHogQL,
     taxonomicGroupFilterToHogQL,
     taxonomicPersonFilterToHogQL,
+    taxonomicSessionFilterToHogQL,
 } from '~/queries/utils'
 import { NonIntegratedConversionsCellActions } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsCellActions'
 import { NonIntegratedConversionsRowActions } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsRowActions'
@@ -135,6 +136,11 @@ const eventGroupTypes = [
     TaxonomicFilterGroupType.EventFeatureFlags,
 ]
 const personGroupTypes = [TaxonomicFilterGroupType.HogQLExpression, TaxonomicFilterGroupType.PersonProperties]
+const sessionGroupTypes = [
+    TaxonomicFilterGroupType.HogQLExpression,
+    TaxonomicFilterGroupType.SessionProperties,
+    TaxonomicFilterGroupType.PersonProperties,
+]
 
 // Stable empty-rows reference: a fresh `[]` per render would defeat row memoization downstream.
 const NO_ROWS: DataTableRow[] = []
@@ -316,7 +322,11 @@ export function DataTable({
         [contextRowPropsFn, rowFillFractionIndex]
     )
 
-    const groupTypes = isActorsQuery(query.source) ? personGroupTypes : eventGroupTypes
+    const groupTypes = isActorsQuery(query.source)
+        ? personGroupTypes
+        : isSessionsQuery(query.source)
+          ? sessionGroupTypes
+          : eventGroupTypes
 
     // Memoized so the columns array keeps its identity between data refreshes: LemonTable derives
     // column groups from it and passes those to every memoized TableRow, so a per-render rebuild
@@ -409,7 +419,9 @@ export function DataTable({
                                                 onChange={(v, g) => {
                                                     const hogQl = isActorsQuery(query.source)
                                                         ? taxonomicPersonFilterToHogQL(g, v)
-                                                        : taxonomicEventFilterToHogQL(g, v)
+                                                        : isSessionsQuery(query.source)
+                                                          ? taxonomicSessionFilterToHogQL(g, v)
+                                                          : taxonomicEventFilterToHogQL(g, v)
                                                     if (
                                                         setQuery &&
                                                         hogQl &&
@@ -535,7 +547,9 @@ export function DataTable({
                                                         ? taxonomicPersonFilterToHogQL(g, v)
                                                         : isGroupsQuery(query.source)
                                                           ? taxonomicGroupFilterToHogQL(g, v)
-                                                          : taxonomicEventFilterToHogQL(g, v)
+                                                          : isSessionsQuery(query.source)
+                                                            ? taxonomicSessionFilterToHogQL(g, v)
+                                                            : taxonomicEventFilterToHogQL(g, v)
                                                     if (
                                                         setQuery &&
                                                         hogQl &&
@@ -577,7 +591,9 @@ export function DataTable({
                                                         ? taxonomicPersonFilterToHogQL(g, v)
                                                         : isGroupsQuery(query.source)
                                                           ? taxonomicGroupFilterToHogQL(g, v)
-                                                          : taxonomicEventFilterToHogQL(g, v)
+                                                          : isSessionsQuery(query.source)
+                                                            ? taxonomicSessionFilterToHogQL(g, v)
+                                                            : taxonomicEventFilterToHogQL(g, v)
                                                     if (
                                                         setQuery &&
                                                         hogQl &&
