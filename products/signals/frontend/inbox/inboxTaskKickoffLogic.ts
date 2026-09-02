@@ -64,10 +64,13 @@ function buildCreatePrReportPrompt(report: SignalReport, feedback?: string): str
     return `${base}\n\nAdditional feedback from the user (take this into account):\n${trimmed}`
 }
 
-// The only statuses whose content has passed the safety judge AND whose lifecycle still has work to
-// do. Everything else answers only: pre-judgment statuses (potential/candidate/in_progress) carry
-// unjudged pipeline content, suppressed/failed reports carry the content the judge rejected, and a
-// resolved report's persisted action suggestions would just redo already-completed work.
+// The only statuses whose lifecycle still has work to do, and the only ones scout and pipeline
+// reports reach after passing the safety judge. Everything else answers only: pre-judgment statuses
+// (potential/candidate/in_progress) carry unjudged pipeline content, suppressed/failed reports carry
+// the content the judge rejected, and a resolved report's persisted action suggestions would just
+// redo already-completed work. Custom-agent reports are born ready without a judge pass - a
+// deliberately trusted engineering surface, and the same trust autostart already extends by opening
+// implementation PRs from them.
 const ACTION_CAPABLE_STATUSES: readonly SignalReportStatus[] = [
     SignalReportStatus.READY,
     SignalReportStatus.PENDING_INPUT,
@@ -303,6 +306,13 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 currentReport = await api.signalReports.get(report.id)
             } catch {
                 currentReport = null
+            }
+            // The pane can offer an action suggestion the fresh state no longer supports. The run
+            // still goes out (the reader may still want the answer), but downgrading silently would
+            // misrepresent what the click bought - so say so. Only when the state is confirmed
+            // changed: a failed refetch also answers only, but "report changed" would be a guess.
+            if (currentReport !== null && isActionCapableReport(report) && !isActionCapableReport(currentReport)) {
+                lemonToast.info('This report can no longer take actions, so AI will answer instead.')
             }
             try {
                 await createReportTask(
