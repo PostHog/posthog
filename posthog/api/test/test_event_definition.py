@@ -105,6 +105,22 @@ class TestEventDefinitionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("boolean", "true"),
+            ("number", "5"),
+            ("object", '{"a": 1}'),
+        ]
+    )
+    def test_list_event_definitions_ignores_non_list_tags_filter(self, _name, tags_value):
+        # A ?tags= value that decodes to something other than a list is not a tag filter. It must
+        # be ignored and the request paged normally. A bare scalar used to reach the `__in` filter,
+        # which raised a 500 on a non-iterable value.
+        response = self.client.get("/api/projects/@current/event_definitions/", data={"tags": tags_value})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == len(self.EXPECTED_EVENT_DEFINITIONS)
+
+    @parameterized.expand(
+        [
             ("repeated", "names=installed_app&names=purchase&names=missing_event"),
             ("comma_separated", "names=installed_app,purchase,missing_event"),
         ]

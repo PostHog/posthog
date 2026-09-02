@@ -451,9 +451,14 @@ class EventDefinitionViewSet(
         if not tags:
             return []
         try:
-            return orjson.loads(tags) or []
-        except (orjson.JSONDecodeError, TypeError):
+            decoded = orjson.loads(tags)
+        except orjson.JSONDecodeError:
             return []
+        # Only a list of tag names disables pagination. A bare JSON scalar like `true` or `5`
+        # is not iterable and would break the downstream `__in` filter, so ignore it.
+        if not isinstance(decoded, list):
+            return []
+        return [tag for tag in decoded if isinstance(tag, str)]
 
     def _ordering_params_from_request(
         self,
