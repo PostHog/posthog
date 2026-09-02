@@ -8794,6 +8794,8 @@ export namespace Schemas {
       goalLines?: GoalLine[] | null;
       heatmap?: HeatmapSettings | null;
       leftYAxisSettings?: YAxisSettings | null;
+      /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest. */
+      legendPosition?: LegendPosition | null;
       pie?: PieChartSettings | null;
       /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
       resultCustomizations?: ChartSettingsResultCustomizations;
@@ -91270,6 +91272,13 @@ export namespace Schemas {
     export const AdvancedActivityLogsListSchema = {
       Ocsf: 'ocsf',
     } as const;
+
+    export type AiObservabilityInstrumentationChecklistRetrieveParams = {
+    /**
+     * Grade the checks against a fresh read instead of a recent cached one. Use it after changing instrumentation, when a cached verdict would still describe the old code.
+     */
+    refresh?: boolean;
+    };
 
     export type AlertsListParams = {
     /**
