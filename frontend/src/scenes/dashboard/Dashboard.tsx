@@ -22,10 +22,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import { teamLogic } from '../teamLogic'
 import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsightToDashboardModal'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
+import { DashboardAiSync } from './DashboardAiSync'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
 import { DashboardPublicAccessBanner } from './DashboardPublicAccessBanner'
@@ -33,6 +35,18 @@ import { DashboardRetentionBanner } from './DashboardRetentionBanner'
 import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
 import { DashboardZoomControl } from './DashboardZoomControl'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
+
+const DASHBOARD_AI_CONTEXT_DISMISS_GROUP = 'dashboard-scene'
+
+const DASHBOARD_AI_INSTRUCTION: AttachedContextItem = {
+    type: 'instructions',
+    value:
+        'The dashboard context item identifies the dashboard open in the UI. When the user refers to ' +
+        '"this dashboard", modify that dashboard instead of creating a replacement. Matching tool changes ' +
+        'are reflected in the open page and affected tiles are highlighted.',
+    hidden: true,
+    dismissGroup: DASHBOARD_AI_CONTEXT_DISMISS_GROUP,
+}
 
 // Mount-only: runs the subscribe-nudge eligibility machinery for this dashboard; renders nothing.
 function DashboardSubscribeNudgeTrigger({ dashboardId }: { dashboardId: number }): null {
@@ -115,7 +129,17 @@ function DashboardScene({
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
 
     useAttachedContext(
-        dashboard ? [{ type: 'dashboard', key: dashboard.id, label: dashboard.name ?? undefined }] : null
+        dashboard
+            ? [
+                  {
+                      type: 'dashboard',
+                      key: dashboard.id,
+                      label: dashboard.name ?? undefined,
+                      dismissGroup: DASHBOARD_AI_CONTEXT_DISMISS_GROUP,
+                  },
+                  DASHBOARD_AI_INSTRUCTION,
+              ]
+            : null
     )
 
     useFileSystemLogView({
@@ -157,6 +181,9 @@ function DashboardScene({
             {placement == DashboardPlacement.Dashboard && (
                 <DashboardHeader loading={!dashboard && !dashboardFailedToLoad} />
             )}
+            {placement === DashboardPlacement.Dashboard && dashboard?.id ? (
+                <DashboardAiSync dashboardId={dashboard.id} />
+            ) : null}
             {placement == DashboardPlacement.Dashboard && !!dashboard?.id && (
                 <DashboardSubscribeNudgeTrigger dashboardId={dashboard.id} />
             )}
