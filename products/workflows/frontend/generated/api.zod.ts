@@ -409,7 +409,7 @@ export const hogFlowsCreateBodyTriggerMaskingOneTtlMax = 94608000
 export const hogFlowsCreateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
 export const hogFlowsCreateBodyConversionOneWindowMax = 32
 
-export const hogFlowsCreateBodyConversionOneWindowRegExp = new RegExp('^(?:\\d+(?:\\.\\d+)?|\\.\\d+)[dhms]$')
+export const hogFlowsCreateBodyConversionOneWindowRegExp = new RegExp('^(?:[0-9]+(?:\\.[0-9]+)?|\\.[0-9]+)[dhms]$')
 export const hogFlowsCreateBodyEmailSendingRateLimitOneCountMax = 1000000
 
 export const hogFlowsCreateBodyActionsItemIdMax = 200
@@ -813,7 +813,7 @@ export const hogFlowsUpdateBodyTriggerMaskingOneTtlMax = 94608000
 export const hogFlowsUpdateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
 export const hogFlowsUpdateBodyConversionOneWindowMax = 32
 
-export const hogFlowsUpdateBodyConversionOneWindowRegExp = new RegExp('^(?:\\d+(?:\\.\\d+)?|\\.\\d+)[dhms]$')
+export const hogFlowsUpdateBodyConversionOneWindowRegExp = new RegExp('^(?:[0-9]+(?:\\.[0-9]+)?|\\.[0-9]+)[dhms]$')
 export const hogFlowsUpdateBodyEmailSendingRateLimitOneCountMax = 1000000
 
 export const hogFlowsUpdateBodyActionsItemIdMax = 200
@@ -1211,7 +1211,9 @@ export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMax = 94608000
 export const hogFlowsPartialUpdateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
 export const hogFlowsPartialUpdateBodyConversionOneWindowMax = 32
 
-export const hogFlowsPartialUpdateBodyConversionOneWindowRegExp = new RegExp('^(?:\\d+(?:\\.\\d+)?|\\.\\d+)[dhms]$')
+export const hogFlowsPartialUpdateBodyConversionOneWindowRegExp = new RegExp(
+    '^(?:[0-9]+(?:\\.[0-9]+)?|\\.[0-9]+)[dhms]$'
+)
 export const hogFlowsPartialUpdateBodyEmailSendingRateLimitOneCountMax = 1000000
 
 export const hogFlowsPartialUpdateBodyActionsItemIdMax = 200
@@ -1803,7 +1805,7 @@ export const hogFlowsInvocationsCreateBodyConfigurationOneConversionOneEventsIte
 export const hogFlowsInvocationsCreateBodyConfigurationOneConversionOneWindowMax = 32
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneConversionOneWindowRegExp = new RegExp(
-    '^(?:\\d+(?:\\.\\d+)?|\\.\\d+)[dhms]$'
+    '^(?:[0-9]+(?:\\.[0-9]+)?|\\.[0-9]+)[dhms]$'
 )
 export const hogFlowsInvocationsCreateBodyConfigurationOneEmailSendingRateLimitOneCountMax = 1000000
 
@@ -2564,7 +2566,9 @@ export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMax = 94608000
 export const hogFlowsBulkDeleteCreateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
 export const hogFlowsBulkDeleteCreateBodyConversionOneWindowMax = 32
 
-export const hogFlowsBulkDeleteCreateBodyConversionOneWindowRegExp = new RegExp('^(?:\\d+(?:\\.\\d+)?|\\.\\d+)[dhms]$')
+export const hogFlowsBulkDeleteCreateBodyConversionOneWindowRegExp = new RegExp(
+    '^(?:[0-9]+(?:\\.[0-9]+)?|\\.[0-9]+)[dhms]$'
+)
 export const hogFlowsBulkDeleteCreateBodyEmailSendingRateLimitOneCountMax = 1000000
 
 export const hogFlowsBulkDeleteCreateBodyActionsItemIdMax = 200

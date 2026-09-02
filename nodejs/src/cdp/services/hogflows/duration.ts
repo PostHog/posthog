@@ -3,8 +3,9 @@
 // unsigned callers reject it rather than quietly accepting `-5d`.
 // The alternation keeps each digit run owned by one quantifier. The obvious `\d*\.?\d+` lets two
 // quantifiers claim the same digits, so a long non-matching value backtracks quadratically. This form
-// matches the same strings linearly.
-const DURATION_REGEX = /^(-?)(\d+(?:\.\d+)?|\.\d+)([dhms])$/
+// matches the same strings linearly. `[0-9]` is the same ASCII grammar the API enforces, spelled the
+// same way so the two cannot drift (JS `\d` is already ASCII, but Python's also matches Unicode digits).
+const DURATION_REGEX = /^(-?)([0-9]+(?:\.[0-9]+)?|\.[0-9]+)([dhms])$/
 
 export type DurationUnit = 'd' | 'h' | 'm' | 's'
 

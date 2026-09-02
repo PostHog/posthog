@@ -1928,7 +1928,11 @@ class HogFlowConversionEventSerializer(serializers.Serializer):
 # The alternation keeps each digit run owned by one quantifier. The obvious `\d*\.?\d+` lets `\d*` and
 # `\d+` both claim the same digits, so a long non-matching value backtracks quadratically, which lets an
 # authenticated caller burn a web process with one request. This form matches the same strings linearly.
-CONVERSION_WINDOW_REGEX = r"^(?:\d+(?:\.\d+)?|\.\d+)[dhms]$"
+# Use `[0-9]`, not `\d`: Python's `\d` also matches Unicode digits (e.g. '٧', '７') and `float()` parses
+# them, so `\d` would store a window the Node worker's ASCII regex cannot parse, and the worker would
+# then fall back to its default window with no error. `[0-9]` holds the API to the same ASCII grammar the
+# worker and the generated clients enforce.
+CONVERSION_WINDOW_REGEX = r"^(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)[dhms]$"
 
 _MINUTES_PER_DURATION_UNIT = {"d": 1440, "h": 60, "m": 1, "s": 1 / 60}
 

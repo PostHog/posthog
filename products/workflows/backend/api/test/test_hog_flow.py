@@ -1085,6 +1085,11 @@ class TestHogFlowAPI(APIBaseTest):
             # it stores as 7 days; the cap rejects it, which is what keeps arbitrarily long input off the
             # regex and the float parse.
             ("over the length cap", {"window": "0" * 40 + "7d"}, 400),
+            # Non-ASCII digits: Python's \d and float() accept these, but the Node worker's ASCII regex
+            # rejects them, so storing one would silently fall back to the default window. The [0-9] grammar
+            # rejects them here, at the API, the same way the worker does.
+            ("arabic-indic digits", {"window": "٧d"}, 400),
+            ("full-width digits", {"window": "７d"}, 400),
         ]
     )
     def test_hog_flow_conversion_window(self, _name, conversion_window, expected_status):
