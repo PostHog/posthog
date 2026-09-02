@@ -81,6 +81,7 @@ export interface SessionReplayPipelineConfig {
     /** Debug logging matcher for partition-based debugging. */
     isDebugLoggingEnabled: ValueMatcher<number>
     usageBatch?: UsageRecordBatch
+    applyClockSkewCorrection?: boolean
 }
 
 /**
@@ -109,6 +110,7 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
         topHog,
         isDebugLoggingEnabled,
         usageBatch,
+        applyClockSkewCorrection,
     } = config
 
     const pipelineConfig: PipelineConfig<OverflowOutput> = {
@@ -203,12 +205,16 @@ export function createSessionReplayPipeline(config: SessionReplayPipelineConfig)
                                                     // Parse message content
                                                     .pipe(
                                                         trackUnbilledNewSessions(
-                                                            topHogWrapper(createParseMessageStep(), [
-                                                                timer('parse_time_ms_by_session_id', (input) => ({
-                                                                    token: input.headers.token ?? 'unknown',
-                                                                    session_id: input.headers.session_id ?? 'unknown',
-                                                                })),
-                                                            ])
+                                                            topHogWrapper(
+                                                                createParseMessageStep({ applyClockSkewCorrection }),
+                                                                [
+                                                                    timer('parse_time_ms_by_session_id', (input) => ({
+                                                                        token: input.headers.token ?? 'unknown',
+                                                                        session_id:
+                                                                            input.headers.session_id ?? 'unknown',
+                                                                    })),
+                                                                ]
+                                                            )
                                                         )
                                                     )
                                                     // Monitor library version and emit warnings for old versions
