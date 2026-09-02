@@ -70,7 +70,11 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Metric.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[Metric]) -> QuerySet[Metric]:
-        return queryset.filter(team_id=self.team_id, deleted=False).order_by("-created_at")
+        return api.metrics_visible_to_user(
+            self.team,
+            cast(User, self.request.user),
+            self.user_access_control,
+        )
 
     def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
         if getattr(view, "action", None) not in ("create", "update", "partial_update"):
