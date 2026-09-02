@@ -163,7 +163,13 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                     const response = await api.create('api/billing/activate', body)
 
                     if (response.success) {
-                        await billingLogic.asyncActions.loadBilling()
+                        // Reload entitlements before redirecting so the gate re-evaluates against
+                        // the paid limits, rather than racing the redirect against the reload.
+                        await Promise.all([
+                            billingLogic.asyncActions.loadBilling(),
+                            organizationLogic.asyncActions.loadCurrentOrganization(),
+                            userLogic.asyncActions.loadUser(),
+                        ])
                         if (redirectPath) {
                             const url = new URL(redirectPath, window.location.origin)
                             const searchParams = Object.fromEntries(url.searchParams.entries())
@@ -174,8 +180,6 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                                 upgraded: 'true',
                             })
                         }
-                        actions.loadCurrentOrganization()
-                        actions.loadUser()
                     } else if (response.must_setup_payment) {
                         // Card invalid or missing — show modal (same as new customer flow)
                         actions.setRedirectPath(redirectPath || null)
@@ -236,8 +240,14 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                     actions.setAuthorizationStatus(status)
 
                     if (status === 'success') {
-                        // Load before doing anything to reload in entitlements on the organization
-                        await billingLogic.asyncActions.loadBilling()
+                        // Reload entitlements before redirecting so the gate re-evaluates against
+                        // the paid limits. Without the await, the redirect races the reload and the
+                        // user lands back on the free-tier gate.
+                        await Promise.all([
+                            billingLogic.asyncActions.loadBilling(),
+                            organizationLogic.asyncActions.loadCurrentOrganization(),
+                            userLogic.asyncActions.loadUser(),
+                        ])
                         if (values.redirectPath) {
                             const url = new URL(values.redirectPath, window.location.origin)
                             const searchParams = Object.fromEntries(url.searchParams.entries())
@@ -248,8 +258,6 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                                 success: true,
                             })
                         }
-                        actions.loadCurrentOrganization()
-                        actions.loadUser()
                         actions.hidePaymentEntryModal()
                         return
                     } else if (status === 'failed') {

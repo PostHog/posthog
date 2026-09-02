@@ -86,14 +86,21 @@ describe('paymentEntryLogic', () => {
             expect(toastErrorSpy).not.toHaveBeenCalled()
         })
 
-        it('redirects with upgraded=true when activate succeeds', async () => {
+        it('reloads entitlements before redirecting when activate succeeds', async () => {
             setupActivate([200, { success: true }])
+            // The gate reads entitlements off the user and organization, so both must reload
+            // before the redirect, else the user lands back on the free-tier gate.
+            const userReload = jest.fn(() => [200, {}] as [number, Record<string, unknown>])
+            const orgReload = jest.fn(() => [200, {}] as [number, Record<string, unknown>])
+            useMocks({ get: { '/api/users/@me/': userReload, '/api/organizations/@current/': orgReload } })
             const pushSpy = jest.spyOn(router.actions, 'push')
 
             await expectLogic(logic, () =>
                 logic.actions.startPaymentEntryFlow(null, '/project/1/replay/home?foo=bar')
             ).toFinishAllListeners()
 
+            expect(userReload).toHaveBeenCalled()
+            expect(orgReload).toHaveBeenCalled()
             expect(pushSpy).toHaveBeenCalledWith(
                 '/project/1/replay/home',
                 expect.objectContaining({ foo: 'bar', upgraded: 'true' })

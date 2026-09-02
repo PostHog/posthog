@@ -432,7 +432,14 @@ class BillingManager:
 
         handle_billing_service_error(res)
 
-        return res.json()
+        response = res.json()
+
+        # Refresh entitlements so a paid org clears the free-tier limits at once, like the
+        # trial and plan-switch paths. must_setup_payment means no plan changed yet, so skip.
+        if not response.get("must_setup_payment"):
+            self.update_available_product_features(organization)
+
+        return response
 
     def deactivate_products(self, organization: Organization, products: str) -> None:
         res = requests.post(
@@ -851,7 +858,14 @@ class BillingManager:
 
         handle_billing_service_error(res)
 
-        return res.json()
+        response = res.json()
+
+        # Refresh entitlements once payment succeeds so the org clears the free-tier limits,
+        # like the trial and plan-switch paths.
+        if response.get("status") == "success":
+            self.update_available_product_features(organization)
+
+        return response
 
     def deauthorize(self, organization: Organization, billing_provider: BillingProvider) -> dict[str, Any]:
         """

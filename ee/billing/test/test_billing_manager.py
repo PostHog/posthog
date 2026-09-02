@@ -853,6 +853,90 @@ class TestBillingManager(BaseTest):
 
         assert "Open invoices must be resolved first" in str(context.exception)
 
+    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.requests.post")
+    def test_activate_subscription_refreshes_available_product_features(
+        self, mock_post: MagicMock, mock_get: MagicMock
+    ):
+        organization = self.organization
+        organization.available_product_features = []
+        organization.save()
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        mock_post.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"success": True}))
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=MagicMock(return_value={"available_product_features": [{"key": "organizations_projects"}]}),
+        )
+
+        BillingManager(license).activate_subscription(organization, {"products": "all_products:"})
+
+        organization.refresh_from_db()
+        assert organization.available_product_features == [{"key": "organizations_projects"}]
+
+    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.requests.post")
+    def test_activate_subscription_does_not_refresh_when_payment_needed(
+        self, mock_post: MagicMock, mock_get: MagicMock
+    ):
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        mock_post.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"must_setup_payment": True}))
+
+        BillingManager(license).activate_subscription(self.organization, {"products": "all_products:"})
+
+        mock_get.assert_not_called()
+
+    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.requests.post")
+    def test_authorize_status_refreshes_available_product_features_on_success(
+        self, mock_post: MagicMock, mock_get: MagicMock
+    ):
+        organization = self.organization
+        organization.available_product_features = []
+        organization.save()
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        mock_post.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"status": "success"}))
+        mock_get.return_value = MagicMock(
+            status_code=200,
+            json=MagicMock(return_value={"available_product_features": [{"key": "organizations_projects"}]}),
+        )
+
+        BillingManager(license).authorize_status(organization, {"payment_intent_id": "pi_123"})
+
+        organization.refresh_from_db()
+        assert organization.available_product_features == [{"key": "organizations_projects"}]
+
+    @patch("ee.billing.billing_manager.requests.get")
+    @patch("ee.billing.billing_manager.requests.post")
+    def test_authorize_status_does_not_refresh_when_pending(self, mock_post: MagicMock, mock_get: MagicMock):
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        mock_post.return_value = MagicMock(status_code=200, json=MagicMock(return_value={"status": "pending"}))
+
+        BillingManager(license).authorize_status(self.organization, {"payment_intent_id": "pi_123"})
+
+        mock_get.assert_not_called()
+
     def test_update_org_details_persists_has_active_subscription(self):
         organization = self.organization
         billing_status = {
