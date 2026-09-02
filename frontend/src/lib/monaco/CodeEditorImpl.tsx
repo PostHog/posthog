@@ -181,9 +181,14 @@ export function CodeEditor({
     const vimStatusBarRef = useRef<HTMLDivElement | null>(null)
 
     const [realKey] = useState(() => codeEditorIndex++)
+    // Monaco expects a string; a non-string `value` throws `t.create is not a function`
+    // deep in its model setup. Normalize once so the editor and codeEditorLogic (which sends
+    // the value in metadata requests) agree on the text. Keep null/undefined as-is so the
+    // editor stays uncontrolled.
+    const normalizedValue = value == null || typeof value === 'string' ? value : String(value)
     const builtCodeEditorLogic = codeEditorLogic({
         key: queryKey ?? `new/${realKey}`,
-        query: value ?? '',
+        query: normalizedValue ?? '',
         metadataQuery: metadataQuery,
         metadataQueryOffset: metadataQueryOffset,
         language: editorProps.language ?? 'text',
@@ -651,9 +656,7 @@ export function CodeEditor({
                 key={queryKey}
                 theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
                 loading={<Spinner />}
-                // Monaco expects a string; a non-string `value` throws `t.create is not a function`
-                // deep in its model setup. Keep null/undefined as-is so the editor stays uncontrolled.
-                value={value == null || typeof value === 'string' ? value : String(value)}
+                value={normalizedValue}
                 options={editorOptions}
                 onMount={editorOnMount}
                 {...editorProps}
