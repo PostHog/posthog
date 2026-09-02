@@ -2310,6 +2310,63 @@ describe("CodexAppServerAgent", () => {
     vi.useRealTimers();
   });
 
+  it("does not carry a recovered turn's cause into a later failed turn", async () => {
+    vi.useFakeTimers();
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    // Turn A retries a transient error, then recovers and completes cleanly.
+    const first = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "first" }],
+    } as unknown as PromptRequest);
+    stub.emit("error", {
+      willRetry: true,
+      error: { message: "unexpected status 503 Service Unavailable" },
+    });
+    stub.emit("turn/completed", { turn: { status: "completed" } });
+    await expect(first).resolves.toMatchObject({ stopReason: "end_turn" });
+
+    // Turn B fails without turn/started, so only the local turn/start reset can
+    // clear turn A's cause. Its fallback must not inherit it.
+    const second = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "second" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/completed", { turn: { status: "failed" } });
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(second).resolves.toMatchObject({ stopReason: "refusal" });
+
+    expect(sessionUpdates).not.toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text:
+            "The agent stopped before completing this request. Please try again. " +
+            "Cause: unexpected status 503 Service Unavailable",
+        },
+      },
+    });
+    expect(sessionUpdates).toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "The agent stopped before completing this request. Please try again.",
+        },
+      },
+    });
+    vi.useRealTimers();
+  });
+
   it("renders a non-retried policy error as agent output", async () => {
     const stub = makeStubRpc({
       "thread/start": { thread: { id: "t" } },

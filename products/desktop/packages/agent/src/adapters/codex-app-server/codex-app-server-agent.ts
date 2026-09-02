@@ -1134,6 +1134,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       await this.interruptTurn(turnId, "steer turn/interrupt failed");
       this.planProposal = undefined;
       this.streamedPlanToolCallId = undefined;
+      this.lastTurnErrorMessage = undefined;
       let started: { turn?: { id?: string } };
       try {
         started = await this.rpc.request<{ turn?: { id?: string } }>(
@@ -1174,6 +1175,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   /** Start one codex turn and await its completion. */
   private async runTurn(input: CodexUserInput[]): Promise<PromptResponse> {
     this.lastAgentMessage = "";
+    // The turn/started reset only fires for native turns; clear here so a local
+    // turn codex never announces can't inherit the previous turn's cause.
+    this.lastTurnErrorMessage = undefined;
     this.resetUsage();
     this.planProposal = undefined;
     this.streamedPlanToolCallId = undefined;
