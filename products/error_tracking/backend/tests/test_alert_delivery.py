@@ -34,7 +34,7 @@ from products.error_tracking.backend.temporal.alerts.dispatch import (
     start_alert_delivery_workflow,
     start_alert_delivery_workflows,
 )
-from products.error_tracking.backend.temporal.alerts.messages import build_reply_text, build_root_message
+from products.error_tracking.backend.temporal.alerts.messages import build_reply_text, build_root_message, issue_url
 from products.error_tracking.backend.temporal.alerts.types import THREAD_BUSY_ERROR_TYPE, AlertDeliveryWorkflowInputs
 from products.error_tracking.backend.temporal.alerts.workflow import BUSY_WAIT_LIMIT
 
@@ -237,6 +237,15 @@ class TestAlertMessages(SimpleTestCase):
 
     def test_spiking_reply_without_measurements_stays_short(self):
         assert build_reply_text(self._inputs()) == "📈 Spiking again"
+
+    def test_issue_link_follows_the_fingerprint_when_known(self):
+        # A merge deletes the source issue; the fingerprint route redirects to the survivor.
+        inputs = AlertDeliveryWorkflowInputs(
+            notification_id="notif-1", team_id=1, issue_id="issue-1", event="$error_tracking_issue_created"
+        )
+        assert issue_url(inputs).endswith("/project/1/error_tracking/issue-1")
+        with_fingerprint = dataclasses.replace(inputs, fingerprint="a/b c")
+        assert issue_url(with_fingerprint).endswith("/project/1/error_tracking/fingerprint/a%2Fb%20c")
 
 
 class TestSlackThreadDelivery(AlertTestMixin):
