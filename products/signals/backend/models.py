@@ -247,6 +247,12 @@ class SignalReport(UUIDModel):
     signals_at_run = models.IntegerField(default=0)
     # How many times the summary workflow has run for this report (incremented on each CANDIDATE -> IN_PROGRESS).
     run_count = models.IntegerField(default=0)
+    # The cumulative signal count the last *completed* research pass covered, and the only input to
+    # when the next pass runs (see next_research_bucket). Written when a run reaches READY, not when
+    # it starts, so a run that pauses on the quota gate before researching anything costs the report
+    # nothing. 0 means no pass has completed yet. `db_default` alongside `default` for the reason
+    # spelled out on `charts`.
+    signals_researched = models.IntegerField(default=0, db_default=0)
 
     # LLM-generated during signal matching
     title = models.TextField(null=True, blank=True)

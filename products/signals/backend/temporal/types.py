@@ -19,15 +19,18 @@ def _parse_research_signal_buckets(raw: str) -> tuple[int, ...]:
 RESEARCH_SIGNAL_BUCKETS = _parse_research_signal_buckets(os.getenv("SIGNAL_RESEARCH_SIGNAL_BUCKETS", "1,2,4,10"))
 
 
-def next_research_bucket(run_count: int, signals_researched: int) -> Optional[int]:
+def next_research_bucket(signals_researched: int) -> Optional[int]:
     """The cumulative signal count at which a report's next research pass runs, or None for no pass.
 
-    `run_count` is how many passes the report has already had, and caps the total. `signals_researched`
-    is the count the last pass covered, so buckets the report is already past are skipped instead of
-    firing back to back — a report whose first pass ran at 5 signals waits for 10, not for 2.
+    `signals_researched` is the count the report's last completed pass covered, so buckets it is
+    already past are skipped instead of firing back to back — a report whose first pass ran at 5
+    signals waits for 10, not for 2. Running out of buckets is also what caps the total: a report
+    researched at the last bucket has no bucket above it, so it never researches again.
+
+    Reading the completed count rather than a count of attempts is what keeps a run that pauses
+    before researching — the quota gates in the summary workflow — from spending a pass, and what
+    keeps a bucket crossing withheld by those gates claimable on the next signal.
     """
-    if run_count >= len(RESEARCH_SIGNAL_BUCKETS):
-        return None
     return next((bucket for bucket in RESEARCH_SIGNAL_BUCKETS if bucket > signals_researched), None)
 
 

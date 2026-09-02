@@ -678,9 +678,12 @@ class AssignAndEmitDbResult:
     report_status: str
     report_signal_count: int
     promotion_suppressed: bool
-    # Cumulative signal count the report must reach for its next research pass, or None when it has
-    # used every iteration. Carried out of the transaction only so the skip event can report it.
+    # Cumulative signal count the report must reach for its next research pass, or None when its
+    # last pass already covered the final bucket. Carried out of the transaction only so the skip
+    # event can report it.
     next_research_bucket: Optional[int] = None
+    # What the report's last completed pass covered, for the same reason.
+    report_signals_researched: int = 0
 
 
 @temporalio.activity.defn
@@ -793,15 +796,17 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             # - RESOLVED: terminal — never receives new signals (a recurrence spawns a fresh report above).
             # - POTENTIAL: promote once total_weight >= WEIGHT_THRESHOLD and signal_count >= signals_at_run
             #   (snooze gate, defaults to 0). Uncapped — a report's first research always runs.
-            # - READY: re-research once this signal carries the report to its next bucket in
-            #   RESEARCH_SIGNAL_BUCKETS, and only while it has passes left. Between buckets, and
-            #   past the last one, signals are collected, not researched.
+            # - READY: re-research once the report has reached its next bucket in
+            #   RESEARCH_SIGNAL_BUCKETS. Between buckets, and past the last one, signals are
+            #   collected, not researched.
             # - CANDIDATE: re-promote to self-heal failed spawns (uncapped; concurrent runs blocked by Temporal).
             #
-            # `signal_count - 1` is the count before this signal joined, which is what the report's
-            # last research pass covered — so a bucket the report is already past is skipped rather
-            # than firing a pass immediately on top of the previous one.
-            bucket = next_research_bucket(report.run_count, report.signal_count - 1)
+            # The bucket is measured against `signals_researched`, what the last completed pass
+            # actually covered, so a bucket the report is already past is skipped rather than firing
+            # a pass immediately on top of the previous one. Testing the reached count against that
+            # bucket, rather than the crossing itself, is what lets a report still claim a bucket it
+            # reached while promotion was suppressed.
+            bucket = next_research_bucket(report.signals_researched)
             is_reresearch = report.status == SignalReport.Status.READY
             reresearch_capped = is_reresearch and (bucket is None or report.signal_count < bucket)
             if (
@@ -867,6 +872,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                 report_signal_count=report.signal_count,
                 promotion_suppressed=promotion_suppressed,
                 next_research_bucket=bucket,
+                report_signals_researched=report.signals_researched,
             )
 
     try:
@@ -941,7 +947,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     source_id=input.source_id,
                 )
             # A signal on an already-researched report that did not spawn re-research, because the
-            # report is either between buckets or out of iterations. Emitted so the withheld
+            # report is either between buckets or past its last one. Emitted so the withheld
             # re-research volume is trackable, split by which of the two reasons held it back.
             if db_result.reresearch_capped:
                 try:
@@ -956,11 +962,10 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                             "source_type": input.source_type,
                             "source_id": input.source_id,
                             "run_count": db_result.run_count,
+                            "signals_researched": db_result.report_signals_researched,
                             "next_bucket": db_result.next_research_bucket,
                             "skip_reason": (
-                                "iterations_exhausted"
-                                if db_result.next_research_bucket is None
-                                else "below_next_bucket"
+                                "buckets_exhausted" if db_result.next_research_bucket is None else "below_next_bucket"
                             ),
                         },
                         groups=groups(team.organization, team),

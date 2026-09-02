@@ -315,8 +315,11 @@ async def test_reset_to_potential_is_idempotent_when_already_potential(ateam):
         (3, 4, 9, False),
         # No new signals at all.
         (2, 2, 2, False),
-        # Every pass used: the report stays READY however far past the last bucket it grew.
+        # This pass covered the last bucket: the report stays READY however far past it grew.
         (4, 10, 15, False),
+        # Attempts are not passes: a report whose run_count was spent on runs that paused before
+        # researching still loops when this pass leaves it at a bucket.
+        (9, 1, 2, True),
     ],
 )
 async def test_ready_loops_only_when_the_run_reached_the_next_bucket(
@@ -347,3 +350,6 @@ async def test_ready_loops_only_when_the_run_reached_the_next_bucket(
     refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report_id)
     expected_status = SignalReport.Status.CANDIDATE if expected_loop else SignalReport.Status.READY
     assert refreshed.status == expected_status
+    # Stamped by the pass that just completed, so the next bucket is measured against what this run
+    # actually covered rather than against how many times the workflow has started.
+    assert refreshed.signals_researched == processed_signal_count

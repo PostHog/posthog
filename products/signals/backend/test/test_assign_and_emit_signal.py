@@ -427,47 +427,53 @@ async def test_resolved_match_spawns_new_report_and_leaves_resolved_untouched(at
 
 
 @pytest.mark.parametrize(
-    ("run_count", "signals_researched", "expected"),
+    ("signals_researched", "expected"),
     [
-        (0, 0, 1),
-        (1, 1, 2),
-        (2, 2, 4),
-        (3, 4, 10),
-        # Every bucket used: the report never researches again however many signals arrive.
-        (4, 10, None),
-        (4, 0, None),
+        (0, 1),
+        (1, 2),
+        (2, 4),
+        (4, 10),
+        # Past the last bucket: the report never researches again however many signals arrive.
+        (10, None),
+        (40, None),
         # First pass ran late (the weight threshold held the report back), so buckets 2 and 4 are
         # already behind it — the next pass waits for 10 rather than firing twice back to back.
-        (1, 5, 10),
-        (1, 10, None),
+        (5, 10),
     ],
 )
-def test_next_research_bucket(run_count: int, signals_researched: int, expected: int | None):
-    assert next_research_bucket(run_count, signals_researched) == expected
+def test_next_research_bucket(signals_researched: int, expected: int | None):
+    assert next_research_bucket(signals_researched) == expected
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("run_count", "starting_signal_count", "expected_promoted"),
+    ("signals_researched", "run_count", "starting_signal_count", "expected_promoted"),
     [
-        # The signal that lands on a bucket promotes; the ones between buckets do not. Walking the
-        # default 1,2,4,10 buckets end to end is what would catch a regression to the old
+        # The signal that reaches a bucket promotes; the ones below it do not. Walking the default
+        # 1,2,4,10 buckets end to end is what would catch a regression to the old
         # re-research-on-every-signal behavior.
-        (1, 1, True),
-        (2, 2, False),
-        (2, 3, True),
-        (3, 4, False),
-        (3, 6, False),
-        (3, 8, False),
-        (3, 9, True),
-        # Four passes done: past the last bucket nothing re-promotes, however many signals arrive.
-        (4, 10, False),
-        (4, 40, False),
+        (1, 1, 1, True),
+        (2, 2, 2, False),
+        (2, 2, 3, True),
+        (4, 3, 4, False),
+        (4, 3, 6, False),
+        (4, 3, 8, False),
+        (4, 3, 9, True),
+        # Researched at the last bucket: nothing re-promotes, however many signals arrive.
+        (10, 4, 10, False),
+        (10, 4, 40, False),
+        # A report already past a bucket when its pass completed skips that bucket rather than
+        # firing on top of the pass that just covered it.
+        (5, 2, 5, False),
+        (5, 2, 9, True),
+        # Attempts are not passes: runs that burned run_count without reaching READY (the summary
+        # workflow's quota gates revert to CANDIDATE and keep the counter) must not cap the report.
+        (1, 9, 1, True),
     ],
 )
 async def test_ready_report_re_promotes_only_on_a_bucket(
-    ateam, run_count: int, starting_signal_count: int, expected_promoted: bool
+    ateam, signals_researched: int, run_count: int, starting_signal_count: int, expected_promoted: bool
 ):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
@@ -475,6 +481,7 @@ async def test_ready_report_re_promotes_only_on_a_bucket(
         total_weight=2.0,
         signal_count=starting_signal_count,
         run_count=run_count,
+        signals_researched=signals_researched,
     )
     input_ = _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
 
@@ -497,6 +504,7 @@ async def test_signal_between_buckets_is_still_assigned(ateam, patch_side_effect
         total_weight=2.0,
         signal_count=4,
         run_count=3,
+        signals_researched=4,
         title="original title",
         summary="original summary",
     )
@@ -516,16 +524,16 @@ async def test_signal_between_buckets_is_still_assigned(ateam, patch_side_effect
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("run_count", "starting_signal_count", "expected_reason", "expected_next_bucket"),
+    ("signals_researched", "starting_signal_count", "expected_reason", "expected_next_bucket"),
     [
-        (3, 4, "below_next_bucket", 10),
-        (4, 10, "iterations_exhausted", None),
+        (4, 4, "below_next_bucket", 10),
+        (10, 10, "buckets_exhausted", None),
     ],
 )
 async def test_withheld_research_emits_skipped_event(
     ateam,
     patch_side_effects,
-    run_count: int,
+    signals_researched: int,
     starting_signal_count: int,
     expected_reason: str,
     expected_next_bucket: int | None,
@@ -537,7 +545,8 @@ async def test_withheld_research_emits_skipped_event(
         status=SignalReport.Status.READY,
         total_weight=2.0,
         signal_count=starting_signal_count,
-        run_count=run_count,
+        run_count=3,
+        signals_researched=signals_researched,
     )
     input_ = _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
 
@@ -554,10 +563,47 @@ async def test_withheld_research_emits_skipped_event(
     assert skipped["report_id"] == str(report.id)
     assert skipped["signal_count"] == starting_signal_count + 1
     assert skipped["status"] == SignalReport.Status.READY
-    assert skipped["run_count"] == run_count
+    assert skipped["run_count"] == 3
+    assert skipped["signals_researched"] == signals_researched
     assert skipped["skip_reason"] == expected_reason
     assert skipped["next_bucket"] == expected_next_bucket
     assert skipped["source_id"] == input_.source_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_bucket_reached_under_suppression_is_claimed_by_the_next_signal(ateam):
+    """A quota-suppressed crossing must not cost the report that bucket. Promotion compares the
+    count the report has reached against its next bucket, so the bucket stays claimable until a
+    pass actually covers it — where testing the crossing itself would hand bucket 2 to the
+    suppressed signal and leave every later signal measuring against bucket 4."""
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.READY,
+        total_weight=2.0,
+        signal_count=1,
+        run_count=1,
+        signals_researched=1,
+    )
+
+    with patch(
+        f"{GROUPING_MODULE_PATH}.self_driving_quota_gate",
+        return_value=SelfDrivingQuotaGate(limited=True, enforced=True),
+    ):
+        suppressed = await assign_and_emit_signal_activity(
+            _build_input(ateam.id, _existing_match(str(report.id)), weight=0.5)
+        )
+
+    assert suppressed.promoted is False
+    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
+    assert refreshed.status == SignalReport.Status.READY
+    assert refreshed.signal_count == 2
+
+    claimed = await assign_and_emit_signal_activity(_build_input(ateam.id, _existing_match(str(report.id)), weight=0.5))
+
+    assert claimed.promoted is True
+    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
+    assert refreshed.status == SignalReport.Status.CANDIDATE
 
 
 @pytest.mark.asyncio

@@ -790,6 +790,11 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 # Previous attempt took the re-promotion branch; preserve has_new_signals=True.
                 return True, report.run_count, True
             updated_fields = report.transition_to(SignalReport.Status.READY, title=input.title, summary=input.summary)
+            # The pass is only now known to have covered anything, so this is where the count the
+            # bucket schedule reads is written. A run that failed or paused earlier leaves the
+            # previous value standing and so leaves the report's next bucket where it was.
+            report.signals_researched = input.processed_signal_count
+            updated_fields = [*updated_fields, "signals_researched"]
             if input.charts is not None:
                 report.charts = input.charts
                 updated_fields = [*updated_fields, "charts"]
@@ -802,7 +807,7 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
             # mid-run is researched on the schedule it would have had if it had landed after. The
             # bucket is strictly above what this run processed, so reaching it also means new
             # signals arrived.
-            bucket = next_research_bucket(report.run_count, input.processed_signal_count)
+            bucket = next_research_bucket(report.signals_researched)
             has_new_signals = bucket is not None and report.signal_count >= bucket
             if has_new_signals:
                 # If more signals arrived while the report was being processed, we want to
