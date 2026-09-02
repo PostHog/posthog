@@ -17,7 +17,9 @@ SRE_AGENT_TEMPLATE_ID = "d6832fb3-b05d-459e-a899-275621d68cc7"
 # Global workflow templates bypass action-catalog filtering, so apply dependency flags here to
 # avoid showing starters whose trigger or action is unavailable to the project.
 FEATURE_GATED_GLOBAL_TEMPLATE_FLAGS: dict[str, tuple[str, ...]] = {
-    SRE_AGENT_TEMPLATE_ID: ("slack-workflow-triggers", "workflow-ai-task-action"),
+    # Slack's product flag controls the frontend registry. Its backend capability uses the
+    # instance-wide SLACK_WORKFLOW_TRIGGERS_ENABLED setting, so only gate this API on AI tasks.
+    SRE_AGENT_TEMPLATE_ID: ("workflow-ai-task-action",),
 }
 
 # List of all template JSON files - update this when adding new templates
