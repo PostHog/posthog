@@ -191,6 +191,20 @@ describe("PiExtensionController", () => {
     expect(controller.store.getState().tasks["task-1"]).toBeUndefined();
   });
 
+  it("ignores a missing Pi session when the extension subscription ends", async () => {
+    const handlers: ExtensionSubscriptionHandlers[] = [];
+    const session = createSession(handlers);
+    const controller = createController(session);
+    await controller.connect("task-1");
+
+    handlers[0].error(new Error("Pi session not found for task task-1"));
+
+    expect(controller.store.getState().tasks["task-1"].notifications).toEqual(
+      [],
+    );
+    controller.disconnect("task-1");
+  });
+
   it("preserves pending state on reconnect and ignores stale callbacks", async () => {
     vi.useFakeTimers();
     try {

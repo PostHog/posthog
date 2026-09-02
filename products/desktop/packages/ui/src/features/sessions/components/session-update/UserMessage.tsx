@@ -24,6 +24,7 @@ import { extractCustomInstructions } from "./customInstructions";
 import {
   extractOnboardingBrief,
   ONBOARDING_BRIEF_LABEL,
+  ONBOARDING_BRIEF_TOOLTIP,
 } from "./onboardingBrief";
 import {
   hasFileMentions,
@@ -179,8 +180,9 @@ export const UserMessage = memo(function UserMessage({
               )}
               {onboardingBrief && (
                 <MentionChip
-                  icon={<FileText size={12} />}
+                  icon={<Robot size={12} />}
                   label={ONBOARDING_BRIEF_LABEL}
+                  tooltip={ONBOARDING_BRIEF_TOOLTIP}
                 />
               )}
               {showChannelContextTag && channelContext && (
