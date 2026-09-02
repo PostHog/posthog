@@ -62,6 +62,36 @@ interface ExecMetricState {
     commandMeta: ExecCommandMeta | undefined
 }
 
+/**
+ * Whether a direct `tools/call` response should drop `structuredContent` and leave the
+ * formatted table in the text channel to stand alone.
+ *
+ * CLI-mode clients read `content[].text`, so for them the structured copy only adds
+ * tokens. A render-ui host in single-exec mode is the exception, because there
+ * `buildAdvertisedTools` offers `exec` and `render-ui` only, and `handleToolCall` routes
+ * both of those before this path. Any other tool name that reaches here is therefore the
+ * render-ui app calling `callServerTool` to load its own data. That app reads
+ * `structuredContent` and ignores the text channel, so dropping the structured payload
+ * leaves it with nothing to draw, and it shows its error state instead of the chart. The
+ * `handleToolsList` tests pin the roster this reasoning depends on.
+ *
+ * MCP gives the executor no way to prove that a call came from the app, so this reads
+ * connection state instead of call provenance. In tools mode the model calls tools
+ * directly, which makes the two indistinguishable, so suppression still applies there and
+ * a UI app loaded that way still gets nothing. To fix that case, pass `forceUiDataToMeta`
+ * and `includeUiResponseMeta` together, which moves the app payload to `_meta` instead of
+ * widening what the model reads. `buildToolResultPayload` writes that payload only when
+ * both flags are set.
+ */
+function shouldSuppressStructuredContent(args: {
+    isCliModeEnabled: boolean
+    useSingleExec: boolean
+    renderUiEnabled: boolean
+}): boolean {
+    const isRenderUiHostInSingleExec = args.useSingleExec && args.renderUiEnabled
+    return args.isCliModeEnabled && !isRenderUiHostInSingleExec
+}
+
 export class ToolExecutor {
     private readonly catalog: ToolCatalog
     private readonly instructionsBuilder: InstructionsBuilder
@@ -148,12 +178,13 @@ export class ToolExecutor {
             return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
         }
 
+        const tool = preBuilt.build()
         return this.callTool(
             {
                 name: toolName,
-                schema: preBuilt.base.schema,
-                handler: (ctx, args) => preBuilt.base.handler(ctx, args),
-                _meta: preBuilt.base._meta,
+                schema: tool.schema,
+                handler: (ctx, args) => tool.handler(ctx, args),
+                _meta: tool._meta,
             },
             callParams,
             state,
@@ -268,7 +299,11 @@ export class ToolExecutor {
                     toolMeta: tool._meta,
                     toolName: tool.name,
                     params: validation.data,
-                    suppressStructuredContentForFormattedResults: state.clientProfile.isCliModeEnabled(),
+                    suppressStructuredContentForFormattedResults: shouldSuppressStructuredContent({
+                        isCliModeEnabled: state.clientProfile.isCliModeEnabled(),
+                        useSingleExec: state.useSingleExec,
+                        renderUiEnabled: state.renderUiEnabled,
+                    }),
                     distinctId,
                 })
             }

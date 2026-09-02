@@ -3,6 +3,7 @@ import type { CloudComposerSelection } from "@posthog/core/task-detail/composerM
 import {
   type Adapter,
   type CloudTaskConfigOption,
+  type CloudTaskConfigSelectGroup,
   type ExecutionMode,
   FAST_MODE_FLAG,
   getReasoningEffortOptions,
@@ -20,20 +21,21 @@ import {
   Sparkle,
 } from "phosphor-react-native";
 import { useFeatureFlag } from "posthog-react-native";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { useThemeColors } from "@/lib/theme";
 import { AgentConfigSheet } from "./AgentConfigSheet";
 import {
   type AgentPreset,
   type ContextWindow,
   DEFAULT_CONTEXT_WINDOW,
+  findModelOptionInGroups,
   getAgentPresets,
-  getComposerModelOptions,
-  getConfigOptionLabel,
   getMiddlePreset,
   getMobileExecutionModes,
   getModelConfigOption,
-  resolveHarnessSwitchSelection,
+  harnessForModel,
+  resolveCrossHarnessModelSelection,
+  toMobileModelGroups,
 } from "./options";
 import { Pill } from "./Pill";
 import { SelectSheet } from "./SelectSheet";
@@ -46,6 +48,11 @@ interface AgentConfigControlsProps {
   contextWindow: ContextWindow;
   fastMode: boolean;
   configOptions: readonly CloudTaskConfigOption[];
+  modelGroups: readonly CloudTaskConfigSelectGroup[];
+  /**
+   * Called for both cross-harness picks and manual harness switches. Same
+   * shape as the desktop `resolveCloudComposerAdapterChange` result.
+   */
   onAdapterChange: (selection: CloudComposerSelection) => void;
   onModeChange: (mode: ExecutionMode) => void;
   onModelChange: (model: string) => void;
@@ -81,6 +88,7 @@ export function AgentConfigControls({
   contextWindow,
   fastMode,
   configOptions,
+  modelGroups,
   onAdapterChange,
   onModeChange,
   onModelChange,
@@ -98,12 +106,29 @@ export function AgentConfigControls({
     getAvailableModesForAdapter(adapter),
   );
   const modelConfigOption = getModelConfigOption(configOptions);
-  const modelOptions = getComposerModelOptions(modelConfigOption);
+  // A running session locks the adapter, so hide the other harness's models —
+  // picking one on a live session would push an invalid model to the run.
+  const mobileModelGroups = useMemo(() => {
+    const filtered = canChangeAdapter
+      ? modelGroups
+      : modelGroups
+          .map((group) => ({
+            ...group,
+            options: group.options.filter(
+              (option) =>
+                harnessForModel(modelGroups, option.value) === adapter,
+            ),
+          }))
+          .filter((group) => group.options.length > 0);
+    return toMobileModelGroups(filtered);
+  }, [modelGroups, canChangeAdapter, adapter]);
   const reasoningOptions = getReasoningEffortOptions(adapter, model) ?? [];
-  const presets = getAgentPresets(adapter, modelConfigOption);
+  const presets = useMemo(
+    () => getAgentPresets(adapter, modelConfigOption),
+    [adapter, modelConfigOption],
+  );
 
-  const modelLabel =
-    getConfigOptionLabel(modelConfigOption.options, model) ?? model;
+  const modelLabel = findModelOptionInGroups(modelGroups, model)?.name ?? model;
   const effortLabel =
     reasoningOptions.find((option) => option.value === reasoning)?.name ??
     reasoning;
@@ -118,6 +143,15 @@ export function AgentConfigControls({
   const applyPreset = (preset: AgentPreset) => {
     if (preset.model !== model) onModelChange(preset.model);
     if (preset.effort !== reasoning) onReasoningChange(preset.effort);
+  };
+
+  const handleModelChange = (next: string) => {
+    const pickedHarness = harnessForModel(modelGroups, next);
+    if (pickedHarness !== adapter) {
+      onAdapterChange(resolveCrossHarnessModelSelection(pickedHarness, next));
+      return;
+    }
+    onModelChange(next);
   };
 
   const handleReset = () => {
@@ -184,25 +218,18 @@ export function AgentConfigControls({
       <AgentConfigSheet
         open={configSheetOpen}
         onClose={() => setConfigSheetOpen(false)}
-        adapter={adapter}
         model={model}
         reasoning={reasoning}
         contextWindow={contextWindow}
         fastMode={fastActive}
         presets={presets}
         reasoningOptions={reasoningOptions}
-        modelOptions={modelOptions}
+        modelGroups={mobileModelGroups}
         fastModeAvailable={fastModeAvailable}
         contextWindowAvailable={contextWindowAvailable}
-        canChangeAdapter={canChangeAdapter}
         onSelectPreset={applyPreset}
-        onModelChange={onModelChange}
+        onModelChange={handleModelChange}
         onReasoningChange={onReasoningChange}
-        onAdapterSelect={(next) => {
-          if (next !== adapter) {
-            onAdapterChange(resolveHarnessSwitchSelection(adapter));
-          }
-        }}
         onFastModeChange={onFastModeChange}
         onContextWindowChange={onContextWindowChange}
         onReset={handleReset}
