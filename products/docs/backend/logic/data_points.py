@@ -6,6 +6,7 @@ import json
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 
 _READ_START = re.compile(r"^\s*(with|select)\b", re.IGNORECASE)
@@ -40,9 +41,10 @@ def extract_query(text: str) -> tuple[str, str] | None:
 def run_once(team: Team, query: str) -> tuple[str | None, str | None]:
     """``(value, error)``: the first cell of the first row, or why the query did not run."""
     try:
-        response = execute_hogql_query(
-            query=query, team=team, query_type="doc_data_point", limit_context=LimitContext.QUERY
-        )
+        with tags_context(product=Product.POSTHOG_CODE, feature=Feature.DOCS):
+            response = execute_hogql_query(
+                query=query, team=team, query_type="doc_data_point", limit_context=LimitContext.QUERY
+            )
     except Exception as err:
         return None, str(err).strip().splitlines()[0][:300] if str(err).strip() else "The query did not run."
     rows = response.results or []

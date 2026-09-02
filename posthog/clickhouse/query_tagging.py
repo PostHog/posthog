@@ -104,6 +104,7 @@ class Feature(StrEnum):
     QUERY = "query"  # customer-facing queries only
     DEBUG_QUERY = "debug_query"  # /debug/query and related internal engineering tooling
     DIGEST = "digest"
+    DOCS = "docs"  # live data points on desktop doc pages
     INSIGHT = "insight"
     DASHBOARD = "dashboard"
     CACHE_WARMUP = "cache_warmup"
