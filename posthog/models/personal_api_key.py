@@ -10,7 +10,7 @@ from django_deprecate_fields import deprecate_field
 from prometheus_client import Counter
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.utils import EncryptionModeType, generate_random_token, hash_key_value
+from posthog.models.utils import EncryptionModeType, MaskedKeyMixin, generate_random_token, hash_key_value
 
 if TYPE_CHECKING:
     from posthog.models.organization import Organization
@@ -31,7 +31,7 @@ PERSONAL_API_KEY_AUTH_COUNTER = Counter(
 )
 
 
-class PersonalAPIKey(ModelActivityMixin, models.Model):
+class PersonalAPIKey(ModelActivityMixin, MaskedKeyMixin, models.Model):
     id = models.CharField(primary_key=True, max_length=50, default=generate_random_token)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="personal_api_keys")
     label = models.CharField(max_length=40)
