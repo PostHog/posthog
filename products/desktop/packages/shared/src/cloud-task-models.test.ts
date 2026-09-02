@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  adapterForModelId,
   buildCloudTaskConfigOptions,
+  buildProviderModelGroups,
   compareModelsForPicker,
   formatGatewayModelName,
   type GatewayModel,
@@ -52,9 +54,9 @@ describe("formatGatewayModelName", () => {
 });
 
 describe("normalizeGatewayModelsResponse", () => {
-  it("passes through the gateway's advertised context window for GLM 5.2 unmodified", () => {
+  it("passes through the gateway's advertised context window unmodified", () => {
     const models = normalizeGatewayModelsResponse([
-      model("@cf/zai-org/glm-5.2", "cloudflare"),
+      model("zai-org/glm-5.3", "baseten"),
     ]);
 
     expect(models[0]?.context_window).toBe(128000);
@@ -62,7 +64,7 @@ describe("normalizeGatewayModelsResponse", () => {
 
   it("does not override any model's context window", () => {
     const models = normalizeGatewayModelsResponse([
-      { ...model("@cf/zai-org/glm-5.2", "cloudflare"), context_window: 256000 },
+      { ...model("zai-org/glm-5.3", "baseten"), context_window: 256000 },
     ]);
 
     expect(models[0]?.context_window).toBe(256000);
@@ -73,12 +75,16 @@ describe("isBlockedModelId", () => {
   it.each([
     "claude-opus-4-5",
     "claude-opus-4-6",
+    "claude-opus-4-7",
     "claude-sonnet-4-5",
+    "claude-sonnet-4-6",
     "ANTHROPIC/CLAUDE-HAIKU-4-5",
     "gpt-5.2",
     "gpt-5.3",
     "gpt-5.3-codex",
     "OPENAI/GPT-5.3-CODEX",
+    "gpt-5.4",
+    "@cf/zai-org/glm-5.2",
   ])("blocks %s", (modelId) => {
     expect(isBlockedModelId(modelId)).toBe(true);
   });
@@ -275,4 +281,117 @@ describe("buildCloudTaskConfigOptions", () => {
       expect.objectContaining({ value: "deepseek-ai/deepseek-v4-flash-0731" }),
     );
   });
+});
+
+describe("adapterForModelId", () => {
+  it.each([
+    ["gpt-5.6-sol", "codex"],
+    ["openai/gpt-5.5", "codex"],
+    ["claude-opus-5", "claude"],
+    ["@cf/zai-org/glm-5.2", "claude"],
+    ["moonshotai/kimi-k3", "claude"],
+    ["deepseek-ai/deepseek-v4-flash-0731", "claude"],
+  ])("maps %s to the %s harness", (modelId, adapter) => {
+    expect(adapterForModelId(modelId)).toBe(adapter);
+  });
+});
+
+describe("buildProviderModelGroups", () => {
+  const catalog = [
+    model("gpt-5.6-sol", "openai"),
+    model("claude-opus-5", "anthropic"),
+    model("claude-opus-4-8", "anthropic", false),
+    model("moonshotai/kimi-k3", "modal"),
+  ];
+
+  it.each(["claude", "codex"] as const)(
+    "keeps the same groups in the same order on the %s harness",
+    (adapter) => {
+      const groups = buildProviderModelGroups(catalog, adapter);
+      expect(groups.map((group) => group.group)).toEqual([
+        "anthropic",
+        "openai",
+        "moonshotai",
+      ]);
+    },
+  );
+
+  it("groups models by vendor and stamps each option with its harness", () => {
+    const groups = buildProviderModelGroups(catalog, "claude");
+
+    expect(groups).toMatchObject([
+      {
+        group: "anthropic",
+        name: "Anthropic",
+        options: [
+          { value: "claude-opus-5" },
+          {
+            value: "claude-opus-4-8",
+            _meta: {
+              "posthog.code/modelHarness": "claude",
+              "posthog.code/restrictedModel": true,
+            },
+          },
+        ],
+      },
+      {
+        group: "openai",
+        name: "OpenAI",
+        options: [
+          {
+            value: "gpt-5.6-sol",
+            _meta: { "posthog.code/modelHarness": "codex" },
+          },
+        ],
+      },
+      {
+        group: "moonshotai",
+        name: "Moonshot AI",
+        options: [
+          {
+            value: "moonshotai/kimi-k3",
+            _meta: { "posthog.code/modelHarness": "claude" },
+          },
+        ],
+      },
+    ]);
+  });
+
+  it("keeps a current model missing from the catalog as a custom entry", () => {
+    const groups = buildProviderModelGroups(catalog, "claude", "my-custom");
+    expect(groups.at(-1)).toMatchObject({
+      options: [{ value: "my-custom", description: "Custom model" }],
+    });
+  });
+
+  // A gateway blip answers with an empty or one-sided catalog. The picker must
+  // still offer the model the task will run on, under its own vendor.
+  it.each([
+    { label: "an empty catalog", models: [] },
+    {
+      label: "a catalog holding only another vendor",
+      models: [model("gpt-5.6-sol", "openai")],
+    },
+  ])(
+    "keeps the current model under its own vendor with $label",
+    ({ models }) => {
+      const groups = buildProviderModelGroups(
+        models,
+        "claude",
+        "claude-opus-5",
+      );
+
+      expect(groups[0]).toMatchObject({
+        group: "anthropic",
+        name: "Anthropic",
+        options: [
+          {
+            value: "claude-opus-5",
+            description: "Custom model",
+            _meta: { "posthog.code/modelHarness": "claude" },
+          },
+        ],
+      });
+    },
+  );
 });
