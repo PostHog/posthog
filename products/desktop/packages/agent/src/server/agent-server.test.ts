@@ -28,6 +28,7 @@ import {
 } from "vitest";
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import { getSessionJsonlPath } from "../adapters/claude/session/jsonl-hydration";
+import { SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION as STE100_INSTRUCTION } from "../adapters/ste100-guidance";
 import type { PermissionMode } from "../execution-mode";
 import type { PostHogAPIClient } from "../posthog-api";
 import type { ResumeState } from "../resume";
@@ -4336,6 +4337,35 @@ describe("AgentServer HTTP Mode", () => {
       expect(
         (s as unknown as TestableServer).buildCodexInstructions(sessionPrompt),
       ).toContain("BENJAMIN-PLUS MODE ACTIVE");
+    });
+
+    it("injects STE100 guidance into Slack prompts when POSTHOG_BENJAMIN is set", () => {
+      vi.stubEnv("POSTHOG_BENJAMIN", "1");
+      vi.stubEnv("POSTHOG_CODE_INTERACTION_ORIGIN", "slack");
+      const s = createServer();
+      const sessionPrompt = (
+        s as unknown as TestableServer
+      ).buildSessionSystemPrompt();
+
+      expect(
+        typeof sessionPrompt === "string"
+          ? sessionPrompt
+          : sessionPrompt.append,
+      ).toContain(STE100_INSTRUCTION);
+    });
+
+    it("does not inject STE100 guidance into user-created prompts", () => {
+      vi.stubEnv("POSTHOG_BENJAMIN", "1");
+      const s = createServer();
+      const sessionPrompt = (
+        s as unknown as TestableServer
+      ).buildSessionSystemPrompt();
+      const prompt =
+        typeof sessionPrompt === "string"
+          ? sessionPrompt
+          : sessionPrompt.append;
+
+      expect(prompt).not.toContain(STE100_INSTRUCTION);
     });
 
     it("omits benjamin from codex instructions when POSTHOG_BENJAMIN is unset", () => {

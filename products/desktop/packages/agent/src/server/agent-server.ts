@@ -79,6 +79,7 @@ import {
   SIGNED_MERGE_QUALIFIED_TOOL_NAME,
   SIGNED_REWRITE_QUALIFIED_TOOL_NAME,
 } from "../adapters/signed-commit-shared";
+import { appendSte100Guidance } from "../adapters/ste100-guidance";
 import type { PermissionMode } from "../execution-mode";
 import { DEFAULT_CODEX_MODEL, fetchGatewayModels } from "../gateway-models";
 import { OtelRunTelemetry } from "../otel-telemetry";
@@ -3848,7 +3849,13 @@ export class AgentServer {
     );
     const userPrompt = this.config.claudeCode?.systemPrompt;
 
-    return buildCloudSessionSystemPrompt(cloudAppend, userPrompt);
+    const sessionPrompt = buildCloudSessionSystemPrompt(
+      cloudAppend,
+      userPrompt,
+    );
+    return this.getCloudInteractionOrigin() === "slack"
+      ? appendSte100Guidance(sessionPrompt)
+      : sessionPrompt;
   }
 
   private buildCodexInstructions(
