@@ -1,4 +1,5 @@
 import {
+    MAX_CATEGORY_LABEL_WIDTH,
     type TooltipContext,
     type TrendLineConfig,
     type ValueLabelContext,
@@ -809,6 +810,7 @@ describe('sqlLineGraphAdapter', () => {
             })
 
             expect(config.xAxis?.tickLabelRotation).toBe(expected)
+            expect(config.maxCategoryLabelWidth).toBe(MAX_CATEGORY_LABEL_WIDTH)
         })
 
         it('forces a linear y-axis scale for percent-stacked bars', () => {
