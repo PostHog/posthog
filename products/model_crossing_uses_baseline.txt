@@ -383,6 +383,7 @@ posthog.Team tasks.SandboxEnvironment.team reverse-accessor(sandboxenvironment_s
 posthog.Team tasks.Task.team reverse-accessor(task_set) 1
 posthog.Team tasks.TaskRun.team reverse-accessor(taskrun_set) 1
 posthog.Team tasks.TaskWorkflowDispatch.team reverse-accessor(taskworkflowdispatch_set) 1
+posthog.Team tracing.TeamTracingConfig.team reverse-accessor(teamtracingconfig) 1
 posthog.Team tracing.TracingView.team reverse-accessor(tracingview_set) 1
 posthog.Team user_interviews.IntervieweeContext.team reverse-accessor(intervieweecontext_set) 1
 posthog.Team user_interviews.UserInterview.team reverse-accessor(userinterview_set) 1
