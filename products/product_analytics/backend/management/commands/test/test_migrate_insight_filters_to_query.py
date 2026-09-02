@@ -78,7 +78,8 @@ class TestMigrateInsightFiltersToQuery(BaseTest):
         assert query_insight.query == existing_query
 
     def test_conversion_error_skips_row_and_continues_across_batches(self):
-        bad = Insight.objects.create(team=self.team, filters={"insight": "TRENDS", "events": 42})
+        # A SQL insight keeps its SQL in `filters`; without it there is nothing to build a query from.
+        bad = Insight.objects.create(team=self.team, filters={"insight": "SQL"})
         good = Insight.objects.create(team=self.team, filters=TREND_FILTERS)
         soft_deleted = Insight.objects.create(team=self.team, deleted=True, filters=TREND_FILTERS)
 
@@ -91,3 +92,69 @@ class TestMigrateInsightFiltersToQuery(BaseTest):
         assert "migrated_at" not in bad.filters
         assert good.query is not None
         assert soft_deleted.query is not None
+
+    @parameterized.expand(
+        [
+            ("plain_sql", "select 1", "select 1"),
+            (
+                "nested_query_node",
+                {"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": "s"}},
+                "s",
+            ),
+        ]
+    )
+    def test_converts_sql_insights_to_a_sql_query(self, _name, stored_query, expected_sql):
+        insight = Insight.objects.create(team=self.team, filters={"insight": "SQL", "query": stored_query})
+
+        self._run(live=True)
+
+        insight.refresh_from_db()
+        assert insight.query is not None
+        assert insight.query["kind"] == "DataVisualizationNode"
+        assert insight.query["source"]["query"] == expected_sql
+
+    def test_repairs_filters_that_cannot_convert_and_records_what_changed(self):
+        # `unique_users` was never a valid math value, so this insight fails at query time today.
+        insight = Insight.objects.create(
+            team=self.team,
+            filters={"insight": "TRENDS", "events": [{"id": "$pageview", "order": 0, "math": "unique_users"}]},
+        )
+
+        self._run(live=True)
+
+        insight.refresh_from_db()
+        assert insight.query["source"]["series"][0]["math"] == "dau"
+        assert insight.filters["migration_repairs"] == ["math:unique_users->dau"]
+
+    def test_no_repair_leaves_unconvertible_rows_alone(self):
+        insight = Insight.objects.create(
+            team=self.team,
+            filters={"insight": "TRENDS", "events": [{"id": "$pageview", "order": 0, "math": "unique_users"}]},
+        )
+
+        self._run(live=True, no_repair=True)
+
+        insight.refresh_from_db()
+        assert insight.query is None
+        assert "migrated_at" not in insight.filters
+
+    def test_rollback_reverts_only_the_run_with_the_given_stamp(self):
+        # Migration 0545 stamped its own rows with the same key. Rolling back every stamped row would
+        # undo that migration too, so a rollback has to be scoped to one run's stamp.
+        from_0545 = Insight.objects.create(
+            team=self.team, filters={**TREND_FILTERS, "migrated_at": "2024-08-22 12:00:00"}, query={"kind": "old"}
+        )
+        this_run = Insight.objects.create(team=self.team, filters=TREND_FILTERS)
+
+        self._run(live=True)
+        this_run.refresh_from_db()
+        stamp = this_run.filters["migrated_at"]
+
+        call_command("migrate_insight_filters_to_query", live=True, rollback=stamp, sleep_interval=0)
+
+        this_run.refresh_from_db()
+        from_0545.refresh_from_db()
+        assert this_run.query is None
+        assert "migrated_at" not in this_run.filters
+        assert from_0545.query == {"kind": "old"}
+        assert from_0545.filters["migrated_at"] == "2024-08-22 12:00:00"
