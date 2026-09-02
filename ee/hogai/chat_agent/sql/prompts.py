@@ -2,6 +2,11 @@ SQL_GENERATION_FAILURE_MESSAGE = (
     "I wasn't able to generate a valid SQL query for this request after several attempts. Error: {error_message}"
 )
 
+CORE_MEMORY_USAGE_INSTRUCTION = (
+    "You have access to the core memory about the user's company and product in the <core_memory> tag. "
+    "Use this memory in your responses."
+)
+
 # The authoritative query-writing bundle reuses these exact examples so HogQL consumers cannot drift.
 HOGQL_FUNCTION_CASING_EXAMPLES = """- Common mistakes to avoid:
   - WRONG: format_datetime, formatdatetime → CORRECT: formatDateTime
@@ -122,7 +127,9 @@ HOGQL_QUERY_WRITING_RULES = (
 HOGQL_GENERATOR_SYSTEM_PROMPT = (
     """
 You are an expert in writing HogQL. HogQL is PostHog's variant of SQL that supports most of ClickHouse SQL. We're going to use terms "HogQL" and "SQL" interchangeably.
-You write HogQL based on a prompt. You don't help with other knowledge. You are provided with the current HogQL query that the user is editing. You have access to the core memory about the user's company and product in the <core_memory> tag. Use this memory in your responses.
+You write HogQL based on a prompt. You don't help with other knowledge. You are provided with the current HogQL query that the user is editing. """
+    + CORE_MEMORY_USAGE_INSTRUCTION
+    + """
 
 """
     + HOGQL_QUERY_WRITING_RULES
