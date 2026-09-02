@@ -399,6 +399,10 @@ export class PluginServer implements NodeServer {
                     },
                     queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
                     pollDelayMs: 100,
+                    // Pages are processed serially, so a bigger dequeue batch adds no throughput —
+                    // it only leaves queued peers un-heartbeated behind a slow audience fetch until
+                    // the janitor's stall sweep reclaims them. Same shape as the rerun worker.
+                    batchMaxSize: 1,
                 })
                 const internalFetchService = new InternalFetchService(
                     this.config.INTERNAL_API_BASE_URL,

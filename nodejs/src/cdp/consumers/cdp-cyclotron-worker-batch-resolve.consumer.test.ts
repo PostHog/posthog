@@ -8,7 +8,7 @@ import { Team } from '~/types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_FLOW_MASK_EXAMPLES } from '../_tests/examples'
 import { CdpOutput } from '../cdp-services'
-import { BatchResolverState } from '../services/hogflows/batch-resolver.types'
+import { BatchResolverState, serializeResolverState } from '../services/hogflows/batch-resolver.types'
 import {
     HogInvocationResultRow,
     HogInvocationResultsService,
@@ -291,6 +291,75 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             const [logs] = queueLogs.mock.calls[0]
             expect(logs[0].log_source_id).toEqual('batch-job-1')
             expect(flush).toHaveBeenCalled()
+        })
+    })
+
+    describe('resolver job lock heartbeats', () => {
+        it('heartbeats during a long-running audience fetch so the cyclotron lock does not expire', async () => {
+            jest.useFakeTimers()
+            const state: BatchResolverState = {
+                batchJobId: 'batch-job-hb',
+                teamId: team.id,
+                hogFlowId: hogFlow.id,
+                cursor: null,
+                filters: { properties: [] },
+                maxAudienceSize: 100,
+                totalEnqueued: 0,
+                pagesProcessed: 0,
+                attempts: 0,
+                variables: {},
+                startedAt: '2026-08-11T00:00:00.000Z',
+            }
+            // Long enough for two heartbeat ticks, inside the 30s default fetch budget.
+            const getBlastRadiusPersons = jest.fn().mockImplementation(async () => {
+                await new Promise<void>((resolve) => {
+                    setTimeout(() => resolve(), 25_000)
+                })
+                return { users_affected: [], cursor: null, has_more: false }
+            })
+            const consumer = Object.create(CdpCyclotronWorkerBatchResolve.prototype)
+            Object.assign(consumer, {
+                config: { SITE_URL: 'https://us.posthog.com' },
+                deps: { teamManager: { getTeam: jest.fn().mockResolvedValue(team) } },
+                hogFlowManager: { getHogFlow: jest.fn().mockResolvedValue(hogFlow) },
+                hogFlowBatchPersonQueryService: { getBlastRadiusPersons },
+                hogMasker: {
+                    filterByMasking: jest.fn((invocations) => ({
+                        masked: [],
+                        notMasked: invocations,
+                        release: jest.fn().mockResolvedValue(undefined),
+                    })),
+                },
+                hogFunctionMonitoringService: {
+                    queueAppMetrics: jest.fn(),
+                    queueLogs: jest.fn(),
+                    flush: jest.fn().mockResolvedValue(undefined),
+                },
+                invocationResultsService: {
+                    invocationResultsRowsService: { flush: jest.fn().mockResolvedValue(undefined) },
+                },
+            })
+            const heartbeat = jest.fn().mockResolvedValue(undefined)
+            const job = {
+                id: 'job-heartbeat',
+                teamId: team.id,
+                functionId: hogFlow.id,
+                parentRunId: 'batch-job-hb',
+                cancelRequestedAt: null,
+                state: serializeResolverState(state),
+                heartbeat,
+                bulkCreateAndCheckIn: jest.fn().mockResolvedValue({ newJobIds: [] }),
+                reschedule: jest.fn().mockResolvedValue(undefined),
+                ack: jest.fn().mockResolvedValue(undefined),
+                fail: jest.fn().mockResolvedValue(undefined),
+            }
+
+            const processPromise = (consumer as any).processResolverJob(job)
+            await jest.advanceTimersByTimeAsync(25_000)
+            await processPromise
+
+            expect(heartbeat.mock.calls.length).toBeGreaterThanOrEqual(2)
+            jest.useRealTimers()
         })
     })
 })
