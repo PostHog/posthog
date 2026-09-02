@@ -28,11 +28,11 @@ const EMPTY_OBJECT_JSON_SCHEMA = { type: 'object' as const, properties: {} }
 type JsonSchema = Record<string, unknown>
 
 function toolGroupOrder(definition: ToolDefinition): number {
-    if (definition.annotations.readOnlyHint) {
-        return 0
-    }
     if (definition.annotations.destructiveHint) {
         return 2
+    }
+    if (definition.annotations.readOnlyHint) {
+        return 0
     }
     return 1
 }

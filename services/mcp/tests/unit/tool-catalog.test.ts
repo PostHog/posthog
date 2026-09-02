@@ -176,6 +176,19 @@ describe('ToolCatalog', () => {
             expect(names).toEqual(['tool-b', 'tool-a', 'gen-tool-c', 'tool-d'])
         })
 
+        it('should place destructive tools last when both read-only and destructive hints are set', () => {
+            const originalReadOnlyHint = DEFINITIONS['tool-d'].annotations.readOnlyHint
+            try {
+                DEFINITIONS['tool-d'].annotations.readOnlyHint = true
+
+                const tools = catalog.getFilteredTools({ scopes: ['project:read', 'action:write'] })
+                const names = tools.map((t) => t.name)
+                expect(names).toEqual(['tool-b', 'tool-a', 'gen-tool-c', 'tool-d'])
+            } finally {
+                DEFINITIONS['tool-d'].annotations.readOnlyHint = originalReadOnlyHint
+            }
+        })
+
         it('should exclude tools by name', () => {
             const tools = catalog.getFilteredTools({
                 scopes: ['project:read', 'action:write'],
