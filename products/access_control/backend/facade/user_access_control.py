@@ -16,6 +16,7 @@ from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.organization_caching import get_cached_organization_membership
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 from posthog.settings import EE_AVAILABLE
 
@@ -467,15 +468,9 @@ class UserAccessControl:
 
     @cached_property
     def _organization_membership(self) -> Optional[OrganizationMembership]:
-        # NOTE: This is optimized to reduce queries - we get the users membership _with_ the organization
-        try:
-            if not self._organization_id:
-                return None
-            return OrganizationMembership.objects.select_related("organization").get(
-                organization_id=self._organization_id, user=self._user
-            )
-        except OrganizationMembership.DoesNotExist:
+        if not self._organization_id:
             return None
+        return get_cached_organization_membership(self._organization_id, self._user)
 
     @cached_property
     def _organization(self) -> Optional[Organization]:
@@ -510,12 +505,9 @@ class UserAccessControl:
         """
         if not EE_AVAILABLE or not self._team:
             return []
-        # Annotate with team.organization_id only — avoids fetching the full ~150-column posthog_team row.
-        return list(
-            AccessControl.objects.annotate(_team_organization_id=F("team__organization_id")).filter(
-                self._filter_options({"team_id": self._team.id})
-            )
-        )
+        # No org-id annotation: this team-scoped pool is only ever matched on team_id (never
+        # team__organization_id), so `_row_matches` never reads that attribute off these rows.
+        return list(AccessControl.objects.filter(self._filter_options({"team_id": self._team.id})))
 
     @property
     def user(self) -> User:
@@ -632,11 +624,9 @@ class UserAccessControl:
                 if isinstance(resource, str):
                     span.set_attribute("rbac.resource", resource)
                 span.set_attribute("rbac.has_resource_id", filters.get("resource_id") is not None)
-                self._cache[key] = list(
-                    AccessControl.objects.annotate(_team_organization_id=F("team__organization_id")).filter(
-                        self._filter_options(filters)
-                    )
-                )
+                # No org-id annotation here: these rows return straight to the caller and never
+                # reach `_row_matches`, so joining posthog_team for it would be wasted work.
+                self._cache[key] = list(AccessControl.objects.filter(self._filter_options(filters)))
                 span.set_attribute("rbac.row_count", len(self._cache[key]))
 
         return self._cache[key]

@@ -49,7 +49,9 @@ print(url)  # https://pen-….boxes.hogland.prod-us.posthog.dev/  (stable across
    that project's flags to test gated behavior consistently in the preview.
 5. **Delta-migrate** — only the PR's _unapplied_ migrations on top of the seeded
    DB (`--reset-db` if the PR's migrations are incompatible with the baseline).
-6. **Serve + report** — the box is HTTP-exposed; the URL is posted to the PR.
+6. **Sync HogFunction templates** - start the CDP service and load destination
+   templates into the restored database before the preview becomes available.
+7. **Serve + report** — the box is HTTP-exposed; the URL is posted to the PR.
 
 Driven entirely by the **`posthog-hogland` Python SDK** over hogplane's HTTP API
 — **keyless** (GitHub OIDC → hogplane token over the tailnet), no `hogland` CLI
