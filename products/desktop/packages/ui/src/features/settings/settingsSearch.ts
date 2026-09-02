@@ -128,6 +128,11 @@ const SETTINGS_SEARCH_INDEX: SettingsSearchEntry[] = [
   },
   {
     category: "personalization",
+    label: "Simplified Technical English (ASD-STE100)",
+    keywords: ["ste100", "clear language", "writing style"],
+  },
+  {
+    category: "personalization",
     label: "Hedgehog mode",
     keywords: ["hedgehog", "buddy", "fun"],
   },
