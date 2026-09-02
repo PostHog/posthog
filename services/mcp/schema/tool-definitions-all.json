@@ -10108,6 +10108,20 @@
             "readOnlyHint": true
         }
     },
+    "self-driving-inbox-get": {
+        "description": "Get the top 10 prioritized, actionable self-driving reports for the current project, including their summaries. By default this uses the requesting user's personal PR-generation threshold, falling back to the project threshold. Choose another view for reports needing human input, implementation PRs being monitored, resolved or dismissed reports, or reports judged not actionable. Filter by reviewer scope, priority, source product, scout, or text search, and use offset to page through further results. Use inbox-report-artefacts-list to read a report's evidence and work log before acting on it.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Get self-driving inbox",
+        "title": "Get self-driving inbox",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "session-recording-bulk-delete": {
         "description": "Delete a batch of session recordings by session ID, up to 100 per call. Deletion is permanent and cannot be undone — confirm with the user before deleting. Prefer this over `session-recording-delete` whenever more than one recording needs deleting: find the target IDs with `query-session-recordings-list`, then delete in batches. Pass `date_from` (e.g. '-30d') when the recordings' age is known — it makes the lookup much faster. IDs with no matching recording are skipped, so a `deleted_count` below `total_requested` is normal when some recordings were already deleted or never existed.",
         "category": "Session replays",

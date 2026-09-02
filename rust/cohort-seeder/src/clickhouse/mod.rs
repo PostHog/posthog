@@ -18,4 +18,4 @@ pub use log_comment::{ScanLogComment, LOG_COMMENT_OPTION};
 pub use person_scanner::{PersonRow, PersonScanError, PersonScanner};
 pub use person_sql::PersonScanSpec;
 pub use scan_volume::ScanKind;
-pub use scanner::{ChunkScanner, ScanError};
+pub use scanner::{ChunkScanner, ScanError, ScanSkipReason};

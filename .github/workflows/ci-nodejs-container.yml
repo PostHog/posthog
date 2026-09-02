@@ -148,6 +148,7 @@ jobs:
                   file: Dockerfile.node
                   tags: ${{ steps.docker-meta.outputs.tags }}
                   labels: ${{ steps.docker-meta.outputs.labels }}
+                  annotations: ${{ steps.docker-meta.outputs.annotations }}
                   platforms: linux/arm64,linux/amd64
                   build-args: |
                       COMMIT_HASH=${{ github.sha }}
