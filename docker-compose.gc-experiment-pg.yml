@@ -1,0 +1,5 @@
+# Experiment-only override: the dev Postgres without WAL durability. Appended to
+# COMPOSE_FILE by ci-backend-gc-experiment.yml for the pg_nofsync variant.
+services:
+    db:
+        command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000 -c max_prepared_transactions=10 -c fsync=off -c synchronous_commit=off -c full_page_writes=off
