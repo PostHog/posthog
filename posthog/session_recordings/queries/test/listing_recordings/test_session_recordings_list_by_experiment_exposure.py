@@ -674,6 +674,41 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
             ["session-with-exposure"],
         )
 
+    def test_in_session_scan_is_unclamped_for_pinned_sessions_that_bypass_the_date_window(self) -> None:
+        # The list endpoint pins explicitly selected session ids past the date window
+        # (bypass_date_window_for_session_ids), so the evidence scan must widen with it: clamped to
+        # the query range, a pinned session with older exposure evidence would list under
+        # all-exposed but silently vanish under in-session.
+        experiment = self._create_experiment(start_date=BASE_TIME - timedelta(days=10))
+        EventProperty.objects.create(team=self.team, event="$feature_flag_called", property="$session_id")
+        create_person(team=self.team, distinct_ids=["exposed-user"])
+        exposure_time = BASE_TIME - timedelta(days=5)
+        self._create_exposure_event(
+            "exposed-user", exposure_time, "test", properties={"$session_id": "session-pinned-old"}
+        )
+        flush_persons_and_events()
+        self._produce_recording(
+            "exposed-user", "session-pinned-old", exposure_time, exposure_time + timedelta(minutes=10)
+        )
+
+        query = RecordingsQuery(
+            session_ids=["session-pinned-old"],
+            date_from=(BASE_TIME - timedelta(days=1)).isoformat(),
+            experiment_exposure={"experiment_id": experiment.id, "in_session": True},
+        )
+        results = (
+            SessionRecordingListFromQuery(
+                team=self.team,
+                query=query,
+                hogql_query_modifiers=None,
+                bypass_date_window_for_session_ids=True,
+                user=self.user,
+            )
+            .run()
+            .results
+        )
+        assert [recording["session_id"] for recording in results] == ["session-pinned-old"]
+
     @parameterized.expand(
         [
             ("unknown_experiment", None, None),

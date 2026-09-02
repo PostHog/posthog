@@ -36,7 +36,7 @@ and where neither the preaggregated read nor an affordable live scan is availabl
 is refused with a ValidationError rather than left to time out. The in-session evidence scan
 follows the same posture: it always runs live under an explicit memory budget, callers can
 intersect its window with their own date bounds (which never changes results), and its
-stamped-property fallback flavor — the one read with no event name to prune on — is refused on
+stamped-property fallback flavor (the read with no event name to prune on) is refused on
 precomputing teams rather than left to time out.
 """
 
@@ -200,10 +200,26 @@ class InSessionExposureSemantics:
     unavailable_reason: str | None
 
     @property
+    def available(self) -> bool:
+        """True when a query carrying the narrowing would be accepted."""
+        return self.unavailable_reason is None
+
+    @property
     def uses_stamped_fallback(self) -> bool:
         """True when the evidence is the stamped ``$feature/<key>`` property: it means the flag was
         active in the session, not that the exposure event was captured there."""
         return self.session_exposure is not None and self.session_exposure.used_fallback
+
+
+def _precomputation_covers_full_window(config: TeamExperimentsConfig, experiment: Experiment) -> bool:
+    """The team-level marker that a full-window live events scan is a real cost here: precomputation
+    is enabled and the experiment has run past the minimum runtime, so the analysis reads
+    preaggregated data instead of scanning live. The population read and the in-session fallback
+    refusal both key off this one predicate so their cost postures cannot drift.
+    """
+    return config.experiment_precomputation_enabled and experiment_has_min_runtime_for_precomputation(
+        experiment.start_date, experiment.end_date
+    )
 
 
 def _fallback_evidence_scan_is_unaffordable(team: Team, experiment: Experiment) -> bool:
@@ -211,16 +227,14 @@ def _fallback_evidence_scan_is_unaffordable(team: Team, experiment: Experiment) 
 
     Unlike the exposure-event scan, the fallback has no event name to prune on, so it reads every
     event in the experiment window. On the teams where precomputation marks full-window live scans
-    as a real cost, that scan times out instead of answering, so refusing is the honest posture —
+    as a real cost, that scan times out instead of answering, so refusing is the honest posture,
     the same one the population read takes, including its young-experiment exception, whose window
     is hours wide and cheap on any team.
     """
     if experiment.start_date is None:
         return False
     config = get_or_create_team_extension(team, TeamExperimentsConfig)
-    return config.experiment_precomputation_enabled and experiment_has_min_runtime_for_precomputation(
-        experiment.start_date, experiment.end_date
-    )
+    return _precomputation_covers_full_window(config, experiment)
 
 
 def resolve_in_session_exposure_semantics(team: Team, experiment: Experiment) -> InSessionExposureSemantics:
@@ -301,9 +315,6 @@ def resolve_exposure_linkage(
         if semantics.unavailable_reason is not None:
             raise ValidationError(semantics.unavailable_reason + _IN_SESSION_REFUSAL_QUERY_SUFFIX)
         session_exposure = semantics.session_exposure
-        # The narrowed listing carries the extra evidence scan and its GLOBAL IN set, so it must be
-        # separable from plain exposure listings in the query log.
-        tag_queries(experiment_exposures_in_session=True)
 
     exposure_params = get_exposure_config_params_for_builder(experiment.exposure_criteria, team, experiment.start_date)
     date_range_query = QueryDateRange(
@@ -372,9 +383,7 @@ def _resolve_exposure_read(team: Team, experiment: Experiment, context: Experime
     # Below the minimum runtime the analysis skips precomputation too: the scan window is
     # hours wide (cheap on any team), and the current-day cache TTL would hide exposures
     # from the tab for up to 15 minutes right when users watch it most.
-    if not config.experiment_precomputation_enabled or not experiment_has_min_runtime_for_precomputation(
-        experiment.start_date, experiment.end_date
-    ):
+    if not _precomputation_covers_full_window(config, experiment):
         tag_queries(experiment_exposures_path="direct_scan")
         return _ExposureRead(preaggregation_job_ids=None, live_scan_max_memory_bytes=None)
 
@@ -518,7 +527,7 @@ def exposed_session_ids_select(
     caller's clamp when given: evidence lives inside the sessions being listed, so a caller that
     bounds its sessions by date can pass those bounds (with its session-length buffer) and drop
     the part of the scan that could only nominate sessions it already excludes. Unlike a fixed
-    recency clamp, the intersection never changes results — deduped first-exposure evidence
+    recency clamp, the intersection never changes results: deduped first-exposure evidence
     stays in scope whenever the listed window covers it.
 
     Always a live events scan, whatever path the population resolves through: the

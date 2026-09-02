@@ -129,7 +129,7 @@ def resolve_session_exposure(team: Team, experiment: Experiment, *, event_names:
     """
     # Strip any soft-delete tombstone: a flag cleaned up after its experiment stopped is renamed to
     # `<key>:deleted:<id>`, but historical events still carry the original key, so conditions and the
-    # stamped fallback must resolve against it — the same key the population query uses.
+    # stamped fallback must resolve against it, the same key the population query uses.
     flag_key = experiment.feature_flag.key_without_tombstone()
     default_exposure_event = resolve_default_exposure_event(team, experiment.start_date)
     exposure_event, variant_property = get_exposure_event_and_property(

@@ -194,7 +194,6 @@ export interface experimentReplayTabLogicValues {
     effectiveVariantKey: string | null
     exposureInSessionUnavailableReason: string | null
     exposureScope: ExperimentReplayExposureScope
-    exposureUsesStampedFallback: boolean
     inSessionExposure: ExperimentInSessionExposureApi | null
     inSessionExposureLoading: boolean
     linkedScanners: LinkedScanner[]
@@ -203,6 +202,7 @@ export interface experimentReplayTabLogicValues {
     loadedRecordingsById: Map<string, ExperimentReplayRecording>
     metricFilterMode: ExperimentReplayMetricFilterMode
     metricOptions: ExperimentReplayMetricOption[]
+    playlistHeldForChecks: boolean
     recordingsFilters: RecordingUniversalFilters
     selectedMetricUuids: string[]
     selectedVariantKey: string | null
@@ -214,6 +214,7 @@ export interface experimentReplayTabLogicValues {
     sessionEventDeltas: ExperimentSessionEventDeltaResponseApi | null
     sessionEventDeltasError: string | null
     sessionEventDeltasLoading: boolean
+    tabViewContext: ExperimentRecordingsTabContext
     variantKeys: string[]
 }
 
@@ -425,12 +426,23 @@ export interface experimentReplayTabLogicMeta {
         variantKeys: (arg: any) => string[]
         behaviorComparisonAvailable: (featureFlags: FeatureFlagsSet) => boolean
         effectiveVariantKey: (selectedVariantKey: string | null, variantKeys: string[]) => string | null
-        exposureInSessionUnavailableReason: (inSessionExposure: any) => string | null
-        exposureUsesStampedFallback: (inSessionExposure: any) => boolean
+        exposureInSessionUnavailableReason: (inSessionExposure: ExperimentInSessionExposureApi | null) => string | null
         effectiveExposureScope: (
             exposureScope: ExperimentReplayExposureScope,
-            inSessionExposure: any
+            inSessionExposure: ExperimentInSessionExposureApi | null
         ) => ExperimentReplayExposureScope
+        playlistHeldForChecks: (
+            exposureScope: ExperimentReplayExposureScope,
+            inSessionExposureLoading: boolean,
+            linkabilityLoaded: boolean,
+            seenTogetherMapLoading: boolean
+        ) => boolean
+        tabViewContext: (
+            variantKeys: string[],
+            metricOptions: ExperimentReplayMetricOption[],
+            effectiveExposureScope: ExperimentReplayExposureScope,
+            inSessionExposure: ExperimentInSessionExposureApi | null
+        ) => ExperimentRecordingsTabContext
         metricOptions: (
             linkabilityLoaded: boolean,
             unlinkableEventNames: Set<string>,
@@ -624,16 +636,19 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 // by the selectors below, so a failed check never sends a narrowing the backend
                 // would reject.
                 loadInSessionExposure: async (_: unknown = null, breakpoint) => {
+                    let response: ExperimentInSessionExposureApi | null
                     try {
-                        const response = await experimentsInSessionExposureRetrieve(
+                        response = await experimentsInSessionExposureRetrieve(
                             String(values.currentProjectId),
                             Number(props.experiment.id)
                         )
-                        breakpoint()
-                        return response
                     } catch {
-                        return null
+                        response = null
                     }
+                    // Outside the try, so a superseding dispatch or an unmount cancels this load
+                    // instead of the catch turning the cancellation into a success(null).
+                    breakpoint()
+                    return response
                 },
             },
         ],
@@ -775,7 +790,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             (selectedVariantKey: string | null, variantKeys: string[]): string | null =>
                 selectedVariantKey !== null && variantKeys.includes(selectedVariantKey) ? selectedVariantKey : null,
         ],
-        // Why the in-session scope can't answer for this experiment, from the server-side check —
+        // Why the in-session scope can't answer for this experiment, from the server-side check:
         // the single seam the recordings query refuses on, so the option is disabled for exactly
         // the experiments a query would be refused for (activation, or a custom event with no
         // stand-in, or a fallback scan too large for this project). Null while the check loads or
@@ -785,15 +800,6 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             (s) => [s.inSessionExposure],
             (inSessionExposure: ExperimentInSessionExposureApi | null): string | null =>
                 inSessionExposure?.unavailable_reason ?? null,
-        ],
-        // True when in-session evidence is the stamped $feature/<key> property rather than the
-        // exposure event itself: the caption and tooltip must then say the flag was active in the
-        // session, not that the exposure was captured there. Server-resolved so it can't disagree
-        // with the query for edge configs the way a frontend re-derivation would.
-        exposureUsesStampedFallback: [
-            (s) => [s.inSessionExposure],
-            (inSessionExposure: ExperimentInSessionExposureApi | null): boolean =>
-                inSessionExposure?.uses_stamped_fallback ?? false,
         ],
         effectiveExposureScope: [
             (s) => [s.exposureScope, s.inSessionExposure],
@@ -806,6 +812,41 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 // the all-sessions superset so no narrowing the backend would refuse reaches the
                 // query. The query gate and the caption both read this, so they stay in step.
                 exposureScope === 'in_session' && inSessionExposure?.available ? 'in_session' : 'all_exposed',
+        ],
+        // Holds the playlist while a persisted in-session choice waits on the checks: mounted
+        // immediately, it would fire the heavy all-sessions listing only to discard it seconds
+        // later when the scope confirms and the filters flip to in_session.
+        playlistHeldForChecks: [
+            (s) => [s.exposureScope, s.inSessionExposureLoading, s.linkabilityLoaded, s.seenTogetherMapLoading],
+            (
+                exposureScope: ExperimentReplayExposureScope,
+                inSessionExposureLoading: boolean,
+                linkabilityLoaded: boolean,
+                seenTogetherMapLoading: boolean
+            ): boolean =>
+                exposureScope === 'in_session' &&
+                (inSessionExposureLoading || (!linkabilityLoaded && seenTogetherMapLoading)),
+        ],
+        // The `experiment recordings tab viewed` payload, in a selector so the settled-checks
+        // report and the beforeUnmount flush send the same shape.
+        tabViewContext: [
+            (s) => [s.variantKeys, s.metricOptions, s.effectiveExposureScope, s.inSessionExposure],
+            (
+                variantKeys: string[],
+                metricOptions: ExperimentReplayMetricOption[],
+                effectiveExposureScope: ExperimentReplayExposureScope,
+                inSessionExposure: ExperimentInSessionExposureApi | null
+            ): ExperimentRecordingsTabContext => ({
+                variant_count: variantKeys.length,
+                metric_count: metricOptions.length,
+                linkable_metric_count: metricOptions.filter((option) => !option.unlinkable).length,
+                // The effective scope, so an in-session choice held back by an unavailable verdict
+                // records the population the list actually showed.
+                exposure_scope: effectiveExposureScope,
+                in_session_available: inSessionExposure?.available ?? null,
+                in_session_unavailable_reason: inSessionExposure?.unavailable_reason ?? null,
+                in_session_uses_stamped_fallback: inSessionExposure?.uses_stamped_fallback ?? null,
+            }),
         ],
         // Every uuid-carrying metric: inline primary + secondary, then saved/shared metrics (their
         // definition lives in `saved_metrics[].query`) — the same set the backend
@@ -1042,6 +1083,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                                   experiment_id: experiment.id,
                                   ...(effectiveVariantKey !== null ? { variant: effectiveVariantKey } : {}),
                                   ...(effectiveExposureScope === 'in_session' &&
+                                  !seenTogetherMapLoading &&
                                   bucketSessionIds === undefined &&
                                   selectedWatchCard === null
                                       ? { in_session: true }
@@ -1075,6 +1117,14 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         setSelectedVariantKey: () => {
             if (values.sessionBucketRequest) {
                 actions.loadSessionBucket()
+            }
+        },
+        // A failed availability check leaves the in-session option enabled but inert, because the
+        // scope holds at all sessions until a verdict confirms. Retry on the pick, so recovery
+        // doesn't wait for a remount.
+        setExposureScope: ({ scope }) => {
+            if (scope === 'in_session' && values.inSessionExposure === null && !values.inSessionExposureLoading) {
+                actions.loadInSessionExposure()
             }
         },
         // The shared playlist renders its own "Showing N selected recordings · Show all" control
@@ -1171,11 +1221,16 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             })
         },
         // Both outcomes of the linkability check report the view, since a failed check leaves the
-        // tab running on its fail-open defaults rather than leaving it unusable.
+        // tab running on its fail-open defaults rather than leaving it unusable. The availability
+        // check reports too (it fail-softs to null, so success is its only outcome), and the gates
+        // in reportTabViewed let whichever check settles last send the report.
         loadSeenTogetherSuccess: () => {
             actions.reportTabViewed()
         },
         loadSeenTogetherFailure: () => {
+            actions.reportTabViewed()
+        },
+        loadInSessionExposureSuccess: () => {
             actions.reportTabViewed()
         },
         reportTabViewed: () => {
@@ -1185,12 +1240,18 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             if (cache.reportedTabView) {
                 return
             }
+            // Hold the report until both checks settle: linkable_metric_count needs the linkability
+            // map, and the scope fields need the availability verdict. Each check's completion
+            // re-dispatches this action, so the last one to settle passes both gates. A visit that
+            // ends before then is flushed from beforeUnmount instead.
+            if (!values.linkabilityLoaded && values.seenTogetherMapLoading) {
+                return
+            }
+            if (values.inSessionExposureLoading) {
+                return
+            }
             cache.reportedTabView = true
-            actions.reportExperimentRecordingsTabViewed(props.experiment.id, {
-                variant_count: values.variantKeys.length,
-                metric_count: values.metricOptions.length,
-                linkable_metric_count: values.metricOptions.filter((option) => !option.unlinkable).length,
-            })
+            actions.reportExperimentRecordingsTabViewed(props.experiment.id, values.tabViewContext)
         },
         scannerCrossSellClicked: () => {
             void addProductIntentForCrossSell({
@@ -1243,14 +1304,10 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             actions.loadSessionBucket()
         }
 
-        // The linkability check is shared with the metrics tab, so it can already have settled —
-        // loaded, or failed with no reload coming — before this tab is opened, in which case no
-        // load action follows to report the view off. A check started by this mount is already
-        // loading here, so it reports from the load listeners instead; a prior failure reports
-        // the fail-open defaults, the same posture as a failure that lands while the tab is open.
-        if (values.linkabilityLoaded || !values.seenTogetherMapLoading) {
-            actions.reportTabViewed()
-        }
+        // No reportTabViewed call here: the availability check dispatched above settles after
+        // mount and its success listener sends the report once the linkability check (which can
+        // settle before mount, or fail) has too. beforeUnmount flushes the report for visits
+        // that end before the checks settle.
 
         // Opening the tab is a session-replay cross-sell from experiments.
         void addProductIntentForCrossSell({
@@ -1259,9 +1316,18 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             intent_context: ProductIntentContext.EXPERIMENT_VIEW_RECORDINGS,
         })
     }),
-    // The sidebar singleton normally unmounts alongside this logic and resets itself; this covers the
-    // case where another player keeps it mounted, so the experiment default doesn't leak to it.
-    beforeUnmount(({ actions }) => {
+    beforeUnmount(({ actions, values, cache, props }) => {
+        // A view that ends before the checks settle still counts, with null verdict fields meaning
+        // the check hadn't landed. Sent through the connected action directly: this logic's own
+        // listeners no longer run during beforeUnmount, while connected logics are still mounted.
+        // The dedup cache keeps an already-sent report from repeating.
+        if (!cache.reportedTabView) {
+            cache.reportedTabView = true
+            actions.reportExperimentRecordingsTabViewed(props.experiment.id, values.tabViewContext)
+        }
+        // The sidebar singleton normally unmounts alongside this logic and resets itself; this
+        // covers the case where another player keeps it mounted, so the experiment default
+        // doesn't leak to it.
         actions.setDefaultTab(SessionRecordingSidebarTab.INSPECTOR)
     }),
 ])

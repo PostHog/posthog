@@ -270,10 +270,14 @@ describe('experimentReplayTabLogic', () => {
         pending.actions.setExposureScope('in_session')
 
         expect(pending.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 51 })
+        // The playlist waits too: mounted now it would fire the all-sessions listing only to
+        // replace it the moment the scope confirms.
+        expect(pending.values.playlistHeldForChecks).toBe(true)
 
         resolveCheck(IN_SESSION_AVAILABLE)
         await expectLogic(pending).toFinishAllListeners()
         expect(pending.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 51, in_session: true })
+        expect(pending.values.playlistHeldForChecks).toBe(false)
         pending.unmount()
     })
 
@@ -313,6 +317,14 @@ describe('experimentReplayTabLogic', () => {
         expect(failed.values.exposureInSessionUnavailableReason).toBeNull()
         expect(failed.values.effectiveExposureScope).toBe('all_exposed')
         expect(failed.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 54 })
+        await expectLogic(failed).toFinishAllListeners()
+
+        // Picking the scope again retries the check, so recovery doesn't wait for a remount.
+        ;(experimentsInSessionExposureRetrieve as jest.Mock).mockResolvedValue(IN_SESSION_AVAILABLE)
+        failed.actions.setExposureScope('in_session')
+        await expectLogic(failed).toFinishAllListeners()
+        expect(failed.values.effectiveExposureScope).toBe('in_session')
+        expect(failed.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 54, in_session: true })
         failed.unmount()
     })
 
@@ -330,7 +342,7 @@ describe('experimentReplayTabLogic', () => {
         await expectLogic(fallback).toFinishAllListeners()
         fallback.actions.setExposureScope('in_session')
 
-        expect(fallback.values.exposureUsesStampedFallback).toBe(true)
+        expect(fallback.values.inSessionExposure?.uses_stamped_fallback).toBe(true)
         expect(fallback.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 43, in_session: true })
         expect(fallback.values.recordingsFilters.filter_group).toEqual(EMPTY_FILTER_GROUP)
         fallback.unmount()
@@ -511,9 +523,10 @@ describe('experimentReplayTabLogic', () => {
         pending.unmount()
     })
 
-    it('reports the tab view once, after the linkability check has decided the tab is usable', async () => {
-        // Reported from `afterMount` instead, every view would carry the fail-open defaults, and an
-        // experiment whose exposure event can never match recordings would look like a healthy one.
+    it('reports the tab view once, after the linkability and availability checks have both settled', async () => {
+        // Reported from `afterMount` instead, every view would carry the fail-open defaults and
+        // null scope fields, an experiment whose exposure event can never match recordings would
+        // look like a healthy one, and empty-list sessions could not be split by exposure scope.
         const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
         // Scoped to this experiment: the logic mounted in `beforeEach` reports its own view too.
         const tabViews = (): any[] =>
@@ -524,11 +537,20 @@ describe('experimentReplayTabLogic', () => {
 
         let resolveSeenTogether!: (map: Record<string, boolean>) => void
         seenTogetherSpy.mockReturnValue(new Promise((resolve) => (resolveSeenTogether = resolve)))
+        let resolveAvailability!: (response: InSessionExposureResponse) => void
+        ;(experimentsInSessionExposureRetrieve as jest.Mock).mockReturnValue(
+            new Promise((resolve) => (resolveAvailability = resolve))
+        )
         const pending = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 51 } as Experiment })
         pending.mount()
         expect(tabViews()).toHaveLength(0)
 
+        // The linkability half settled, but the scope fields aren't known yet, so no report.
         resolveSeenTogether({ ...ALL_LINKABLE, purchase: false })
+        await expectLogic(pending).toDispatchActions(['loadSeenTogetherSuccess', 'reportTabViewed'])
+        expect(tabViews()).toHaveLength(0)
+
+        resolveAvailability({ ...IN_SESSION_AVAILABLE, uses_stamped_fallback: true })
         await expectLogic(pending).toFinishAllListeners()
 
         expect(tabViews()).toHaveLength(1)
@@ -537,6 +559,10 @@ describe('experimentReplayTabLogic', () => {
             variant_count: 2,
             metric_count: 2,
             linkable_metric_count: 1,
+            exposure_scope: 'all_exposed',
+            in_session_available: true,
+            in_session_unavailable_reason: null,
+            in_session_uses_stamped_fallback: true,
         })
 
         // The check is shared with the metrics tab and reloads when the experiment's metrics change,
@@ -547,11 +573,35 @@ describe('experimentReplayTabLogic', () => {
         pending.unmount()
     })
 
+    it('flushes the tab view at unmount when the availability check has not settled', async () => {
+        // A bounce before the availability round trip completes must still count as a view; the
+        // verdict fields stay null, meaning unknown rather than unavailable.
+        const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
+        const tabViews = (): any[] =>
+            captureSpy.mock.calls.filter(
+                ([event, properties]) =>
+                    event === 'experiment recordings tab viewed' && (properties as any)?.experiment_id === 55
+            )
+        ;(experimentsInSessionExposureRetrieve as jest.Mock).mockReturnValue(new Promise(() => {}))
+        const bounced = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 55 } as Experiment })
+        bounced.mount()
+        await expectLogic(bounced).toDispatchActions(['loadSeenTogetherSuccess'])
+        expect(tabViews()).toHaveLength(0)
+
+        bounced.unmount()
+        expect(tabViews()).toHaveLength(1)
+        expect(tabViews()[0][1]).toMatchObject({
+            experiment_id: 55,
+            in_session_available: null,
+            in_session_uses_stamped_fallback: null,
+        })
+    })
+
     it('reports the tab view when the linkability check had already failed before the tab opened', async () => {
         // The shared check can settle as a failure while the user is still on the metrics tab.
-        // No load action follows once this tab mounts, so the view must be reported from
-        // `afterMount` — with the fail-open defaults, the same posture as a failure that lands
-        // while the tab is open.
+        // No linkability load action follows once this tab mounts, so the availability check's
+        // completion is what sends the report, with the fail-open defaults, the same posture as
+        // a failure that lands while the tab is open.
         const captureSpy = jest.spyOn(posthog, 'capture').mockReturnValue(undefined as any)
         const tabViews = (): any[] =>
             captureSpy.mock.calls.filter(

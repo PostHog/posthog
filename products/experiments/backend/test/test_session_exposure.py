@@ -19,8 +19,8 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
 def _string_constants(node: object) -> set[str]:
-    """Every string literal in a HogQL expression tree, so a test can assert which key a condition
-    matches on without depending on the tree's shape."""
+    # Every string literal in a HogQL expression tree, so a test can assert which key a condition
+    # matches on without depending on the tree's shape.
     found: set[str] = set()
 
     def walk(current: object) -> None:
@@ -92,7 +92,7 @@ class TestSessionExposureTombstonedFlag(BaseTest):
     def test_stamped_fallback_uses_the_original_key_not_the_tombstone(self) -> None:
         experiment = self._tombstoned_experiment()
         # No $session_id trace for the default event, so it falls back to the stamped
-        # $feature/<key> property — which must name the original key, not the renamed one.
+        # $feature/<key> property, which must name the original key, not the renamed one.
         exposure = resolve_session_exposure(self.team, experiment, event_names=frozenset())
 
         assert exposure.used_fallback is True
@@ -100,10 +100,9 @@ class TestSessionExposureTombstonedFlag(BaseTest):
         assert ":deleted:" not in exposure.variant_property
 
 
+# The seam the recordings query's in_session refusal and the tab's scope control both read, so
+# they can't drift on whether the scope is available or on the fallback caveat.
 class TestResolveInSessionExposureSemantics(BaseTest):
-    """The seam the recordings query's in_session refusal and the tab's scope control both read,
-    so they can't drift on whether the scope is available or on the fallback caveat."""
-
     def _experiment(self, exposure_criteria: dict | None = None) -> Experiment:
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -144,7 +143,7 @@ class TestResolveInSessionExposureSemantics(BaseTest):
     def test_available_but_flags_the_stamped_fallback_for_a_server_side_default_event(self) -> None:
         # No EventProperty row marks the default event as ever session-linked, so evidence is the
         # stamped flag property. The scope still answers, but the copy must say the flag was active,
-        # not that the exposure was captured — so the caveat has to reach the tab.
+        # not that the exposure was captured, so the caveat has to reach the tab.
         experiment = self._experiment()
 
         semantics = resolve_in_session_exposure_semantics(self.team, experiment)

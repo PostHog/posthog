@@ -20,6 +20,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
 from posthog.models import Team, User
@@ -249,22 +250,27 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             # with its status, machine code, and narrow-your-filters guidance, is honest for
             # every cause.
             settings_args["max_memory_usage"] = linkage.live_scan_max_memory_bytes
-        if self._query.experiment_exposure is not None and self._query.experiment_exposure.in_session:
+        in_session_narrowed = linkage is not None and linkage.session_exposure is not None
+        if in_session_narrowed:
             # Under a "break" timeout profile a timed-out evidence subquery would return a partial
             # session set, silently listing fewer in-session recordings. A partial result is worse
             # than an error here, so the execution-time kill must throw.
             settings_args["timeout_overflow_mode"] = "throw"
 
         with tracer.start_as_current_span("SessionRecordingListFromQuery.paginate"):
-            paginated_response = self._paginator.execute_hogql_query(
-                # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
-                query=cast(ast.SelectQuery, query),
-                team=self._team,
-                user=self._user,
-                query_type="SessionRecordingListQuery",
-                modifiers=self._hogql_query_modifiers,
-                settings=HogQLGlobalSettings(**settings_args),
-            )
+            # Tagged around the listing execution only, so the tag marks exactly the queries that
+            # carry the evidence scan and its GLOBAL IN set: the precompute builds that run during
+            # linkage resolution and the blocklist probe below stay untagged.
+            with tags_context(**({"experiment_exposures_in_session": True} if in_session_narrowed else {})):
+                paginated_response = self._paginator.execute_hogql_query(
+                    # TODO I guess the paginator needs to know how to handle union queries or all callers are supposed to collapse them or .... 🤷
+                    query=cast(ast.SelectQuery, query),
+                    team=self._team,
+                    user=self._user,
+                    query_type="SessionRecordingListQuery",
+                    modifiers=self._hogql_query_modifiers,
+                    settings=HogQLGlobalSettings(**settings_args),
+                )
 
         # After the results are in, check whether the exclusion blocklist hit its row cap,
         # because past the cap the query silently under-excludes. No-op without negated entities, and
@@ -727,20 +733,27 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
 
             self._resolve_experiment_exposure()
             assert self._experiment_exposure_linkage is not None
+            # Evidence lives inside the sessions being listed, so scanning outside the query's own
+            # range (with the ±1 day session buffer the console-logs subquery also uses) could only
+            # nominate sessions the date predicates already exclude. Skipped when pinned session_ids
+            # bypass the date window above: the listing then admits sessions from outside the range,
+            # so their evidence must stay in scope too.
+            clamp = not bypass_date_window
             exprs.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.GlobalIn,
                     left=ast.Field(chain=["s", "session_id"]),
-                    # Evidence lives inside the sessions being listed, so scanning outside the
-                    # query's own range (with the ±1 day session buffer the console-logs subquery
-                    # also uses) could only nominate sessions the date predicates already exclude.
                     right=exposed_session_ids_select(
                         self._experiment_exposure_linkage,
                         clamp_date_from=(
-                            self.query_date_range.date_from() - timedelta(days=1) if self._query.date_from else None
+                            self.query_date_range.date_from() - timedelta(days=1)
+                            if clamp and self._query.date_from
+                            else None
                         ),
                         clamp_date_to=(
-                            self.query_date_range.date_to() + timedelta(days=1) if self._query.date_to else None
+                            self.query_date_range.date_to() + timedelta(days=1)
+                            if clamp and self._query.date_to
+                            else None
                         ),
                     ),
                 )
