@@ -25,10 +25,12 @@ const FALLBACK_EFFORTS: ReasoningEffortEnumApi[] = [
     ReasoningEffortEnumApi.High,
 ]
 
-// The efforts the backend will accept for a model, read off the shared catalog the backend validates against.
-// Falls back to the generic floor for a model the catalog doesn't name. Both the catalog's effort names and
-// `ReasoningEffortEnumApi` are generated from the same Python enum, so the cast restates what codegen guarantees.
-function catalogEffortsFor(model: string): ReasoningEffortEnumApi[] {
+// The efforts the backend accepts for one exact catalog id — enough for the fixed ids below, and deliberately
+// not the general resolver: it does not normalize a provider-qualified id or fall back by family the way
+// `reasoning_efforts_for` does, so do not reuse it for a model id that came from the gateway or a user.
+// Both the catalog's effort names and `ReasoningEffortEnumApi` are generated from the same Python enum, so
+// the cast restates what codegen already guarantees.
+function catalogEffortsForExactId(model: string): ReasoningEffortEnumApi[] {
     const efforts = MODELS.find((entry) => entry.id === model)?.reasoningEfforts
     return efforts?.length ? (efforts as ReasoningEffortEnumApi[]) : FALLBACK_EFFORTS
 }
@@ -42,13 +44,13 @@ export const FALLBACK_MODEL_CHOICES: ModelChoiceApi[] = [
         runtime_adapter: RuntimeAdapterEnumApi.Claude,
         model: 'claude-sonnet-5',
         display_name: 'Claude Sonnet 5',
-        supported_efforts: catalogEffortsFor('claude-sonnet-5'),
+        supported_efforts: catalogEffortsForExactId('claude-sonnet-5'),
     },
     {
         runtime_adapter: RuntimeAdapterEnumApi.Claude,
         model: 'claude-opus-5',
         display_name: 'Claude Opus 5',
-        supported_efforts: catalogEffortsFor('claude-opus-5'),
+        supported_efforts: catalogEffortsForExactId('claude-opus-5'),
     },
 ]
 
