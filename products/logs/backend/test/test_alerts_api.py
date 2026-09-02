@@ -25,6 +25,7 @@ from products.logs.backend.alert_utils import compute_shard_offset_seconds
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.presentation.views.alerts_api import (
     ALLOWED_WINDOW_MINUTES,
+    BELOW_ONLY_WINDOW_MINUTES,
     LOGS_ALERT_EVENT_IDS,
     MAX_ALERTS_PER_TEAM,
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
@@ -534,6 +535,39 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "window_minutes"
+
+    @parameterized.expand([(w,) for w in sorted(BELOW_ONLY_WINDOW_MINUTES)])
+    def test_create_accepts_wide_window_for_below_operator(self, window):
+        response = self.client.post(
+            self.base_url,
+            self._valid_payload(window_minutes=window, threshold_operator="below"),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    @parameterized.expand([(w,) for w in sorted(BELOW_ONLY_WINDOW_MINUTES)])
+    def test_create_rejects_wide_window_for_above_operator(self, window):
+        response = self.client.post(
+            self.base_url,
+            self._valid_payload(window_minutes=window, threshold_operator="above"),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "window_minutes"
+
+    def test_switching_an_above_alert_with_a_wide_window_to_below_is_allowed(self):
+        created = self.client.post(
+            self.base_url,
+            self._valid_payload(window_minutes=60, threshold_operator="above"),
+            format="json",
+        ).json()
+
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"window_minutes": 1440, "threshold_operator": "below"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
 
     # --- Validation: N-of-M ---
 
@@ -1953,6 +1987,15 @@ class TestLogsAlertAPI(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_simulate_rejects_wide_window_for_above_operator(self):
+        response = self.client.post(
+            self._simulate_url(),
+            self._simulate_payload(window_minutes=1440, threshold_operator="above"),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "window_minutes"
 
     def test_simulate_rejects_n_greater_than_m(self):
         response = self.client.post(

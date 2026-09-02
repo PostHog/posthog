@@ -35,6 +35,15 @@ const WINDOW_OPTIONS = [
     { value: 60, label: '60 minutes' },
 ]
 
+// Only valid with threshold_operator=below: a wide window turns the alert into an
+// absence check ("nothing matched for this long"), which above doesn't support.
+const BELOW_ONLY_WINDOW_OPTIONS = [
+    { value: 120, label: '2 hours' },
+    { value: 360, label: '6 hours' },
+    { value: 720, label: '12 hours' },
+    { value: 1440, label: '24 hours' },
+]
+
 const taxonomicFilterLogicKey = 'logs-alert'
 const taxonomicGroupTypes = [
     TaxonomicFilterGroupType.Logs,
@@ -315,11 +324,24 @@ function LogsAlertTriggerRow(): JSX.Element {
         )
     }
 
+    const isBelow = alertForm.thresholdOperator === LogsAlertThresholdOperatorEnumApi.Below
+    const windowOptions = isBelow ? [...WINDOW_OPTIONS, ...BELOW_ONLY_WINDOW_OPTIONS] : WINDOW_OPTIONS
+
     return (
         <AlertDefinitionRow label="Alert if count goes">
             <LemonSegmentedButton
                 value={alertForm.thresholdOperator}
-                onChange={(value) => setAlertFormValue('thresholdOperator', value)}
+                onChange={(value) => {
+                    setAlertFormValue('thresholdOperator', value)
+                    // A wide window is only valid for "below". Reset it so switching to
+                    // "above" doesn't leave the form holding a value the API will reject.
+                    if (
+                        value === LogsAlertThresholdOperatorEnumApi.Above &&
+                        BELOW_ONLY_WINDOW_OPTIONS.some((o) => o.value === alertForm.windowMinutes)
+                    ) {
+                        setAlertFormValue('windowMinutes', 10)
+                    }
+                }}
                 options={[
                     { value: LogsAlertThresholdOperatorEnumApi.Above, label: 'above' },
                     { value: LogsAlertThresholdOperatorEnumApi.Below, label: 'below' },
@@ -339,7 +361,7 @@ function LogsAlertTriggerRow(): JSX.Element {
             <LemonSelect
                 value={alertForm.windowMinutes}
                 onChange={(value) => setAlertFormValue('windowMinutes', value ?? 10)}
-                options={WINDOW_OPTIONS}
+                options={windowOptions}
                 size="small"
             />
         </AlertDefinitionRow>

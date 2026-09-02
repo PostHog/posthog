@@ -33,19 +33,22 @@ _BROKEN_ERRORED_BASE_DATA: dict[str, str] = {
     "alert_url": "{project.url}/logs/alerts/{event.properties.alert_id}",
 }
 
+# A below-threshold alert with zero matching logs is an absence check, so it reads
+# better as "no logs for N minutes" than as "0 logs (threshold: below 1)".
+_FIRING_DETAIL = (
+    "{if(event.properties.result_count = 0 and event.properties.threshold_operator = 'below',"
+    " concat('No matching logs for ', event.properties.window_minutes, ' minutes'),"
+    " concat(event.properties.result_count, ' logs in ', event.properties.window_minutes, 'm (threshold: ',"
+    " event.properties.threshold_operator, ' ', event.properties.threshold_count, ')'))}"
+)
+
 
 EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
     "firing": EventKindSpec(
         event_id="$logs_alert_firing",
         display_kind="firing",
         header="🔴 Log alert '{event.properties.alert_name}' is firing",
-        details=(
-            (
-                "Threshold breached",
-                "{event.properties.result_count} logs in {event.properties.window_minutes}m "
-                "(threshold: {event.properties.threshold_operator} {event.properties.threshold_count})",
-            ),
-        ),
+        details=(("Threshold breached", _FIRING_DETAIL),),
         primary_action_url="{project.url}/logs?{event.properties.logs_url_params}",
         primary_action_label="View logs",
         webhook_body={

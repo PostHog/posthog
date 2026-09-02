@@ -78,6 +78,10 @@ from products.logs.backend.pattern_alert_check_query import (
 from products.logs.backend.pattern_alert_evaluator import DEFAULT_SEED_LOOKBACK_DAYS, MAX_SEED_LOOKBACK_DAYS
 
 ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
+# Extra window sizes allowed only for threshold_operator=below, where a wide window
+# means "alert when nothing matching has logged for this long" (an absence check).
+# Widening this for "above" too would mostly just delay a real spike being noticed.
+BELOW_ONLY_WINDOW_MINUTES = {120, 360, 720, 1440}
 MAX_ALERTS_PER_TEAM = 20
 LOGS_ALERT_EVENT_IDS: Final = tuple(spec.event_id for spec in EVENT_KIND_CONFIG.values())
 # Comma-separated team IDs that bypass MAX_ALERTS_PER_TEAM. Configured via
@@ -284,7 +288,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     )
     window_minutes = serializers.IntegerField(
         default=5,
-        help_text="Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60.",
+        help_text="Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60, "
+        "and, only with threshold_operator=below, also 120, 360, 720, 1440 (for detecting a service gone silent).",
     )
     check_interval_minutes = serializers.IntegerField(
         read_only=True,
@@ -562,8 +567,13 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             _validate_filters(filters)
 
         window = attrs.get("window_minutes", getattr(self.instance, "window_minutes", None))
-        if window is not None and window not in ALLOWED_WINDOW_MINUTES:
-            raise ValidationError({"window_minutes": f"Must be one of {sorted(ALLOWED_WINDOW_MINUTES)}."})
+        operator = attrs.get(
+            "threshold_operator",
+            getattr(self.instance, "threshold_operator", LogsAlertConfiguration.ThresholdOperator.ABOVE),
+        )
+        allowed_windows = _allowed_window_minutes(operator)
+        if window is not None and window not in allowed_windows:
+            raise ValidationError({"window_minutes": f"Must be one of {sorted(allowed_windows)}."})
 
         trigger_type = attrs.get(
             "trigger_type", getattr(self.instance, "trigger_type", LogsAlertConfiguration.TriggerType.COUNT)
@@ -703,6 +713,12 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                     schedule_restriction=schedule_restriction,
                 )
             return super().create(validated_data)
+
+
+def _allowed_window_minutes(threshold_operator: str) -> set[int]:
+    if threshold_operator == LogsAlertConfiguration.ThresholdOperator.BELOW:
+        return ALLOWED_WINDOW_MINUTES | BELOW_ONLY_WINDOW_MINUTES
+    return ALLOWED_WINDOW_MINUTES
 
 
 def _validate_filters(filters: dict) -> None:
@@ -890,12 +906,10 @@ class LogsAlertSimulateRequestSerializer(serializers.Serializer):
             raise ValidationError(f"date_from cannot be more than {MAX_SIMULATE_LOOKBACK_DAYS} days in the past.")
         return value
 
-    def validate_window_minutes(self, value: int) -> int:
-        if value not in ALLOWED_WINDOW_MINUTES:
-            raise ValidationError(f"Must be one of {sorted(ALLOWED_WINDOW_MINUTES)}.")
-        return value
-
     def validate(self, attrs: dict) -> dict:
+        allowed_windows = _allowed_window_minutes(attrs["threshold_operator"])
+        if attrs["window_minutes"] not in allowed_windows:
+            raise ValidationError({"window_minutes": f"Must be one of {sorted(allowed_windows)}."})
         if (
             attrs.get("trigger_type", LogsAlertConfiguration.TriggerType.COUNT)
             != LogsAlertConfiguration.TriggerType.COUNT
