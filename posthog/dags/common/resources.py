@@ -224,6 +224,8 @@ class PostgresResource(dagster.ConfigurableResource):
     password: str
 
     def create_resource(self, context: dagster.InitResourceContext) -> psycopg2.extensions.connection:
+        # Without a timeout a blackholed route hangs this connect for the OS TCP timeout
+        # (about two minutes) and the step emits nothing while it waits.
         return psycopg2.connect(
             host=self.host,
             port=int(self.port),
@@ -231,6 +233,7 @@ class PostgresResource(dagster.ConfigurableResource):
             user=self.user,
             password=self.password,
             cursor_factory=psycopg2.extras.RealDictCursor,
+            connect_timeout=10,
         )
 
 
@@ -272,6 +275,20 @@ class PostgresURLResource(dagster.ConfigurableResource):
             password=parsed.password or "",
         )
         return pg.create_resource(context)
+
+
+class PostgresURL(dagster.ConfigurableResource):
+    """A Postgres connection URL handed to the op unopened.
+
+    An op that connects in its own body turns a connect failure into a step failure, which is
+    what lets failure hooks run; a connection opened at resource init fails before the step
+    exists and no hook fires. It also lets a dry run skip the connect entirely.
+    """
+
+    connection_url: str
+
+    def create_resource(self, context: dagster.InitResourceContext) -> str:
+        return self.connection_url
 
 
 @dagster.resource

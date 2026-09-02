@@ -35,7 +35,7 @@ from posthog.api.cohort import BATCH_FLAG_EVALUATION_PAGE_ATTEMPTS, get_cohort_a
 from posthog.api.services.flags_service import FlagVersionConflictError
 from posthog.constants import AvailableFeature
 from posthog.models import TaggedItem, User
-from posthog.models.group.util import create_group
+from posthog.models.group.util import create_group, raw_create_group_ch
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
@@ -10119,6 +10119,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                 group_key=f"org:{i}",
                 properties={"industry": f"{i}"},
             )
+        # A property update writes a second ClickHouse row for the same key; it is still one group.
+        raw_create_group_ch(self.team.pk, 1, "org:0", {"industry": "updated"}, created_at=now())
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",

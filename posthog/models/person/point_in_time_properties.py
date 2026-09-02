@@ -105,6 +105,50 @@ def get_distinct_ids_for_person_identifier(
     return distinct_ids
 
 
+def _validate_build_inputs(timestamp: datetime, distinct_ids: list[str], row_limit: int) -> None:
+    if not isinstance(timestamp, datetime):
+        raise ValueError("timestamp must be a datetime object")
+
+    if not isinstance(distinct_ids, list) or not distinct_ids:
+        raise ValueError("distinct_ids must be a non-empty list")
+
+    if not all(isinstance(did, str) and did for did in distinct_ids):
+        raise ValueError("All distinct_ids must be non-empty strings")
+
+    if not isinstance(row_limit, int) or row_limit <= 0:
+        raise ValueError("row_limit must be a positive integer")
+
+
+def _parse_property_json(raw: Any) -> Optional[dict]:
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def _reconstruct_properties(rows: list, include_set_once: bool) -> dict[str, Any]:
+    person_properties: dict[str, Any] = {}
+
+    for row in rows:
+        set_json, set_once_json, event_name = row
+
+        if set_json:
+            set_properties = _parse_property_json(set_json)
+            if set_properties is not None:
+                person_properties.update(set_properties)
+
+        # $set_once semantics only apply to dedicated $set_once events.
+        if include_set_once and event_name == "$set_once" and set_once_json:
+            set_once_properties = _parse_property_json(set_once_json)
+            if set_once_properties is not None:
+                for key, value in set_once_properties.items():
+                    if key not in person_properties:
+                        person_properties[key] = value
+
+    return person_properties
+
+
 def build_person_properties_at_time(
     team: "Team",
     timestamp: datetime,
@@ -132,18 +176,7 @@ def build_person_properties_at_time(
     Raises:
         ValueError: If parameters are invalid
     """
-    # Validation
-    if not isinstance(timestamp, datetime):
-        raise ValueError("timestamp must be a datetime object")
-
-    if not isinstance(distinct_ids, list) or not distinct_ids:
-        raise ValueError("distinct_ids must be a non-empty list")
-
-    if not all(isinstance(did, str) and did for did in distinct_ids):
-        raise ValueError("All distinct_ids must be non-empty strings")
-
-    if not isinstance(row_limit, int) or row_limit <= 0:
-        raise ValueError("row_limit must be a positive integer")
+    _validate_build_inputs(timestamp, distinct_ids, row_limit)
 
     if include_set_once:
         event_filter = "event IN ('$set', '$set_once') OR JSONHas(properties, '$set')"
@@ -189,30 +222,4 @@ def build_person_properties_at_time(
         context=HogQLContext(team_id=team.pk, limit_top_select=False),
     )
 
-    person_properties: dict[str, Any] = {}
-
-    for row in response.results:
-        set_json, set_once_json, event_name = row
-
-        if set_json:
-            try:
-                set_properties = json.loads(set_json)
-            except (json.JSONDecodeError, TypeError):
-                set_properties = None
-
-            if isinstance(set_properties, dict):
-                person_properties.update(set_properties)
-
-        # $set_once semantics only apply to dedicated $set_once events.
-        if include_set_once and event_name == "$set_once" and set_once_json:
-            try:
-                set_once_properties = json.loads(set_once_json)
-            except (json.JSONDecodeError, TypeError):
-                set_once_properties = None
-
-            if isinstance(set_once_properties, dict):
-                for key, value in set_once_properties.items():
-                    if key not in person_properties:
-                        person_properties[key] = value
-
-    return person_properties
+    return _reconstruct_properties(response.results, include_set_once)

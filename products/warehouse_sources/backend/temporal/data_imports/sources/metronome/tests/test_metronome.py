@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.metronome.metronome import (
+    EPOCH_RFC_3339,
     MetronomeCursorPaginator,
     MetronomeResumeConfig,
     _format_rfc3339,
@@ -116,7 +117,7 @@ class TestMetronomeResources:
         assert "incremental" not in resource["endpoint"]
         assert "starting_on" not in resource["endpoint"]["params"]
 
-    @parameterized.expand([("customers",), ("products",), ("packages",), ("billable_metrics",)])
+    @parameterized.expand([("customers",), ("products",), ("packages",), ("billable_metrics",), ("plans",), ("usage",)])
     def test_endpoints_without_a_time_filter_never_go_incremental(self, endpoint) -> None:
         # Metronome exposes no created/updated filter on these, so an "incremental" sync would
         # still fetch every page and cost the same as a full refresh.
@@ -145,6 +146,17 @@ class TestMetronomeResources:
         with pytest.raises(ValueError, match="Fan-out endpoint"):
             get_resource(endpoint, should_use_incremental_field=False)
 
+    def test_usage_resource_sends_the_full_window_in_the_body(self) -> None:
+        # `POST /v1/usage` rejects the request unless the body carries `window_size`, `starting_on`
+        # and `ending_before`. `ending_before` is the sync time, so it can't be a static default.
+        resource = cast(dict[str, Any], get_resource("usage", should_use_incremental_field=False))
+
+        assert resource["endpoint"]["method"] == "post"
+        body = resource["endpoint"]["json"]
+        assert body["window_size"] == "none"
+        assert body["starting_on"] == EPOCH_RFC_3339
+        assert body["ending_before"] > EPOCH_RFC_3339
+
 
 class TestMetronomeSourceResponse:
     @parameterized.expand(
@@ -152,6 +164,8 @@ class TestMetronomeSourceResponse:
             ("customers", ["id"], "created_at"),
             ("audit_logs", ["id"], "timestamp"),
             ("pricing_units", ["id"], None),
+            ("plans", ["id"], None),
+            ("usage", ["customer_id", "billable_metric_id"], None),
         ]
     )
     @patch(f"{TRANSPORT}.rest_api_resource")
@@ -160,6 +174,9 @@ class TestMetronomeSourceResponse:
 
         assert response.primary_keys == primary_keys
         assert response.partition_keys == ([partition_key] if partition_key else None)
+        # Each of these tables walks the resume path, whose checkpoint advances per page, so the
+        # batcher must flush one page at a time or a resumed sync appends past unflushed pages.
+        assert response.chunk_size == 1
 
     @patch(f"{TRANSPORT}.rest_api_resource")
     def test_resume_state_seeds_the_paginator_cursor(self, mock_rest_api_resource) -> None:
@@ -172,6 +189,63 @@ class TestMetronomeSourceResponse:
         )
 
         assert mock_rest_api_resource.call_args.kwargs["initial_paginator_state"] == {"cursor": "cursor-9"}
+
+    @parameterized.expand(
+        [
+            # Stored a cutoff: replay that exact window and resume from its cursor, keeping the key.
+            (
+                "with_stored_window",
+                MetronomeResumeConfig(next_page="cursor-9", ending_before="2020-06-01T00:00:00Z"),
+                "2020-06-01T00:00:00Z",
+                {"cursor": "cursor-9"},
+                False,
+            ),
+            # A checkpoint written before the cutoff was stored carries none, so the walk restarts
+            # with a fresh window and no seeded cursor rather than mixing two windows. The stale key
+            # is cleared so the pipeline's own resume probe doesn't append onto the partial table.
+            ("pre_window_checkpoint", MetronomeResumeConfig(next_page="cursor-9"), None, None, True),
+        ]
+    )
+    @patch(f"{TRANSPORT}.rest_api_resource")
+    def test_resumed_usage_run_pins_the_window(
+        self,
+        _name,
+        resume_state,
+        expected_window,
+        expected_paginator_state,
+        expect_state_cleared,
+        mock_rest_api_resource,
+    ) -> None:
+        manager = MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = resume_state
+
+        metronome_source(api_key="tok", endpoint="usage", team_id=1, job_id="job-1", resumable_source_manager=manager)
+
+        body = mock_rest_api_resource.call_args.args[0]["resources"][0]["endpoint"]["json"]
+        if expected_window is not None:
+            assert body["ending_before"] == expected_window
+        else:
+            assert body["ending_before"] > EPOCH_RFC_3339
+        assert mock_rest_api_resource.call_args.kwargs["initial_paginator_state"] == expected_paginator_state
+        assert manager.clear_state.called == expect_state_cleared
+
+    @patch(f"{TRANSPORT}.rest_api_resource")
+    def test_usage_checkpoint_saves_the_window_it_synced_with(self, mock_rest_api_resource) -> None:
+        # The cutoff written into the request body and the cutoff saved for a resume must be the
+        # same instant, or a retry can't replay the identical window.
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+
+        metronome_source(api_key="tok", endpoint="usage", team_id=1, job_id="job-1", resumable_source_manager=manager)
+
+        synced_window = mock_rest_api_resource.call_args.args[0]["resources"][0]["endpoint"]["json"]["ending_before"]
+        save_checkpoint = mock_rest_api_resource.call_args.kwargs["resume_hook"]
+        save_checkpoint({"cursor": "cursor-3"})
+
+        manager.save_state.assert_called_once_with(
+            MetronomeResumeConfig(next_page="cursor-3", ending_before=synced_window)
+        )
 
     @patch(f"{TRANSPORT}.build_dependent_resource")
     def test_invoices_fan_out_over_customers(self, mock_build) -> None:
@@ -208,6 +282,9 @@ class TestMetronomeBodyFanout:
             [{"id": "contract_1", "customer_id": "cust_1"}],
             [{"id": "contract_2", "customer_id": "cust_2"}],
         ]
+        # Fan-out tables don't resume, so they keep the default chunk size — a per-page flush here
+        # would cost a Delta commit per page on the largest tables for no durability gain.
+        assert response.chunk_size is None
         child_calls = client.paginate.call_args_list[1:]
         assert [call.kwargs["json"] for call in child_calls] == [
             {"include_archived": True, "customer_id": "cust_1"},

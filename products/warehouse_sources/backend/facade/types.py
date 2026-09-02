@@ -365,6 +365,7 @@ class ExternalDataSourceType(models.TextChoices):
     CUSTOMERLY = "Customerly", "Customerly"
     DATASCOPE = "Datascope", "Datascope"
     DBT = "Dbt", "Dbt"
+    DEMODESK = "Demodesk", "Demodesk"
     DEPUTY = "Deputy", "Deputy"
     DEVINAI = "DevinAI", "DevinAI"
     DOCUSEAL = "Docuseal", "Docuseal"
