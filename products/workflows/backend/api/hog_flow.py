@@ -112,7 +112,7 @@ from products.messaging.backend.models import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError, render_design_html
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, available_model_choices
-from products.tasks.backend.facade.workflow_tasks import WorkflowTaskConnectorsInvalid, validate_connectors
+from products.tasks.backend.facade.workflow_tasks import WorkflowTaskConnectorsInvalid, resolve_connectors
 from products.workflows.backend.api.action_redirects import compute_action_redirects
 from products.workflows.backend.api.graph_operations import _deep_merge, apply_graph_operations
 from products.workflows.backend.api.graph_validation import validate_graph
@@ -1310,15 +1310,20 @@ class HogFlowActionSerializer(serializers.Serializer):
         connectors = (inputs.get("connectors") or {}).get("value")
         if connectors:
             get_team = self.context.get("get_team")
-            owner_id = self.context.get("workflow_owner_id")
-            # No team/owner to check against outside a request (internal re-saves) - nothing
-            # new is being authored there, so there is nothing to validate.
-            if get_team is not None and owner_id is not None:
+            # No team to check against outside a request (internal re-saves) - nothing new is
+            # being authored there, so there is nothing to validate.
+            if get_team is not None:
                 try:
-                    validate_connectors(get_team().id, owner_id, connectors)
+                    resolve_connectors(get_team().id, connectors)
                 except WorkflowTaskConnectorsInvalid as e:
                     raise serializers.ValidationError(
-                        {"inputs": {"connectors": f"MCP installation(s) not found or inactive: {e.invalid_ids}"}}
+                        {
+                            "inputs": {
+                                "connectors": (
+                                    f"MCP server(s) not shared with the project or disabled: {e.invalid_ids}"
+                                )
+                            }
+                        }
                     )
 
         repository = (inputs.get("repository") or {}).get("value")
@@ -2564,17 +2569,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         # When used as a nested field (the `configuration` override on test invocations) DRF never
         # binds `self.instance`, so fall back to the flow passed in via context so recovery still works.
         instance = cast(Optional[HogFlow], self.instance) or self.context.get("instance")
-
-        # Who a "Create AI task" step runs as: the existing creator for an update, or the
-        # requesting user for a brand-new flow (matches the `created_by` a create() actually
-        # writes). None outside a request (internal re-saves), where connector checks are skipped.
-        owner = instance.created_by if instance else None
-        if owner is None:
-            request = self.context.get("request")
-            user = getattr(request, "user", None)
-            if user is not None and getattr(user, "is_authenticated", False):
-                owner = user
-        self.context["workflow_owner_id"] = owner.id if owner else None
 
         # Wait conditions the live flow already carries, so per-action validation can tell a newly
         # introduced clock condition from one we have been storing all along. Seeded here because
