@@ -605,11 +605,17 @@ class _FakeCursor:
         self.closed = True
 
 
+# A `$gt: null` resume predicate still resumes: null sorts before every other _id, so the predicate
+# selects every non-null document. This marker keeps it distinct from "no resume predicate at all".
+_RESUME_FROM_NULL = object()
+
+
 def _resume_after(query: dict[str, Any]) -> Any:
     for clause in query.get("$and", [query]):
         predicate = clause.get("_id")
         if isinstance(predicate, dict) and "$gt" in predicate:
-            return predicate["$gt"]
+            value = predicate["$gt"]
+            return _RESUME_FROM_NULL if value is None else value
     return None
 
 
@@ -662,8 +668,10 @@ class _FakeCollection:
                 self._fallback_error_raised = True
                 error, error_after = self._fallback_error, self._fallback_error_after
         resume_after = _resume_after(query)
-        if resume_after is not None:
-            docs = [doc for doc in docs if doc["_id"] > resume_after]
+        if resume_after is _RESUME_FROM_NULL:
+            docs = [doc for doc in docs if doc["_id"] is not None]
+        elif resume_after is not None:
+            docs = [doc for doc in docs if doc["_id"] is not None and doc["_id"] > resume_after]
         cursor = _FakeCursor(docs, error, error_after)
         self.cursors.append(cursor)
         self.last_cursor = cursor
@@ -752,6 +760,24 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
         assert collection.find_queries[-1] == {"_id": {"$gt": "2"}}
         # The resumed read keeps the option, so it doesn't reintroduce the idle timeout.
         assert collection.find_calls[-1]["no_cursor_timeout"] is True
+
+    def test_null_first_id_resumes_with_a_predicate_rather_than_restarting(self):
+        # MongoDB allows a BSON null `_id`. Reading it still counts as progress, so a cursor killed
+        # right after must resume with an `_id > null` predicate (which selects every non-null
+        # document) rather than reopen with no predicate and re-read from the start. Regression: the
+        # "nothing read yet" sentinel used to be `last_id is None`, which a null `_id` collides with,
+        # so the resume dropped its predicate and re-emitted the first document.
+        collection = _FakeCollection(
+            [{"_id": None}, {"_id": "1"}, {"_id": "2"}],
+            error=CursorNotFound("cursor id 123 not found"),
+            error_after=1,
+            error_once=True,
+        )
+
+        rows = self._run_get_rows(collection)
+
+        assert [row["_id"] for row in rows] == ["None", "1", "2"]
+        assert collection.find_queries[-1] == {"_id": {"$gt": None}}
 
     @parameterized.expand(
         [

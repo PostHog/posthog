@@ -656,7 +656,11 @@ def mongo_source(
                 db_incremental_field_last_value,
             )
 
-            last_id: Any = None
+            # MongoDB allows a BSON null `_id`, so "no document read yet" can't be `last_id is None`.
+            # A null first document would leave the sentinel indistinguishable from the unread state
+            # and make a resumed read restart from the beginning. Track the unread state separately.
+            _UNSET = object()
+            last_id: Any = _UNSET
 
             def open_cursor(*, no_cursor_timeout: bool) -> Cursor[Any]:
                 # Sorting by _id makes the read order deterministic, which is what lets a killed
@@ -665,7 +669,9 @@ def mongo_source(
                 # first one included, because an unordered read can't be resumed: the documents left
                 # behind an unordered scan aren't the ones an `_id` predicate selects, so resuming it
                 # would skip rows.
-                clauses = [clause for clause in (query, {} if last_id is None else {"_id": {"$gt": last_id}}) if clause]
+                clauses = [
+                    clause for clause in (query, {} if last_id is _UNSET else {"_id": {"$gt": last_id}}) if clause
+                ]
                 if not clauses:
                     resume_query: dict[str, Any] = {}
                 elif len(clauses) == 1:
@@ -738,7 +744,7 @@ def mongo_source(
                         # yielded, so retrying without it can't duplicate rows. The tradeoff is that
                         # the server-side idle timeout applies again — hence the CursorNotFound
                         # resume above.
-                        if last_id is not None or not _is_no_cursor_timeout_unsupported(e):
+                        if last_id is not _UNSET or not _is_no_cursor_timeout_unsupported(e):
                             raise
                         logger.debug(
                             f"MongoDB: no_cursor_timeout disallowed for collection={collection_name}; retrying without it"
