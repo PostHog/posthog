@@ -695,6 +695,13 @@ class ChartDisplayType(StrEnum):
     SCATTER_PLOT = "ScatterPlot"
 
 
+class LegendPosition(StrEnum):
+    TOP = "top"
+    BOTTOM = "bottom"
+    LEFT = "left"
+    RIGHT = "right"
+
+
 class Curve(StrEnum):
     LINEAR = "linear"
     SMOOTH = "smooth"
@@ -2784,13 +2791,6 @@ class FunnelVizType(StrEnum):
     TIME_TO_CONVERT = "time_to_convert"
     TRENDS = "trends"
     FLOW = "flow"
-
-
-class LegendPosition(StrEnum):
-    TOP = "top"
-    BOTTOM = "bottom"
-    LEFT = "left"
-    RIGHT = "right"
 
 
 class Position(StrEnum):
