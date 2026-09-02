@@ -11,11 +11,15 @@ from django.test import SimpleTestCase, override_settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, uuid7
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.stamphog.backend.facade import contracts
 from products.stamphog.backend.facade.enums import ChannelResolutionSource, DigestRunStatus, ReviewMode, ReviewRunStatus
 from products.stamphog.backend.models import DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
@@ -40,6 +44,193 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.url = f"/api/projects/{self.team.id}/stamphog/repo_configs/"
+        # Flipping the review-gating fields takes the manager level, which org admins hold
+        # everywhere. The plain-member cases below cover the other side.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def _create_config(self) -> str:
+        created = self.client.post(self.url, {"repository": "PostHog/posthog", "enabled": True}, format="json").json()
+        return created["id"]
+
+    def _login_as_member(self, *, stamphog_level: str | None = None, grant_team: Team | None = None) -> User:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "member@posthog.com", "testtest")
+        if stamphog_level is not None:
+            AccessControl.objects.create(
+                team=grant_team or self.team,
+                resource="stamphog",
+                resource_id=None,
+                access_level=stamphog_level,
+                organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+            )
+        self.client.force_login(member)
+        return member
+
+    @parameterized.expand(
+        [
+            ("enabled", {"enabled": False}),
+            ("review_mode", {"review_mode": ReviewMode.LABEL}),
+            ("trigger_label", {"trigger_label": "review-me"}),
+        ]
+    )
+    def test_member_cannot_change_a_review_gating_field(self, _name: str, payload: dict) -> None:
+        # These three decide whether a pull request is reviewed at all, so a project member who is
+        # only an editor must not be able to switch reviews off or point them at a label nobody uses.
+        config_id = self._create_config()
+        self._login_as_member()
+
+        response = self.client.patch(f"{self.url}{config_id}/", payload, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert "manager" in response.json()["detail"]
+        assert StamphogRepoConfig.objects.unscoped().get(id=config_id).enabled is True
+
+    def test_member_can_still_change_the_digest_toggle(self) -> None:
+        # The digest only decides who reads about merges, so gating it on manager too would take a
+        # setting away from editors that was never a review decision.
+        config_id = self._create_config()
+        self._login_as_member()
+
+        response = self.client.patch(f"{self.url}{config_id}/", {"digest_enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["digest_enabled"] is True
+
+    @parameterized.expand(
+        [
+            ("names_a_gate_field", {"enabled": True}, status.HTTP_403_FORBIDDEN),
+            ("leaves_the_defaults", {}, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_member_create_is_gated_only_when_it_names_a_review_field(
+        self, _name: str, extra: dict, expected_status: int
+    ) -> None:
+        # Spelling out a review policy is the same decision whichever verb carries it, so create
+        # gates on the field being present, like update does. Connecting a repository without one
+        # stays an editor's job: the row binds disabled at sync and routes no digest until then.
+        self._login_as_member()
+
+        response = self.client.post(self.url, {"repository": "PostHog/new", **extra}, format="json")
+
+        assert response.status_code == expected_status, response.content
+        assert StamphogRepoConfig.objects.unscoped().filter(repository="PostHog/new").exists() is (
+            expected_status == status.HTTP_201_CREATED
+        )
+
+    def test_member_cannot_soft_delete_a_config(self) -> None:
+        # The soft delete flips `enabled` behind a different verb, so gating only PATCH would leave
+        # the same switch reachable through DELETE.
+        config_id = self._create_config()
+        self._login_as_member()
+
+        response = self.client.delete(f"{self.url}{config_id}/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert StamphogRepoConfig.objects.unscoped().get(id=config_id).enabled is True
+
+    def test_member_granted_manager_can_change_a_review_gating_field(self) -> None:
+        # An admin must be able to hand the review switch to somebody through the normal access
+        # control settings, or the manager gate would be an admin-only hardcode.
+        config_id = self._create_config()
+        self._login_as_member(stamphog_level="manager")
+
+        response = self.client.patch(f"{self.url}{config_id}/", {"enabled": False}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["enabled"] is False
+
+    @parameterized.expand(
+        [
+            ("granted_on_the_child", False, status.HTTP_403_FORBIDDEN),
+            ("granted_on_the_parent", True, status.HTTP_200_OK),
+        ]
+    )
+    def test_editor_grant_is_read_on_the_team_that_owns_the_rows(
+        self, _name: str, grant_on_parent: bool, expected_status: int
+    ) -> None:
+        # Same canonicalization as the manager case, one level down: the digest toggle needs editor,
+        # and the level that counts is the one on the team the rows live under, not the URL team.
+        config_id = self._create_config()
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        grant_team = self.team if grant_on_parent else env
+        member = self._login_as_member(stamphog_level="editor", grant_team=grant_team)
+        # "none" on the other team, so the request can only pass on the grant under test.
+        AccessControl.objects.create(
+            team=env if grant_on_parent else self.team,
+            resource="stamphog",
+            resource_id=None,
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{env.id}/stamphog/repo_configs/{config_id}/", {"digest_enabled": True}, format="json"
+        )
+
+        assert response.status_code == expected_status, response.content
+
+    def test_child_project_denial_still_blocks_the_request(self) -> None:
+        # The viewset anchors user_access_control to the parent, so AccessControlPermission can no
+        # longer see the child's own project rules. Somebody the child environment denies must still
+        # be refused, or canonicalizing the resource check would have opened the environment up.
+        config_id = self._create_config()
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        member = self._login_as_member(stamphog_level="manager")
+        AccessControl.objects.create(
+            team=env,
+            resource="project",
+            resource_id=str(env.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{env.id}/stamphog/repo_configs/{config_id}/", {"enabled": False}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert StamphogRepoConfig.objects.unscoped().get(id=config_id).enabled is True
+
+    @parameterized.expand(
+        [
+            ("granted_on_the_child", False, status.HTTP_403_FORBIDDEN),
+            ("granted_on_the_parent", True, status.HTTP_200_OK),
+        ]
+    )
+    def test_manager_grant_is_read_on_the_team_that_owns_the_rows(
+        self, _name: str, grant_on_parent: bool, expected_status: int
+    ) -> None:
+        # stamphog rows canonicalize to the parent team, so the manager check must read the parent
+        # too. Reading the URL team would let a grant on a child environment alone rewrite the
+        # parent's review settings through the child's URL.
+        config_id = self._create_config()
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        self._login_as_member(stamphog_level="manager", grant_team=self.team if grant_on_parent else env)
+
+        response = self.client.patch(
+            f"/api/projects/{env.id}/stamphog/repo_configs/{config_id}/", {"enabled": False}, format="json"
+        )
+
+        assert response.status_code == expected_status, response.content
+        assert StamphogRepoConfig.objects.unscoped().get(id=config_id).enabled == (not grant_on_parent)
+
+    @parameterized.expand([("admin", True, "manager"), ("member", False, "editor")])
+    def test_user_access_level_rides_on_the_repo_config(self, _name: str, as_admin: bool, expected: str) -> None:
+        # The scene disables the review controls off this field. Reading it from the app context
+        # instead would answer for the URL environment while the backend checks the parent, so the
+        # controls and the API would disagree through a child environment's URL.
+        config_id = self._create_config()
+        if not as_admin:
+            self._login_as_member()
+
+        response = self.client.get(f"{self.url}{config_id}/")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["user_access_level"] == expected
 
     def test_create_ignores_client_supplied_installation_id(self) -> None:
         # installation_id is read-only: a manual create must not let a caller claim an installation
@@ -450,6 +641,9 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert response.json()["app_not_installed"] is False
         synced = sorted(row["repository"] for row in response.json()["synced"])
         assert synced == ["PostHog/other", "PostHog/posthog"]
+        # The scene disables the review controls off this field, and it renders these rows straight
+        # from the sync response. A null here would leave every control disabled right after connecting.
+        assert {row["user_access_level"] for row in response.json()["synced"]} == {"editor"}
         bound = StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id, installation_id="42")
         assert bound.count() == 2
         # Bind disabled: an install can surface hundreds of repos, so none starts reviewing until toggled.
@@ -476,9 +670,17 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         # team later syncs the verified installation, that row must be adopted (its installation stamped)
         # rather than reported skipped and left unbound forever — but adopted DISABLED: the placeholder's
         # flags were set by someone who never proved GitHub access, so a member could otherwise pre-arm
-        # enabled=True for a private repo and have reviews start the moment a teammate installs.
+        # enabled=True for a private repo and have reviews start the moment a teammate installs. The
+        # review policy resets for the same reason: label mode pointed at a label nobody uses would
+        # go live, reviewing nothing, the moment a manager turns the row on.
         manual = StamphogRepoConfig.objects.unscoped().create(
-            team_id=self.team.id, repository="PostHog/posthog", installation_id="", enabled=True, digest_enabled=True
+            team_id=self.team.id,
+            repository="PostHog/posthog",
+            installation_id="",
+            enabled=True,
+            digest_enabled=True,
+            review_mode=ReviewMode.LABEL,
+            trigger_label="nobody-uses-this",
         )
         response = self.client.post(
             self.url, {"installation_id": "42", "code": "oauth-code", "state": self.state}, format="json"
@@ -492,6 +694,8 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert manual.connected_by_user_id == self.user.id
         assert manual.enabled is False
         assert manual.digest_enabled is False
+        assert manual.review_mode == ReviewMode.ALL
+        assert manual.trigger_label == StamphogRepoConfig._meta.get_field("trigger_label").get_default()
 
     @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
@@ -506,6 +710,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             repository="PostHog/posthog",
             installation_id="41",
             enabled=True,
+            review_mode=ReviewMode.LABEL,
             connected_by_user_id=previous_connector_id,
         )
         response = self.client.post(
@@ -517,6 +722,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         stale.refresh_from_db()
         assert stale.installation_id == "42"
         assert stale.enabled is True  # settings survive the rebind
+        assert stale.review_mode == ReviewMode.LABEL  # including the review policy
         assert stale.connected_by_user_id == self.user.id
         # The restamp reads its before-value from the locked row, so the log names who held the
         # connection before this sync took it over.

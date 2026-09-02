@@ -5,15 +5,28 @@ import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonSwitch, LemonTa
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { getAccessControlDisabledReason, toAccessControlLevel } from 'lib/utils/accessControlUtils'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { StamphogTabs } from '../../components/StamphogTabs'
 import { ReviewModeEnumApi, type StamphogRepoConfigApi } from '../../generated/api.schemas'
 import { REVIEW_MODE_LABELS } from '../../reviewModeLabels'
 import { stamphogSceneLogic } from './stamphogSceneLogic'
+
+// Whether a repository is reviewed at all is a manager decision. The digest only changes who hears
+// about the work, and connecting a repository starts no review on its own, so both stay at editor.
+//
+// The level comes from the API rather than the app context, because the app context answers for the
+// environment in the URL while these rows belong to its parent project. Undefined when no repository
+// has loaded yet, which sends the check back to the app context.
+const managerDisabledReason = (level: AccessControlLevel | undefined): string | null =>
+    getAccessControlDisabledReason(AccessControlResourceType.Stamphog, AccessControlLevel.Manager, level)
+const editorDisabledReason = (level: AccessControlLevel | undefined): string | null =>
+    getAccessControlDisabledReason(AccessControlResourceType.Stamphog, AccessControlLevel.Editor, level)
 
 export const scene: SceneExport = {
     component: StamphogScene,
@@ -23,7 +36,7 @@ export const scene: SceneExport = {
 function ConnectRepositoryButton(): JSX.Element {
     // Authorize-first: the connect button opens the OAuth authorize URL. An already-installed user gets a
     // silent instant redirect back, so it never dead-ends on GitHub's "update installation" screen.
-    const { authorizeUrl, installInfoLoading } = useValues(stamphogSceneLogic)
+    const { authorizeUrl, installInfoLoading, stamphogAccessLevel } = useValues(stamphogSceneLogic)
     return (
         <LemonButton
             type="primary"
@@ -31,11 +44,12 @@ function ConnectRepositoryButton(): JSX.Element {
             to={authorizeUrl || undefined}
             disableClientSideRouting
             disabledReason={
-                installInfoLoading
+                editorDisabledReason(stamphogAccessLevel) ??
+                (installInfoLoading
                     ? 'Loading install details'
                     : authorizeUrl
                       ? undefined
-                      : 'GitHub App not configured yet'
+                      : 'GitHub App not configured yet')
             }
         >
             Connect a repository
@@ -120,6 +134,8 @@ function SyncedBanner(): JSX.Element | null {
 
 function ReviewModeCell({ repo, updating }: { repo: StamphogRepoConfigApi; updating: boolean }): JSX.Element {
     const { setReviewMode, setTriggerLabel } = useActions(stamphogSceneLogic)
+    const disabledReason =
+        managerDisabledReason(toAccessControlLevel(repo.user_access_level)) ?? (updating ? 'Updating' : undefined)
 
     const saveTriggerLabel = (value: string): void => {
         const trimmed = value.trim()
@@ -135,7 +151,7 @@ function ReviewModeCell({ repo, updating }: { repo: StamphogRepoConfigApi; updat
             <LemonSelect
                 size="small"
                 value={repo.review_mode ?? ReviewModeEnumApi.All}
-                disabledReason={updating ? 'Updating' : undefined}
+                disabledReason={disabledReason}
                 onChange={(mode) => setReviewMode(repo.id, mode)}
                 options={[
                     { value: ReviewModeEnumApi.All, label: REVIEW_MODE_LABELS[ReviewModeEnumApi.All] },
@@ -151,7 +167,7 @@ function ReviewModeCell({ repo, updating }: { repo: StamphogRepoConfigApi; updat
                     className="w-40"
                     defaultValue={repo.trigger_label}
                     placeholder="Trigger label"
-                    disabled={updating}
+                    disabledReason={disabledReason}
                     onBlur={(e) => saveTriggerLabel(e.currentTarget.value)}
                     onPressEnter={(e) => saveTriggerLabel(e.currentTarget.value)}
                 />
@@ -177,7 +193,10 @@ function RepoConfigsTable(): JSX.Element {
             render: (_, repo) => (
                 <LemonSwitch
                     checked={!!repo.enabled}
-                    disabledReason={updatingRepoIds.includes(repo.id) ? 'Updating' : undefined}
+                    disabledReason={
+                        managerDisabledReason(toAccessControlLevel(repo.user_access_level)) ??
+                        (updatingRepoIds.includes(repo.id) ? 'Updating' : undefined)
+                    }
                     onChange={(checked) => setRepoEnabled(repo.id, checked)}
                 />
             ),
@@ -193,7 +212,10 @@ function RepoConfigsTable(): JSX.Element {
             render: (_, repo) => (
                 <LemonSwitch
                     checked={!!repo.digest_enabled}
-                    disabledReason={updatingRepoIds.includes(repo.id) ? 'Updating' : undefined}
+                    disabledReason={
+                        editorDisabledReason(toAccessControlLevel(repo.user_access_level)) ??
+                        (updatingRepoIds.includes(repo.id) ? 'Updating' : undefined)
+                    }
                     onChange={(checked) => setDigestEnabled(repo.id, checked)}
                 />
             ),
