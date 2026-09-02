@@ -89,16 +89,10 @@ export class PersonEventProcessor {
                     })
                     return dlq('Merge limit exceeded', error)
                 case 'SYNC':
-                    // The Postgres backend cannot produce this error in SYNC mode
-                    // (its moves are unbounded), but the personhog saga enforces
-                    // a move limit in every mode, making this failure class
-                    // personhog-new. Temporary while the permanent fix —
-                    // saga-side chunked moves — is unbuilt: the event goes to
-                    // the DLQ rather than being dropped or failing the batch
-                    // into a redelivery loop. The DLQ keeps the payload
-                    // replayable once the limit is raised or chunking lands,
-                    // where a drop would lose it. The event uuid makes the
-                    // event findable, so it travels in the log and warning.
+                    // Postgres moves are unbounded in SYNC mode, so only the
+                    // personhog saga's move limit produces this here. DLQ
+                    // rather than drop or throw: the payload stays replayable,
+                    // and a throw would only redeliver into the same limit.
                     logger.error('Merge limit exceeded in SYNC mode; routing the event to the DLQ', {
                         team_id: event.team_id,
                         distinct_id: event.distinct_id,
@@ -116,10 +110,9 @@ export class PersonEventProcessor {
                                 details: {
                                     distinctId: event.distinct_id,
                                     eventUuid: event.uuid,
-                                    // The source property depends on the
-                                    // event kind: $identify carries it as
+                                    // $identify carries the source id as
                                     // $anon_distinct_id, the alias events as
-                                    // alias — preferring one blindly would
+                                    // alias; preferring one blindly would
                                     // mislabel the warning when a stray copy
                                     // of the other is present.
                                     sourcePersonDistinctId: String(
@@ -129,9 +122,6 @@ export class PersonEventProcessor {
                                               event.properties?.['$anon_distinct_id'])) ?? event.distinct_id
                                     ),
                                     targetPersonDistinctId: event.distinct_id,
-                                    // In the DLQ, not dropped: the payload is
-                                    // replayable once the limit is raised or
-                                    // chunked moves land.
                                     eventDropped: false,
                                 },
                                 pipelineStep: 'person-merge',

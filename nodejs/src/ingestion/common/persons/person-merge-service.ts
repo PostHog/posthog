@@ -76,7 +76,7 @@ function foldAbandonReason(error: unknown): MergeFoldAbortReason {
 
 /**
  * Service responsible for handling person merging operations (identify,
- * alias, merge). World-agnostic: it validates the request, hands the
+ * alias, merge). Backend-agnostic: it validates the request, hands the
  * whole merge to the store's own machinery via mergePersons, and maps
  * the per-source outcomes onto one result and warning vocabulary.
  */
@@ -151,18 +151,9 @@ export class PersonMergeService {
                 })
                 return mergeSuccess(undefined, warningAck, true)
             }
-            if (e instanceof PersonMergeResponseMismatchError) {
-                // Not a verdict: nothing is recorded against the op id, so a
-                // retry can still succeed and the batch must fail rather than
-                // ack a merge that never happened.
-                throw e
-            }
-            if (e instanceof PersonMergeCallFailedError) {
-                // The personhog store could not get a verdict at all, so the
-                // remote outcome is unknowable. Acking would lose the merge
-                // whenever the saga did not commit; failing the batch lets
-                // redelivery replay it idempotently — the same loud-and-
-                // redeliver shape a failed Postgres merge transaction has.
+            // Both carry no settled verdict; their class docs explain why the
+            // batch must fail and redeliver rather than ack.
+            if (e instanceof PersonMergeResponseMismatchError || e instanceof PersonMergeCallFailedError) {
                 throw e
             }
             captureException(e, {
@@ -231,9 +222,7 @@ export class PersonMergeService {
             timestamp
         )
         // The store owns the whole merge, its own record-escape retries
-        // included: retryable conflicts surface here as throws — the
-        // Postgres merge throws them directly, the personhog store throws
-        // only after its internal salted re-attempts exhaust — and each
+        // included: retryable conflicts surface here as throws, and each
         // re-entry runs against fresh state.
         const result = await promiseRetry(() => this.context.personStore.mergePersons(request), 'merge_distinct_ids')
         return this.mapSingleSourceResult(result, otherPersonDistinctId, mergeIntoDistinctId)
@@ -367,8 +356,8 @@ export class PersonMergeService {
 
     /**
      * Maps a single-source merge's outcome onto the caller's result and
-     * warning vocabulary, so callers see one merge behavior in both
-     * worlds.
+     * warning vocabulary, so callers see one merge behavior from both
+     * backends.
      */
     private mapSingleSourceResult(
         result: MergePersonsResult,
@@ -380,11 +369,8 @@ export class PersonMergeService {
         // answer.
         const sourceResult = result.results.find((source) => source.sourceDistinctId === otherPersonDistinctId)
         if (sourceResult === undefined) {
-            // No verdict for the source we asked about. That is a malformed
-            // response rather than an answer the merge backend settled on, so
-            // it must not take the settled-failure path: nothing is recorded
-            // against the op id, so a retry can genuinely reach a different
-            // result, and acking here would lose the merge for good.
+            // A malformed response rather than a settled answer, so it must
+            // not take the settled-failure path below.
             throw new PersonMergeResponseMismatchError(
                 `merge response for team ${this.context.team.id} carried no verdict for its requested source`
             )
@@ -490,10 +476,11 @@ export class PersonMergeService {
                 // A verdict, not a transient fault: the merge backend records it
                 // against the op id and replays it for the retention window, so
                 // neither this event's retry nor its redelivery can reach a
-                // different answer — failing the batch would stall the partition
-                // instead of healing. The merge is lost; the event's property
-                // updates still apply, and the customer's next $identify carries
-                // a fresh op id that can succeed. Acked, but never silently.
+                // different answer, and failing the batch would stall the
+                // partition instead of healing. The merge is lost; the event's
+                // property updates still apply, and the customer's next
+                // $identify carries a fresh op id that can succeed. Acked, but
+                // never silently.
                 mergeSettledFailureCounter.inc()
                 const warningAck = emitIngestionWarning(this.context.outputs, this.context.team.id, {
                     type: 'merge_settled_failure',
@@ -583,16 +570,11 @@ export class PersonMergeService {
                     )
                     break
                 case 'skipped_move_limit':
-                    // Only the saga can answer this inside an executed fold;
-                    // the Postgres merge aborts the whole fold instead so each
-                    // event gets its own over-limit policy decision. Folding
-                    // costs that decision: the source's own event later reads
-                    // the executed plan and acks, so in ASYNC mode it loses the
-                    // redirect to the async topic it would otherwise get, not
-                    // only the merge. Accepted while personhog mode is a testing
-                    // path, and surfaced as a customer-visible warning so a lost
-                    // merge is identifiable rather than silent. The permanent
-                    // fix is saga-side chunked moves.
+                    // Only the saga answers this inside an executed fold; the
+                    // Postgres merge aborts the whole fold instead. The
+                    // source's event acks without its merge (and without the
+                    // ASYNC redirect the sequential path would give it), so
+                    // the warning is what keeps the loss identifiable.
                     mergeMoveLimitDroppedCounter.labels({ path: 'fold' }).inc()
                     warningAcks.push(
                         emitIngestionWarning(this.context.outputs, this.context.team.id, {

@@ -200,9 +200,8 @@ describe('PersonMergeService store-owned merges', () => {
     })
 
     it('a returned conflict verdict surfaces as the claim error without a retry', async () => {
-        // Both backends settle or throw conflicts themselves — the Postgres
-        // merge throws, the personhog store retries internally with salted
-        // op ids — so a returned conflict is contract-breaking input the
+        // Both backends surface conflicts as throws rather than returned
+        // verdicts, so a returned conflict is contract-breaking input the
         // backstop must refuse to ack as a merge.
         store.mergePersons.mockResolvedValue(result('skipped_conflict'))
         const service = makeService()

@@ -50,9 +50,9 @@ export function assertPersonsStoreModeConfig(
  * verb to the personhog store, and shadow runs the Postgres call as the
  * authoritative result with the personhog call after it, its failures
  * counted and logged but never failing the batch. Merges route through
- * `mergePersons` like any other verb — each backend runs its own whole
- * merge, the identity service's saga or the Postgres store's own merge —
- * so shadow mode rehearses every merge, folds included, against the
+ * `mergePersons` like any other verb: each backend runs its own whole
+ * merge (the identity service's saga, or the Postgres store's own), so
+ * shadow mode rehearses every merge, folds included, against the
  * personhog backend's own graph.
  */
 export class RoutingPersonsStore implements PersonsStore {

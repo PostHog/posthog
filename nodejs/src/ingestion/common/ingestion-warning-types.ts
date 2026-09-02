@@ -46,7 +46,7 @@ export const INGESTION_WARNING_TYPES = {
     // A source person held more distinct ids than the merge is allowed to
     // move, so its merge did not happen.
     merge_move_limit_exceeded: { category: 'merge', severity: 'error' },
-    // The merge world settled on a verdict that merged nothing, and the
+    // The merge backend settled on a verdict that merged nothing, and the
     // verdict is recorded, so this event cannot reach a different answer.
     merge_settled_failure: { category: 'merge', severity: 'error' },
 

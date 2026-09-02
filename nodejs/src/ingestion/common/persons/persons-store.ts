@@ -50,11 +50,9 @@ export interface MergePersonsSourceResult {
     sourcePersonUuid?: string
     /**
      * The source person this verdict destroyed, present only on a merged
-     * source. A merged-away person is permanent — it cannot be revived or
-     * reassigned — so a caller may reconcile cached state against it
-     * without re-reading, which reaches persons cached under distinct ids
-     * the request never named. Any other verdict leaves it absent, because
-     * the person it would name is still live.
+     * source. Merging away is permanent, so a caller may reconcile cached
+     * state against it without re-reading, including entries cached under
+     * distinct ids the request never named.
      */
     sourcePersonId?: string
 }
@@ -68,11 +66,10 @@ export interface MergePersonsRequest {
      */
     sources: MergePersonsSource[]
     /**
-     * The source belonging to the event that initiated this request.
-     * When a folded merge finds no target person, the Postgres merge
-     * bootstraps this source through the sequential path first; the
-     * plan's first event can be dropped before the person step, so the
-     * initiator is not always the first source.
+     * The source belonging to the event that initiated this request; not
+     * always the first source, because a fold plan's first event can be
+     * dropped before the person step. When a folded merge finds no target
+     * person, the Postgres merge bootstraps this source first.
      */
     triggerSourceDistinctId?: string
     /** The merge event's property ops; each backend applies them to the survivor its own way. */
@@ -155,6 +152,9 @@ export interface PersonsStore extends BatchWritingStore<FlushResult> {
         batchId: number
     ): Promise<[InternalPerson, PersonMessage[]]>
 
+    /**
+     * Updates person for regular updates with specific properties to set and unset
+     */
     updatePersonWithPropertiesDiffForUpdate(
         person: InternalPerson,
         propertiesToSet: Properties,
@@ -168,8 +168,8 @@ export interface PersonsStore extends BatchWritingStore<FlushResult> {
 
     /**
      * Merge the sources into the target through this backend's own merge
-     * machinery — the identity service's saga, or the PostgresPersonMerge
-     * the Postgres store runs internally. Settled verdicts come back as
+     * machinery (the identity service's saga, or the PostgresPersonMerge
+     * the Postgres store runs internally). Settled verdicts come back as
      * per-source outcomes; retryable Postgres conflicts throw for the
      * caller's retry loop.
      */
@@ -190,6 +190,9 @@ export interface PersonsStore extends BatchWritingStore<FlushResult> {
      */
     prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string; batchId: number }[]): Promise<void>
 
+    /**
+     * Flushes the batch
+     */
     flush(): Promise<FlushResult[]>
 
     /**

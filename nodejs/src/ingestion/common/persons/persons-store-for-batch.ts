@@ -148,11 +148,6 @@ export type PersonsStoreForBatch = Omit<
     readonly batchId: number
 }
 
-/**
- * The batchId-bound view of the Postgres backend's transactional surface;
- * constructed by the pg store's PostgresPersonMerge around the raw
- * transaction its inTransaction hands out.
- */
 export class BatchBoundPersonsStoreTransaction implements PersonsStoreTransactionForBatch {
     constructor(
         private readonly tx: PersonsStoreTransaction,
