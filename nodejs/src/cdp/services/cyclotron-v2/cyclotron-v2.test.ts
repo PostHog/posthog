@@ -2537,9 +2537,9 @@ describe('Cyclotron V2', () => {
         })
 
         it('sweeps expired conversion watchers and keeps live ones', async () => {
-            // The sweep is the only thing that removes a watcher that never converts, and it moved
-            // here from the matcher. If a refactor drops it from runOnce the table grows without
-            // bound and nothing else fails, so assert the delete happens on a real row.
+            // The sweep is the only thing that removes a watcher that never converts. If a refactor
+            // drops it from runOnce the table grows without bound and nothing else fails, so assert
+            // the delete happens on a real row.
             const insertWatcher = async (id: string, expiresAt: Date): Promise<void> => {
                 await assertPool.query(
                     `INSERT INTO conversion_watchers

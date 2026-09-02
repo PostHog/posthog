@@ -63,7 +63,7 @@ const janitorRunCounter = new Counter({
     help: 'Number of janitor cleanup runs completed',
 })
 
-// Kept on the name the matcher used to emit, so existing dashboards and queries survive the move.
+// The name is load-bearing: dashboards and alerts query it, so it must not follow the code around.
 const conversionWatchersSweptCounter = new Counter({
     name: 'cdp_conversion_watchers_swept',
     help: 'Expired conversion watcher rows deleted. These are runs that reached the end of their attribution window without converting.',
