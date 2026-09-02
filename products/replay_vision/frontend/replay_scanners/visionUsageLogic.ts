@@ -1,27 +1,24 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { performQuery } from '~/queries/query'
-import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
-import { BaseMathType, PropertyFilterType, PropertyOperator } from '~/types'
-
-import { visionScannersList, visionScannersPartialUpdate } from '../generated/api'
-import type { VisionQuotaApi } from '../generated/api.schemas'
+import {
+    environmentVisionQuotaSpendSeriesRetrieve,
+    visionScannersList,
+    visionScannersPartialUpdate,
+} from '../generated/api'
+import type { VisionQuotaApi, VisionSpendSeriesApi } from '../generated/api.schemas'
 import { refreshVisionQuota, visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { fleetContributions } from '../utils/quotaContributions'
 import { currentQuotaScenario } from '../utils/quotaScenarios'
-import { OBSERVATION_CREDITS_BY_MODEL, type ReplayScanner } from './types'
+import { type SpendVerdict, spendVerdict } from '../utils/spendVerdict'
+import type { ReplayScanner } from './types'
 
-const RECORDING_OBSERVED_EVENT = '$recording_observed'
-
-// Counted per model and priced in the formula: events predating the `credits` property sum to zero.
-const SPEND_MODEL_PRICES = Object.entries(OBSERVATION_CREDITS_BY_MODEL)
-
-/** Daily credit spend for the current billing period; index 0 is the period's first day. */
-export type SpendSeries = number[]
+/** Settled credit spend per UTC day of the current billing period, oldest first, zero-filled through today. */
+export type SpendSeries = VisionSpendSeriesApi['days']
 
 interface visionUsageLogicValues {
     usageScanners: ReplayScanner[]
@@ -29,7 +26,18 @@ interface visionUsageLogicValues {
     togglingScannerIds: string[]
     spendSeries: SpendSeries | null
     spendSeriesLoading: boolean
+    spendSeriesFailed: boolean
     quota: VisionQuotaApi | null
+    displayQuota: VisionQuotaApi | null
+    onFreePlan: boolean
+    verdict: SpendVerdict
+    usageRows: ReplayScanner[]
+    hiddenScannerCount: number
+    usageRowsTotalCredits: number
+    resetsOn: dayjs.Dayjs | null
+    daysToReset: number | null
+    projectedTotalCredits: number | null
+    projectedPctOfLimit: number | null
 }
 
 interface visionUsageLogicActions {
@@ -53,7 +61,7 @@ export type visionUsageLogicType = MakeLogicType<visionUsageLogicValues, visionU
 export const visionUsageLogic = kea<visionUsageLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'visionUsageLogic']),
     connect(() => ({
-        values: [visionQuotaLogic, ['quota']],
+        values: [visionQuotaLogic, ['quota', 'displayQuota', 'onFreePlan']],
         actions: [visionQuotaLogic, ['loadQuotaSuccess']],
     })),
     actions({
@@ -72,39 +80,12 @@ export const visionUsageLogic = kea<visionUsageLogicType>([
                     if (scenario) {
                         return scenario.dailySpend ?? []
                     }
-                    const periodStart = values.quota?.period_start
-                    if (!periodStart) {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId || !values.quota?.period_start) {
                         return null
                     }
-                    const query: TrendsQuery = {
-                        kind: NodeKind.TrendsQuery,
-                        series: SPEND_MODEL_PRICES.map(([model]) => ({
-                            kind: NodeKind.EventsNode,
-                            event: RECORDING_OBSERVED_EVENT,
-                            math: BaseMathType.TotalCount,
-                            properties: [
-                                {
-                                    type: PropertyFilterType.Event,
-                                    key: 'model_used',
-                                    operator: PropertyOperator.Exact,
-                                    value: model,
-                                },
-                            ],
-                        })),
-                        trendsFilter: {
-                            formula: SPEND_MODEL_PRICES.map(
-                                ([, credits], index) => `${String.fromCharCode(65 + index)}*${credits}`
-                            ).join(' + '),
-                        },
-                        interval: 'day',
-                        dateRange: {
-                            date_from: dayjs(periodStart).format('YYYY-MM-DD'),
-                            date_to: dayjs().format('YYYY-MM-DD'),
-                        },
-                    }
-                    const response = await performQuery(query)
-                    const result = (response as { results?: { data?: number[] }[] }).results?.[0]
-                    return result?.data ?? []
+                    const response = await environmentVisionQuotaSpendSeriesRetrieve(String(teamId))
+                    return response.days
                 },
             },
         ],
@@ -133,6 +114,67 @@ export const visionUsageLogic = kea<visionUsageLogicType>([
                 finishTogglingScanner: (state, { id }) => state.filter((toggling) => toggling !== id),
             },
         ],
+        spendSeriesFailed: [
+            false,
+            {
+                loadSpendSeries: () => false,
+                loadSpendSeriesFailure: () => true,
+            },
+        ],
+    }),
+    selectors({
+        verdict: [
+            (s) => [s.displayQuota, s.onFreePlan],
+            (quota: VisionQuotaApi | null, onFreePlan: boolean): SpendVerdict =>
+                spendVerdict(quota, fleetContributions(quota), { onFreePlan }),
+        ],
+        // Rows that cost something this period or are set to: idle disabled scanners only add noise.
+        usageRows: [
+            (s) => [s.usageScanners],
+            (usageScanners: ReplayScanner[]): ReplayScanner[] =>
+                usageScanners.filter(
+                    (scanner) =>
+                        scanner.credits_this_month > 0 ||
+                        (scanner.enabled && (scanner.estimated_monthly_credits ?? 0) > 0)
+                ),
+        ],
+        hiddenScannerCount: [
+            (s) => [s.usageScanners, s.usageRows],
+            (usageScanners: ReplayScanner[], usageRows: ReplayScanner[]): number =>
+                usageScanners.length - usageRows.length,
+        ],
+        usageRowsTotalCredits: [
+            (s) => [s.usageRows],
+            (usageRows: ReplayScanner[]): number => usageRows.reduce((sum, s) => sum + s.credits_this_month, 0),
+        ],
+        resetsOn: [
+            (s) => [s.displayQuota],
+            (quota: VisionQuotaApi | null): dayjs.Dayjs | null => (quota?.period_end ? dayjs(quota.period_end) : null),
+        ],
+        daysToReset: [
+            (s) => [s.resetsOn],
+            (resetsOn: dayjs.Dayjs | null): number | null =>
+                resetsOn ? Math.max(resetsOn.startOf('day').diff(dayjs().startOf('day'), 'day'), 0) : null,
+        ],
+        // What the period will actually cost: spend stops at the limit, so demand past it is not billed.
+        projectedTotalCredits: [
+            (s) => [s.displayQuota, s.verdict],
+            (quota: VisionQuotaApi | null, verdict: SpendVerdict): number | null => {
+                if (!quota || verdict.projectedDemandCredits === null) {
+                    return null
+                }
+                return verdict.hasCap
+                    ? Math.min(verdict.projectedDemandCredits, quota.credit_limit ?? 0)
+                    : verdict.projectedDemandCredits
+            },
+        ],
+        projectedPctOfLimit: [
+            (s) => [s.displayQuota, s.projectedTotalCredits],
+            (quota: VisionQuotaApi | null, projectedTotalCredits: number | null): number | null =>
+                quota && projectedTotalCredits !== null && (quota.credit_limit ?? 0) > 0
+                    ? Math.round((projectedTotalCredits / (quota.credit_limit ?? 1)) * 100)
+                    : null,
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
         loadUsageScanners: async () => {
@@ -153,7 +195,7 @@ export const visionUsageLogic = kea<visionUsageLogicType>([
                 })
                 actions.loadUsageScannersSuccess((response.results ?? []) as unknown as ReplayScanner[])
             } catch {
-                // Keep whatever list is already shown; the table's own empty/loaded state stays consistent.
+                // Keep the list already shown; the table's own empty/loaded state stays consistent.
                 actions.loadUsageScannersSuccess(values.usageScanners)
             }
         },
@@ -178,23 +220,22 @@ export const visionUsageLogic = kea<visionUsageLogicType>([
             }
         },
         // The chart is period-scoped, so it can only run once the quota names the period. Quota
-        // refetches after scanner toggles keep the same period, and daily spend history doesn't
+        // refetches after scanner toggles keep the same period, and settled daily spend doesn't
         // move with them, so a loaded series is only refreshed when the period changes.
         loadQuotaSuccess: ({ quota }) => {
-            if (
-                values.spendSeries === null ||
-                (quota?.period_start && quota.period_start !== cache.spendSeriesPeriodStart)
-            ) {
+            const periodStart = quota?.period_start
+            if (periodStart && !values.spendSeriesLoading && periodStart !== cache.spendSeriesPeriodStart) {
                 actions.loadSpendSeries()
             }
         },
-        loadSpendSeriesSuccess: () => {
+        loadSpendSeries: () => {
+            // Recorded on request rather than success so a failed period is not retried on every quota refetch.
             cache.spendSeriesPeriodStart = values.quota?.period_start
         },
     })),
     afterMount(({ actions, values }) => {
         actions.loadUsageScanners()
-        if (values.quota) {
+        if (values.quota && !values.spendSeriesLoading) {
             actions.loadSpendSeries()
         }
     }),

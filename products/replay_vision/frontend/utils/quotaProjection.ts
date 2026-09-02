@@ -7,6 +7,9 @@ export const QUOTA_WARN_THRESHOLD = 0.85
 
 export const IMMINENT_CAP_DAYS = 3
 
+/** Scanner estimates are a rate per 30 days (backend `ESTIMATE_WINDOW_DAYS`), not per billing period. */
+export const ESTIMATE_MONTH_DAYS = 30
+
 export type QuotaStatus = 'safe' | 'warning' | 'danger'
 
 export const QUOTA_STATUS_STYLES: Record<QuotaStatus, { bar: string; text: string }> = {
@@ -70,12 +73,14 @@ export function isFreeAllocationOnly(quota: VisionQuotaApi | null): boolean {
 
 /**
  * Project credit spend to period end from the enabled fleet's summed per-scanner estimates.
- * `scannerProjectedMonthlyCreditsDelta` adjusts the fleet sum for a scanner being edited:
+ * `scannerProjectedMonthlyCreditsDelta` adjusts the fleet rate for a scanner being edited:
  * its proposed monthly credit estimate minus the stored contribution already in the sum.
+ * `oneOffCredits` are charged once (backfills), so they count toward the cap-reach date but not the rate.
  */
 export function projectQuota(
     quota: VisionQuotaApi | null,
-    scannerProjectedMonthlyCreditsDelta: number = 0
+    scannerProjectedMonthlyCreditsDelta: number = 0,
+    oneOffCredits: number = 0
 ): QuotaProjection {
     if (!hasCreditLimit(quota)) {
         return EMPTY
@@ -93,19 +98,24 @@ export function projectQuota(
             resetsOn: quota.period_end ? dayjs(quota.period_end).format('MMMM D') : null,
         }
     }
-    const periodStart = quota.period_start ? dayjs(quota.period_start) : null
     const periodEnd = quota.period_end ? dayjs(quota.period_end) : null
-    const periodLengthDays = periodStart && periodEnd ? Math.max(periodEnd.diff(periodStart, 'day', true), 1) : 30
     const daysRemaining = periodEnd ? Math.max(periodEnd.diff(now, 'day', true), 0) : 0
     const resetsOn = periodEnd ? periodEnd.format('MMMM D') : null
 
-    const projectedMonthly = Math.max(quota.projected_monthly_credits + scannerProjectedMonthlyCreditsDelta, 0)
-    const combinedDailyRate = projectedMonthly / periodLengthDays
-    const projectedAdditional = combinedDailyRate * daysRemaining
+    const projectedMonthly = Math.max(quota.scanners_monthly_credits + scannerProjectedMonthlyCreditsDelta, 0)
+    const combinedDailyRate = projectedMonthly / ESTIMATE_MONTH_DAYS
+    const projectedAdditional = combinedDailyRate * daysRemaining + Math.max(oneOffCredits, 0)
 
     const projectedPeriodEndRatio = (used + projectedAdditional) / cap
-    const capReachDate = combinedDailyRate > 0 && used < cap ? now.add((cap - used) / combinedDailyRate, 'day') : null
-    const capReachInPeriod = !!(capReachDate && periodEnd && capReachDate.isBefore(periodEnd))
+    const committed = used + Math.max(oneOffCredits, 0)
+    // One-offs are charged as soon as they run, so they eat headroom before the rate does.
+    const capReachDate =
+        used < cap && committed >= cap
+            ? now
+            : combinedDailyRate > 0 && committed < cap
+              ? now.add((cap - committed) / combinedDailyRate, 'day')
+              : null
+    const capReachInPeriod = !!(capReachDate && periodEnd && !capReachDate.isAfter(periodEnd))
 
     // `used >= cap` without `exhausted`: a display clamp (startup cap) lowered the limit below spend,
     // so the backend isn't blocking yet. Being over the limit must not read quieter than approaching it.
@@ -172,27 +182,4 @@ export function quotaBannerState(
         return { kind: 'warning', resetsOn, quota }
     }
     return { kind: null }
-}
-
-/** "You'll hit your limit around Jul 24": null when uncapped, unused, exhausted, or safely within budget. */
-export function exhaustionForecast(
-    creditsUsed: number,
-    creditLimit: number | null,
-    periodStart: string,
-    periodEnd: string
-): string | null {
-    if (creditLimit === null || creditsUsed <= 0 || creditsUsed >= creditLimit) {
-        return null
-    }
-    const elapsedMs = Date.now() - dayjs(periodStart).valueOf()
-    if (elapsedMs <= 0) {
-        return null
-    }
-    const burnPerMs = creditsUsed / elapsedMs
-    const msToLimit = (creditLimit - creditsUsed) / burnPerMs
-    const exhaustAt = dayjs(Date.now() + msToLimit)
-    if (exhaustAt.isAfter(dayjs(periodEnd))) {
-        return null
-    }
-    return exhaustAt.format('MMM D')
 }

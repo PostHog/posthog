@@ -49,6 +49,31 @@ describe('spendVerdict', () => {
         expect(verdict.pillLabel).toBe(expectedPill)
     })
 
+    // Credits are projected before any percentage is rounded, so headlines move in credits, not in 1% of the limit.
+    it.each<[string, Parameters<typeof makeQuota>[0], number]>([
+        // 20 of 30 days left: 1,500/30 * 20 = 1,000 on top of spend.
+        ['capped, mid-period', { credits_used: 1_234, scanners_monthly_credits: 1_500 }, 2_234],
+        ['capped, over the limit', { credits_used: 6_000, scanners_monthly_credits: 12_000 }, 14_000],
+        [
+            'uncapped',
+            { credit_limit: null, remaining: null, credits_used: 400, scanners_monthly_credits: 3_000 },
+            2_400,
+        ],
+        ['with a backfill commitment', { credits_used: 100, backfills_committed_credits: 250 }, 350],
+    ])('projects demand in credits: %s', (_name, overrides, expected) => {
+        const quota = makeQuota(overrides)
+        expect(spendVerdict(quota, fleetContributions(quota), { onFreePlan: false }).projectedDemandCredits).toBe(
+            expected
+        )
+    })
+
+    it('dates the cap from committed one-offs when they alone overshoot it', () => {
+        const quota = makeQuota({ credits_used: 5_000, backfills_committed_credits: 6_000 })
+        const verdict = spendVerdict(quota, fleetContributions(quota), { onFreePlan: false })
+        expect(verdict.kind).toBe('danger')
+        expect(verdict.pillLabel).toMatch(/^Limit by /)
+    })
+
     it('pins the bar at 100 while the headline keeps the real overshoot', () => {
         const quota = makeQuota({ credits_used: 6000, scanners_monthly_credits: 12_000 })
         const verdict = spendVerdict(quota, fleetContributions(quota), { onFreePlan: false })

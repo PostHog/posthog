@@ -5,6 +5,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { makeQuota } from '../utils/quotaTestUtils'
 import { ReplayScanner } from './types'
 import { visionUsageLogic } from './visionUsageLogic'
 
@@ -35,13 +36,23 @@ function makeScanner(overrides: Partial<ReplayScanner> = {}): ReplayScanner {
     return { ...base, ...overrides } as ReplayScanner
 }
 
+const PERIOD_A = '2026-05-01T00:00:00Z'
+const PERIOD_A_END = '2026-06-01T00:00:00Z'
+const PERIOD_B = '2026-06-01T00:00:00Z'
+
 describe('visionUsageLogic', () => {
     let logic: ReturnType<typeof visionUsageLogic.build>
+    let spendSeriesRequests = 0
 
     beforeEach(() => {
+        spendSeriesRequests = 0
         useMocks({
             get: {
                 '/api/projects/:team/vision/scanners/': { results: [makeScanner()], count: 1 },
+                '/api/projects/:team/vision/quota/spend_series/': () => {
+                    spendSeriesRequests += 1
+                    return [200, { period_start: PERIOD_A, period_end: PERIOD_A_END, days: [] }]
+                },
             },
             patch: {
                 '/api/projects/:team/vision/scanners/:id/': () => [200, {}],
@@ -94,6 +105,54 @@ describe('visionUsageLogic', () => {
                     togglingScannerIds: [],
                 })
             expect(lemonToast.error).toHaveBeenCalledWith('Failed to disable scanner: nope')
+        })
+    })
+
+    describe('spend series', () => {
+        it('loads once per billing period, not on every quota refetch', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            const quotaA = makeQuota({ period_start: PERIOD_A, period_end: PERIOD_A_END })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadQuotaSuccess(quotaA)
+            }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.loadQuotaSuccess({ ...quotaA, credits_used: 42 })
+            }).toFinishAllListeners()
+            expect(spendSeriesRequests).toBe(1)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadQuotaSuccess(makeQuota({ period_start: PERIOD_B }))
+            }).toFinishAllListeners()
+            expect(spendSeriesRequests).toBe(2)
+        })
+
+        it('does not retry a failed period on the next quota refetch, but does on request', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/vision/quota/spend_series/': () => {
+                        spendSeriesRequests += 1
+                        return [500, { detail: 'boom' }]
+                    },
+                },
+            })
+            await expectLogic(logic).toFinishAllListeners()
+            const quotaA = makeQuota({ period_start: PERIOD_A, period_end: PERIOD_A_END })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadQuotaSuccess(quotaA)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ spendSeries: null, spendSeriesFailed: true })
+            await expectLogic(logic, () => {
+                logic.actions.loadQuotaSuccess({ ...quotaA, credits_used: 7 })
+            }).toFinishAllListeners()
+            expect(spendSeriesRequests).toBe(1)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSpendSeries()
+            }).toFinishAllListeners()
+            expect(spendSeriesRequests).toBe(2)
         })
     })
 })

@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-import type { VisionQuotaApi } from '../generated/api.schemas'
+import type { VisionQuotaApi, VisionSpendSeriesApi } from '../generated/api.schemas'
 
 /**
  * Dev-only fake states for every spend surface, driven by `?vision_quota_scenario=<key>`.
@@ -14,8 +14,8 @@ export interface QuotaScenario {
     quota: VisionQuotaApi | null
     /** Per-scanner rows for the usage tab; null keeps the real rows. */
     usageScanners: FakeUsageScanner[] | null
-    /** Credits spent per day from period start to today; null keeps the real chart query. */
-    dailySpend: number[] | null
+    /** Settled credits per UTC day from the period start to today; null keeps the real series request. */
+    dailySpend: VisionSpendSeriesApi['days'] | null
 }
 
 export interface FakeUsageScanner {
@@ -27,17 +27,21 @@ export interface FakeUsageScanner {
     credits_per_observation: number
     sampling_rate: number
     estimated_monthly_credits: number | null
+    estimated_at: string | null
     model: string
 }
 
 const SCENARIO_PARAM = 'vision_quota_scenario'
+
+// Hoisted so the production bundle keeps no live path into the fixtures below.
+const SCENARIOS_ENABLED = process.env.NODE_ENV !== 'production'
 
 // Scenarios run 18 days into a 30-day period, so the chart has a real spend history to draw
 // regardless of today's date.
 const SCENARIO_DAYS_ELAPSED = 18
 
 function buildQuota(overrides: Partial<VisionQuotaApi>): VisionQuotaApi {
-    const periodStart = dayjs().subtract(SCENARIO_DAYS_ELAPSED, 'day').startOf('day')
+    const periodStart = dayjs.utc().subtract(SCENARIO_DAYS_ELAPSED, 'day').startOf('day')
     const base = {
         credit_limit: 5000,
         credits_used: 1850,
@@ -63,6 +67,7 @@ const FAKE_SCANNERS: FakeUsageScanner[] = [
         credits_per_observation: 2,
         sampling_rate: 0.25,
         estimated_monthly_credits: 700,
+        estimated_at: '2026-01-01T00:00:00Z',
         model: 'standard',
     },
     {
@@ -74,6 +79,7 @@ const FAKE_SCANNERS: FakeUsageScanner[] = [
         credits_per_observation: 2,
         sampling_rate: 0.1,
         estimated_monthly_credits: 900,
+        estimated_at: '2026-01-01T00:00:00Z',
         model: 'standard',
     },
     {
@@ -85,6 +91,7 @@ const FAKE_SCANNERS: FakeUsageScanner[] = [
         credits_per_observation: 2,
         sampling_rate: 0.05,
         estimated_monthly_credits: 500,
+        estimated_at: null,
         model: 'standard',
     },
 ]
@@ -103,8 +110,11 @@ function scaleScanners(spendFactor: number, estimateFactor: number): FakeUsageSc
  * A believable daily burn landing on `total`: gently accelerating, dipping on weekends, with
  * deterministic noise (sine-based, so every render draws the same series).
  */
-function rampSpend(total: number, days: number): number[] {
-    const start = dayjs().subtract(SCENARIO_DAYS_ELAPSED, 'day').startOf('day')
+function rampSpend(total: number, days: number): VisionSpendSeriesApi['days'] {
+    const start = dayjs.utc().subtract(SCENARIO_DAYS_ELAPSED, 'day').startOf('day')
+    if (days <= 0) {
+        return []
+    }
     const weights = Array.from({ length: days }, (_, i) => {
         const weekday = start.add(i, 'day').day()
         const weekendDip = weekday === 0 || weekday === 6 ? 0.45 : 1
@@ -116,7 +126,7 @@ function rampSpend(total: number, days: number): number[] {
     const daily = weights.map((w) => Math.round((total * w) / weightTotal))
     // Per-day rounding drifts off `total`; settle the difference on the last day so the sum is exact.
     daily[daily.length - 1] += total - daily.reduce((sum, v) => sum + v, 0)
-    return daily
+    return daily.map((credits, i) => ({ date: start.add(i, 'day').format('YYYY-MM-DD'), credits }))
 }
 
 function daysElapsedThisPeriod(): number {
@@ -210,9 +220,6 @@ const SCENARIOS: Record<string, () => Omit<QuotaScenario, 'key'>> = {
 }
 
 function scenarioParam(name: string): string | null {
-    if (process.env.NODE_ENV === 'production') {
-        return null
-    }
     try {
         return new URLSearchParams(window.location.search).get(name)
     } catch {
@@ -222,8 +229,11 @@ function scenarioParam(name: string): string | null {
 
 /** The active scenario, or null when none is requested (the normal case, and always in production). */
 export function currentQuotaScenario(): QuotaScenario | null {
+    if (!SCENARIOS_ENABLED) {
+        return null
+    }
     const key = scenarioParam(SCENARIO_PARAM)
-    const build = key ? SCENARIOS[key] : null
+    const build = key && Object.hasOwn(SCENARIOS, key) ? SCENARIOS[key] : null
     if (!key || !build) {
         return null
     }

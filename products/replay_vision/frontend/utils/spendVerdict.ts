@@ -1,5 +1,3 @@
-import { dayjs } from 'lib/dayjs'
-
 import type { VisionQuotaApi } from '../generated/api.schemas'
 import { formatCreditCount } from './credits'
 import { type QuotaContribution, buildQuotaMeter } from './quotaContributions'
@@ -89,30 +87,17 @@ export function spendVerdict(
     const spentPct = Math.min(Math.max(projection.usedPct, 0), 100)
     const projectedPct = Math.min(Math.max(periodEndPct, spentPct), 100) - spentPct
 
-    let projectedDemandCredits: number | null = null
-    if (quota) {
-        if (hasCap && (quota.credit_limit ?? 0) > 0) {
-            projectedDemandCredits = Math.round(((quota.credit_limit ?? 0) * periodEndPct) / 100)
-        } else {
-            const periodStart = dayjs(quota.period_start)
-            const periodEnd = dayjs(quota.period_end)
-            const periodDays = Math.max(periodEnd.diff(periodStart, 'day', true), 1)
-            const daysLeft = Math.max(periodEnd.diff(dayjs(), 'day', true), 0)
-            const monthlyRate = contributions.reduce((sum, c) => (c.kind === 'monthly-rate' ? sum + c.credits : sum), 0)
-            const oneOffs = contributions.reduce((sum, c) => (c.kind === 'one-off' ? sum + c.credits : sum), 0)
-            projectedDemandCredits = Math.round(quota.credits_used + (monthlyRate / periodDays) * daysLeft + oneOffs)
-        }
-    }
-
+    const projectedDemandCredits = model.periodEndCredits
     const base = { spentPct, projectedPct, periodEndPct, projectedDemandCredits, projection, hasCap }
 
     if (!hasCap) {
         const monthly = contributions.reduce((sum, c) => (c.kind === 'monthly-rate' ? sum + c.credits : sum), 0)
+        const oneOffs = contributions.reduce((sum, c) => (c.kind === 'one-off' ? sum + c.credits : sum), 0)
         return {
             ...base,
             kind: 'uncapped',
             pillLabel: 'No spend limit',
-            sentence: `${subject} projected to use ~${formatCreditCount(monthly)}/month.`,
+            sentence: `${subject} projected to use ~${formatCreditCount(monthly)}/month${oneOffs > 0 ? ` plus ${formatCreditCount(oneOffs)} of backfills` : ''}.`,
             spentPct: 0,
             projectedPct: 0,
         }
