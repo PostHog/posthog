@@ -6,7 +6,7 @@ return serialized responses. No business logic here.
 """
 
 from functools import cached_property
-from typing import Any
+from typing import Any, cast
 from urllib.parse import quote
 
 from django.conf import settings
@@ -26,7 +26,11 @@ from rest_framework.views import APIView
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.scoping.manager import resolve_effective_team_id
-from posthog.permissions import is_service_auth
+from posthog.models.user import User
+
+# UserAccessControl reaches stamphog through core: the product's tach boundary allows `posthog`
+# but not `products.access_control`, where the class is defined.
+from posthog.permissions import UserAccessControl, is_service_auth
 
 from products.stamphog.backend.facade import (
     api as facade_api,
@@ -153,6 +157,21 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
                 return config
         raise NotFound()
 
+    def _canonical_user_access_control(self) -> UserAccessControl:
+        """Resource-level access for the team whose rows this request actually touches.
+
+        The mixin builds user_access_control for the URL team, but stamphog rows canonicalize to the
+        parent, so a grant on a child environment alone would authorize a write to the parent's
+        config. Re-anchor to the parent, the same way StamphogCanonicalTeamAccessPermission
+        re-anchors the membership check. Root teams read the URL team either way.
+        """
+        team = self.team
+        if team.parent_team_id is None or team.parent_team_id == team.id or team.parent_team is None:
+            return self.user_access_control
+        return UserAccessControl(
+            user=cast(User, self.request.user), team=team.parent_team, organization_id=self.organization_id
+        )
+
     def _require_review_gate_manager(self, request: Request) -> None:
         """Refuse a review-gating write below the manager level on the stamphog resource.
 
@@ -160,7 +179,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
         layer cannot resolve, and a key is never a manager, so they are refused here rather than
         silently passed through by AccessControlPermission's service-auth shortcut.
         """
-        if not is_service_auth(request) and self.user_access_control.check_access_level_for_resource(
+        if not is_service_auth(request) and self._canonical_user_access_control().check_access_level_for_resource(
             "stamphog", "manager"
         ):
             return

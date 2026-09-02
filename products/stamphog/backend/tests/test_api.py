@@ -53,7 +53,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         created = self.client.post(self.url, {"repository": "PostHog/posthog", "enabled": True}, format="json").json()
         return created["id"]
 
-    def _login_as_member(self, *, stamphog_level: str | None = None) -> User:
+    def _login_as_member(self, *, stamphog_level: str | None = None, grant_team: Team | None = None) -> User:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -61,7 +61,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         member = User.objects.create_and_join(self.organization, "member@posthog.com", "testtest")
         if stamphog_level is not None:
             AccessControl.objects.create(
-                team=self.team,
+                team=grant_team or self.team,
                 resource="stamphog",
                 resource_id=None,
                 access_level=stamphog_level,
@@ -121,6 +121,29 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["enabled"] is False
+
+    @parameterized.expand(
+        [
+            ("granted_on_the_child", False, status.HTTP_403_FORBIDDEN),
+            ("granted_on_the_parent", True, status.HTTP_200_OK),
+        ]
+    )
+    def test_manager_grant_is_read_on_the_team_that_owns_the_rows(
+        self, _name: str, grant_on_parent: bool, expected_status: int
+    ) -> None:
+        # stamphog rows canonicalize to the parent team, so the manager check must read the parent
+        # too. Reading the URL team would let a grant on a child environment alone rewrite the
+        # parent's review settings through the child's URL.
+        config_id = self._create_config()
+        env = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        self._login_as_member(stamphog_level="manager", grant_team=self.team if grant_on_parent else env)
+
+        response = self.client.patch(
+            f"/api/projects/{env.id}/stamphog/repo_configs/{config_id}/", {"enabled": False}, format="json"
+        )
+
+        assert response.status_code == expected_status, response.content
+        assert StamphogRepoConfig.objects.unscoped().get(id=config_id).enabled == (not grant_on_parent)
 
     def test_create_ignores_client_supplied_installation_id(self) -> None:
         # installation_id is read-only: a manual create must not let a caller claim an installation
