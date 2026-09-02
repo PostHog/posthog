@@ -8,8 +8,11 @@ duplicate; the level-specific prompts, tools, and state TypedDicts live with
 each individual agent so per-level prompt iteration stays local.
 """
 
+import copy
 from collections.abc import Callable, Mapping
 from typing import Any
+
+from django.conf import settings
 
 import structlog
 from langchain_openai import ChatOpenAI
@@ -27,11 +30,11 @@ logger = structlog.get_logger(__name__)
 # FLEX_CAPABLE_MODELS in products/ai_observability/backend/summarization/llm/openai.py.
 FLEX_CAPABLE_MODELS: frozenset[str] = frozenset({"gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano"})
 
-# Per-call timeout for flex labeling calls. It must stay under the ai-gateway's buffered-response
-# ceiling (~290s, answered as 504), and it shares the activity's 600s budget with every other
-# call the agent makes, so a parked flex call must fail fast enough to leave room for the
-# standard-tier rerun.
-LABELING_FLEX_CALL_TIMEOUT = 120.0
+# Per-call timeout for the flex client and the standard-tier rerun. It must stay under the
+# ai-gateway's buffered-response ceiling (~290s, answered as 504), and both attempts share the
+# activity's 600s budget with every other call the agent makes, so no single parked call may
+# consume it. The activity's start_to_close deadline remains the hard stop.
+LABELING_CALL_TIMEOUT = 120.0
 
 
 def get_labeling_llm(
@@ -56,10 +59,10 @@ def get_labeling_llm(
     timeout and no SDK retries: `invoke_labeling_agent` owns recovery, and
     retrying against the same starved tier would only stack timeouts.
     """
-    use_flex = flex and model in FLEX_CAPABLE_MODELS
+    use_flex = flex and settings.LLMA_LABELING_FLEX_ENABLED and model in FLEX_CAPABLE_MODELS
     return build_langchain_chat_client(
         model,
-        LABELING_FLEX_CALL_TIMEOUT if use_flex else timeout,
+        LABELING_CALL_TIMEOUT if use_flex else timeout,
         ai_product="aio_clustering",
         trace_id=trace_id,
         session_id=session_id,
@@ -85,10 +88,8 @@ def _is_flex_recoverable(error: APIError) -> bool:
     return isinstance(error, APIStatusError) and error.status_code == 408
 
 
-def invoke_labeling_agent(
+def prepare_labeling_agent_run(
     make_agent: Callable[[ChatOpenAI], Any],
-    initial_state: dict[str, Any],
-    config: dict[str, Any],
     *,
     model: str,
     timeout: float,
@@ -96,13 +97,18 @@ def invoke_labeling_agent(
     session_id: str,
     properties: Mapping[str, str],
     distinct_id: str,
-) -> dict[str, Any]:
-    """Run a labeling agent on the flex tier, rerunning once on the standard tier if flex fails.
+) -> Callable[[dict[str, Any], dict[str, Any]], dict[str, Any]]:
+    """Build the labeling client and return a runner for the agent.
 
-    The labeling callers turn any exception into default cluster labels, so without this
-    rerun a flex refusal degrades label quality silently instead of failing. The rerun
-    restarts the agent from scratch: completed flex calls are paid twice on this rare path,
-    which the tier's discount absorbs.
+    Call this outside the caller's catch-all: client construction errors (the cloud-only
+    guard, a missing API key) must fail the activity, not ship default labels for a
+    configuration problem.
+
+    The runner executes on the flex tier and reruns once on the standard tier when flex
+    fails. The labeling callers turn any exception into default cluster labels, so without
+    the rerun a flex refusal degrades label quality silently. Each attempt gets a deep copy
+    of the state: the labeling tools write labels into it in place, and the rerun must not
+    start from the failed flex attempt's partial progress.
     """
     llm_kwargs: dict[str, Any] = {
         "trace_id": trace_id,
@@ -110,26 +116,30 @@ def invoke_labeling_agent(
         "properties": properties,
         "distinct_id": distinct_id,
     }
-    llm = get_labeling_llm(model, timeout, **llm_kwargs)
-    fell_back = False
-    try:
-        result = make_agent(llm).invoke(initial_state, config)
-    except APIError as flex_error:
-        if llm.service_tier != "flex" or not _is_flex_recoverable(flex_error):
-            raise
-        logger.info("labeling_flex_fell_back", error_type=type(flex_error).__name__, model=model)
-        fell_back = True
-        llm = get_labeling_llm(model, timeout, flex=False, **llm_kwargs)
-        result = make_agent(llm).invoke(initial_state, config)
-    # The tier the last response reports actually served, so production logs answer whether
-    # the gateway forwards service_tier and how often flex refuses.
-    logger.info(
-        "labeling_served_tier",
-        service_tier=_served_tier(result),
-        fell_back=fell_back,
-        model=model,
-    )
-    return result
+    flex_llm = get_labeling_llm(model, timeout, **llm_kwargs)
+
+    def run(initial_state: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
+        fell_back = False
+        try:
+            result = make_agent(flex_llm).invoke(copy.deepcopy(initial_state), config)
+        except APIError as flex_error:
+            if flex_llm.service_tier != "flex" or not _is_flex_recoverable(flex_error):
+                raise
+            logger.info("labeling_flex_fell_back", error_type=type(flex_error).__name__, model=model)
+            fell_back = True
+            standard_llm = get_labeling_llm(model, LABELING_CALL_TIMEOUT, flex=False, **llm_kwargs)
+            result = make_agent(standard_llm).invoke(copy.deepcopy(initial_state), config)
+        # The tier the last response reports actually served, so production logs answer whether
+        # the gateway forwards service_tier and how often flex refuses.
+        logger.info(
+            "labeling_served_tier",
+            service_tier=_served_tier(result),
+            fell_back=fell_back,
+            model=model,
+        )
+        return result
+
+    return run
 
 
 def _served_tier(result: dict[str, Any]) -> str | None:
@@ -171,4 +181,4 @@ def fill_missing_labels(
     return result
 
 
-__all__ = ["FLEX_CAPABLE_MODELS", "fill_missing_labels", "get_labeling_llm", "invoke_labeling_agent"]
+__all__ = ["FLEX_CAPABLE_MODELS", "fill_missing_labels", "get_labeling_llm", "prepare_labeling_agent_run"]

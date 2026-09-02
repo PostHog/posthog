@@ -19,6 +19,8 @@ async def test_max_cached_workflows_reaches_the_sdk_worker(target_memory_usage, 
     with (
         patch.object(worker_module, "connect", AsyncMock(return_value=MagicMock())),
         patch.object(worker_module, "Worker") as mock_worker,
+        # Without this the test binds a real Prometheus socket on 0.0.0.0.
+        patch.object(worker_module, "Runtime"),
     ):
         await worker_module.create_worker(
             host="localhost",

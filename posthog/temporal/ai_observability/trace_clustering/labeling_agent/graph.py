@@ -8,7 +8,7 @@ from langchain_core.messages import HumanMessage
 from langgraph.prebuilt import create_react_agent
 
 from posthog.llm.gateway_client import team_distinct_id
-from posthog.temporal.ai_observability.clustering_agent import fill_missing_labels, invoke_labeling_agent
+from posthog.temporal.ai_observability.clustering_agent import fill_missing_labels, prepare_labeling_agent_run
 from posthog.temporal.ai_observability.llm_endpoint import build_langchain_callbacks
 from posthog.temporal.ai_observability.trace_clustering.labeling_agent.prompts import CLUSTER_LABELING_SYSTEM_PROMPT
 from posthog.temporal.ai_observability.trace_clustering.labeling_agent.state import (
@@ -86,18 +86,21 @@ def run_labeling_agent(
         properties=observability_properties,
     )
 
-    # Run the agent
+    # Built outside the try: a configuration error must fail the activity, not ship default labels.
+    run_agent = prepare_labeling_agent_run(
+        make_agent,
+        model=LABELING_AGENT_MODEL,
+        timeout=LABELING_AGENT_TIMEOUT,
+        trace_id=resolved_trace_id,
+        session_id=resolved_session_id,
+        properties=observability_properties,
+        distinct_id=resolved_distinct_id,
+    )
+
     try:
-        result = invoke_labeling_agent(
-            make_agent,
+        result = run_agent(
             initial_state,
             {"recursion_limit": LABELING_AGENT_RECURSION_LIMIT, "callbacks": callbacks},
-            model=LABELING_AGENT_MODEL,
-            timeout=LABELING_AGENT_TIMEOUT,
-            trace_id=resolved_trace_id,
-            session_id=resolved_session_id,
-            properties=observability_properties,
-            distinct_id=resolved_distinct_id,
         )
 
         logger.info(

@@ -3,7 +3,7 @@
 import json
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
@@ -210,7 +210,7 @@ class TestBuildOpenAIChatClient:
     def test_flex_labeling_client_bounds_a_parked_call_to_one_short_timeout(self):
         # A flex call can park on spare capacity. With SDK retries on and the caller timeout,
         # one call could outlive the whole 600s labeling activity before the standard rerun.
-        from posthog.temporal.ai_observability.clustering_agent import LABELING_FLEX_CALL_TIMEOUT, get_labeling_llm
+        from posthog.temporal.ai_observability.clustering_agent import LABELING_CALL_TIMEOUT, get_labeling_llm
 
         with override_settings(DEBUG=True, AI_GATEWAY_URL=GATEWAY_URL, AI_GATEWAY_API_KEY=GATEWAY_KEY):
             flex_client = get_labeling_llm(
@@ -220,7 +220,7 @@ class TestBuildOpenAIChatClient:
                 "gpt-5.4", 600.0, trace_id="t", session_id="s", properties={}, distinct_id="d", flex=False
             )
 
-        assert flex_client.request_timeout == LABELING_FLEX_CALL_TIMEOUT
+        assert flex_client.request_timeout == LABELING_CALL_TIMEOUT
         assert flex_client.max_retries == 0
         assert standard_client.service_tier is None
         assert standard_client.request_timeout == 600.0
@@ -269,15 +269,13 @@ def _bad_request_error():
     return BadRequestError("bad request", response=response, body=None)
 
 
-class TestInvokeLabelingAgent:
-    def _invoke(self, make_agent):
-        from posthog.temporal.ai_observability.clustering_agent import invoke_labeling_agent
+class TestPrepareLabelingAgentRun:
+    def _invoke(self, make_agent, initial_state=None):
+        from posthog.temporal.ai_observability.clustering_agent import prepare_labeling_agent_run
 
         with override_settings(DEBUG=True, AI_GATEWAY_URL=GATEWAY_URL, AI_GATEWAY_API_KEY=GATEWAY_KEY):
-            return invoke_labeling_agent(
+            run = prepare_labeling_agent_run(
                 make_agent,
-                {"messages": []},
-                {"recursion_limit": 5},
                 model="gpt-5.4",
                 timeout=600.0,
                 trace_id="t",
@@ -285,6 +283,7 @@ class TestInvokeLabelingAgent:
                 properties={},
                 distinct_id="d",
             )
+            return run(initial_state if initial_state is not None else {"messages": []}, {"recursion_limit": 5})
 
     @pytest.mark.parametrize(
         "flex_error",
@@ -346,3 +345,86 @@ class TestInvokeLabelingAgent:
         self._invoke(make_agent)
 
         assert tiers_used == ["flex"]
+
+    def test_rerun_starts_from_a_clean_state(self):
+        # The labeling tools write labels into the state in place, so without a per-attempt
+        # copy the standard rerun would silently continue the failed flex attempt.
+        initial_state: dict = {"messages": [], "current_labels": {}}
+        states_seen = []
+
+        def make_agent(llm):
+            class Agent:
+                def invoke(self, state, config):
+                    states_seen.append(state)
+                    if llm.service_tier == "flex":
+                        state["current_labels"][1] = "partial flex label"
+                        raise _rate_limit_error()
+                    return {"messages": [], "current_labels": dict(state["current_labels"])}
+
+            return Agent()
+
+        result = self._invoke(make_agent, initial_state=initial_state)
+
+        assert result["current_labels"] == {}
+        assert initial_state["current_labels"] == {}
+        assert states_seen[0] is not states_seen[1]
+
+    def test_rerun_client_keeps_the_short_call_timeout(self):
+        # A 600s-per-call rerun with SDK retries cannot finish inside the 600s activity budget.
+        from posthog.temporal.ai_observability.clustering_agent import LABELING_CALL_TIMEOUT
+
+        rerun_clients = []
+
+        def make_agent(llm):
+            if llm.service_tier is None:
+                rerun_clients.append(llm)
+
+            class Agent:
+                def invoke(self, state, config):
+                    if llm.service_tier == "flex":
+                        raise _rate_limit_error()
+                    return {"messages": [], "current_labels": {}}
+
+            return Agent()
+
+        self._invoke(make_agent)
+
+        assert rerun_clients[0].request_timeout == LABELING_CALL_TIMEOUT
+
+    def test_client_construction_errors_escape_before_any_run(self):
+        # A configuration error used to fail the activity; swallowing it into the callers'
+        # default-label handling would silently ship "Cluster N" labels for every team.
+        from posthog.temporal.ai_observability.clustering_agent import prepare_labeling_agent_run
+
+        make_agent = MagicMock()
+
+        with (
+            override_settings(DEBUG=False),
+            patch("posthog.temporal.ai_observability.llm_endpoint.is_cloud", return_value=False),
+            pytest.raises(ApplicationError),
+        ):
+            prepare_labeling_agent_run(
+                make_agent,
+                model="gpt-5.4",
+                timeout=600.0,
+                trace_id="t",
+                session_id="s",
+                properties={},
+                distinct_id="d",
+            )
+
+        make_agent.assert_not_called()
+
+    def test_kill_switch_disables_flex_without_a_deploy(self):
+        from posthog.temporal.ai_observability.clustering_agent import get_labeling_llm
+
+        with override_settings(
+            DEBUG=True,
+            AI_GATEWAY_URL=GATEWAY_URL,
+            AI_GATEWAY_API_KEY=GATEWAY_KEY,
+            LLMA_LABELING_FLEX_ENABLED=False,
+        ):
+            client = get_labeling_llm("gpt-5.4", 600.0, trace_id="t", session_id="s", properties={}, distinct_id="d")
+
+        assert client.service_tier is None
+        assert client.max_retries == 2
