@@ -236,7 +236,7 @@ class TestDefaultNonRetryableErrors:
         "key,expected_substring",
         [
             ("Source column type changed", "reset and fully re-sync"),
-            ("Cannot build decimal array from values", "decimal storage limits"),
+            ("Cannot build decimal array from values", "up to 38 digits"),
         ],
     )
     def test_includes_expected_entry(self, key: str, expected_substring: str) -> None:
