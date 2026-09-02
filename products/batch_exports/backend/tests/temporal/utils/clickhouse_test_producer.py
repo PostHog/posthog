@@ -22,7 +22,6 @@ from products.batch_exports.backend.service import BackfillDetails, BatchExportF
 from products.batch_exports.backend.temporal.filters import compose_filters_clause
 from products.batch_exports.backend.temporal.pipeline.producer import slice_record_batch
 from products.batch_exports.backend.temporal.pipeline.query_ranges import (
-    generate_query_ranges,
     is_5_min_batch_export,
     use_distributed_events_recent_table,
     wait_for_delta_past_data_interval_end,
@@ -87,7 +86,6 @@ class ClickHouseTestProducer:
         self,
         queue: RecordBatchQueue,
         full_range: tuple[dt.datetime | None, dt.datetime],
-        done_ranges: list[tuple[dt.datetime, dt.datetime]],
         is_backfill: bool,
         backfill_details: BackfillDetails | None,
         max_record_batch_size_bytes: int = 0,
@@ -101,7 +99,6 @@ class ClickHouseTestProducer:
                 max_record_batch_size_bytes=max_record_batch_size_bytes,
                 min_records_per_batch=min_records_per_batch,
                 full_range=full_range,
-                done_ranges=done_ranges,
             )
         else:
             return await self.start_without_model(
@@ -109,7 +106,6 @@ class ClickHouseTestProducer:
                 max_record_batch_size_bytes=max_record_batch_size_bytes,
                 min_records_per_batch=min_records_per_batch,
                 full_range=full_range,
-                done_ranges=done_ranges,
                 is_backfill=is_backfill,
                 backfill_details=backfill_details,
                 **kwargs,
@@ -119,7 +115,6 @@ class ClickHouseTestProducer:
         self,
         queue: RecordBatchQueue,
         full_range: tuple[dt.datetime | None, dt.datetime],
-        done_ranges: list[tuple[dt.datetime, dt.datetime]],
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
     ):
@@ -129,7 +124,6 @@ class ClickHouseTestProducer:
             self.produce_batch_export_record_batches_from_range(
                 query_or_model=self.model,
                 full_range=full_range,
-                done_ranges=done_ranges,
                 queue=queue,
                 query_parameters={},
                 max_record_batch_size_bytes=max_record_batch_size_bytes,
@@ -149,7 +143,6 @@ class ClickHouseTestProducer:
         backfill_details: BackfillDetails | None,
         team_id: int,
         full_range: tuple[dt.datetime | None, dt.datetime],
-        done_ranges: list[tuple[dt.datetime, dt.datetime]],
         fields: list[BatchExportField] | None = None,
         destination_default_fields: list[BatchExportField] | None = None,
         max_record_batch_size_bytes: int = 0,
@@ -249,7 +242,6 @@ class ClickHouseTestProducer:
             self.produce_batch_export_record_batches_from_range(
                 query_or_model=query,
                 full_range=full_range,
-                done_ranges=done_ranges,
                 queue=queue,
                 query_parameters=parameters,
                 max_record_batch_size_bytes=max_record_batch_size_bytes,
@@ -265,7 +257,6 @@ class ClickHouseTestProducer:
         self,
         query_or_model: str | RecordBatchModel,
         full_range: tuple[dt.datetime | None, dt.datetime],
-        done_ranges: collections.abc.Sequence[tuple[dt.datetime, dt.datetime]],
         queue: RecordBatchQueue,
         query_parameters: dict[str, typing.Any],
         team_id: int,
@@ -278,8 +269,6 @@ class ClickHouseTestProducer:
             query: The ClickHouse query used to obtain record batches. The query should be have a
                 `FORMAT ArrowStream` clause, although we do not enforce this.
             full_range: The full date range of record batches to produce.
-            done_ranges: Date ranges of record batches that have already been exported, and thus
-                should be skipped.
             queue: The queue where to produce record batches.
             query_parameters: Additional query parameters.
             team_id: The team ID of the batch export.
@@ -301,36 +290,33 @@ class ClickHouseTestProducer:
             delta = dt.timedelta(seconds=30)
         else:
             delta = dt.timedelta(minutes=1)
-        end_at = full_range[1]
-        await wait_for_delta_past_data_interval_end(end_at, delta)
+        interval_start, interval_end = full_range
+        await wait_for_delta_past_data_interval_end(interval_end, delta)
 
         async with get_client(team_id=team_id, clickhouse_url=clickhouse_url) as client:
             if not await client.is_alive():
                 raise ConnectionError("Cannot establish connection to ClickHouse")
 
-            for interval_start, interval_end in generate_query_ranges(full_range, done_ranges):
-                if interval_start is not None:
-                    query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
-                query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
-                query_id = uuid.uuid4()
-                self.logger.debug("Executing query with ID '%s'", query_id)
+            if interval_start is not None:
+                query_parameters["interval_start"] = interval_start.strftime("%Y-%m-%d %H:%M:%S.%f")
+            query_parameters["interval_end"] = interval_end.strftime("%Y-%m-%d %H:%M:%S.%f")
+            query_id = uuid.uuid4()
+            self.logger.debug("Executing query with ID '%s'", query_id)
 
-                if isinstance(query_or_model, RecordBatchModel):
-                    query, query_parameters = await query_or_model.as_query_with_parameters(
-                        interval_start, interval_end
-                    )
-                else:
-                    query = query_or_model
+            if isinstance(query_or_model, RecordBatchModel):
+                query, query_parameters = await query_or_model.as_query_with_parameters(interval_start, interval_end)
+            else:
+                query = query_or_model
 
-                try:
-                    async for record_batch in client.astream_query_as_arrow(
-                        query, query_parameters=query_parameters, query_id=str(query_id)
+            try:
+                async for record_batch in client.astream_query_as_arrow(
+                    query, query_parameters=query_parameters, query_id=str(query_id)
+                ):
+                    for record_batch_slice in slice_record_batch(
+                        record_batch, max_record_batch_size_bytes, min_records_per_batch
                     ):
-                        for record_batch_slice in slice_record_batch(
-                            record_batch, max_record_batch_size_bytes, min_records_per_batch
-                        ):
-                            await queue.put(record_batch_slice)
+                        await queue.put(record_batch_slice)
 
-                except Exception as e:
-                    self.logger.exception("Unexpected error occurred while producing record batches", exc_info=e)
-                    raise
+            except Exception as e:
+                self.logger.exception("Unexpected error occurred while producing record batches", exc_info=e)
+                raise
