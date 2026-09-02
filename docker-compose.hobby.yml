@@ -91,8 +91,8 @@ services:
         environment:
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
-            OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
-            OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            OBJECT_STORAGE_ACCESS_KEY_ID: '${OBJECT_STORAGE_ACCESS_KEY_ID:-object_storage_root_user}'
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: '${OBJECT_STORAGE_SECRET_ACCESS_KEY:-object_storage_root_password}'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
             OBJECT_STORAGE_PUBLIC_ENDPOINT: https://$DOMAIN
             SESSION_RECORDING_V2_S3_ENDPOINT: http://seaweedfs:8333
@@ -151,8 +151,8 @@ services:
             SITE_URL: https://$DOMAIN
             LIVESTREAM_HOST: 'https://${DOMAIN}/livestream'
             SECRET_KEY: $POSTHOG_SECRET
-            OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
-            OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            OBJECT_STORAGE_ACCESS_KEY_ID: '${OBJECT_STORAGE_ACCESS_KEY_ID:-object_storage_root_user}'
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: '${OBJECT_STORAGE_SECRET_ACCESS_KEY:-object_storage_root_password}'
             SESSION_RECORDING_V2_S3_ACCESS_KEY_ID: 'any'
             SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY: 'any'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
@@ -203,8 +203,8 @@ services:
         environment:
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
-            OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
-            OBJECT_STORAGE_SECRET_ACCESS_KEY: 'object_storage_root_password'
+            OBJECT_STORAGE_ACCESS_KEY_ID: '${OBJECT_STORAGE_ACCESS_KEY_ID:-object_storage_root_user}'
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: '${OBJECT_STORAGE_SECRET_ACCESS_KEY:-object_storage_root_password}'
             OBJECT_STORAGE_ENDPOINT: http://objectstorage:19000
             OBJECT_STORAGE_PUBLIC_ENDPOINT: https://$DOMAIN
             OBJECT_STORAGE_ENABLED: true
@@ -363,8 +363,8 @@ services:
         image: minio/minio:RELEASE.2025-04-22T22-12-26Z
         restart: on-failure
         environment:
-            MINIO_ROOT_USER: object_storage_root_user
-            MINIO_ROOT_PASSWORD: object_storage_root_password
+            MINIO_ROOT_USER: ${OBJECT_STORAGE_ACCESS_KEY_ID:-object_storage_root_user}
+            MINIO_ROOT_PASSWORD: ${OBJECT_STORAGE_SECRET_ACCESS_KEY:-object_storage_root_password}
         entrypoint: sh
         command: -c 'mkdir -p /data/posthog /data/ducklake-dev /data/ai-blobs && minio server --address ":19000" --console-address ":19001" /data'
         logging: *default-logging
@@ -466,6 +466,8 @@ services:
         environment:
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+            OBJECT_STORAGE_ACCESS_KEY_ID: '${OBJECT_STORAGE_ACCESS_KEY_ID:-object_storage_root_user}'
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: '${OBJECT_STORAGE_SECRET_ACCESS_KEY:-object_storage_root_password}'
             BROWSERLESS_CDP_URL: 'ws://browserless:3000'
             BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
             HEATMAP_BROWSERLESS_URL: 'http://browserless:3000'

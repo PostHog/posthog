@@ -263,6 +263,12 @@ services:
         # round-tripping). 4.29 is the newest release that's been out at least two weeks.
         image: chrislusf/seaweedfs:4.29
         restart: on-failure
+        # The bootstrap loop reads these at runtime, so a credential containing shell
+        # metacharacters (%, ', $, `) reaches `s3.configure` verbatim instead of being
+        # re-parsed as printf, shell, or grep syntax. Defaults match the canonical dev pair.
+        environment:
+            OBJECT_STORAGE_ACCESS_KEY_ID: ${OBJECT_STORAGE_ACCESS_KEY_ID:-object_storage_root_user}
+            OBJECT_STORAGE_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_SECRET_ACCESS_KEY:-object_storage_root_password}
         entrypoint:
             - /bin/sh
             - -c
@@ -277,14 +283,14 @@ services:
             - |
                 (
                     while true; do
-                        printf 's3.configure -access_key=object_storage_root_user -secret_key=object_storage_root_password -user=posthog -actions=Admin -apply\ns3.configure -user=anonymous -actions=Admin -apply\ns3.bucket.create -name posthog\ns3.bucket.create -name ducklake-dev\ns3.bucket.create -name ai-blobs\n' \
+                        printf 's3.configure -access_key=%s -secret_key=%s -user=posthog -actions=Admin -apply\ns3.configure -user=anonymous -actions=Admin -apply\ns3.bucket.create -name posthog\ns3.bucket.create -name ducklake-dev\ns3.bucket.create -name ai-blobs\n' "$$OBJECT_STORAGE_ACCESS_KEY_ID" "$$OBJECT_STORAGE_SECRET_ACCESS_KEY" \
                                 | /usr/bin/weed shell -master=localhost:19001 >/dev/null 2>&1 || true
                         BUCKETS=$$(echo 's3.bucket.list' | /usr/bin/weed shell -master=localhost:19001 2>/dev/null || true)
                         IDENTITIES=$$(echo 's3.configure' | /usr/bin/weed shell -master=localhost:19001 2>/dev/null || true)
                         if echo "$$BUCKETS" | grep -q posthog \
                                 && echo "$$BUCKETS" | grep -q ducklake-dev \
                                 && echo "$$BUCKETS" | grep -q ai-blobs \
-                                && echo "$$IDENTITIES" | grep -q object_storage_root_user \
+                                && echo "$$IDENTITIES" | grep -Fq -- "$$OBJECT_STORAGE_ACCESS_KEY_ID" \
                                 && echo "$$IDENTITIES" | grep -q anonymous; then
                             touch /tmp/objectstorage-ready
                             echo "Objectstorage SeaweedFS ready with required buckets and identities"
@@ -596,8 +602,8 @@ services:
             AI_BLOB_S3_PREFIX: 'aio/'
             AI_BLOB_S3_ENDPOINT: 'http://objectstorage:19000'
             AI_BLOB_S3_REGION: us-east-1
-            AI_BLOB_S3_ACCESS_KEY_ID: object_storage_root_user
-            AI_BLOB_S3_SECRET_ACCESS_KEY: object_storage_root_password
+            AI_BLOB_S3_ACCESS_KEY_ID: ${OBJECT_STORAGE_ACCESS_KEY_ID:-object_storage_root_user}
+            AI_BLOB_S3_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_SECRET_ACCESS_KEY:-object_storage_root_password}
             AI_BLOB_OFFLOAD_TEAMS: '*'
 
     ingestion-sessionreplay:
