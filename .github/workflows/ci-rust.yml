@@ -275,20 +275,22 @@ jobs:
                   sparse-checkout-cone-mode: false
                   clean: false
 
-            - parallel:
-                  - name: Install system OpenSSL
-                    run: |
-                        sudo rm -f /etc/apt/sources.list.d/*twingate*
-                        sudo apt-get update
-                        sudo apt-get install -y libssl-dev pkg-config
+            # Don't wrap these in a `parallel:` block: two branches that each download an
+            # action corrupt the runner's action registry and kill the job during setup.
+            # See docs/internal/ci-things-already-tried.md.
+            - name: Install system OpenSSL
+              run: |
+                  sudo rm -f /etc/apt/sources.list.d/*twingate*
+                  sudo apt-get update
+                  sudo apt-get install -y libssl-dev pkg-config
 
-                  - name: Install protoc
-                    uses: ./.github/actions/setup-protoc
+            - name: Install protoc
+              uses: ./.github/actions/setup-protoc
 
-                  - name: Install rust
-                    uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-                    with:
-                        toolchain: 1.91.1
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
 
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
@@ -840,21 +842,23 @@ jobs:
                   sparse-checkout-cone-mode: false
                   clean: false
 
-            - parallel:
-                  - name: Install system OpenSSL
-                    run: |
-                        sudo rm -f /etc/apt/sources.list.d/*twingate*
-                        sudo apt-get update
-                        sudo apt-get install -y libssl-dev pkg-config
+            # Don't wrap these in a `parallel:` block: two branches that each download an
+            # action corrupt the runner's action registry and kill the job during setup.
+            # See docs/internal/ci-things-already-tried.md.
+            - name: Install system OpenSSL
+              run: |
+                  sudo rm -f /etc/apt/sources.list.d/*twingate*
+                  sudo apt-get update
+                  sudo apt-get install -y libssl-dev pkg-config
 
-                  - name: Install protoc
-                    uses: ./.github/actions/setup-protoc
+            - name: Install protoc
+              uses: ./.github/actions/setup-protoc
 
-                  - name: Install rust
-                    uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-                    with:
-                        toolchain: 1.91.1
-                        components: clippy,rustfmt
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+                  components: clippy,rustfmt
 
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"

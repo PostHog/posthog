@@ -245,6 +245,23 @@ _Also asked as:_ Docker Hub rate limit in CI, unauthenticated pull limit, DOCKER
 
 ## CI orchestration
 
+### Run action-downloading steps in a `parallel:` block
+
+**Verdict: reverted** · Sep 2026
+
+`parallel:` steps run several setup branches at once, which shaves setup time off every job in a matrix.
+When two branches each resolve a step that downloads an action, the runner writes the same non-concurrent dictionary from both threads.
+It then fails the job with `Operations that change non-concurrent collections must have exclusive access`, or leaves `GITHUB_EVENT_PATH` empty so the next action crashes on `JSON.parse` with `SyntaxError: Unexpected end of JSON input`.
+The job dies during setup, before it runs a test, so the failure carries no findings and a rerun usually passes.
+
+Measured on 12 scheduled Backend CI runs: about 1 job in 100 died this way. The product-test matrix is around 46 jobs, so about a third of the nightly runs went red on it alone.
+Nested `uses:` inside a composite action resolve late, so a composite counts as several downloads.
+
+Blocks whose branches are all `run:` steps do not download anything and stay parallel.
+`cd-sandbox-base-image.yml` also stays parallel: its branches are Depot image builds, and serializing three multi-platform builds costs far more than the crash rate on a workflow that has never shown it.
+
+_Also asked as:_ parallel steps, run setup steps concurrently, speed up job setup, non-concurrent collection error, Unexpected end of JSON input in setup-node
+
 ### Move CI from the Depot runners to Blacksmith
 
 **Verdict: rejected** · Apr 2026 to May 2026 · [#54559](https://github.com/PostHog/posthog/pull/54559), removed by [#57991](https://github.com/PostHog/posthog/pull/57991)

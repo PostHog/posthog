@@ -49,17 +49,19 @@ jobs:
                   sparse-checkout-cone-mode: false
                   clean: false
 
-            - parallel:
-                  - name: Install rust
-                    uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-                    with:
-                        toolchain: 1.91.1
-                        components: clippy,rustfmt
+            # Don't wrap these in a `parallel:` block: two branches that each download an
+            # action corrupt the runner's action registry and kill the job during setup.
+            # See docs/internal/ci-things-already-tried.md.
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+                  components: clippy,rustfmt
 
-                  - name: Set up Python
-                    uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-                    with:
-                        python-version: '3.13'
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: '3.13'
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2

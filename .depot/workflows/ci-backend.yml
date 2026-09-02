@@ -835,21 +835,23 @@ jobs:
             # Depot shadow: canonical threads a setup-action app token into both
             # pnpm-install and setup-python; mint stripped here (secret not
             # available on Depot), so setup-python keeps the bot PAT.
-            - parallel:
-                  - name: Install pnpm dependencies
-                    uses: ./.depot/actions/pnpm-install
-                    with:
-                        install-command: pnpm install --frozen-lockfile --filter=@posthog/root
-                  - name: Set up Python
-                    uses: ./.depot/actions/setup-python-cached
-                    with:
-                        python-version: 3.13.13
-                        token: ${{ secrets.POSTHOG_BOT_PAT }}
-                  - name: Install Rust
-                    uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-                    with:
-                        toolchain: 1.91.1
-                        components: cargo
+            # Don't wrap these in a `parallel:` block: two branches that each download an
+            # action corrupt the runner's action registry and kill the job during setup.
+            # See docs/internal/ci-things-already-tried.md.
+            - name: Install pnpm dependencies
+              uses: ./.depot/actions/pnpm-install
+              with:
+                  install-command: pnpm install --frozen-lockfile --filter=@posthog/root
+            - name: Set up Python
+              uses: ./.depot/actions/setup-python-cached
+              with:
+                  python-version: 3.13.13
+                  token: ${{ secrets.POSTHOG_BOT_PAT }}
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
             - name: Install uv
               id: setup-uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -1868,25 +1870,26 @@ jobs:
             # Tool cache steps inlined rather than the setup-python-cached composite:
             # this job checks out the PR head ref, which cannot resolve a local
             # action that only exists on master until the branch rebases. The
-            # restore sits before the parallel block so the tool cache is warm
-            # when setup-python starts.
+            # restore sits before setup-python so the tool cache is warm when it runs.
             - name: Restore Python tool cache
               id: python-toolcache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ runner.tool_cache }}/Python/${{ matrix.python-version }}
                   key: python-toolcache-${{ runner.os }}-${{ runner.arch }}-${{ matrix.python-version }}
-            - parallel:
-                  - name: Set up Python
-                    uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-                    with:
-                        python-version: ${{ matrix.python-version }}
-                  - name: Install Rust
-                    if: needs.changes.outputs.backend == 'true'
-                    uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-                    with:
-                        toolchain: 1.91.1
-                        components: cargo
+            # Don't wrap these in a `parallel:` block: two branches that each download an
+            # action corrupt the runner's action registry and kill the job during setup.
+            # See docs/internal/ci-things-already-tried.md.
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: ${{ matrix.python-version }}
+            - name: Install Rust
+              if: needs.changes.outputs.backend == 'true'
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
             - name: Save Python tool cache
               if: github.ref == 'refs/heads/master' && steps.python-toolcache.outputs.cache-hit != 'true'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
