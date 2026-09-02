@@ -1399,6 +1399,9 @@ class ExternalDataSourceType(models.TextChoices):
     ANVIL = "Anvil", "Anvil"
     COOLIFY = "Coolify", "Coolify"
     SOCIALPILOT = "SocialPilot", "SocialPilot"
+    MEDUSA = "Medusa", "Medusa"
+    MEMBRAIN = "Membrain", "Membrain"
+    RECALLAI = "RecallAI", "RecallAI"
 
 
 def external_data_source_type_choices() -> list[tuple[str, str | Promise]]:
