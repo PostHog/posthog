@@ -150,7 +150,7 @@ export function VisionUsageTab(): JSX.Element {
             align: 'right',
             tooltip: "Based on the scanner's filters and sampling. Updates when the scanner is saved.",
             render: (_, scanner) => {
-                if (!scanner.enabled || scanner.estimated_monthly_credits === null) {
+                if (!scanner.enabled || scanner.estimated_monthly_credits == null) {
                     return <div className="text-secondary text-right">—</div>
                 }
                 return (
