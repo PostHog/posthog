@@ -852,6 +852,62 @@ class TestDropTableValidation:
         assert migration_risk.level == RiskLevel.NEEDS_REVIEW
         assert migration_risk.max_score == 2
 
+    def test_drop_table_still_owned_by_live_model_in_another_app_stays_blocked(self):
+        """Unsafe pattern: the origin app created the model, then released it from state to another
+        app that kept the same db_table. The live table is now owned elsewhere. A DROP written in
+        the origin app must stay BLOCKED, not be validated by the stale CreateModel/DeleteModel pair
+        left in the origin app's history.
+
+        Uses llm_analytics_llmskill: ai_observability created it, migration 0005 released it from
+        state, and the live skills.LLMSkill model still maps to the table.
+        """
+        create_op = create_mock_operation(
+            migrations.CreateModel,
+            name="LLMSkill",
+            options={"db_table": "llm_analytics_llmskill"},
+        )
+        create_migration = MagicMock()
+        create_migration.app_label = "ai_observability"
+        create_migration.name = "0001_adopt"
+        create_migration.operations = [create_op]
+        create_migration.dependencies = []
+
+        delete_model_op = create_mock_operation(migrations.DeleteModel, name="LLMSkill")
+        separate_op = create_mock_operation(
+            migrations.SeparateDatabaseAndState,
+            state_operations=[delete_model_op],
+            database_operations=[],
+        )
+        state_removal_migration = MagicMock()
+        state_removal_migration.app_label = "ai_observability"
+        state_removal_migration.name = "0005_release_skills_to_skills_app"
+        state_removal_migration.operations = [separate_op]
+        state_removal_migration.dependencies = [("ai_observability", "0001_adopt")]
+
+        drop_migration = MagicMock()
+        drop_migration.app_label = "ai_observability"
+        drop_migration.name = "0043_drop_legacy_llmskill"
+        drop_migration.dependencies = [("ai_observability", "0005_release_skills_to_skills_app")]
+        drop_migration.operations = [
+            create_mock_operation(migrations.RunSQL, sql="DROP TABLE IF EXISTS llm_analytics_llmskill;")
+        ]
+
+        mock_loader = MagicMock()
+        mock_loader.disk_migrations = {
+            ("ai_observability", "0001_adopt"): create_migration,
+            ("ai_observability", "0005_release_skills_to_skills_app"): state_removal_migration,
+            ("ai_observability", "0043_drop_legacy_llmskill"): drop_migration,
+        }
+
+        migration_risk = self.analyzer.analyze_migration_with_context(
+            drop_migration,
+            "products/ai_observability/backend/migrations/0043_drop_legacy_llmskill.py",
+            mock_loader,
+        )
+
+        assert migration_risk.level == RiskLevel.BLOCKED
+        assert migration_risk.max_score == 5
+
     def test_drop_table_with_gap_between_state_removal_and_drop(self):
         """
         Valid pattern: State removal several migrations before drop.

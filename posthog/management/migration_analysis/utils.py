@@ -166,6 +166,13 @@ def check_drop_properly_staged(
     - For "table": SeparateDatabaseAndState with DeleteModel for the model
     - For "column": SeparateDatabaseAndState with RemoveField for the model+field
     """
+    # A table a live model still owns is not an orphaned table: the model moved to another app or
+    # the name was reused there. This app's history still holds the old CreateModel and a later
+    # DeleteModel, so the staged-drop walk below would match a stale mapping and validate a drop of
+    # a live, in-use table. Refuse it here so the drop stays BLOCKED.
+    if target_type == "table" and _table_owned_by_live_model(table_name):
+        return False
+
     if not loader or not hasattr(loader, "disk_migrations"):
         return False
 
@@ -211,6 +218,18 @@ def check_drop_properly_staged(
             to_check.extend(parent_migration.dependencies)
 
     return False
+
+
+def _table_owned_by_live_model(table_name: str) -> bool:
+    """True if any app's live model currently maps to this table.
+
+    The staged-drop check resolves a dropped table back to the model that created it and looks for a
+    prior DeleteModel. That mapping goes stale when a table is moved to another app (or reused under
+    the same name) while keeping its db_table, because the origin app still has both the CreateModel
+    and a DeleteModel in its history. Scanning every app's live models catches the table that is
+    still owned, so a drop of it is not mistaken for a retired-table cleanup.
+    """
+    return any(model._meta.db_table == table_name for model in apps.get_models())
 
 
 def _model_name_for_table(app_label: Optional[str], table_name: str) -> Optional[str]:
