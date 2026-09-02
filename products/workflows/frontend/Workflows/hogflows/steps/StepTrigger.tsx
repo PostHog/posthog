@@ -582,7 +582,7 @@ function BatchScheduleSection(): JSX.Element {
     return (
         <>
             <LemonDivider />
-            <LemonLabel>Schedule</LemonLabel>
+            <LemonLabel showOptional>Schedule</LemonLabel>
             <p className="text-xs text-muted mb-0">
                 Set the date and time this batch runs. Switch on Repeat to send it again on a recurring schedule.
             </p>
