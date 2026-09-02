@@ -407,15 +407,22 @@ def handle_turn_feedback_modal_submit(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
-def reaction_sentiment(reaction: Any) -> str | None:
-    """The rating a reaction stands for, or ``None`` for any other emoji.
+def _reaction_base(reaction: str) -> str:
+    """The emoji name without its skin-tone modifier.
 
-    A skin-toned thumb arrives as ``+1::skin-tone-3``; the tone changes nothing about the
-    rating, so only the base name is matched.
+    A skin-toned thumb arrives as ``+1::skin-tone-3``. The tone changes nothing about the
+    rating, and it must not reach the captured event either: it is a person's routine
+    default on every emoji they send, so storing it would record a proxy for a protected
+    attribute against an identified user.
     """
+    return reaction.split("::", 1)[0]
+
+
+def reaction_sentiment(reaction: Any) -> str | None:
+    """The rating a reaction stands for, or ``None`` for any other emoji."""
     if not isinstance(reaction, str):
         return None
-    return _REACTION_SENTIMENTS.get(reaction.split("::", 1)[0])
+    return _REACTION_SENTIMENTS.get(_reaction_base(reaction))
 
 
 def _fetch_reacted_message(workspace_integration: Integration, channel: str, message_ts: str) -> dict[str, Any] | None:
@@ -427,8 +434,10 @@ def _fetch_reacted_message(workspace_integration: Integration, channel: str, mes
     try:
         client = SlackIntegration(workspace_integration).client
         client.timeout = SLACK_WEBHOOK_TIMEOUT_SECONDS
+        # `oldest` and `latest` pin the window to exactly the reacted message, so the one
+        # returned row is that message whatever order Slack ranges the thread in.
         response = client.conversations_replies(
-            channel=channel, ts=message_ts, latest=message_ts, inclusive=True, limit=1
+            channel=channel, ts=message_ts, oldest=message_ts, latest=message_ts, inclusive=True, limit=1
         )
         messages = response.get("messages") or []
     except Exception:
@@ -468,13 +477,15 @@ def handle_reaction_added(event: dict, slack_team_id: str, workspace_integration
     in the other region so the event router can forward the event there. Everything this
     handler ignores, including reactions that are not a thumb, is ``REACTION_HANDLED``.
     """
-    sentiment = reaction_sentiment(event.get("reaction"))
+    reaction = event.get("reaction")
+    sentiment = reaction_sentiment(reaction)
     rating = _RATINGS.get(sentiment) if sentiment else None
     item = event.get("item") or {}
     channel = item.get("channel")
     message_ts = item.get("ts")
     if (
         rating is None
+        or not isinstance(reaction, str)
         or item.get("type") != "message"
         or not isinstance(channel, str)
         or not isinstance(message_ts, str)
@@ -514,7 +525,7 @@ def handle_reaction_added(event: dict, slack_team_id: str, workspace_integration
             "$ai_metric_name": "quality",
             "$ai_metric_value": rating,
             "feedback_source": "reaction",
-            "reaction": event.get("reaction"),
+            "reaction": _reaction_base(reaction),
         },
     )
     return REACTION_HANDLED

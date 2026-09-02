@@ -244,14 +244,37 @@ def get_cached_workspace_bot_user_id(slack_team_id: str) -> str | None:
     the id is workspace-level data. Written as a side effect of ``get_cached_bot_user_id``,
     which is what lets a surface that has not loaded an integration yet (the reaction
     router) reject a reaction on a non-bot message before its first database query. A miss
-    proves nothing: callers fall through to the integration-scoped path.
+    proves nothing: callers fall through to the integration-scoped path, which is also why
+    a cache outage degrades to that path rather than raising into a webhook.
     """
-    value = cache.get(_workspace_bot_user_cache_key(slack_team_id))
+    try:
+        value = cache.get(_workspace_bot_user_cache_key(slack_team_id))
+    except Exception:
+        logger.warning("slack_app_workspace_bot_user_cache_read_failed", slack_team_id=slack_team_id)
+        return None
     return value if isinstance(value, str) and value else None
 
 
 def cache_workspace_bot_user_id(slack_team_id: str, bot_user_id: str) -> None:
-    cache.set(_workspace_bot_user_cache_key(slack_team_id), bot_user_id, SLACK_AUTH_STATE_CACHE_TTL_SECONDS)
+    """Best-effort: this cache only saves work, so a write failure must not fail the
+    caller, which sits on the mention pipeline's hot path."""
+    try:
+        cache.set(_workspace_bot_user_cache_key(slack_team_id), bot_user_id, SLACK_AUTH_STATE_CACHE_TTL_SECONDS)
+    except Exception:
+        logger.warning("slack_app_workspace_bot_user_cache_write_failed", slack_team_id=slack_team_id)
+
+
+def invalidate_workspace_bot_user_id(slack_team_id: str) -> None:
+    """Drop the workspace-level bot id so the next resolution re-derives it.
+
+    Called on OAuth reconnect: a reinstall can mint a new bot user, and the reaction
+    router's author gate must not keep rejecting the new bot's replies against the old id
+    for the cache TTL.
+    """
+    try:
+        cache.delete(_workspace_bot_user_cache_key(slack_team_id))
+    except Exception:
+        logger.warning("slack_app_workspace_bot_user_cache_delete_failed", slack_team_id=slack_team_id)
 
 
 def get_cached_bot_user_id(slack: SlackIntegration, integration: Integration) -> str | None:

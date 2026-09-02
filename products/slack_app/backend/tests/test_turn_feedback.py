@@ -214,20 +214,25 @@ class TestTurnFeedback(TestCase):
 
     @parameterized.expand(
         [
-            ("+1", "good"),
-            ("+1::skin-tone-3", "good"),
-            ("thumbsup", "good"),
-            ("-1", "bad"),
-            ("-1::skin-tone-5", "bad"),
-            ("thumbsdown", "bad"),
+            ("+1", "good", "+1"),
+            ("+1::skin-tone-3", "good", "+1"),
+            ("thumbsup", "good", "thumbsup"),
+            ("-1", "bad", "-1"),
+            ("-1::skin-tone-5", "bad", "-1"),
+            ("thumbsdown", "bad", "thumbsdown"),
         ]
     )
-    def test_a_thumb_reaction_reports_a_rating(self, reaction, rating):
+    def test_a_thumb_reaction_reports_a_rating(self, reaction, rating, stored_reaction):
         self._reacted_message([turn_feedback_block(self.integration.id, str(self.task_run.id))])
 
         response = self._react(reaction)
 
         assert response.status_code == 202
+        # The window must pin exactly the reacted message: with an open lower bound Slack
+        # ranges the whole thread and one returned row could be a different message.
+        fetch_kwargs = self.mock_slack.return_value.client.conversations_replies.call_args.kwargs
+        assert fetch_kwargs["oldest"] == fetch_kwargs["latest"] == fetch_kwargs["ts"] == "222.1"
+        assert fetch_kwargs["inclusive"] is True
         self.mock_analytics.capture.assert_called_once()
         kwargs = self.mock_analytics.capture.call_args.kwargs
         assert kwargs["event"] == "$ai_metric"
@@ -235,7 +240,9 @@ class TestTurnFeedback(TestCase):
         assert properties["$ai_metric_name"] == "quality"
         assert properties["$ai_metric_value"] == rating
         assert properties["feedback_source"] == "reaction"
-        assert properties["reaction"] == reaction
+        # The skin-tone modifier never reaches the event: it is a proxy for a protected
+        # attribute on an identified person, and the metric does not need it.
+        assert properties["reaction"] == stored_reaction
         assert properties["task_run_id"] == str(self.task_run.id)
         assert properties["turn_id"] == "222.1"
         # A reaction carries no trigger_id, so a bad rating cannot be asked for a reason.
