@@ -104,6 +104,12 @@ def _run_probe(url: str, result: ProbeResult, scope_allowlist: Sequence[str] | N
     # strongest MCP evidence available without credentials.
     result.speaks_mcp = True
     result.oauth_metadata = metadata
+    try:
+        requested_oauth_scopes(metadata, scope_allowlist)
+    except ValueError as exc:
+        result.errors.append(str(exc))
+        return
+
     client_id = _register_probe_client(metadata, result, scope_allowlist)
     if client_id is None:
         result.auth_flavor = "oauth_shared"

@@ -1035,7 +1035,11 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
         }
-        if scopes := requested_oauth_scopes(metadata, scope_allowlist):
+        try:
+            scopes = requested_oauth_scopes(metadata, scope_allowlist)
+        except ValueError as exc:
+            raise OAuthAuthorizeURLError(str(exc)) from exc
+        if scopes:
             query_params["scope"] = " ".join(scopes)
         if resource := oauth_resource(metadata):
             query_params["resource"] = resource

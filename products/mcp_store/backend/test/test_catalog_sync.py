@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, TestCase
@@ -259,7 +261,7 @@ class TestSyncMCPCatalog(TestCase):
         good = _entry()
         bad = _entry(url="https://mcp.broken.example/mcp", name="Broken")
 
-        def _probe(url: str) -> ProbeResult:
+        def _probe(url: str, scope_allowlist: Sequence[str] | None = None) -> ProbeResult:
             if "broken" in url:
                 raise RuntimeError("boom")
             return _dcr_pass_probe()

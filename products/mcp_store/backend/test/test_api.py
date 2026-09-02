@@ -3892,6 +3892,26 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         installation = MCPServerInstallation.objects.get(url=template.url, user=self.user)
         assert installation.template_id == template.id
 
+    def test_install_template_rejects_nonmatching_oauth_scope_allowlist(self):
+        template = self._template(
+            oauth_scope_allowlist=["read"],
+            oauth_metadata={
+                "authorization_endpoint": "https://auth.test.example.com/authorize",
+                "token_endpoint": "https://auth.test.example.com/token",
+                "scopes_supported": ["write"],
+            },
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
+            data={"template_id": str(template.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Could not build OAuth authorize URL"
+        assert not MCPServerInstallation.objects.filter(url=template.url, user=self.user).exists()
+
     def test_install_template_api_key_stores_key_and_returns_installation(self):
         template = self._template(auth_type="api_key", oauth_credentials={}, oauth_metadata={})
 

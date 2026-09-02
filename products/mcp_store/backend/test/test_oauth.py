@@ -1107,7 +1107,10 @@ class TestRegisterDCRClient(SimpleTestCase):
 
         assert requested_oauth_scopes(metadata) == ["read"]
         assert requested_oauth_scopes(metadata, ("read", "admin", "read")) == ["read"]
-        assert requested_oauth_scopes(metadata, ()) == []
+        with self.assertRaisesRegex(ValueError, "does not contain any scopes"):
+            requested_oauth_scopes(metadata, ())
+        with self.assertRaisesRegex(ValueError, "does not match any provider-supported scopes"):
+            requested_oauth_scopes(metadata, ("admin",))
         assert requested_oauth_grant_types(metadata) == ["authorization_code", "refresh_token"]
         assert oauth_resource(metadata) == "https://mcp.example.com/"
 

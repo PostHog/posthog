@@ -106,10 +106,18 @@ def requested_oauth_scopes(metadata: dict, scope_allowlist: Sequence[str] | None
     advertised_scopes = resource_scopes or _as_string_list(metadata.get("scopes_supported"))
     if scope_allowlist is None:
         return advertised_scopes
+
+    allowed_scopes = list(dict.fromkeys(scope_allowlist))
+    if not allowed_scopes:
+        raise ValueError("OAuth scope allowlist does not contain any scopes")
     if not advertised_scopes:
-        return list(dict.fromkeys(scope_allowlist))
+        return allowed_scopes
+
     advertised = set(advertised_scopes)
-    return list(dict.fromkeys(scope for scope in scope_allowlist if scope in advertised))
+    requested_scopes = [scope for scope in allowed_scopes if scope in advertised]
+    if not requested_scopes:
+        raise ValueError("OAuth scope allowlist does not match any provider-supported scopes")
+    return requested_scopes
 
 
 def requested_oauth_grant_types(metadata: dict) -> list[str]:

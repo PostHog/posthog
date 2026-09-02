@@ -148,6 +148,29 @@ class TestProbeMCPServer(SimpleTestCase):
         registration_calls = [c for c in post.call_args_list if c.args[0] == REGISTRATION_URL]
         self.assertEqual(registration_calls[0].kwargs["json"]["scope"], "read")
 
+    def test_oauth_scope_allowlist_must_match_advertised_scopes(self):
+        result, post, _get, _pinned = self._probe(
+            post_routes={
+                SERVER_URL: _mock_response(401, text="unauthorized", content_type="text/plain"),
+                REGISTRATION_URL: _mock_response(
+                    201, json_body={"client_id": "minted-client-id", "token_endpoint_auth_method": "none"}
+                ),
+            },
+            get_routes={
+                PROTECTED_RESOURCE_URL: _mock_response(200, json_body=PROTECTED_RESOURCE_BODY),
+                AUTH_SERVER_METADATA_URL: _mock_response(
+                    200,
+                    json_body={**AUTH_SERVER_METADATA_BODY, "scopes_supported": ["read"]},
+                ),
+            },
+            scope_allowlist=("write",),
+        )
+
+        self.assertFalse(result.passed_activation_gate)
+        self.assertFalse(result.dcr_registered)
+        self.assertTrue(any("does not match" in error for error in result.errors))
+        self.assertFalse(any(call.args[0] == REGISTRATION_URL for call in post.call_args_list))
+
     def test_oauth_without_registration_endpoint_is_oauth_shared(self):
         metadata = {k: v for k, v in AUTH_SERVER_METADATA_BODY.items() if k != "registration_endpoint"}
         result, _post, _get, _pinned = self._probe(
