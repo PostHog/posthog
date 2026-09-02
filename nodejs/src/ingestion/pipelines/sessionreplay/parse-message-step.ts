@@ -121,6 +121,28 @@ function getValidEvents(events: unknown[]): {
 }
 
 /**
+ * Record the sender's clock offset: the device clock at upload (`sent_at`) against the server clock
+ * at receipt (`now`). Capture stamps both at the same instant, so buffering shifts them equally and
+ * cancels; the Kafka message time against rrweb event times does not cancel. Capture omits `sent_at`
+ * when the client sends none, so those messages count as unmeasured rather than as zero.
+ */
+export function observeClockSkew(sentAt: string | undefined, now: string | undefined): void {
+    if (!sentAt || !now) {
+        SessionRecordingIngesterMetrics.incrementMessageClockSkewUnmeasured()
+        return
+    }
+    const sentAtMs = DateTime.fromISO(sentAt).toMillis()
+    const nowMs = DateTime.fromISO(now).toMillis()
+    if (!Number.isFinite(sentAtMs) || !Number.isFinite(nowMs)) {
+        SessionRecordingIngesterMetrics.incrementMessageClockSkewUnmeasured()
+        return
+    }
+    const skewMs = sentAtMs - nowMs
+    const direction = skewMs >= 0 ? 'device_ahead' : 'device_behind'
+    SessionRecordingIngesterMetrics.observeMessageClockSkew(direction, Math.abs(skewMs) / 1000)
+}
+
+/**
  * Creates a step that parses raw Kafka messages into ParsedMessageData.
  * This step is additive - it preserves all input properties and adds parsedMessage.
  *
@@ -137,7 +159,6 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(): Proce
         if (!message.value || !message.timestamp) {
             return dlq('message_value_or_timestamp_is_empty')
         }
-
         let messageUnzipped: Buffer
         try {
             messageUnzipped = decompressMessageValue(message)
@@ -220,6 +241,8 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(): Proce
         if (headers.distinct_id !== messageResult.data.distinct_id) {
             return dlq('distinct_id_header_body_mismatch')
         }
+
+        observeClockSkew(messageResult.data.sent_at, messageResult.data.now)
 
         const parsedMessage: ParsedMessageData = {
             metadata: {

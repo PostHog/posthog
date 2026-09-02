@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useEffect } from 'react'
-import { twMerge } from 'tailwind-merge'
 
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass-1'
 import { IconCheckCircle } from '@posthog/icons'
 
 import { getCookie } from 'lib/api'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
@@ -22,6 +23,8 @@ import { RegionField } from 'scenes/authentication/shared/authScene/RegionField'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
 import { RedirectIfLoggedInOtherInstance } from 'scenes/authentication/shared/RedirectToLoggedInInstance'
+import { isValidVerificationCode, normalizeVerificationCode } from 'scenes/authentication/shared/verificationCode'
+import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
@@ -31,6 +34,8 @@ import { loginLogic } from './loginLogic'
 import { SessionRiskBanner } from './SessionRiskBanner'
 
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
+
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 function loginMethodLabel(method: LoginMethod): string {
     if (method === 'password') {
@@ -91,7 +96,8 @@ function buildLoginSupportMessage({
 // insertBefore NotFoundError, see react#11538). Text that is its own element's only child is
 // already safe, so only text sharing a parent with element siblings needs wrapping.
 export function LoginForm(): JSX.Element {
-    const { precheck, exitCodeVerification, resendCodeBasedVerification } = useActions(loginLogic)
+    const { precheck, exitCodeVerification, resendCodeBasedVerification, submitCodeVerification } =
+        useActions(loginLogic)
     const { openSupportForm } = useActions(supportLogic)
     const { sendSupportRequest } = useValues(supportLogic)
     const {
@@ -106,6 +112,8 @@ export function LoginForm(): JSX.Element {
         codeVerificationRequired,
         isCodeVerificationSubmitting,
         isPasswordLoginUnavailable,
+        codeVerificationEmail,
+        codeVerification,
         hasNoConfiguredLoginMethod,
         restrictToProviders,
         autoRedirectingToProvider,
@@ -144,10 +152,12 @@ export function LoginForm(): JSX.Element {
         <AuthScene notes={['// welcome back', '// 500,000+ teams ship here']}>
             {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
             <AuthSceneCard footer={footer}>
+                {isCodeSent && <HedgehogMagnifyingGlass className="block w-auto mx-auto mb-3 h-28" />}
                 <AuthCardTitle
+                    className={isCodeSent ? 'mb-2' : undefined}
                     title={
                         isCodeSent ? (
-                            'Enter your login code'
+                            'Check your inbox'
                         ) : (
                             <>
                                 {/* This whole fragment is deleted when the title flips to the code-sent
@@ -159,16 +169,37 @@ export function LoginForm(): JSX.Element {
                             </>
                         )
                     }
-                    sub={isCodeSent ? undefined : "Welcome back. Let's go ship something."}
+                    sub={
+                        isCodeSent ? (
+                            <>
+                                For your security, we've emailed a 6-digit verification code to{' '}
+                                <strong>{codeVerificationEmail}</strong>.
+                            </>
+                        ) : (
+                            "Welcome back. Let's go ship something."
+                        )
+                    }
                 />
                 <SessionRiskBanner className="mb-4" />
-                {generalError && (
-                    <div
-                        className={twMerge(
-                            'mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded',
-                            isCodeSent ? 'bg-success-highlight border-success' : 'bg-danger-highlight border-danger'
+                {isCodeSent && (
+                    <div className="mb-5 flex flex-col items-center gap-1 text-sm">
+                        <Link
+                            onClick={() => resendCodeBasedVerification(null)}
+                            disabledReason={resendResponseLoading ? 'Sending...' : undefined}
+                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
+                        >
+                            Resend code
+                        </Link>
+                        {resendResponse?.success && (
+                            <p className="flex items-center gap-1 text-success mb-0" role="status">
+                                <IconCheckCircle />
+                                <span>Code sent</span>
+                            </p>
                         )}
-                    >
+                    </div>
+                )}
+                {generalError && (
+                    <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
                         <span>
                             {generalError.detail ||
                                 ERROR_MESSAGES[generalError.code] ||
@@ -224,16 +255,30 @@ export function LoginForm(): JSX.Element {
                         logic={loginLogic}
                         formKey="codeVerification"
                         enableFormOnSubmit
+                        // The code input renders a hidden input with a \d{6} pattern. Without noValidate,
+                        // the browser blocks submit on a partial code and kea cannot show its error.
+                        noValidate
                         className="flex flex-col gap-4"
                     >
-                        <LemonField name="code" label="Verification code">
-                            <LemonInput
-                                className="ph-ignore-input"
-                                autoFocus
+                        <LemonField
+                            name="code"
+                            label="Verification code"
+                            labelClassName="sr-only"
+                            // Plain centered text without an icon, like the signup verify screen's error
+                            renderError={(error) => (
+                                <p className="m-0 text-sm text-danger text-center" role="alert">
+                                    {error}
+                                </p>
+                            )}
+                        >
+                            <VerificationCodeInput
                                 data-attr="code-verification"
-                                placeholder="123456"
-                                inputMode="numeric"
-                                autoComplete="one-time-code"
+                                disabled={isCodeVerificationSubmitting}
+                                onComplete={() => {
+                                    if (!isCodeVerificationSubmitting) {
+                                        submitCodeVerification()
+                                    }
+                                }}
                             />
                         </LemonField>
                         <LemonButton
@@ -245,25 +290,15 @@ export function LoginForm(): JSX.Element {
                             center
                             size="large"
                             loading={isCodeVerificationSubmitting}
+                            disabledReason={
+                                isValidVerificationCode(normalizeVerificationCode(codeVerification.code))
+                                    ? undefined
+                                    : 'Enter the 6-digit code from your email'
+                            }
                         >
                             Verify and log in
                         </LemonButton>
                         <div className="flex flex-col items-center gap-3">
-                            <LemonButton
-                                size="small"
-                                type="tertiary"
-                                disabled={resendResponseLoading}
-                                loading={resendResponseLoading}
-                                onClick={() => resendCodeBasedVerification(null)}
-                            >
-                                Resend code
-                            </LemonButton>
-                            {resendResponse?.success && (
-                                <p className="flex items-center gap-1 text-success mb-0" role="status">
-                                    <IconCheckCircle />
-                                    <span>Code sent — check your inbox.</span>
-                                </p>
-                            )}
                             <Link
                                 onClick={() => exitCodeVerification()}
                                 className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"

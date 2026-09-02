@@ -9,6 +9,7 @@ import {
     hoverUntilTooltip,
 } from '@posthog/quill-charts/testing'
 
+import type { MetricsDisplaySettings } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import type { MetricsExemplar } from './MetricsExemplarMarkers'
@@ -21,8 +22,12 @@ function seriesWith(labels: Record<string, string>, values: (number | null)[]): 
     return { labels, points: BUCKETS.map((time, i) => ({ time, value: values[i] })) }
 }
 
-function renderChart(series: MetricsChartSeries[], exemplars?: MetricsExemplar[]): void {
-    render(<MetricsSeriesChart series={series} fallbackName="http.requests" exemplars={exemplars} />)
+function renderChart(
+    series: MetricsChartSeries[],
+    exemplars?: MetricsExemplar[],
+    display?: MetricsDisplaySettings
+): void {
+    render(<MetricsSeriesChart series={series} fallbackName="http.requests" exemplars={exemplars} display={display} />)
 }
 
 describe('MetricsSeriesChart', () => {
@@ -60,6 +65,40 @@ describe('MetricsSeriesChart', () => {
             [{ timeMs: Date.parse(BUCKETS[1]), onClick: jest.fn(), tooltipLabel: 'test exemplar' }]
         )
         expect(screen.getAllByTestId('metrics-exemplar-marker')).toHaveLength(1)
+    })
+
+    // `stat` is in the schema union but has no renderer yet, so it must degrade to a line chart
+    // rather than blanking a saved tile.
+    it.each([
+        ['renders no display as a line chart', undefined, 'line'],
+        ['renders the area display as a line chart', 'area' as const, 'line'],
+        ['renders the bar display as a bar chart', 'bar' as const, 'bar'],
+        ['degrades the unimplemented stat display to a line chart', 'stat' as const, 'line'],
+    ])('%s', (_name, type, expectedChart) => {
+        renderChart([seriesWith({ service: 'a' }, [1, 2, 3]), seriesWith({ service: 'b' }, [4, 5, 6])], undefined, {
+            type,
+        })
+
+        expect(getHogChart().seriesCount).toBe(2)
+        expect(screen.getByTestId(`hog-chart-timeseries-${expectedChart}-legend`)).toBeInTheDocument()
+    })
+
+    // The exemplar overlay reads the chart's layout context, which throws when it isn't nested
+    // under a chart provider — so a bar chart that forgot to pass children through is a hard crash.
+    it('keeps exemplar markers working on the bar display', () => {
+        renderChart(
+            [seriesWith({}, [1, 2, 3])],
+            [{ timeMs: Date.parse(BUCKETS[1]), onClick: jest.fn(), tooltipLabel: 'test exemplar' }],
+            { type: 'bar' }
+        )
+        expect(screen.getAllByTestId('metrics-exemplar-marker')).toHaveLength(1)
+    })
+
+    it('draws a goal line above the data', () => {
+        renderChart([seriesWith({}, [1, 2, 3])], undefined, {
+            goalLines: [{ label: 'SLO', value: 10 }],
+        })
+        expect(screen.getByText('SLO')).toBeInTheDocument()
     })
 
     // A null bucket is a non-representable aggregate. Charting it as 0 is the legacy behavior;

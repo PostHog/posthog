@@ -15,7 +15,10 @@ import type {
   AppServerRpc,
 } from "./app-server-client";
 import { AppServerRequestError } from "./app-server-client";
-import { CodexAppServerAgent } from "./codex-app-server-agent";
+import {
+  CodexAppServerAgent,
+  shouldAutoAcceptLocalApproval,
+} from "./codex-app-server-agent";
 import { sandboxPolicyFor } from "./session-config";
 
 // Required-field invariants the native codex app-server enforces on each request.
@@ -103,6 +106,68 @@ function makeFakeClient(
 }
 
 const init = { protocolVersion: 1 } as unknown as InitializeRequest;
+
+describe("shouldAutoAcceptLocalApproval", () => {
+  type AutoApprovalInput = Parameters<typeof shouldAutoAcceptLocalApproval>[0];
+  const workspaceWrite = {
+    type: "workspaceWrite" as const,
+    networkAccess: false,
+  };
+  const base: AutoApprovalInput = {
+    environment: "local" as const,
+    mode: "auto",
+    sandboxPolicy: workspaceWrite,
+    method: "item/commandExecution/requestApproval",
+    detail: {},
+    hasMcpToolCall: false,
+  };
+
+  const cases: Array<{
+    input: Partial<AutoApprovalInput>;
+    expected: boolean;
+  }> = [
+    { input: {}, expected: true },
+    {
+      input: { method: "item/fileChange/requestApproval" },
+      expected: true,
+    },
+    { input: { environment: "cloud" }, expected: false },
+    { input: { mode: "plan" }, expected: false },
+    {
+      input: { sandboxPolicy: { type: "dangerFullAccess" } },
+      expected: false,
+    },
+    { input: { hasMcpToolCall: true }, expected: false },
+    { input: { detail: { reason: "needs network" } }, expected: false },
+    {
+      input: { detail: { networkApprovalContext: {} } },
+      expected: false,
+    },
+    {
+      input: {
+        detail: {
+          additionalPermissions: { network: { enabled: true } },
+        },
+      },
+      expected: false,
+    },
+    {
+      input: { detail: { proposedNetworkPolicyAmendments: [{}] } },
+      expected: false,
+    },
+    {
+      input: {
+        method: "item/fileChange/requestApproval",
+        detail: { grantRoot: "/outside" },
+      },
+      expected: false,
+    },
+  ];
+
+  it.each(cases)("returns $expected for $input", ({ input, expected }) => {
+    expect(shouldAutoAcceptLocalApproval({ ...base, ...input })).toBe(expected);
+  });
+});
 
 describe("CodexAppServerAgent", () => {
   const tokenUsage = (last: Record<string, number>) => ({
@@ -1820,7 +1885,10 @@ describe("CodexAppServerAgent", () => {
     });
     // Default mode is "auto" → editing allowed. A prior plan/read-only turn's
     // readOnly sandbox persists on the thread, so auto must state its sandbox.
-    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    await agent.newSession({
+      cwd: "/r",
+      _meta: { environment: "local" },
+    } as unknown as NewSessionRequest);
     const done = agent.prompt({
       sessionId: "t",
       prompt: [{ type: "text", text: "go" }],
@@ -1831,9 +1899,11 @@ describe("CodexAppServerAgent", () => {
     const turnStart = stub.requests.find((r) => r.method === "turn/start");
     const params = turnStart?.params as {
       sandboxPolicy?: unknown;
+      approvalPolicy?: string;
       collaborationMode?: unknown;
     };
     expect(params.sandboxPolicy).toEqual(sandboxPolicyFor("auto"));
+    expect(params.approvalPolicy).toBe("on-request");
     // Default collaboration is pushed every turn so switching back from Plan reverts.
     expect(params.collaborationMode).toEqual({
       mode: "default",
@@ -1904,6 +1974,9 @@ describe("CodexAppServerAgent", () => {
     expect(
       (turnStart?.params as { sandboxPolicy?: unknown }).sandboxPolicy,
     ).toBeUndefined();
+    expect(
+      (turnStart?.params as { approvalPolicy?: string }).approvalPolicy,
+    ).toBe("on-request");
   });
 
   it("returns mode + model + thought_level configOptions and emits config_option_update", async () => {

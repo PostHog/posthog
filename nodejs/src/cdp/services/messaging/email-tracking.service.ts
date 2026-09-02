@@ -239,6 +239,7 @@ export class EmailTrackingService {
         instanceIdOverride,
         deferFlush = false,
         workflowVersion,
+        verifiedTeamId,
     }: {
         functionId?: string
         invocationId?: string
@@ -254,6 +255,10 @@ export class EmailTrackingService {
         // and pay a single broker round-trip. The caller owns flushing when it sets this.
         deferFlush?: boolean
         workflowVersion?: number
+        // Team id from a signature-verified tracking code. Lets the metric survive the deletion
+        // of its workflow: sends are recorded at send time, so dropping the delayed complaint and
+        // bounce feedback here would make the team's rates read cleaner than they are.
+        verifiedTeamId?: string
     }): Promise<void> {
         if (!functionId || !invocationId) {
             logger.error('[EmailTrackingService] trackMetric: Invalid custom ID', {
@@ -271,17 +276,34 @@ export class EmailTrackingService {
             this.hogFlowManager.getHogFlow(functionId).catch(() => null),
         ])
 
-        const teamId = hogFunction?.team_id ?? hogFlow?.team_id
-        const appSourceId = hogFunction?.id ?? hogFlow?.id
+        let teamId = hogFunction?.team_id ?? hogFlow?.team_id
+        let appSourceId = hogFunction?.id ?? hogFlow?.id
 
         if (!teamId || !appSourceId) {
-            logger.error('[EmailTrackingService] trackMetric: Hog function or flow not found', {
-                functionId,
-                invocationId,
-                source,
-            })
-            emailTrackingErrorsCounter.inc({ error_type: 'hog_function_or_flow_not_found', source })
-            return
+            const fallbackTeamId = Number(verifiedTeamId)
+            if (Number.isInteger(fallbackTeamId) && fallbackTeamId > 0) {
+                // The workflow row is gone (deleting a finished campaign is routine housekeeping),
+                // but its sends were recorded at send time, so dropping the delayed complaint and
+                // bounce feedback would make the team read cleaner than it is to everything that
+                // sums team totals, including the sending tiers. The tracking code is signed, so
+                // its team and function ids are trustworthy without the row.
+                logger.warn('[EmailTrackingService] trackMetric: recording for a deleted function or flow', {
+                    functionId,
+                    invocationId,
+                    source,
+                })
+                emailTrackingErrorsCounter.inc({ error_type: 'hog_function_or_flow_deleted', source })
+                teamId = fallbackTeamId
+                appSourceId = functionId
+            } else {
+                logger.error('[EmailTrackingService] trackMetric: Hog function or flow not found', {
+                    functionId,
+                    invocationId,
+                    source,
+                })
+                emailTrackingErrorsCounter.inc({ error_type: 'hog_function_or_flow_not_found', source })
+                return
+            }
         }
 
         this.hogFunctionMonitoringService.queueAppMetric(
@@ -434,6 +456,7 @@ export class EmailTrackingService {
                     instanceIdOverride: metric.instanceIdOverride,
                     deferFlush: true,
                     workflowVersion: metric.workflowVersion,
+                    verifiedTeamId: metric.teamId,
                 })
             }
             if (metrics?.length) {

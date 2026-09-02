@@ -45,8 +45,14 @@ export async function applyChunkStepToResults<TIn, TOut, C, RPrev extends string
     if (successfulValues.length > 0) {
         const end = pipelineStepDurationHistogram.startTimer({ step_name: stepName, step_type: 'chunk' })
         try {
-            stepResults = await instrumentFn({ key: stepName, sendException: false, measureTime: false }, () =>
-                step(successfulValues)
+            stepResults = await instrumentFn(
+                {
+                    key: stepName,
+                    sendException: false,
+                    measureTime: false,
+                    attributes: { chunk_size: successfulValues.length },
+                },
+                () => step(successfulValues)
             )
             end({ result: 'chunk' })
         } catch (e) {

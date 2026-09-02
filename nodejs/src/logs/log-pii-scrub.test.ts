@@ -83,6 +83,22 @@ describe('log-pii-scrub', () => {
         ] as const)('$_label', ({ input, expected }) => {
             expect(scrubPlainStringWithStats(input)).toEqual(expected)
         })
+
+        it('scrubs a multi-megabyte value with thousands of matches without a quadratic stall', () => {
+            const EMAIL_COUNT = 8000
+            const MAX_DURATION_MS = 1000
+            const filler = 'x'.repeat(240)
+            const input = Array.from({ length: EMAIL_COUNT }, (_, i) => `user${i}@example.com ${filler}`).join(' ')
+
+            const startedAt = performance.now()
+            const { output, piiReplacements } = scrubPlainStringWithStats(input)
+            const durationMs = performance.now() - startedAt
+
+            expect(piiReplacements).toBe(EMAIL_COUNT)
+            expect(output).not.toContain('@example.com')
+            expect(output.split(PII_REDACTED)).toHaveLength(EMAIL_COUNT + 1)
+            expect(durationMs).toBeLessThan(MAX_DURATION_MS)
+        })
     })
 
     describe('scrubLogRecord', () => {

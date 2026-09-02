@@ -575,6 +575,73 @@ const ACTIVITY_OVERVIEW = {
     })),
 }
 
+function activityEventsResponse(select: string[]): Record<string, any> {
+    if (select.length === 1 && select[0] === 'count(*)') {
+        return {
+            columns: select,
+            hasMore: false,
+            results: [[ACTIVITY_OVERVIEW.stats.total_calls]],
+            types: ['UInt64'],
+        }
+    }
+
+    const results = ACTIVITY_CALLS.map(([tool, intent, durationMs, clientName, errorMessage], index) => {
+        const timestamp = dayjs('2026-06-07T12:00:00Z')
+            .subtract(index * 37, 'second')
+            .toISOString()
+        const event = {
+            distinct_id: `agent-${index % 4}`,
+            elements_chain: '',
+            event: '$mcp_tool_call',
+            properties: {
+                $mcp_client_name: clientName,
+                $mcp_duration_ms: durationMs,
+                $mcp_error_message: errorMessage,
+                $mcp_intent: intent,
+                $mcp_is_error: errorMessage !== null,
+                $mcp_parameters: { input: `Example input for ${tool}` },
+                $mcp_response: errorMessage ? { error: errorMessage } : { ok: true },
+                $mcp_server_name: 'example-server',
+                $mcp_tool_name: tool,
+            },
+            timestamp,
+            uuid: `0193f2a1-0000-0000-0000-${String(index + 1).padStart(12, '0')}`,
+        }
+
+        return select.map((column) => {
+            if (column === '*') {
+                return event
+            }
+            if (column === 'timestamp') {
+                return timestamp
+            }
+            if (column.endsWith('-- Tool')) {
+                return tool
+            }
+            if (column.endsWith('-- Agent intent')) {
+                return intent
+            }
+            if (column.endsWith('-- Error')) {
+                return errorMessage !== null
+            }
+            if (column.endsWith('-- Duration (ms)')) {
+                return durationMs
+            }
+            if (column.endsWith('-- Client')) {
+                return clientName
+            }
+            return null
+        })
+    })
+
+    return {
+        columns: select,
+        hasMore: true,
+        results,
+        types: select.map(() => 'String'),
+    }
+}
+
 const INTENT_DIGEST = {
     digest: 'Agents are extensively analyzing and validating feature flags, especially participant and scope-related flags, across multiple projects to ensure correct configuration and deployment. They are investigating user behavior, event schemas, and telemetry to support product analytics, adoption, and revenue reporting, and to diagnose issues such as interface unresponsiveness, conversion tracking failures, and LLM-related errors. Additionally, they are auditing dashboards, saved insights, and survey data to verify data freshness and rebuild product usage metrics.',
     intent_count: 100,
@@ -702,6 +769,9 @@ const meta: Meta = {
                     if (body?.query?.kind === 'MCPToolCategoryCountsQuery') {
                         return [200, { results: CATEGORY_COUNTS.map((r) => ({ category: r[0], calls: r[1] })) }]
                     }
+                    if (body?.query?.kind === 'EventsQuery') {
+                        return [200, activityEventsResponse(body.query.select ?? [])]
+                    }
                     // Onboarding gate: report the project as instrumented so the scene
                     // renders the dashboard/tabs instead of the empty state.
                     if (query.includes('has_initialize')) {
@@ -742,9 +812,8 @@ export const DashboardWithMenuBar: Story = {
     },
 }
 
-// The default landing tab for low-volume projects. The feed mock carries the endpoint's full
-// 20-row cap so the feed overflows its viewport — the case where it has to scroll rather than
-// stretch the grid past the sidebar.
+// The default landing tab for low-volume projects. The feed mock has enough rows to overflow its
+// viewport and reports more data, covering both scrolling and the load-more affordance.
 export const Activity: Story = {
     parameters: {
         pageUrl: urls.mcpAnalyticsActivity(),
