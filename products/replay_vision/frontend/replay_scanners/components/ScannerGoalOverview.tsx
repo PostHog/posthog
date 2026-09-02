@@ -1,10 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
+import { TextMorph } from 'torph/react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonSnack, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
@@ -295,10 +298,58 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
     )
 }
 
+// Drafting a scanner runs a model call that takes several seconds, so the wait needs to read as
+// work in progress. These rotate above the skeleton, in the same spirit as the insights loader.
+const DRAFT_LOADING_MESSAGES = [
+    'Reading your goal…',
+    'Snuffling through your pages for a match…',
+    'Counting hedgehogs and recordings…',
+    'Weighing the budget against the traffic…',
+    'Picking a model for the job…',
+    'Drafting the scanner…',
+]
+
+const MESSAGE_INTERVAL_MS = 2500
+
+/** The rotating orange loading bar shown while the draft generates. */
+function DraftLoadingBar(): JSX.Element {
+    const frozen = inStorybook() || inStorybookTestRunner()
+    const [messageIndex, setMessageIndex] = useState(() =>
+        frozen ? 0 : Math.floor(Math.random() * DRAFT_LOADING_MESSAGES.length)
+    )
+
+    useEffect(() => {
+        // A frozen index keeps every Storybook snapshot identical.
+        if (frozen) {
+            return
+        }
+        const interval = setInterval(() => {
+            setMessageIndex((current) => {
+                let next = Math.floor(Math.random() * DRAFT_LOADING_MESSAGES.length)
+                if (next === current) {
+                    next = (next + 1) % DRAFT_LOADING_MESSAGES.length
+                }
+                return next
+            })
+        }, MESSAGE_INTERVAL_MS)
+        return () => clearInterval(interval)
+    }, [frozen])
+
+    return (
+        <div className="flex flex-col items-center gap-1 py-2">
+            <TextMorph as="span" className="text-sm font-medium text-secondary">
+                {DRAFT_LOADING_MESSAGES[messageIndex]}
+            </TextMorph>
+            <LoadingBar />
+        </div>
+    )
+}
+
 /** The overview's shape while the draft is still generating, so navigating there reads as progress. */
 function ScannerGoalOverviewSkeleton(): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
+            <DraftLoadingBar />
             {['What it understood', 'Name', 'What it will ask', 'Eligible recordings', 'Sampling and budget'].map(
                 (label) => (
                     <div key={label} className="bg-bg-light border rounded-lg p-4 space-y-2">
