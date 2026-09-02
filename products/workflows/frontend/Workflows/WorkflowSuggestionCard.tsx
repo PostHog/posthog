@@ -15,10 +15,8 @@ import { workflowProposalsLogic } from './workflowProposalsLogic'
 import { WorkflowSuggestionDetails } from './WorkflowSuggestionDetails'
 import { WorkflowSuggestionEvidence } from './WorkflowSuggestionEvidence'
 
-// `source_type` is declared by whoever posted the suggestion, so it cannot carry the label a person
-// reads before approving: an agent that says `human` would read as one. `created_via` comes from the
-// transport the request arrived on, which the caller cannot set, so the label reads from that and the
-// declared producer type stays in the details.
+// `source_type` is declared by the caller, so an agent could label itself a person. The label reads
+// `created_via`, which comes from the transport; the declared type stays in the details.
 const ARRIVED_VIA_LABELS: Record<WorkflowProposalCreatedViaEnumApi, string> = {
     self_driving: 'Suggested by PostHog',
     mcp: 'Suggested by an agent',
