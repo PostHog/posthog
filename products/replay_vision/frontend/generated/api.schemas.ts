@@ -11,10 +11,9 @@
  * * `metric` - Metric
  * * `match` - Match
  */
-export type VisionAlertConfigurationKindEnumApi =
-    (typeof VisionAlertConfigurationKindEnumApi)[keyof typeof VisionAlertConfigurationKindEnumApi]
+export type VisionAlertKindEnumApi = (typeof VisionAlertKindEnumApi)[keyof typeof VisionAlertKindEnumApi]
 
-export const VisionAlertConfigurationKindEnumApi = {
+export const VisionAlertKindEnumApi = {
     Metric: 'metric',
     Match: 'match',
 } as const
@@ -165,7 +164,7 @@ export interface VisionAlertConfigurationApi {
      *
      * * `metric` - Metric
      * * `match` - Match */
-    kind: VisionAlertConfigurationKindEnumApi
+    kind: VisionAlertKindEnumApi
     /** Which observations count. Empty matches every observation of the scanner. */
     selection?: VisionAlertSelectionApi
     /** Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.
@@ -280,7 +279,7 @@ export interface PatchedVisionAlertConfigurationApi {
      *
      * * `metric` - Metric
      * * `match` - Match */
-    kind?: VisionAlertConfigurationKindEnumApi
+    kind?: VisionAlertKindEnumApi
     /** Which observations count. Empty matches every observation of the scanner. */
     selection?: VisionAlertSelectionApi
     /** Metric alerts only: what to measure over the window. 'avg_score' requires a scorer scanner.
@@ -1446,10 +1445,10 @@ export interface ObservationStatsApi {
  * * `superseded` - Superseded
  * * `no_change` - No change
  */
-export type ReplayScannerPromptSuggestionStatusEnumApi =
-    (typeof ReplayScannerPromptSuggestionStatusEnumApi)[keyof typeof ReplayScannerPromptSuggestionStatusEnumApi]
+export type PromptSuggestionStatusEnumApi =
+    (typeof PromptSuggestionStatusEnumApi)[keyof typeof PromptSuggestionStatusEnumApi]
 
-export const ReplayScannerPromptSuggestionStatusEnumApi = {
+export const PromptSuggestionStatusEnumApi = {
     Pending: 'pending',
     Applied: 'applied',
     Dismissed: 'dismissed',
@@ -1525,7 +1524,7 @@ export interface ReplayScannerPromptSuggestionApi {
      * * `dismissed` - Dismissed
      * * `superseded` - Superseded
      * * `no_change` - No change */
-    readonly status: ReplayScannerPromptSuggestionStatusEnumApi
+    readonly status: PromptSuggestionStatusEnumApi
     /** The full rewritten prompt, ready to apply to the scanner. */
     readonly suggested_prompt: string
     /** The scanner prompt this suggestion was generated against, for diffing. */
@@ -1694,10 +1693,10 @@ export interface SignalScoutOutputDestinationsApi {
  * * `trusted` - Trusted domains only
  * * `full` - Full
  */
-export type ScoutConfigNetworkAccessEnumApi =
-    (typeof ScoutConfigNetworkAccessEnumApi)[keyof typeof ScoutConfigNetworkAccessEnumApi]
+export type SignalScoutConfigNetworkAccessEnumApi =
+    (typeof SignalScoutConfigNetworkAccessEnumApi)[keyof typeof SignalScoutConfigNetworkAccessEnumApi]
 
-export const ScoutConfigNetworkAccessEnumApi = {
+export const SignalScoutConfigNetworkAccessEnumApi = {
     Trusted: 'trusted',
     Full: 'full',
 } as const
@@ -1728,7 +1727,7 @@ export interface SignalScoutConfigOptionsApi {
      *
      * * `trusted` - Trusted domains only
      * * `full` - Full */
-    network_access?: ScoutConfigNetworkAccessEnumApi
+    network_access?: SignalScoutConfigNetworkAccessEnumApi
     /** Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false. */
     auto_pause_exempt?: boolean
     /**
@@ -1801,9 +1800,10 @@ export const ScoutOriginEnumApi = {
  * * `paused_by_system` - Paused by system
  * * `paused_by_user` - Paused by user
  */
-export type ScoutConfigStatusEnumApi = (typeof ScoutConfigStatusEnumApi)[keyof typeof ScoutConfigStatusEnumApi]
+export type SignalScoutConfigStatusEnumApi =
+    (typeof SignalScoutConfigStatusEnumApi)[keyof typeof SignalScoutConfigStatusEnumApi]
 
-export const ScoutConfigStatusEnumApi = {
+export const SignalScoutConfigStatusEnumApi = {
     Active: 'active',
     PendingPause: 'pending_pause',
     PausedBySystem: 'paused_by_system',
@@ -1815,10 +1815,10 @@ export const ScoutConfigStatusEnumApi = {
  * * `ignored` - Ignored
  * * `repeated_failures` - Repeated failures
  */
-export type ScoutConfigPauseReasonEnumApi =
-    (typeof ScoutConfigPauseReasonEnumApi)[keyof typeof ScoutConfigPauseReasonEnumApi]
+export type SignalScoutConfigPauseReasonEnumApi =
+    (typeof SignalScoutConfigPauseReasonEnumApi)[keyof typeof SignalScoutConfigPauseReasonEnumApi]
 
-export const ScoutConfigPauseReasonEnumApi = {
+export const SignalScoutConfigPauseReasonEnumApi = {
     NoOutput: 'no_output',
     Ignored: 'ignored',
     RepeatedFailures: 'repeated_failures',
@@ -1854,13 +1854,13 @@ export interface SignalScoutConfigApi {
      * * `pending_pause` - Pending pause
      * * `paused_by_system` - Paused by system
      * * `paused_by_user` - Paused by user */
-    readonly status: ScoutConfigStatusEnumApi
+    readonly status: SignalScoutConfigStatusEnumApi
     /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (no person engaged with its reports — no view, rating, note, dismissal, or resolution), or `repeated_failures` (consecutive failed runs). Null unless `status` is `pending_pause` or `paused_by_system`.
      *
      * * `no_output` - No output
      * * `ignored` - Ignored
      * * `repeated_failures` - Repeated failures */
-    readonly pause_reason: ScoutConfigPauseReasonEnumApi | null
+    readonly pause_reason: SignalScoutConfigPauseReasonEnumApi | null
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
     readonly emit: boolean
     /**
@@ -1885,7 +1885,7 @@ export interface SignalScoutConfigApi {
      *
      * * `trusted` - Trusted domains only
      * * `full` - Full */
-    readonly network_access: ScoutConfigNetworkAccessEnumApi
+    readonly network_access: SignalScoutConfigNetworkAccessEnumApi
     /**
      * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
      * @nullable

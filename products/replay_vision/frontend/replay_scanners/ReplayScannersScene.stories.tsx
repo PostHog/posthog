@@ -518,10 +518,30 @@ export const ScannerCalibration: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=calibration` },
 }
 
-export const ScannerDigests: StoryObj = {
+export const ScannerScouts: StoryObj = {
     parameters: {
-        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=actions`,
+        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=scouts`,
     },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/scanners/:scannerId/scout_reports/': { results: [] },
+            },
+        }),
+    ],
+}
+
+export const ScannerAlerts: StoryObj = {
+    parameters: {
+        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=alerts`,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/vision/alerts/': { count: 0, next: null, previous: null, results: [] },
+            },
+        }),
+    ],
 }
 
 export const ScannerTemplates: StoryObj = {

@@ -6,7 +6,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { propertyDefinitionsPartialUpdate } from '~/generated/core/api'
-import type { EnterprisePropertyDefinitionApi, PropertyDefinitionTypeEnumApi } from '~/generated/core/api.schemas'
+import type { EnterprisePropertyDefinitionApi, PropertyTypeEnumApi } from '~/generated/core/api.schemas'
 import { tagsModel } from '~/models/tagsModel'
 
 export interface PropertyDefinitionEditModalProps {
@@ -18,7 +18,7 @@ export interface PropertyDefinitionEditModalProps {
 export interface PropertyDefinitionEditForm {
     description: string
     hidden: boolean
-    property_type: PropertyDefinitionTypeEnumApi | null
+    property_type: PropertyTypeEnumApi | null
     tags: string[]
     verified: boolean
 }

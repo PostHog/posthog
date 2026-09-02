@@ -2,6 +2,8 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, NamedTuple
 from zoneinfo import ZoneInfo
 
+from django.db import models
+
 from posthog.schema import CachedLogsQueryResponse, LogsQuery
 
 from posthog.hogql import ast
@@ -42,7 +44,14 @@ GROUPABLE_COLUMNS: dict[str, str] = {
     "span_id": "hex(tryBase64Decode(span_id))",
 }
 
-GROUP_SOURCES = ("log", "resource", "column")
+
+class LogsGroupBySource(models.TextChoices):
+    LOG = "log", "log"
+    RESOURCE = "resource", "resource"
+    COLUMN = "column", "column"
+
+
+GROUP_SOURCES = tuple(LogsGroupBySource.values)
 ORDER_FIELDS = ("log_count", "error_count", "last_seen")
 
 
