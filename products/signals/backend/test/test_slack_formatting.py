@@ -7,6 +7,7 @@ from parameterized import parameterized
 from products.signals.backend.slack_formatting import (
     SLACK_SECTION_TEXT_MAX_LEN,
     chunk_slack_mrkdwn,
+    group_segments_to_limit,
     markdown_to_slack_mrkdwn,
     split_markdown_by_headings,
     strip_chart_references,
@@ -149,6 +150,14 @@ class TestSplitMarkdownByHeadings(SimpleTestCase):
         summary = f"Intro.\n\n{fence}\n{inner}\nconfig value\n{fence}\n\nTail."
         assert split_markdown_by_headings(summary) == [summary]
 
+    def test_a_fence_closes_only_on_a_marker_line_with_nothing_after_it(self) -> None:
+        # CommonMark allows only trailing whitespace after a closing fence, so a marker line that
+        # carries other text is still code. Reading it as the close resumes seam detection inside
+        # the snippet and splits the report mid-fence, which mangles the code once each segment is
+        # converted on its own.
+        summary = "Intro.\n\n```\n```not-a-close\n\n**Evidence**\n\nstill code\n```\n\nTail."
+        assert split_markdown_by_headings(summary) == [summary]
+
     def test_real_heading_after_a_fence_still_splits(self) -> None:
         summary = "```\n# in code\n```\n\n## Real heading\nbody"
         segments = split_markdown_by_headings(summary)
@@ -284,3 +293,18 @@ class TestChunkSlackMrkdwn(SimpleTestCase):
 
         assert all(len(chunk) <= SLACK_SECTION_TEXT_MAX_LEN for chunk in chunks)
         assert any(link in chunk for chunk in chunks)
+
+
+class TestGroupSegmentsToLimit(SimpleTestCase):
+    @parameterized.expand([("at_the_limit", 3), ("one_over_the_limit", 4), ("far_over_the_limit", 40)])
+    def test_the_lead_and_every_section_survive_grouping(self, _name: str, section_count: int) -> None:
+        # A threaded delivery posts one Slack message per segment in sequence, so a summary that
+        # labels every paragraph would post a reply each and flood the channel. Grouping has to
+        # bound the count without dropping a section or folding one into the channel message.
+        segments = ["lead\n\n"] + [f"**Label {index}**\n\nbody {index}\n\n" for index in range(section_count)]
+
+        grouped = group_segments_to_limit(segments, limit=4)
+
+        assert len(grouped) <= 4
+        assert grouped[0] == "lead\n\n"
+        assert "".join(grouped) == "".join(segments)

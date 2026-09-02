@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 from typing import Literal
 from urllib.parse import quote
@@ -25,6 +26,7 @@ from products.signals.backend.scout_harness.slack_charts import (
 from products.signals.backend.slack_formatting import (
     chunk_slack_mrkdwn,
     escape_slack_mrkdwn,
+    group_segments_to_limit,
     markdown_to_slack_mrkdwn,
     slack_channel_id_from_target,
     split_markdown_by_headings,
@@ -362,11 +364,13 @@ def _report_summary_chunks(report: SignalReport) -> list[str]:
     test: a typical digest fits inside one Slack section, so a length test leaves it as one wall of
     text. A section is opened by a Markdown heading or a bold label, so the summary threads whether
     the scout wrote `## Evidence` or `**Evidence**`. A summary with neither has no seam and stays
-    one chunk. A section too long for one Slack section is hard-chunked on its line ends. The split
-    runs after `strip_chart_references` so a chart link never straddles two messages."""
+    one chunk. A summary with more sections than `MAX_THREAD_SEGMENTS` has them grouped, so one
+    delivery cannot post a reply per paragraph of a malformed report. A section too long for one
+    Slack section is hard-chunked on its line ends. The split runs after `strip_chart_references`
+    so a chart link never straddles two messages."""
     summary_text = strip_chart_references((report.summary or "").strip())
     chunks: list[str] = []
-    for segment in split_markdown_by_headings(summary_text):
+    for segment in group_segments_to_limit(split_markdown_by_headings(summary_text)):
         rendered_segment = markdown_to_slack_mrkdwn(segment.strip())
         if not rendered_segment:
             continue
@@ -538,7 +542,11 @@ def _post_scout_report_thread_replies(
                 thread_ts=thread_ts,
                 blocks=blocks,
                 text=fallback,
-                client_msg_id=f"{delivery_id}:{index}",
+                # Slack rejects a client_msg_id that is not a UUID, and this loop swallows the
+                # error, so a plain `id:index` string costs every reply silently. The `reply`
+                # infix keeps the derivation clear of the one the DM fan-out uses for extra
+                # recipients (`<delivery_id>:<index>`), which would otherwise collide.
+                client_msg_id=str(uuid.uuid5(uuid.NAMESPACE_OID, f"{delivery_id}:reply:{index}")),
                 unfurl_links=False,
                 unfurl_media=False,
             )

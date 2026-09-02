@@ -129,10 +129,14 @@ def truncate_slack_section(text: str) -> str:
 # A top-of-line ATX heading (`# `…`###### `). The scout writes its summary in Markdown, so its own
 # headings are the natural seams to split a long report on for threaded Slack delivery.
 _MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})[ \t]+\S")
-# Opens or closes a fenced code block (``` or ~~~, up to three leading spaces per CommonMark). A
-# `# ` line inside a fence is code, not a heading: splitting there would orphan the fence and hand
-# the snippet to the mrkdwn converter as prose.
+# Opens a fenced code block (``` or ~~~, up to three leading spaces per CommonMark), with anything
+# after the marker read as the info string. A `# ` line inside a fence is code, not a heading:
+# splitting there would orphan the fence and hand the snippet to the mrkdwn converter as prose.
 _MARKDOWN_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+# Closes one. CommonMark allows only trailing whitespace after a closing fence, so a marker line
+# carrying other text stays code. Reading it as the close resumes seam detection inside the
+# snippet, which splits the report mid-fence.
+_MARKDOWN_FENCE_CLOSE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})[ \t]*$")
 
 # A line that opens with a bold run (`**Label**` or `__Label__`), keeping the rest of the line so
 # `_bold_seam_level` can read what follows the label. The label itself cannot hold the marker, so
@@ -194,12 +198,12 @@ def _markdown_seams(text: str) -> list[_MarkdownSeam]:
     preceded_by_blank = True  # the start of the text opens a block the same way a blank line does
     offset = 0
     for line in text.split("\n"):
-        fence_match = _MARKDOWN_FENCE_RE.match(line)
         if fence is not None:
             # Close only on the same fence character, at least as long as the opener (CommonMark).
-            if fence_match and fence_match.group(1)[0] == fence[0] and len(fence_match.group(1)) >= len(fence):
+            close_match = _MARKDOWN_FENCE_CLOSE_RE.match(line)
+            if close_match and close_match.group(1)[0] == fence[0] and len(close_match.group(1)) >= len(fence):
                 fence = None
-        elif fence_match:
+        elif fence_match := _MARKDOWN_FENCE_RE.match(line):
             fence = fence_match.group(1)
         else:
             heading_match = _MARKDOWN_HEADING_RE.match(line)
@@ -245,6 +249,26 @@ def split_markdown_by_headings(text: str) -> list[str]:
         end = starts[index + 1] if index + 1 < len(starts) else len(text)
         segments.append(text[start:end])
     return segments
+
+
+# A threaded delivery posts one Slack message per segment, in sequence. A well-formed report has a
+# handful of sections, so a summary that yields more than this labelled every paragraph or repeated
+# one label. Grouping the overflow keeps the thread readable and bounds the requests one delivery
+# makes to Slack, which it sends one after another with every failure swallowed.
+MAX_THREAD_SEGMENTS = 12
+
+
+def group_segments_to_limit(segments: list[str], limit: int = MAX_THREAD_SEGMENTS) -> list[str]:
+    """Merge neighboring segments until at most `limit` remain, leaving the lead on its own.
+
+    The lead is the channel message, so it keeps exactly what the summary put before its first
+    section. The sections after it are grouped in even runs, so the thread still follows the
+    report's order. No content is dropped."""
+    if len(segments) <= limit:
+        return segments
+    lead, sections = segments[0], segments[1:]
+    per_group = -(-len(sections) // max(1, limit - 1))  # ceiling division
+    return [lead] + ["".join(sections[index : index + per_group]) for index in range(0, len(sections), per_group)]
 
 
 # End of a sentence, allowing a closing quote or bracket before the space that follows it.

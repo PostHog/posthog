@@ -47,7 +47,8 @@ the summary's first line, which the inbox lifts out as the card headline. The ha
 (_Linking what you reference_) carries the full rule.
 
 **Section labels are where a Slack thread splits.** A destination with "Post reports as a thread" on posts a short lead in the channel and each later section as a reply.
-A heading (`## Evidence`) and a bold label on its own line (`**Evidence**`) both mark a section, so write the outline you want the reader to get and either form works.
+A heading (`## Evidence`) and a bold label on a line of its own (`**Evidence**`) both mark a section, so write the outline you want the reader to get and either form works.
+Leave a blank line above each label, since a label the line above runs onto is part of that paragraph rather than a new section.
 
 **Status is decided for you, from safety × actionability:**
 

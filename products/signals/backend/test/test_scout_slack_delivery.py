@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -413,6 +415,11 @@ class TestScoutSlackDelivery(BaseTest):
         lead_sections = [block["text"]["text"] for block in calls[0].kwargs["blocks"] if block["type"] == "section"]
         assert lead_sections == ["Lead line."]
         first_reply, second_reply = calls[1].kwargs, calls[2].kwargs
+        # Slack rejects a client_msg_id that is not a UUID, and the reply loop swallows the error,
+        # so a malformed id costs every reply while the delivery still reports success.
+        reply_ids = [first_reply["client_msg_id"], second_reply["client_msg_id"]]
+        assert [str(uuid.UUID(reply_id)) for reply_id in reply_ids] == reply_ids
+        assert len(set(reply_ids)) == 2
         assert first_reply["thread_ts"] == "1785418710.000600"
         assert "First" in first_reply["blocks"][0]["text"]["text"]
         assert "Detail" in first_reply["blocks"][0]["text"]["text"]

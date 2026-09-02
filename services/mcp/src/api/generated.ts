@@ -29768,7 +29768,7 @@ export namespace Schemas {
          */
       title?: string | null;
       /**
-         * Optional new summary. Markdown is supported (headings, lists, code, links; images are not rendered); lead with one plain declarative sentence — it becomes the inbox card headline. A heading, or a bold label on its own line, marks a section that a threaded Slack delivery splits into its own reply. The pipeline may later re-research and overwrite it.
+         * Optional new summary. Markdown is supported (headings, lists, code, links; images are not rendered); lead with one plain declarative sentence — it becomes the inbox card headline. A heading, or a bold label on a line of its own with a blank line above it, marks a section that a threaded Slack delivery splits into its own reply. The pipeline may later re-research and overwrite it.
          * @nullable
          */
       summary?: string | null;
@@ -30182,7 +30182,7 @@ export namespace Schemas {
          * @maxLength 300
          */
       title: string;
-      /** The report body the inbox shows. Markdown is supported (headings, lists, code, links; images are not rendered). Lead with one plain declarative sentence — the inbox card uses your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the full markdown in the detail view. A heading, or a bold label on its own line, marks a section that a threaded Slack delivery splits into its own reply. */
+      /** The report body the inbox shows. Markdown is supported (headings, lists, code, links; images are not rendered). Lead with one plain declarative sentence — the inbox card uses your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the full markdown in the detail view. A heading, or a bold label on a line of its own with a blank line above it, marks a section that a threaded Slack delivery splits into its own reply. */
       summary: string;
       /**
          * The observations backing the report — each becomes a bound signal. At least one.
