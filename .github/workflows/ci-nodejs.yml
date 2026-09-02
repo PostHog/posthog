@@ -4,6 +4,12 @@ on:
     push:
         branches:
             - master
+    schedule:
+        # Hourly run against the newest master state. Master pushes no longer run the
+        # Node.js checks per commit — the merge queue's trunk-merge/** run already gated
+        # every commit before it landed — so this is where master's coverage comes from.
+        # Offset from the other hourly CI crons so the runs do not all fire at once.
+        - cron: '13 * * * *'
 
 env:
     OBJECT_STORAGE_ENABLED: true
@@ -49,7 +55,11 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
+              # Skipped on master push and on the hourly schedule: the decision step below
+              # treats both as "run everything". See "The hourly master lane" in
+              # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
+              # diff, and what breaks if this guard is dropped.
+              if: github.event_name != 'push' && github.event_name != 'schedule'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
@@ -95,14 +105,18 @@ jobs:
                         - '.github/actions/rust-compute-affected/**'
 
             - name: Install rust for affected-crate detection
-              if: github.event_name != 'push' && steps.filter.outputs.rust == 'true'
+              # Not needed on schedule either: the decision step below already returns
+              # nodejs=true there without consulting the affected-crate set.
+              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true'
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
 
             - name: Compute affected Rust crates
               id: rust-affected
-              if: github.event_name != 'push' && steps.filter.outputs.rust == 'true'
+              # Not needed on schedule either: the decision step below already returns
+              # nodejs=true there without consulting the affected-crate set.
+              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true'
               uses: ./.github/actions/rust-compute-affected
               with:
                   event-name: ${{ github.event_name }}
@@ -118,7 +132,10 @@ jobs:
                   RUST_AFFECTED_CRATES: ${{ steps.rust-affected.outputs.crates }}
                   RUST_NODE_E2E_CRATES: '["ingestion-consumer"]'
               run: |
-                  if [ "${{ github.event_name }}" = "push" ]; then
+                  # `schedule` alongside `push`: the paths filter is skipped on both, so
+                  # NODEJS_CHANGED is empty there. Without this the hourly run would decide
+                  # nodejs=false and report green having run no tests at all.
+                  if [ "${{ github.event_name }}" = "push" ] || [ "${{ github.event_name }}" = "schedule" ]; then
                     echo "nodejs=true" >> "$GITHUB_OUTPUT"
                     exit 0
                   fi
@@ -143,7 +160,8 @@ jobs:
                   echo "nodejs=false" >> "$GITHUB_OUTPUT"
 
     lint:
-        if: needs.changes.outputs.nodejs == 'true'
+        # Not on master push — master coverage comes from the hourly run (see `schedule`).
+        if: needs.changes.outputs.nodejs == 'true' && github.event_name != 'push'
         name: Node.js Code quality (depot-ubuntu-24.04)
         needs: changes
         runs-on: depot-ubuntu-24.04
@@ -208,7 +226,8 @@ jobs:
                         fi
 
     build:
-        if: needs.changes.outputs.nodejs == 'true'
+        # Not on master push — master coverage comes from the hourly run (see `schedule`).
+        if: needs.changes.outputs.nodejs == 'true' && github.event_name != 'push'
         name: Node.js Build (depot-ubuntu-24.04)
         needs: changes
         runs-on: depot-ubuntu-24.04
@@ -270,7 +289,8 @@ jobs:
                   fi
 
     tests:
-        if: needs.changes.outputs.nodejs == 'true'
+        # Not on master push — master coverage comes from the hourly run (see `schedule`).
+        if: needs.changes.outputs.nodejs == 'true' && github.event_name != 'push'
         name: Node.js ${{ matrix.lane }} Tests ${{ matrix.shard }}/${{ matrix.shard_count }} (depot-ubuntu-24.04-4)
         needs: changes
         runs-on: depot-ubuntu-24.04-4
@@ -592,7 +612,8 @@ jobs:
                   docker compose -f docker-compose.dev.yml exec clickhouse cat /var/log/clickhouse-server/clickhouse-server.err.log
 
     rust_ingestion_e2e:
-        if: needs.changes.outputs.nodejs == 'true'
+        # Not on master push — master coverage comes from the hourly run (see `schedule`).
+        if: needs.changes.outputs.nodejs == 'true' && github.event_name != 'push'
         name: Rust ingestion consumer Node API e2e (depot-ubuntu-24.04-4)
         needs: changes
         runs-on: depot-ubuntu-24.04-4

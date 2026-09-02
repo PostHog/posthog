@@ -63,7 +63,10 @@ env:
     # evaluated on its own, so a green master-push run can't mask a red scheduled run. Backend CI is
     # split this way: master push runs only the per-commit checks (migrations, OpenAPI types, repo
     # checks), and the test matrices run hourly.
-    SCHEDULED_GATING_WORKFLOWS: 'ci-backend.yml'
+    # Frontend CI is split the same way — jest runs hourly, while typecheck, format and bundle size
+    # stay on every push. Node.js, Dagster, Python and MCP moved their whole suite to the cron, so
+    # their push lane now only proves the run dispatched; the scheduled lane carries the coverage.
+    SCHEDULED_GATING_WORKFLOWS: 'ci-backend.yml,ci-frontend.yml,ci-nodejs.yml,ci-dagster.yml,ci-python.yml,ci-mcp.yml'
     # A scheduled lane produces one run an hour, so it needs its own arms: the push streak of 5
     # would take 5 hours to trip, while the push wall-clock arm of 60 minutes pages on a single
     # flaky run held for one tick. Two red ticks in a row, or red across two ticks, is the honest

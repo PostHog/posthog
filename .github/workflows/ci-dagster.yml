@@ -5,6 +5,12 @@ on:
         branches:
             - master
     pull_request:
+    schedule:
+        # Hourly run against the newest master state. Master pushes no longer run the
+        # dagster suite per commit — the merge queue's trunk-merge/** run already gated
+        # every commit before it landed — so this is where master's coverage comes from.
+        # Offset from the other hourly CI crons so the runs do not all fire at once.
+        - cron: '33 * * * *'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -106,7 +112,11 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
+              # Skipped on master push and on the hourly schedule: every output then
+              # defaults to true. See "The hourly master lane" in
+              # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
+              # diff, and what breaks if this guard is dropped.
+              if: github.event_name != 'push' && github.event_name != 'schedule'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
@@ -233,7 +243,9 @@ jobs:
 
             - name: Read ClickHouse versions from JSON
               id: read-versions
-              if: github.event_name == 'push' || steps.filter.outputs.dagster == 'true'
+              # `schedule` has to be listed explicitly for the same reason as build-matrix
+              # below, which consumes this step's oldest_supported output.
+              if: github.event_name == 'schedule' || steps.filter.outputs.dagster == 'true'
               run: |
                   oldest_supported=$(jq -r '.oldest_supported' .github/clickhouse-versions.json)
                   if [ -z "$oldest_supported" ] || [ "$oldest_supported" = "null" ]; then
@@ -244,7 +256,10 @@ jobs:
 
             - name: Build sharded test matrix
               id: build-matrix
-              if: github.event_name == 'push' || steps.filter.outputs.dagster == 'true'
+              # `schedule` has to be listed explicitly: the paths filter is skipped there,
+              # so steps.filter.outputs.dagster is empty. Without this the matrix would be
+              # [] and the hourly run would report green having run no tests at all.
+              if: github.event_name == 'schedule' || steps.filter.outputs.dagster == 'true'
               env:
                   OLDEST_SUPPORTED: ${{ steps.read-versions.outputs.oldest_supported }}
               run: |
@@ -450,12 +465,15 @@ jobs:
             fail-fast: false
             matrix:
                 include: ${{ fromJson(needs.select-tests.outputs.matrix_include || needs.changes.outputs.matrix_include || '[]') }}
-        # !cancelled() lets this run when select-tests is skipped (master,
+        # !cancelled() lets this run when select-tests is skipped (schedule,
         # merge queue) or failed (fall back to the full matrix); mode 'none'
         # means the diff cannot affect any dagster test, so nothing runs and
         # the merge-queue full suite remains the gate.
+        # Skipped on master push: the merge queue already ran the suite for every
+        # landed commit, and the hourly scheduled run keeps master coverage.
         if: >-
             ${{ !cancelled()
+            && github.event_name != 'push'
             && needs.select-tests.outputs.mode != 'none'
             && (needs.changes.outputs.dagster_direct == 'true'
                 || (needs.changes.outputs.merge_queue == 'true'
