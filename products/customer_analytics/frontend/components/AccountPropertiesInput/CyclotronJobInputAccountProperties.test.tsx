@@ -28,6 +28,7 @@ describe('CyclotronJobInputAccountProperties', () => {
         name: 'Text property',
         display_type: 'text',
         is_canonical: false,
+        has_workflow_reference: false,
         source: null,
         created_at: '2026-01-01T00:00:00Z',
         created_by: 1,
