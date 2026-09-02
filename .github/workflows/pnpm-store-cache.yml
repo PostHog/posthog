@@ -78,8 +78,9 @@ jobs:
 
             # Build scripts run on purpose: pnpm keeps their output in the store, so
             # consumers get prebuilt native packages instead of compiling them per job.
+            # A PR dry run always installs, so a broken writer fails here and not on master.
             - name: Install into an empty store
-              if: steps.lookup.outputs.cache-hit != 'true'
+              if: steps.lookup.outputs.cache-hit != 'true' || github.event_name == 'pull_request'
               run: pnpm install --frozen-lockfile
 
             # Master only: Depot Cache has no branch isolation, so a dispatch from a
