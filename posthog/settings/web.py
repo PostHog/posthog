@@ -731,7 +731,12 @@ SPECTACULAR_SETTINGS = {
         "ExperimentWatchCardKindEnum": ["behavior", "friction", "variant_only", "metric"],
         "ExperimentWatchCardStrengthEnum": ["only", "far_more", "more", "slightly_more"],
         "ExperimentWatchMultipleVariantHandlingEnum": ["exclude", "first_seen"],
-        "ExperimentWatchEmptyReasonEnum": ["too_early", "no_separation", "no_recordings"],
+        "ExperimentWatchEmptyReasonEnum": [
+            "too_early",
+            "no_separation",
+            "no_recordings",
+            "no_session_linked_exposures",
+        ],
         # Account.slack_summary_cadence and AccountChannelSummary.cadence share the same
         # daily/weekly/monthly choice set; pin one name for both.
         "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],

@@ -16,13 +16,13 @@ import {
     ExperimentWatchMultipleVariantHandlingEnumApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
-// The three ways the "what to watch" shelf comes back with nothing. They are separate stories
+// The four ways the "what to watch" shelf comes back with nothing. They are separate stories
 // because the copy is the whole feature here: each one sends the reader somewhere different, and
-// a screenshot is the only way to see that they read as three answers rather than one absence.
+// a screenshot is the only way to see that they read as four answers rather than one absence.
 const DELTAS_PATH = `/api/projects/:team_id/experiments/${EXPERIMENT_WITH_FUNNEL_METRIC.id}/session_event_deltas/`
 
 // Typed as the generated response so a new required field on the serializer breaks the typecheck
-// here, rather than leaving three stories snapshotting a shape the endpoint can no longer return.
+// here, rather than leaving four stories snapshotting a shape the endpoint can no longer return.
 const emptyShelf = (
     emptyReason: ExperimentWatchEmptyReasonEnumApi,
     armPersons: number
@@ -45,7 +45,11 @@ const emptyShelf = (
     min_arm_persons: 50,
     max_card_recordings: 20,
     dropped_duplicate_cards: 0,
-    too_early: emptyReason === ExperimentWatchEmptyReasonEnumApi.TooEarly,
+    // True for the unsessioned case as well: the arms really are below the floor there, and the
+    // backend only diverts which reason it reports. A fixture that set it false would hide that.
+    too_early:
+        emptyReason === ExperimentWatchEmptyReasonEnumApi.TooEarly ||
+        emptyReason === ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures,
     empty_reason: emptyReason,
 })
 
@@ -100,3 +104,9 @@ const shelfStory = (emptyReason: ExperimentWatchEmptyReasonEnumApi, armPersons: 
 export const ExperimentWatchShelfTooEarly: Story = shelfStory(ExperimentWatchEmptyReasonEnumApi.TooEarly, 12)
 export const ExperimentWatchShelfNoSeparation: Story = shelfStory(ExperimentWatchEmptyReasonEnumApi.NoSeparation, 2400)
 export const ExperimentWatchShelfNoRecordings: Story = shelfStory(ExperimentWatchEmptyReasonEnumApi.NoRecordings, 2400)
+// Zero exposed people in every arm, which is what the scan finds when no exposure carried a
+// session: the events landed, and none of them resolved to something this surface can read.
+export const ExperimentWatchShelfNoSessionLinkedExposures: Story = shelfStory(
+    ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures,
+    0
+)

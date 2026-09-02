@@ -309,10 +309,10 @@ class WatchCardKind(StrEnum):
 class WatchEmptyReason(StrEnum):
     """Why a shelf carries no cards, which is not one thing.
 
-    Set whenever the shelf is empty, and never set when it is not. The three cases ask different
-    things of a reader: one is worth coming back for, one is an answer already, and one is fixed in
-    the replay settings rather than by waiting. A single "nothing found" would send every reader
-    down the same wrong path for two of the three.
+    Set whenever the shelf is empty, and never set when it is not. The four cases ask different
+    things of a reader: one is worth coming back for, one is an answer already, one is fixed in the
+    replay settings, and one is fixed in how the experiment captures exposure. A single "nothing
+    found" would send every reader down the same wrong path for three of the four.
     """
 
     # Fewer than two arms cleared MIN_ARM_PERSONS, so nothing was compared at all.
@@ -322,6 +322,10 @@ class WatchEmptyReason(StrEnum):
     # Events did tell the arms apart, but no recording behind any of them can be opened, so there
     # is nothing to watch.
     NO_RECORDINGS = "no_recordings"
+    # Exposures landed, and not one carried a session, so there was never a session to compare.
+    # Distinct from TOO_EARLY because waiting cannot fix it: more traffic captured the same way
+    # produces more exposures that still carry no session.
+    NO_SESSION_LINKED_EXPOSURES = "no_session_linked_exposures"
 
 
 @dataclass(frozen=True)
@@ -608,8 +612,13 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
     qualified_arms = [arm.key for arm in arms if arm.persons >= MIN_ARM_PERSONS]
     too_early = len(qualified_arms) < 2
 
+    # Too few arms is the default reading of an empty comparison, and the wrong one when the
+    # exposures cannot reach a session: the arms are empty for a reason waiting will not change.
+    no_comparison_reason = (
+        WatchEmptyReason.NO_SESSION_LINKED_EXPOSURES if scan.exposures_without_session else WatchEmptyReason.TOO_EARLY
+    )
     shelf = (
-        _Shelf(cards=[], empty_reason=WatchEmptyReason.TOO_EARLY)
+        _Shelf(cards=[], empty_reason=no_comparison_reason)
         if too_early
         else _build_shelf(setup, scan=scan, metrics=metrics, arm_keys=qualified_arms)
     )
@@ -654,6 +663,10 @@ class SessionEventDeltaScan:
     # session ceiling bit. Carried here rather than recomputed by the caller: it is a property of
     # the scan, and reporting the requested window instead would claim coverage that never happened.
     covered_from: datetime
+    # True when exposures landed in the window and not one of them carried a session, so this
+    # experiment can never fill a shelf however long it runs. Only ever asked when the scan covered
+    # no sessions at all; on any populated scan the question is moot and stays False.
+    exposures_without_session: bool
 
 
 @dataclass(frozen=True)
@@ -679,7 +692,23 @@ class _QuerySetup:
     def variant_value(self) -> ast.Expr:
         return self.exposure.variant_value()
 
-    def window_conditions(self, start: datetime) -> list[ast.Expr]:
+    def window_conditions(self, start: datetime, *, require_session: bool = True) -> list[ast.Expr]:
+        """The window every query in this family reads over.
+
+        `require_session` is dropped only by the probe that asks whether exposures landed at all:
+        every other use site compares sessions, and an event with no session cannot be one.
+        """
+        session_conditions = (
+            [
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.NotEq,
+                    left=ast.Field(chain=["$session_id"]),
+                    right=ast.Constant(value=""),
+                )
+            ]
+            if require_session
+            else []
+        )
         return [
             ast.CompareOperation(
                 op=ast.CompareOperationOp.GtEq,
@@ -691,9 +720,7 @@ class _QuerySetup:
                 left=ast.Field(chain=["timestamp"]),
                 right=ast.Constant(value=self.window_end),
             ),
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.NotEq, left=ast.Field(chain=["$session_id"]), right=ast.Constant(value="")
-            ),
+            *session_conditions,
             *get_test_accounts_filter(self.team, self.experiment.exposure_criteria),
         ]
 
@@ -791,7 +818,7 @@ def _cache_key(
     # applied on read. One viewer's scan then serves every viewer whose restrictions match, which
     # on the heaviest read in this family is the difference between paying it once per team per
     # TTL and once per viewer.
-    return f"experiment_session_event_deltas_v9_{team.pk}_{experiment.pk}_{digest}"
+    return f"experiment_session_event_deltas_v10_{team.pk}_{experiment.pk}_{digest}"
 
 
 def _metric_event_names(metrics: list[MetricEventSource]) -> set[str]:
@@ -832,7 +859,12 @@ def _query_event_deltas(
     covered_sessions = int(coverage[0][1]) if coverage else 0
     if not covered_sessions:
         return SessionEventDeltaScan(
-            persons={}, sessions={}, events_truncated=False, sessions_truncated=False, covered_from=window_start
+            persons={},
+            sessions={},
+            events_truncated=False,
+            sessions_truncated=False,
+            covered_from=window_start,
+            exposures_without_session=_exposures_without_session(setup, window_start=window_start),
         )
     oldest_covered: datetime = coverage[0][0]
     covered_from = max(window_start, oldest_covered - timedelta(hours=MAX_SESSION_DURATION_HOURS))
@@ -1027,6 +1059,47 @@ def _query_event_deltas(
         events_truncated=events_truncated,
         sessions_truncated=covered_sessions >= MAX_DELTA_SCAN_SESSIONS,
         covered_from=covered_from,
+        # Sessions were covered, so exposures reached at least one of them.
+        exposures_without_session=False,
+    )
+
+
+def _exposures_without_session(setup: _QuerySetup, *, window_start: datetime) -> bool:
+    """Whether exposures landed in the window without one of them carrying a session.
+
+    Asked only once the coverage query has come back empty, which is the one moment it changes an
+    answer: it separates an experiment nobody has been exposed to yet from one whose exposures are
+    captured where there is no session to record. The first is worth waiting for and the second
+    never resolves, so reporting both as "too early" tells most of these readers to wait for
+    something that is not coming.
+
+    The same window and test-account filter as the scan, minus the session predicate, so the only
+    difference between finding nothing here and finding nothing there is the session itself. It
+    stops at the first row rather than counting, because one exposure settles the question.
+
+    Skipped under the exposure fallback, and not merely to save the read. That path compares a
+    different population — client events carrying the stamped flag property, rather than the
+    exposure event — so exposures landing server-side there says nothing about whether that
+    population fills in later. A flag enrolled server-side but read in the browser accumulates
+    stamped client events over time, and telling that reader nothing can ever reach a session
+    would be wrong exactly where "check back later" is right.
+    """
+    if setup.exposure.used_fallback:
+        return False
+    return bool(
+        setup.run(
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                where=ast.And(
+                    exprs=[
+                        *setup.window_conditions(window_start, require_session=False),
+                        setup.exposure_condition(),
+                    ]
+                ),
+                limit=ast.Constant(value=1),
+            )
+        )
     )
 
 

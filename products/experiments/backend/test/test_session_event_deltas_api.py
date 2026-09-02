@@ -657,6 +657,45 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         # reason of "2 errors, did this 2 times" would say one fact twice.
         assert [highlight["reason"] for highlight in friction[0]["highlights"]] == ["2 errors", "1 error"]
 
+    def _unsessioned_exposure(self, variant: str, *, flag_key: str = "checkout-cta") -> None:
+        """One exposure captured where there is no session to record.
+
+        No `$session_id` on the event and no `EventProperty` row registering one, which is the
+        trace a backend SDK's exposure leaves: the event is there, and nothing ties it to a session.
+        """
+        distinct_id = f"unsessioned{len(self._people)}"
+        _create_person(team=self.team, distinct_ids=[distinct_id])
+        self._people.add(distinct_id)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id=distinct_id,
+            timestamp=EXPOSED_AT,
+            properties={"$feature_flag": flag_key, "$feature_flag_response": variant},
+        )
+
+    def test_exposures_that_never_carried_a_session_are_reported_rather_than_read_as_too_early(self) -> None:
+        experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
+        for index in range(4):
+            self._unsessioned_exposure("control" if index % 2 else "test")
+        # Another flag's exposures do carry a session, so the project-level taxonomy answer for
+        # `$feature_flag_called` is "session-linked" and the exposure fallback never engages. A
+        # check at that scope would call this experiment healthy and leave it on the wait state;
+        # only asking per experiment gets it right, which is the whole point of the extra probe.
+        self._session(variants=["control"], flag_key="other-flag")
+        flush_persons_and_events()
+
+        data = self._post_deltas(experiment).json()
+
+        # Waiting cannot fix this one: more traffic captured the same way produces more exposures
+        # that still carry no session, so "check back later" would be permanently false.
+        assert data["cards"] == []
+        assert data["empty_reason"] == "no_session_linked_exposures"
+        # Still true, because the arms really are below the floor, and still its own field for the
+        # counts a reader needs. It is no longer the whole story, which is why the shelf reads the
+        # reason rather than this to decide whether to tell anyone to come back.
+        assert data["too_early"] is True
+
     def test_too_early_is_reported_rather_than_an_empty_shelf(self) -> None:
         experiment = self._create_experiment(metrics=[PURCHASE_METRIC])
         self._session(variants=["control"], events=["pricing_faq"])

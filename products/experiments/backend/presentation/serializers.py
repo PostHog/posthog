@@ -2092,23 +2092,28 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
     too_early = serializers.BooleanField(
         help_text=(
             "True when fewer than two variants have min_arm_persons exposed people, so no comparison exists and "
-            "cards is empty. Say 'too early to compare' and show the arms' counts; an empty shelf presented "
-            "without this would read as 'the variants behaved identically'. The same fact as empty_reason "
-            "being 'too_early', kept as its own field because the arms' counts are what a reader needs next."
+            "cards is empty. Show the arms' counts alongside it: an empty shelf presented without them would "
+            "read as 'the variants behaved identically'. Read empty_reason before telling anyone to check back: "
+            "this is also true when the arms are empty because the exposures never carried a session, which "
+            "empty_reason reports as 'no_session_linked_exposures' and which waiting does not fix."
         )
     )
     empty_reason = serializers.ChoiceField(
         choices=[reason.value for reason in WatchEmptyReason],
         allow_null=True,
         help_text=(
-            "Why cards is empty, and null whenever cards is not empty. Report which of the three happened "
+            "Why cards is empty, and null whenever cards is not empty. Report which of the four happened "
             "rather than reporting an empty shelf, because they ask different things of the reader. "
             "'too_early': fewer than two variants have min_arm_persons exposed people, so nothing was compared "
             "yet and the answer can still change. 'no_separation': the variants were compared and no event told "
             "them apart, which is a result rather than a failure. 'no_recordings': events did tell the variants "
             "apart, but no recording behind them can be opened, so the project's session replay sampling and "
-            "retention are what decide whether this surface can ever show anything. Never fill an empty shelf "
-            "with the experiment's metrics: shortcut cards to those metrics' events are withheld here for "
-            "exactly that reason."
+            "retention are what decide whether this surface can ever show anything. "
+            "'no_session_linked_exposures': this experiment's exposures landed but not one carried a session id, "
+            "so there was never a session to compare. That is a setup fact rather than a wait, and telling the "
+            "reader to check back is wrong: exposures captured server-side, or by an SDK with no session "
+            "concept, never carry one however long the experiment runs, so point at capturing exposure from a "
+            "client-side SDK instead. Never fill an empty shelf with the experiment's metrics: shortcut cards to "
+            "those metrics' events are withheld here for exactly that reason."
         ),
     )

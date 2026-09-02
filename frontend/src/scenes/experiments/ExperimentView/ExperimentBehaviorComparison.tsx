@@ -460,10 +460,10 @@ export function ExperimentBehaviorComparison({
 }
 
 /**
- * Why there is nothing to watch, said in the terms the reader needs. The three reasons ask
- * different things of them: one is worth coming back for, one is already the answer, and one is
- * fixed in the project's replay settings. A single "nothing found" line sends two of those three
- * readers looking for something that was never coming.
+ * Why there is nothing to watch, said in the terms the reader needs. The reasons ask different
+ * things of them: one is already the answer, one is fixed in the project's replay settings, and one
+ * is fixed in how the experiment captures exposure. A single "nothing found" line sends most of
+ * these readers looking for something that was never coming.
  */
 function EmptyShelf({
     reason,
@@ -472,8 +472,27 @@ function EmptyShelf({
     reason:
         | typeof ExperimentWatchEmptyReasonEnumApi.NoSeparation
         | typeof ExperimentWatchEmptyReasonEnumApi.NoRecordings
+        | typeof ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures
     ended: boolean
 }): JSX.Element {
+    if (reason === ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures) {
+        // The one empty state that never resolves on its own, so it says so: the reader is owed
+        // "this needs a change from you" rather than the "check back later" the arm counts imply.
+        return (
+            <LemonBanner
+                type="info"
+                action={{
+                    children: 'How exposures work',
+                    to: 'https://posthog.com/docs/experiments/exposures',
+                    targetBlank: true,
+                }}
+            >
+                Nothing to watch here. None of this experiment's exposures arrived with a session, so there was never a
+                session to compare. Waiting won't change that, since exposures captured from a backend SDK have no
+                session to record.
+            </LemonBanner>
+        )
+    }
     if (reason === ExperimentWatchEmptyReasonEnumApi.NoRecordings) {
         // Names no cause. Replay sampling and retention are the usual one, but the same state is
         // reached when this viewer may not open the recordings behind the findings, and saying the
@@ -531,6 +550,12 @@ function WatchShelves({
                     : 'Check back once more people are exposed.'}
             </LemonBanner>
         )
+    }
+
+    // Captionless for the same reason the one above is: no session was read, so the window the
+    // caption names covered nothing, and the arm counts it would sit over are all zero.
+    if (emptyReason === ExperimentWatchEmptyReasonEnumApi.NoSessionLinkedExposures) {
+        return <EmptyShelf reason={emptyReason} ended={ended} />
     }
 
     // Each reason is matched by name rather than tested for "not null", so a response that predates
