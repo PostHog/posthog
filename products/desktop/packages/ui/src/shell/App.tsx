@@ -32,7 +32,9 @@ import { router } from "@posthog/ui/router/router";
 import { AppLoadingScreen } from "@posthog/ui/shell/AppLoadingScreen";
 import {
   isBackgroundAccessRecheck,
+  isBlockedAccessRecheck,
   nextLastAllowedProjectId,
+  nextLastBlockedProjectId,
 } from "@posthog/ui/shell/desktopAccessGate";
 import { ErrorBoundary } from "@posthog/ui/shell/ErrorBoundary";
 import { ensureSession } from "@posthog/ui/shell/firstRun";
@@ -101,10 +103,46 @@ function App({ devToolbar }: AppProps) {
       desktopAccess.status,
     );
   const settledDesktopAccess = hasDesktopAccess || isRevalidatingAccess;
+  // Mirrors lastAllowedProjectRef for the denial screen. It holds the project
+  // the app already showed as blocked, so a recheck for that same project
+  // keeps the denial screen up instead of flashing the onboarding flow. It
+  // starts undefined, not null, because a blocked project can itself be null
+  // (an access error with no current project), which must stay distinct from
+  // "no denial recorded yet".
+  const lastBlockedProjectRef = useRef<number | null | undefined>(undefined);
+  useEffect(() => {
+    lastBlockedProjectRef.current = nextLastBlockedProjectId(
+      lastBlockedProjectRef.current,
+      {
+        isAuthenticated,
+        currentProjectId: authState.currentProjectId,
+        accessIsCurrent: desktopAccessIsCurrent,
+        accessStatus: desktopAccess.status,
+      },
+    );
+  }, [
+    isAuthenticated,
+    authState.currentProjectId,
+    desktopAccessIsCurrent,
+    desktopAccess.status,
+  ]);
+  const isRecheckingBlockedAccess =
+    desktopAccessIsCurrent &&
+    isBlockedAccessRecheck(
+      lastBlockedProjectRef.current,
+      authState.currentProjectId,
+      desktopAccess.status,
+    );
   const switchError =
     selectProjectMutation.isError || switchOrgMutation.isError
       ? "Couldn't switch your selection. Try again."
       : null;
+  // A switch runs only from the denial screen, and a pending switch holds that
+  // screen until its access check settles, so the screen does not flash
+  // onboarding mid-switch even though the switch moves to a project the
+  // same-project recheck grace does not cover.
+  const isSwitchingAccess =
+    selectProjectMutation.isPending || switchOrgMutation.isPending;
   // Analytics init + dev inbox console moved to host CONTRIBUTIONs
   // (AnalyticsBootContribution / InboxDemoDevContribution), started by
   // boot at boot.
@@ -115,8 +153,14 @@ function App({ devToolbar }: AppProps) {
 
   const isBlockedByAccessPolicy =
     isAuthenticated &&
-    desktopAccessIsCurrent &&
-    ["blocked", "error"].includes(desktopAccess.status);
+    ((desktopAccessIsCurrent &&
+      (["blocked", "error"].includes(desktopAccess.status) ||
+        isRecheckingBlockedAccess)) ||
+      // A pending switch holds the screen, but the mutation stays pending
+      // through its onSuccess side effects, which run after access has already
+      // settled. Release the hold once access is allowed, so a granted result
+      // does not render as a denial for the tail of the switch.
+      (isSwitchingAccess && !hasDesktopAccess));
   const authenticatedClient = useOptionalAuthenticatedClient();
   const consent = useOrgConsent(isAuthenticated && settledDesktopAccess);
   const needsConsent =
@@ -130,7 +174,9 @@ function App({ devToolbar }: AppProps) {
     hasCompletedOnboarding &&
     (!desktopAccessIsCurrent ||
       (["unchecked", "checking"].includes(desktopAccess.status) &&
-        !isRevalidatingAccess) ||
+        !isRevalidatingAccess &&
+        !isRecheckingBlockedAccess &&
+        !isSwitchingAccess) ||
       (settledDesktopAccess && consent.status === "loading"));
   const { isAdmin: isOrgAdmin } = useIsOrgAdmin();
   const isAdmin = isOrgAdmin === true;

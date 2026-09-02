@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   isBackgroundAccessRecheck,
+  isBlockedAccessRecheck,
   nextLastAllowedProjectId,
+  nextLastBlockedProjectId,
 } from "./desktopAccessGate";
 
 describe("desktopAccessGate", () => {
@@ -161,6 +163,183 @@ describe("desktopAccessGate", () => {
       expect(isBackgroundAccessRecheck(afterBlocked, 42, "checking")).toBe(
         false,
       );
+    });
+  });
+
+  describe("isBlockedAccessRecheck", () => {
+    it.each([
+      {
+        name: "recheck of the project the app already showed as blocked",
+        lastBlockedProjectId: 42,
+        currentProjectId: 42,
+        accessStatus: "checking" as const,
+        expected: true,
+      },
+      {
+        name: "recheck after a project change",
+        lastBlockedProjectId: 42,
+        currentProjectId: 7,
+        accessStatus: "checking" as const,
+        expected: false,
+      },
+      {
+        name: "first check with no previously blocked project",
+        lastBlockedProjectId: undefined,
+        currentProjectId: 42,
+        accessStatus: "checking" as const,
+        expected: false,
+      },
+      {
+        name: "recheck of a null-project denial (account has no project)",
+        lastBlockedProjectId: null,
+        currentProjectId: null,
+        accessStatus: "checking" as const,
+        expected: true,
+      },
+      {
+        name: "no denial recorded even with a null current project",
+        lastBlockedProjectId: undefined,
+        currentProjectId: null,
+        accessStatus: "checking" as const,
+        expected: false,
+      },
+      {
+        name: "settled blocked result",
+        lastBlockedProjectId: 42,
+        currentProjectId: 42,
+        accessStatus: "blocked" as const,
+        expected: false,
+      },
+      {
+        name: "settled allowed result",
+        lastBlockedProjectId: 42,
+        currentProjectId: 42,
+        accessStatus: "allowed" as const,
+        expected: false,
+      },
+    ])(
+      "$name",
+      ({ lastBlockedProjectId, currentProjectId, accessStatus, expected }) => {
+        expect(
+          isBlockedAccessRecheck(
+            lastBlockedProjectId,
+            currentProjectId,
+            accessStatus,
+          ),
+        ).toBe(expected);
+      },
+    );
+  });
+
+  describe("nextLastBlockedProjectId", () => {
+    it.each([
+      {
+        name: "records the project on a blocked result",
+        previous: undefined,
+        state: {
+          isAuthenticated: true,
+          currentProjectId: 42,
+          accessIsCurrent: true,
+          accessStatus: "blocked" as const,
+        },
+        expected: 42,
+      },
+      {
+        name: "records the project on an error result",
+        previous: undefined,
+        state: {
+          isAuthenticated: true,
+          currentProjectId: 42,
+          accessIsCurrent: true,
+          accessStatus: "error" as const,
+        },
+        expected: 42,
+      },
+      {
+        name: "records a null project on an error result (account has no project)",
+        previous: undefined,
+        state: {
+          isAuthenticated: true,
+          currentProjectId: null,
+          accessIsCurrent: true,
+          accessStatus: "error" as const,
+        },
+        expected: null,
+      },
+      {
+        name: "clears on a settled allowed result",
+        previous: 42,
+        state: {
+          isAuthenticated: true,
+          currentProjectId: 42,
+          accessIsCurrent: true,
+          accessStatus: "allowed" as const,
+        },
+        expected: undefined,
+      },
+      {
+        name: "clears on sign-out",
+        previous: 42,
+        state: {
+          isAuthenticated: false,
+          currentProjectId: 42,
+          accessIsCurrent: true,
+          accessStatus: "blocked" as const,
+        },
+        expected: undefined,
+      },
+      {
+        name: "keeps the marker through a recheck",
+        previous: 42,
+        state: {
+          isAuthenticated: true,
+          currentProjectId: 42,
+          accessIsCurrent: true,
+          accessStatus: "checking" as const,
+        },
+        expected: 42,
+      },
+    ])("$name", ({ previous, state, expected }) => {
+      expect(nextLastBlockedProjectId(previous, state)).toBe(expected);
+    });
+
+    it("holds the denial screen through a retry instead of flashing onboarding", () => {
+      // blocked -> retry publishes "checking" for the same project. The marker
+      // must survive that flip so the recheck keeps the denial screen up.
+      const afterBlocked = nextLastBlockedProjectId(undefined, {
+        isAuthenticated: true,
+        currentProjectId: 42,
+        accessIsCurrent: true,
+        accessStatus: "blocked",
+      });
+      const afterRetry = nextLastBlockedProjectId(afterBlocked, {
+        isAuthenticated: true,
+        currentProjectId: 42,
+        accessIsCurrent: true,
+        accessStatus: "checking",
+      });
+      expect(isBlockedAccessRecheck(afterRetry, 42, "checking")).toBe(true);
+    });
+
+    it("holds the error screen through a retry when the account has no project", () => {
+      // An account with no accessible project has a null current project, so
+      // the access check settles as an error carrying a null project. The retry
+      // republishes "checking" for that same null project. The marker must keep
+      // the null denial distinct from "no denial recorded" so the recheck holds
+      // the screen instead of flashing onboarding or the loading screen.
+      const afterError = nextLastBlockedProjectId(undefined, {
+        isAuthenticated: true,
+        currentProjectId: null,
+        accessIsCurrent: true,
+        accessStatus: "error",
+      });
+      const afterRetry = nextLastBlockedProjectId(afterError, {
+        isAuthenticated: true,
+        currentProjectId: null,
+        accessIsCurrent: true,
+        accessStatus: "checking",
+      });
+      expect(isBlockedAccessRecheck(afterRetry, null, "checking")).toBe(true);
     });
   });
 });
