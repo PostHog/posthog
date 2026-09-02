@@ -1,4 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
@@ -172,6 +174,31 @@ export const BackfillsWithEstimates: Story = {
 export const BackfillsEmpty: Story = {
     parameters: {
         pageUrl: `${urls.batchExport(EXISTING_EXPORT.id)}?tab=backfills`,
+    },
+}
+
+// The export is BigQuery on the events model, which the destination appends to rather than
+// merges, so the modal carries the duplicate-rows warning.
+export const BackfillModal: Story = {
+    parameters: {
+        pageUrl: `${urls.batchExport(EXISTING_EXPORT.id)}?tab=backfills`,
+    },
+    play: async () => {
+        const startBackfill = await waitFor(() => {
+            const button = [...document.querySelectorAll('button')].find(
+                (candidate) => candidate.textContent === 'Start backfill'
+            )
+            if (!button) {
+                throw new Error('Start backfill button not rendered')
+            }
+            return button
+        })
+        await userEvent.click(startBackfill)
+        await waitFor(() => {
+            if (!document.querySelector('[data-attr="batch-export-backfill-submit"]')) {
+                throw new Error('Backfill modal did not open')
+            }
+        })
     },
 }
 

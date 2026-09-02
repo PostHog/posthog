@@ -11,7 +11,7 @@ import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { BatchExportConfiguration } from '~/types'
+import { BatchExportConfiguration, BatchExportService } from '~/types'
 
 import { batchExportDataLogic } from './batchExportDataLogic'
 import { BatchExportContext } from './types'
@@ -72,6 +72,35 @@ export function getCalendarGranularity(interval: string | undefined): 'hour' | '
         return 'minute'
     }
     return 'day'
+}
+
+/**
+ * Models each table destination merges into its table, mirroring `_get_merge_settings` in
+ * `products/batch_exports/backend/temporal/destinations/`. A model that is missing here is copied
+ * straight in, so a second export of the same range writes its rows again. File destinations are
+ * absent because they write one object per interval, which a second export overwrites.
+ */
+const MERGED_MODELS_BY_SERVICE: Partial<Record<BatchExportService['type'], string[]>> = {
+    Snowflake: ['persons', 'sessions'],
+    BigQuery: ['persons', 'sessions'],
+    Postgres: ['persons', 'sessions'],
+    Redshift: ['persons', 'sessions'],
+    Databricks: ['persons', 'sessions'],
+}
+
+/**
+ * Whether re-exporting a range that already reached the destination leaves duplicate rows there.
+ */
+export function backfillCanDuplicateRows(destination: BatchExportService, model: string): boolean {
+    let mergedModels = MERGED_MODELS_BY_SERVICE[destination.type]
+    if (!mergedModels) {
+        return false
+    }
+    // Redshift also merges events, on `uuid`, but only when properties go into a SUPER column.
+    if (destination.type === 'Redshift' && destination.config.properties_data_type !== 'varchar') {
+        mergedModels = [...mergedModels, 'events']
+    }
+    return !mergedModels.includes(model)
 }
 
 /**
@@ -148,6 +177,7 @@ export interface batchExportBackfillModalLogicValues {
         },
         ValidationErrorType
     >
+    canDuplicateRows: boolean
     dayOfWeek: number | null
     dayOfWeekName: string | null
     defaultEndAt: Dayjs
@@ -255,6 +285,7 @@ export interface batchExportBackfillModalLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         isHogFunction: (arg: any) => boolean
+        canDuplicateRows: (batchExportConfig: BatchExportConfiguration | null, isHogFunction: boolean) => boolean
         interval: (batchExportConfig: BatchExportConfiguration | null) => string | undefined
         timezone: (batchExportConfig: BatchExportConfiguration | null, timezone: string) => string
         dayOfWeek: (batchExportConfig: BatchExportConfiguration | null) => number | null
@@ -310,6 +341,15 @@ export const batchExportBackfillModalLogic = kea<batchExportBackfillModalLogicTy
         isHogFunction: [
             () => [(_, props) => props],
             (props: BatchExportBackfillModalLogicProps): boolean => props.context === 'hog_function',
+        ],
+        canDuplicateRows: [
+            (s) => [s.batchExportConfig, s.isHogFunction],
+            (batchExportConfig: BatchExportConfiguration | null, isHogFunction: boolean): boolean => {
+                if (!batchExportConfig || isHogFunction) {
+                    return false
+                }
+                return backfillCanDuplicateRows(batchExportConfig.destination, batchExportConfig.model)
+            },
         ],
         interval: [
             (s) => [s.batchExportConfig],
