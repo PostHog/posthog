@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
@@ -107,6 +109,11 @@ jest.mock('lib/lemon-ui/LemonToast', () => ({
     lemonToast: { error: jest.fn() },
 }))
 
+// Collapse the retry backoff so a retrying send finishes within the test.
+jest.mock('lib/utils/async', () => ({
+    delay: jest.fn().mockResolvedValue(undefined),
+}))
+
 describe('runInteractionLogic', () => {
     let logic: ReturnType<typeof runInteractionLogic.build>
     let stream: ReturnType<typeof runStreamLogic.build>
@@ -127,7 +134,7 @@ describe('runInteractionLogic', () => {
         '997',
         TASK_ID,
         RUN_ID,
-        { jsonrpc: '2.0', method: 'user_message', params: { content } },
+        { jsonrpc: '2.0', method: 'user_message', id: expect.any(String), params: { content } },
     ]
 
     const setConfigCommand = (configId: string, value: string): [string, string, string, Record<string, unknown>] => [
@@ -139,6 +146,7 @@ describe('runInteractionLogic', () => {
 
     beforeEach(() => {
         jest.clearAllMocks()
+        jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
         ;(tasksRunsCommandCreate as jest.Mock).mockResolvedValue({})
         ;(tasksRunCreate as jest.Mock).mockResolvedValue({ latest_run: { id: 'run-2' } })
         ;(tasksRunsClearConversationCreate as jest.Mock).mockResolvedValue({})
@@ -358,6 +366,63 @@ describe('runInteractionLogic', () => {
         expect(logic.values.composerForm.draft).toBe('ship it')
         expect(logic.values.sending).toBe(false)
         expect(toolEvents.values.applyBackTargetClaims[RUN_ID]).toBeUndefined()
+    })
+
+    it('retries a transient send failure and echoes the message once it lands', async () => {
+        const transient = new ApiError('Agent server request timed out', 504, undefined, {
+            error: 'Agent server request timed out',
+        })
+        ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValueOnce(transient).mockResolvedValueOnce({})
+        setThinking(false)
+        logic.actions.setComposerFormValues({ draft: 'ship it' })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(2)
+        expect(lemonToast.error).not.toHaveBeenCalled()
+        expect(logic.values.composerForm.draft).toBe('')
+    })
+
+    it('reuses one message id across retries so the backend can dedupe a resend', async () => {
+        const transient = new ApiError('Agent server request timed out', 504, undefined, {
+            error: 'Agent server request timed out',
+        })
+        ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValueOnce(transient).mockResolvedValueOnce({})
+        setThinking(false)
+        logic.actions.setComposerFormValues({ draft: 'ship it' })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        const calls = (tasksRunsCommandCreate as jest.Mock).mock.calls
+        expect(calls).toHaveLength(2)
+        const firstId = (calls[0][3] as { id: string }).id
+        const secondId = (calls[1][3] as { id: string }).id
+        expect(typeof firstId).toBe('string')
+        expect(firstId).toHaveLength(36)
+        expect(secondId).toBe(firstId)
+    })
+
+    it('captures and surfaces the backend cause when the send fails unrecoverably', async () => {
+        const rejection = new ApiError('No active sandbox for this task run', 400, undefined, {
+            error: 'No active sandbox for this task run',
+        })
+        ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValue(rejection)
+        setThinking(false)
+        logic.actions.setComposerFormValues({ draft: 'ship it' })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        // A 4xx is the user's to act on, so it is not retried.
+        expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(1)
+        expect(posthog.captureException).toHaveBeenCalledWith(rejection)
+        expect(lemonToast.error).toHaveBeenCalledWith('No active sandbox for this task run')
+        expect(logic.values.composerForm.draft).toBe('ship it')
     })
 
     it('starts a fresh run seeded with the message when the run is terminal', async () => {
