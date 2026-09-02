@@ -3010,6 +3010,32 @@ jobs:
                       admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" || true
                   fi
 
+            - name: Clone the test databases for a second pytest worker
+              # A shard uses about half of its runner, because most of the test phase waits
+              # on Postgres and ClickHouse. A second worker takes that idle half and cuts
+              # shard wall time by about a fifth, on the same runner size.
+              #
+              # Runs that publish .test_durations stay on one worker: pytest-split writes
+              # that file once per process with no xdist awareness, so a parallel run would
+              # publish partial timings and unbalance every later shard plan. That is master,
+              # and any pull request editing the timing scripts, which uploads the file too.
+              #
+              # A branch that has not rebased carries neither this script nor the snapshot
+              # normalization that parallel runs need, so an absent script keeps it on one
+              # worker instead of failing it.
+              if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true' && needs.changes.outputs.timing_scripts != 'true' }}
+              shell: bash
+              run: |
+                  if [ ! -x ./bin/clone-test-db-for-xdist ]; then
+                      echo "::notice::Checked-out revision predates in-shard parallelism, running one worker"
+                      exit 0
+                  fi
+                  if ./bin/clone-test-db-for-xdist 2; then
+                      echo "XDIST_ARGS=-n 2 --dist worksteal" >> "$GITHUB_ENV"
+                  else
+                      echo "::warning::Could not clone the per-worker databases, running one worker"
+                  fi
+
             - name: Restore test durations from cache
               # pytest-split distributes Core/Temporal tests across shards using
               # .test_durations. Restore the newest cache; the fallback step below covers
@@ -3290,6 +3316,7 @@ jobs:
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
                           "${SELECTED_SPLIT[@]}" \
+                          $XDIST_ARGS \
                           -r fEsxX \
                           --junitxml=junit-core.xml \
                           $COV_ARGS \
@@ -3305,6 +3332,7 @@ jobs:
                     fi
                     # shellcheck disable=SC2086
                     pytest -v --tb=short --reuse-db -o junit_duration_report=call $full_targets -m "not async_migrations" \
+                        $XDIST_ARGS \
                         --ignore=posthog/temporal \
                         --ignore=posthog/dags \
                         --ignore=common/hogvm/python/test \
@@ -3420,6 +3448,7 @@ jobs:
                       fi
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
+                          $XDIST_ARGS \
                           "${SELECTED_SPLIT[@]}" \
                           -r fEsxX \
                           --junitxml=junit-temporal.xml \
@@ -3432,6 +3461,7 @@ jobs:
                       # transaction=True overhead in async tests looked like "the
                       # timeout problem" instead of a per-test cost worth fixing.
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/signals/backend/emission -m "not async_migrations" \
+                          $XDIST_ARGS \
                           --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                           --durations=100 --durations-min=1.0 --store-durations \
                           --pytest-durations=100 \

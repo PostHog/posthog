@@ -2042,6 +2042,22 @@ jobs:
                       echo "::warning::Out-of-process migrate failed; pytest --reuse-db will run the full migrate itself"
                       admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" || true
                   fi
+            - name: Clone the test databases for a second pytest worker
+              # The shadow strips the --store-durations write, so the canonical guard against
+              # a parallel run publishing partial timings has nothing to mirror. The pull
+              # request condition stays anyway, to keep the pytest flags apples-to-apples.
+              if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true' }}
+              shell: bash
+              run: |
+                  if [ ! -x ./bin/clone-test-db-for-xdist ]; then
+                      echo "::notice::Checked-out revision predates in-shard parallelism, running one worker"
+                      exit 0
+                  fi
+                  if ./bin/clone-test-db-for-xdist 2; then
+                      echo "XDIST_ARGS=-n 2 --dist worksteal" >> "$GITHUB_ENV"
+                  else
+                      echo "::warning::Could not clone the per-worker databases, running one worker"
+                  fi
             - name: Restore test durations from cache
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
@@ -2229,6 +2245,7 @@ jobs:
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
                           "${SELECTED_SPLIT[@]}" \
+                          $XDIST_ARGS \
                           -r fEsxX \
                           --junitxml=junit-core.xml \
                           $COV_ARGS \
@@ -2244,6 +2261,7 @@ jobs:
                     fi
                     # shellcheck disable=SC2086
                     pytest -v --tb=short --reuse-db -o junit_duration_report=call $full_targets -m "not async_migrations" \
+                        $XDIST_ARGS \
                         --ignore=posthog/temporal \
                         --ignore=posthog/dags \
                         --ignore=common/hogvm/python/test \
@@ -2333,6 +2351,7 @@ jobs:
                       fi
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
+                          $XDIST_ARGS \
                           "${SELECTED_SPLIT[@]}" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_with_minio_bucket" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_does_not_pause_schedule_without_consecutive_failures" \
@@ -2345,6 +2364,7 @@ jobs:
                       # safety net. The per-test timeout also terminates the whole process, so it adds
                       # no protection beyond the job timeout.
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/signals/backend/emission -m "not async_migrations" \
+                          $XDIST_ARGS \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_with_minio_bucket" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_does_not_pause_schedule_without_consecutive_failures" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_pauses_schedule_after_5_consecutive_failures" \

@@ -1253,3 +1253,7 @@ environment:
         bin_script: report-jest-timings
         description: 'Render a Jest test-speed report from timing artifacts'
         hidden: true
+    clone:test:db:for:xdist:
+        bin_script: clone-test-db-for-xdist
+        description: 'Clone the migrated test databases into per-worker copies for pytest-xdist'
+        hidden: true

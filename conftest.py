@@ -1,5 +1,7 @@
 import gc
+import re
 import warnings
+import functools
 
 import pytest
 
@@ -315,3 +317,36 @@ def _query_cache_raw_redis_uses_fakeredis(monkeypatch):
 
     monkeypatch.setattr(storage, "query_cache_raw_client", lambda: redis.get_client())
     monkeypatch.setattr(storage, "query_cache_read_client", lambda: redis.get_client())
+
+
+@functools.cache
+def _worker_suffix_snapshot_extension(suffix: str):
+    from syrupy.extensions.amber import AmberSnapshotExtension  # noqa: PLC0415 — pytest-only dependency
+
+    # The suffix terminates an identifier, so require a word character before it and
+    # no word character after. A `_gwN` inside a longer word is left alone.
+    pattern = re.compile(rf"(?<=\w){re.escape(suffix)}(?!\w)")
+
+    class WorkerSuffixAmberExtension(AmberSnapshotExtension):
+        def serialize(self, data, **kwargs):
+            return pattern.sub("", super().serialize(data, **kwargs))
+
+    return WorkerSuffixAmberExtension
+
+
+@pytest.fixture
+def snapshot(snapshot):
+    """Hide the pytest-xdist worker suffix from snapshot content.
+
+    Under xdist every test-scoped name carries a `_gwN` suffix so workers cannot see
+    each other's data: the Postgres and ClickHouse databases, and the Kafka topics.
+    Generated SQL embeds those names, so without this a schema snapshot would record
+    which worker happened to run the test, and would never match a snapshot written
+    by a single-process run.
+    """
+    from django.conf import settings  # noqa: PLC0415 — Django is not configured at import time
+
+    suffix = getattr(settings, "XDIST_SUFFIX", "")
+    if not suffix:
+        return snapshot
+    return snapshot.use_extension(_worker_suffix_snapshot_extension(suffix))
