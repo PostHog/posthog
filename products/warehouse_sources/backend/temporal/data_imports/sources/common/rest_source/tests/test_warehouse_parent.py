@@ -184,8 +184,6 @@ def test_resolve_pins_to_last_completed_snapshot_while_parent_is_syncing(tmp_pat
     # Delta resolves time travel at millisecond precision, so the pin must fall
     # strictly between commits or two fast writes can resolve to the later version.
     snapshot_timestamp_ms = v0_timestamp_ms + 1
-    while int(datetime.now(UTC).timestamp() * 1000) <= snapshot_timestamp_ms:
-        pass
     snapshot_timestamp = datetime.fromtimestamp(snapshot_timestamp_ms / 1000, tz=UTC)
 
     # An in-flight full refresh has already committed a partial overwrite on top of v0.
@@ -193,7 +191,7 @@ def test_resolve_pins_to_last_completed_snapshot_while_parent_is_syncing(tmp_pat
     partial_refresh_log = Path(uri) / "_delta_log" / "00000000000000000001.json"
     entries = partial_refresh_log.read_text().splitlines()
     partial_refresh_commit = json.loads(entries[0])
-    partial_refresh_commit["commitInfo"]["timestamp"] = int(v0_timestamp.timestamp() * 1000) + 1
+    partial_refresh_commit["commitInfo"]["timestamp"] = snapshot_timestamp_ms + 1
     partial_refresh_log.write_text("\n".join([json.dumps(partial_refresh_commit), *entries[1:]]) + "\n")
 
     pinned = _patched_resolve(uri, snapshot_timestamp=snapshot_timestamp)
