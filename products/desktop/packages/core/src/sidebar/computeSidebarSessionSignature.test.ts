@@ -33,7 +33,7 @@ describe("computeSidebarSessionSignature", () => {
     expect(a).not.toBe(b);
   });
 
-  it("changes when cloud status or PR url changes", () => {
+  it("changes when cloud status, PR url, or agent activity changes", () => {
     const a = sig({ r1: { taskId: "t1", cloudStatus: "running" } });
     const b = sig({ r1: { taskId: "t1", cloudStatus: "completed" } });
     expect(a).not.toBe(b);
@@ -41,6 +41,12 @@ describe("computeSidebarSessionSignature", () => {
     const c = sig({ r1: { taskId: "t1", cloudOutput: { pr_url: "x" } } });
     const d = sig({ r1: { taskId: "t1", cloudOutput: { pr_url: "y" } } });
     expect(c).not.toBe(d);
+
+    const e = sig({ r1: { taskId: "t1", taskRunId: "r1" } });
+    const f = sig({
+      r1: { taskId: "t1", taskRunId: "r1", agentIdleForRunId: "r1" },
+    });
+    expect(e).not.toBe(f);
   });
 
   it("skips sessions without a taskId", () => {

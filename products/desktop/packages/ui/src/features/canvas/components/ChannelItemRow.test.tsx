@@ -159,24 +159,32 @@ describe("ChannelItemRow", () => {
     ],
     ["a streaming agent", { isGenerating: true }, "Working"],
     [
-      // A background run is one-shot and unattended, so its in_progress really
-      // is a claim that the agent is still on it. Live, but nothing streaming —
-      // the still dot, not the spinner.
-      "a background run claiming progress with nothing in flight",
-      { taskRunStatus: "in_progress" as const, runMode: "background" as const },
-      "Pending — no work in flight",
+      "a running cloud session",
+      {
+        taskRunStatus: "in_progress" as const,
+        workspaceMode: "cloud" as const,
+        isGenerating: true,
+      },
+      "Working",
     ],
     [
-      // The backend leaves an interactive run in_progress after it succeeds, so
-      // the session stays open for a follow-up. Reading that as a claim marked
-      // every finished session pending, forever, on a row opening it could not
-      // clear.
+      // An interactive run stays in_progress while it waits for a follow-up.
+      // The per-run idle marker distinguishes that wait from active work.
       "an interactive run left in_progress after it finished",
       {
         taskRunStatus: "in_progress" as const,
         runMode: "interactive" as const,
+        workspaceMode: "cloud" as const,
       },
       "All caught up",
+    ],
+    [
+      "a cloud run waiting to be queued",
+      {
+        taskRunStatus: "not_started" as const,
+        workspaceMode: "cloud" as const,
+      },
+      "Starting",
     ],
     [
       // Launching: a sandbox is being claimed and the backend leaves this state
@@ -186,17 +194,14 @@ describe("ChannelItemRow", () => {
       "Starting",
     ],
     [
-      // A background run's status is never advanced once it parks, so queued
-      // here means "was launched at some point", not "is starting".
+      // A local run's persisted status is not advanced when the agent finishes.
       "a local background run parked at queued",
       { taskRunStatus: "queued" as const, runMode: "background" as const },
       "Pending — no work in flight",
     ],
     [
-      // A PR outranks a run that only claims to be working, but not one that is
-      // demonstrably coming up. Re-running a task that already shipped a PR
-      // leaves the url on the session and the state in the PR query, so this is
-      // the ordinary shape of a second run, not an edge case.
+      // Re-running a task that already shipped a PR leaves the previous PR on
+      // the session. The new run's setup state still needs to stay visible.
       "a re-queued cloud run on a task that already has a PR",
       {
         taskRunStatus: "queued" as const,
@@ -212,13 +217,13 @@ describe("ChannelItemRow", () => {
     ],
     ["a suspended task", { isSuspended: true }, "Suspended — parked"],
     [
-      // The cloud workflow holds a run at in_progress while it babysits CI after
-      // opening the PR; under a merge queue that wait can outlast the agent by
-      // hours, so the PR's existence has to win over the run's claim.
+      // A run can stay in_progress while it waits on CI. The per-run idle marker
+      // prevents that wait from showing as active agent work.
       "a run still babysitting CI behind an open PR",
       {
         taskRunStatus: "in_progress" as const,
         runMode: "background" as const,
+        workspaceMode: "cloud" as const,
         prState: "open" as const,
       },
       "All caught up",
@@ -228,6 +233,7 @@ describe("ChannelItemRow", () => {
       {
         taskRunStatus: "in_progress" as const,
         runMode: "background" as const,
+        workspaceMode: "cloud" as const,
         prUrl: "https://github.com/PostHog/code/pull/1",
       },
       "All caught up",

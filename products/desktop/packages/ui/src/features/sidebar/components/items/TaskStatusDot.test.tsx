@@ -1,5 +1,9 @@
 import { TaskStatusDot } from "@posthog/ui/features/sidebar/components/items/TaskStatusDot";
-import type { TaskDot } from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
+import {
+  type TaskDot,
+  type TaskStatusInput,
+  taskDot,
+} from "@posthog/ui/features/sidebar/components/items/taskStatusVocabulary";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -19,6 +23,21 @@ const idle: TaskDot = {
 };
 
 describe("TaskStatusDot", () => {
+  it.each<[string, TaskStatusInput]>([
+    ["the agent streams output", { isGenerating: true }],
+    ["a local session starts", { isAgentSessionStarting: true }],
+    [
+      "a cloud session waits to be queued",
+      { workspaceMode: "cloud", taskRunStatus: "not_started" },
+    ],
+    [
+      "a cloud session is queued",
+      { workspaceMode: "cloud", taskRunStatus: "queued" },
+    ],
+  ])("uses the loading icon while %s", (_case, status) => {
+    expect(taskDot(status).spinner).toBe(true);
+  });
+
   // The two halves of the same constraint, and the pair is the point: the ring
   // has to outgrow the column to read as a ring at all, and the column has to
   // stay the plain dot's or every working row's label steps right of its
