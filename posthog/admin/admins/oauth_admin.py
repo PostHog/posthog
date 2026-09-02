@@ -298,7 +298,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
                 # A CIMD client's scope ceiling is derived from its own metadata document and
                 # re-applied on every refresh, so a manual edit here would be silently reverted.
                 # The unprivileged/hidden allow-list is the only ceiling that applies to CIMD
-                # apps; to cut off an abusive one, block its metadata URL rather than editing scopes.
+                # apps; to cut off an abusive one, delete the app, which revokes its tokens.
                 readonly.append("scopes")
                 # Model validation also rejects optional_scopes on CIMD apps: a split would
                 # let the partner grow the locked required set via metadata refresh.

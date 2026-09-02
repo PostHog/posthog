@@ -7,7 +7,7 @@ from django.core.cache import cache as real_cache
 
 from parameterized import parameterized
 
-from posthog.api.oauth.cimd import _blocked_key, _cache_key, fetch_and_upsert_cimd_application
+from posthog.api.oauth.cimd import _cache_key, fetch_and_upsert_cimd_application
 from posthog.models.oauth import OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
@@ -372,8 +372,6 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
             ),
         )
         self.addCleanup(real_cache.delete, _cache_key(cimd_url))
-        # _identify_pkce_partner warms the blocklist cache with a 1-year TTL; clear it too.
-        self.addCleanup(real_cache.delete, _blocked_key(cimd_url))
 
         if cache_is_fresh:
             real_cache.set(_cache_key(cimd_url), True, timeout=300)
@@ -684,56 +682,3 @@ class TestCimdProvisioningRegistration(ProvisioningTestBase):
         user = User.objects.get(email=email)
         org = user.organization_memberships.first().organization
         assert org.name == f"Partner App ({email})"
-
-    def test_blocked_cimd_url_returns_unauthorized(self, _url_mock):
-        from posthog.api.oauth.cimd import block_cimd_url
-
-        block_cimd_url(CIMD_PROV_URL)
-
-        _, challenge = self._pkce_pair()
-        res = self.client.post(
-            "/api/agentic/provisioning/account_requests",
-            data={
-                "id": "req_blocked",
-                "email": "blocked@example.com",
-                "client_id": CIMD_PROV_URL,
-                "code_challenge": challenge,
-                "code_challenge_method": "S256",
-            },
-            content_type="application/json",
-        )
-        assert res.status_code == 401
-
-    @patch("posthog.api.oauth.cimd.refresh_cimd_metadata_task")
-    def test_blocked_cimd_url_with_existing_app_returns_unauthorized(self, mock_refresh, _url_mock):
-        from posthog.api.oauth.cimd import block_cimd_url
-
-        OAuthApplication.objects.create(
-            name="Blocked CIMD App",
-            client_secret="",
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="http://127.0.0.1:3000/callback",
-            algorithm="RS256",
-            client_id=CIMD_PROV_URL,
-            is_cimd_client=True,
-            is_provisioning_partner=True,
-            _provisioning_config=provisioning_config(
-                active=True, can_create_accounts=True, can_provision_resources=True
-            ),
-        )
-        block_cimd_url(CIMD_PROV_URL)
-
-        _, challenge = self._pkce_pair()
-        res = self.client.post(
-            "/api/agentic/provisioning/account_requests",
-            data={
-                "id": "req_blocked_existing",
-                "email": "blocked-existing@example.com",
-                "client_id": CIMD_PROV_URL,
-                "code_challenge": challenge,
-                "code_challenge_method": "S256",
-            },
-            content_type="application/json",
-        )
-        assert res.status_code == 401

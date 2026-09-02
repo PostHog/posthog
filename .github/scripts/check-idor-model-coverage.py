@@ -220,9 +220,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "ExplicitTeamMembership",
         # --- Other internal (no user-facing lookup by ID) ---
         "AlertCheck",
-        # Global CIMD URL blocklist - queried by `cimd_url` (unique), never by user-supplied ID.
-        # `created_by` is for audit only.
-        "CIMDBlocklistEntry",
         "CohortCalculationHistory",
         "ColumnConfiguration",
         "DataDeletionRequest",
