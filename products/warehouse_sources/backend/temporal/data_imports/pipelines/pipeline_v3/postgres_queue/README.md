@@ -53,6 +53,10 @@ All SQL lives in `jobs_db.py`; the polling/retry/recovery engine is `../batch_co
 - **Daily range partitioning** on `created_at`: both tables use `PARTITION BY RANGE (created_at)` with daily partitions and a DEFAULT partition catching rows that miss one.
   A Temporal scheduled workflow (`warehouse-sources-queue-partition-management`, daily at 8 AM UTC) creates the next 7 days of partitions, drops partitions older than 7 days, and prunes the matching S3 extraction prefixes on the same retention.
   `DROP TABLE partition` is O(1) metadata-only: no vacuum, no dead tuples.
+  The retention pass scans `pg_inherits` **and** `pg_class`, so a detached daily table is still reclaimed.
+  Postgres keeps no record that a table was once a partition, so a `pg_class` name match is only a candidate: `_confirm_detached_partition` drops one only after confirming it holds no rows outside the day its name claims, which a hand-made table copied off the parent does not. Anything unconfirmed, including a table with no `created_at` column, is kept and reported.
+  It runs under a `lock_timeout` (`DDL_LOCK_TIMEOUT_SECONDS`), because a partition drop needs ACCESS EXCLUSIVE on the parent: an unbounded wait queues every reader behind it and consumes the activity's whole 5-minute timeout, which also skips the stranded-run terminalization and the S3 cleanup that follow.
+  After the pass, `_verify_partitions` alerts on any daily partition still past the cutoff and on rows in a `_default` partition, which retention keys on the partition name and can never reclaim.
 - **Claim eligibility coupled to retention**: a batch is only claimable (or recovery-sweepable) while younger than `CLAIM_ELIGIBILITY_INTERVAL` (`6 days 12 hours`, `jobs_db.py`), which must stay below the 7-day retention window (`RETENTION_DAYS` in `posthog/temporal/warehouse_sources_queue_partition_management/activities.py`).
   Otherwise a claimed batch's extraction parquet may already be deleted from S3 when the loader reads it.
   `test_eligibility_window_stays_below_retention_window` in `test_jobs_db.py` enforces the coupling.

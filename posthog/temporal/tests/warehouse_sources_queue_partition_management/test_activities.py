@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Literal
 
 import pytest
 from unittest.mock import MagicMock, call, patch
+
+import psycopg
 
 from posthog.temporal.warehouse_sources_queue_partition_management import activities as activities_module
 from posthog.temporal.warehouse_sources_queue_partition_management.activities import (
     RETENTION_STRANDED_ERROR,
     _cleanup_old_s3_extractions,
     _terminalize_stranded_runs,
+    _verify_partitions,
     manage_warehouse_sources_queue_partitions,
 )
 
@@ -302,13 +305,28 @@ class _FakePgConn:
     """Minimal psycopg.Connection stand-in: context manager + .execute returning a cursor.
 
     ``partitions`` (parent table -> partition names) feeds the pg_inherits
-    listing so the drop loop has something to drop; executed DROPs are recorded
-    in ``dropped``.
+    listing and ``detached`` feeds the pg_class listing, so the drop loop has
+    something to drop; executed DROPs are recorded in ``dropped``. Parent tables
+    named in ``tables_with_default_rows`` report a non-empty default partition.
     """
 
-    def __init__(self, partitions: dict[str, list[str]] | None = None) -> None:
+    def __init__(
+        self,
+        partitions: dict[str, list[str]] | None = None,
+        detached: dict[str, list[str]] | None = None,
+        tables_with_default_rows: set[str] | None = None,
+        tables_with_rows_out_of_range: set[str] | None = None,
+        range_probe_raises: dict[str, Exception] | None = None,
+        default_probe_raises: dict[str, Exception] | None = None,
+    ) -> None:
         self.partitions = partitions or {}
+        self.detached = detached or {}
+        self.tables_with_default_rows = tables_with_default_rows or set()
+        self.tables_with_rows_out_of_range = tables_with_rows_out_of_range or set()
+        self.range_probe_raises = range_probe_raises or {}
+        self.default_probe_raises = default_probe_raises or {}
         self.dropped: list[str] = []
+        self.session_settings: list[str] = []
 
     def __enter__(self) -> _FakePgConn:
         return self
@@ -319,19 +337,44 @@ class _FakePgConn:
     def execute(self, sql: Any, params: Any = None) -> MagicMock:
         cursor = MagicMock()
         cursor.fetchall.return_value = []
-        if "pg_inherits" in sql and params:
+        if "pg_class" in sql and params:
+            table = params[0].removeprefix("^").removesuffix("_[0-9]{8}$")
+            cursor.fetchall.return_value = [(name,) for name in self.detached.get(table, [])]
+        elif "pg_inherits" in sql and params:
             cursor.fetchall.return_value = [(name,) for name in self.partitions.get(params[0], [])]
+        elif sql.startswith("SELECT 1 FROM ") and "WHERE created_at" in sql:
+            table = sql.removeprefix("SELECT 1 FROM ").split(" ", 1)[0]
+            if table in self.range_probe_raises:
+                raise self.range_probe_raises[table]
+            cursor.fetchall.return_value = [(1,)] if table in self.tables_with_rows_out_of_range else []
+        elif sql.startswith("SELECT 1 FROM ") and sql.endswith("_default LIMIT 1"):
+            table = sql.removeprefix("SELECT 1 FROM ").removesuffix("_default LIMIT 1")
+            if table in self.default_probe_raises:
+                raise self.default_probe_raises[table]
+            cursor.fetchall.return_value = [(1,)] if table in self.tables_with_default_rows else []
         elif sql.startswith("DROP TABLE IF EXISTS "):
             self.dropped.append(sql.removeprefix("DROP TABLE IF EXISTS "))
+        elif sql.startswith("SET "):
+            self.session_settings.append(sql)
         return cursor
 
 
 @contextmanager
-def _patched_pg(partitions: dict[str, list[str]] | None = None):
-    # _verify_partitions is stubbed because the fake connection returns no rows, which would
-    # otherwise flood `errors` with bogus "partition missing" messages — orthogonal to the
-    # S3-cleanup wiring these integration tests cover.
-    conn = _FakePgConn(partitions)
+def _patched_pg(
+    partitions: dict[str, list[str]] | None = None,
+    detached: dict[str, list[str]] | None = None,
+    tables_with_rows_out_of_range: set[str] | None = None,
+    range_probe_raises: dict[str, Exception] | None = None,
+):
+    # _verify_partitions is stubbed because the fake connection keeps listing partitions the
+    # drop loop already removed, which would otherwise flood `errors` with retention-drift
+    # messages — orthogonal to the wiring these integration tests cover. It has its own tests.
+    conn = _FakePgConn(
+        partitions,
+        detached,
+        tables_with_rows_out_of_range=tables_with_rows_out_of_range,
+        range_probe_raises=range_probe_raises,
+    )
     with (
         patch.object(activities_module.psycopg.Connection, "connect", return_value=conn),
         patch.object(activities_module, "_verify_partitions"),
@@ -498,6 +541,148 @@ async def test_activity_keeps_partition_when_terminalization_fails(activity_envi
     assert OLD_STATUS_PART in result["dropped"]
     assert result["success"] is False
     assert any(OLD_BATCH_PART in e for e in result["errors"])
+
+
+# Retention reaching partitions the pg_inherits scan cannot see
+
+
+@pytest.mark.asyncio
+async def test_activity_drops_detached_partition_candidates_past_the_cutoff(activity_environment) -> None:
+    # A detached partition leaves pg_inherits, so the attached scan alone keeps it forever.
+    detached = {"sourcebatch": [OLD_BATCH_PART], "sourcebatchstatus": [OLD_STATUS_PART]}
+
+    with (
+        _patched_pg(detached=detached) as conn,
+        _patched_s3([]),
+        patch.object(activities_module, "_terminalize_stranded_runs") as terminalize,
+    ):
+        result = await activity_environment.run(manage_warehouse_sources_queue_partitions)
+
+    terminalize.assert_called_once_with(conn, OLD_BATCH_PART)
+    assert set(result["dropped"]) == {OLD_BATCH_PART, OLD_STATUS_PART}
+    assert result["success"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("out_of_range", "probe_raises", "expected_error"),
+    [
+        (
+            True,
+            None,
+            f"{OLD_BATCH_PART} holds rows outside 2000-01-01, so it is not a detached partition, keeping it",
+        ),
+        (
+            False,
+            RuntimeError("column created_at does not exist"),
+            f"Cannot confirm {OLD_BATCH_PART} is a detached partition, keeping it: column created_at does not exist",
+        ),
+    ],
+    ids=["rows_span_other_days", "cannot_be_checked"],
+)
+async def test_activity_keeps_an_unconfirmed_name_match(
+    activity_environment, out_of_range: bool, probe_raises: Exception | None, expected_error: str
+) -> None:
+    # Nothing in the catalog records that a table was once a partition, so without this
+    # gate the name alone sends a hand-made table — a backup copied off the parent during
+    # an incident, or anything else that happens to match — to DROP TABLE.
+    with (
+        _patched_pg(
+            detached={"sourcebatch": [OLD_BATCH_PART]},
+            tables_with_rows_out_of_range={OLD_BATCH_PART} if out_of_range else None,
+            range_probe_raises={OLD_BATCH_PART: probe_raises} if probe_raises else None,
+        ) as conn,
+        _patched_s3([]),
+        patch.object(activities_module, "_terminalize_stranded_runs") as terminalize,
+    ):
+        result = await activity_environment.run(manage_warehouse_sources_queue_partitions)
+
+    assert conn.dropped == []
+    terminalize.assert_not_called()
+    assert result["errors"] == [expected_error]
+
+
+@pytest.mark.asyncio
+async def test_activity_caps_the_ddl_lock_wait(activity_environment) -> None:
+    # Without a cap a blocked DROP queues every queue reader behind it and eats the
+    # activity's whole timeout, so the S3 cleanup below it never runs.
+    with _patched_pg() as conn, _patched_s3([]):
+        await activity_environment.run(manage_warehouse_sources_queue_partitions)
+
+    assert conn.session_settings == [f"SET lock_timeout = '{activities_module.DDL_LOCK_TIMEOUT_SECONDS}s'"]
+
+
+# Retention drift reporting
+
+
+def _verify(
+    partitions: dict[str, list[str]] | None = None,
+    detached: dict[str, list[str]] | None = None,
+    tables_with_default_rows: set[str] | None = None,
+    default_probe_raises: dict[str, Exception] | None = None,
+) -> list[str]:
+    errors: list[str] = []
+    conn = _FakePgConn(
+        partitions,
+        detached,
+        tables_with_default_rows,
+        default_probe_raises=default_probe_raises,
+    )
+    _verify_partitions(conn, TODAY, errors)  # type: ignore[arg-type]
+    return errors
+
+
+def _expected_partitions(table: str) -> list[str]:
+    return [f"{table}_{(TODAY + timedelta(days=offset)).strftime('%Y%m%d')}" for offset in range(7)]
+
+
+def _all_expected() -> dict[str, list[str]]:
+    return {table: _expected_partitions(table) for table in ("sourcebatch", "sourcebatchstatus")}
+
+
+def test_verify_reports_nothing_when_retention_is_current() -> None:
+    assert _verify(_all_expected()) == []
+
+
+@pytest.mark.parametrize("attached", [True, False], ids=["attached", "detached"])
+def test_verify_reports_partitions_that_survived_retention(attached: bool) -> None:
+    # The 115-day drift this guards against was invisible: every other signal in the
+    # activity stays green when a drop silently never happens.
+    partitions = _all_expected()
+    detached: dict[str, list[str]] = {}
+    if attached:
+        partitions["sourcebatch"] = [*partitions["sourcebatch"], OLD_BATCH_PART]
+    else:
+        detached["sourcebatch"] = [OLD_BATCH_PART]
+
+    errors = _verify(partitions, detached)
+
+    assert errors == [f"sourcebatch partitions older than 7 days survived retention: {OLD_BATCH_PART} (total 1)"]
+
+
+def test_verify_reports_rows_in_the_default_partition() -> None:
+    # Retention keys on the partition name, so default-partition rows are never reclaimed.
+    errors = _verify(_all_expected(), tables_with_default_rows={"sourcebatchstatus"})
+
+    assert errors == ["sourcebatchstatus_default holds rows: retention cannot reclaim them"]
+
+
+@pytest.mark.parametrize(
+    "probe_error",
+    [
+        psycopg.errors.LockNotAvailable("canceling statement due to lock timeout"),
+        psycopg.errors.UndefinedTable('relation "sourcebatch_default" does not exist'),
+    ],
+    ids=["lock_timeout", "missing_default"],
+)
+def test_verify_reports_default_probe_failure_without_raising(probe_error: Exception) -> None:
+    # The default probe is the one verification statement that takes a user-table lock, so
+    # under the session lock_timeout a concurrent drop makes it raise. If it propagated it
+    # would abort the activity before the S3 cleanup and Slack alert, the exact failure this
+    # activity exists to remove. The failure must be recorded and the next table still checked.
+    errors = _verify(_all_expected(), default_probe_raises={"sourcebatch": probe_error})
+
+    assert errors == [f"Failed to check sourcebatch_default for rows: {probe_error}"]
 
 
 @pytest.mark.asyncio
