@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import React, { useEffect } from 'react'
+import React, { useEffect, useMemo, useRef } from 'react'
 
 import { IconWrench } from '@posthog/icons'
 
@@ -51,28 +51,39 @@ export function useMaxTool({
 
     const definition = getToolDefinition(identifier)
     const isMaxOpen = sidePanelOpen && selectedTab === SidePanelTab.Max
+    const activeIdentifierRef = useRef<string | null>(null)
+    const contextKey = useMemo(() => JSON.stringify(context), [context])
 
     useEffect(() => {
-        // Register/deregister tool
-        if (active && definition) {
-            registerTool({
-                identifier,
-                name: definition.name,
-                description: definition.description,
-                context,
-                contextDescription,
-                introOverride,
-                suggestions,
-                callback,
-                clientExecution,
-            })
-            return (): void => deregisterTool(identifier)
+        if (!active || !definition) {
+            if (activeIdentifierRef.current) {
+                deregisterTool(activeIdentifierRef.current)
+                activeIdentifierRef.current = null
+            }
+            return
         }
+
+        if (activeIdentifierRef.current && activeIdentifierRef.current !== identifier) {
+            deregisterTool(activeIdentifierRef.current)
+        }
+
+        activeIdentifierRef.current = identifier
+        registerTool({
+            identifier,
+            name: definition.name,
+            description: definition.description,
+            context,
+            contextDescription,
+            introOverride,
+            suggestions,
+            callback,
+            clientExecution,
+        })
     }, [
         active,
         identifier,
         definition,
-        JSON.stringify(context), // oxlint-disable-line react-hooks/exhaustive-deps
+        contextKey,
         contextDescription,
         introOverride,
         suggestions,
@@ -81,6 +92,15 @@ export function useMaxTool({
         registerTool,
         deregisterTool,
     ])
+
+    useEffect(() => {
+        return (): void => {
+            if (activeIdentifierRef.current) {
+                deregisterTool(activeIdentifierRef.current)
+                activeIdentifierRef.current = null
+            }
+        }
+    }, [deregisterTool])
 
     return {
         definition: active ? definition : null,

@@ -165,6 +165,30 @@ function renderQueryOutline(editorInstance: editor.IStandaloneCodeEditor, node: 
     node.style.height = `${maxBottom - minTop + padY * 2}px`
 }
 
+function clearQueryOutlineOverlay(
+    cache: sqlEditorLogicType['cache'],
+    fallbackEditor?: editor.IStandaloneCodeEditor | null
+): void {
+    cache.scrollDisposable?.dispose()
+    cache.scrollDisposable = null
+    cache.layoutDisposable?.dispose()
+    cache.layoutDisposable = null
+
+    if (cache.queryOutlineWidget) {
+        try {
+            ;(cache.queryOutlineEditor ?? fallbackEditor)?.removeOverlayWidget(cache.queryOutlineWidget)
+        } catch (e) {
+            console.warn('[sqlEditorLogic] failed to remove outline overlay widget', e)
+        }
+    }
+
+    cache.queryOutlineWidget = null
+    cache.queryOutlineEditor = null
+    cache.queryOutlineNode = null
+    cache.queryOutlineRange = null
+    cache.updateQueryOutline = null
+}
+
 export const NEW_QUERY = 'Untitled'
 
 export interface QueryTab {
@@ -601,7 +625,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         closeAccessControlModal: true,
     })),
     propsChanged(({ actions, props, cache }, oldProps) => {
-        if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
+        if (oldProps.editor && oldProps.editor !== props.editor) {
+            clearQueryOutlineOverlay(cache, oldProps.editor)
+        }
+
+        if (
+            (!oldProps.monaco || !oldProps.editor || oldProps.editor !== props.editor) &&
+            props.monaco &&
+            props.editor
+        ) {
             actions.initialize()
 
             // Listen for cursor position changes to update the active query highlight.
@@ -625,15 +657,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             outlineNode.className = 'active-query-outline'
             outlineNode.style.position = 'absolute'
             outlineNode.style.display = 'none'
+            clearQueryOutlineOverlay(cache, editorInstance)
             const outlineWidget: editor.IOverlayWidget = {
-                getId: () => 'sql-editor.active-query-outline',
+                getId: () => `sql-editor.active-query-outline.${props.tabId || 'default'}`,
                 getDomNode: () => outlineNode,
                 // Returning `null` keeps the widget unanchored — we drive its position
                 // manually via inline `top`/`left` styles set in `renderQueryOutline`.
                 getPosition: () => null,
             }
+            editorInstance.removeOverlayWidget(outlineWidget)
             editorInstance.addOverlayWidget(outlineWidget)
             cache.queryOutlineWidget = outlineWidget
+            cache.queryOutlineEditor = editorInstance
             cache.queryOutlineNode = outlineNode
 
             cache.updateQueryOutline = (range: IRange | null): void => {
@@ -2647,21 +2682,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     beforeUnmount(({ cache, props }) => {
         cache.cursorDisposable?.dispose()
         cache.cursorDisposable = null
-        cache.scrollDisposable?.dispose()
-        cache.scrollDisposable = null
-        cache.layoutDisposable?.dispose()
-        cache.layoutDisposable = null
-        if (cache.queryOutlineWidget && props.editor) {
-            try {
-                props.editor.removeOverlayWidget(cache.queryOutlineWidget)
-            } catch (e) {
-                console.warn('[sqlEditorLogic] failed to remove outline overlay widget', e)
-            }
-        }
-        cache.queryOutlineWidget = null
-        cache.queryOutlineNode = null
-        cache.queryOutlineRange = null
-        cache.updateQueryOutline = null
+        clearQueryOutlineOverlay(cache, props.editor)
         cache.umountDataNode?.()
         cache.umountDataNode = null
 
