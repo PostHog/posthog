@@ -456,6 +456,17 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert all(not config.enabled for config in bound)
         # The caller becomes the connecting user — the identity review-sandbox credentials are minted under.
         assert all(config.connected_by_user_id == self.user.id for config in bound)
+        # One audit row per connected repo, written as a batch: the per-row receiver is silenced for
+        # the sync loop because an installation can expose thousands of repositories.
+        created = ActivityLog.objects.filter(scope="StamphogRepoConfig", activity="created")
+        assert created.count() == 2
+        connected_names = set()
+        for log in created:
+            assert log.user == self.user
+            assert log.detail is not None
+            assert log.detail["type"] == "connected"
+            connected_names.add(log.detail["name"])
+        assert connected_names == {"PostHog/other", "PostHog/posthog"}
 
     @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)
@@ -489,8 +500,13 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         # An uninstall/reinstall cycle mints a new installation id; the old binding is dead (the app
         # can only be installed once per repo). Re-syncing the verified new installation must rebind
         # the team's existing row instead of skipping it and leaving the repo dead forever.
+        previous_connector_id = 4242
         stale = StamphogRepoConfig.objects.unscoped().create(
-            team_id=self.team.id, repository="PostHog/posthog", installation_id="41", enabled=True
+            team_id=self.team.id,
+            repository="PostHog/posthog",
+            installation_id="41",
+            enabled=True,
+            connected_by_user_id=previous_connector_id,
         )
         response = self.client.post(
             self.url, {"installation_id": "42", "code": "oauth-code", "state": self.state}, format="json"
@@ -501,6 +517,19 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         stale.refresh_from_db()
         assert stale.installation_id == "42"
         assert stale.enabled is True  # settings survive the rebind
+        assert stale.connected_by_user_id == self.user.id
+        # The restamp reads its before-value from the locked row, so the log names who held the
+        # connection before this sync took it over.
+        updates = ActivityLog.objects.filter(scope="StamphogRepoConfig", item_id=str(stale.id), activity="updated")
+        connector_changes = []
+        for log in updates:
+            assert log.detail is not None
+            connector_changes += [c for c in log.detail["changes"] if c["field"] == "connected_by_user_id"]
+        assert len(connector_changes) == 1
+        assert (connector_changes[0]["before"], connector_changes[0]["after"]) == (
+            previous_connector_id,
+            self.user.id,
+        )
 
     @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories")
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=False)

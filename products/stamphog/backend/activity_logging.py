@@ -6,7 +6,9 @@ written from web requests, webhook Celery tasks, and management commands alike. 
 connection's commit, and it must be dropped when that connection rolls back.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
@@ -39,6 +41,27 @@ logger = structlog.get_logger(__name__)
 # The fields a webhook disable changes on a repo config. A caller reads them from the writer
 # before the update, so the logged change list carries the real previous values.
 DISABLED_FIELDS = ("enabled", "digest_enabled")
+
+# Set while a caller creates repo configs in bulk and logs them itself. Per task, not per process,
+# so one request cannot silence another's audit rows.
+_created_activity_suppressed: ContextVar[bool] = ContextVar("stamphog_created_activity_suppressed", default=False)
+
+
+@contextmanager
+def suppress_created_activity() -> Iterator[None]:
+    """Stop the receiver writing one row per create inside this block.
+
+    The installation sync creates a row per repository, and one installation can expose thousands of
+    them. Each receiver call is a Team lookup, an insert and an internal event, in the request. The
+    caller logs the batch itself instead. Updates still log per row: an adoption is rare and its diff
+    is what a reader wants. A ContextVar, not `mute_selected_signals()`, because that flag is
+    process-wide and would silence every other request the process serves at that moment.
+    """
+    token = _created_activity_suppressed.set(True)
+    try:
+        yield
+    finally:
+        _created_activity_suppressed.reset(token)
 
 
 def _organization_id_for_team(team_id: int) -> UUID | None:
@@ -91,6 +114,10 @@ def handle_stamphog_repo_config_change(
 ) -> None:
     instance = after_update or before_update
     if instance is None:
+        return
+
+    if activity == "created" and _created_activity_suppressed.get():
+        # The caller writes these rows in one batch. See suppress_created_activity.
         return
 
     # The receiver runs inside save(). An error here must not escape: the caller's post-save work
@@ -195,6 +222,49 @@ def log_repo_config_bulk_update(
         capture_exception(e)
         if settings.TEST:
             raise
+
+
+def log_repo_configs_created(
+    team_id: int,
+    rows: list[dict[str, Any]],
+    *,
+    user: "User | None" = None,
+    was_impersonated: bool = False,
+) -> None:
+    """Log the repo configs one installation sync connected, in a single batch.
+
+    Pairs with `suppress_created_activity`: the sync silences the per-row receiver and calls this
+    once. `notify=False` drops the internal-event fan-out, because one event per connected repo
+    would put thousands of messages on the topic for a single click. The rows themselves still
+    reach the activity feed.
+    """
+    if not rows:
+        return
+
+    write_db = router.db_for_write(StamphogRepoConfig)
+
+    def _write_rows() -> None:
+        organization_id = _organization_id_for_team(team_id)
+        bulk_log_activity(
+            [
+                LogActivityEntry(
+                    organization_id=organization_id,
+                    team_id=team_id,
+                    user=user,
+                    item_id=row["id"],
+                    scope="StamphogRepoConfig",
+                    activity="created",
+                    # The sync binds the installation as it creates the row, so it is connected.
+                    detail=Detail(name=row["repository"], type="connected"),
+                    was_impersonated=was_impersonated,
+                )
+                for row in rows
+            ],
+            using=write_db,
+            notify=False,
+        )
+
+    _log_after_product_commit(_write_rows, write_db=write_db, team_id=team_id)
 
 
 def log_repo_configs_disabled_by_webhook(
