@@ -1111,9 +1111,7 @@ class BasePrinter(Visitor[str]):
                 node.name,
             )
 
-            if func_meta.min_params:
-                if node.params is None:
-                    raise QueryError(f"Function '{node.name}' requires parameters in addition to arguments")
+            if node.params is not None:
                 validate_function_args(
                     node.params,
                     func_meta.min_params,
@@ -1121,6 +1119,13 @@ class BasePrinter(Visitor[str]):
                     node.name,
                     argument_term="parameter",
                 )
+                if func_meta.max_params == 0:
+                    # An empty parametric call like toStartOfMonth()(x) parses to params=[],
+                    # which the count check above accepts (0 == 0). A non-parametric function
+                    # must still reject the parameter syntax, or the invalid call reaches ClickHouse.
+                    raise QueryError(f"Function '{node.name}' does not accept parameters")
+            elif func_meta.min_params:
+                raise QueryError(f"Function '{node.name}' requires parameters in addition to arguments")
 
             return self._render_function_call(node, func_meta)
         elif func_meta := find_hogql_posthog_function(node.name):
