@@ -9,7 +9,7 @@ from django.conf import settings
 
 import httpx
 import structlog
-from anthropic import AsyncAnthropic
+from anthropic import Anthropic, AsyncAnthropic
 from openai import AsyncOpenAI, OpenAI
 
 from posthog.dataclasses import frozen
@@ -195,6 +195,35 @@ def get_async_anthropic_gateway_client(
         api_key=settings.LLM_GATEWAY_API_KEY,
         default_headers=default_headers or None,
         http_client=httpx.AsyncClient(trust_env=False),
+    )
+
+
+def get_anthropic_gateway_client(
+    product: Product = "django",
+    team_id: int | None = None,
+    default_headers: Mapping[str, str] | None = None,
+    use_bedrock_fallback: bool = False,
+) -> Anthropic:
+    """
+    Sync variant of `get_async_anthropic_gateway_client`. See it for the rationale on `team_id`
+    attribution and per-call tags. `default_headers` are sent with every request; product-owned
+    headers such as team attribution override values supplied here.
+    """
+    if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
+        raise ValueError("LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured")
+
+    headers = dict(default_headers or {})
+    if team_id is not None:
+        headers.update(_team_id_header(team_id))
+    if use_bedrock_fallback:
+        headers["x-posthog-use-bedrock-fallback"] = "true"
+
+    base_url = f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{product}"
+    return Anthropic(
+        base_url=base_url,
+        api_key=settings.LLM_GATEWAY_API_KEY,
+        default_headers=headers or None,
+        http_client=httpx.Client(trust_env=False),
     )
 
 
@@ -427,3 +456,50 @@ def build_async_anthropic_client(
             http_client=httpx.AsyncClient(trust_env=False),
         )
     return get_async_anthropic_gateway_client(product, team_id=team_id, use_bedrock_fallback=use_bedrock_fallback)
+
+
+def build_anthropic_client(
+    product: Product,
+    ai_product: str | None = None,
+    ai_stage: str | None = None,
+    team_id: int | None = None,
+    properties: Mapping[str, str] | None = None,
+    distinct_id: str | None = None,
+    use_bedrock_fallback: bool = False,
+) -> Anthropic:
+    """Sync variant of :func:`build_async_anthropic_client`, plus caller ``properties``.
+
+    ``properties`` are extra event labels: they ride the ``X-PostHog-Properties`` blob in gateway
+    mode and the ``x-posthog-property-<key>`` headers on the Python-gateway fallback, so a label
+    lands on the captured generation whichever gateway serves it. ``distinct_id`` is a Go-gateway
+    header only; the Go gateway ignores ``metadata.user_id``, so callers that also set it for the
+    Python-gateway fallback should pass the same value here.
+    """
+    gateway = resolve_ai_gateway_config()
+    if gateway:
+        labels = {
+            key: value
+            for key, value in {
+                **dict(properties or {}),
+                "ai_stage": ai_stage,
+                "team_id": str(team_id) if team_id is not None else None,
+            }.items()
+            if value
+        }
+        return Anthropic(
+            api_key=gateway.api_key,
+            base_url=_anthropic_gateway_base_url(gateway.url),
+            default_headers=ai_gateway_headers(
+                ai_product=ai_product,
+                trace_id=team_trace_id(team_id),
+                properties=labels,
+                distinct_id=distinct_id,
+            ),
+            http_client=httpx.Client(trust_env=False),
+        )
+    return get_anthropic_gateway_client(
+        product,
+        team_id=team_id,
+        default_headers=_python_gateway_observability_headers(None, None, properties),
+        use_bedrock_fallback=use_bedrock_fallback,
+    )

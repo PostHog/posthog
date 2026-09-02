@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING, Any
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.llm.gateway_client import get_llm_client
+from posthog.llm.gateway_client import build_anthropic_client, team_distinct_id
 
 if TYPE_CHECKING:
     from ..models import PullRequest, PullRequestAudience
@@ -38,6 +38,8 @@ logger = structlog.get_logger(__name__)
 # Cheap, fast model — the digest is a summarization job, not deep reasoning.
 _DIGEST_MODEL = "claude-haiku-4-5"
 _SOURCE_PRODUCT = "stamphog_digest"
+# The Messages shape requires an output ceiling; the selection answer is a short JSON list.
+_DIGEST_MAX_TOKENS = 4096
 
 # Bounds on the headline call alone. That call is optional: the selection call's lines are already
 # the digest, and losing the headline costs the channel its lead sentence and nothing else. It also
@@ -613,7 +615,13 @@ def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudi
 
     team_id = prs[0].team_id
     try:
-        client = get_llm_client(product="stamphog", team_id=team_id)
+        client = build_anthropic_client(
+            "stamphog",
+            ai_product="stamphog",
+            team_id=team_id,
+            properties={"source_product": _SOURCE_PRODUCT},
+            distinct_id=team_distinct_id(team_id),
+        )
         picked = _parse_selection(
             _complete(client, team_id, _build_selection_prompt(prs, audiences)),
             dict(enumerate(prs)),
@@ -632,13 +640,16 @@ def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudi
 
 
 def _complete(client: Any, team_id: int, prompt: str) -> str:
-    response = client.chat.completions.create(
+    # Anthropic Messages shape: the Go gateway serves Claude models on this route only. The
+    # source_product label rides on the client's default headers; metadata.user_id keeps the
+    # Python-gateway fallback's end-user attribution (the Go gateway reads the distinct-id header).
+    response = client.messages.create(
         model=_DIGEST_MODEL,
+        max_tokens=_DIGEST_MAX_TOKENS,
         messages=[{"role": "user", "content": prompt}],
-        user=f"team-{team_id}",
-        extra_headers={"x-posthog-property-source_product": _SOURCE_PRODUCT},
+        metadata={"user_id": team_distinct_id(team_id)},
     )
-    return response.choices[0].message.content or ""
+    return "".join(block.text for block in response.content if getattr(block, "type", "") == "text")
 
 
 def _request_headline(client: Any, team_id: int, picked: list[DigestPRSummary], prs: list[PullRequest]) -> str:

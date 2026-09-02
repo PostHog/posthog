@@ -9,9 +9,11 @@ from django.test import override_settings
 from posthog.llm.gateway_client import (
     AIGatewayConfig,
     Product,
+    build_anthropic_client,
     build_async_anthropic_client,
     build_async_openai_client,
     build_openai_client,
+    get_anthropic_gateway_client,
     get_async_anthropic_gateway_client,
     get_async_llm_client,
     get_llm_client,
@@ -410,4 +412,111 @@ class TestBuildAsyncAnthropicClient:
         result = build_async_anthropic_client("signals", ai_product="signals_grouping")
 
         mock_get_anthropic.assert_called_once_with("signals", team_id=None, use_bedrock_fallback=False)
+        assert result is mock_get_anthropic.return_value
+
+
+class TestGetAnthropicGatewayClient:
+    @patch("posthog.llm.gateway_client.settings")
+    def test_raises_when_gateway_unconfigured(self, mock_settings):
+        mock_settings.LLM_GATEWAY_URL = ""
+        mock_settings.LLM_GATEWAY_API_KEY = "test-key"
+
+        with pytest.raises(ValueError, match="LLM_GATEWAY_URL and LLM_GATEWAY_API_KEY must be configured"):
+            get_anthropic_gateway_client(product="stamphog", team_id=1)
+
+    @patch("posthog.llm.gateway_client.settings")
+    def test_base_url_omits_v1_suffix(self, mock_settings):
+        # The Anthropic SDK appends /v1/messages itself, so the base_url stops at the product.
+        mock_settings.LLM_GATEWAY_URL = "http://gateway:8080/"
+        mock_settings.LLM_GATEWAY_API_KEY = "test-key"
+
+        client = get_anthropic_gateway_client(product="stamphog", team_id=1)
+
+        assert str(client.base_url) == "http://gateway:8080/stamphog/"
+        assert client.api_key == "test-key"
+
+    @patch("posthog.llm.gateway_client.settings")
+    def test_caller_headers_survive_next_to_team_header(self, mock_settings):
+        mock_settings.LLM_GATEWAY_URL = "http://gateway:8080"
+        mock_settings.LLM_GATEWAY_API_KEY = "test-key"
+
+        client = get_anthropic_gateway_client(
+            product="stamphog",
+            team_id=42,
+            default_headers={"x-posthog-property-source_product": "stamphog_digest", "x-posthog-property-team_id": "1"},
+            use_bedrock_fallback=True,
+        )
+
+        assert client.default_headers.get("x-posthog-property-source_product") == "stamphog_digest"
+        # Product-owned attribution wins over a caller-supplied value.
+        assert client.default_headers.get("x-posthog-property-team_id") == "42"
+        assert client.default_headers.get("x-posthog-use-bedrock-fallback") == "true"
+
+
+class TestBuildAnthropicClient:
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @patch("posthog.llm.gateway_client.httpx.Client")
+    @patch("posthog.llm.gateway_client.Anthropic")
+    def test_gateway_mode_strips_v1_and_labels_product_team_and_properties(self, mock_anthropic, mock_httpx):
+        result = build_anthropic_client(
+            "stamphog",
+            ai_product="stamphog",
+            team_id=42,
+            properties={"source_product": "stamphog_digest"},
+            distinct_id="team-42",
+        )
+
+        mock_httpx.assert_called_once_with(trust_env=False)
+        kwargs = mock_anthropic.call_args.kwargs
+        assert kwargs["api_key"] == AI_GATEWAY_KEY
+        assert kwargs["base_url"] == "https://ai-gateway.example"
+        assert kwargs["http_client"] is mock_httpx.return_value
+        headers = kwargs["default_headers"]
+        assert json.loads(headers["X-PostHog-Properties"]) == {
+            "source_product": "stamphog_digest",
+            "team_id": "42",
+            "ai_product": "stamphog",
+        }
+        assert headers["X-PostHog-Product"] == "stamphog"
+        assert headers["X-PostHog-Trace-Id"] == TEAM_42_TRACE_ID
+        assert headers["X-PostHog-Distinct-Id"] == "team-42"
+        assert result is mock_anthropic.return_value
+
+    @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @patch("posthog.llm.gateway_client.httpx.Client")
+    @patch("posthog.llm.gateway_client.Anthropic")
+    def test_gateway_mode_omits_unset_labels(self, mock_anthropic, mock_httpx):
+        build_anthropic_client("stamphog", ai_product="stamphog")
+
+        _, kwargs = mock_anthropic.call_args
+        assert kwargs["default_headers"] == {
+            "X-PostHog-Properties": json.dumps({"ai_product": "stamphog"}),
+            "X-PostHog-Product": "stamphog",
+        }
+
+    @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
+    @patch("posthog.llm.gateway_client.get_anthropic_gateway_client")
+    def test_falls_back_to_python_anthropic_gateway_with_property_headers(self, mock_get_anthropic):
+        result = build_anthropic_client(
+            "stamphog", ai_product="stamphog", team_id=42, properties={"source_product": "stamphog_digest"}
+        )
+
+        # The fallback derives the product from the route; caller labels ride the per-header form.
+        mock_get_anthropic.assert_called_once_with(
+            "stamphog",
+            team_id=42,
+            default_headers={"x-posthog-property-source_product": "stamphog_digest"},
+            use_bedrock_fallback=False,
+        )
+        assert result is mock_get_anthropic.return_value
+
+    @override_settings(AI_GATEWAY_URL="https://ai-gateway.example", AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
+    @patch("posthog.llm.gateway_client.get_anthropic_gateway_client")
+    def test_misconfig_falls_back_to_python_anthropic_gateway(self, mock_get_anthropic):
+        # URL missing the /v1 base path is a misconfig: resolve returns None and the caller falls back.
+        result = build_anthropic_client("stamphog", ai_product="stamphog")
+
+        mock_get_anthropic.assert_called_once_with(
+            "stamphog", team_id=None, default_headers=None, use_bedrock_fallback=False
+        )
         assert result is mock_get_anthropic.return_value
