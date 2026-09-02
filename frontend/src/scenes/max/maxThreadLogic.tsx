@@ -2268,12 +2268,11 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 return
             }
 
-            // Keep conversation and thread in sync. The server copy wins whenever it holds more
-            // messages than the screen does — a dropped stream otherwise leaves a stale thread that
-            // only a page reload clears.
+            // Keep conversation and thread in sync.
             actions.setConversation(conversation)
-            if (conversation.messages && conversation.messages.length > values.threadMessageCount) {
-                actions.setThread(updateMessagesWithCompletedStatus(conversation.messages))
+            const serverMessages = newerMessages(conversation, values.threadMessageCount)
+            if (serverMessages) {
+                actions.setThread(updateMessagesWithCompletedStatus(serverMessages))
             }
             // The turn is still running server-side, but this device has no stream, so pick it back up.
             if (conversation.status === ConversationStatus.InProgress && conversation.agent_runtime !== 'sandbox') {
@@ -3037,8 +3036,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         }
 
         // Ensure threadRaw is hydrated before streaming, so setThread doesn't overwrite stream tokens.
-        if (conversation.messages.length > values.threadMessageCount) {
-            actions.setThread(updateMessagesWithCompletedStatus(conversation.messages))
+        const serverMessages = newerMessages(conversation, values.threadMessageCount)
+        if (serverMessages) {
+            actions.setThread(updateMessagesWithCompletedStatus(serverMessages))
         }
 
         // 4. Reconnect to in-progress stream if needed; setThread here is a no-op due to message count guard.
@@ -3403,6 +3403,16 @@ function parseResponse<T>(response: string): T | null | undefined {
 
 function removeConversationMessages({ messages, ...conversation }: ConversationDetail): Conversation {
     return conversation
+}
+
+/**
+ * The server's messages, when it holds more of them than the screen does, else null. A dropped
+ * stream leaves a stale thread behind, so the server copy wins on message count rather than only
+ * on an empty thread.
+ */
+function newerMessages(conversation: ConversationDetail, threadMessageCount: number): RootAssistantMessage[] | null {
+    const { messages } = conversation
+    return messages && messages.length > threadMessageCount ? messages : null
 }
 
 /**
