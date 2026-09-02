@@ -213,7 +213,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                     mail_from_subdomain: !mail_from_subdomain
                         ? 'Enter a MAIL FROM subdomain, for example "feedback".'
                         : !MAIL_FROM_SUBDOMAIN_REGEX.test(mail_from_subdomain)
-                          ? 'Use only letters, numbers, and hyphens, for example "feedback". Leave out your domain.'
+                          ? 'Use 1 to 63 letters, numbers, or hyphens, starting and ending with a letter or number, for example "feedback". Leave out your domain.'
                           : undefined,
                 }
             },

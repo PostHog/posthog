@@ -280,8 +280,8 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
         subdomain = value.lower()
         if not MAIL_FROM_SUBDOMAIN_PATTERN.match(subdomain):
             raise ValidationError(
-                'Use only letters, numbers, and hyphens in the MAIL FROM subdomain, for example "feedback". '
-                "Leave out your domain and the dot before it."
+                "Use 1 to 63 letters, numbers, or hyphens in the MAIL FROM subdomain, starting and ending "
+                'with a letter or number, for example "feedback". Leave out your domain and the dot before it.'
             )
         return subdomain
 
