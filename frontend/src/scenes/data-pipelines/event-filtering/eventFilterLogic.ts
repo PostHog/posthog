@@ -384,7 +384,7 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
         updateTestCase: (index: number, updates: Partial<TestCase>) => ({ index, updates }),
     }),
 
-    forms(({ values }) => ({
+    forms(({ values, actions }) => ({
         filterForm: {
             defaults: DEFAULT_FORM,
             errors: ({ filter_tree, mode, test_cases }: EventFilterFormValues) => ({
@@ -434,6 +434,11 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
                     })
                     lemonToast.error(error?.detail ?? 'Could not save the event filter. Try again.')
                     throw error
+                }
+                if (downgraded) {
+                    // The local reassignment above never reaches the store, so the status card
+                    // and mode selector would still read `live` while the server holds `dry_run`.
+                    actions.setFilterFormValue('mode', 'dry_run')
                 }
                 posthog.capture('event_filter_saved', captureProps)
                 lemonToast.success(

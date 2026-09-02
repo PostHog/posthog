@@ -375,5 +375,8 @@ describe('eventFilterLogic save', () => {
         expect(postedPayloads[0].test_cases).toEqual([
             { event_name: 'pageview', distinct_id: '', expected_result: 'ingest' },
         ])
+        // The form store must reflect the downgrade, or the status card keeps claiming the
+        // filter is live while the server holds dry_run.
+        expect(logic.values.filterForm.mode).toBe('dry_run')
     })
 })
