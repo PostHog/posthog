@@ -12,6 +12,15 @@ import { urls } from '../urls'
 import { insightAiSyncLogic, insightToolTargetsCurrentInsight } from './insightAiSyncLogic'
 import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
+import { insightsApi } from './utils/api'
+
+const deferred = <T>(): { promise: Promise<T>; resolve: (value: T) => void } => {
+    let resolve!: (value: T) => void
+    const promise = new Promise<T>((resolvePromise) => {
+        resolve = resolvePromise
+    })
+    return { promise, resolve }
+}
 
 const insightLogicProps: InsightLogicProps = {
     dashboardItemId: 'abc123' as InsightShortId,
@@ -55,6 +64,44 @@ describe('insightAiSyncLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.agentToolCompleted('insight-update', { id })
         }).toDispatchActions(['agentToolCompleted', 'useAiChanges', 'loadInsight'])
+    })
+
+    it('serializes matching clean updates and loads the latest state after the first reload settles', async () => {
+        jest.useFakeTimers()
+        const firstReload = deferred<QueryBasedInsightModel | null>()
+        const secondReload = deferred<QueryBasedInsightModel | null>()
+        const getByShortId = jest
+            .spyOn(insightsApi, 'getByShortId')
+            .mockReturnValueOnce(firstReload.promise)
+            .mockReturnValueOnce(secondReload.promise)
+
+        try {
+            logic.actions.agentToolCompleted('insight-update', { id: 42 })
+            logic.actions.agentToolCompleted('insight-update', { id: 42 })
+            await jest.advanceTimersByTimeAsync(100)
+
+            expect(getByShortId).toHaveBeenCalledTimes(1)
+            expect(logic.values).toMatchObject({ hasPendingAiConflict: false, isApplyingAiChanges: true })
+
+            firstReload.resolve({ ...insightLogicProps.cachedInsight, name: 'First AI name' } as any)
+            await jest.advanceTimersByTimeAsync(0)
+
+            expect(getByShortId).toHaveBeenCalledTimes(1)
+            expect(insightSceneLogic.values.insight.name).toBe('First AI name')
+            expect(logic.values).toMatchObject({ hasPendingAiConflict: false, isApplyingAiChanges: true })
+
+            await jest.advanceTimersByTimeAsync(100)
+            expect(getByShortId).toHaveBeenCalledTimes(2)
+
+            secondReload.resolve({ ...insightLogicProps.cachedInsight, name: 'Latest AI name' } as any)
+            await jest.advanceTimersByTimeAsync(0)
+
+            expect(insightSceneLogic.values.insight.name).toBe('Latest AI name')
+            expect(insightSceneLogic.values.savedInsight.name).toBe('Latest AI name')
+            expect(logic.values).toMatchObject({ hasPendingAiConflict: false, isApplyingAiChanges: false })
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     test.each(['id', 'insightId', 'insight_id', 'short_id', 'shortId'])(
@@ -222,7 +269,65 @@ describe('insightAiSyncLogic', () => {
         expect(insightData.values.queryChanged).toBe(true)
     })
 
-    it('starts a second matching AI reload without restoring an earlier save', () => {
+    it('preserves a newer dirty conflict when a save-superseded reload settles', () => {
+        const loadInsight = jest.spyOn(logic.actions, 'loadInsight')
+        insightSceneLogic.actions.setInsightMetadataLocal({ name: 'Draft name' })
+        logic.actions.agentToolCompleted('insight-update', { id: 42 })
+        logic.actions.useAiChanges()
+
+        const savedQuery = { kind: NodeKind.HogQLQuery, query: 'select 2' } as any
+        insightSceneLogic.actions.saveInsightSuccess()
+        insightSceneLogic.actions.setInsight(
+            { ...insightLogicProps.cachedInsight, name: 'Saved name', query: savedQuery } as any,
+            { fromPersistentApi: true, overrideQuery: true }
+        )
+
+        const postSaveQuery = { kind: NodeKind.HogQLQuery, query: 'select 3' } as any
+        insightSceneLogic.actions.setInsightMetadataLocal({ name: 'Post-save name' })
+        insightData.actions.setQuery(postSaveQuery)
+        logic.actions.agentToolCompleted('insight-update', { id: 42 })
+
+        expect(loadInsight).toHaveBeenCalledTimes(1)
+        expect(logic.values).toMatchObject({ hasPendingAiConflict: true, isApplyingAiChanges: true })
+
+        insightSceneLogic.actions.loadInsightSuccess({
+            ...insightLogicProps.cachedInsight,
+            name: 'Older AI name',
+            query: { kind: NodeKind.HogQLQuery, query: 'select 1' },
+        } as any)
+
+        expect(loadInsight).toHaveBeenCalledTimes(1)
+        expect(insightSceneLogic.values.insight.name).toBe('Post-save name')
+        expect(insightSceneLogic.values.savedInsight.name).toBe('Saved name')
+        expect(insightData.values.query).toEqual(postSaveQuery)
+        expect(logic.values).toMatchObject({ hasPendingAiConflict: true, isApplyingAiChanges: false })
+    })
+
+    it('starts queued newer work after the first reload fails', () => {
+        const loadInsight = jest.spyOn(logic.actions, 'loadInsight')
+
+        logic.actions.agentToolCompleted('insight-update', { id: 42 })
+        logic.actions.agentToolCompleted('insight-update', { id: 42 })
+
+        expect(loadInsight).toHaveBeenCalledTimes(1)
+
+        insightSceneLogic.actions.loadInsightFailure('First reload failed')
+
+        expect(loadInsight).toHaveBeenCalledTimes(2)
+        expect(logic.values).toMatchObject({ hasPendingAiConflict: false, isApplyingAiChanges: true })
+
+        insightSceneLogic.actions.loadInsightSuccess({
+            ...insightLogicProps.cachedInsight,
+            name: 'Latest AI name',
+        } as any)
+
+        expect(insightSceneLogic.values.insight.name).toBe('Latest AI name')
+        expect(insightSceneLogic.values.savedInsight.name).toBe('Latest AI name')
+        expect(logic.values).toMatchObject({ hasPendingAiConflict: false, isApplyingAiChanges: false })
+    })
+
+    it('starts a queued matching reload after a save-superseded reload settles', () => {
+        const loadInsight = jest.spyOn(logic.actions, 'loadInsight')
         insightSceneLogic.actions.setInsightMetadataLocal({ name: 'Draft name' })
         logic.actions.agentToolCompleted('insight-update', { id: 42 })
         logic.actions.useAiChanges()
@@ -234,6 +339,17 @@ describe('insightAiSyncLogic', () => {
         })
 
         logic.actions.agentToolCompleted('insight-update', { id: 42 })
+
+        expect(loadInsight).toHaveBeenCalledTimes(1)
+        insightSceneLogic.actions.loadInsightSuccess({
+            ...insightLogicProps.cachedInsight,
+            name: 'Older AI name',
+        } as any)
+
+        expect(loadInsight).toHaveBeenCalledTimes(2)
+        expect(insightSceneLogic.values.insight.name).toBe('Saved name')
+        expect(logic.values).toMatchObject({ hasPendingAiConflict: false, isApplyingAiChanges: true })
+
         insightSceneLogic.actions.loadInsightSuccess({
             ...insightLogicProps.cachedInsight,
             name: 'Second AI name',
