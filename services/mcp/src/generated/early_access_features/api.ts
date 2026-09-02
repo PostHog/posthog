@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const EarlyAccessFeatureListParams = /* @__PURE__ */ zod.object({
+export const EarlyAccessFeatureListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,12 +16,12 @@ export const EarlyAccessFeatureListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const EarlyAccessFeatureListQueryParams = /* @__PURE__ */ zod.object({
+export const EarlyAccessFeatureListQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const EarlyAccessFeatureCreateParams = /* @__PURE__ */ zod.object({
+export const EarlyAccessFeatureCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -35,7 +35,7 @@ export const earlyAccessFeatureCreateBodyDocumentationUrlOneMax = 800
 
 export const earlyAccessFeatureCreateBodyDocumentationUrlTwoMax = 0
 
-export const EarlyAccessFeatureCreateBody = /* @__PURE__ */ zod
+export const EarlyAccessFeatureCreateBody = () => zod
     .object({
         name: zod.string().max(earlyAccessFeatureCreateBodyNameMax).describe('The name of the early access feature.'),
         description: zod
@@ -68,7 +68,7 @@ export const EarlyAccessFeatureCreateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
-export const EarlyAccessFeatureRetrieveParams = /* @__PURE__ */ zod.object({
+export const EarlyAccessFeatureRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this early access feature.'),
     project_id: zod
         .string()
@@ -77,7 +77,7 @@ export const EarlyAccessFeatureRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const EarlyAccessFeaturePartialUpdateParams = /* @__PURE__ */ zod.object({
+export const EarlyAccessFeaturePartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this early access feature.'),
     project_id: zod
         .string()
@@ -92,7 +92,7 @@ export const earlyAccessFeaturePartialUpdateBodyDocumentationUrlOneMax = 800
 
 export const earlyAccessFeaturePartialUpdateBodyDocumentationUrlTwoMax = 0
 
-export const EarlyAccessFeaturePartialUpdateBody = /* @__PURE__ */ zod
+export const EarlyAccessFeaturePartialUpdateBody = () => zod
     .object({
         name: zod
             .string()
@@ -122,7 +122,7 @@ export const EarlyAccessFeaturePartialUpdateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
-export const EarlyAccessFeatureDestroyParams = /* @__PURE__ */ zod.object({
+export const EarlyAccessFeatureDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this early access feature.'),
     project_id: zod
         .string()

@@ -12,7 +12,7 @@ import * as zod from 'zod'
  * Characterize a metric anomaly: compare an anomaly window against a
  * baseline, find the onset, and rank which label values moved.
  */
-export const MetricsCharacterizeCreateParams = /* @__PURE__ */ zod.object({
+export const MetricsCharacterizeCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -33,7 +33,7 @@ export const metricsCharacterizeCreateBodyQueryOneFiltersItemValueMax = 1024
 export const metricsCharacterizeCreateBodyQueryOneFiltersItemScopeDefault = `auto`
 export const metricsCharacterizeCreateBodyQueryOneCandidateKeysItemMax = 255
 
-export const MetricsCharacterizeCreateBody = /* @__PURE__ */ zod.object({
+export const MetricsCharacterizeCreateBody = () => zod.object({
     query: zod
         .object({
             metricName: zod
@@ -121,7 +121,7 @@ export const MetricsCharacterizeCreateBody = /* @__PURE__ */ zod.object({
         .describe('The anomaly characterization to run.'),
 })
 
-export const MetricsQueryCreateParams = /* @__PURE__ */ zod.object({
+export const MetricsQueryCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -163,7 +163,7 @@ export const metricsQueryCreateBodyQueryOneClausesItemGroupByItemKeyMax = 255
 export const metricsQueryCreateBodyQueryOneClausesItemGroupByItemScopeDefault = `auto`
 export const metricsQueryCreateBodyQueryOneFormulaMax = 512
 
-export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
+export const MetricsQueryCreateBody = () => zod.object({
     query: zod
         .object({
             metricName: zod
@@ -386,7 +386,7 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
 /**
  * Distinct metric names for the team. Backs the picker UI.
  */
-export const MetricsValuesRetrieveParams = /* @__PURE__ */ zod.object({
+export const MetricsValuesRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -402,7 +402,7 @@ export const metricsValuesRetrieveQueryServiceMax = 1024
 export const metricsValuesRetrieveQueryValueDefault = ``
 export const metricsValuesRetrieveQueryValueMax = 255
 
-export const MetricsValuesRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const MetricsValuesRetrieveQueryParams = () => zod.object({
     limit: zod
         .number()
         .min(1)

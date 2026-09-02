@@ -2,7 +2,7 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import { ConversationsListQueryParams, ConversationsRetrieveParams } from '@/generated/posthog_ai/api'
+import * as orvalSchemas from '@/generated/posthog_ai/api'
 import {
     withPostHogUrl,
     pickResponseFields,
@@ -12,15 +12,18 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ConversationsListSchema = ConversationsListQueryParams
+const ConversationsListSchema = () => {
+    const ConversationsListQueryParams = orvalSchemas.ConversationsListQueryParams()
+    return ConversationsListQueryParams
+}
 
 const conversationsList = (): ToolBase<
-    typeof ConversationsListSchema,
+    ReturnType<typeof ConversationsListSchema>,
     WithInformationalResponse<WithPostHogUrl<Schemas.PaginatedConversationMinimalList>>
 > => ({
     name: 'conversations-list',
-    schema: ConversationsListSchema,
-    handler: async (context: Context, params: z.infer<typeof ConversationsListSchema>) => {
+    schema: ConversationsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ConversationsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedConversationMinimalList>({
             method: 'GET',
@@ -53,15 +56,18 @@ const conversationsList = (): ToolBase<
     },
 })
 
-const ConversationsRetrieveSchema = ConversationsRetrieveParams.omit({ project_id: true })
+const ConversationsRetrieveSchema = () => {
+    const ConversationsRetrieveParams = orvalSchemas.ConversationsRetrieveParams()
+    return ConversationsRetrieveParams.omit({ project_id: true })
+}
 
 const conversationsRetrieve = (): ToolBase<
-    typeof ConversationsRetrieveSchema,
+    ReturnType<typeof ConversationsRetrieveSchema>,
     WithInformationalResponse<WithPostHogUrl<Schemas.Conversation>>
 > => ({
     name: 'conversations-retrieve',
-    schema: ConversationsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ConversationsRetrieveSchema>) => {
+    schema: ConversationsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ConversationsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.Conversation>({
             method: 'GET',
