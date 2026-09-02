@@ -51,10 +51,12 @@ _TERMINAL_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskR
 
 
 def _run_repository_filter(repository: str) -> Q:
+    # Exact, not iexact: ``Task.save`` lowercases ``repository``, so folding the case of both
+    # sides is dead weight, and ``UPPER(repository) = UPPER($n)`` is a form no index can serve.
     normalized = repository.strip().lower()
     return Q(state__repositories__contains=[normalized]) | Q(
         state__repositories__isnull=True,
-        task__repository__iexact=normalized,
+        task__repository=normalized,
     )
 
 
