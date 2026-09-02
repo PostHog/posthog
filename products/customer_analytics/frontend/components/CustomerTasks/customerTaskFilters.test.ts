@@ -66,4 +66,21 @@ describe('customer task filter helpers', () => {
             due_before: '2026-09-03T07:00:00.000Z',
         })
     })
+
+    test.each([
+        ['a resource viewer', true, 'unassigned'],
+        ['an assignment-only user', false, 'me'],
+    ])('keeps %s within their allowed assignee scope', (_, canViewAll, assignedTo) => {
+        expect(
+            customerTasksQuery(
+                { ...defaultCustomerTaskFilters('inbox'), assignee: 'unassigned' },
+                'inbox',
+                undefined,
+                1,
+                50,
+                'UTC',
+                canViewAll
+            )
+        ).toMatchObject({ assigned_to: assignedTo })
+    })
 })

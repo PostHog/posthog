@@ -93,19 +93,22 @@ export function customerTasksQuery(
     accountId: string | undefined,
     page: number,
     pageSize: number,
-    timezone: string
+    timezone: string,
+    canViewAll = true
 ): CustomerTasksListParams {
     const query: CustomerTasksListParams = {
         search: filters.search || undefined,
         account_id: accountId ?? filters.account?.id,
         assigned_to:
-            filters.assignee === 'any'
-                ? undefined
-                : filters.assignee === 'me'
-                  ? 'me'
-                  : filters.assignee === 'unassigned'
-                    ? 'unassigned'
-                    : String(filters.assignee),
+            !canViewAll && context === 'inbox'
+                ? 'me'
+                : filters.assignee === 'any'
+                  ? undefined
+                  : filters.assignee === 'me'
+                    ? 'me'
+                    : filters.assignee === 'unassigned'
+                      ? 'unassigned'
+                      : String(filters.assignee),
         statuses:
             filters.status === 'all' ? undefined : filters.status === 'open' ? 'open,in_progress' : filters.status,
         archive_state: filters.archiveState,

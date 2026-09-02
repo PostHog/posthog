@@ -10,6 +10,7 @@ import {
 } from 'products/customer_analytics/frontend/generated/api'
 import type { CustomerTaskApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { customerTasksPersistencePrefix } from './customerTaskFilters'
 import { customerTasksLogic } from './customerTasksLogic'
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
@@ -50,13 +51,17 @@ describe('customerTasksLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
+        localStorage.clear()
         mockCreate.mockResolvedValue(task())
         mockList.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
         mockAccounts.mockResolvedValue({ count: 0, next: null, previous: null, results: [] })
         mockUpdate.mockResolvedValue(task())
     })
 
-    afterEach(() => logic?.unmount())
+    afterEach(() => {
+        logic?.unmount()
+        localStorage.clear()
+    })
 
     test.each([
         ['account', 'account-1', 20, { account_id: 'account-1' }],
@@ -95,6 +100,36 @@ describe('customerTasksLogic', () => {
             assigned_to_id: null,
             due_at: null,
         })
+    })
+
+    test('persists inbox filters for one team and user, then resets them to defaults', async () => {
+        const prefix = customerTasksPersistencePrefix(1, 42)
+        logic = customerTasksLogic({ context: 'inbox', canViewAll: true, persistPrefix: prefix })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setFilters({ status: 'completed', assignee: 'unassigned' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.filters).toMatchObject({ status: 'completed', assignee: 'unassigned' })
+        logic.unmount()
+
+        const otherUserLogic = customerTasksLogic({
+            context: 'inbox',
+            canViewAll: true,
+            persistPrefix: customerTasksPersistencePrefix(1, 7),
+        })
+        otherUserLogic.mount()
+        await expectLogic(otherUserLogic).toFinishAllListeners()
+        expect(otherUserLogic.values.filters).toMatchObject({ status: 'open', assignee: 'me' })
+        otherUserLogic.unmount()
+
+        logic = customerTasksLogic({ context: 'inbox', canViewAll: true, persistPrefix: prefix })
+        logic.mount()
+        expect(logic.values.filters).toMatchObject({ status: 'completed', assignee: 'unassigned' })
+        logic.actions.resetFilters()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.filters).toMatchObject({ status: 'open', assignee: 'me' })
+        expect(JSON.stringify(localStorage)).not.toContain('completed')
     })
 
     test('does not submit a no-op or a mutation for a task the user cannot edit', async () => {

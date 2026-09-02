@@ -50,13 +50,14 @@ const ACCOUNT_OPTIONS_LIMIT = 50
 export interface CustomerTasksLogicProps {
     context: CustomerTasksContext
     accountId?: string
-    persistInboxFilters?: boolean
+    canViewAll?: boolean
     persistPrefix?: string
 }
 export interface customerTasksLogicValues {
     accountOptions: AccountApi[]
     accountOptionsResponse: PaginatedAccountListApi | null
     accountOptionsResponseLoading: boolean
+    accountFilterOpen: boolean
     currentTeamId: number | null
     filters: CustomerTaskFilters
     hasActiveFilters: boolean
@@ -89,6 +90,7 @@ export interface customerTasksLogicActions {
     restoreTask: (taskId: string) => { taskId: string }
     archiveTask: (taskId: string) => { taskId: string }
     setAccountFilter: (account: CustomerTaskAccountFilter | null) => { account: CustomerTaskAccountFilter | null }
+    setAccountFilterOpen: (open: boolean) => { open: boolean }
     setFilters: (filters: Partial<CustomerTaskFilters>) => { filters: Partial<CustomerTaskFilters> }
     setPage: (page: number) => { page: number }
     setSearch: (search: string) => { search: string }
@@ -109,7 +111,7 @@ export type customerTasksLogicType = MakeLogicType<
 >
 export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<customerTasksLogicType>([
     props({} as CustomerTasksLogicProps),
-    key((p) => 'customer-tasks-' + p.context + '-' + (p.accountId ?? 'all')),
+    key((p) => 'customer-tasks-' + p.context + '-' + (p.accountId ?? p.persistPrefix ?? 'all')),
     path(['products', 'customer_analytics', 'frontend', 'components', 'CustomerTasks', 'customerTasksLogic']),
     connect(() => ({ values: [teamLogic, ['currentTeamId', 'timezone']] })),
     actions({
@@ -118,6 +120,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
         setFilters: (filters: Partial<CustomerTaskFilters>) => ({ filters }),
         setSearch: (search: string) => ({ search }),
         setAccountFilter: (account: CustomerTaskAccountFilter | null) => ({ account }),
+        setAccountFilterOpen: (open: boolean) => ({ open }),
         setPage: (page: number) => ({ page }),
         resetFilters: () => ({}),
         openCreateModal: () => ({}),
@@ -152,7 +155,8 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                             props.accountId,
                             values.page,
                             values.pageSize,
-                            values.timezone
+                            values.timezone,
+                            props.canViewAll
                         )
                     )
                     breakpoint()
@@ -180,9 +184,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
     })),
     reducers(({ props }) => {
         const persist =
-            props.context === 'inbox' && props.persistInboxFilters && props.persistPrefix
-                ? { persist: true, prefix: props.persistPrefix }
-                : {}
+            props.context === 'inbox' && props.persistPrefix ? { persist: true, prefix: props.persistPrefix } : {}
         return {
             filters: [
                 defaultCustomerTaskFilters(props.context),
@@ -210,6 +212,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                     resetFilters: () => 1,
                 },
             ],
+            accountFilterOpen: [false, { setAccountFilterOpen: (_, { open }) => open }],
             mutationKeys: [
                 {} as Record<string, boolean>,
                 {

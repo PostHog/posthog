@@ -11,7 +11,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -36,6 +36,7 @@ import { CustomerJourneySelect } from './components/CustomerJourneys/CustomerJou
 import { customerJourneysLogic } from './components/CustomerJourneys/customerJourneysLogic'
 import { DeleteJourneyButton } from './components/CustomerJourneys/DeleteJourneyButton'
 import { journeyEditorLogic } from './components/CustomerJourneys/journeyEditorLogic'
+import { CustomerTasksInbox } from './components/CustomerTasks/CustomerTasksInbox'
 import { FeatureRequestsTabContent } from './components/FeatureRequests/FeatureRequestsTabContent'
 import { FeedTabContent } from './components/Feed/FeedTabContent'
 import { FeedbackButton } from './components/FeedbackButton'
@@ -78,6 +79,8 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
         AccessControlResourceType.CustomerAnalytics,
         AccessControlLevel.Editor
     )
+    const canViewAllCustomerTasks = userHasAccess(AccessControlResourceType.CustomerTask, AccessControlLevel.Viewer)
+    const canCreateCustomerTasks = userHasAccess(AccessControlResourceType.CustomerTask, AccessControlLevel.Editor)
 
     useOnMountEffect(() => {
         reportCustomerAnalyticsViewed()
@@ -94,6 +97,10 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
     }
 
     if (activeTab === 'feature_requests' && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS]) {
+        return <NotFound object="page" />
+    }
+
+    if (activeTab === 'tasks' && !featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS]) {
         return <NotFound object="page" />
     }
 
@@ -152,6 +159,15 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
         })
     }
 
+    if (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS]) {
+        tabs.push({
+            key: 'tasks',
+            label: 'Tasks',
+            content: <CustomerTasksInbox canCreate={canCreateCustomerTasks} canViewAll={canViewAllCustomerTasks} />,
+            link: combineUrl(urls.customerAnalyticsTasks(), searchParams).url,
+        })
+    }
+
     tabs.push({
         key: 'dashboard',
         label: 'Dashboard',
@@ -187,8 +203,12 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
                 ) : (
                     <>
                         <SceneTitleSection
-                            name={sceneConfigurations[Scene.CustomerAnalytics].name}
-                            description={sceneConfigurations[Scene.CustomerAnalytics].description}
+                            name={activeTab === 'tasks' ? 'Tasks' : sceneConfigurations[Scene.CustomerAnalytics].name}
+                            description={
+                                activeTab === 'tasks'
+                                    ? 'Work assigned to you across customer accounts.'
+                                    : sceneConfigurations[Scene.CustomerAnalytics].description
+                            }
                             resourceType={{
                                 type: sceneConfigurations[Scene.CustomerAnalytics].iconType || 'default_icon_type',
                             }}

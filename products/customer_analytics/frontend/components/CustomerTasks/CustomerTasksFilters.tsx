@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconChevronDown, IconFilter, IconX } from '@posthog/icons'
 import {
@@ -26,9 +25,10 @@ export interface CustomerTasksFiltersProps {
     canViewAll?: boolean
 }
 export function CustomerTasksFilters({ logic, context, canViewAll = false }: CustomerTasksFiltersProps): JSX.Element {
-    const { filters, hasActiveFilters, accountOptions, accountOptionsResponseLoading } = useValues(logic)
-    const { setFilters, setSearch, setAccountFilter, loadAccountOptions, resetFilters } = useActions(logic)
-    const [accountOpen, setAccountOpen] = useState(false)
+    const { filters, hasActiveFilters, accountOptions, accountOptionsResponseLoading, accountFilterOpen } =
+        useValues(logic)
+    const { setFilters, setSearch, setAccountFilter, setAccountFilterOpen, loadAccountOptions, resetFilters } =
+        useActions(logic)
     const status: LemonMenuItems = [
         {
             items: CUSTOMER_TASK_STATUS_OPTIONS.map((o) => ({
@@ -93,11 +93,13 @@ export function CustomerTasksFilters({ logic, context, canViewAll = false }: Cus
                     {CUSTOMER_TASK_STATUS_OPTIONS.find((o) => o.value === filters.status)?.label}
                 </LemonButton>
             </LemonMenu>
-            <LemonMenu items={assignee}>
-                <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                    {assigneeLabel(filters.assignee)}
-                </LemonButton>
-            </LemonMenu>
+            {canViewAll && (
+                <LemonMenu items={assignee}>
+                    <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                        {assigneeLabel(filters.assignee)}
+                    </LemonButton>
+                </LemonMenu>
+            )}
             {canViewAll && (
                 <MemberSelect
                     value={typeof filters.assignee === 'number' ? filters.assignee : null}
@@ -116,8 +118,8 @@ export function CustomerTasksFilters({ logic, context, canViewAll = false }: Cus
             )}
             {context === 'inbox' && (
                 <LemonDropdown
-                    visible={accountOpen}
-                    onVisibilityChange={setAccountOpen}
+                    visible={accountFilterOpen}
+                    onVisibilityChange={setAccountFilterOpen}
                     closeOnClickInside={false}
                     placement="bottom-start"
                     overlay={
@@ -132,7 +134,7 @@ export function CustomerTasksFilters({ logic, context, canViewAll = false }: Cus
                                     const id = values[0]
                                     const account = accountOptions.find((a) => a.id === id)
                                     setAccountFilter(account ? { id: account.id, name: account.name } : null)
-                                    setAccountOpen(false)
+                                    setAccountFilterOpen(false)
                                 }}
                                 placeholder="Search accounts"
                             />

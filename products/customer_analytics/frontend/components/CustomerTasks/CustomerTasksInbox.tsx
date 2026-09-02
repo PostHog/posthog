@@ -1,22 +1,27 @@
-import { useMountedLogic } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { customerTasksPersistencePrefix } from './customerTaskFilters'
 import { customerTasksLogic } from './customerTasksLogic'
 import { CustomerTasksTable } from './CustomerTasksTable'
 export interface CustomerTasksInboxProps {
-    persistFilters?: boolean
-    persistenceKey?: string
+    canCreate?: boolean
     canViewAll?: boolean
 }
-export function CustomerTasksInbox({
-    persistFilters = false,
-    persistenceKey,
-    canViewAll = false,
-}: CustomerTasksInboxProps): JSX.Element {
+export function CustomerTasksInbox({ canCreate = false, canViewAll = false }: CustomerTasksInboxProps): JSX.Element {
+    const { currentTeamId } = useValues(teamLogic)
+    const { user } = useValues(userLogic)
+    const persistPrefix =
+        currentTeamId !== null && user?.id !== undefined
+            ? customerTasksPersistencePrefix(currentTeamId, user.id)
+            : undefined
     const logic = customerTasksLogic({
         context: 'inbox',
-        persistInboxFilters: persistFilters,
-        persistPrefix: persistenceKey,
+        canViewAll,
+        persistPrefix,
     })
     useMountedLogic(logic)
-    return <CustomerTasksTable logic={logic} context="inbox" canViewAll={canViewAll} />
+    return <CustomerTasksTable logic={logic} context="inbox" canCreate={canCreate} canViewAll={canViewAll} />
 }

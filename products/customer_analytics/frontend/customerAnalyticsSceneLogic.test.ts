@@ -60,6 +60,12 @@ describe('customerAnalyticsSceneLogic', () => {
             expectLogic(logic).toMatchValues({ activeTab: 'feature_requests' })
         })
 
+        it('activates the Tasks tab for its scene key', () => {
+            sceneLogic.actions.setScene(Scene.CustomerAnalytics, 'customerAnalyticsTasks', emptySceneParams)
+
+            expectLogic(logic).toMatchValues({ activeTab: 'tasks' })
+        })
+
         it('activates the Accounts tab for the account detail scene key', () => {
             sceneLogic.actions.setScene(Scene.CustomerAnalyticsAccount, 'customerAnalyticsAccount', emptySceneParams)
 
