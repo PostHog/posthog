@@ -831,7 +831,7 @@ warehouse_sources.WarehouseColumnAnnotation products.data_warehouse.backend.pres
 warehouse_sources.WarehouseColumnAnnotation products.posthog_ai.evals.data_warehouse.seeder construct 2
 warehouse_sources.WarehouseColumnAnnotation products.posthog_ai.evals.data_warehouse.seeder write(bulk_create) 1
 web_analytics:backend/hogql_queries/ ee.clickhouse.views.test.test_experiment_saved_metrics drives(TrendsQuery) 2
-web_analytics:backend/hogql_queries/ posthog.api.test.dashboards.test_dashboard drives(TrendsQuery) 8
+web_analytics:backend/hogql_queries/ posthog.api.test.dashboards.test_dashboard drives(TrendsQuery) 5
 web_analytics:backend/hogql_queries/ posthog.api.test.test_alert_15_minute_interval drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ posthog.api.test.test_alert_real_time_interval drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ posthog.hogql.database.schema.test.test_persons drives(TrendsQuery) 1
@@ -847,6 +847,7 @@ web_analytics:backend/hogql_queries/ posthog.hogql_queries.insights.trends.test.
 web_analytics:backend/hogql_queries/ posthog.hogql_queries.insights.trends.test.test_trends_query_builder drives(TrendsQuery) 7
 web_analytics:backend/hogql_queries/ posthog.hogql_queries.insights.trends.test.test_trends_query_runner drives(TrendsQuery) 2
 web_analytics:backend/hogql_queries/ posthog.hogql_queries.test.test_dashboard_filters_overrides drives(TrendsQuery) 1
+web_analytics:backend/hogql_queries/ posthog.hogql_queries.test.test_insight_actors_query_runner drives(TrendsQuery) 7
 web_analytics:backend/hogql_queries/ posthog.hogql_queries.test.test_query_runner drives(TrendsQuery) 4
 web_analytics:backend/hogql_queries/ posthog.models.web_preaggregated.test_web_pre_aggregated_timezones drives(FloatAwareTestCase) 1
 web_analytics:backend/hogql_queries/ posthog.models.web_preaggregated.test_web_pre_aggregated_timezones drives(WebAnalyticsPreAggregatedTestBase) 1
