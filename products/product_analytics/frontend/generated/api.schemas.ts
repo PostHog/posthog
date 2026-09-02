@@ -8036,6 +8036,8 @@ export interface ChartSettingsApi {
     goalLines?: GoalLineApi[] | null
     heatmap?: HeatmapSettingsApi | null
     leftYAxisSettings?: YAxisSettingsApi | null
+    /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie, top for the rest. */
+    legendPosition?: LegendPositionApi | null
     pie?: PieChartSettingsApi | null
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: ChartSettingsApiResultCustomizations
