@@ -3,6 +3,7 @@ import { FetchResponse } from '~/common/utils/request'
 import {
     MAX_FETCH_RETRY_AFTER_MS,
     RATE_LIMIT_BACKOFF_MAX_MS,
+    RATE_LIMIT_MIN_RETRIES,
     fetchErrorDetail,
     getNextRetryTime,
     parseRetryAfterMs,
@@ -91,6 +92,15 @@ describe('getNextRetryTime', () => {
         // linear backoff would cap this at ~3s, inside the window that already rejected us
         expect(third).toBeGreaterThanOrEqual(4000)
         expect(third).toBeLessThan(5000)
+    })
+
+    it('grows past a per-minute window within RATE_LIMIT_MIN_RETRIES attempts', () => {
+        // the default 3-retry linear schedule dies in ~6s; 429 exponential reaches ~63s
+        let total = 0
+        for (let tries = 1; tries <= RATE_LIMIT_MIN_RETRIES; tries++) {
+            total += 1000 * 2 ** (tries - 1)
+        }
+        expect(total).toBeGreaterThanOrEqual(60_000)
     })
 
     it('lets 429 retries reach past the generic cap, up to the rate-limit ceiling', () => {
