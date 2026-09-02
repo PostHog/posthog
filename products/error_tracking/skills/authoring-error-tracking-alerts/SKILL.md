@@ -75,15 +75,19 @@ page, so a single default call misses older alerts on a project with hundreds of
 
 Call `posthog:error-tracking-alerts-list` with `type: ["internal_destination"]` and `limit: 1000`. If the
 response still carries a non-null `next`, keep paging with `offset` until `next` is null. Then filter the
-collected rows client-side by `filters.events[].id` and by the destination the alert delivers to.
+collected rows client-side by `filters.events[].id`, by the destination the alert delivers to, and by any
+per-issue scope in `filters.properties`.
 
-- If an alert exists for the **same event** delivering to the **same channel**, stop. Tell the user it
-  already exists and ask whether they want to change anything (in which case use
+- If an alert exists for the **same event** delivering to the **same channel** with the **same scope**,
+  stop. Tell the user it already exists and ask whether they want to change anything (in which case use
   `error-tracking-alerts-partial-update`) or skip.
 - Multiple alerts on the same event for the same channel produce duplicate Slack messages — the user
   almost never wants this.
 - Multiple alerts on the same event for **different** channels (e.g. one for `#oncall`, one for the
   oncall webhook) is fine and sometimes intentional. Confirm.
+- Multiple alerts on the same event and channel but **different scopes** (e.g. two `_reopened` alerts
+  each pinned to a different `$exception_issue_id`) are not duplicates. Confirm before adding. Note that
+  a scoped alert and an all-issues alert to the same channel both fire on the scoped issue.
 
 PostHog's "alerts configured" recommendation only inspects `filters.events` — adding per-issue
 `filters.properties` does not affect the status the recommendations card reports.
