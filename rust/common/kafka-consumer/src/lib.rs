@@ -12,4 +12,4 @@ pub use charge::Charge;
 pub use config::ConsumerConfigBuilder;
 pub use partition_offset_ledger::{Held, LedgerError, PartitionOffsetLedger, TakenFrontier};
 pub use topic_offset_ledger::{Rejection, Settlement, TopicOffsetLedger, TopicPartition};
-pub use types::{Offset, Partition};
+pub use types::{GroupCompletion, Offset, Partition};
