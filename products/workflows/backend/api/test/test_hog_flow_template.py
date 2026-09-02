@@ -555,7 +555,10 @@ class TestHogFlowTemplateAPI(APIBaseTest):
             if action.get("config", {}).get("template_id") == "template-posthog-create-task"
         )
         assert trigger["config"]["type"] == "internal-event"
-        assert {prop["key"] for prop in trigger["config"]["filters"]["properties"]} == {"text", "thread_ts"}
+        assert {prop["key"] for prop in trigger["config"]["filters"]["properties"]} == {
+            "message_text",
+            "thread_ts",
+        }
         assert task["config"]["inputs"]["posthog_mcp_scopes"]["value"] == "read_only"
         assert task["config"]["inputs"]["non_failure_status_codes"]["value"] == [409]
 

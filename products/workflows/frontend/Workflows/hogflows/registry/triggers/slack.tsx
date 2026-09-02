@@ -29,6 +29,7 @@ import {
 // autocomplete from and the properties have to be declared.
 const ADVANCED_PROPERTIES: { key: string; type: PropertyType }[] = [
     { key: 'text', type: PropertyType.String },
+    { key: 'message_text', type: PropertyType.String },
     { key: 'subtype', type: PropertyType.String },
     { key: 'channel_type', type: PropertyType.String },
     { key: 'is_thread_reply', type: PropertyType.Boolean },

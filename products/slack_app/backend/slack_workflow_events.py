@@ -15,9 +15,12 @@ import structlog
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.models.integration import Integration
 
+from products.slack_app.backend.services.slack_messages import extract_message_text
+
 logger = structlog.get_logger(__name__)
 
 SLACK_MESSAGE_RECEIVED_EVENT = "$slack_message_received"
+MESSAGE_TEXT_MAX_CHARS = 12_000
 
 # Slack labels edits, deletions and joins `message` too, and those retrigger a workflow's own reply.
 # `bot_message` stays in: "apps and bots only" is a trigger mode.
@@ -34,6 +37,10 @@ def _event_properties(
     event: dict[str, Any], slack_team_id: str, *, integration_id: int, is_ext_shared_channel: bool
 ) -> dict[str, Any]:
     thread_ts = event.get("thread_ts")
+    message_text = extract_message_text(event)
+    if len(message_text) > MESSAGE_TEXT_MAX_CHARS:
+        suffix = " [truncated]"
+        message_text = f"{message_text[: MESSAGE_TEXT_MAX_CHARS - len(suffix)]}{suffix}"
     return {
         # The PostHog Slack connection this copy belongs to. The CDP consumer reads its stored
         # app id from here to recognize, and ignore, a message PostHog itself posted.
@@ -46,14 +53,14 @@ def _event_properties(
         "app_id": event.get("app_id"),
         "subtype": event.get("subtype"),
         "text": event.get("text"),
+        "message_text": message_text,
         "ts": event.get("ts"),
         "thread_ts": thread_ts,
         # Property filters compare a property against a constant, never against another property,
         # so "is this a reply" is unexpressible from thread_ts and ts alone.
         "is_thread_reply": isinstance(thread_ts, str) and thread_ts != event.get("ts"),
         "is_ext_shared_channel": is_ext_shared_channel,
-        # Anything a step wants that the flat fields above don't cover, blocks and attachments most
-        # of all: an alerting app posts Block Kit, so its text is often empty.
+        # Keep the structured payload for steps that need block metadata rather than searchable text.
         "slack_event": event,
     }
 

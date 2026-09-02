@@ -409,15 +409,13 @@ def _render_event_json(event: dict[str, Any]) -> str:
 def _trimmed_event(event: dict[str, Any]) -> dict[str, Any]:
     """Drop the raw Slack payload only when the flat properties already carry the message.
 
-    An alerting app posts Block Kit, so `text` is often empty and the words live in
-    `slack_event.blocks` alone (see `_event_properties` in slack_workflow_events.py).
-    Dropping it there would hand the agent an alert with no content, which is the case
-    this feature exists for.
+    The Slack workflow emitter flattens text, blocks, and attachments into `message_text`.
+    Older callers only carry `text`, so keep the raw payload when both fields are empty.
     """
     properties = event.get("properties")
     if not isinstance(properties, dict) or "slack_event" not in properties:
         return event
-    if not str(properties.get("text") or "").strip():
+    if not str(properties.get("message_text") or properties.get("text") or "").strip():
         return event
     return {**event, "properties": {k: v for k, v in properties.items() if k != "slack_event"}}
 

@@ -470,12 +470,16 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert "Database latency alert fired" in message
         assert Task.objects.get(id=response.json()["id"]).description == "look into the alert"
 
-    def test_drops_the_raw_slack_payload_when_the_flat_text_carries_the_message(self) -> None:
+    def test_drops_the_raw_slack_payload_when_normalized_text_carries_the_message(self) -> None:
         response = self._post(
             {
                 "event": {
                     "event": "$slack_message_received",
-                    "properties": {"text": "short alert", "slack_event": {"blocks": "x" * 30_000}},
+                    "properties": {
+                        "text": "short alert",
+                        "message_text": "short alert\npod OOMKilled",
+                        "slack_event": {"blocks": "x" * 30_000},
+                    },
                 }
             }
         )
@@ -483,6 +487,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         message = TaskRun.objects.get(id=response.json()["run_id"]).state["initial_prompt_override"]
         assert "short alert" in message
+        assert "pod OOMKilled" in message
         assert "slack_event" not in message
 
     def test_keeps_the_raw_payload_when_it_is_the_only_copy_of_the_message(self) -> None:

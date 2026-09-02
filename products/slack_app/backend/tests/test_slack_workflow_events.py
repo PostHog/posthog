@@ -99,6 +99,26 @@ def test_properties_carry_what_a_filter_needs(produce, workspace_integration) ->
     assert properties["slack_event"] == event
 
 
+def test_properties_flatten_and_bound_block_only_alert_text(produce, workspace_integration) -> None:
+    event = {
+        **MESSAGE_EVENT,
+        "text": "",
+        "blocks": [
+            {"type": "header", "text": {"type": "plain_text", "text": "Alert firing"}},
+            {"type": "section", "text": {"type": "mrkdwn", "text": "Database latency is high"}},
+            {"type": "section", "text": {"type": "mrkdwn", "text": "x" * 30_000}},
+        ],
+    }
+
+    with patch("django.conf.settings.SLACK_WORKFLOW_TRIGGERS_ENABLED", True):
+        emit_slack_message_event(event, SLACK_TEAM_ID, event_id="Ev1", is_ext_shared_channel=False)
+
+    message_text = produce.call_args.args[1].properties["message_text"]
+    assert message_text.startswith("Alert firing\nDatabase latency is high\n")
+    assert message_text.endswith(" [truncated]")
+    assert len(message_text) == 12_000
+
+
 def test_a_top_level_post_is_not_a_thread_reply(produce, workspace_integration) -> None:
     event = {**MESSAGE_EVENT, "thread_ts": MESSAGE_EVENT["ts"]}
 

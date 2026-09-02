@@ -22,6 +22,7 @@ SLACK_MESSAGE_GLOBALS: dict[str, Any] = {
         "app_id": None,
         "subtype": None,
         "text": "the database is on fire",
+        "message_text": "the database is on fire",
         "ts": "1700000000.000100",
         "thread_ts": None,
         "is_thread_reply": False,
@@ -95,12 +96,12 @@ class TestSlackTriggerFilters(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("matching text", {"text": "the database is on fire"}, True),
-            ("other text", {"text": "deploy finished"}, False),
+            ("matching block text", {"text": "", "message_text": "Alert: the database is on fire"}, True),
+            ("other text", {"message_text": "deploy finished"}, False),
         ]
     )
     def test_message_text_contains(self, _name, overrides, expected):
-        assert self._matches([_prop("text", ["fire"], "icontains")], _event(**overrides)) is expected
+        assert self._matches([_prop("message_text", ["fire"], "icontains")], _event(**overrides)) is expected
 
     def test_filters_combine_with_and(self):
         properties = [
