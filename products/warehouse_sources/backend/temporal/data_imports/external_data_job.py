@@ -158,7 +158,7 @@ Any_Source_Errors: dict[str, str | None] = {
         "A decimal column no longer fits the type we stored for it. Set a precision and scale on "
         "that column in your source, then reset and fully re-sync this table and re-enable the "
         "sync. Without a declared precision the re-sync can fail the same way part-way through. "
-        "Up to 38 digits stays a number and up to 76 becomes text. Do not declare more than 76."
+        "Up to 38 digits stays a number. A wider column still syncs, but lands as text."
     ),
     # Raised by the pipeline when a column's incoming values no longer fit the stored Delta column
     # type — the source column was widened (e.g. Postgres `integer` → `bigint`) or now carries larger

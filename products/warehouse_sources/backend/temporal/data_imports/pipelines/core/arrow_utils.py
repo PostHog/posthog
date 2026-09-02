@@ -1176,8 +1176,8 @@ def align_incoming_decimals_to_delta(pa_table: pa.Table, delta_schema: deltalake
                 f"{delta_field.type}. Set a precision and scale on that column in your source, then "
                 f"reset and fully re-sync this table and re-enable the sync. Without a declared "
                 f"precision each batch infers its own type and the re-sync can fail the same way. "
-                f"Up to {DELTA_MAX_DECIMAL_PRECISION} digits stays a number and up to 76 becomes text. "
-                f"Do not declare more than 76."
+                f"Up to {DELTA_MAX_DECIMAL_PRECISION} digits stays a number. A wider column still "
+                f"syncs, but lands as text."
             )
         pa_table = pa_table.set_column(pa_table.schema.get_field_index(delta_field.name), delta_field.name, aligned)
 
