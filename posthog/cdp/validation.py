@@ -16,13 +16,22 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
+from posthog.cdp.filters import (
+    collect_property_cohort_ids,
+    compile_filters_bytecode,
+    compile_filters_expr,
+    filter_action_ids,
+    filter_cohort_ids,
+)
 from posthog.models.integration import Integration
+from posthog.models.team.team import Team
 
+from products.actions.backend.models.action import Action
 from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
     TYPES_WITH_TRANSPILED_FILTERS,
 )
+from products.cohorts.backend.models.cohort import Cohort
 
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
@@ -1017,7 +1026,16 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
             if "bytecode" in data:
                 del data["bytecode"]
         else:
-            data = compile_filters_bytecode(data, team)
+            cohort_membership_supported = bool(self.context.get("cohort_membership_supported"))
+            validated_cohort_ids: Optional[set[int]] = None
+            if cohort_membership_supported:
+                validated_cohort_ids = self._validate_realtime_cohorts(data, team)
+            data = compile_filters_bytecode(
+                data,
+                team,
+                cohort_membership_supported=cohort_membership_supported,
+                allowed_cohort_ids=validated_cohort_ids,
+            )
             # Uncompilable filters are only fatal when the function will run (stay enabled).
             # Callers that allow saving anyway (e.g. disabling/deleting a hog function) opt out
             # via context; the error stays persisted on the filters for the UI to surface.
@@ -1025,6 +1043,46 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
                 raise serializers.ValidationError(f"Invalid filter configuration: {data['bytecode_error']}")
 
         return data
+
+    def _validate_realtime_cohorts(self, data: dict, team: Team) -> set[int]:
+        """A cohort without maintained cohort_membership rows would evaluate everyone as a non-member.
+
+        Returns the validated ids so the compiler can reject any IN COHORT operand outside them.
+        Error messages carry the id rather than the name: they surface to callers holding only
+        workflow scopes, and a name would hand them a cohort-metadata oracle.
+        """
+        collected = set(filter_cohort_ids(data))
+        # A referenced Action's stored steps can carry cohort properties too, which
+        # action_to_expr inlines into the same compiled expression
+        action_ids = filter_action_ids(data)
+        if action_ids:
+            # nosemgrep: idor-lookup-without-team (scoped by team__project_id)
+            for action in Action.objects.filter(id__in=action_ids, team__project_id=team.project_id, deleted=False):
+                for step in action.steps:
+                    collected |= collect_property_cohort_ids(step.properties or [])
+        cohort_ids = sorted(collected)
+        if not cohort_ids:
+            return set()
+
+        # Scoped to the environment, not the project: the runtime queries cohort_membership with
+        # the workflow's team_id, and membership rows are keyed by the cohort's own team_id. A
+        # sibling environment's cohort would validate but never have rows under this team, so
+        # every person would evaluate as a non-member.
+        cohorts = {cohort.pk: cohort for cohort in Cohort.objects.filter(pk__in=cohort_ids, team=team, deleted=False)}
+        for cohort_id in cohort_ids:
+            cohort = cohorts.get(cohort_id)
+            if cohort is None:
+                raise serializers.ValidationError(f"Cohort {cohort_id} doesn't exist in this environment.")
+            if cohort.is_static:
+                raise serializers.ValidationError(
+                    f"Cohort {cohort_id} is a static cohort. Conditions can only use realtime cohorts."
+                )
+            if not cohort.is_flag_compatible:
+                raise serializers.ValidationError(
+                    f"Cohort {cohort_id} isn't ready for realtime evaluation. "
+                    f"Conditions can only use realtime cohorts that have finished calculating."
+                )
+        return set(cohort_ids)
 
 
 class MappingsSerializer(serializers.Serializer):

@@ -71,7 +71,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import log_activity_from_viewset
 from posthog.auth import InternalAPIAuthentication
-from posthog.cdp.filters import compile_filters_expr
+from posthog.cdp.filters import compile_filters_expr, filter_action_ids, filter_cohort_ids
 from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
 from posthog.cdp.validation import (
     DATA_WAREHOUSE_SOURCES,
@@ -85,6 +85,7 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
 from posthog.models import Team
 from posthog.models.filters import Filter
+from posthog.ph_client import feature_enabled_or_false
 from posthog.plugins.plugin_server_api import (
     cancel_hog_flow_batch_job,
     cancel_hog_flow_invocations,
@@ -210,6 +211,9 @@ DRAFT_CONTENT_FIELDS = (
 # been through validation. Comparing them would make an unchanged condition look edited.
 _DERIVED_FILTER_KEYS = ("bytecode", "bytecode_error", "source")
 
+# Rollout gate for cohort filters in conditional branches, targeted per organization
+WORKFLOWS_COHORT_CONDITIONS_FLAG = "workflows-cohort-conditions"
+
 
 def _authored_condition(condition: Optional[dict]) -> Optional[dict]:
     """The parts of a wait condition a person actually wrote, with compiler output dropped."""
@@ -239,6 +243,24 @@ def _wait_condition_already_stored(action: dict, context: dict) -> bool:
     if action_id not in stored:
         return False
     return _authored_condition(stored[action_id]) == _authored_condition((action.get("config") or {}).get("condition"))
+
+
+def _cohort_condition_already_stored(action: dict, condition: dict, context: dict) -> bool:
+    """
+    True when this conditional_branch condition matches one already persisted for the same action.
+
+    Mirrors _wait_condition_already_stored: the cohort-conditions flag polices new adoption, not
+    edits around an accepted condition. Without this, a flag dial-down (or an internal re-save,
+    which has no request to evaluate the flag against) would fail compilation of an active flow's
+    unchanged cohort conditions.
+    """
+    stored = context.get("stored_cohort_conditions")
+    if not stored:
+        return False
+    action_id = action.get("id")
+    if action_id not in stored:
+        return False
+    return _authored_condition(condition) in stored[action_id]
 
 
 def _reject_clock_based_wait(config: dict, team: Team) -> None:
@@ -1266,6 +1288,38 @@ class HogFlowActionSerializer(serializers.Serializer):
         self.initial_data = data
         return super().to_internal_value(data)
 
+    # Memoized because one instance validates every action and the flag check is a network call
+    _cohort_conditions_flag: Optional[bool] = None
+
+    def _cohort_conditions_enabled(self) -> bool:
+        if self._cohort_conditions_flag is None:
+            self._cohort_conditions_flag = self._check_cohort_conditions_flag()
+        return self._cohort_conditions_flag
+
+    def _check_cohort_conditions_flag(self) -> bool:
+        try:
+            request = self.context.get("request")
+            user = getattr(request, "user", None)
+            if user is None or user.is_anonymous or isinstance(user, SyntheticUser):
+                return False
+            get_team = self.context.get("get_team")
+            if get_team is None:
+                return False
+            # The flag targets organizations, so evaluate against the organization that owns the
+            # team being written to — a user saving into a project outside their active
+            # organization must get that project's rollout decision, not their own org's.
+            organization_id = str(get_team().organization_id)
+            return feature_enabled_or_false(
+                WORKFLOWS_COHORT_CONDITIONS_FLAG,
+                user.distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        except Exception:
+            return False
+
     def _reject_behavioral_cohorts_in_audience(self, properties) -> None:
         # Batch/schedule audiences resolve offline by precalculated membership and can't evaluate event
         # behavior the way it's intended; the UI hides behavioral cohorts from the audience picker. Mirror
@@ -1715,7 +1769,29 @@ class HogFlowActionSerializer(serializers.Serializer):
                     if strict:
                         raise serializers.ValidationError("Event filters are not allowed in conditionals")
                 else:
-                    serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                    # Cohorts are allowed in conditional_branch only: a wait_until_condition has no
+                    # membership wake stream, so it would only ever advance via the polling backstop.
+                    # With the flag off, cohorts fail compilation exactly as before.
+                    # Action references count too: a referenced Action's stored steps can carry
+                    # cohort properties this shallow scan can't see. Enabling on the reference alone
+                    # is safe — the validator resolves the Action's steps and the compiler rejects
+                    # any cohort id the validator didn't clear.
+                    # Grandfathered conditions short-circuit ahead of the flag so internal
+                    # re-saves never pay the flag-service call.
+                    cohorts_supported = (
+                        is_conditional_branch
+                        and (bool(filter_cohort_ids(filters)) or bool(filter_action_ids(filters)))
+                        and (
+                            _cohort_condition_already_stored(data, condition, self.context)
+                            or self._cohort_conditions_enabled()
+                        )
+                    )
+                    serializer = HogFunctionFiltersSerializer(
+                        data=filters,
+                        context={**self.context, "cohort_membership_supported": True}
+                        if cohorts_supported
+                        else self.context,
+                    )
                     if not strict:
                         if serializer.is_valid():
                             condition["filters"] = serializer.validated_data
@@ -2592,6 +2668,24 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             if isinstance(action, dict)
             and action.get("id")
             and (action.get("config") or {}).get("template_id") in FLAG_GATED_TEMPLATE_IDS
+        }
+
+        # Conditional-branch conditions the active flow already carries, so the cohort-conditions
+        # flag only polices new adoption: a resubmitted stored condition keeps compiling with
+        # cohort support after a flag dial-down, an eval blip, or an internal re-save with no
+        # request context, instead of bricking the save. Same active-only rule as the gated
+        # templates above: a draft can hold a cohort condition without ever passing the gate.
+        self.context["stored_cohort_conditions"] = {
+            action["id"]: [
+                _authored_condition(stored_condition)
+                for stored_condition in [
+                    *((action.get("config") or {}).get("conditions") or []),
+                    (action.get("config") or {}).get("condition"),
+                ]
+                if isinstance(stored_condition, dict)
+            ]
+            for action in ((instance.actions if instance and instance.status == HogFlow.State.ACTIVE else None) or [])
+            if isinstance(action, dict) and action.get("id") and action.get("type") == "conditional_branch"
         }
 
         status = data.get("status")

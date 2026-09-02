@@ -287,12 +287,62 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
 
 
 def filter_action_ids(filters: Optional[dict]) -> list[int]:
-    if not filters:
+    # Total over untrusted input: callers scan raw client filters before DRF validation, so
+    # malformed shapes must yield [] here and get their structured 400 from the serializer.
+    if not isinstance(filters, dict):
         return []
     try:
         return [int(action["id"]) for action in filters.get("actions", [])]
-    except KeyError:
+    except (KeyError, TypeError, ValueError):
         return []
+
+
+def collect_property_cohort_ids(node: Any) -> set[int]:
+    """Cohort ids in a property tree (lists, AND/OR groups, and cohort leaves)."""
+    ids: set[int] = set()
+
+    def _walk(current: Any) -> None:
+        if isinstance(current, list):
+            for item in current:
+                _walk(item)
+            return
+        if not isinstance(current, dict):
+            return
+        if current.get("type") in ("AND", "OR"):
+            _walk(current.get("values") or [])
+            return
+        if _is_cohort_filter(current):
+            value = current.get("value")
+            if isinstance(value, str | int) and not isinstance(value, bool):
+                try:
+                    ids.add(int(value))
+                except ValueError:
+                    pass
+
+    _walk(node)
+    return ids
+
+
+def filter_cohort_ids(filters: Optional[dict]) -> list[int]:
+    """Cohort ids referenced by the filters' property tree, for save-time eligibility validation.
+
+    Total over untrusted input, like filter_action_ids: callers scan raw client filters
+    before DRF validation, so a malformed shape yields [] instead of raising.
+    """
+    if not isinstance(filters, dict):
+        return []
+
+    ids = collect_property_cohort_ids(filters.get("properties") or [])
+    # Each event/action entry carries its own `properties`, which the compiler compiles too
+    # (hog_function_filters_to_expr), so a cohort leaf there must be eligibility-validated and
+    # must enable cohort compilation, exactly like a top-level one.
+    for key in ("events", "actions"):
+        entries = filters.get(key)
+        if isinstance(entries, list):
+            for entry in entries:
+                if isinstance(entry, dict):
+                    ids |= collect_property_cohort_ids(entry.get("properties") or [])
+    return sorted(ids)
 
 
 def compile_filters_expr(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> ast.Expr:
@@ -359,7 +409,13 @@ class _LowerConstantMembership(CloningVisitor):
         return super().visit_compare_operation(node)
 
 
-def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> dict:
+def compile_filters_bytecode(
+    filters: Optional[dict],
+    team: Team,
+    actions: Optional[dict[int, Action]] = None,
+    cohort_membership_supported: bool = False,
+    allowed_cohort_ids: Optional[set[int]] = None,
+) -> dict:
     filters = filters or {}
     try:
         expr = compile_filters_expr(filters, team, actions)
@@ -368,7 +424,12 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
 
         expr = _LowerConstantMembership().visit(expr)
         context = HogQLContext(team_id=team.id)
-        filters["bytecode"] = create_bytecode(expr, context=context).bytecode
+        filters["bytecode"] = create_bytecode(
+            expr,
+            context=context,
+            cohort_membership_supported=cohort_membership_supported,
+            allowed_cohort_ids=allowed_cohort_ids,
+        ).bytecode
 
         # context.errors here only contains "function not implemented" errors from the
         # bytecode compiler (the resolver doesn't run during create_bytecode). These are
