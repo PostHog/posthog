@@ -62,12 +62,14 @@ async def run_quota_limiting_all_orgs(
             pass
         except Exception as e:
             capture_exception(e)
-            # Raise exception without large context to avoid "Failure exceeds size limit"
+            # Raise exception without large context to avoid "Failure exceeds size limit".
+            # `from None` suppresses the implicit __context__, which Temporal would otherwise
+            # serialize as failure.cause and put the full original error back into history.
             raise ApplicationError(
                 f"Quota limiting failed: {type(e).__name__}: {str(e)[:200]}...",
                 # A deterministic failure repeats, so only retry the transient classes.
                 non_retryable=not isinstance(e, RETRIABLE_ERRORS),
-            )
+            ) from None
     return result
 
 
