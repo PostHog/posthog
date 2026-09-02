@@ -155,6 +155,11 @@ def get_live_query_progress(recalc: ExperimentMetricsRecalculation) -> dict | No
         capture_exception()
         return None
 
+    if not rows:
+        # skip_unavailable_shards and the 2s cap can cut the merge short and return zero rows instead of one
+        # all-null row. Treat that like the cluster hiccup above: read null, never break the core payload.
+        return None
+
     rows_read, estimated_rows_total = rows[0]
     # All-zeros is a real, non-terminal state (queries not started yet, or finished but not flushed to
     # query_log), distinct from "run finished". Return the zeros so the poll can tell "in-flight, nothing
