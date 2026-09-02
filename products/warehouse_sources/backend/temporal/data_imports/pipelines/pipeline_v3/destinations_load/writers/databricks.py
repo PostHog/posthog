@@ -120,6 +120,11 @@ def backtick(name: str) -> str:
     return f"`{escaped}`"
 
 
+def sql_literal(value: str) -> str:
+    escaped = value.replace("'", "''")
+    return f"'{escaped}'"
+
+
 # batch exports' DatabricksClient builds COPY INTO / PUT statements by interpolating the
 # table name, volume path and column names it is given with no escaping of its own (a raw
 # backtick-wrapped identifier, and a single-quoted path). Batch exports only ever passes it
@@ -137,8 +142,31 @@ def _assert_safe_identifier(value: str, what: str) -> str:
     return value
 
 
+def _run_scope(run_uuid: str) -> str:
+    """A short token unique to one run, safe in both a table name and a volume path."""
+    return run_uuid.replace("-", "")[:12]
+
+
 def staging_table_name(ctx: DestinationRunContext) -> str:
-    return f"{ctx.table_name}__ph_stage_{ctx.run_uuid.replace('-', '')[:12]}"
+    return f"{ctx.table_name}__ph_stage_{_run_scope(ctx.run_uuid)}"
+
+
+# Proof this writer created a table, so a sync never mutates, merges into or drops one the
+# customer already had. `table_name` comes from the source's resource name, which a custom
+# source manifest controls, so without this any table sharing that name is fair game.
+#
+# Stored as a Databricks table comment: `ALTER TABLE ... RENAME` keeps a table's comment, so
+# the marker set on a full refresh's staging table survives into `finalize_run`'s swap. Scoped
+# by schema id because `table_name` collides across sources on purpose and ownership must not.
+_OWNERSHIP_COMMENT = "posthog-warehouse-sync-owned"
+
+
+def _owned_marker(schema_id: str) -> str:
+    return f"{_OWNERSHIP_COMMENT}:{schema_id}"
+
+
+class UnrelatedTableExistsError(RuntimeError):
+    """A sync would have replaced or mutated a table this writer never created."""
 
 
 def fields_for(schema: pa.Schema, *, with_batch_index: bool) -> list[DatabricksField]:
@@ -226,6 +254,57 @@ class DatabricksDestinationWriter:
                 timeout=FIVE_MINUTES,
             )
 
+    # --- ownership ----------------------------------------------------------------------
+
+    async def _table_exists(self, client: DatabricksClient, table: str) -> bool:
+        # `aget_table_columns` is the existence probe the rest of this file already uses: no
+        # columns means no table.
+        return bool(await client.aget_table_columns(table))
+
+    async def _table_comment(self, client: DatabricksClient, table: str) -> str | None:
+        async with handle_common_errors(f"SELECT comment FOR {table}", ONE_MINUTE):
+            rows = await client.execute_query(
+                f"SELECT comment FROM {backtick(self._catalog)}.information_schema.tables "
+                f"WHERE table_schema = {sql_literal(self._schema)} AND table_name = {sql_literal(table)}",
+                timeout=ONE_MINUTE,
+            )
+        if not rows:
+            return None
+        return rows[0][0]
+
+    async def _is_owned(self, client: DatabricksClient, table: str, schema_id: str) -> bool:
+        # Not a plain `startswith`: schema ids are arbitrary strings, and one could be a
+        # character-prefix of another, which would let a table another schema owns pass as
+        # owned here. Split on the marker's own `:` separator instead so the owning schema id
+        # is compared for exact equality.
+        comment = await self._table_comment(client, table)
+        if comment is None:
+            return False
+        marker, sep, rest = comment.partition(":")
+        if marker != _OWNERSHIP_COMMENT or not sep:
+            return False
+        return rest == schema_id
+
+    async def _mark_owned(self, client: DatabricksClient, table: str, schema_id: str) -> None:
+        async with handle_common_errors(f"COMMENT ON TABLE {table}", FIVE_MINUTES):
+            await client.execute_query(
+                f"COMMENT ON TABLE {self._qualified(table)} IS {sql_literal(_owned_marker(schema_id))}",
+                fetch_results=False,
+                timeout=FIVE_MINUTES,
+            )
+
+    async def _claim_table(self, client: DatabricksClient, table: str, schema_id: str) -> bool:
+        """Refuse to touch `table` unless this call creates it or a prior one already owns it.
+
+        Returns whether the table is new, so the caller knows to mark it once created.
+        """
+        existed = await self._table_exists(client, table)
+        if existed and not await self._is_owned(client, table, schema_id):
+            raise UnrelatedTableExistsError(
+                f"'{table}' already exists and was not created by this sync; refusing to write into it."
+            )
+        return not existed
+
     # --- writer protocol ----------------------------------------------------------------
 
     async def prepare_run(self, ctx: DestinationRunContext) -> None:
@@ -266,8 +345,15 @@ class DatabricksDestinationWriter:
                 fields = fields_for(batch.schema, with_batch_index=full_refresh)
 
                 if first:
+                    # A table sharing `target`'s name may predate this sync (`target` is
+                    # either the destination table itself, or a per-run staging name that
+                    # could in principle collide). Refuse to evolve, load into or later drop
+                    # one this writer never created.
+                    is_new = await self._claim_table(client, target, run.schema_id)
                     await client.acreate_table(table_name=target, fields=fields)
                     await self._evolve_table(client, target, fields)
+                    if is_new:
+                        await self._mark_owned(client, target, run.schema_id)
                     if full_refresh:
                         # This batch may be a re-apply, so clear what its previous attempt wrote.
                         async with handle_common_errors(f"DELETE FROM {target}", FIVE_MINUTES):
@@ -281,10 +367,10 @@ class DatabricksDestinationWriter:
 
                 if run.is_incremental and run.primary_keys and not full_refresh:
                     await self._merge_chunk(
-                        client, target, stamped, fields, list(run.primary_keys), ctx.batch_index, chunk
+                        client, target, stamped, fields, list(run.primary_keys), run.run_uuid, ctx.batch_index, chunk
                     )
                 else:
-                    await self._copy_chunk(client, target, stamped, fields, ctx.batch_index, chunk)
+                    await self._copy_chunk(client, target, stamped, fields, run.run_uuid, ctx.batch_index, chunk)
 
                 rows_written += batch.num_rows
                 chunk += 1
@@ -297,6 +383,7 @@ class DatabricksDestinationWriter:
         target: str,
         batch: pa.RecordBatch,
         fields: list[DatabricksField],
+        run_uuid: str,
         batch_index: int,
         chunk: int,
     ) -> None:
@@ -305,7 +392,12 @@ class DatabricksDestinationWriter:
         pq.write_table(pa.Table.from_batches([json_encode_nested(batch)]), buffer)
         buffer.seek(0)
 
-        file_name = f"ph_{batch_index}_{chunk}.parquet"
+        # This writer does not hold the sync lock (`holds_sync_lock` is False), so two runs of
+        # the same table's incremental sync_type can be in flight together. Both write into the
+        # same `target` (the live table), so without `run_uuid` here their staged files would
+        # share one name and one run's rows could be COPY'd by the other, or removed out from
+        # under it once loaded.
+        file_name = f"ph_{_run_scope(run_uuid)}_{batch_index}_{chunk}.parquet"
         volume_path = f"{self._volume_path()}/{target}"
 
         await client.aput_file_stream_to_volume(buffer, volume_path, file_name)
@@ -336,15 +428,18 @@ class DatabricksDestinationWriter:
         batch: pa.RecordBatch,
         fields: list[DatabricksField],
         primary_keys: list[str],
+        run_uuid: str,
         batch_index: int,
         chunk: int,
     ) -> None:
         """Upsert on the primary keys, staging the chunk in a scratch table first."""
         columns = list(batch.schema.names)
-        stage_table = f"{target}__ph_merge_{batch_index}_{chunk}"
+        # Run-scoped for the same reason as the staged file in `_copy_chunk`: two overlapping
+        # runs of this table must not merge from, or drop, each other's scratch table.
+        stage_table = f"{target}__ph_merge_{_run_scope(run_uuid)}_{batch_index}_{chunk}"
 
         async with client.managed_table(stage_table, fields, delete=True):
-            await self._copy_chunk(client, stage_table, batch, fields, batch_index, chunk)
+            await self._copy_chunk(client, stage_table, batch, fields, run_uuid, batch_index, chunk)
 
             on_clause = " AND ".join(f"target.{backtick(k)} = source.{backtick(k)}" for k in primary_keys)
             updates = [c for c in columns if c not in primary_keys]
@@ -377,6 +472,18 @@ class DatabricksDestinationWriter:
                 # No columns means no table: already swapped by an earlier attempt at this
                 # same final batch.
                 return
+
+            if await self._table_exists(client, ctx.table_name) and not await self._is_owned(
+                client, ctx.table_name, ctx.schema_id
+            ):
+                # A table with this name exists and this writer never created it. Refuse
+                # rather than drop it: `table_name` comes from the source's resource name,
+                # which a custom-source manifest controls, and a table that predates this
+                # sync could be anything the customer already had in this schema.
+                raise UnrelatedTableExistsError(
+                    f"'{ctx.table_name}' already exists and was not created by this sync; "
+                    "refusing to replace it with the full refresh's staging table."
+                )
 
             async with handle_common_errors(f"ALTER TABLE {staging} DROP COLUMN", FIVE_MINUTES):
                 await client.execute_query(
