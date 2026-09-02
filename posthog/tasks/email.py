@@ -739,6 +739,13 @@ def send_email_sending_suspended(team_id: int, reason: str, suspended_at: str) -
     message.send()
 
 
+def _single_line(name: str) -> str:
+    # A CR or LF in a value placed in the email Subject makes Django raise BadHeaderError, which
+    # the send path swallows, so the whole notification would be dropped. Workflow names are
+    # user-set and can hold an embedded newline, so flatten to one line before interpolating.
+    return name.replace("\r", " ").replace("\n", " ")
+
+
 @shared_task(**EMAIL_TASK_KWARGS)
 @with_team_scope()
 def send_workflow_email_sending_paused(
@@ -755,7 +762,7 @@ def send_workflow_email_sending_paused(
     memberships_to_email = _get_project_admins_to_notify_of_email_sending_suspension(team)
     if not memberships_to_email:
         return
-    workflow_label = hog_flow_name or "an unnamed workflow"
+    workflow_label = _single_line(hog_flow_name or "an unnamed workflow")
     message = EmailMessage(
         campaign_key=f"workflow_email_sending_paused_{hog_flow_id}_{paused_at}",
         # No urgency prefix in the subject, for the same deliverability reason as the project-wide
@@ -790,7 +797,7 @@ def send_workflow_email_sending_warning(
     memberships_to_email = _get_project_admins_to_notify_of_email_sending_suspension(team)
     if not memberships_to_email:
         return
-    workflow_label = hog_flow_name or "an unnamed workflow"
+    workflow_label = _single_line(hog_flow_name or "an unnamed workflow")
     message = EmailMessage(
         campaign_key=f"workflow_email_sending_warning_{hog_flow_id}_{warned_at}",
         # No urgency prefix in the subject, for the same deliverability reason as the emails above.
