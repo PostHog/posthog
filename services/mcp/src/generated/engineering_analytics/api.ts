@@ -208,7 +208,7 @@ export const EngineeringAnalyticsSourcesParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Per-owning-team rollup of the CI test surfaces each team owns, over the same run evidence as flaky_tests and with the same meaning of flaky: flaky_test_count is owned tests one commit was seen both failing and passing in the window, regression_test_count is owned tests that failed with no such proof and still hit the blast-radius bar, plus failed/recovery/quarantined run counts. Each has an equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI emission time from the repo's ownership map (products/*\/product.yaml + CODEOWNERS); unstamped spans aggregate under the literal team 'unowned', and a re-stamped test lands under its latest owner only. Teams are organizational owners of code surfaces, never authors. Counts are absolute, never rates: CI emits every failure but omits ordinary passing spans, so there is no execution denominator. 'suspected_regression' means no recovery was recorded in this data, not that the test never flakes.
+ * Per-owning-team rollup of the CI test surfaces each team owns, over the same run evidence as flaky_tests and with the same meaning of flaky: flaky_test_count is owned tests one commit was seen both failing and passing in the window, regression_test_count is owned tests that failed with no such proof and still hit the blast-radius bar, plus failed/recovery/quarantined run counts. Each has an equal-length previous-window twin for honest deltas. Ownership is stamped on the spans at CI emission time from the repo's ownership map (the distributed owners.yaml files); unstamped spans aggregate under the literal team 'unowned', and a re-stamped test lands under its latest owner only. Each row also carries test_file_count (the daily owners.yaml census denominator, with a window-start twin) and merged_pr_count (merged PRs by the team's members, bots excluded); teams with census counts but no CI signal appear with zero signal counts and a null last_seen_at. Teams are organizational owners of code surfaces, never authors. Counts are absolute, never rates: CI emits every failure but omits ordinary passing spans, so there is no execution denominator. 'suspected_regression' means no recovery was recorded in this data, not that the test never flakes.
  */
 export const EngineeringAnalyticsTeamCiHealthParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -232,6 +232,12 @@ export const EngineeringAnalyticsTeamCiHealthQueryParams = /* @__PURE__ */ zod.o
         .optional()
         .describe(
             'An unrecovered test counts toward regression_test_count once it failed on at least this many distinct pull requests in the window. Minimum 1. Defaults to 3. Does not affect flaky_test_count, which needs proof, not a threshold.'
+        ),
+    owner_team: zod
+        .string()
+        .optional()
+        .describe(
+            "Restrict the roster to one owning team slug (or 'unowned'). The cheap way to read a single team's rollup."
         ),
     source_id: zod
         .string()
