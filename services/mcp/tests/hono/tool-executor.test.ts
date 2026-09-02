@@ -370,6 +370,9 @@ describe('ToolExecutor', () => {
             },
         ])('$label', async ({ useSingleExec, renderUiEnabled, expectStructuredContent }) => {
             getToolByNameSpy = vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                build() {
+                    return this.base
+                },
                 base: {
                     schema: z.object({}),
                     handler: async () => ({

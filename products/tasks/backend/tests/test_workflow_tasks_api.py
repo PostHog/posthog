@@ -31,7 +31,7 @@ from products.tasks.backend.logic.services.workflow_tasks import (
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.visibility import task_control_q, task_visibility_q
 from products.workflows.backend.api.workflow_tasks import WorkflowTaskCreateSerializer
-from products.workflows.backend.models import HogFlow
+from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
 
 SECRET = "test-tasks-create-jwt"
 
@@ -339,6 +339,54 @@ class TestWorkflowTasksAPI(APIBaseTest):
         # remaining event that day would still pay for an OAuth mint and a gateway
         # round trip only to be rejected anyway.
         usage_limit_response_mock.assert_not_called()
+
+    def test_team_config_overrides_daily_caps(self) -> None:
+        TeamWorkflowsConfig.objects.update_or_create(
+            team=self.team,
+            defaults={
+                "workflow_task_rate_limit_per_day": WORKFLOW_TASK_RATE_CAP_PER_DAY + 1,
+                "workflow_task_team_rate_limit_per_day": WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY + 1,
+            },
+        )
+        self._seed_created_tasks(WORKFLOW_TASK_RATE_CAP_PER_DAY, hog_flow_id=self.hog_flow.id)
+        self._seed_created_tasks(
+            WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY - WORKFLOW_TASK_RATE_CAP_PER_DAY,
+            hog_flow_id=uuid4(),
+        )
+
+        allowed = self._post()
+        capped = self._post()
+
+        assert allowed.status_code == status.HTTP_201_CREATED, allowed.json()
+        assert capped.status_code == status.HTTP_409_CONFLICT, capped.json()
+        assert f"daily limit of {WORKFLOW_TASK_RATE_CAP_PER_DAY + 1}" in capped.json()["detail"]
+
+    @parameterized.expand(
+        [
+            (
+                "per_workflow",
+                {"workflow_task_rate_limit_per_day": 0},
+                "Task creation is paused for this workflow. "
+                "The event was skipped. Contact PostHog support to resume task creation.",
+            ),
+            (
+                "team_wide",
+                {"workflow_task_team_rate_limit_per_day": 0},
+                "Task creation from workflows is paused for this project. "
+                "The event was skipped. Contact PostHog support to resume task creation.",
+            ),
+        ]
+    )
+    def test_zero_daily_cap_reports_a_permanent_pause(
+        self, scope: str, config: dict[str, int], expected_detail: str
+    ) -> None:
+        TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults=config)
+
+        response = self._post()
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert response.json()["detail"] == expected_detail
+        assert not Task.objects.exists()
 
     @parameterized.expand(["older_than_24h", "non_workflow_origin"])
     def test_old_and_foreign_tasks_do_not_consume_the_daily_caps(self, case: str) -> None:

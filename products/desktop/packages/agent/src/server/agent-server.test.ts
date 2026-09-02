@@ -1218,7 +1218,7 @@ describe("AgentServer HTTP Mode", () => {
           payload: JwtPayload,
           phase: "initial" | "resume" | "followup",
           error: unknown,
-        ): Promise<void>;
+        ): Promise<unknown>;
       };
       testServer.eventStreamSender = {
         enqueue: vi.fn(),
@@ -1243,37 +1243,74 @@ describe("AgentServer HTTP Mode", () => {
     };
 
     it.each([
-      ["genuine agent error (terminal)", "boom", "agent_error", true],
+      [
+        "genuine agent error (terminal)",
+        "interactive",
+        "boom",
+        "terminal",
+        "agent_error",
+        true,
+      ],
       [
         "transient upstream timeout (recoverable)",
+        "interactive",
         "API Error: The operation timed out.",
+        "recoverable",
         "upstream_timeout",
+        false,
+      ],
+      [
+        "interactive content-block rejection (retryable delivery)",
+        "interactive",
+        "API Error: Content block is not a thinking block",
+        "retryable_delivery",
+        null,
+        false,
+      ],
+      [
+        "background content-block rejection (retryable delivery)",
+        "background",
+        "API Error: Content block is not a thinking block",
+        "retryable_delivery",
+        null,
         false,
       ],
     ] as const)(
       "tags and handles a follow-up %s",
-      async (_name, errorMessage, expectedErrorType, expectsFailed) => {
+      async (
+        _name,
+        mode,
+        errorMessage,
+        expectedDisposition,
+        expectedErrorType,
+        expectsFailed,
+      ) => {
         const testServer = createFailureTestServer();
 
-        await testServer.handleTurnFailure(
-          interactivePayload,
+        const disposition = await testServer.handleTurnFailure(
+          { ...interactivePayload, mode },
           "followup",
           new Error(errorMessage),
         );
 
-        expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledWith(
-          expect.objectContaining({
-            notification: expect.objectContaining({
-              method: "session/update",
-              params: expect.objectContaining({
-                update: expect.objectContaining({
-                  sessionUpdate: "error",
-                  errorType: expectedErrorType,
+        expect(disposition).toBe(expectedDisposition);
+        if (expectedErrorType) {
+          expect(testServer.eventStreamSender.enqueue).toHaveBeenCalledWith(
+            expect.objectContaining({
+              notification: expect.objectContaining({
+                method: "session/update",
+                params: expect.objectContaining({
+                  update: expect.objectContaining({
+                    sessionUpdate: "error",
+                    errorType: expectedErrorType,
+                  }),
                 }),
               }),
             }),
-          }),
-        );
+          );
+        } else {
+          expect(testServer.eventStreamSender.enqueue).not.toHaveBeenCalled();
+        }
 
         if (expectsFailed) {
           expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
@@ -1307,6 +1344,22 @@ describe("AgentServer HTTP Mode", () => {
           }),
         }),
       );
+      expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
+    });
+
+    it("quietly ends an interactive follow-up that ended without a response", async () => {
+      const testServer = createFailureTestServer();
+
+      const result = await testServer.handleTurnFailure(
+        interactivePayload,
+        "followup",
+        new Error(
+          "[ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null",
+        ),
+      );
+
+      expect(result).toBe("retryable_followup");
+      expect(testServer.eventStreamSender.enqueue).not.toHaveBeenCalled();
       expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
     });
 
@@ -2833,6 +2886,50 @@ describe("AgentServer HTTP Mode", () => {
       expect(prompt).toHaveBeenCalledTimes(4);
     }, 20000);
 
+    it("allows a no-response follow-up to be retried with the same messageId", async () => {
+      const s = createServer();
+      await s.start();
+      const prompt = vi
+        .fn()
+        .mockRejectedValueOnce(
+          new Error(
+            "Internal error: [ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null",
+          ),
+        )
+        .mockResolvedValueOnce({ stopReason: "end_turn" });
+      const serverInternals = s as unknown as {
+        session: { clientConnection: { prompt: typeof prompt } };
+      };
+      serverInternals.session.clientConnection.prompt = prompt;
+
+      const send = async () => {
+        const response = await fetch(`http://localhost:${port}/command`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${createToken()}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: "no-response",
+            method: "user_message",
+            params: { content: "continue", messageId: "message-1" },
+          }),
+        });
+        return (await response.json()) as {
+          error?: { message?: string };
+          result?: { stopReason?: string };
+        };
+      };
+
+      const first = await send();
+      expect(first.error?.message).toContain("[ede_diagnostic]");
+
+      const second = await send();
+      expect(second.result?.stopReason).toBe("end_turn");
+      expect(prompt).toHaveBeenCalledTimes(2);
+    }, 30000);
+
     it("steers an active turn without emitting a separate turn completion", async () => {
       const s = createServer();
       await s.start();
@@ -3209,6 +3306,64 @@ describe("AgentServer HTTP Mode", () => {
       });
       expect(prompt).toHaveBeenCalledTimes(1);
     }, 20000);
+
+    it.each(["interactive", "background"] as const)(
+      "redelivers a content-block rejection with the same messageId in %s mode",
+      async (mode) => {
+        const s = createServer({ mode });
+        await s.start();
+        const prompt = vi
+          .fn(async (_params: { _meta?: Record<string, unknown> }) => ({
+            stopReason: "end_turn",
+          }))
+          .mockRejectedValueOnce(
+            new Error("API Error: Content block is not a thinking block"),
+          );
+        const serverInternals = s as unknown as {
+          session: { clientConnection: { prompt: typeof prompt } };
+        };
+        serverInternals.session.clientConnection.prompt = prompt;
+
+        const token = createToken({ mode });
+        const send = async (requestId: string) =>
+          fetch(`http://localhost:${port}/command`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              jsonrpc: "2.0",
+              id: requestId,
+              method: "user_message",
+              params: {
+                content: "do the thing",
+                messageId: "m-content-block",
+              },
+            }),
+          });
+
+        const first = await send("first-attempt");
+        await expect(first.json()).resolves.toMatchObject({
+          error: {
+            message: expect.stringContaining(
+              "Content block is not a thinking block",
+            ),
+          },
+        });
+        expect(prompt).toHaveBeenCalledTimes(1);
+
+        const retry = await send("retry");
+        await expect(retry.json()).resolves.toMatchObject({
+          result: { stopReason: "end_turn" },
+        });
+        expect(prompt).toHaveBeenCalledTimes(2);
+        expect(
+          prompt.mock.calls.map(([params]) => params._meta?.messageId),
+        ).toEqual(["m-content-block", "m-content-block"]);
+      },
+      20000,
+    );
 
     it("shares a failed in-flight messageId outcome with concurrent retries", async () => {
       const s = createServer();
