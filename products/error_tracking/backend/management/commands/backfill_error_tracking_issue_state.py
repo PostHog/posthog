@@ -29,11 +29,12 @@ from __future__ import annotations
 import time
 import logging
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 import structlog
 
 from posthog.kafka_client.client import ClickhouseProducer
+from posthog.kafka_client.routing import flush_all_producers
 from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE
 from posthog.models.event.util import format_clickhouse_timestamp
 
@@ -43,6 +44,7 @@ from products.error_tracking.backend.sql import INSERT_ERROR_TRACKING_FINGERPRIN
 logger = structlog.get_logger(__name__)
 
 DEFAULT_BATCH_SIZE = 5000
+FLUSH_TIMEOUT_SECONDS = 5 * 60
 
 
 class Command(BaseCommand):
@@ -146,7 +148,17 @@ class Command(BaseCommand):
                         elapsed_s=round(elapsed),
                     )
 
+        # produce() only enqueues; flush before exit so queued records actually land in Kafka.
+        logger.info("backfill_flushing", timeout_s=FLUSH_TIMEOUT_SECONDS)
+        undelivered = flush_all_producers(FLUSH_TIMEOUT_SECONDS)
+
         elapsed = time.monotonic() - start_time
+        if undelivered:
+            logger.error(
+                "backfill_flush_incomplete", produced=produced, undelivered=undelivered, elapsed_s=round(elapsed)
+            )
+            raise CommandError(f"Kafka flush left {undelivered} record(s) undelivered; backfill is incomplete.")
+
         logger.info("backfill_complete", produced=produced, elapsed_s=round(elapsed))
 
     def _get_team_ids(
