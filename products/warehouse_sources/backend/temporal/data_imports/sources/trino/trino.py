@@ -4,6 +4,8 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
+from requests.exceptions import RequestException
+
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -79,6 +81,24 @@ class TrinoSchemaDiscoveryError(Exception):
     """
 
 
+class TrinoConfigurationError(ValueError):
+    """A connection setting Trino cannot be reached with, found before PostHog opens the connection."""
+
+
+@contextmanager
+def trino_failures_as_discovery_error() -> Iterator[None]:
+    """Word a failed trip to Trino for the person who connects the source.
+
+    A failure of PostHog's own code keeps its type, so error tracking still sees it.
+    """
+    from trino.exceptions import Error, HttpError  # noqa: PLC0415 — keeps the optional driver off startup paths
+
+    try:
+        yield
+    except (Error, HttpError, RequestException, TrinoConfigurationError) as exc:
+        raise TrinoSchemaDiscoveryError(trino_error_to_message(exc)) from exc
+
+
 def trino_error_to_message(error: Exception) -> str:
     message = str(error).strip()
     lowered = message.lower()
@@ -113,13 +133,13 @@ def _authentication(config: TrinoSourceConfig) -> Any:
 
     if selection == "password":
         if not config.auth_type.password:
-            raise ValueError("Password is required for password authentication.")
+            raise TrinoConfigurationError("Password is required for password authentication.")
         return BasicAuthentication(config.auth_type.user, config.auth_type.password)
     if selection == "jwt":
         if not config.auth_type.token:
-            raise ValueError("Token is required for JWT authentication.")
+            raise TrinoConfigurationError("Token is required for JWT authentication.")
         return JWTAuthentication(config.auth_type.token)
-    raise ValueError("Choose a supported Trino authentication type.")
+    raise TrinoConfigurationError("Choose a supported Trino authentication type.")
 
 
 @contextmanager
@@ -128,9 +148,9 @@ def connect_trino(config: TrinoSourceConfig) -> Iterator[Connection]:
 
     if config.auth_type.selection != "none":
         if not config.use_ssl:
-            raise ValueError("Password and JWT authentication require HTTPS.")
+            raise TrinoConfigurationError("Password and JWT authentication require HTTPS.")
         if not config.verify_ssl:
-            raise ValueError(TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR)
+            raise TrinoConfigurationError(TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR)
 
     redacted = tuple(
         value for value in (config.auth_type.password, config.auth_type.token) if isinstance(value, str) and value

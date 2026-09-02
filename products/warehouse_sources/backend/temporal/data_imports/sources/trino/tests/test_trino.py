@@ -1,5 +1,9 @@
+from contextlib import nullcontext
+
 import pytest
 from unittest.mock import MagicMock, patch
+
+from trino.exceptions import TrinoExternalError
 
 from products.warehouse_sources.backend.presentation.views.external_data_source import _classify_refresh_schemas_error
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.trino import (
@@ -173,13 +177,26 @@ def test_trino_error_to_message_explains_access_failures(raw_error: str, expecte
     assert trino_error_to_message(RuntimeError(raw_error)) == expected
 
 
+def _trino_external_error(message: str) -> TrinoExternalError:
+    return TrinoExternalError(
+        {
+            "message": message,
+            "errorName": "EXTERNAL",
+            "errorCode": 65536,
+            "errorType": "EXTERNAL",
+            "failureInfo": {},
+        },
+        "20260902_120000_00000_abcde",
+    )
+
+
 def test_get_schemas_reports_what_trino_said_without_an_exception_report() -> None:
     source = TrinoSource()
 
     with (
         patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.trino.source.connect_trino",
-            side_effect=RuntimeError("Failed to query OPA backend"),
+            side_effect=_trino_external_error("Failed to query OPA backend"),
         ),
         pytest.raises(TrinoSchemaDiscoveryError) as raised,
     ):
@@ -188,6 +205,26 @@ def test_get_schemas_reports_what_trino_said_without_an_exception_report() -> No
     message, is_expected_source_error = _classify_refresh_schemas_error(source, raised.value)
     assert message == TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR
     assert is_expected_source_error is True
+
+
+def test_get_schemas_leaves_a_posthog_side_failure_for_error_tracking() -> None:
+    source = TrinoSource()
+
+    with (
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.trino.source.connect_trino",
+            return_value=nullcontext(MagicMock()),
+        ),
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.trino.source.discover_trino_schemas",
+            side_effect=ValueError("not enough values to unpack (expected 5, got 4)"),
+        ),
+        pytest.raises(ValueError) as raised,
+    ):
+        source.get_schemas(_config(), team_id=1)
+
+    _, is_expected_source_error = _classify_refresh_schemas_error(source, raised.value)
+    assert is_expected_source_error is False
 
 
 def test_unrecognized_trino_discovery_failure_is_not_reported_as_a_posthog_exception() -> None:

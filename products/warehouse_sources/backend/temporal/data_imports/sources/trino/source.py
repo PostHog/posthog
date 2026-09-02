@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trin
     connect_trino,
     discover_trino_schemas,
     trino_error_to_message,
+    trino_failures_as_discovery_error,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -214,11 +215,8 @@ class TrinoSource(SimpleSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
         is_valid, error = self.is_database_host_valid(config.host, team_id)
         if not is_valid:
             raise ValueError(error or "Invalid Trino host.")
-        try:
-            with connect_trino(config) as connection:
-                discovered = discover_trino_schemas(connection.cursor(), config, names)
-        except Exception as exc:
-            raise TrinoSchemaDiscoveryError(trino_error_to_message(exc)) from exc
+        with trino_failures_as_discovery_error(), connect_trino(config) as connection:
+            discovered = discover_trino_schemas(connection.cursor(), config, names)
         return [
             SourceSchema(
                 name=table.name if config.schema else f"{table.schema}.{table.name}",
