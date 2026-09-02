@@ -142,12 +142,12 @@ export class RequestStateResolver {
         const contextPromise = reqCtx.getContext()
         const pinnedSessionContextPromise = projectId ? this.resolveSessionContext(requestContext) : undefined
 
-        await reqCtx.tokenCache.setMany({
-            ...(organizationId ? { orgId: organizationId } : {}),
-            ...(projectId ? { projectId } : {}),
-        })
+        await this.applyPinnedContext(reqCtx, { organizationId, projectId })
 
-        let cachedProjectId = projectId || (await reqCtx.tokenCache.get('projectId'))
+        // Read the active project back from the token cache (the source every tool
+        // resolves through) rather than the request pin, so the banner and group
+        // types reflect an in-session switch instead of the resent pin value.
+        let cachedProjectId = (await reqCtx.tokenCache.get('projectId')) || projectId
         if (!cachedProjectId) {
             const contextForDefault = await contextPromise
             await contextForDefault.stateManager.setDefaultOrganizationAndProject()
@@ -272,6 +272,98 @@ export class RequestStateResolver {
             metadataCompact,
             groupTypes,
         }
+    }
+
+    /**
+     * Apply an org/project pinned via request params to the token-scoped active
+     * context every tool resolves through.
+     *
+     * A pin sets the session's default active context, not a per-request hard
+     * lock: `switch-project` stays available on a project pin (the documented
+     * cross-org flow depends on it), so a switch made mid-session must survive
+     * the client resending the same static pin on every request. The token cache
+     * is shared by every concurrent session on the same credential, though, so
+     * the pin can't simply be written once and left alone either — two sessions
+     * pinned to different projects would bleed into each other. Instead each
+     * request re-asserts its own session's effective context: the session's
+     * recorded switch (see `Context.setSessionActiveContext`) when one exists,
+     * otherwise the pin. A genuinely changed pin retargets the session and
+     * discards the recorded switch.
+     *
+     * Without an MCP session id there is no cross-request session state, so the
+     * pin is applied unconditionally as before.
+     */
+    private async applyPinnedContext(
+        reqCtx: RequestContext,
+        pinned: { organizationId?: string | undefined; projectId?: string | undefined }
+    ): Promise<void> {
+        const { organizationId, projectId } = pinned
+        if (!organizationId && !projectId) {
+            return
+        }
+
+        const sessionCache = reqCtx.sessionScopedCache
+        if (!sessionCache) {
+            await reqCtx.tokenCache.setMany({
+                ...(organizationId ? { orgId: organizationId } : {}),
+                ...(projectId ? { projectId } : {}),
+            })
+            return
+        }
+
+        const [appliedPinOrg, appliedPinProject, activeOrg, activeProject] = await Promise.all([
+            sessionCache.get('appliedPinOrgId'),
+            sessionCache.get('appliedPinProjectId'),
+            sessionCache.get('activeOrgId'),
+            sessionCache.get('activeProjectId'),
+        ])
+
+        // These keys carry a write-based TTL, but the MCP session they belong to
+        // renews its own context store on every request. Renew them too, so a
+        // switch recorded early in a long-lived session does not expire before
+        // the session ends and read back as a missing marker — which reads as a
+        // changed pin, discards the switch, and reverts to the pin mid-session.
+        await sessionCache.refreshTtl(['appliedPinOrgId', 'appliedPinProjectId', 'activeOrgId', 'activeProjectId'])
+
+        // Compare the pin as one whole shape. Per-field markers that only compare
+        // the fields this request carries miss a pin that drops a field: the old
+        // marker survives, so it still matches when that field comes back and the
+        // session can never retarget to it.
+        const pinChanged = appliedPinOrg !== organizationId || appliedPinProject !== projectId
+
+        // An explicitly pinned organization is a hard lock — `switchToolsToExclude`
+        // drops `switch-organization` for it. A cross-org `switch-project` records
+        // the other organization, so honoring that override would break the lock
+        // and leave org-scoped tools outside the pin. Discard it, and the project
+        // override that belongs to that organization with it.
+        const overrideLeftPinnedOrg =
+            organizationId !== undefined && activeOrg !== undefined && activeOrg !== organizationId
+
+        let overrideOrg = activeOrg
+        let overrideProject = activeProject
+        if (pinChanged || overrideLeftPinnedOrg) {
+            overrideOrg = undefined
+            overrideProject = undefined
+            await Promise.all([
+                sessionCache.delete('activeOrgId'),
+                sessionCache.delete('activeProjectId'),
+                // Record the pin exactly, clearing the marker for a field the pin
+                // no longer carries, so the next comparison sees the true shape.
+                organizationId
+                    ? sessionCache.set('appliedPinOrgId', organizationId)
+                    : sessionCache.delete('appliedPinOrgId'),
+                projectId
+                    ? sessionCache.set('appliedPinProjectId', projectId)
+                    : sessionCache.delete('appliedPinProjectId'),
+            ])
+        }
+
+        const orgId = overrideOrg ?? organizationId
+        const effectiveProjectId = overrideProject ?? projectId
+        await reqCtx.tokenCache.setMany({
+            ...(orgId ? { orgId } : {}),
+            ...(effectiveProjectId ? { projectId: effectiveProjectId } : {}),
+        })
     }
 
     private async resolveSessionContext(requestContext: MCPRequestContext): Promise<MCPSessionContext | null> {

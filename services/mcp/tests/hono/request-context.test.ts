@@ -322,6 +322,20 @@ describe('RequestContext', () => {
             expect(ctx.cache).toBe(ctx.cache)
         })
 
+        it('keeps session-scoped state separate for two credentials on one session id', async () => {
+            // The MCP session id arrives in a caller-supplied header, so two callers
+            // can present the same one. A scope without the credential would let one
+            // caller's switch-project become the other's active project.
+            const redis = fakeRedis()
+            const first = new RequestContext(redis, env, makeProps({ userHash: 'user-a', mcpSessionId: 'shared' }))
+            const second = new RequestContext(redis, env, makeProps({ userHash: 'user-b', mcpSessionId: 'shared' }))
+
+            await first.sessionScopedCache?.set('activeProjectId', '1')
+            await second.sessionScopedCache?.set('activeProjectId', '2')
+
+            expect(await first.sessionScopedCache?.get('activeProjectId')).toBe('1')
+        })
+
         it('keeps token cache entries on the default 7 day TTL', async () => {
             const redis = spyRedis()
             const ctx = new RequestContext(redis, env, makeProps())

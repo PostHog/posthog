@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 import { ApiClient } from '@/api/client'
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { wrapError } from '@/lib/errors'
@@ -12,7 +14,7 @@ import type { RequestProperties } from '@/lib/request-properties'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import { hash } from '@/lib/utils'
-import type { Context, Env, State } from '@/tools/types'
+import type { Context, Env, SessionScopedState, State } from '@/tools/types'
 
 import { RedisCache, type RedisLike } from './cache/RedisCache'
 import { getCustomApiBaseUrl, getPublicBaseUrl } from './constants'
@@ -23,9 +25,14 @@ import {
     type MCPSessionContext,
 } from './mcp-context'
 
+// Matches McpSessionRedisStore's idle TTL: both stores describe the same MCP
+// protocol session, so their lifetimes should agree.
+const SESSION_SCOPED_CACHE_TTL_SECONDS = 24 * 60 * 60
+
 export class RequestContext {
     private tokenCacheInstance: RedisCache<State> | undefined
     private userCacheInstance: RedisCache<State> | undefined
+    private sessionScopedCacheInstance: RedisCache<SessionScopedState> | undefined
     private apiInstance: ApiClient | undefined
     private sessionManagerInstance: SessionManager | undefined
     private distinctIdPromise: Promise<string> | undefined
@@ -66,6 +73,34 @@ export class RequestContext {
 
     get cache(): RedisCache<State> {
         return this.tokenCache
+    }
+
+    /**
+     * State scoped to the MCP protocol session rather than the token, holding the
+     * session's in-session context switches and last-applied request pin. The
+     * token cache can't hold these: it is shared by every concurrent session on
+     * the same credential. Undefined when the request carries no session id.
+     *
+     * The scope covers the credential as well as the session id, because the
+     * session id arrives in a caller-supplied header. Two callers sending the
+     * same one would otherwise share one active project, and each resolver would
+     * copy the other's switch into its own token cache.
+     */
+    get sessionScopedCache(): RedisCache<SessionScopedState> | undefined {
+        const mcpSessionId = this.requestContext.mcpSessionId
+        if (!mcpSessionId || !this.props.userHash) {
+            return undefined
+        }
+        if (!this.sessionScopedCacheInstance) {
+            const digest = createHash('sha256').update(`${this.props.userHash}:${mcpSessionId}`).digest()
+            this.sessionScopedCacheInstance = new RedisCache<SessionScopedState>(
+                digest.subarray(0, 16).toString('base64url'),
+                this.redis,
+                'session',
+                SESSION_SCOPED_CACHE_TTL_SECONDS
+            )
+        }
+        return this.sessionScopedCacheInstance
     }
 
     private async readCachedOAuthClientName(): Promise<string | undefined> {
@@ -158,6 +193,7 @@ export class RequestContext {
     async getContext(): Promise<Context> {
         const api = await this.api()
         const stateManager = new StateManager(this.tokenCache, api)
+        const sessionScopedCache = this.sessionScopedCache
         const partialContext: Omit<Context, 'trackEvent'> = {
             api,
             cache: this.tokenCache,
@@ -165,6 +201,16 @@ export class RequestContext {
             stateManager,
             sessionManager: this.sessionManager,
             getDistinctId: () => this.getDistinctId(),
+            ...(sessionScopedCache
+                ? {
+                      setSessionActiveContext: async (updates: { orgId?: string; projectId?: string }) => {
+                          await sessionScopedCache.setMany({
+                              ...(updates.orgId ? { activeOrgId: updates.orgId } : {}),
+                              ...(updates.projectId ? { activeProjectId: updates.projectId } : {}),
+                          })
+                      },
+                  }
+                : {}),
         }
         const trackEvent: Context['trackEvent'] = async (event, properties = {}) => {
             const analyticsContext = await this.safelyGetAnalyticsContext(partialContext)

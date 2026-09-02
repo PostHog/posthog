@@ -67,6 +67,10 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
         org = await context.stateManager.getCachedOrFetchOrg()
     }
 
+    // Record the switch on the MCP session so a pinned connection's resent pin
+    // doesn't revert it on the next request.
+    await context.setSessionActiveContext?.({ projectId: projectIdStr, ...(orgId ? { orgId } : {}) })
+
     // Read cached user (and org, when we didn't just fetch it) for the metadata block
     const distinctId = (await context.cache.get('distinctId')) ?? 'unknown'
     const user = (await context.cache.get(`cachedUser:${distinctId}` as const)) as CachedUser | undefined
