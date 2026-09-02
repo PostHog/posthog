@@ -4,7 +4,7 @@ import type {
     BooleanScoreDefinitionConfigApi as BooleanScoreDefinitionConfig,
     CategoricalScoreDefinitionConfigApi as CategoricalScoreDefinitionConfig,
     CategoricalScoreOptionApi as ScoreDefinitionOption,
-    ExperimentMetricKindEnumApi as ScoreDefinitionKind,
+    ScoreDefinitionKindEnumApi as ScoreDefinitionKind,
     NumericScoreDefinitionConfigApi as NumericScoreDefinitionConfig,
     ScoreDefinitionApi as ScoreDefinition,
     ScoreDefinitionConfigApi as ScoreDefinitionConfig,
