@@ -6487,6 +6487,8 @@ export namespace Schemas {
 
     export interface Response12 {
       columns?: unknown[] | null;
+      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -6496,6 +6498,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+      precomputeNotReady?: boolean | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -6516,12 +6520,16 @@ export namespace Schemas {
     export type Response13Results = {[key: string]: MarketingAnalyticsItem};
 
     export interface Response13 {
+      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+      precomputeNotReady?: boolean | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -6540,6 +6548,8 @@ export namespace Schemas {
 
     export interface Response14 {
       columns?: unknown[] | null;
+      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -6549,6 +6559,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+      precomputeNotReady?: boolean | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -7806,6 +7818,8 @@ export namespace Schemas {
 
     export interface MarketingAnalyticsTableQueryResponse {
       columns?: unknown[] | null;
+      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -7815,6 +7829,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+      precomputeNotReady?: boolean | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -7878,12 +7894,16 @@ export namespace Schemas {
     export type MarketingAnalyticsAggregatedQueryResponseResults = {[key: string]: MarketingAnalyticsItem};
 
     export interface MarketingAnalyticsAggregatedQueryResponse {
+      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+      precomputeNotReady?: boolean | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -7937,6 +7957,8 @@ export namespace Schemas {
 
     export interface NonIntegratedConversionsTableQueryResponse {
       columns?: unknown[] | null;
+      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -7946,6 +7968,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+      precomputeNotReady?: boolean | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -71360,6 +71384,8 @@ export namespace Schemas {
 
     export interface QueryResponseAlternative33 {
       columns?: unknown[] | null;
+      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -71369,6 +71395,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+      precomputeNotReady?: boolean | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -71389,12 +71417,16 @@ export namespace Schemas {
     export type QueryResponseAlternative34Results = {[key: string]: MarketingAnalyticsItem};
 
     export interface QueryResponseAlternative34 {
+      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+      precomputeNotReady?: boolean | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -71516,6 +71548,8 @@ export namespace Schemas {
 
     export interface QueryResponseAlternative38 {
       columns?: unknown[] | null;
+      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -71525,6 +71559,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+      precomputeNotReady?: boolean | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -71888,6 +71924,8 @@ export namespace Schemas {
 
     export interface QueryResponseAlternative51 {
       columns?: unknown[] | null;
+      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -71897,6 +71935,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+      precomputeNotReady?: boolean | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -71917,12 +71957,16 @@ export namespace Schemas {
     export type QueryResponseAlternative52Results = {[key: string]: MarketingAnalyticsItem};
 
     export interface QueryResponseAlternative52 {
+      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
+      /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+      precomputeNotReady?: boolean | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -71941,6 +71985,8 @@ export namespace Schemas {
 
     export interface QueryResponseAlternative53 {
       columns?: unknown[] | null;
+      /** ISO timestamp of the oldest precompute window backing this result — surfaced as "data as of X". */
+      dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -71950,6 +71996,8 @@ export namespace Schemas {
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
+      /** True when a conversion goal's precompute has not been warmed for this window yet — the UI shows a "computing" state rather than empty results. Marketing analytics serves exclusively from precompute. */
+      precomputeNotReady?: boolean | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
