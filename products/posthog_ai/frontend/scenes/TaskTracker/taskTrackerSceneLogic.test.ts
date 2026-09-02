@@ -6,7 +6,7 @@ import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { attachedContextLogic } from '../../api/logics'
 import { composerSeedLogic } from '../../logics/composerSeedLogic'
@@ -21,7 +21,7 @@ const buildTask = (overrides: Partial<Task> = {}): Task => ({
     title: 'Some task',
     description: 'do the thing',
     origin_product: OriginProduct.POSTHOG_AI,
-    runtime: RuntimeEnumApi.Acp,
+    runtime: TaskRuntimeEnumApi.Acp,
     repository: null,
     github_integration: null,
     signal_report: null,

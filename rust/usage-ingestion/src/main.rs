@@ -4,7 +4,6 @@ use std::time::Duration;
 use axum::{routing::get, Router};
 use common_database::{get_pool_with_config, PoolConfig};
 use common_grpc::GrpcMetricsLayer;
-use common_kafka::config::KafkaConfig;
 use common_kafka::kafka_producer::create_kafka_producer;
 use envconfig::Envconfig;
 use health::HealthRegistry;
@@ -65,12 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     let resolver = Arc::new(PostgresOrganizationResolver::new(database));
 
-    let kafka_config = KafkaConfig {
-        kafka_hosts: config.kafka_hosts,
-        kafka_tls: config.kafka_tls,
-        kafka_client_id: "usage-ingestion".to_string(),
-        ..Default::default()
-    };
+    let kafka_config = config.kafka_config();
     let health = Arc::new(HealthRegistry::new("usage-ingestion"));
     let producer_liveness = health
         .register("kafka_producer".to_string(), Duration::from_secs(30))
