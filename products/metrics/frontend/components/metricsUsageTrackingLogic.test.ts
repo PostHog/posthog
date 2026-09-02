@@ -110,7 +110,11 @@ describe('metricsUsageTrackingLogic', () => {
             () => metricsSamplesLogic.actions.setActiveTab('samples'),
             { tab: 'samples' },
         ],
-        ['metrics add to dashboard clicked', () => metricsViewerLogic.actions.addToDashboard(), { aggregation: 'sum' }],
+        [
+            'metrics add to dashboard clicked',
+            () => metricsViewerLogic.actions.addToDashboard(),
+            { aggregation: 'sum', clause_count: 1, has_formula: false },
+        ],
         [
             // Reports the aggregation persisted on the insight, not the viewer's
             // current one — those diverge when the user changes the aggregation
@@ -124,7 +128,7 @@ describe('metricsUsageTrackingLogic', () => {
                     } as any,
                     {} as any
                 ),
-            { aggregation: 'p95' },
+            { aggregation: 'p95', clause_count: 1, has_formula: false },
         ],
     ])('%s fires with enum/count properties only', (event, dispatch, expectedProperties) => {
         dispatch()
