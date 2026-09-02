@@ -36,7 +36,9 @@ def cascade_select_repository(
         github = resolve_team_github_integration(team_id, team=team, requester_user_id=user_id)
         if github is None:
             return None
-        candidates = _list_candidate_repos(github, team_id, allow_refresh=allow_refresh)
+        # Drop archived repos: they accept no pull request, so the single_repo_wins shortcut below
+        # must not hand back a lone archived repo as a target the caller can never push to.
+        candidates = _list_candidate_repos(github, team_id, allow_refresh=allow_refresh, exclude_archived=True)
         if not candidates:
             return None
         if single_repo_wins and len(candidates) == 1:

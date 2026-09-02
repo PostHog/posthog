@@ -184,6 +184,9 @@ tools:
     identity-provider-configs-retrieve:
         operation: identity_provider_configs_retrieve
         enabled: false
+    identity-provider-configs-scim-logs-retrieve:
+        operation: identity_provider_configs_scim_logs_retrieve
+        enabled: false
     identity-provider-configs-scim-token-create:
         operation: identity_provider_configs_scim_token_create
         enabled: false

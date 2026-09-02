@@ -1,4 +1,5 @@
 import { Pool } from 'pg'
+import { register } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
 import { parseJSON } from '~/common/utils/json-parse'
@@ -157,6 +158,12 @@ async function dequeueOneBatch(worker: CyclotronV2Worker, timeoutMs = 2000): Pro
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
+
+async function gaugeValueForQueue(queue: string): Promise<number | null> {
+    const metric = await register.getSingleMetricAsString('cdp_cyclotron_v2_queue_depth')
+    const line = metric.split('\n').find((l) => l.includes(`queue="${queue}"`))
+    return line ? Number(line.trim().split(' ').pop()) : null
+}
 
 describe('Cyclotron V2', () => {
     jest.setTimeout(3000)
@@ -2488,6 +2495,24 @@ describe('Cyclotron V2', () => {
                 await expect(queryJob(id)).rejects.toThrow()
             }
         )
+
+        it('measureQueueDepths reports 0 for a queue that drains', async () => {
+            // GROUP BY returns no row for an empty queue. Without the zero write the gauge
+            // keeps the last depth, and a depth alert then fires on an idle queue.
+            const jobId = uuidv7()
+            await insertRawJob({ id: jobId, queue_name: 'queue-drains', status: 'available' })
+
+            const janitor = createJanitor({ stallTimeoutMs: 60_000 })
+            const before = await janitor.runOnce()
+            expect(before.depths.get('queue-drains')).toBe(1)
+            expect(await gaugeValueForQueue('queue-drains')).toBe(1)
+
+            await assertPool.query('DELETE FROM cyclotron_jobs WHERE id = $1', [jobId])
+            await janitor.runOnce()
+            await janitor.stop()
+
+            expect(await gaugeValueForQueue('queue-drains')).toBe(0)
+        })
 
         it('measureQueueDepths returns correct counts per queue', async () => {
             await insertRawJob({ id: uuidv7(), queue_name: 'queue-a', status: 'available' })
