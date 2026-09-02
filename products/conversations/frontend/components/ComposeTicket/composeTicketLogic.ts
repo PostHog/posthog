@@ -71,10 +71,12 @@ export interface composeTicketLogicActions {
     }
     submitCompose: (
         message: string,
-        richContent: Record<string, unknown> | null
+        richContent: Record<string, unknown> | null,
+        internalContext: string
     ) => {
         message: string
         richContent: Record<string, unknown> | null
+        internalContext: string
     }
     submitComposeFinished: () => {
         value: true
@@ -93,7 +95,11 @@ export const composeTicketLogic = kea<composeTicketLogicType>([
         setEmailSubject: (subject: string) => ({ subject }),
         setEmailConfigId: (configId: string, isManual: boolean = true) => ({ configId, isManual }),
         resetForm: true,
-        submitCompose: (message: string, richContent: Record<string, unknown> | null) => ({ message, richContent }),
+        submitCompose: (message: string, richContent: Record<string, unknown> | null, internalContext: string) => ({
+            message,
+            richContent,
+            internalContext,
+        }),
         submitComposeFinished: true,
     }),
     reducers({
@@ -194,7 +200,7 @@ export const composeTicketLogic = kea<composeTicketLogicType>([
                 actions.setEmailConfigId(defaultConfig.id, false)
             }
         },
-        submitCompose: async ({ message, richContent }) => {
+        submitCompose: async ({ message, richContent, internalContext }) => {
             const { recipientEmail, recipientDistinctId, emailSubject, emailConfigId } = values
 
             if (!message.trim()) {
@@ -223,6 +229,7 @@ export const composeTicketLogic = kea<composeTicketLogicType>([
                     ...(recipientDistinctId ? { recipient_distinct_id: recipientDistinctId } : {}),
                     ...(emailSubject ? { email_subject: emailSubject } : {}),
                     ...(richContent ? { rich_content: richContent } : {}),
+                    ...(internalContext.trim() ? { internal_context: internalContext.trim() } : {}),
                 })
 
                 lemonToast.success('Ticket created successfully.')

@@ -265,6 +265,8 @@ export const conversationsTicketsComposeCreateBodyEmailSubjectMax = 500
 
 export const conversationsTicketsComposeCreateBodyMessageMax = 5000
 
+export const conversationsTicketsComposeCreateBodyInternalContextMax = 5000
+
 export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object({
     recipient_email: zod.email().describe('Recipient email address.'),
     recipient_distinct_id: zod
@@ -280,6 +282,13 @@ export const ConversationsTicketsComposeCreateBody = /* @__PURE__ */ zod.object(
     email_config_id: zod.uuid().describe('ID of the EmailChannel to send from.'),
     message: zod.string().max(conversationsTicketsComposeCreateBodyMessageMax).describe('Message content in markdown.'),
     rich_content: zod.unknown().optional().describe('TipTap rich content JSON for formatted messages.'),
+    internal_context: zod
+        .string()
+        .max(conversationsTicketsComposeCreateBodyInternalContextMax)
+        .optional()
+        .describe(
+            'Optional context about why the ticket is being opened. Saved as a private note on the ticket, so the team can read it and the recipient never receives it.'
+        ),
 })
 
 export const conversationsViewsCreateBodyNameMax = 400

@@ -379,7 +379,7 @@ def _classify_held_value(key: str, held: Any, token: str) -> Reservation:
 
 # Compose opens a brand-new outbound ticket, so it hashes into its own keyspace — a compose retry
 # must never collapse onto a reply, or vice versa. Bump the version when the contents below change.
-_COMPOSE_KEY_PREFIX = "conversations:compose_dedupe:v2:"
+_COMPOSE_KEY_PREFIX = "conversations:compose_dedupe:v3:"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -400,6 +400,9 @@ class ComposeFingerprint:
     # The resolved recipient person link the create writes onto the ticket. Two composes with the
     # same body but a different recipient point at different people, so they must not collapse.
     distinct_id: str
+    # The private note the compose opens the ticket with. The same email recorded with different
+    # context is a different request, so it must not collapse either.
+    internal_context: str
 
     @classmethod
     def build(
@@ -412,6 +415,7 @@ class ComposeFingerprint:
         message: Any,
         rich_content: Any,
         distinct_id: Any,
+        internal_context: Any,
     ) -> "ComposeFingerprint | None":
         if not email_config_id or not recipient_email or not isinstance(message, str) or not message:
             return None
@@ -423,6 +427,7 @@ class ComposeFingerprint:
             message=message,
             rich_content=rich_content,
             distinct_id=str(distinct_id or ""),
+            internal_context=str(internal_context or ""),
         )
 
     @property
@@ -436,6 +441,7 @@ class ComposeFingerprint:
                 "message": self.message,
                 "rich_content": self.rich_content,
                 "distinct_id": self.distinct_id,
+                "internal_context": self.internal_context,
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -455,16 +461,29 @@ class ComposeFingerprint:
             or (ticket.distinct_id or "") != self.distinct_id
         ):
             return False
-        # The first message lives on the ticket's opening comment, so confirm the body too: a
-        # second, different pitch to the same recipient in the window is a distinct ticket.
-        first = (
-            Comment.objects.filter(team_id=self.team_id, scope=SUPPORT_TICKET_SCOPE, item_id=str(ticket.id))
-            .order_by("created_at")
-            .first()
+        # A compose writes its outbound message first, then its private note. Read those rows by
+        # position and never scan for a private one: a note written later, by a teammate or by AI
+        # triage, would otherwise stop this request recognizing its own ticket, and the retry would
+        # email the recipient a second time. Soft deletion is ignored for the same reason — the
+        # ticket exists and the message went out, so a replay is still the safe answer.
+        opening = list(
+            Comment.objects.filter(team_id=self.team_id, scope=SUPPORT_TICKET_SCOPE, item_id=str(ticket.id)).order_by(
+                "created_at", "id"
+            )[:2]
         )
-        if first is None or first.deleted or first.content != self.message or first.rich_content != self.rich_content:
+        if not opening:
             return False
-        return True
+        outbound = opening[0]
+        if outbound.content != self.message or outbound.rich_content != self.rich_content:
+            return False
+        if not self.internal_context:
+            return True
+        # Recorded context is part of the request, so the same pitch filed with different context
+        # is another ticket.
+        note = opening[1] if len(opening) > 1 else None
+        if note is None or (note.item_context or {}).get("is_private") is not True:
+            return False
+        return note.content == self.internal_context
 
     def find_persisted_match(self, *, created_after: datetime) -> Ticket | None:
         """The outbound ticket this request would have opened, if an earlier attempt already did.

@@ -224,10 +224,24 @@ class ComposeTicketSerializer(serializers.Serializer):
         allow_null=True,
         help_text="TipTap rich content JSON for formatted messages.",
     )
+    internal_context = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=5000,
+        help_text=(
+            "Optional context about why the ticket is being opened. Saved as a private note on the "
+            "ticket, so the team can read it and the recipient never receives it."
+        ),
+    )
 
     def validate_message(self, value: str) -> str:
         if not value or not value.strip():
             raise serializers.ValidationError("Message content is required.")
+        return value.strip()
+
+    def validate_internal_context(self, value: str) -> str:
+        # Stripped here rather than at the point of use, so the note and the dedupe fingerprint
+        # that has to match it read the same value.
         return value.strip()
 
     def validate_rich_content(self, value: object) -> object:
@@ -1666,6 +1680,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
         recipient_email = data["recipient_email"]
         distinct_id = data.get("recipient_distinct_id", "") or recipient_email
+        internal_context = data.get("internal_context", "")
 
         person: Person | None = None
         if distinct_id != recipient_email:
@@ -1714,6 +1729,19 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                     rich_content=data.get("rich_content"),
                     item_context={"author_type": "human", "is_private": False},
                 )
+
+                # Written after the outbound message, so the message stays the ticket's first
+                # comment and the dedupe guard keeps identifying the ticket by it. Private, so the
+                # note never reaches the recipient.
+                if internal_context:
+                    Comment.objects.create(
+                        team=team,
+                        created_by=request.user,
+                        scope="conversations_ticket",
+                        item_id=str(ticket.id),
+                        content=internal_context,
+                        item_context={"author_type": "support", "is_private": True},
+                    )
             return ticket
 
         # message, recipient_email, and email_config are all validated above, so build never
@@ -1726,6 +1754,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             message=data["message"],
             rich_content=data.get("rich_content"),
             distinct_id=distinct_id,
+            internal_context=internal_context,
         )
         assert fingerprint is not None
         guarded = reply_dedupe.create_ticket_deduplicated(fingerprint, create_ticket)

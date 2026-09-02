@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
+import { IconLock } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
@@ -23,6 +24,7 @@ export function ComposeTicketModal(): JSX.Element | null {
         useActions(composeTicketLogic)
 
     const editorRef = useRef<RichContentEditorType | null>(null)
+    const noteEditorRef = useRef<RichContentEditorType | null>(null)
     const verifiedEmailConfigs = emailConfigs.filter((c) => c.domain_verified)
 
     const emailConfigOptions = verifiedEmailConfigs.map((c) => ({
@@ -38,7 +40,11 @@ export function ComposeTicketModal(): JSX.Element | null {
     const handleSubmit = (): void => {
         const richContent = editorRef.current?.getJSON() ?? null
         const content = richContent ? serializeToMarkdown(richContent) : ''
-        submitCompose(content, richContent as Record<string, unknown> | null)
+        // The note is stored as markdown only. The thread renders and re-edits markdown-only
+        // comments already, so it needs no rich content column of its own.
+        const noteRichContent = noteEditorRef.current?.getJSON() ?? null
+        const note = noteRichContent ? serializeToMarkdown(noteRichContent) : ''
+        submitCompose(content, richContent as Record<string, unknown> | null, note)
     }
 
     return (
@@ -104,6 +110,24 @@ export function ComposeTicketModal(): JSX.Element | null {
                         onPressCmdEnter={handleSubmit}
                         minRows={5}
                     />
+                </div>
+
+                <div className="flex flex-col gap-1">
+                    <label className="font-semibold text-xs flex items-center gap-1">
+                        <IconLock className="text-sm" />
+                        Private note (optional)
+                    </label>
+                    <SupportEditor
+                        placeholder="Why you're reaching out, or anything the team should know"
+                        onCreate={(editor) => {
+                            noteEditorRef.current = editor
+                        }}
+                        onPressCmdEnter={handleSubmit}
+                        minRows={2}
+                    />
+                    <span className="text-xs text-muted">
+                        Only your team can see this. It is not sent to the recipient.
+                    </span>
                 </div>
             </div>
         </LemonModal>
