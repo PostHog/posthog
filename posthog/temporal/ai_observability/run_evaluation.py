@@ -260,7 +260,8 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         start_time = temporalio.workflow.now()
 
         # One activity fetches the evaluation and, for hog and sentiment, also executes it and
-        # emits its event — three Temporal Cloud actions become one on ~90% of evaluation volume.
+        # emits its event, so three Temporal Cloud actions become one for these local evaluation
+        # types, which are the large majority of volume.
         # Pre-patch histories replay the separate fetch/execute/emit commands below.
         result: EvaluationActivityResult | None = None
         emitted_in_activity = False
