@@ -313,10 +313,14 @@ class _FakePgConn:
         partitions: dict[str, list[str]] | None = None,
         detached: dict[str, list[str]] | None = None,
         tables_with_default_rows: set[str] | None = None,
+        tables_with_rows_out_of_range: set[str] | None = None,
+        range_probe_raises: dict[str, Exception] | None = None,
     ) -> None:
         self.partitions = partitions or {}
         self.detached = detached or {}
         self.tables_with_default_rows = tables_with_default_rows or set()
+        self.tables_with_rows_out_of_range = tables_with_rows_out_of_range or set()
+        self.range_probe_raises = range_probe_raises or {}
         self.dropped: list[str] = []
         self.session_settings: list[str] = []
 
@@ -334,6 +338,11 @@ class _FakePgConn:
             cursor.fetchall.return_value = [(name,) for name in self.detached.get(table, [])]
         elif "pg_inherits" in sql and params:
             cursor.fetchall.return_value = [(name,) for name in self.partitions.get(params[0], [])]
+        elif sql.startswith("SELECT 1 FROM ") and "WHERE created_at" in sql:
+            table = sql.removeprefix("SELECT 1 FROM ").split(" ", 1)[0]
+            if table in self.range_probe_raises:
+                raise self.range_probe_raises[table]
+            cursor.fetchall.return_value = [(1,)] if table in self.tables_with_rows_out_of_range else []
         elif sql.startswith("SELECT 1 FROM ") and sql.endswith("_default LIMIT 1"):
             table = sql.removeprefix("SELECT 1 FROM ").removesuffix("_default LIMIT 1")
             cursor.fetchall.return_value = [(1,)] if table in self.tables_with_default_rows else []
@@ -348,11 +357,18 @@ class _FakePgConn:
 def _patched_pg(
     partitions: dict[str, list[str]] | None = None,
     detached: dict[str, list[str]] | None = None,
+    tables_with_rows_out_of_range: set[str] | None = None,
+    range_probe_raises: dict[str, Exception] | None = None,
 ):
     # _verify_partitions is stubbed because the fake connection keeps listing partitions the
     # drop loop already removed, which would otherwise flood `errors` with retention-drift
     # messages — orthogonal to the wiring these integration tests cover. It has its own tests.
-    conn = _FakePgConn(partitions, detached)
+    conn = _FakePgConn(
+        partitions,
+        detached,
+        tables_with_rows_out_of_range=tables_with_rows_out_of_range,
+        range_probe_raises=range_probe_raises,
+    )
     with (
         patch.object(activities_module.psycopg.Connection, "connect", return_value=conn),
         patch.object(activities_module, "_verify_partitions"),
@@ -525,7 +541,7 @@ async def test_activity_keeps_partition_when_terminalization_fails(activity_envi
 
 
 @pytest.mark.asyncio
-async def test_activity_drops_detached_partitions_past_the_cutoff(activity_environment) -> None:
+async def test_activity_drops_detached_partition_candidates_past_the_cutoff(activity_environment) -> None:
     # A detached partition leaves pg_inherits, so the attached scan alone keeps it forever.
     detached = {"sourcebatch": [OLD_BATCH_PART], "sourcebatchstatus": [OLD_STATUS_PART]}
 
@@ -539,6 +555,45 @@ async def test_activity_drops_detached_partitions_past_the_cutoff(activity_envir
     terminalize.assert_called_once_with(conn, OLD_BATCH_PART)
     assert set(result["dropped"]) == {OLD_BATCH_PART, OLD_STATUS_PART}
     assert result["success"] is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("out_of_range", "probe_raises", "expected_error"),
+    [
+        (
+            True,
+            None,
+            f"{OLD_BATCH_PART} holds rows outside 2000-01-01, so it is not a detached partition, keeping it",
+        ),
+        (
+            False,
+            RuntimeError("column created_at does not exist"),
+            f"Cannot confirm {OLD_BATCH_PART} is a detached partition, keeping it: column created_at does not exist",
+        ),
+    ],
+    ids=["rows_span_other_days", "cannot_be_checked"],
+)
+async def test_activity_keeps_an_unconfirmed_name_match(
+    activity_environment, out_of_range: bool, probe_raises: Exception | None, expected_error: str
+) -> None:
+    # Nothing in the catalog records that a table was once a partition, so without this
+    # gate the name alone sends a hand-made table — a backup copied off the parent during
+    # an incident, or anything else that happens to match — to DROP TABLE.
+    with (
+        _patched_pg(
+            detached={"sourcebatch": [OLD_BATCH_PART]},
+            tables_with_rows_out_of_range={OLD_BATCH_PART} if out_of_range else None,
+            range_probe_raises={OLD_BATCH_PART: probe_raises} if probe_raises else None,
+        ) as conn,
+        _patched_s3([]),
+        patch.object(activities_module, "_terminalize_stranded_runs") as terminalize,
+    ):
+        result = await activity_environment.run(manage_warehouse_sources_queue_partitions)
+
+    assert conn.dropped == []
+    terminalize.assert_not_called()
+    assert result["errors"] == [expected_error]
 
 
 @pytest.mark.asyncio

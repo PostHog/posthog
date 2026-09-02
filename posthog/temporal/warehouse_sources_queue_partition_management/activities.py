@@ -72,11 +72,16 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
 
         cutoff = today - timedelta(days=RETENTION_DAYS)
         for table in PARTITIONED_TABLES:
-            for partition_name in _attached_partitions(conn, table) + _detached_partitions(conn, table):
+            detached = _detached_partition_candidates(conn, table)
+            for partition_name in _attached_partitions(conn, table) + detached:
                 partition_date = _partition_date(partition_name)
                 if partition_date is None:
                     continue
                 if partition_date < cutoff:
+                    if partition_name in detached and not _confirm_detached_partition(
+                        conn, partition_name, partition_date, errors
+                    ):
+                        continue
                     if table == "sourcebatch":
                         try:
                             await sync_to_async(_terminalize_stranded_runs)(conn, partition_name)
@@ -147,13 +152,16 @@ def _attached_partitions(conn: psycopg.Connection, table: str) -> list[str]:
     ]
 
 
-def _detached_partitions(conn: psycopg.Connection, table: str) -> list[str]:
+def _detached_partition_candidates(conn: psycopg.Connection, table: str) -> list[str]:
     """Dated tables that no longer hang off the parent.
 
     A detached partition disappears from ``pg_inherits``, so the attached scan
     alone would keep it and its indexes forever. Match on the name instead. The
     pattern is anchored, so ``sourcebatch`` never claims a ``sourcebatchstatus``
     table.
+
+    These are candidates, not confirmed partitions: run
+    ``_confirm_detached_partition`` before dropping one.
     """
     return [
         row[0]
@@ -171,6 +179,42 @@ def _detached_partitions(conn: psycopg.Connection, table: str) -> list[str]:
             [f"^{table}_[0-9]{{8}}$"],
         ).fetchall()
     ]
+
+
+def _confirm_detached_partition(
+    conn: psycopg.Connection,
+    partition_name: str,
+    partition_date: date,
+    errors: list[str],
+) -> bool:
+    """Confirm a name-matched table really is a former daily partition.
+
+    Postgres keeps no record that a table was once a partition, so the name alone
+    would also match, and then drop, a hand-made table such as a backup taken
+    during an incident. A real detached partition still holds only the rows its
+    range constraint allowed, which a copy of the parent does not. Anything that
+    fails or cannot be checked, including a missing ``created_at`` column, keeps
+    the table and reports why.
+    """
+    try:
+        outside = conn.execute(
+            f"SELECT 1 FROM {partition_name} WHERE created_at < %s OR created_at >= %s LIMIT 1",
+            [partition_date, partition_date + timedelta(days=1)],
+        ).fetchall()
+    except Exception as e:
+        errors.append(f"Cannot confirm {partition_name} is a detached partition, keeping it: {e}")
+        logger.exception("Cannot confirm detached partition", partition=partition_name)
+        return False
+
+    if outside:
+        errors.append(
+            f"{partition_name} holds rows outside {partition_date.isoformat()}, "
+            f"so it is not a detached partition, keeping it"
+        )
+        logger.warning("Name matches a partition but the rows do not", partition=partition_name)
+        return False
+
+    return True
 
 
 def _terminalize_stranded_runs(conn: psycopg.Connection, partition_name: str) -> None:
@@ -300,7 +344,7 @@ def _verify_partitions(conn: psycopg.Connection, today: date, errors: list[str])
         # can drift for months in silence. Report the leftovers as a failure.
         expired = sorted(
             name
-            for name in attached.union(_detached_partitions(conn, table))
+            for name in attached.union(_detached_partition_candidates(conn, table))
             if (partition_date := _partition_date(name)) is not None and partition_date < cutoff
         )
         if expired:
