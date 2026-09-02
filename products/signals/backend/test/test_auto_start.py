@@ -151,6 +151,26 @@ def test_resolve_autostart_assignee_never_runs_as_a_skill_owner(organization, te
     )
 
 
+@pytest.mark.django_db
+def test_resolve_autostart_assignee_excludes_live_owners_past_a_stale_stamp(organization, team):
+    # The stored `is_skill_owner` stamp is a write-time snapshot: an owner added after the stamp
+    # leaves a stale False, and trusting it would let the run mint its session under a now
+    # editor-controlled owner. The live owner set the caller resolves at identity time must win.
+    _create_org_member_with_github("owner@example.com", organization, "OwnerCat")
+    author = _create_org_member_with_github("author@example.com", organization, "AuthorCat")
+
+    assignee = _resolve_autostart_assignee(
+        team_id=team.id,
+        report_priority=Priority.P0,
+        # Stamp says not-an-owner (stale); the live set says otherwise.
+        reviewers_content=[_reviewer("ownercat", is_skill_owner=False), _reviewer("authorcat")],
+        team_default_priority=Priority.P4,
+        live_owner_logins={"ownercat"},
+    )
+    assert assignee is not None
+    assert assignee.id == author.id
+
+
 @pytest.mark.parametrize(
     ("report_priority", "team_default_priority", "expected"),
     [

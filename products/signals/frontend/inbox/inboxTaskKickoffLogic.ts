@@ -64,16 +64,19 @@ function buildCreatePrReportPrompt(report: SignalReport, feedback?: string): str
     return `${base}\n\nAdditional feedback from the user (take this into account):\n${trimmed}`
 }
 
+// The only statuses whose content has passed the safety judge AND whose lifecycle still has work to
+// do. Everything else answers only: pre-judgment statuses (potential/candidate/in_progress) carry
+// unjudged pipeline content, suppressed/failed reports carry the content the judge rejected, and a
+// resolved report's persisted action suggestions would just redo already-completed work.
+const ACTION_CAPABLE_STATUSES: readonly SignalReportStatus[] = [
+    SignalReportStatus.READY,
+    SignalReportStatus.PENDING_INPUT,
+]
+
 export function buildDiscussReportPrompt(report: SignalReport, reportUrl: string, question: string): string {
     // The task is already linked to the report, but including the URL lets the agent open and read
     // the full report itself. The user's message follows after a blank line for clear separation.
-    //
-    // A suppressed or failed report never earned (or lost) the inbox's judgment: safety suppression
-    // means a scout report's own prose carries the instructions the judge rejected, and the pipeline
-    // marks its safety rejections FAILED (`failure_reason="safety_judge_rejected"`) — so the agent is
-    // pinned to answering about such a report rather than told to carry actions from it out.
-    // Restoring the report is the route back to action prompts.
-    if (report.status === SignalReportStatus.SUPPRESSED || report.status === SignalReportStatus.FAILED) {
+    if (!ACTION_CAPABLE_STATUSES.includes(report.status)) {
         return `Answer this question about the PostHog Inbox report at ${reportUrl}:\n\n${question.trim()}`
     }
     // Framed as question-or-action because a report's suggested prompts include next-step requests

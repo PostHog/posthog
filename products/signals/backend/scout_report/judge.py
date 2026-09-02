@@ -125,6 +125,27 @@ def _suggested_prompts_signal(suggested_prompts: Sequence[str]) -> SignalData | 
     )
 
 
+def _reviewer_reasons_signal(reviewer_reasons: Sequence[str]) -> SignalData | None:
+    """Wrap the scout-authored reviewer `reason` strings as one `SignalData` so the judge sees them.
+
+    A reason is persisted in the suggested-reviewers artefact, and action-capable report agents read
+    the full work log before acting — so an injected instruction in a reason reaches the same run a
+    suggested prompt does. Returns None when no reviewer carries a reason, so a report without them
+    produces a judge prompt byte-identical to before."""
+    if not reviewer_reasons:
+        return None
+    return SignalData(
+        signal_id=str(uuid.uuid4()),
+        content="\n\n".join(reviewer_reasons),
+        source_product=SOURCE_PRODUCT,
+        source_type=SOURCE_TYPE,
+        source_id="report_reviewer_reasons",
+        weight=0.0,
+        timestamp=timezone.now(),
+        extra={},
+    )
+
+
 def _to_signal_data(signals: list[ScoutReportSignal]) -> list[SignalData]:
     """Adapt the authored-report signals into the `SignalData` shape the safety judge renders."""
     return [
@@ -151,21 +172,24 @@ async def judge_scout_report(
     actionability: ActionabilityAssessment,
     charts: Sequence[ReportChart] = (),
     suggested_prompts: Sequence[str] = (),
+    reviewer_reasons: Sequence[str] = (),
 ) -> ScoutReportJudgement:
     """Run the safety judge on the authored report and resolve the birth status.
 
     The judge sees the authored `title`/`summary`, the backing observations, any attached charts,
-    *and* any suggested prompts — so prompt-injection anywhere the agent authored (not just the
-    evidence) is caught before the report can surface or feed autostart. The safety judge is a plain
-    LLM call (`judge_report_safety`) — no Temporal workflow, no sandbox — so this runs inline on
-    whatever worker is authoring the report.
+    any suggested prompts, *and* any reviewer reasons — so prompt-injection anywhere the agent
+    authored (not just the evidence) is caught before the report can surface or feed autostart. The
+    safety judge is a plain LLM call (`judge_report_safety`) — no Temporal workflow, no sandbox — so
+    this runs inline on whatever worker is authoring the report.
     """
     chart_signal = _chart_signal(charts)
     prompts_signal = _suggested_prompts_signal(suggested_prompts)
+    reasons_signal = _reviewer_reasons_signal(reviewer_reasons)
     safety_input = [
         _report_content_signal(title, summary),
         *([chart_signal] if chart_signal is not None else []),
         *([prompts_signal] if prompts_signal is not None else []),
+        *([reasons_signal] if reasons_signal is not None else []),
         *_to_signal_data(signals),
     ]
     safety_response = await judge_report_safety(team_id=team_id, signals=safety_input)
@@ -185,6 +209,7 @@ async def judge_edited_report_content(
     note: str | None = None,
     charts: Sequence[ReportChart] = (),
     suggested_prompts: Sequence[str] = (),
+    reviewer_reasons: Sequence[str] = (),
 ) -> SafetyJudgment:
     """Run the safety judge over the content an `edit_report` call supplies, before it is written.
 
@@ -192,9 +217,10 @@ async def judge_edited_report_content(
     the same fields onto a report that already surfaced, so without its own judge it would be an
     unjudged door for the exact content the emit judge exists to stop. Suggested prompts carry
     furthest: a reader clicks one and its wording is handed to an agent run that is told to act on
-    it. Judges only the pieces the edit supplies — a reviewer-only edit, or one that clears a
-    field, adds no new content and returns safe without an LLM call. Notes are included because
-    action-capable report agents read the full work log before acting.
+    it. Judges only the pieces the edit supplies — an edit that only clears fields, or only names
+    reviewers without a `reason`, adds no new content and returns safe without an LLM call. Notes
+    and reviewer reasons are included because action-capable report agents read the full work log
+    before acting.
     """
     safety_input: list[SignalData] = []
     if title is not None or summary is not None:
@@ -207,6 +233,9 @@ async def judge_edited_report_content(
     prompts_signal = _suggested_prompts_signal(suggested_prompts)
     if prompts_signal is not None:
         safety_input.append(prompts_signal)
+    reasons_signal = _reviewer_reasons_signal(reviewer_reasons)
+    if reasons_signal is not None:
+        safety_input.append(reasons_signal)
     if not safety_input:
         return SafetyJudgment(choice=True, explanation=None)
     safety_response = await judge_report_safety(team_id=team_id, signals=safety_input)

@@ -483,6 +483,16 @@ def _stamp_owner_provenance(team: Team, reviewers: SuggestedReviewers, *, skill_
     return SuggestedReviewers(root=entries)
 
 
+def _reviewer_reasons(reviewers: SuggestedReviewers | None) -> list[str]:
+    """The scout-authored `reason` strings from resolved reviewer picks, for the safety judge.
+
+    Reasons persist in the suggested-reviewers artefact, which action-capable report agents read as
+    part of the work log — so they go in front of the judge like a note or a suggested prompt does."""
+    if reviewers is None:
+        return []
+    return [entry.reason for entry in reviewers.root if entry.reason]
+
+
 def _wants_repo_selection(
     repository: str | None, priority: PriorityAssessment | None, reviewers: SuggestedReviewers | None
 ) -> bool:
@@ -1125,6 +1135,7 @@ async def emit_report(
         actionability=actionability_assessment,
         charts=chart_contents,
         suggested_prompts=prompt_contents,
+        reviewer_reasons=_reviewer_reasons(reviewers),
     )
     surfaced = _surfaced(judgement.status)
     repo_selection = (
@@ -1263,6 +1274,7 @@ def emit_report_sync(
         actionability=actionability_assessment,
         charts=chart_contents,
         suggested_prompts=prompt_contents,
+        reviewer_reasons=_reviewer_reasons(reviewers),
     )
     surfaced = _surfaced(judgement.status)
     repo_selection = (
@@ -1653,6 +1665,7 @@ async def edit_report(
             note=append_note,
             charts=built_charts or (),
             suggested_prompts=built_prompts or (),
+            reviewer_reasons=_reviewer_reasons(built_reviewers),
         )
     )
     result = await database_sync_to_async(_do_edit_report, thread_sensitive=False)(
@@ -1710,6 +1723,7 @@ def edit_report_sync(
             note=append_note,
             charts=built_charts or (),
             suggested_prompts=built_prompts or (),
+            reviewer_reasons=_reviewer_reasons(built_reviewers),
         )
     )
     result = _do_edit_report(
