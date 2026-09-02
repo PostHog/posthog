@@ -48,6 +48,11 @@ describe("resolveGatewayProduct", () => {
       expected: "signals",
     },
     {
+      isInternal: true,
+      originProduct: "scout_suggestions",
+      expected: "signals",
+    },
+    {
       isInternal: false,
       originProduct: "posthog_ai",
       expected: "posthog_ai",

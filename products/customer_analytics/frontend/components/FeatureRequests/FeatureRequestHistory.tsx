@@ -9,7 +9,7 @@ import type {
     FeatureRequestHistoryApi,
     FeatureRequestHistoryChangeApi,
     FeatureRequestStatusEnumApi,
-    RequestPriorityEnumApi,
+    FeatureRequestPriorityEnumApi,
 } from '../../generated/api.schemas'
 import { featureRequestPriorityLabel, featureRequestStatusLabel } from './featureRequestOptions'
 
@@ -63,7 +63,7 @@ function statusName(value: unknown): string {
 
 function priorityName(value: unknown): string {
     return value === null || (typeof value === 'string' && FEATURE_REQUEST_PRIORITIES.has(value))
-        ? featureRequestPriorityLabel(value as RequestPriorityEnumApi | null)
+        ? featureRequestPriorityLabel(value as FeatureRequestPriorityEnumApi | null)
         : 'Unknown priority'
 }
 

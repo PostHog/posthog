@@ -109,17 +109,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "amount": 'Cost amount in the lowest currency unit (cents) as a decimal string, e.g. "123.45".',
         },
     },
-    "service_accounts": {
-        "description": "Service accounts (non-human API principals) across your Anthropic organization's workspaces, one row per (workspace, service account).",
-        "docs_url": f"{_ADMIN_API_DOCS}/service_accounts/list-service-accounts",
-        "columns": {
-            "id": "Unique identifier for the service account.",
-            "type": 'Object type, always "service_account".',
-            "name": "Display name of the service account.",
-            "workspace_id": "ID of the workspace the service account belongs to.",
-            "created_at": "RFC 3339 timestamp of when the service account was created.",
-        },
-    },
     "claude_code_analytics": {
         "description": "Claude Code productivity metrics, one row per user per day: sessions, lines of code, commits, pull requests, and tool-action accept/reject counts.",
         "docs_url": f"{_ADMIN_API_DOCS}/usage-cost/get-claude-code-analytics",

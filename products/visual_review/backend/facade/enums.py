@@ -116,3 +116,11 @@ class ToleratedReason(StrEnum):
     AUTO_THRESHOLD = "auto_threshold"  # Below pixel/SSIM diff threshold
     HUMAN = "human"  # Manually marked by a reviewer
     AGENT = "agent"  # Tolerated by an AI agent
+
+
+# A toleration somebody decided on, as opposed to one the diff pipeline minted
+# for sub-threshold pixel jitter. Counting AUTO_THRESHOLD rows as decisions
+# inflates every "tolerated drift" number with rendering noise. Use this
+# wherever the question is "did a reviewer accept this drift", so a reviewer and
+# an agent are never counted differently.
+INTENTIONAL_TOLERATE_REASONS = (ToleratedReason.HUMAN, ToleratedReason.AGENT)

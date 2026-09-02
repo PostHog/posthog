@@ -790,8 +790,8 @@ class TestSavedQuery(APIBaseTest):
     def test_update_sync_frequency_on_tiered_v2_writes_target_through(
         self, sync_frequency: str, expected_target: timedelta | None
     ):
-        from products.data_modeling.backend.logic.node_frequency import get_declared_target, set_declared_target
-        from products.data_modeling.backend.models import Node
+        from products.data_modeling.backend.facade.api import get_declared_target, set_declared_target
+        from products.data_modeling.backend.facade.models import Node
 
         saved_query = self._create_saved_query_for_frequency_tests()
         node = Node.objects.get(saved_query_id=saved_query["id"])
@@ -839,8 +839,8 @@ class TestSavedQuery(APIBaseTest):
         # a tiered team stores the cadence on the DAG node and keeps the interval column NULL, so a
         # frequency edit changes no model field — changes_between() returns nothing and log_activity
         # drops an "updated" entry with no changes, leaving the edit with no audit trail at all
-        from products.data_modeling.backend.logic.node_frequency import set_declared_target
-        from products.data_modeling.backend.models import Node
+        from products.data_modeling.backend.facade.api import set_declared_target
+        from products.data_modeling.backend.facade.models import Node
 
         saved_query = self._create_saved_query_for_frequency_tests()
         node = Node.objects.get(saved_query_id=saved_query["id"])
@@ -869,7 +869,7 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(frequency_changes[0]["after"], expected_after)
 
     def test_update_sync_frequency_on_tiered_v2_without_node_is_rejected(self):
-        from products.data_modeling.backend.models import Node
+        from products.data_modeling.backend.facade.models import Node
 
         saved_query = self._create_saved_query_for_frequency_tests()
         Node.objects.filter(saved_query_id=saved_query["id"]).delete()
@@ -895,7 +895,7 @@ class TestSavedQuery(APIBaseTest):
         self.assertIsNone(updated.sync_frequency_interval)
 
     def test_update_sync_frequency_on_tiered_v2_rolls_back_invalid_target(self):
-        from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError
+        from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError
 
         saved_query = self._create_saved_query_for_frequency_tests()
         reconcile_module = "products.data_modeling.backend.logic.schedule_reconcile"
@@ -976,7 +976,7 @@ class TestSavedQuery(APIBaseTest):
         # Reconcile NULLs sync_frequency_interval on tiered teams and stores the cadence on the
         # node, so deriving the read from the column alone reports "never" for every tiered view.
         # The list and retrieve actions use different serializer classes: cover both.
-        from products.data_modeling.backend.logic.node_frequency import set_declared_target
+        from products.data_modeling.backend.facade.api import set_declared_target
 
         saved_query = self._create_saved_query_for_frequency_tests()
         if node_target is not None:
@@ -988,7 +988,7 @@ class TestSavedQuery(APIBaseTest):
     def test_sync_frequency_read_hits_the_node_table_once_per_page(self):
         # N+1 guard: view-list serializes a whole page, so a per-view target lookup would issue
         # one node query per view.
-        from products.data_modeling.backend.logic.node_frequency import set_declared_target
+        from products.data_modeling.backend.facade.api import set_declared_target
 
         for name in ("view_a", "view_b", "view_c"):
             saved_query = self._create_saved_query_for_frequency_tests(name=name)
@@ -1048,7 +1048,7 @@ class TestSavedQuery(APIBaseTest):
         query, where a source floor would need a warehouse table plus a schema to hang an
         interval off. The bound arithmetic itself is covered in test_freshness.
         """
-        from products.data_modeling.backend.logic.node_frequency import set_declared_target
+        from products.data_modeling.backend.facade.api import set_declared_target
 
         upstream = self._create_saved_query_for_frequency_tests(name="upstream_view")
         consumer = self.client.post(

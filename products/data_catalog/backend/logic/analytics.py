@@ -9,6 +9,8 @@ from people-facing counts.
 
 from typing import TYPE_CHECKING, Any, Optional
 
+from posthog.hogql.database.database import get_data_warehouse_table_name
+
 from posthog.event_usage import get_request_analytics_properties, report_user_action, report_user_or_team_action
 from posthog.models import Team, User
 
@@ -35,7 +37,7 @@ RELATIONSHIP_REJECTED_EVENT = "data catalog relationship rejected"
 
 def certification_target_name(cert: "TableCertification") -> str:
     if cert.table_id:
-        return cert.table.name if cert.table else ""
+        return get_data_warehouse_table_name(cert.table.external_data_source, cert.table.name) if cert.table else ""
     return cert.saved_query.name if cert.saved_query else ""
 
 

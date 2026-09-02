@@ -4,13 +4,14 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import type { Experiment, FeatureFlagType } from '~/types'
 
+import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
+
 import type {
     ExperimentExposureCriteria,
     ExperimentMetric,
     ExperimentMetricUnion,
 } from '../../../queries/schema/schema-general'
 import type { FeatureFlagFilters, MultivariateFlagVariant } from '../../../types'
-import { NEW_EXPERIMENT } from '../constants'
 import { createExperimentLogic } from '../ExperimentForm/createExperimentLogic'
 import { selectExistingFeatureFlagModalLogic } from '../ExperimentForm/selectExistingFeatureFlagModalLogic'
 import type { FeatureFlagKeyValidation } from '../ExperimentForm/variantsPanelLogic'

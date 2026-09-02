@@ -178,6 +178,43 @@ export const PromptListInputSchema = z.object({
         ),
 })
 
+export const ReportInboxInputSchema = z
+    .object({
+        view: z
+            .enum(['actionable', 'needs_input', 'monitoring', 'resolved', 'dismissed', 'not_actionable', 'all'])
+            .default('actionable')
+            .describe('Inbox section to return. Defaults to actionable reports that are ready to pick up.'),
+        scope: z
+            .enum(['for_me', 'entire_project', 'teammate'])
+            .default('entire_project')
+            .describe('Limit results by suggested reviewer, or search the entire project.'),
+        teammate_uuid: z.string().uuid().optional().describe('PostHog user UUID required when scope is teammate.'),
+        priorities: z
+            .array(z.enum(['P0', 'P1', 'P2', 'P3', 'P4']))
+            .optional()
+            .describe(
+                "Priorities to include. When omitted, uses the requesting user's personal PR-generation threshold, falling back to the project threshold."
+            ),
+        source_products: z.array(z.string()).optional(),
+        scouts: z.array(z.string()).optional().describe('Scout skill_name slugs to include.'),
+        search: z.string().optional().describe('Case-insensitive substring match against report title and summary.'),
+        sort: z.enum(['priority', 'last_updated', 'newest', 'oldest']).default('priority'),
+        limit: z.number().int().min(1).max(10).default(10),
+        offset: z.number().int().min(0).optional(),
+    })
+    .superRefine((data, context) => {
+        if (data.scope === 'teammate' && !data.teammate_uuid) {
+            context.addIssue({ code: 'custom', path: ['teammate_uuid'], message: 'Required when scope is teammate.' })
+        }
+    })
+    .transform(({ priorities, source_products, scouts, ...query }) => ({
+        ...query,
+        priority: priorities?.join(','),
+        use_priority_preference: priorities === undefined ? true : undefined,
+        source_product: source_products?.join(','),
+        scout: scouts?.join(','),
+    }))
+
 export const FeedbackSubmitSchema = z
     .object({
         summary: z
@@ -418,10 +455,15 @@ export const OrganizationGetAllSchema = z.object({})
 
 export const ProjectGetAllSchema = z.object({})
 
+const EventDefinitionTagSchema = z
+    .string()
+    .max(255)
+    .refine((tag) => tag.trim().toLowerCase().length <= 255, 'Tag must be at most 255 characters after normalization')
+
 export const EventDefinitionUpdateInputSchema = z.object({
     description: z.string().optional().describe('Description explaining when the event is triggered'),
     tags: z
-        .array(z.string())
+        .array(EventDefinitionTagSchema)
         .optional()
         .describe(
             'Tags to organize events by product area (e.g. "checkout", "onboarding") or user journey stage (e.g. "acquisition", "activation", "monetization", "retention")'
@@ -439,6 +481,11 @@ export const EventDefinitionUpdateInputSchema = z.object({
 export const EventDefinitionUpdateSchema = z.object({
     eventName: z.string().describe('The name of the event to update (e.g. "$pageview", "user_signed_up")'),
     data: EventDefinitionUpdateInputSchema.describe('The event definition data to update'),
+})
+
+export const EventDefinitionCreateSchema = z.object({
+    eventName: z.string().min(1).max(400).describe('The name of the event to create (e.g. "user_signed_up")'),
+    data: EventDefinitionUpdateInputSchema.optional().describe('Optional metadata for the new event definition'),
 })
 
 export const PropertyDefinitionUpdateInputSchema = z.object({

@@ -132,3 +132,26 @@ class TestSourceForPipeline:
                 ),
             )
         assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
+
+
+class TestNonRetryableErrors:
+    source = MixpanelSource()
+
+    @parameterized.expand(
+        [
+            ("401", "401 Client Error: Unauthorized for url: https://mixpanel.com/api/query/cohorts/list"),
+            ("403", "403 Client Error: Forbidden for url: https://mixpanel.com/api/query/engage"),
+            ("402", "402 Client Error: Payment Required for url: https://mixpanel.com/api/query/cohorts/list"),
+        ]
+    )
+    def test_billing_and_auth_failures_are_non_retryable(self, _name: str, observed_error: str) -> None:
+        assert any(key in observed_error for key in self.source.get_non_retryable_errors())
+
+    @parameterized.expand(
+        [
+            ("429", "429 Client Error: Too Many Requests for url: https://mixpanel.com/api/query/engage"),
+            ("500", "500 Server Error: Internal Server Error for url: https://mixpanel.com/api/query/engage"),
+        ]
+    )
+    def test_transient_failures_stay_retryable(self, _name: str, other_error: str) -> None:
+        assert not any(key in other_error for key in self.source.get_non_retryable_errors())

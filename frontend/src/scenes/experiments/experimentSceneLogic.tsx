@@ -19,7 +19,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { isLaunched } from 'scenes/experiments/experimentStatus'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -28,7 +27,9 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { ActivityScope, Breadcrumb, Experiment, ProjectTreeRef } from '~/types'
 import type { ExperimentIdType } from '~/types'
 
-import { NEW_EXPERIMENT } from './constants'
+import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
+
 import {
     type ExperimentLogicProps,
     type experimentLogicType,

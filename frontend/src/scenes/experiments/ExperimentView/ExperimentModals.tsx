@@ -23,8 +23,9 @@ import { urls } from 'scenes/urls'
 import { groupsModel } from '~/models/groupsModel'
 import { ExperimentConclusion } from '~/types'
 
-import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
-import { hasFrozenExposureStamps } from '../experimentActions'
+import { CONCLUSION_DISPLAY_CONFIG } from 'products/experiments/frontend/constants'
+import { hasFrozenExposureStamps } from 'products/experiments/frontend/experimentActions'
+
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { getExperimentVariants } from '../utils'

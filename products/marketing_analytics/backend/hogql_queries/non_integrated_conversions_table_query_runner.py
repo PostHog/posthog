@@ -16,7 +16,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 
 from .constants import DEFAULT_LIMIT, PAGINATION_EXTRA, UNIFIED_CONVERSION_GOALS_CTE_ALIAS, to_marketing_analytics_data
 from .conversion_goals_aggregator import ConversionGoalsAggregator

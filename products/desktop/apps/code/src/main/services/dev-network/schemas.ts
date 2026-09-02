@@ -20,8 +20,6 @@ export const networkSnapshotSchema = z.object({
   requests: z.array(networkRequestSchema),
 });
 
-export type NetworkSnapshot = z.infer<typeof networkSnapshotSchema>;
-
 export const networkSimSchema = z.object({
   offline: z.boolean(),
   slowDelayMs: z.number().min(0).max(10_000),

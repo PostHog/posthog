@@ -1,4 +1,4 @@
-import { PluginEvent } from '~/plugin-scaffold'
+import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { ClickHouseEvent, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '~/types'
 
 import { personInitialAndUTMProperties, sanitizeString } from './db/utils'
@@ -137,6 +137,30 @@ export function sanitizeEvent<T extends PipelineEvent | PluginEvent>(event: T): 
 }
 
 /**
+ * Fills the event's own $os from the $os_name some SDKs report instead:
+ * https://github.com/PostHog/posthog-js-lite/issues/244.
+ *
+ * This describes the event, not the person. Call it after transformations: the user agent populator
+ * plugin skips an event that already carries $os, so filling $os earlier would stop it deriving
+ * $browser, $device, and the rest.
+ *
+ * Server events are skipped so a server's host OS does not land in the event's own $os. The person
+ * side is handled separately: personInitialAndUTMProperties skips lifting $os and $os_version and
+ * skips folding $os_name into the sticky $initial_os for $is_server events. The host OS still reaches
+ * the person under the raw $os_name and $initial_os_name keys.
+ */
+export function normalizeOsAlias(properties: Properties): void {
+    if (properties['$is_server'] === true) {
+        return
+    }
+
+    const osName = properties['$os_name']
+    if (osName !== undefined && !('$os' in properties)) {
+        properties['$os'] = osName
+    }
+}
+
+/**
  * Full event normalization including person property mapping.
  * This should only be called ONCE per event, after any transformations.
  * Calling it multiple times is wasteful as personInitialAndUTMProperties
@@ -146,6 +170,7 @@ export function normalizeEvent<T extends PipelineEvent | PluginEvent>(event: T):
     event = sanitizeEvent(event)
 
     if (!['$snapshot', '$performance_event'].includes(event.event)) {
+        normalizeOsAlias(event.properties!)
         event.properties = personInitialAndUTMProperties(event.properties!)
     }
 

@@ -38,7 +38,9 @@ import {
   isPersistedOptionSupported,
   isRateLimitError,
   isTransientUpstreamError,
+  isTurnEndedWithoutResponseError,
   leadingSlashCommand,
+  type ModelAccess,
   mergeConfigOptions,
   type OptimisticItem,
   type PermissionRequest,
@@ -498,6 +500,8 @@ export interface SessionServiceDeps {
     spokenNotifications?: boolean;
     spokenNarrationEnabled?: boolean;
     bedrockGatewayVariant?: BedrockGatewayVariant;
+    codexModelAccess?: ModelAccess;
+    claudeModelAccess?: ModelAccess;
   };
   usageLimit: { show: (...args: any[]) => any };
   readonly addDirectoryDialog: { open: boolean };
@@ -530,12 +534,19 @@ type AuthCredentialsStatus =
   | { kind: "restoring" }
   | { kind: "missing" };
 
+export interface AdapterModelAccess {
+  codex?: ModelAccess;
+  claude?: ModelAccess;
+}
+
 export interface ConnectParams {
   task: Task;
   repoPath: string;
   initialPrompt?: ContentBlock[];
   executionMode?: ExecutionMode;
   adapter?: Adapter;
+  codexModelAccess?: ModelAccess;
+  claudeModelAccess?: ModelAccess;
   model?: string;
   reasoningLevel?: string;
   contextWindow?: "200k" | "1m";
@@ -1924,6 +1935,8 @@ export class SessionService {
 
   private stampRunConfig(session: AgentSession, params: ConnectParams): void {
     session.adapter = params.adapter;
+    session.codexModelAccess = params.codexModelAccess;
+    session.claudeModelAccess = params.claudeModelAccess;
     session.model = params.model;
     session.executionMode = params.executionMode;
     session.reasoningLevel = params.reasoningLevel;
@@ -1941,6 +1954,8 @@ export class SessionService {
       initialPrompt,
       executionMode,
       adapter,
+      codexModelAccess,
+      claudeModelAccess,
       model,
       reasoningLevel,
       contextWindow,
@@ -2060,6 +2075,7 @@ export class SessionService {
           importedSessionId,
           contextWindow,
           fastMode,
+          { codex: codexModelAccess, claude: claudeModelAccess },
         );
       }
     } catch (error) {
@@ -2279,12 +2295,16 @@ export class SessionService {
         rtkEnabledLocal,
         spokenNarrationEnabled,
         bedrockGatewayVariant,
+        codexModelAccess,
+        claudeModelAccess: settingsClaudeModelAccess,
       } = this.d.settings;
       const result = await this.d.trpc.agent.reconnect.mutate({
         taskId,
         taskRunId,
         repoPath,
         rtkEnabled: rtkEnabledLocal,
+        codexModelAccess,
+        claudeModelAccess: settingsClaudeModelAccess,
         spokenNarration: spokenNarrationEnabled === true,
         bedrockGatewayVariant,
         apiHost: auth.apiHost,
@@ -2620,6 +2640,7 @@ export class SessionService {
     importedSessionId?: string,
     contextWindow?: "200k" | "1m",
     fastMode?: boolean,
+    modelAccess?: AdapterModelAccess,
   ): Promise<void> {
     const { client } = auth;
     if (!client) {
@@ -2636,7 +2657,13 @@ export class SessionService {
       rtkEnabledLocal,
       spokenNarrationEnabled,
       bedrockGatewayVariant,
+      codexModelAccess: settingsCodexModelAccess,
+      claudeModelAccess: settingsClaudeModelAccess,
     } = this.d.settings;
+    const resolvedModelAccess: AdapterModelAccess = {
+      codex: modelAccess?.codex ?? settingsCodexModelAccess,
+      claude: modelAccess?.claude ?? settingsClaudeModelAccess,
+    };
     const preferredModel = model ?? this.d.DEFAULT_GATEWAY_MODEL;
     const result = await this.d.trpc.agent.start.mutate({
       taskId,
@@ -2646,6 +2673,8 @@ export class SessionService {
       projectId: auth.projectId,
       permissionMode: executionMode,
       adapter,
+      codexModelAccess: resolvedModelAccess.codex,
+      claudeModelAccess: resolvedModelAccess.claude,
       customInstructions: startCustomInstructions || undefined,
       rtkEnabled: rtkEnabledLocal,
       spokenNarration: spokenNarrationEnabled === true,
@@ -2663,6 +2692,8 @@ export class SessionService {
     session.channel = result.channel;
     session.status = "connected";
     session.adapter = adapter;
+    session.codexModelAccess = resolvedModelAccess.codex;
+    session.claudeModelAccess = resolvedModelAccess.claude;
     session.model = model;
     session.executionMode = executionMode;
     session.reasoningLevel = reasoningLevel;
@@ -4324,35 +4355,39 @@ export class SessionService {
    * Called internally when a turn completes and there are queued messages.
    * Only the head message is dequeued (`max: 1`) so a queue drains one turn at
    * a time — when this turn completes, the drain fires again for the next one.
-   * The message is removed from the queue before sending; if sending fails it
-   * is lost (acceptable since the user can re-type; avoids complex retry logic).
+   * The message is removed before sending and restored if the send fails.
    */
   private async sendQueuedMessages(
     taskId: string,
   ): Promise<{ stopReason: string }> {
-    const combinedText = this.d.store.dequeueMessagesAsText(taskId, {
+    const drained = this.d.store.dequeueMessages(taskId, {
       stopAtEdited: true,
       max: 1,
     });
-    if (!combinedText) {
+    const message = drained[0];
+    if (!message) {
       return { stopReason: "skipped" };
     }
 
+    const prompt = message.rawPrompt ?? message.content;
+    const promptText = extractPromptText(prompt);
+
     const session = this.d.store.getSessionByTaskId(taskId);
     if (!session) {
-      this.d.log.warn("No session found for queued messages, messages lost", {
+      this.d.store.prependQueuedMessages(taskId, drained);
+      this.d.log.warn("No session found for queued messages; re-enqueued", {
         taskId,
-        lostMessageLength: combinedText.length,
+        promptLength: promptText.length,
       });
       return { stopReason: "no_session" };
     }
 
     this.d.log.info("Sending next queued message as prompt", {
       taskId,
-      promptLength: combinedText.length,
+      promptLength: promptText.length,
     });
 
-    let blocks = normalizePromptToBlocks(combinedText);
+    let blocks = normalizePromptToBlocks(prompt);
 
     const shellExecutes = getUserShellExecutesSinceLastPrompt(session.events);
     if (shellExecutes.length > 0) {
@@ -4364,17 +4399,28 @@ export class SessionService {
       task_id: taskId,
       is_initial: false,
       execution_type: "local",
-      prompt_length_chars: combinedText.length,
+      prompt_length_chars: promptText.length,
     });
 
     try {
-      return await this.sendLocalPrompt(session, blocks, combinedText);
+      const result = await this.sendLocalPrompt(session, blocks, promptText);
+      if (result.stopReason === "rate_limited") {
+        this.d.store.prependQueuedMessages(taskId, drained);
+        this.d.log.warn("Queued message hit a gateway limit; re-enqueued", {
+          taskId,
+          promptLength: promptText.length,
+        });
+      }
+      return result;
     } catch (error) {
-      // Log that queued messages were lost due to send failure
-      this.d.log.error("Failed to send queued messages, messages lost", {
+      this.d.store.prependQueuedMessages(taskId, drained);
+      this.d.log.error("Failed to send queued messages; re-enqueued", {
         taskId,
-        lostMessageLength: combinedText.length,
+        promptLength: promptText.length,
         error,
+      });
+      this.d.toast.error("Couldn't send the queued message", {
+        description: "Your message is still queued. Use Steer to try again.",
       });
       throw error;
     }
@@ -4492,9 +4538,21 @@ export class SessionService {
         });
       }
 
-      // A provider request that timed out or dropped leaves the session
-      // healthy — no recovery ran above — so tell the user to just re-send
-      // instead of surfacing the raw "Internal error: API Error: …" text.
+      if (isTurnEndedWithoutResponseError(errorMessage, errorDetails)) {
+        this.d.log.warn("Turn ended without an assistant response", {
+          taskRunId: session.taskRunId,
+          errorMessage,
+          errorDetails,
+        });
+        throw new Error(
+          "The model ended this turn without a response. Your session is unaffected — please send the message again.",
+          { cause: error },
+        );
+      }
+
+      // A provider request that timed out, dropped, or was refused leaves the
+      // session healthy — no recovery ran above — so tell the user to just
+      // re-send instead of surfacing the raw "Internal error: API Error: …" text.
       if (isTransientUpstreamError(errorMessage, errorDetails)) {
         this.d.log.warn("Transient upstream provider failure during prompt", {
           taskRunId: session.taskRunId,
@@ -4502,7 +4560,7 @@ export class SessionService {
           errorDetails,
         });
         throw new Error(
-          "The AI provider timed out or dropped the connection. Your session is unaffected — please send the message again.",
+          "The AI provider could not complete the request. Your session is unaffected, so please send the message again.",
           { cause: error },
         );
       }
@@ -5861,27 +5919,35 @@ export class SessionService {
    * Set a session configuration option with optimistic update and rollback.
    * This is the unified method for model, mode, thought level, etc.
    */
+  /**
+   * Returns whether the change reached the agent: `true` once the backend
+   * accepted it (or it was already set), `false` when the session is missing,
+   * the option is unknown, the change was skipped because the local session is
+   * offline, or the backend call failed and rolled back. Callers that gate a
+   * user action on the switch (the mid-session model switch) rely on this to
+   * tell success from a swallowed failure.
+   */
   async setSessionConfigOption(
     taskId: string,
     configId: string,
     value: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const session = this.d.store.getSessionByTaskId(taskId);
-    if (!session) return;
+    if (!session) return false;
 
     // Find the config option and save previous value for rollback
     const configOptions = session.configOptions ?? [];
     const optionIndex = configOptions.findIndex((opt) => opt.id === configId);
     if (optionIndex === -1) {
       this.d.log.warn("Config option not found", { taskId, configId });
-      return;
+      return false;
     }
 
     const previousValue = configOptions[optionIndex].currentValue;
 
     // Skip if value is already set — avoids expensive IPC round-trip (e.g. setModel ~2s)
     if (previousValue === value) {
-      return;
+      return true;
     }
 
     // Optimistic update
@@ -5895,13 +5961,35 @@ export class SessionService {
     });
     this.d.setPersistedConfigOptions(session.taskRunId, updatedOptions);
 
+    const rollbackConfigOption = (): void => {
+      const latestConfigOptions =
+        this.d.store.getSessionByTaskId(taskId)?.configOptions ?? [];
+      const latestOption = latestConfigOptions.find(
+        (option) => option.id === configId,
+      );
+      if (latestOption?.currentValue !== value) return;
+      const rolledBackOptions = latestConfigOptions.map((option) =>
+        option.id === configId
+          ? ({
+              ...option,
+              currentValue: previousValue,
+            } as SessionConfigOption)
+          : option,
+      );
+      this.d.store.updateSession(session.taskRunId, {
+        configOptions: rolledBackOptions,
+      });
+      this.d.setPersistedConfigOptions(session.taskRunId, rolledBackOptions);
+    };
+
     if (
       !session.isCloud &&
       (session.idleKilled ||
         session.status === "disconnected" ||
         session.status === "connecting")
     ) {
-      return;
+      rollbackConfigOption();
+      return false;
     }
 
     try {
@@ -5917,26 +6005,9 @@ export class SessionService {
           value,
         });
       }
+      return true;
     } catch (error) {
-      const latestConfigOptions =
-        this.d.store.getSessionByTaskId(taskId)?.configOptions ?? [];
-      const latestOption = latestConfigOptions.find(
-        (option) => option.id === configId,
-      );
-      if (latestOption?.currentValue === value) {
-        const rolledBackOptions = latestConfigOptions.map((option) =>
-          option.id === configId
-            ? ({
-                ...option,
-                currentValue: previousValue,
-              } as SessionConfigOption)
-            : option,
-        );
-        this.d.store.updateSession(session.taskRunId, {
-          configOptions: rolledBackOptions,
-        });
-        this.d.setPersistedConfigOptions(session.taskRunId, rolledBackOptions);
-      }
+      rollbackConfigOption();
       this.d.log.error("Failed to set session config option", {
         taskId,
         configId,
@@ -5944,6 +6015,7 @@ export class SessionService {
         error,
       });
       this.d.toast.error("Failed to change setting. Please try again.");
+      return false;
     }
   }
 
@@ -6054,6 +6126,8 @@ export class SessionService {
         reasoningLevel,
         contextWindow,
         fastMode,
+        codexModelAccess,
+        claudeModelAccess,
       } = session;
       await this.teardownSession(session.taskRunId);
       const authStatus = await this.getAuthCredentialsStatus();
@@ -6078,6 +6152,7 @@ export class SessionService {
         undefined,
         contextWindow,
         fastMode,
+        { codex: codexModelAccess, claude: claudeModelAccess },
       );
       return;
     }

@@ -17,8 +17,8 @@ import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayou
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { CopyExperimentToProjectModal } from 'products/experiments/frontend/components/CopyExperimentToProjectModal'
+import { DuplicateExperimentModal } from 'products/experiments/frontend/components/DuplicateExperimentModal'
 
-import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { ExperimentActionsMenu } from './ExperimentActionsMenu'

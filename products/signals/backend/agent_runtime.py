@@ -60,6 +60,7 @@ WILDCARD = "*"
 # vocabulary they see in LLM analytics. Scout generations tag `scout:<skill>` for per-scout
 # cost attribution; the step key here stays the bare stage.
 STEP_SCOUT = "scout"
+STEP_SCOUT_SUGGESTIONS = "scout_suggestions"
 STEP_RESEARCH = "research"
 STEP_REPO_SELECTION = "repo_selection"
 STEP_IMPLEMENTATION = "implementation"

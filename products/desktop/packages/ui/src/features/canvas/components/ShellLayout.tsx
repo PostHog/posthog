@@ -347,12 +347,20 @@ function CanvasBreadcrumb({
 
 export function ShellLayout() {
   const spacesLayout = useChannelsLayout();
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const pathname = useRouterState({
+    select: (s) =>
+      s.location.pathname.startsWith("/spaces/") ? s.location.pathname : "",
+  });
   const selectedCanvasId = useSelectedCanvasId();
-  const params = useParams({ strict: false });
-
-  const channelId = params.channelId;
-  const dashboardId = params.dashboardId;
+  // Select each param on its own so an unrelated route param (a settings
+  // category) changing cannot re-render the shell. `useParams` without a
+  // selector subscribes to the whole param set, which the nearest match carries
+  // for the entire route chain.
+  const channelId = useParams({ strict: false, select: (p) => p.channelId });
+  const dashboardId = useParams({
+    strict: false,
+    select: (p) => p.dashboardId,
+  });
   const { dashboard: selectedCanvas } = useDashboard(selectedCanvasId);
   const toolbarDashboardId = dashboardId ?? selectedCanvasId;
   const toolbarChannelId = channelId ?? selectedCanvas?.channelId;

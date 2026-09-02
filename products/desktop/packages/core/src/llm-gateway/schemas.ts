@@ -14,8 +14,6 @@ export const promptInput = z.object({
   model: z.string().optional(),
 });
 
-export type PromptInput = z.infer<typeof promptInput>;
-
 export const promptOutput = z.object({
   content: z.string(),
   model: z.string(),
@@ -58,8 +56,5 @@ export interface AnthropicErrorResponse {
   detail?: unknown;
 }
 
-export type { UsageBucket, UsageOutput } from "../usage/schemas";
-export {
-  usageBucketSchema,
-  usageOutput,
-} from "../usage/schemas";
+export type { UsageOutput } from "../usage/schemas";
+export { usageOutput } from "../usage/schemas";

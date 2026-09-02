@@ -38,6 +38,7 @@ const mocks = vi.hoisted(() => ({
     isPending: false,
     run: vi.fn(),
   },
+  openBrowserTab: vi.fn(),
 }));
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
   useCurrentUser: () => ({
@@ -54,6 +55,9 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
 }));
 vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
   useFileTaskToChannel: () => vi.fn(),
+}));
+vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
+  useOpenBrowserTab: () => mocks.openBrowserTab,
 }));
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: () => true,
@@ -132,6 +136,7 @@ function renderRow(model: ChannelItemModel) {
 beforeEach(() => {
   mocks.status = null;
   mocks.analysis = { canAnalyze: false, isPending: false, run: vi.fn() };
+  mocks.openBrowserTab.mockClear();
   useSidebarStore.setState({ listItemMetadataFields: [] });
   usePendingCanvasDeleteStore.setState({ pending: {} });
   useTaskSelectionStore.setState({
@@ -421,6 +426,41 @@ describe("ChannelItemRow", () => {
     for (const label of MENU_ITEMS) {
       expect(screen.getByRole("menuitem", { name: label })).not.toBeNull();
     }
+  });
+
+  it("opens a task in a new tab from the context menu", () => {
+    renderWithMenu({});
+
+    fireEvent.contextMenu(screen.getByText("Investigate signup drop-off"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open in new tab" }));
+
+    expect(mocks.openBrowserTab).toHaveBeenCalledWith("/tasks/task-1");
+  });
+
+  it("opens a canvas in a new tab at its space's URL", () => {
+    const canvas = item({
+      key: "canvas:c1",
+      kind: "canvas",
+      id: "c1",
+      title: "Web analytics overview",
+      authorUuid: "u-1",
+    });
+    renderInList(
+      <ChannelItemRow
+        actions={actions}
+        isActive={false}
+        item={canvas}
+        channelId="channel-1"
+        onAddToCommandCenter={() => {}}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByText("Web analytics overview"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open in new tab" }));
+
+    expect(mocks.openBrowserTab).toHaveBeenCalledWith(
+      "/spaces/channel-1/dashboards/c1",
+    );
   });
 
   it("keeps the hover sidebar open while the context menu is open", () => {

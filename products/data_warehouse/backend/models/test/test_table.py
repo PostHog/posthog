@@ -519,6 +519,26 @@ class TestTable(BaseTest):
 
     @parameterized.expand(
         [
+            ("backtick", "id`"),
+            ("backslash", "id\\"),
+            ("newline", "id\n"),
+            ("carriage_return", "id\r"),
+            ("null_byte", "id\0"),
+        ]
+    )
+    def test_get_columns_rejects_unquotable_column_names(self, _name: str, column_name: str):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_table", url_pattern="", credential=credential, format="Parquet", team=self.team
+        )
+
+        with patch("products.warehouse_sources.backend.models.table.sync_execute") as sync_execute_results:
+            sync_execute_results.return_value = [[column_name, "String"]]
+            with pytest.raises(Exception, match="PostHog can't use the column name"):
+                table.get_columns()
+
+    @parameterized.expand(
+        [
             ("get_columns", "id,Int64\n"),
             ("get_count", "42\n"),
         ]
@@ -632,7 +652,26 @@ class TestTable(BaseTest):
             [IntegerDatabaseField(name="id", nullable=False)],
         )
 
-    def test_hogql_definition_column_name_hyphen(self):
+    @parameterized.expand(
+        [
+            (
+                "hyphen",
+                "timestamp-dash",
+                "`id` String, `timestamp-dash` DateTime64(3, 'UTC')",
+            ),
+            (
+                "backtick_closing_the_identifier",
+                "x` String DEFAULT hostName(), y",
+                "`id` String, `x`` String DEFAULT hostName(), y` DateTime64(3, 'UTC')",
+            ),
+            (
+                "backslash",
+                "a\\b",
+                "`id` String, `a\\\\b` DateTime64(3, 'UTC')",
+            ),
+        ]
+    )
+    def test_hogql_definition_quotes_special_column_names(self, _name: str, column_name: str, expected_structure: str):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         table = DataWarehouseTable.objects.create(
             name="bla",
@@ -641,15 +680,15 @@ class TestTable(BaseTest):
             team=self.team,
             columns={
                 "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
-                "timestamp-dash": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+                column_name: {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
             },
             credential=credential,
         )
 
         definition = table.hogql_definition()
         assert isinstance(definition, HogQLDataWarehouseTable)
-        assert list(definition.fields.keys()) == ["id", "timestamp-dash"]
-        assert definition.structure == "`id` String, `timestamp-dash` DateTime64(3, 'UTC')"
+        assert list(definition.fields.keys()) == ["id", column_name]
+        assert definition.structure == expected_structure
 
     def test_complex_type_with_array_nested_datetime_fields(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)

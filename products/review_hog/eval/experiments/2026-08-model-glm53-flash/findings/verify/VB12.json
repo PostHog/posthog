@@ -1,0 +1,6 @@
+{
+    "id": "VB12",
+    "real": true,
+    "source": "reused-KA4",
+    "reasoning": "Identical to sol-experiment KA4 (cluster 57), verdict adopted: real, should_fix. _resolve_assigned_reviewer picks exactly one user (creator-if-assigned, else first resolved reviewer; receivers.py:206-207). Line 126 gates the initial Stamphog queue on only that user's stamphog_review_inbox_prs, and the webhook resolver resolve_stamphog_acting_reviewer (receivers.py:151-156) returns None under the same single-user check, which stamphog's tasks.py:205-207 treats as opted_out and dismisses the standing approval (tasks.py:897, _INBOX_OPT_OUT_DISMISS_MESSAGE). The PR body promises 'any assigned reviewer opted in'. So first-reviewer-off + later-reviewer-on skips the initial review and later dismisses the approval. Fail-closed (no unreviewed approval), hence should_fix not must_fix."
+}

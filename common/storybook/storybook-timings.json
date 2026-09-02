@@ -19,7 +19,7 @@
         "chromium": 11.882,
         "webkit": 2.322
     },
-    "frontend/src/layout/FeaturePreviews/FeaturePreviews.stories.tsx": {
+    "frontend/src/lib/components/FeaturePreviews/FeaturePreviews.stories.tsx": {
         "chromium": 8.528,
         "webkit": 1.752
     },

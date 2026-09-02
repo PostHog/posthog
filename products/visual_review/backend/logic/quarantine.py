@@ -10,6 +10,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from ..db import WRITER_DB
+from ..facade.enums import ActorType
 from ..models import QuarantinedIdentifier, Run
 from . import errors, repos
 
@@ -47,6 +48,7 @@ def quarantine_identifier(
     team_id: int,
     expires_at: datetime | None = None,
     source_run_id: UUID | None = None,
+    source: ActorType = ActorType.HUMAN,
 ) -> QuarantinedIdentifier:
     repos.get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
     now = timezone.now()
@@ -73,6 +75,7 @@ def quarantine_identifier(
         expires_at=expires_at,
         created_by_id=user_id,
         source_run=source_run,
+        source=source,
     )
 
 

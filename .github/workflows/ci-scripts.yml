@@ -20,6 +20,9 @@ on:
             - tools/test_snob_backend_test_selection_shadow.py
             - tools/test_selection_verdict.py
             - tools/test_test_selection_verdict.py
+            # test_tach_map.py holds tach_map.py's pin to the locked tach version,
+            # and a routine dependency bump is what moves it.
+            - uv.lock
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}

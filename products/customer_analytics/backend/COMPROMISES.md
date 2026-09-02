@@ -26,9 +26,10 @@ Shortcuts taken to ship the first version. Revisit when they bite.
   / `key_column` exist in the view's schema. A bad column surfaces as a per-source sync error (and
   advances the auto-disable streak) on the next run, not as a 400 on save. Validate against the saved
   query's `columns` at write time if the delayed feedback bites.
-- **Initial sync is best-effort.** Saving an enabled source enqueues a sync on commit so values
-  populate without waiting for the next materialization. If the broker is down the save still
-  succeeds and the enqueue is dropped (logged to error tracking) — the next materialization recovers.
+- **Initial sync is best-effort.** Saving an enabled account source queues a direct value sync on
+  commit so values populate without waiting for the next materialization. It does not write source
+  health. Temporal owns the scheduled sync outcome and run history. If the broker is down the save
+  still succeeds and the next materialization recovers.
 - **Create-path sync is synchronous, best-effort, and workflow-only.** When the external create
   endpoint is called by a workflow "Create account" step (the `X-PostHog-Hog-Flow-Id` header),
   it syncs warehouse-backed custom properties for the new account inline — scoped to its external

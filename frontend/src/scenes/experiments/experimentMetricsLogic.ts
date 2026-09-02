@@ -5,7 +5,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { isLaunched } from 'scenes/experiments/experimentStatus'
 import { projectLogic } from 'scenes/projectLogic'
 
 import type { FeatureFlagsSet } from '~/lib/logic/featureFlagLogic'
@@ -13,6 +12,7 @@ import type { Breakdown, CachedNewExperimentQueryResponse, ExperimentMetric } fr
 import { Experiment } from '~/types'
 import type { ExperimentIdType } from '~/types'
 
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 import {
     experimentsMetricsRecalculationCreate,
     experimentsMetricsRecalculationLatestRetrieve,
@@ -20,7 +20,7 @@ import {
 } from 'products/experiments/frontend/generated/api'
 import type {
     ExperimentMetricsRecalculationApi,
-    TriggerEnumApi,
+    ExperimentMetricsRecalculationTriggerEnumApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
 type ExperimentSavedMetric = {
@@ -260,8 +260,8 @@ export interface experimentMetricsLogicActions {
     setSecondaryMetricsResultsErrors: (errors: (unknown | null)[]) => {
         errors: unknown[]
     }
-    triggerRecalculation: (trigger?: TriggerEnumApi) => {
-        trigger: TriggerEnumApi
+    triggerRecalculation: (trigger?: ExperimentMetricsRecalculationTriggerEnumApi) => {
+        trigger: ExperimentMetricsRecalculationTriggerEnumApi
     }
 }
 
@@ -309,7 +309,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
     actions({
         setCurrentRecalculation: (recalculation: ExperimentMetricsRecalculationApi | null) => ({ recalculation }),
         loadLatestRecalculation: true,
-        triggerRecalculation: (trigger: TriggerEnumApi = 'manual') => ({ trigger }),
+        triggerRecalculation: (trigger: ExperimentMetricsRecalculationTriggerEnumApi = 'manual') => ({ trigger }),
         pollRecalculation: (recalculationId: string) => ({ recalculationId }),
         setPrimaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
         setSecondaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),

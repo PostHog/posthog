@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.kl
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.settings import (
     KLAVIYO_ENDPOINTS,
+    SERIES_REPORT_TIMEFRAME_KEY,
     KlaviyoEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.klaviyo.source import KlaviyoSource
@@ -1045,6 +1046,136 @@ class TestValuesReports:
         )
 
 
+class TestReportVariants:
+    def test_series_report_carries_interval_and_expands_each_bucket_into_a_row(self, monkeypatch: Any) -> None:
+        # Series reports return each statistic as an array aligned to a top-level date_times list;
+        # keeping the arrays nested would leave the table unqueryable and collapse the weekly rows.
+        # Klaviyo also 400s a series report missing the interval, so the body must carry it.
+        captured: dict[str, Any] = {}
+
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            if json_body is not None:
+                captured["body"] = json_body
+                return {
+                    "data": {
+                        "attributes": {
+                            "results": [
+                                {
+                                    "groupings": {
+                                        "flow_id": "F1",
+                                        "flow_message_id": "FM1",
+                                        "send_channel": "email",
+                                    },
+                                    "statistics": {"opens": [1, 2]},
+                                }
+                            ],
+                            "date_times": ["2026-01-05T00:00:00+00:00", "2026-01-12T00:00:00+00:00"],
+                        }
+                    },
+                    "links": {},
+                }
+            return {"data": [{"id": "M_ORDER", "attributes": {"name": "Placed Order"}}], "links": {}}
+
+        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
+        rows = [
+            row
+            for table in get_rows(
+                api_key="pk_test",
+                endpoint="flow_series_reports",
+                logger=MagicMock(),
+                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+            )
+            for row in table.to_pylist()
+        ]
+
+        assert captured["body"]["data"]["attributes"]["interval"] == "weekly"
+        assert rows == [
+            {
+                "flow_id": "F1",
+                "flow_message_id": "FM1",
+                "send_channel": "email",
+                "date_time": "2026-01-05T00:00:00+00:00",
+                "opens": 1,
+                "timeframe_key": SERIES_REPORT_TIMEFRAME_KEY,
+                "conversion_metric_id": "M_ORDER",
+            },
+            {
+                "flow_id": "F1",
+                "flow_message_id": "FM1",
+                "send_channel": "email",
+                "date_time": "2026-01-12T00:00:00+00:00",
+                "opens": 2,
+                "timeframe_key": SERIES_REPORT_TIMEFRAME_KEY,
+                "conversion_metric_id": "M_ORDER",
+            },
+        ]
+
+    @parameterized.expand(
+        [
+            ("form_values_reports", "form-values-report", "/form-values-reports", ["form_id"]),
+            ("segment_values_reports", "segment-values-report", "/segment-values-reports", None),
+        ]
+    )
+    def test_form_and_segment_reports_omit_the_conversion_metric_and_its_lookup(
+        self, endpoint: str, report_type: str, path: str, expected_group_by: list[str] | None
+    ) -> None:
+        # Form and segment reports don't accept a conversion_metric_id; sending one (or the group_by
+        # segment reports also reject) 400s the request, and resolving one would cost a needless
+        # /metrics walk on every sync.
+        captured: dict[str, Any] = {}
+        fetched_urls: list[str] = []
+
+        def fake_fetch(
+            session: Any, url: str, headers: dict[str, str], logger: Any, json_body: dict | None = None
+        ) -> dict:
+            fetched_urls.append(url)
+            if json_body is not None:
+                captured["body"] = json_body
+            return {"data": {"attributes": {"results": []}}, "links": {}}
+
+        with patch.object(klaviyo, "_fetch_page", fake_fetch):
+            list(
+                get_rows(
+                    api_key="pk_test",
+                    endpoint=endpoint,
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+
+        attributes = captured["body"]["data"]["attributes"]
+        assert captured["body"]["data"]["type"] == report_type
+        assert "conversion_metric_id" not in attributes
+        assert fetched_urls == [f"https://a.klaviyo.com/api{path}"]
+        if expected_group_by is None:
+            assert "group_by" not in attributes
+        else:
+            assert attributes["group_by"] == expected_group_by
+
+    @parameterized.expand(
+        [
+            ("flow_series_reports",),
+            ("form_series_reports",),
+            ("segment_series_reports",),
+        ]
+    )
+    def test_series_reports_key_on_the_time_bucket(self, endpoint: str) -> None:
+        # Without date_time in the primary key, the ~52 weekly rows per grouping collapse to one on
+        # merge, silently discarding the whole time series. Without date_time as a cursor the table
+        # syncs full refresh, so every sync rebuilds it from Klaviyo's rolling window and drops the
+        # weeks that have since left it, which no later sync can fetch again.
+        config = KLAVIYO_ENDPOINTS[endpoint]
+        assert "date_time" in config.primary_keys
+        assert [f["field"] for f in config.incremental_fields] == ["date_time"]
+        assert config.default_incremental_field == "date_time"
+        # Klaviyo caps weekly-interval series reports at 52 weeks; last_365_days (365 days) exceeds
+        # that by one day and causes a 400. All series endpoints must use the shorter key.
+        assert config.values_report is not None
+        assert config.values_report.timeframe_key == SERIES_REPORT_TIMEFRAME_KEY
+
+
 class TestEndpointRequestParams:
     @parameterized.expand(
         [
@@ -1141,9 +1272,20 @@ class TestNewSchemas:
         schemas = {s.name: s for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1)}
         assert schemas[endpoint].should_sync_default is expected_default
 
-    @parameterized.expand([("segment_profiles",), ("flow_actions",), ("flow_messages",)])
-    def test_lookback_endpoints_are_merge_only(self, endpoint: str) -> None:
-        # Append mode would materialize the intentional lookback re-pulls as duplicate rows.
+    @parameterized.expand(
+        [
+            ("segment_profiles",),
+            ("flow_actions",),
+            ("flow_messages",),
+            ("campaign_values_reports",),
+            ("flow_series_reports",),
+            ("form_series_reports",),
+            ("segment_series_reports",),
+        ]
+    )
+    def test_endpoints_that_re_pull_a_window_are_merge_only(self, endpoint: str) -> None:
+        # Append mode would materialize the intentional re-pulls as duplicate rows. A lookback
+        # endpoint re-pulls a window of rows each run, and a report re-posts its whole window.
         schemas = {s.name: s for s in KlaviyoSource().get_schemas(MagicMock(), team_id=1)}
         assert schemas[endpoint].supports_append is False
 

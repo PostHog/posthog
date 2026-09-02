@@ -61,6 +61,7 @@ from products.signals.backend.temporal.signal_queries import (
 )
 from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
 from products.signals.backend.temporal.types import (
+    IMPLEMENTATION_DEBOUNCE_SECONDS,
     RERESEARCH_MAX_SIGNALS,
     RESEARCH_DEBOUNCE_SECONDS,
     EmitSignalInputs,
@@ -1400,7 +1401,13 @@ async def _process_signal_batch(
                 task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                execution_timeout=timedelta(hours=1, seconds=report_input.debounce_seconds),
+                # The hour covers the research work; the two terms after it cover the workflow's own
+                # sleeps, which the hour was never sized for — the research debounce at entry and the
+                # implementation buffer at settle. A run that loops through several buffers can still
+                # outlive this; it's a backstop, and the report stays READY and re-promotes.
+                execution_timeout=timedelta(
+                    hours=1, seconds=report_input.debounce_seconds + IMPLEMENTATION_DEBOUNCE_SECONDS
+                ),
             )
         except temporalio.exceptions.WorkflowAlreadyStartedError:
             metrics.increment_research_run_collapsed()

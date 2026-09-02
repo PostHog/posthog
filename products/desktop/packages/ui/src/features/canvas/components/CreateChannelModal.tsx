@@ -27,7 +27,10 @@ import {
   Switch,
   Textarea,
 } from "@posthog/quill";
-import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import {
+  ANALYTICS_EVENTS,
+  type ChannelsSurface,
+} from "@posthog/shared/analytics-events";
 import { useChannelMutations } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useChannelsLayout } from "@posthog/ui/features/canvas/hooks/useChannelsLayout";
 import { useGenerateContext } from "@posthog/ui/features/canvas/hooks/useGenerateContext";
@@ -97,12 +100,14 @@ interface CreateChannelModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   existingContext?: { channelId: string; channelName: string };
+  surface?: ChannelsSurface;
 }
 
 export function CreateChannelModal({
   open,
   onOpenChange,
   existingContext,
+  surface = "sidebar",
 }: CreateChannelModalProps) {
   const isDescribeMode = !!existingContext;
   const spacesLayout = useChannelsLayout();
@@ -169,7 +174,7 @@ export function CreateChannelModal({
       const channel = await createChannel(trimmedName, { star });
       track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
         action_type: "create",
-        surface: "sidebar",
+        surface,
         channel_id: channel.id,
         success: true,
       });
@@ -177,7 +182,7 @@ export function CreateChannelModal({
     } catch (error) {
       track(ANALYTICS_EVENTS.CHANNEL_ACTION, {
         action_type: "create",
-        surface: "sidebar",
+        surface,
         success: false,
       });
       toast.error(`Couldn't create ${spacesLayout ? "space" : "channel"}`, {

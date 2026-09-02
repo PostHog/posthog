@@ -18,6 +18,24 @@ from uuid import UUID
 from pydantic.dataclasses import dataclass
 
 
+class NotebookRunBusy(Exception):
+    """Raised when the notebook already has a cell running.
+
+    Surfaced as 409, not 429. It is a conflict with the notebook's state rather than a rate,
+    and the MCP client rewrites every 429 into its own rate-limit error after retrying with
+    backoff — so a 429 would cost an agent seconds of pointless waiting and then hide the one
+    sentence telling it what to do.
+    """
+
+
+class TeamRunCapacityFull(Exception):
+    """Raised when the project already has as many notebook cells in flight as it may.
+
+    A rate rather than a state conflict, so this one is a 429: retrying later genuinely helps,
+    which is exactly what the MCP client's backoff does.
+    """
+
+
 class NotebookCellLimitExceeded(Exception):
     """Raised when a write would grow a notebook past its cell ceiling.
 

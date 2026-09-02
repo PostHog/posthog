@@ -1,63 +1,11 @@
 import datetime
-from zoneinfo import ZoneInfo
 
 import unittest
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest
 
 from dateutil import tz
 
-from posthog.models.filters.path_filter import PathFilter
-from posthog.queries.base import determine_parsed_incoming_date, relative_date_parse_for_feature_flag_matching
-
-
-class TestBase(APIBaseTest):
-    def test_determine_compared_filter(self):
-        from posthog.queries.base import determine_compared_filter
-
-        filter = PathFilter(data={"date_from": "2020-05-23", "date_to": "2020-05-29"}, team=self.team)
-        compared_filter = determine_compared_filter(filter)
-
-        self.assertIsInstance(compared_filter, PathFilter)
-        self.assertLessEqual(
-            {
-                "date_from": "2020-05-16T00:00:00+00:00",
-                "date_to": "2020-05-22T23:59:59.999999+00:00",
-            }.items(),
-            compared_filter.to_dict().items(),
-        )
-
-
-class TestDetermineParsedIncomingDate(unittest.TestCase):
-    def test_determine_parsed_incoming_date_with_int_timestamp(self):
-        self.assertEqual(
-            determine_parsed_incoming_date(1836277747), datetime.datetime(2028, 3, 10, 5, 9, 7, tzinfo=ZoneInfo("UTC"))
-        )
-
-    def test_determine_parsed_incoming_date_with_float_timestamp(self):
-        timestamp = 1836277747.867530
-        expected = datetime.datetime(2028, 3, 10, 5, 9, 7, 867530, tzinfo=ZoneInfo("UTC"))
-        self.assertEqual(determine_parsed_incoming_date(timestamp), expected)
-
-    def test_determine_parsed_incoming_date_with_string_timestamp(self):
-        parsed_date = determine_parsed_incoming_date("1836277747")
-        expected = datetime.datetime(2028, 3, 10, 5, 9, 7, tzinfo=ZoneInfo("UTC"))
-        self.assertEqual(parsed_date, expected)
-
-    def test_determine_parsed_incoming_date_with_datetime(self):
-        parsed_date = determine_parsed_incoming_date(datetime.datetime(2028, 3, 10, 5, 9, 7, tzinfo=ZoneInfo("UTC")))
-        expected = datetime.datetime(2028, 3, 10, 5, 9, 7, tzinfo=ZoneInfo("UTC"))
-        self.assertEqual(parsed_date, expected)
-
-    def test_determine_parsed_incoming_date_with_string_date(self):
-        parsed_date = determine_parsed_incoming_date("2028-03-10T05:09:07Z")
-        expected = datetime.datetime(2028, 3, 10, 5, 9, 7, tzinfo=ZoneInfo("UTC"))
-        self.assertEqual(parsed_date, expected)
-
-    def test_determine_parsed_date_for_property_matching_with_string_fractional_timestamp(self):
-        timestamp = "1836277747.867530"
-        expected = datetime.datetime(2028, 3, 10, 5, 9, 7, 867530, tzinfo=ZoneInfo("UTC"))
-        self.assertEqual(determine_parsed_incoming_date(timestamp), expected)
+from posthog.queries.base import relative_date_parse_for_feature_flag_matching
 
 
 class TestRelativeDateParsing(unittest.TestCase):

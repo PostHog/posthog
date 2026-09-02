@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const SurveysListParams = /* @__PURE__ */ zod.object({
+export const SurveysListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,8 +16,9 @@ export const SurveysListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const SurveysListQueryParams = /* @__PURE__ */ zod.object({
+export const SurveysListQueryParams = () => zod.object({
     archived: zod.boolean().optional(),
+    created_by: zod.number().optional().describe('Filter surveys by the ID of the user who created them.'),
     ids: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
@@ -27,6 +28,12 @@ export const SurveysListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             "Match against survey `name` and `description`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`."
         ),
+    status: zod
+        .enum(['complete', 'draft', 'running'])
+        .optional()
+        .describe(
+            'Filter surveys by their current status.\n\n\* `draft` - Draft\n\* `running` - Running\n\* `complete` - Complete'
+        ),
     type: zod
         .enum(['api', 'external_survey', 'popover', 'widget'])
         .optional()
@@ -35,7 +42,7 @@ export const SurveysListQueryParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const SurveysCreateParams = /* @__PURE__ */ zod.object({
+export const SurveysCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -77,7 +84,7 @@ export const surveysCreateBodyResponseSamplingLimitMax = 2147483647
 
 export const surveysCreateBodyBaseLanguageMax = 20
 
-export const SurveysCreateBody = /* @__PURE__ */ zod.object({
+export const SurveysCreateBody = () => zod.object({
     name: zod
         .string()
         .min(1)
@@ -928,7 +935,7 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
     form_content: zod.unknown().optional(),
 })
 
-export const SurveysRetrieveParams = /* @__PURE__ */ zod.object({
+export const SurveysRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
     project_id: zod
         .string()
@@ -937,7 +944,7 @@ export const SurveysRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const SurveysPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const SurveysPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
     project_id: zod
         .string()
@@ -980,7 +987,7 @@ export const surveysPartialUpdateBodyResponseSamplingLimitMax = 2147483647
 
 export const surveysPartialUpdateBodyBaseLanguageMax = 20
 
-export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const SurveysPartialUpdateBody = () => zod.object({
     name: zod
         .string()
         .min(1)
@@ -1833,7 +1840,7 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
     form_content: zod.unknown().optional(),
 })
 
-export const SurveysDestroyParams = /* @__PURE__ */ zod.object({
+export const SurveysDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
     project_id: zod
         .string()
@@ -1845,7 +1852,7 @@ export const SurveysDestroyParams = /* @__PURE__ */ zod.object({
 /**
  * Launch a survey by setting `start_date` to the current time. No-op if the survey is already launched (start_date set in the past) — returns the existing state unchanged. Does not affect archived surveys or surveys with an end_date in the past; unarchive or extend the end_date first.
  */
-export const SurveysLaunchParams = /* @__PURE__ */ zod.object({
+export const SurveysLaunchParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
     project_id: zod
         .string()
@@ -1857,7 +1864,7 @@ export const SurveysLaunchParams = /* @__PURE__ */ zod.object({
 /**
  * List survey responses for a specific survey, with question text resolved server-side so callers do not have to map opaque `$survey_response_<id>` keys. Each row carries `distinct_id`, `session_id`, `submitted_at`, and an `extra` block (device, browser, OS, geoip, current_url, iteration) so agents can cross-pivot to recordings, persons, or paths in a single follow-up call. For person properties at event time, follow up with `persons-get` using the returned `distinct_id` — keeps scopes scoped. Use `question_id` + `score_lte` to fetch NPS detractors and similar score-filtered cohorts.
  */
-export const SurveysResponsesListParams = /* @__PURE__ */ zod.object({
+export const SurveysResponsesListParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
     project_id: zod
         .string()
@@ -1873,7 +1880,7 @@ export const surveysResponsesListQueryLimitMax = 500
 export const surveysResponsesListQueryOffsetDefault = 0
 export const surveysResponsesListQueryOffsetMin = 0
 
-export const SurveysResponsesListQueryParams = /* @__PURE__ */ zod.object({
+export const SurveysResponsesListQueryParams = () => zod.object({
     exclude_archived: zod
         .boolean()
         .default(surveysResponsesListQueryExcludeArchivedDefault)
@@ -1930,7 +1937,7 @@ export const SurveysResponsesListQueryParams = /* @__PURE__ */ zod.object({
  * Returns:
  *     Survey statistics including event counts, unique respondents, and conversion rates
  */
-export const SurveysStatsRetrieveParams = /* @__PURE__ */ zod.object({
+export const SurveysStatsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
     project_id: zod
         .string()
@@ -1939,7 +1946,7 @@ export const SurveysStatsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const SurveysStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const SurveysStatsRetrieveQueryParams = () => zod.object({
     date_from: zod.iso
         .datetime({ offset: true })
         .optional()
@@ -1959,7 +1966,7 @@ export const SurveysStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
 /**
  * Stop a survey by setting `end_date` to the current time. No new responses are accepted after this; existing responses remain available. No-op if the survey already has an end_date in the past.
  */
-export const SurveysStopParams = /* @__PURE__ */ zod.object({
+export const SurveysStopParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
     project_id: zod
         .string()
@@ -1971,7 +1978,7 @@ export const SurveysStopParams = /* @__PURE__ */ zod.object({
 /**
  * Summarize survey responses. When `question_index` or `question_id` is provided, returns a per-question theme summary using cached `survey.question_summaries` when fresh. When neither is provided, returns the survey-wide headline summary (delegates to summary_headline). Pass `force_refresh=true` in the body to bypass caches.
  */
-export const SurveysSummarizeResponsesCreateParams = /* @__PURE__ */ zod.object({
+export const SurveysSummarizeResponsesCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
     project_id: zod
         .string()
@@ -1980,7 +1987,7 @@ export const SurveysSummarizeResponsesCreateParams = /* @__PURE__ */ zod.object(
         ),
 })
 
-export const SurveysSummarizeResponsesCreateQueryParams = /* @__PURE__ */ zod.object({
+export const SurveysSummarizeResponsesCreateQueryParams = () => zod.object({
     question_id: zod
         .string()
         .optional()
@@ -1993,7 +2000,7 @@ export const SurveysSummarizeResponsesCreateQueryParams = /* @__PURE__ */ zod.ob
 
 export const surveysSummarizeResponsesCreateBodyForceRefreshDefault = false
 
-export const SurveysSummarizeResponsesCreateBody = /* @__PURE__ */ zod.object({
+export const SurveysSummarizeResponsesCreateBody = () => zod.object({
     force_refresh: zod
         .boolean()
         .default(surveysSummarizeResponsesCreateBodyForceRefreshDefault)
@@ -2010,7 +2017,7 @@ export const SurveysSummarizeResponsesCreateBody = /* @__PURE__ */ zod.object({
  * Returns:
  *     Aggregated statistics across all surveys including total counts and rates
  */
-export const SurveysGlobalStatsRetrieveParams = /* @__PURE__ */ zod.object({
+export const SurveysGlobalStatsRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -2018,7 +2025,7 @@ export const SurveysGlobalStatsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const SurveysGlobalStatsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const SurveysGlobalStatsRetrieveQueryParams = () => zod.object({
     date_from: zod.iso
         .datetime({ offset: true })
         .optional()

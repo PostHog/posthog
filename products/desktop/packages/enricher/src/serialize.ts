@@ -8,11 +8,7 @@ import type { EnrichedResult } from "./enriched-result.js";
 export type {
   SerializedEnrichment,
   SerializedEvent,
-  SerializedEventOccurrence,
   SerializedFlag,
-  SerializedFlagExperiment,
-  SerializedFlagOccurrence,
-  SerializedFlagVariant,
 } from "@posthog/shared";
 
 export function toSerializable(enriched: EnrichedResult): SerializedEnrichment {

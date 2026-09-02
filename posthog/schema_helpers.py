@@ -14,7 +14,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.hogql_queries.insights.utils.utils import series_should_be_set_to_dau
+from posthog.hogql_queries.utils.utils import series_should_be_set_to_dau
 from posthog.types import InsightQueryNode
 
 
@@ -191,6 +191,7 @@ def grouped_chart_display_types(display: ChartDisplayType) -> ChartDisplayType:
             ChartDisplayType.ACTIONS_BAR_VALUE
             | ChartDisplayType.BOLD_NUMBER
             | ChartDisplayType.ACTIONS_PIE
+            | ChartDisplayType.ACTIONS_DONUT
             | ChartDisplayType.ACTIONS_TABLE
         ):
             # total value

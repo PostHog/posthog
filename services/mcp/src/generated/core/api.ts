@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 5 enabled ops
+ * PostHog API - MCP 8 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -14,7 +14,7 @@ import * as zod from 'zod'
 export const organizationsProjectsRetrievePathIdMin = -2147483648
 export const organizationsProjectsRetrievePathIdMax = 2147483647
 
-export const OrganizationsProjectsRetrieveParams = /* @__PURE__ */ zod.object({
+export const OrganizationsProjectsRetrieveParams = () => zod.object({
     id: zod
         .number()
         .min(organizationsProjectsRetrievePathIdMin)
@@ -33,7 +33,7 @@ export const OrganizationsProjectsRetrieveParams = /* @__PURE__ */ zod.object({
 export const organizationsProjectsPartialUpdatePathIdMin = -2147483648
 export const organizationsProjectsPartialUpdatePathIdMax = 2147483647
 
-export const OrganizationsProjectsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const OrganizationsProjectsPartialUpdateParams = () => zod.object({
     id: zod
         .number()
         .min(organizationsProjectsPartialUpdatePathIdMin)
@@ -96,7 +96,7 @@ export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigAttri
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMax = 2147483647
 
-export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
+export const OrganizationsProjectsPartialUpdateBody = () => zod
     .object({
         name: zod
             .string()
@@ -2650,7 +2650,7 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
     })
     .describe('Mixin for serializers to add user access control fields')
 
-export const ProductEnablementCreateParams = /* @__PURE__ */ zod.object({
+export const ProductEnablementCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -2658,7 +2658,7 @@ export const ProductEnablementCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const ProductEnablementCreateBody = /* @__PURE__ */ zod.object({
+export const ProductEnablementCreateBody = () => zod.object({
     products: zod
         .array(
             zod
@@ -2672,16 +2672,71 @@ export const ProductEnablementCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * List images in the media library. Requires a `purpose` filter — the library is scoped per consumer (e.g. `email`), so browsing without one would mix in unrelated uploads (dashboard images, toolbar screenshots, ...).
+ */
+export const UploadedMediaListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const UploadedMediaListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    purpose: zod.enum(['email']).describe('The library to list.'),
+})
+
+/**
+ * Step 2 of the presigned upload flow: verifies the object POSTed to the upload_url, sniffs its real content type, and activates it — after this it appears in the library and is publicly servable.
+ */
+export const UploadedMediaCompleteUploadCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this uploaded media.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Step 1 of the presigned upload flow: reserves a pending image and returns a presigned URL to POST the file to directly, bytes never pass through this API. Call complete_upload with the returned id once the upload finishes.
+ */
+export const UploadedMediaStartUploadCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const uploadedMediaStartUploadCreateBodyNameMax = 1000
+
+export const uploadedMediaStartUploadCreateBodyPurposeMax = 100
+
+export const UploadedMediaStartUploadCreateBody = () => zod.object({
+    name: zod
+        .string()
+        .max(uploadedMediaStartUploadCreateBodyNameMax)
+        .describe("The file's display name, e.g. 'logo.png'."),
+    purpose: zod
+        .string()
+        .max(uploadedMediaStartUploadCreateBodyPurposeMax)
+        .describe("Library to add this image to once uploaded, e.g. 'email'."),
+})
+
+/**
  * Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user; non-staff callers may only access their own account.
  */
-export const UsersRetrieveParams = /* @__PURE__ */ zod.object({
+export const UsersRetrieveParams = () => zod.object({
     uuid: zod.string(),
 })
 
 /**
  * Update one or more of the authenticated user's profile fields or settings.
  */
-export const UsersPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const UsersPartialUpdateParams = () => zod.object({
     uuid: zod.string(),
 })
 
@@ -2693,7 +2748,7 @@ export const usersPartialUpdateBodyEmailMax = 254
 
 export const usersPartialUpdateBodyPasswordMax = 128
 
-export const UsersPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const UsersPartialUpdateBody = () => zod.object({
     first_name: zod.string().max(usersPartialUpdateBodyFirstNameMax).optional(),
     last_name: zod.string().max(usersPartialUpdateBodyLastNameMax).optional(),
     email: zod.email().max(usersPartialUpdateBodyEmailMax).optional(),

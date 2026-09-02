@@ -1,0 +1,6 @@
+{
+    "id": "RB12",
+    "real": true,
+    "source": "fresh",
+    "reasoning": "Confirmed as stated, cosmetic. review_local.py:321 constructs Pipeline(0, ...). self.pr_number is set at review_pr.py:198 and read only at review_pr.py:384 inside _fetch(); _fetch() is called only from Pipeline.run() (review_pr.py:223) and the bot-wait refetch loop (review_pr.py:330), neither reachable from review_local.run(), which assigns pipeline.pr = _build_pr_data(context) directly (review_local.py:322) and handles in-flight bots inline without refetch (review_local.py:338-351). Telemetry/output use self.pr.number (review_pr.py:826, 917), sourced from context via review_local.py:371. The 0 is dead weight exactly as claimed; no runtime impact."
+}

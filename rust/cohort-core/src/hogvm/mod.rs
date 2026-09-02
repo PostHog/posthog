@@ -10,6 +10,7 @@
 //! is bring-your-own-metrics: it emits nothing and hands the caller the classified outcome. The
 //! seeder uses it so failures land on its own `seeder_hogvm_*` counters, not these.
 
+pub mod analysis;
 mod executor;
 mod globals;
 

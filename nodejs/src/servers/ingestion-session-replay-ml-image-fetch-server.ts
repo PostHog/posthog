@@ -13,6 +13,7 @@ import { KafkaConsumerV2, KafkaConsumerV2Config, RdKafkaConsumerOverrides } from
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { logger } from '~/common/utils/logger'
+import { TopHog } from '~/ingestion/framework/tophog/tophog'
 import { SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
 import {
     ConfigurationPolicyService,
@@ -30,9 +31,11 @@ import {
 import { HttpImageFetcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher'
 import { OriginRequestScheduler } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/origin-request-scheduler'
 import { assertUrlPolicyLoaded } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/politeness-key'
+import { ImageFetchTopHogMetrics } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/tophog-metrics'
 import { UrlFetchConsumer } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/url-fetch-consumer'
 import { createWebBotAuthRequestSigner } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/web-bot-auth'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
+import { createOutputsRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/registry'
 import { INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 import { HealthCheckResultOk } from '~/types'
 
@@ -94,7 +97,8 @@ export function buildFrontierPublisher(
 
 export function buildFetchRunner(
     config: IngestionSessionReplayMlMirrorServerConfig,
-    publisher: FrontierPublisher
+    publisher: FrontierPublisher,
+    topHogMetrics: ImageFetchTopHogMetrics
 ): FetchRunner {
     const webBotAuthSigner = createWebBotAuthRequestSigner(config.WEB_BOT_AUTH_PRIVATE_KEYS)
     const budget = new HostBudget({
@@ -107,7 +111,11 @@ export function buildFetchRunner(
         maxTrackedRegistrableDomains: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_REGISTRABLE_DOMAINS,
         maxTrackedOrigins: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_TRACKED_ORIGINS,
     })
-    const scheduler = new OriginRequestScheduler(budget, config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS)
+    const scheduler = new OriginRequestScheduler(
+        budget,
+        config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS,
+        topHogMetrics
+    )
     const configurationPolicy = new ConfigurationPolicyService(
         new HttpConfigurationFetcher(
             webBotAuthSigner,
@@ -132,18 +140,14 @@ export function buildFetchRunner(
             maxConcurrentPerRegistrableDomain:
                 config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN,
             maxInFlightRequests: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS,
-            lowOriginDiversityMinimumRequestSlots:
-                config.SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_MINIMUM_REQUEST_SLOTS,
-            lowOriginDiversityRepublishThreshold:
-                config.SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_REPUBLISH_THRESHOLD,
-            lowOriginDiversityProgress: config.SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_PROGRESS,
             batchBudgetMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_BUDGET_MS,
             maxBytes: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IMAGE_BYTES,
             requestTimeoutMs: config.SESSION_RECORDING_ML_IMAGE_FETCH_REQUEST_TIMEOUT_MS,
             maxRedirects: config.SESSION_RECORDING_ML_IMAGE_FETCH_MAX_REDIRECTS,
             seenTtlSeconds: config.AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS,
         },
-        publisher
+        publisher,
+        topHogMetrics
     )
 }
 
@@ -185,6 +189,7 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
     private config: IngestionSessionReplayMlMirrorServerConfig
     private crawlHistoryClient?: DynamoDBClient
     private producerRegistry?: KafkaProducerRegistry<SessionReplayProducerName>
+    private topHog?: TopHog
 
     constructor(config: Partial<IngestionSessionReplayMlMirrorServerConfig> = {}) {
         this.config = buildMlMirrorServerConfig(config)
@@ -238,6 +243,14 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
         // Built even in dry run, so the wiring is exercised by every start rather than only by the
         // one that clears the flag.
         this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
+        const outputs = createOutputsRegistry().build(this.producerRegistry, this.config)
+        this.topHog = new TopHog({
+            outputs,
+            pipeline: this.config.INGESTION_PIPELINE ?? 'unknown',
+            lane: this.config.INGESTION_LANE ?? 'unknown',
+        })
+        this.topHog.start()
+        const topHogMetrics = new ImageFetchTopHogMetrics(this.topHog)
         const producer = this.producerRegistry.getProducer(INGESTION_SESSIONREPLAY_ML_IMAGE_FETCH_PRODUCER)
         const publisher = buildFrontierPublisher(
             producer,
@@ -255,8 +268,9 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
                 seenTtlSeconds: this.config.AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS,
                 dryRun,
             },
-            buildFetchRunner(this.config, publisher),
-            deadLetters
+            buildFetchRunner(this.config, publisher, topHogMetrics),
+            deadLetters,
+            topHogMetrics
         )
         logger.info('🌐', 'ml_image_fetch_started', { dryRun })
 
@@ -295,7 +309,11 @@ export class IngestionSessionReplayMlImageFetchServer implements NodeServer {
             redisPools: [],
             additionalCleanup: async () => {
                 this.crawlHistoryClient?.destroy()
-                await this.producerRegistry?.disconnectAll()
+                try {
+                    await this.topHog?.stop()
+                } finally {
+                    await this.producerRegistry?.disconnectAll()
+                }
             },
         }
     }

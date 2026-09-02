@@ -23,6 +23,7 @@ from products.replay_vision.backend.api.delivery import archive_delivery, provis
 from products.replay_vision.backend.api.scanners import ReplayScannerSerializer
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_process_vision_action_workflow
 from products.replay_vision.backend.api.vision_actions import VisionActionSerializer
+from products.replay_vision.backend.api.vision_actions_shim import unmigrated
 from products.replay_vision.backend.billing import CREDITS_PER_DOLLAR, observation_credits_for_model
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.embeddings import OBSERVATION_EMBEDDING_MODEL
@@ -223,7 +224,12 @@ class ReplayVisionGatesMixin:
         """
         if not is_uuid(action_id):
             return None
-        action = VisionAction.objects.for_team(self._team.id).filter(id=action_id).select_related("scanner").first()
+        action = (
+            unmigrated(VisionAction.objects.for_team(self._team.id))
+            .filter(id=action_id)
+            .select_related("scanner")
+            .first()
+        )
         if action is None or not self.user_access_control.check_access_level_for_object(action, level):
             return None
         if not self.user_access_control.check_access_level_for_object(action.scanner, level):
@@ -1222,6 +1228,36 @@ class CreateReplayVisionActionTool(ReplayVisionGatesMixin, MaxTool):
         # restriction that blocks the API be walked around through Max.
         if scanner is None or not self.user_access_control.check_access_level_for_object(scanner, "editor"):
             return f"Scanner {scanner_id} not found.", {"error": "not_found"}
+        from posthog.ph_client import (
+            feature_enabled_or_false,  # noqa: PLC0415 — keeps the analytics client off the import path
+        )
+
+        if feature_enabled_or_false(
+            "replay-vision-alerts",
+            getattr(self._user, "distinct_id", str(self._user.id)),
+            groups={"organization": str(self._team.organization_id)},
+            send_feature_flag_events=False,
+        ):
+            from products.replay_vision.backend.api import (
+                vision_actions_shim,  # noqa: PLC0415 — deferred with the flag branch
+            )
+
+            rendered = vision_actions_shim.create_action(
+                self._team,
+                self._user,
+                {
+                    "name": name.strip(),
+                    "scanner": str(scanner.id),
+                    "mode": ActionMode.GROUP_SUMMARY,
+                    "trigger_config": {"rrule": rrule, "timezone": self._team.timezone or "UTC"},
+                    "synthesis_config": {"prompt_guide": focus.strip()} if focus and focus.strip() else {},
+                },
+            )
+            return (
+                f"Created a {cadence} scout digest of that scanner's observations. It appears on the "
+                "scanner's Scouts tab, and you can add Slack or webhook delivery there.",
+                {"vision_action_id": rendered["id"]},
+            )
         # Through the serializer so the rrule and timezone are validated and the unique-name race is
         # handled, rather than writing a trigger_config the scheduler later chokes on.
         serializer = VisionActionSerializer(
@@ -1719,7 +1755,9 @@ class ReadReplayVisionActionsTool(ReplayVisionGatesMixin, MaxTool):
         resource, not any individual scanner's ACL, so a per-scanner restriction would still leave the
         action listed along with reports derived from that scanner's observations.
         """
-        actions = self.user_access_control.filter_queryset_by_access_level(VisionAction.objects.for_team(self._team.id))
+        actions = self.user_access_control.filter_queryset_by_access_level(
+            unmigrated(VisionAction.objects.for_team(self._team.id))
+        )
         readable_scanners = self.user_access_control.filter_queryset_by_access_level(
             ReplayScanner.objects.filter(team_id=self._team.id)
         )

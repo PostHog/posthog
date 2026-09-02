@@ -7,14 +7,14 @@ import { LemonButton, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/l
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Label } from 'lib/ui/Label/Label'
-import { getExperimentStatus, isExperimentPaused } from 'scenes/experiments/experimentStatus'
 import { urls } from 'scenes/urls'
 
 import { ExperimentStatsMethod, ExperimentStatus } from '~/types'
 
 import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
+import { CONCLUSION_DISPLAY_CONFIG } from 'products/experiments/frontend/constants'
+import { getExperimentStatus, isExperimentPaused } from 'products/experiments/frontend/experimentStatus'
 
-import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { ExperimentDuration } from './ExperimentDuration'

@@ -132,6 +132,7 @@ export function usePatchLayout(canvasId: string): {
   return { patch, isPatching: isPending };
 }
 
+/** Not wired to a caller yet. The @public tag stops knip from reporting it. */
 export function useComponentStore(
   search: string,
   options?: { enabled?: boolean },

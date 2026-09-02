@@ -81,6 +81,7 @@ _LAZY = {
     "DIRECT_MOTHERDUCK_URL_PATTERN": "direct_motherduck",
     "DIRECT_TRINO_URL_PATTERN": "direct_trino",
     "DIRECT_POSTGRES_URL_PATTERN": "direct_postgres",
+    "DIRECT_SNOWFLAKE_URL_PATTERN": "direct_snowflake",
     "hide_direct_postgres_table": "direct_postgres",
     "upsert_direct_postgres_table": "direct_postgres",
     "hide_direct_snowflake_table": "direct_snowflake",

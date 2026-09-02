@@ -59,10 +59,7 @@ const createPending = (): Pending => ({
   deletes: new Set(),
 });
 
-export const accumulateFsEvents = (
-  pending: Pending,
-  events: WatcherEvent[],
-): void => {
+const accumulateFsEvents = (pending: Pending, events: WatcherEvent[]): void => {
   for (const event of events) {
     pending.dirs.add(dirname(event.path));
     if (event.type === "delete") pending.deletes.add(event.path);
@@ -70,7 +67,7 @@ export const accumulateFsEvents = (
   }
 };
 
-export const drainPending = (
+const drainPending = (
   repoPath: string,
   pending: Pending,
 ): FileWatcherEvent[] => {

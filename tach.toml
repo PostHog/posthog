@@ -5,10 +5,12 @@ exclude = [
     "**/*__pycache__",
     "**/*egg-info",
     "docs",
-    "tests",
-    # Eval trees are dev/CI-only tooling (same class as `tests`): the harness orchestrates
-    # many products by design, and product-owned suites under products/*/evals import the
-    # harness contracts, so neither fits the production dependency graph.
+    # Test directories stay in the graph so that a test outside a product that imports the
+    # product's internals is an interface violation. They are not dependency edges: `hogli
+    # lint:tach` (what CI runs) excludes test code from the dependency pass only.
+    # Eval trees are dev/CI-only tooling: the harness orchestrates many products by
+    # design, and product-owned suites under products/*/evals import the harness
+    # contracts, so neither fits the production dependency graph.
     "products/posthog_ai/eval_harness",
     "products/*/evals",
 ]
@@ -185,6 +187,11 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.autoresearch"
+depends_on = []
+layer = "modules"
+
+[[modules]]
 path = "products.batch_exports"
 depends_on = [
     "ee",
@@ -315,6 +322,7 @@ path = "products.warehouse_sources"
 depends_on = [
     "ee",
     "posthog",
+    "products.batch_exports",
     "products.cdp",
     "products.data_modeling",
     "products.data_tools",
@@ -416,6 +424,8 @@ depends_on = [
     "products.event_definitions",
     "products.feature_flags",
     "products.notifications",
+    # An experiment with a funnel metric runs the funnel through product analytics.
+    "products.product_analytics",
     "products.product_tours",
     "products.surveys",
     "products.tasks",
@@ -566,6 +576,7 @@ path = "products.notebooks"
 depends_on = [
     "ee",
     "posthog",
+    "products.canvas",
     "products.product_analytics",
     "products.tasks", "products.access_control",
 ]
@@ -696,8 +707,10 @@ depends_on = [
     "products.alerts",
     "products.cdp",
     "products.cohorts",
+    "products.event_definitions",
     "products.experiments",
     "products.exports",
+    "products.feature_flags",
     "products.notifications",
     "products.signals",
     "products.tasks", "products.access_control",
@@ -881,6 +894,16 @@ from = [
     "products.canvas",
 ]
 
+# Canvas is still a legacy product, so notebooks use a narrow product-owned
+# integration instead of exposing its whole facade and claiming strict isolation.
+[[interfaces]]
+expose = [
+    "backend\\.notebook_integration.*",
+]
+from = [
+    "products.canvas",
+]
+
 [[interfaces]]
 expose = [
     "backend\\.teaching.*",
@@ -890,6 +913,8 @@ expose = [
     # canvas analog of the backend.tasks Celery registration above. Canvas is
     # not isolated yet, so this stays a legacy leak rather than a facade expose.
     "backend\\.temporal\\.registry.*",
+    # tasks' tests build canvases that point at a generation task.
+    "backend\\.models\\.Canvas",
 ]
 from = [
     "products.canvas",
@@ -970,6 +995,9 @@ depends_on = [
     "products.feature_flags",
     "products.messaging",
     "products.notifications",
+    # Facade-only: the Run scout action's endpoint starts a scout run through
+    # products.signals.backend.facade.api.
+    "products.signals",
     # Facade-only: the AI task action's endpoint creates tasks through
     # products.tasks.backend.facade.workflow_tasks.
     "products.tasks", "products.access_control",
@@ -985,7 +1013,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|managed_warehouse|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
+    "products\\.(autoresearch|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|managed_warehouse|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -1076,6 +1104,8 @@ expose = [
     "backend\\.admin.*",
     "backend\\.models.*",
     "backend\\.oauth.*",
+    "backend\\.url_policy\\.check_mcp_url_policy",
+    "backend\\.url_policy\\.trust_environment_proxy",
 ]
 from = [
     "products.mcp_store",
@@ -1297,6 +1327,18 @@ layer = "modules"
 path = "products.field_notes"
 depends_on = ["posthog"]
 layer = "modules"
+
+# Isolation debt: outside test suites build tasks rows and read its enums straight
+# from the models. Drain by adding factories to facade/testing.py and migrating the
+# suites, then delete this block. Consumers: canvas, slack_app, review_hog,
+# replay_vision, posthog_ai, stamphog, conversations, signals, ee.
+[[interfaces]]
+expose = [
+    "backend\\.models\\.(Channel|SandboxEnvironment|Task|TaskRun|TaskThreadMessage)",
+]
+from = [
+    "products.tasks",
+]
 
 [[modules]]
 path = "products.stamphog"

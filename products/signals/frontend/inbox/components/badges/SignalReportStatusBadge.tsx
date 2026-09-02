@@ -29,7 +29,7 @@ export const STATUS_TOOLTIPS: Partial<Record<SignalReportStatus, string>> = {
     [SignalReportStatus.POTENTIAL]: 'Gathering signals. The report will be queued once enough evidence accumulates.',
     [SignalReportStatus.RESOLVED]: 'This report has been resolved.',
     [SignalReportStatus.FAILED]: 'Research failed. The report may be retried automatically.',
-    [SignalReportStatus.SUPPRESSED]: 'This report has been suppressed and is out of your inbox.',
+    [SignalReportStatus.SUPPRESSED]: 'This report was dismissed and is out of your inbox.',
     [SignalReportStatus.DELETED]: 'This report has been deleted.',
 }
 
@@ -41,7 +41,7 @@ export const STATUS_LABELS: Partial<Record<SignalReportStatus, string>> = {
     [SignalReportStatus.POTENTIAL]: 'Gathering',
     [SignalReportStatus.RESOLVED]: 'Resolved',
     [SignalReportStatus.FAILED]: 'Failed',
-    [SignalReportStatus.SUPPRESSED]: 'Suppressed',
+    [SignalReportStatus.SUPPRESSED]: 'Dismissed',
     [SignalReportStatus.DELETED]: 'Deleted',
 }
 

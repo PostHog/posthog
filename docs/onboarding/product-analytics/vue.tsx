@@ -36,6 +36,13 @@ export const getVueInstallSteps = (ctx: OnboardingComponentsContext): StepDefini
                                     pnpm add posthog-js
                                 `,
                             },
+                            {
+                                language: 'bash',
+                                file: 'bun',
+                                code: dedent`
+                                    bun add posthog-js
+                                `,
+                            },
                         ]}
                     />
                     <CalloutBox type="fyi" title="Vue version">

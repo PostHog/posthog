@@ -1,5 +1,5 @@
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
@@ -24,8 +24,17 @@ export function MetricsQueryNode(props: {
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `MetricsQueryNode.${uniqueNode++}`)
+    // `dataNodeLogic` deep-compares its query to decide whether to refetch. Its
+    // `ignoreVisualizationOnlyChanges` option doesn't help here — that only reaches
+    // `cleanInsightQuery`, which bails unless both sides are insight query nodes, and a
+    // `MetricsQuery` isn't one. So chart settings have to be kept out of the query it sees,
+    // or changing the chart type would re-run the ClickHouse query.
+    const dataQuery = useMemo(() => {
+        const { display: _display, ...rest } = props.query
+        return rest
+    }, [props.query])
     const logic = dataNodeLogic({
-        query: props.query,
+        query: dataQuery,
         key,
         cachedResults: props.cachedResults,
         loadPriority,
@@ -43,7 +52,7 @@ export function MetricsQueryNode(props: {
     return (
         <div className="relative flex flex-col w-full h-full min-h-[200px]">
             {hasPoints ? (
-                <MetricsSeriesChart series={series} fallbackName={fallbackName} />
+                <MetricsSeriesChart series={series} fallbackName={fallbackName} display={props.query.display} />
             ) : !responseLoading ? (
                 <div className="flex-1 flex items-center justify-center text-secondary text-sm">
                     No data for this metric in the selected range.

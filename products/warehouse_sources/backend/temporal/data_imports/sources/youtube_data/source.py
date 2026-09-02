@@ -25,8 +25,9 @@ class YoutubeDataSource(SimpleSource[YoutubeDataSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.YOUTUBE_DATA,
             category=DataWarehouseSourceCategory.ANALYTICS,
-            label="Youtube Data",
+            label="YouTube Data",
             iconPath="/static/services/youtube_data.png",
+            keywords=["youtube", "yt"],
             fields=cast(list[FieldType], []),
             unreleasedSource=True,
         )
