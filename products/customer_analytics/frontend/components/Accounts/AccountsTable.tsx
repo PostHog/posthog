@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconCheck, IconPencil, IconX } from '@posthog/icons'
+import { IconCheck, IconInfo, IconPencil, IconX } from '@posthog/icons'
 import {
     LemonButton,
     LemonColorGlyph,
@@ -354,7 +354,7 @@ function CanonicalTimestampCell({
 }
 
 export function isCustomPropertyEditable(definition: CustomPropertyDefinitionApi): boolean {
-    return !definition.is_canonical && !definition.source && definition.references.length === 0
+    return !definition.is_canonical && !definition.source
 }
 
 type CustomPropertyDraft = boolean | string
@@ -640,6 +640,11 @@ function CustomPropertyCell({
     return (
         <div className="flex min-w-0 items-center gap-1">
             <span className="min-w-0 truncate">{renderedValue}</span>
+            {definition.has_workflow_reference && (
+                <Tooltip title="A workflow is configured to update this property. If it runs again, it will overwrite any value you set manually.">
+                    <IconInfo className="text-warning shrink-0" />
+                </Tooltip>
+            )}
             {isEditable && accountId && (
                 <LemonButton
                     type="tertiary"
@@ -886,7 +891,7 @@ export function AccountsTable(): JSX.Element {
     const { responseLoading, response } = useValues(
         dataNodeLogic({
             key: ACCOUNTS_TABLE_DATA_NODE_KEY,
-            query: accountsQuerySource ?? accountsDataTableQuery.source,
+            query: accountsQuerySource,
         } as DataNodeLogicProps)
     )
     const { featureFlags } = useValues(featureFlagLogic)

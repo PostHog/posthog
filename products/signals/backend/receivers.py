@@ -555,6 +555,7 @@ _SNAPSHOT_ARTEFACT_FIELDS = [
     (SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT, "priority", "priority"),
     (SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT, "actionability", "actionability"),
     (SignalReportArtefact.ArtefactType.DISMISSAL, "reason", "dismissal_reason"),
+    (SignalReportArtefact.ArtefactType.DISMISSAL, "corrected_repository", "dismissal_corrected_repository"),
 ]
 
 
