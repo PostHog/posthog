@@ -5,12 +5,40 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
 from django.utils import timezone
 
+from django_deprecate_fields import deprecate_field
+
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
 
 from products.tasks.backend.agents import get_agent_by_id
 from products.tasks.backend.lib.templates import DEFAULT_WORKFLOW_TEMPLATE, WorkflowTemplate
+
+
+class AgentDefinition(models.Model):
+    class AgentType(models.TextChoices):
+        CODE_GENERATION = "code_generation", "Code Generation Agent"
+        TRIAGE = "triage", "Triage Agent"
+        REVIEW = "review", "Review Agent"
+        TESTING = "testing", "Testing Agent"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    name = models.CharField(max_length=255, help_text="Human-readable name for this agent")
+    agent_type = models.CharField(max_length=50, choices=AgentType.choices)
+    description = models.TextField(blank=True, help_text="Description of what this agent does")
+    config = models.JSONField(default=dict, help_text="Agent-specific configuration")
+    is_active = models.BooleanField(default=True, help_text="Whether this agent is available for use")
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_agent_definition"
+        unique_together = [("team", "name")]
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
 
 
 class TaskWorkflow(models.Model):
@@ -162,6 +190,16 @@ class WorkflowStage(models.Model):
     key = models.CharField(max_length=50, help_text="Unique key for this stage within the workflow")
     position = models.IntegerField(help_text="Order of this stage in the workflow")
     color = models.CharField(max_length=7, default="#6b7280", help_text="Hex color for UI display")
+
+    agent = deprecate_field(
+        models.ForeignKey(
+            "tasks.AgentDefinition",
+            on_delete=models.SET_NULL,
+            null=True,
+            blank=True,
+            help_text="DEPRECATED: Agent responsible for processing tasks in this stage",
+        )
+    )
 
     agent_name = models.CharField(
         max_length=50, null=True, blank=True, help_text="ID of the agent responsible for this stage"

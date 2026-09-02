@@ -10,10 +10,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveField(
-            model_name="workflowstage",
-            name="agent",
-        ),
         migrations.AlterField(
             model_name="task",
             name="workflow",
@@ -25,8 +21,5 @@ class Migration(migrations.Migration):
                 related_name="tasks",
                 to="tasks.taskworkflow",
             ),
-        ),
-        migrations.DeleteModel(
-            name="AgentDefinition",
         ),
     ]
