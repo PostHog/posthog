@@ -29834,7 +29834,7 @@ export namespace Schemas {
       /** Number of events matching this element chain */
       count: number;
       /**
-         * Stable identity of the raw element chain (hash computed before any attribute filtering), for deduplicating rows across pages
+         * Stable identity of the element chain the response carries, for deduplicating rows across pages
          * @nullable
          */
       hash: string | null;
