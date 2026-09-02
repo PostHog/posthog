@@ -9511,6 +9511,7 @@ export const externalDataSources = [
     'Coolify',
     'SocialPilot',
     'RoktAds',
+    'Strato',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
