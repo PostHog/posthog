@@ -154,6 +154,7 @@ const buildCustomPropertyDefinition = (
     is_canonical: false,
     source: null,
     references: [],
+    has_workflow_reference: false,
     created_at: '2026-01-01T00:00:00Z',
     created_by: null,
     updated_at: null,
@@ -820,23 +821,45 @@ describe('accountsLogic', () => {
                 logic.values.customPropertyOverrides[customPropertySavingKey('acc-1', definition.id)]
             ).toBeUndefined()
             expect(logic.values.isCustomPropertySaving('acc-1', definition.id)).toBe(false)
-            expect(capture).toHaveBeenCalledWith(AccountsEvents.CustomPropertyUpdated, { display_type: 'number' })
+            expect(capture).toHaveBeenCalledWith(AccountsEvents.CustomPropertyUpdated, {
+                display_type: 'number',
+                workflow_reference: false,
+            })
         })
 
         it.each([
             ['canonical', buildCustomPropertyDefinition({ is_canonical: true })],
             ['data warehouse managed', buildCustomPropertyDefinition({ source: createCustomPropertySource() })],
-            [
-                'workflow managed',
-                buildCustomPropertyDefinition({
-                    references: [{ id: 'workflow-1', name: 'Update health score', status: 'active', type: 'workflow' }],
-                }),
-            ],
         ])('does not write a %s property', async (_, definition) => {
             logic.actions.updateAccountCustomProperty('acc-1', definition, 42)
             await expectLogic(logic).toFinishAllListeners()
 
             expect(mockCustomPropertyValuesCreate).not.toHaveBeenCalled()
+        })
+
+        it('writes a workflow-managed property', async () => {
+            const definition = buildCustomPropertyDefinition({ has_workflow_reference: true })
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            mockCustomPropertyValuesCreate.mockResolvedValue({
+                id: 'value-1',
+                account_id: 'acc-1',
+                definition_id: definition.id,
+                value: 42,
+                created_at: '2026-01-01T00:00:00Z',
+                created_by_id: 1,
+            })
+
+            logic.actions.updateAccountCustomProperty('acc-1', definition, 42)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(mockCustomPropertyValuesCreate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'acc-1', {
+                definition: definition.id,
+                value: 42,
+            })
+            expect(capture).toHaveBeenCalledWith(AccountsEvents.CustomPropertyUpdated, {
+                display_type: 'number',
+                workflow_reference: true,
+            })
         })
 
         it('reverts the optimistic override after a failed write', async () => {
