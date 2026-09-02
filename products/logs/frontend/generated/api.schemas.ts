@@ -2444,6 +2444,7 @@ export interface _LogsValuesResponseApi {
  * * `source` - source
  * * `trace_id` - trace_id
  * * `span_id` - span_id
+ * * `pattern` - pattern
  * * `message` - message
  * * `custom` - custom
  */
@@ -2455,6 +2456,7 @@ export const LogsViewColumnTypeEnumApi = {
     Source: 'source',
     TraceId: 'trace_id',
     SpanId: 'span_id',
+    Pattern: 'pattern',
     Message: 'message',
     Custom: 'custom',
 } as const
@@ -2462,13 +2464,14 @@ export const LogsViewColumnTypeEnumApi = {
 export interface LogsViewColumnApi {
     /** Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server. */
     id: string
-    /** Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.
+    /** Column type. Most built-in types resolve client-side from log row fields; `pattern` and `custom` columns are computed server-side, the latter from `expression`.
      *
      * * `timestamp` - timestamp
      * * `level` - level
      * * `source` - source
      * * `trace_id` - trace_id
      * * `span_id` - span_id
+     * * `pattern` - pattern
      * * `message` - message
      * * `custom` - custom */
     type: LogsViewColumnTypeEnumApi
