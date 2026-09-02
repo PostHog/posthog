@@ -78,7 +78,10 @@ export function getCalendarGranularity(interval: string | undefined): 'hour' | '
  * Models each table destination merges into its table, mirroring `_get_merge_settings` in
  * `products/batch_exports/backend/temporal/destinations/`. A model that is missing here is copied
  * straight in, so a second export of the same range writes its rows again. File destinations are
- * absent because they write one object per interval, which a second export overwrites.
+ * absent because a re-export with unchanged settings overwrites the same object keys. This is not
+ * exact when the key layout changes between runs, because the file size split (`max_file_size_mb`),
+ * format, and compression are all part of the key, and the backend deletes no prior objects. A run
+ * under new settings then writes new keys and leaves the old objects beside them.
  */
 const MERGED_MODELS_BY_SERVICE: Partial<Record<BatchExportService['type'], string[]>> = {
     Snowflake: ['persons', 'sessions'],
