@@ -79,24 +79,24 @@ pub(crate) async fn apply_person_batch(
     run: SeedRun<PersonSeed>,
 ) {
     let span = run.span();
-    let mut stages = StageClock::start(SeedKind::Person, run.len());
-    let outcome = apply_person_seeds(deps, clock, &mut stages, &run).await;
+    // The clock starts past the gate, so a skipped run is no sample of the batch size.
+    let outcome = if deps.merge.person_seed.enabled {
+        let mut stages = StageClock::start(SeedKind::Person, run.len());
+        apply_person_seeds(deps, clock, &mut stages, &run).await
+    } else {
+        skip_gate_off(deps.partition_id, &run);
+        Ok(())
+    };
     settle(deps, SeedKind::Person, span, outcome);
 }
 
-/// The ordered apply. Each `?` holds the whole run; every early `return Ok(())` is a terminal skip
-/// whose offsets commit.
+/// The ordered apply. Each `?` holds the whole run.
 async fn apply_person_seeds(
     deps: &SeedApplyDeps<'_>,
     clock: &mut LastUpdatedClock,
     stages: &mut StageClock,
     run: &SeedRun<PersonSeed>,
 ) -> Result<(), SeedHold> {
-    if !deps.merge.person_seed.enabled {
-        skip_gate_off(deps.partition_id, run);
-        return Ok(());
-    }
-
     let snapshot = deps.catalog.load();
     let RoutedPersonSeeds { locals, re_keys } =
         route_person_seeds(deps, &snapshot, run.items()).await?;

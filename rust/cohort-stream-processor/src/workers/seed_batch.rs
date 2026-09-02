@@ -619,6 +619,8 @@ impl TouchedPersons {
                 run,
                 leaves: BTreeSet::new(),
             });
+        // Last run wins: the person must stay in one recompose group, so their composed flips
+        // carry the provenance of the last run that touched them.
         touch.run = run;
         touch.leaves.insert(leaf);
     }

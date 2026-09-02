@@ -317,12 +317,16 @@ async fn run_worker(
                         work: *work,
                         offset: SeedOffset(offset),
                     }];
-                    // `Peekable` has no put-back, so the predicate and the pattern below it have to
-                    // name the same variant. They are one line apart deliberately; a drift would
-                    // end the run early and leave that seed unmarked, so Kafka would replay it.
-                    while let Some(ShuffleMessage::Seed { work, offset, .. }) =
+                    // `Peekable` has no put-back, so a message the predicate admits is consumed
+                    // for good. The pattern below names the same variant; a drift between the two
+                    // would silently discard a non-seed message, hence the panic rather than an
+                    // early end of the run.
+                    while let Some(message) =
                         messages.next_if(|message| matches!(message, ShuffleMessage::Seed { .. }))
                     {
+                        let ShuffleMessage::Seed { work, offset, .. } = message else {
+                            unreachable!("the seed-run predicate admitted a non-seed message");
+                        };
                         seeds.push(Admitted {
                             work: *work,
                             offset: SeedOffset(offset),
