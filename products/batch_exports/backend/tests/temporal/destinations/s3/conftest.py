@@ -6,8 +6,6 @@ import collections.abc
 
 import pytest
 
-from django.conf import settings
-
 import aioboto3
 import structlog
 import pytest_asyncio
@@ -107,21 +105,6 @@ async def object_storage_client(bucket_name):
         await delete_all_from_s3(object_storage_client, bucket_name, key_prefix="")
 
         await object_storage_client.delete_bucket(Bucket=bucket_name)
-
-
-@pytest_asyncio.fixture
-async def s3_compatible_integration(ateam):
-    """An s3-compatible Integration pointing at the local object storage used by these tests."""
-    return await Integration.objects.acreate(
-        team_id=ateam.pk,
-        kind=Integration.IntegrationKind.S3_COMPATIBLE,
-        integration_id=f"object-storage-{uuid.uuid4()}",
-        config={"name": "object-storage-test", "endpoint_url": settings.OBJECT_STORAGE_ENDPOINT},
-        sensitive_config={
-            "aws_access_key_id": "object_storage_root_user",
-            "aws_secret_access_key": "object_storage_root_password",
-        },
-    )
 
 
 @pytest_asyncio.fixture
