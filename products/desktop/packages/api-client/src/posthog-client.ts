@@ -16,6 +16,7 @@ import {
   type CloudTaskConfigOption,
   DISMISSAL_REASON_OPTIONS,
   type DismissalReasonOptionValue,
+  type GatewayModel,
   getCloudTaskGatewayUrl,
   isSupportedReasoningEffort,
   normalizeGatewayModelsResponse,
@@ -1762,9 +1763,7 @@ export class PostHogAPIClient {
     return data;
   }
 
-  async getCloudTaskConfigOptions(
-    adapter: Adapter = "claude",
-  ): Promise<CloudTaskConfigOption[]> {
+  async getCloudTaskGatewayModels(): Promise<GatewayModel[]> {
     const teamId = await this.getTeamId();
     const url = new URL(`${getCloudTaskGatewayUrl(this.apiHost)}/v1/models`);
     const response = await this.api.fetcher.fetch({
@@ -1775,8 +1774,14 @@ export class PostHogAPIClient {
         header: buildPosthogProjectHeaderRecord(teamId),
       },
     });
+    return normalizeGatewayModelsResponse(await response.json());
+  }
+
+  async getCloudTaskConfigOptions(
+    adapter: Adapter = "claude",
+  ): Promise<CloudTaskConfigOption[]> {
     return buildCloudTaskConfigOptions(
-      normalizeGatewayModelsResponse(await response.json()),
+      await this.getCloudTaskGatewayModels(),
       adapter,
     );
   }
