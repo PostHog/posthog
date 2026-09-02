@@ -16,8 +16,7 @@ interface TaskSelectorProps {
   cellIndex: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Compose the new task in the tile itself, rather than on the full-page screen. */
-  onNewTask: () => void;
+  onNewTask?: () => void;
   onNewTerminal?: (cwd?: string) => void;
   onBrainrot?: () => void;
   children: ReactNode;
@@ -63,7 +62,7 @@ export function TaskSelector({
 
   const handleNewTask = useCallback(() => {
     handleOpenChange(false);
-    onNewTask();
+    onNewTask?.();
   }, [handleOpenChange, onNewTask]);
 
   const handleNewTerminal = useCallback(() => {
@@ -155,14 +154,16 @@ export function TaskSelector({
                 </div>
               )}
               <Combobox.Footer>
-                <button
-                  type="button"
-                  className="combobox-footer-button"
-                  onClick={handleNewTask}
-                >
-                  <Plus size={11} weight="bold" />
-                  New task
-                </button>
+                {onNewTask && (
+                  <button
+                    type="button"
+                    className="combobox-footer-button"
+                    onClick={handleNewTask}
+                  >
+                    <Plus size={11} weight="bold" />
+                    New task
+                  </button>
+                )}
                 {onNewTerminal && (
                   <button
                     type="button"

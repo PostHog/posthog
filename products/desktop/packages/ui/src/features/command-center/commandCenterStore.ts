@@ -31,8 +31,7 @@ interface CommandCenterStoreState {
   activeTaskId: string | null;
   activeCellIndex: number | null;
   zoom: number;
-  // The one tile composing a new task in place. The identity-scoped session id
-  // keeps a persisted draft private across account and project switches.
+  // The one tile composing a new task in place.
   composer: { cellIndex: number; sessionId: string } | null;
   // Persisted so autofill bootstraps the grid only once, not on every remount.
   hasAutofilled: boolean;
@@ -84,21 +83,6 @@ export const COMMAND_CENTER_INITIAL_STATE: CommandCenterStoreState = {
 
 type CommandCenterStore = CommandCenterStoreState & CommandCenterStoreActions;
 
-/**
- * Drop composer state from tiles that a write just filled or removed. Without
- * it a tile can hold both a task and an open composer, and only one of them
- * renders — so the other looks lost.
- */
-function keepComposerOnEmptyCell(
-  composer: CommandCenterStoreState["composer"],
-  cells: readonly (string | null)[],
-): CommandCenterStoreState["composer"] {
-  if (!composer) return null;
-  return composer.cellIndex < cells.length && cells[composer.cellIndex] == null
-    ? composer
-    : null;
-}
-
 export const useCommandCenterStore = create<CommandCenterStore>()(
   persist(
     (set) => ({
@@ -135,6 +119,7 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
       assignTask: (cellIndex, taskId) =>
         set((state) => {
           if (cellIndex < 0 || cellIndex >= state.cells.length) return state;
+          if (state.composer?.cellIndex === cellIndex) return state;
           const cells = [...state.cells];
           const existingIndex = cells.indexOf(taskId);
           if (existingIndex !== -1) {
@@ -147,7 +132,6 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
             // Highlight where it landed — otherwise a task dropped into an
             // empty tile of a busy grid is easy to miss.
             activeCellIndex: cellIndex,
-            composer: keepComposerOnEmptyCell(state.composer, cells),
             // Manually placing a task counts as curating the grid.
             hasAutofilled: true,
             pendingPlacement: null,
@@ -157,6 +141,7 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
       setCanvasCell: (cellIndex, canvasId) =>
         set((state) => {
           if (cellIndex < 0 || cellIndex >= state.cells.length) return state;
+          if (state.composer?.cellIndex === cellIndex) return state;
           const cellValue = makeCanvasCellValue(canvasId);
           const cells = [...state.cells];
           const existingIndex = cells.indexOf(cellValue);
@@ -168,7 +153,6 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
             cells,
             activeTaskId: null,
             activeCellIndex: cellIndex,
-            composer: keepComposerOnEmptyCell(state.composer, cells),
             hasAutofilled: true,
             pendingPlacement: null,
           };
@@ -177,13 +161,13 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
       setBrainrotCell: (cellIndex) =>
         set((state) => {
           if (cellIndex < 0 || cellIndex >= state.cells.length) return state;
+          if (state.composer?.cellIndex === cellIndex) return state;
           const cells = [...state.cells];
           cells[cellIndex] = BRAINROT_CELL;
           return {
             cells,
             activeTaskId: null,
             activeCellIndex: cellIndex,
-            composer: keepComposerOnEmptyCell(state.composer, cells),
             hasAutofilled: true,
           };
         }),
@@ -191,20 +175,20 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
       setTerminalCell: (cellIndex, terminalId, cwd) =>
         set((state) => {
           if (cellIndex < 0 || cellIndex >= state.cells.length) return state;
+          if (state.composer?.cellIndex === cellIndex) return state;
           const cells = [...state.cells];
           cells[cellIndex] = makeTerminalCellValue(terminalId, cwd);
           return {
             cells,
             activeTaskId: null,
             activeCellIndex: cellIndex,
-            composer: keepComposerOnEmptyCell(state.composer, cells),
             hasAutofilled: true,
           };
         }),
 
       applyPlacement: ({ layout, cells }) =>
         set((state) => {
-          if (state.composer && layout !== state.layout) return state;
+          if (state.composer) return state;
           const activeTaskId =
             state.activeTaskId && cells.includes(state.activeTaskId)
               ? state.activeTaskId
@@ -222,7 +206,6 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
                   state.activeCellIndex < cells.length
                 ? state.activeCellIndex
                 : null,
-            composer: keepComposerOnEmptyCell(state.composer, cells),
             // A bulk placement is the user curating the grid, so the one-shot
             // autofill must not later stuff tiles behind their back.
             hasAutofilled: true,
@@ -297,12 +280,15 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
         }),
 
       clearAll: () =>
-        set((state) => ({
-          activeTaskId: null,
-          activeCellIndex: null,
-          cells: state.cells.map(() => null),
-          composer: null,
-        })),
+        set((state) =>
+          state.composer
+            ? state
+            : {
+                activeTaskId: null,
+                activeCellIndex: null,
+                cells: state.cells.map(() => null),
+              },
+        ),
 
       setZoom: (zoom) => set({ zoom: clampZoom(zoom) }),
       zoomIn: () =>
@@ -314,9 +300,11 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
         set((state) => {
           if (cellIndex < 0 || cellIndex >= state.cells.length) return state;
           if (state.cells[cellIndex] != null) return state;
+          if (state.composer) return state;
           return {
             activeCellIndex: cellIndex,
             composer: { cellIndex, sessionId },
+            pendingPlacement: null,
             // Starting to type is curation. It also prevents a late bootstrap
             // from claiming another empty tile after the user took control.
             hasAutofilled: true,
@@ -356,7 +344,10 @@ export const useCommandCenterStore = create<CommandCenterStore>()(
         return assigned;
       },
 
-      requestPlacement: (placement) => set({ pendingPlacement: placement }),
+      requestPlacement: (placement) =>
+        set((state) =>
+          state.composer ? state : { pendingPlacement: placement },
+        ),
       cancelPlacement: () => set({ pendingPlacement: null }),
     }),
     {

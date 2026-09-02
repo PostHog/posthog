@@ -195,7 +195,8 @@ export function CommandCenterToolbar({
       <button
         type="button"
         onClick={handleClearAll}
-        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[12px] text-gray-10 transition-colors hover:bg-gray-4 hover:text-gray-12"
+        disabled={isComposing}
+        className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[12px] text-gray-10 transition-colors hover:bg-gray-4 hover:text-gray-12 disabled:opacity-40"
         title="Clear all cells"
       >
         <Trash size={12} />

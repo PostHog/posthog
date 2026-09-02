@@ -36,8 +36,8 @@ import { secureRandomString } from "@posthog/ui/utils/random";
 import { Flex, Text } from "@radix-ui/themes";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAuthStateValue } from "../../auth/store";
-import { useCurrentUser } from "../../auth/useCurrentUser";
+import { useAuthStateValue, useAuthStore } from "../../auth/store";
+import { useAutoresearchDraftStore } from "../../autoresearch/autoresearchDraftStore";
 import { useFolders } from "../../folders/useFolders";
 import { useCloudPrUrl } from "../../git-interaction/useCloudPrUrl";
 import { useDraftStore } from "../../message-editor/draftStore";
@@ -138,14 +138,10 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
   const layout = useCommandCenterStore((s) => s.layout);
   const cells = useCommandCenterStore((s) => s.cells);
   const brainrotMode = useSettingsStore((s) => s.brainrotMode);
-  const setDraft = useDraftStore((s) => s.actions.setDraft);
   const authIdentity = useAuthStateValue(getAuthIdentity);
-  const { data: currentUser } = useCurrentUser();
-  const authScope =
-    authIdentity && currentUser?.uuid
-      ? `${authIdentity}:${currentUser.uuid}`
-      : null;
-  const sessionId = authScope ? getCellSessionId(authScope, cellIndex) : null;
+  const sessionId = authIdentity
+    ? getCellSessionId(authIdentity, cellIndex)
+    : null;
   const isCreating =
     sessionId !== null &&
     composer?.cellIndex === cellIndex &&
@@ -178,26 +174,45 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
         void openTask(task);
         return;
       }
+      const currentIdentity = getAuthIdentity(
+        useAuthStore.getState().authState,
+      );
+      const currentSessionId = currentIdentity
+        ? getCellSessionId(currentIdentity, cellIndex)
+        : null;
+      if (currentSessionId !== sessionId) {
+        stopCreating(sessionId);
+        clearComposerDraft(sessionId);
+        void openTask(task);
+        return;
+      }
       const assigned = finishCreating(sessionId, task.id);
-      setDraft(sessionId, null);
+      clearComposerDraft(sessionId);
       // Creation may finish after the user replaced or removed the tile. The
       // task still exists, so open it instead of overwriting newer grid state.
       if (!assigned) void openTask(task);
     },
-    [finishCreating, setDraft, sessionId],
+    [cellIndex, finishCreating, sessionId, stopCreating],
   );
 
   const handleCancel = useCallback(() => {
-    if (sessionId) stopCreating(sessionId);
+    if (!sessionId) return;
+    stopCreating(sessionId);
+    clearComposerDraft(sessionId);
   }, [stopCreating, sessionId]);
 
-  // Cancelling here and clearing the tile elsewhere (Clear, a layout change)
-  // both end composition, so the draft is dropped on the transition rather
-  // than in each caller.
   useEffect(() => {
-    if (!isCreating || !sessionId) return;
-    return () => setDraft(sessionId, null);
-  }, [isCreating, setDraft, sessionId]);
+    if (
+      !composer ||
+      composer.cellIndex !== cellIndex ||
+      !sessionId ||
+      composer.sessionId === sessionId
+    ) {
+      return;
+    }
+    stopCreating(composer.sessionId);
+    clearComposerDraft(composer.sessionId);
+  }, [cellIndex, composer, sessionId, stopCreating]);
 
   if (isCreating) {
     return (
@@ -216,7 +231,11 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
           </button>
         </div>
         <div className="flex min-h-0 flex-1 flex-col">
-          <TaskInput sessionId={sessionId} onTaskCreated={handleTaskCreated} />
+          <TaskInput
+            sessionId={sessionId}
+            onTaskCreated={handleTaskCreated}
+            showNewTaskSuggestions={false}
+          />
         </div>
       </div>
     );
@@ -229,7 +248,7 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
           cellIndex={cellIndex}
           open={selectorOpen}
           onOpenChange={setSelectorOpen}
-          onNewTask={handleNewTask}
+          onNewTask={!composer && sessionId ? handleNewTask : undefined}
           onNewTerminal={localWorkspaces ? handleNewTerminal : undefined}
           onBrainrot={brainrotMode ? handleBrainrot : undefined}
         >
@@ -248,6 +267,11 @@ function EmptyCell({ cellIndex }: { cellIndex: number }) {
       </div>
     </div>
   );
+}
+
+function clearComposerDraft(sessionId: string): void {
+  useDraftStore.getState().actions.setDraft(sessionId, null);
+  useAutoresearchDraftStore.getState().clearDraft(sessionId);
 }
 
 const BRAINROT_PLAYLIST_IDS = [

@@ -286,18 +286,18 @@ describe("commandCenterStore", () => {
   });
 
   describe("in-tile composer", () => {
-    it("keeps one active composer and marks the grid curated", () => {
+    it("keeps the first active composer and marks the grid curated", () => {
       store().startCreating(2, "session-2");
       store().startCreating(1, "session-1");
 
       expect(store().composer).toEqual({
-        cellIndex: 1,
-        sessionId: "session-1",
+        cellIndex: 2,
+        sessionId: "session-2",
       });
-      expect(store().activeCellIndex).toBe(1);
+      expect(store().activeCellIndex).toBe(2);
       expect(store().hasAutofilled).toBe(true);
 
-      store().stopCreating("session-1");
+      store().stopCreating("session-2");
       expect(store().composer).toBeNull();
     });
 
@@ -318,12 +318,16 @@ describe("commandCenterStore", () => {
       { what: "a terminal", fill: () => store().setTerminalCell(1, "term-1") },
       { what: "brainrot", fill: () => store().setBrainrotCell(1) },
       { what: "a canvas", fill: () => store().setCanvasCell(1, "canvas-1") },
-    ])("closes the composer once the tile holds $what", ({ fill }) => {
+    ])("does not replace the composer with $what", ({ fill }) => {
       store().startCreating(1, "session-1");
 
       fill();
 
-      expect(store().composer).toBeNull();
+      expect(store().cells[1]).toBeNull();
+      expect(store().composer).toEqual({
+        cellIndex: 1,
+        sessionId: "session-1",
+      });
     });
 
     it("keeps the layout stable while composing", () => {
@@ -333,7 +337,7 @@ describe("commandCenterStore", () => {
       });
       store().startCreating(0, "session-0");
 
-      store().setLayout("3x2");
+      store().setLayout("3x2", [null, "t1", null, null, null, null]);
       store().optimizeLayout([1]);
 
       expect(store().layout).toBe("2x2");
@@ -357,8 +361,34 @@ describe("commandCenterStore", () => {
       store().startCreating(2, "session-2");
       store().assignTask(2, "replacement");
 
-      expect(store().finishCreating("session-2", "created")).toBe(false);
-      expect(store().cells[2]).toBe("replacement");
+      expect(store().cells[2]).toBeNull();
+      expect(store().finishCreating("session-2", "created")).toBe(true);
+      expect(store().cells[2]).toBe("created");
+    });
+
+    it("rejects bulk placement while a tile is composing", () => {
+      store().startCreating(1, "session-1");
+
+      store().applyPlacement({
+        layout: "2x2",
+        cells: ["t1", "t2", null, null],
+      });
+
+      expect(store().cells).toEqual([null, null, null, null]);
+      expect(store().composer).toEqual({
+        cellIndex: 1,
+        sessionId: "session-1",
+      });
+    });
+
+    it("does not clear the grid while a tile is composing", () => {
+      useCommandCenterStore.setState({ cells: ["t1", null, null, null] });
+      store().startCreating(1, "session-1");
+
+      store().clearAll();
+
+      expect(store().cells).toEqual(["t1", null, null, null]);
+      expect(store().composer?.sessionId).toBe("session-1");
     });
   });
 });
