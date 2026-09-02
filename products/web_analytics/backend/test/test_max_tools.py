@@ -6,6 +6,8 @@ from posthog.test.base import (
     flush_persons_and_events,
 )
 
+from parameterized import parameterized
+
 from posthog.schema import (
     CompareFilter,
     EventPropertyFilter,
@@ -15,7 +17,7 @@ from posthog.schema import (
     WebAnalyticsAssistantFilters,
 )
 
-from ..max_tools import WebAnalyticsFilterOptionsToolkit
+from ..max_tools import WebAnalyticsFilterNode, WebAnalyticsFilterOptionsToolkit
 
 
 class TestWebAnalyticsFilterOptionsToolkit(APIBaseTest):
@@ -29,6 +31,20 @@ class TestWebAnalyticsFilterOptionsToolkit(APIBaseTest):
         assert "final_answer" in tool_names
         assert "retrieve_web_analytics_property_values" in tool_names
         assert "ask_user_for_help" in tool_names
+
+    @parameterized.expand(
+        [
+            # Common web analytics filters whose taxonomy definition has no `type` field.
+            ("$referring_domain",),
+            ("$geoip_country_name",),
+        ]
+    )
+    def test_system_prompt_includes_untyped_core_properties(self, property_name: str):
+        node = WebAnalyticsFilterNode(self.team, self.user, WebAnalyticsFilterOptionsToolkit)
+        template = node._get_system_prompt()
+        prompt_text = "\n".join(message.prompt.template for message in template.messages)
+
+        assert property_name in prompt_text
 
 
 class TestWebAnalyticsPropertyValues(ClickhouseDestroyTablesMixin, APIBaseTest):

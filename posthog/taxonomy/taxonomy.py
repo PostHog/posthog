@@ -4046,6 +4046,21 @@ PROPERTY_NAME_ALIASES = {
     if "label" in value and "deprecated" not in value["label"]
 }
 
+
+def visible_definitions(group_name: str) -> dict[str, CoreFilterDefinition]:
+    """Return every definition in a taxonomy group that the assistant may show.
+
+    A definition is visible unless it is a system property or is marked
+    `ignored_in_assistant`. The `type` field is optional, so this keeps
+    untyped-but-usable properties that a filter on `type` drops.
+    """
+    return {
+        name: defn
+        for name, defn in CORE_FILTER_DEFINITIONS_BY_GROUP.get(group_name, {}).items()
+        if not defn.get("system") and not defn.get("ignored_in_assistant")
+    }
+
+
 _PROP_TYPE_TO_TAXONOMY_GROUP = {
     "event": "event_properties",
     "person": "person_properties",

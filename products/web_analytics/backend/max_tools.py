@@ -25,7 +25,7 @@ from posthog.models import Team, User
 from posthog.models.health_issue import HealthIssue
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+from posthog.taxonomy.taxonomy import visible_definitions
 from posthog.temporal.health_checks.processing import _process_batch_detection
 from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded, get_detect_fn
 
@@ -152,26 +152,22 @@ class WebAnalyticsFilterNode(TaxonomyAgentNode[TaxonomyAgentState, TaxonomyAgent
     def node_name(self) -> MaxNodeName:
         return AssistantNodeName.WEB_ANALYTICS_FILTER
 
-    def _filter_properties_by_type(self, property_group: str) -> list[tuple[str, str]]:
-        """Extract properties from CORE_FILTER_DEFINITIONS_BY_GROUP for a given property group."""
-        return [
-            (prop_name, prop["type"])
-            for prop_name, prop in CORE_FILTER_DEFINITIONS_BY_GROUP.get(property_group, {}).items()
-            if prop.get("type") is not None
-        ]
+    def _visible_group_properties(self, property_group: str) -> list[tuple[str, str | None]]:
+        """Return every visible property in a taxonomy group, keeping untyped ones."""
+        return [(prop_name, prop.get("type")) for prop_name, prop in visible_definitions(property_group).items()]
 
     def _get_system_prompt(self) -> ChatPromptTemplate:
-        event_properties = self._filter_properties_by_type("event_properties")
-        session_properties = self._filter_properties_by_type("session_properties")
-        person_properties = self._filter_properties_by_type("person_properties")
+        event_properties = self._visible_group_properties("event_properties")
+        session_properties = self._visible_group_properties("session_properties")
+        person_properties = self._visible_group_properties("person_properties")
 
         all_messages = [
             PRODUCT_DESCRIPTION_PROMPT,
             FILTER_EXAMPLES_PROMPT,
             FILTER_FIELDS_TAXONOMY_PROMPT,
-            f"<event_properties>\n{format_properties_xml(enrich_props_with_descriptions('event', event_properties))}\n</event_properties>",
-            f"<session_properties>\n{format_properties_xml(enrich_props_with_descriptions('session', session_properties))}\n</session_properties>",
-            f"<person_properties>\n{format_properties_xml(enrich_props_with_descriptions('person', person_properties))}\n</person_properties>",
+            f"<event_properties>\n{format_properties_xml(enrich_props_with_descriptions('event', event_properties), include_untyped=True)}\n</event_properties>",
+            f"<session_properties>\n{format_properties_xml(enrich_props_with_descriptions('session', session_properties), include_untyped=True)}\n</session_properties>",
+            f"<person_properties>\n{format_properties_xml(enrich_props_with_descriptions('person', person_properties), include_untyped=True)}\n</person_properties>",
             PATH_CLEANING_PROMPT,
             COMPARE_FILTER_PROMPT,
             DATE_FIELDS_PROMPT,
