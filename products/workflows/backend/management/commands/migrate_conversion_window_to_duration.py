@@ -71,12 +71,12 @@ class Command(BaseCommand):
             return
         self.stdout.write("")
         self.stdout.write(self.style.WARNING(f"{len(needs_review)} flow(s) left alone, each needs a person:"))
-        self.stdout.write("  team_id  window_minutes  as minutes  as seconds  own delay steps  name")
+        self.stdout.write(f"  {'id':<36}  team_id  window_minutes  as minutes  as seconds  own delay steps  name")
         for flow, minutes in sorted(needs_review, key=lambda pair: pair[0].team_id):
             span = flow_span_days(flow)
             span_label = f"{span:.1f}d" if span else "none"
             self.stdout.write(
-                f"  {flow.team_id:<7}  {minutes:<14}  {minutes / MINUTES_PER_DAY:>7.1f}d  "
+                f"  {str(flow.id):<36}  {flow.team_id:<7}  {minutes:<14}  {minutes / MINUTES_PER_DAY:>7.1f}d  "
                 f"{minutes / (MINUTES_PER_DAY * 60):>8.1f}d  {span_label:>15}  {flow.name}"
             )
         self.stdout.write(
