@@ -29,30 +29,44 @@
   letter-spacing: -0.008em;
 }
 
+/* A heading binds to the text under it: the space above it is roughly four
+   times the space below, so a section reads as one block rather than three
+   evenly spaced lines. */
 .doc-body h1 {
-  font-size: 19px;
-  margin-top: 42px;
-  margin-bottom: 14px;
-}
-
-.doc-body h2 {
-  font-size: 15.2px;
-  margin-top: 38px;
-  margin-bottom: 14px;
-}
-
-.doc-body h3 {
-  font-size: 14px;
-  margin-top: 28px;
+  font-size: 21px;
+  margin-top: 40px;
   margin-bottom: 10px;
 }
 
-/* A heading that opens a section owns the space above it, so the generic
-   sibling margin must not add to it. */
-.doc-body > * + h1,
-.doc-body > * + h2,
+.doc-body h2 {
+  font-size: 17px;
+  margin-top: 34px;
+  margin-bottom: 9px;
+}
+
+.doc-body h3 {
+  font-size: 15px;
+  margin-top: 26px;
+  margin-bottom: 7px;
+}
+
+/* A heading owns the space above it, so the generic sibling margin must not
+   add to it. Each level keeps its own. */
+.doc-body > * + h1 {
+  margin-top: 40px;
+}
+
+.doc-body > * + h2 {
+  margin-top: 34px;
+}
+
 .doc-body > * + h3 {
-  margin-top: 38px;
+  margin-top: 26px;
+}
+
+/* The page starts where the title left off, whatever the first block is. */
+.doc-body > :first-child {
+  margin-top: 0;
 }
 
 .doc-body ul,
@@ -81,6 +95,17 @@
   display: flex;
   align-items: flex-start;
   gap: 0.5rem;
+}
+
+.doc-body ul[data-type="taskList"] li > label {
+  flex: 0 0 auto;
+}
+
+/* The line the caret sits on. An empty item collapses to zero width in the
+   flex row, which leaves the caret nowhere to paint until the first letter. */
+.doc-body ul[data-type="taskList"] li > div {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .doc-body ul[data-type="taskList"] li p {
@@ -122,48 +147,298 @@
   pointer-events: none;
 }
 
-/* A task in a sentence: a status dot and the words, underlined because it opens
-   something. No lozenge — a filled box between words stops the reader. */
-.doc-taskref {
+/* An object in a sentence: a small mark, the words, and a fine underline. No
+   lozenge — a filled box between words stops the reader. */
+.doc-ref-host {
+  display: inline;
+}
+
+.doc-ref {
   display: inline;
   cursor: pointer;
-}
-
-.doc-taskref-dot {
-  display: inline-block;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  margin-right: 0.35em;
-  vertical-align: 0.15em;
-}
-
-.doc-taskref-label {
   color: var(--gray-12);
-  text-decoration: underline;
-  text-decoration-color: var(--gray-7);
-  text-underline-offset: 3px;
+  border-bottom: 1px dotted var(--gray-a8);
 }
 
-.doc-taskref:hover .doc-taskref-label {
-  text-decoration-color: var(--gray-10);
+.doc-ref:hover,
+.doc-ref:focus-visible {
+  border-bottom-style: solid;
+  border-bottom-color: var(--gray-a11);
+  outline: none;
 }
 
-/* The margin the thread marks are drawn in. */
-.doc-body {
+/* The reference the caret is on. Backspace deletes the whole thing, so it has
+   to be visible as one object. */
+.doc-ref--selected {
+  border-bottom-color: transparent;
+  border-radius: var(--radius-1);
+  padding: 0 2px;
+  background: var(--gray-a3);
+  box-shadow: 0 0 0 1.5px color-mix(in oklab, var(--ring) 55%, transparent);
+}
+
+.doc-ref-mark {
+  display: inline-block;
+  margin-right: 0.28em;
+  vertical-align: middle;
+  translate: 0 -1px;
+  line-height: 0;
+}
+
+.doc-ref-dot {
+  display: block;
+  border-radius: 50%;
+}
+
+.doc-ref-avatar {
+  display: inline-flex;
+  width: 13px;
+  height: 13px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--gray-a4);
+  color: var(--gray-11);
+  font-size: 8.5px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* The strips the marks are drawn in: the block controls on the left, the agent
+   marks on the right. They are padding on the editor itself, not on the column,
+   so a pointer that travels from a line to its handle never leaves the editor
+   and the handle holds its place. .doc-page-head pads the title to match. */
+.doc-body,
+.doc-page-head {
   padding-right: 3rem;
+  padding-left: 3.25rem;
 }
 
-/* A phrase someone is discussing. It reads as marked, not as an error. */
+/* The controls on the line the pointer is on. The extension owns the position
+   and the visibility. */
+.doc-drag-handle {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  z-index: 20;
+}
+
+/* The extension hides the handle when the pointer leaves the line. The menu it
+   opened is still on screen, so the handle it is anchored to has to stay. The
+   extension writes the visibility inline, which is what !important answers. */
+.doc-drag-handle-open {
+  visibility: visible;
+  pointer-events: auto;
+}
+
+/* A phrase someone is discussing. It reads as marked, not as an error, so the
+   fill waits for the hover and the underline carries it the rest of the time. */
 .doc-discussion-anchor {
-  background: color-mix(in srgb, var(--amber-9) 18%, transparent);
-  border-bottom: 1px solid var(--amber-9);
+  background: transparent;
+  border-bottom: 2px solid color-mix(in srgb, var(--amber-9) 55%, transparent);
   cursor: pointer;
+}
+
+.doc-discussion-anchor:hover,
+.doc-discussion-anchor[data-active="true"] {
+  background: color-mix(in srgb, var(--amber-9) 14%, transparent);
+  border-bottom-color: var(--amber-9);
 }
 
 .doc-discussion-anchor[data-resolved="true"] {
   background: transparent;
-  border-bottom-color: var(--gray-7);
+  border-bottom: 1px dotted var(--gray-7);
+}
+
+.doc-discussion-anchor[data-resolved="true"]:hover {
+  background: color-mix(in srgb, var(--gray-9) 10%, transparent);
+}
+
+/* A watched phrase carries an eye, so it reads as watched at a glance. */
+.doc-discussion-anchor[data-kind="watch"]::after {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-left: 3px;
+  vertical-align: -1px;
+  background-color: var(--amber-11);
+  mask:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 256 256'%3E%3Cpath d='M247.31 124.76c-.35-.79-8.82-19.58-27.65-38.41C194.57 61.26 162.88 48 128 48S61.43 61.26 36.34 86.35C17.51 105.18 9 124 8.69 124.76a8 8 0 0 0 0 6.5c.35.79 8.82 19.57 27.65 38.4C61.43 194.74 93.12 208 128 208s66.57-13.26 91.66-38.34c18.83-18.83 27.3-37.61 27.65-38.4a8 8 0 0 0 0-6.5ZM128 192c-30.78 0-57.67-11.19-79.93-33.25A133.47 133.47 0 0 1 25 128a133.33 133.33 0 0 1 23.07-30.75C70.33 75.19 97.22 64 128 64s57.67 11.19 79.93 33.25A133.46 133.46 0 0 1 231.05 128C223.84 141.46 192.43 192 128 192Zm0-112a48 48 0 1 0 48 48 48.05 48.05 0 0 0-48-48Zm0 80a32 32 0 1 1 32-32 32 32 0 0 1-32 32Z'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+
+.doc-discussion-anchor[data-kind="watch"][data-resolved="true"]::after {
+  background-color: var(--gray-8);
+}
+
+/* A SQL block: the query above, coloured like code, and the result under it.
+   The editor is a textarea over a highlighted mirror, so the colours follow
+   the typing without a second editor on the page. */
+.doc-sql-card {
+  border: 1px solid var(--gray-5);
+  border-radius: var(--radius-3);
+  background: var(--gray-1);
+  overflow: hidden;
+}
+
+.doc-sql-result {
+  padding: 8px 8px 0;
+}
+
+.doc-sql-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 8px 0 10px;
+  border-bottom: 1px solid var(--gray-4);
+  background: var(--gray-2);
+  color: var(--gray-10);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* Inline-code styling from the page must not reach the block's own code. */
+.doc-body .doc-sql-peek,
+.doc-body .doc-sql-full,
+.doc-body .doc-sql-editor-mirror {
+  background: none;
+  border-radius: 0;
+  font-size: inherit;
+}
+
+.doc-body .doc-sql-editor-mirror {
+  padding: 10px 12px;
+}
+
+.doc-body .doc-sql-peek {
+  padding: 0;
+}
+
+.doc-body .doc-sql-full {
+  padding: 10px 12px;
+}
+
+.doc-sql-toggle {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+
+.doc-sql-toggle:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 55%, transparent);
+  border-radius: var(--radius-1);
+}
+
+.doc-sql-peek {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 12px / 1.4 var(--font-mono);
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--gray-11);
+  text-align: left;
+}
+
+.doc-sql-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.doc-sql-card:hover .doc-sql-actions,
+.doc-sql-card:focus-within .doc-sql-actions {
+  opacity: 1;
+}
+
+.doc-sql-full {
+  display: block;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--gray-4);
+  font: 12.5px / 1.6 var(--font-mono);
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--gray-12);
+}
+
+.doc-sql-editor {
+  display: grid;
+  font: 12.5px / 1.6 var(--font-mono);
+  tab-size: 2;
+}
+
+.doc-sql-editor-mirror,
+.doc-sql-editor-input {
+  grid-area: 1 / 1;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  min-height: 4.8em;
+  letter-spacing: 0;
+  font: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+  border: 0;
+}
+
+.doc-sql-editor-mirror {
+  display: block;
+  pointer-events: none;
+  color: var(--gray-12);
+}
+
+.doc-sql-editor-input {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--gray-12);
+  resize: none;
+  outline: none;
+  overflow: hidden;
+}
+
+.doc-sql-editor-input::placeholder {
+  color: var(--gray-8);
+}
+
+.doc-sql-editor-input::selection {
+  background: color-mix(in srgb, var(--primary) 25%, transparent);
+}
+
+.doc-sql-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--gray-4);
+  background: var(--gray-2);
+  font-size: 11.5px;
+  color: var(--gray-9);
 }
 
 /* A row of numbers the page keeps in view: label above, value large, change
@@ -180,12 +455,54 @@
 }
 
 .doc-metric-value {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
   font-size: 26px;
   font-weight: 560;
   letter-spacing: -0.02em;
   line-height: 1.15;
   color: var(--gray-12);
   font-variant-numeric: tabular-nums;
+}
+
+/* Direction and size of the last step. It carries no color, because a doc does
+   not know whether up is the good direction. */
+.doc-metric-delta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.1rem;
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--gray-10);
+}
+
+/* No single number to show. It stays quiet rather than reading as a rule. */
+.doc-metric-empty {
+  font-size: 18px;
+  font-weight: 400;
+  color: var(--gray-8);
+}
+
+/* Holds the number's place while it loads, instead of a dot that moves the row. */
+.doc-metric-value-loading {
+  width: 3.2rem;
+  height: 26px;
+  border-radius: var(--radius-1);
+  background: var(--gray-a3);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .doc-metric-value-loading {
+    animation: doc-metric-pulse 1.4s ease-in-out infinite;
+  }
+}
+
+@keyframes doc-metric-pulse {
+  50% {
+    background: var(--gray-a4);
+  }
 }
 
 /* Another person's caret. The label sits above the line so it never pushes text. */
@@ -215,4 +532,345 @@
   .doc-discussion-anchor {
     transition: background-color 150ms ease;
   }
+}
+
+/* A number the page asked for. While it is being found it reads as the words
+   somebody wrote; once found it reads as the figure, marked as live. */
+.doc-datarequest {
+  display: inline;
+  color: var(--gray-11);
+  border-bottom: 1px dotted var(--gray-8);
+  cursor: default;
+}
+
+.doc-datarequest-mark {
+  display: inline-block;
+  margin-right: 0.3em;
+  vertical-align: 0.02em;
+  opacity: 0.75;
+}
+
+.doc-datarequest[data-state="asking"] .doc-datarequest-mark {
+  animation: doc-datarequest-pulse 1.6s ease-in-out infinite;
+}
+
+.doc-datarequest[data-state="failed"] {
+  border-bottom-color: var(--red-8);
+}
+
+@keyframes doc-datarequest-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+.doc-datavalue {
+  color: var(--gray-12);
+  font-variant-numeric: tabular-nums;
+  font-weight: 560;
+  border-bottom: 1px solid var(--gray-6);
+  cursor: default;
+}
+
+.doc-datavalue[data-state="error"] {
+  color: var(--gray-9);
+  border-bottom-style: dotted;
+  border-bottom-color: var(--red-8);
+  cursor: help;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doc-datarequest[data-state="asking"] .doc-datarequest-mark {
+    animation: none;
+  }
+}
+
+.doc-datarequest-note {
+  margin: 0 0.25em 0 0.4em;
+  font-size: 0.74em;
+  color: var(--gray-8);
+}
+
+.doc-datarequest[data-state="failed"] .doc-datarequest-note {
+  color: var(--red-9);
+}
+
+.doc-datarequest[data-state="reply"] {
+  border-bottom-color: var(--amber-9);
+}
+
+.doc-datarequest[data-state="input"] {
+  border-bottom-color: var(--amber-9);
+}
+
+/* The hint on the line the caret is on, once the page has content. */
+.doc-body p.is-empty.has-focus::before {
+  content: attr(data-placeholder);
+  color: var(--gray-8);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
+
+/* The asterisk beside a line with a thread. One colour for every thread; the
+   state only says whether it moves, and a handled thread goes hollow. */
+.doc-mark {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  line-height: 0;
+  color: var(--primary);
+}
+
+.doc-mark[data-state="failed"] {
+  color: var(--red-9);
+}
+
+.doc-mark[data-state="handled"] {
+  color: var(--gray-8);
+}
+
+.doc-mark-glyph {
+  display: block;
+  overflow: visible;
+}
+
+.doc-mark-arms {
+  transform-origin: 8px 8px;
+  transform-box: view-box;
+}
+
+.doc-mark-count {
+  position: absolute;
+  right: -0.45em;
+  bottom: -0.45em;
+  min-width: 1.2em;
+  padding: 0 0.25em;
+  border-radius: 999px;
+  background: var(--gray-1);
+  color: var(--gray-11);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.2em;
+  text-align: center;
+  box-shadow: 0 0 0 1px var(--gray-5);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .doc-mark[data-state="working"] .doc-mark-arms {
+    animation: doc-mark-turn 4s linear infinite;
+  }
+
+  .doc-mark[data-state="waiting"] .doc-mark-arms {
+    animation: doc-mark-blink 1.6s ease-in-out infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doc-mark[data-state="working"] {
+    animation: doc-mark-blink 2s ease-in-out infinite;
+  }
+}
+
+@keyframes doc-mark-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes doc-mark-blink {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* A data point that just arrived or just changed. The colour says where, and
+   the page does not move. */
+.doc-datavalue--new {
+  animation: doc-datavalue-land 1.2s ease-out;
+}
+
+@keyframes doc-datavalue-land {
+  0% {
+    background: color-mix(in srgb, var(--primary) 28%, transparent);
+    border-radius: var(--radius-1);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+.doc-datavalue {
+  transition: background 200ms ease;
+}
+
+/* The thread panel's rows. The composer is quill's; these only place it. */
+.doc-thread-quote {
+  border-left: 2px solid var(--amber-8);
+  padding-left: 0.6rem;
+  color: var(--gray-11);
+  font-size: 12.5px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.doc-thread-quote[data-kind="data"] {
+  border-left-color: color-mix(in srgb, var(--primary) 70%, transparent);
+}
+
+.doc-agent-avatar {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+.doc-post-sql {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0 0.45em;
+  border-radius: var(--radius-2);
+  background: var(--gray-3);
+  color: var(--gray-12);
+  font-size: 12px;
+  line-height: 1.7;
+  cursor: help;
+}
+
+.doc-post-sql code {
+  font-family: var(--code-font-family, monospace);
+  font-size: 11px;
+  color: var(--gray-11);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 22ch;
+  background: none;
+  padding: 0;
+}
+
+/* The popup under /, + and @. One line per row so ten choices fit at a glance. */
+.doc-suggest {
+  display: flex;
+  width: 300px;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--gray-5);
+  border-radius: var(--radius-3);
+  background: var(--gray-1);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.06),
+    0 10px 30px -10px rgb(0 0 0 / 0.25);
+  font-size: 13px;
+  color: var(--gray-12);
+}
+
+.doc-suggest-list {
+  max-height: 336px;
+  overflow-y: auto;
+  padding: 4px;
+  scrollbar-width: thin;
+}
+
+.doc-suggest-group {
+  padding: 8px 8px 3px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--gray-9);
+}
+
+.doc-suggest-group:first-child {
+  padding-top: 4px;
+}
+
+.doc-suggest-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 8px 0 6px;
+  border: 0;
+  border-radius: var(--radius-2);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.doc-suggest-row[aria-selected="true"] {
+  background: var(--gray-a3);
+}
+
+.doc-suggest-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--gray-10);
+}
+
+.doc-suggest-row[aria-selected="true"] .doc-suggest-icon {
+  color: var(--gray-12);
+}
+
+.doc-suggest-label {
+  flex: none;
+  white-space: nowrap;
+}
+
+.doc-suggest-desc {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--gray-9);
+  font-size: 12px;
+}
+
+.doc-suggest-hint {
+  flex: none;
+  color: var(--gray-8);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.doc-suggest-empty {
+  padding: 10px 12px;
+  color: var(--gray-9);
+  font-size: 12.5px;
+}
+
+.doc-suggest-keys {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border-top: 1px solid var(--gray-4);
+  color: var(--gray-9);
+  font-size: 11px;
+}
+
+.doc-suggest-keys span {
+  margin-left: 4px;
 }

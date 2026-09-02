@@ -57,6 +57,18 @@ function agentMessageText(message: JsonRpcMessage): string | null {
 export function latestAgentMessage(
   events: readonly AcpMessage[] | undefined,
 ): string | null {
+  return condenseTurnMessage(latestAgentMessageText(events) ?? "");
+}
+
+/**
+ * The same message, whole.
+ *
+ * A surface that shows the text wants one line of it; a surface that reads the
+ * text — an object tag, a query the page keeps — needs all of it.
+ */
+export function latestAgentMessageText(
+  events: readonly AcpMessage[] | undefined,
+): string | null {
   if (!events?.length) return null;
   const floor = Math.max(0, events.length - MAX_SCANNED_EVENTS);
   let end = -1;
@@ -74,7 +86,8 @@ export function latestAgentMessage(
     if (text == null) break;
     chunks.unshift(text);
   }
-  return condenseTurnMessage(chunks.join(""));
+  const joined = chunks.join("");
+  return joined.trim() ? joined : null;
 }
 
 /**
@@ -84,8 +97,15 @@ export function latestAgentMessage(
 export function persistedTurnMessage(
   output: Record<string, unknown> | null | undefined,
 ): string | null {
+  return condenseTurnMessage(persistedTurnText(output) ?? "");
+}
+
+/** The same closing message, whole. */
+export function persistedTurnText(
+  output: Record<string, unknown> | null | undefined,
+): string | null {
   const message = output?.[FINAL_MESSAGE_KEY];
-  return typeof message === "string" ? condenseTurnMessage(message) : null;
+  return typeof message === "string" && message.trim() ? message : null;
 }
 
 /**

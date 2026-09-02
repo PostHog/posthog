@@ -348,7 +348,7 @@ export function EvidenceHoverCard({
  * so the lookup is lazy: a transcript full of references costs nothing until
  * one is hovered, and react-query caches the result across hovers.
  */
-function EvidenceHoverCardLoader({
+export function EvidenceHoverCardLoader({
   target,
   children,
   url,

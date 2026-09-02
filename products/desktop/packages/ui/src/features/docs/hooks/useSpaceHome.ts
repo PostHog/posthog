@@ -18,7 +18,8 @@ export function useSpaceHome(channelId: string) {
       );
     },
     enabled: !!docsClient && !!channelId,
-    staleTime: 30_000,
+    // Short: reports and counts change while a person is away on a page.
+    staleTime: 5_000,
     meta: AUTH_SCOPED_QUERY_META,
   });
 }

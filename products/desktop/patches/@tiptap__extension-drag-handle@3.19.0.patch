@@ -1,0 +1,42 @@
+diff --git a/dist/index.cjs b/dist/index.cjs
+index e9b6489789d16e060d80cfe694f9b97e54adcb24..69e7b61340075487946f9a312b4697b83e5c2d5c 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -192,6 +192,16 @@ function findBestDragTarget(view, coords, options) {
+   }
+   const { doc } = view.state;
+   const $pos = doc.resolve(posInfo.pos);
++  // A block-level atom (a leaf node view) holds no position a coordinate can
++  // resolve into, so $pos.depth is 0 at the top level and the loop below finds
++  // no candidate. posAtCoords already named the node in `inside`.
++  if ($pos.depth === 0 && posInfo.inside >= 0) {
++    const insideNode = doc.nodeAt(posInfo.inside);
++    const insideDom = view.nodeDOM(posInfo.inside);
++    if (insideNode && insideDom) {
++      return { node: insideNode, pos: posInfo.inside, dom: insideDom };
++    }
++  }
+   const rules = [];
+   if (options.defaultRules) {
+     rules.push(...defaultRules);
+diff --git a/dist/index.js b/dist/index.js
+index 6a2900a3013fdc9c970a2633d511c1beae6c6e12..d21cee94b2b55761ccc8374e700374dc8b902c97 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -164,6 +164,16 @@ function findBestDragTarget(view, coords, options) {
+   }
+   const { doc } = view.state;
+   const $pos = doc.resolve(posInfo.pos);
++  // A block-level atom (a leaf node view) holds no position a coordinate can
++  // resolve into, so $pos.depth is 0 at the top level and the loop below finds
++  // no candidate. posAtCoords already named the node in `inside`.
++  if ($pos.depth === 0 && posInfo.inside >= 0) {
++    const insideNode = doc.nodeAt(posInfo.inside);
++    const insideDom = view.nodeDOM(posInfo.inside);
++    if (insideNode && insideDom) {
++      return { node: insideNode, pos: posInfo.inside, dom: insideDom };
++    }
++  }
+   const rules = [];
+   if (options.defaultRules) {
+     rules.push(...defaultRules);

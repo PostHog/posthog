@@ -662,6 +662,11 @@ SPECTACULAR_SETTINGS = {
         # Doc.status, shared by the doc read, summary, and update shapes.
         # Inline choices from products.docs.backend.facade.enums.DocStatus (labels == values).
         "DocStatusEnum": ["draft", "active", "done"],
+        # A doc thread hangs off a phrase or off a data point the page asked for.
+        # Inline choices from products.docs.backend.facade.enums.DiscussionKind.
+        "DocThreadKindEnum": ["text", "data", "watch"],
+        # A doc is a page, or the one doc that is a space's context notes.
+        "DocKindEnum": ["page", "context"],
         # Disambiguates from data_modeling's node_type (table/view/matview/endpoint).
         "NotebookSQLV2NodeTypeEnum": ["hogql", "python"],
         "NotebookSQLV2RefKindEnum": ["hogql", "local"],

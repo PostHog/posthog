@@ -1,15 +1,22 @@
 """Doc lifecycle: list, create, reorder, save, soft delete."""
 
+import logging
 from typing import Any
 from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Max, QuerySet
 
-from products.docs.backend.facade.enums import DocTemplate
+from posthog.models.team import Team
+
+from products.context_layer.backend.facade import api as context_layer
+from products.docs.backend.facade.enums import DocKind, DocTemplate
+from products.docs.backend.logic.markdown import from_markdown
 from products.docs.backend.logic.templates import template_content, template_title
 from products.docs.backend.models import Doc
 from products.tasks.backend.facade.api import channel_exists, visible_channels_q
+
+logger = logging.getLogger(__name__)
 
 
 class ChannelNotVisibleError(Exception):
@@ -25,7 +32,80 @@ def visible_docs(team_id: int, user_id: int | None) -> QuerySet[Doc]:
 
 
 def docs_in_channel(team_id: int, user_id: int | None, channel_id: str | UUID) -> QuerySet[Doc]:
-    return visible_docs(team_id, user_id).filter(channel_id=channel_id).order_by("position", "created_at")
+    """The space's pages, in tab order. The context notes are a doc too, but not a page."""
+    return (
+        visible_docs(team_id, user_id)
+        .filter(channel_id=channel_id)
+        .exclude(kind=DocKind.CONTEXT)
+        .order_by("position", "created_at")
+    )
+
+
+def context_doc(team_id: int, user_id: int, channel_id: str | UUID) -> Doc:
+    """The one doc that is the space's context notes, made on first use.
+
+    A space that already wrote notes in the wiki starts from them: the page body is
+    read once and becomes the doc, and from then on the doc is what people edit and
+    the page is compiled from it.
+    """
+    existing = visible_docs(team_id, user_id).filter(channel_id=channel_id, kind=DocKind.CONTEXT).first()
+    if existing is not None:
+        return existing
+    if not channel_exists(team_id, channel_id, user_id):
+        raise ChannelNotVisibleError("Channel not found in this team.")
+    content = from_markdown(_wiki_notes(team_id, channel_id))
+    return Doc.objects.create(
+        team_id=team_id,
+        channel_id=channel_id,
+        created_by_id=user_id,
+        title="Context",
+        kind=DocKind.CONTEXT,
+        position=-1,
+        content=content,
+        text_content=plain_text(content),
+    )
+
+
+def _wiki_notes(team_id: int, channel_id: str | UUID) -> str:
+    """The body of the space's wiki page, without its frontmatter and title. Empty when there is none."""
+    organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
+    if organization_id is None:
+        return ""
+    try:
+        path = context_layer.resolve_channel_page(organization_id, channel_id)
+        if path is None:
+            return ""
+        return page_body(context_layer.get_page(organization_id, path).content)
+    except Exception:
+        logger.warning("docs_context_wiki_read_failed", extra={"team_id": team_id, "channel_id": str(channel_id)})
+        return ""
+
+
+def page_body_lines(content: str) -> list[str]:
+    """A wiki page's lines after its frontmatter block."""
+    lines = content.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return lines
+    index = 1
+    while index < len(lines) and lines[index].strip() != "---":
+        index += 1
+    return lines[index + 1 :]
+
+
+def page_body(content: str) -> str:
+    """A wiki page's prose: what is left after the frontmatter block and the page's own heading."""
+    lines = content.splitlines()
+    index = 0
+    if lines and lines[0].strip() == "---":
+        index = 1
+        while index < len(lines) and lines[index].strip() != "---":
+            index += 1
+        index += 1
+    while index < len(lines) and not lines[index].strip():
+        index += 1
+    if index < len(lines) and lines[index].startswith("# "):
+        index += 1
+    return "\n".join(lines[index:]).strip() + ("\n" if index < len(lines) else "")
 
 
 def create_doc(

@@ -1,3 +1,4 @@
+import { ArrowDownRightIcon, ArrowUpRightIcon } from "@phosphor-icons/react";
 import { useInsightMetric } from "@posthog/ui/features/docs/hooks/useInsightMetric";
 import { mergeAttributes, Node } from "@tiptap/core";
 import {
@@ -5,6 +6,7 @@ import {
   type ReactNodeViewProps,
   ReactNodeViewRenderer,
 } from "@tiptap/react";
+import type { ReactElement } from "react";
 
 /**
  * A row of numbers the page keeps in view.
@@ -48,17 +50,109 @@ export function MetricRowView({ node }: ReactNodeViewProps) {
   );
 }
 
-function MetricTile({ item }: { item: MetricRowItem }) {
-  const { value, isLoading, isError } = useInsightMetric(item.shortId);
+const SPARK_W = 40;
+const SPARK_H = 14;
+
+/** A hairline of the series, quiet enough to sit under a number in prose. */
+function MetricSparkline({ points }: { points: number[] }): ReactElement {
+  const max = Math.max(...points);
+  const min = Math.min(...points);
+  const range = max - min || 1;
+  const line = points
+    .map((point, index) => {
+      const x = (index / (points.length - 1)) * SPARK_W;
+      const y = SPARK_H - 1 - ((point - min) / range) * (SPARK_H - 2);
+      return `${index === 0 ? "M" : "L"}${x.toFixed(1)} ${y.toFixed(1)}`;
+    })
+    .join(" ");
 
   return (
+    <svg
+      viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
+      width={SPARK_W}
+      height={SPARK_H}
+      className="mt-1 block"
+      role="img"
+      aria-label="Trend"
+    >
+      <path
+        d={line}
+        fill="none"
+        stroke="var(--gray-a7)"
+        strokeWidth={1}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function MetricDelta({ delta }: { delta: number }): ReactElement {
+  const rising = delta >= 0;
+  const Arrow = rising ? ArrowUpRightIcon : ArrowDownRightIcon;
+  const percent = Math.abs(delta * 100);
+  return (
+    // Neither direction is colored: a doc does not know whether up is good.
+    <span className="doc-metric-delta">
+      <Arrow size={10} weight="bold" aria-hidden />
+      {percent < 10 ? percent.toFixed(1) : Math.round(percent)}%
+    </span>
+  );
+}
+
+export interface MetricTileState {
+  label: string;
+  value: string;
+  series: number[] | null;
+  delta: number | null;
+  isLoading: boolean;
+  isError: boolean;
+}
+
+/** One number in the row, with nothing to fetch. */
+export function MetricTileView({
+  label,
+  value,
+  series,
+  delta,
+  isLoading,
+  isError,
+}: MetricTileState): ReactElement {
+  const empty = isError || value === "—";
+  return (
     <div className="py-1">
-      <div className="doc-metric-label">{item.label}</div>
-      <div className="doc-metric-value">
-        {isLoading ? "…" : isError ? "—" : value}
-      </div>
+      <div className="doc-metric-label">{label}</div>
+      {isLoading ? (
+        <div className="doc-metric-value-loading">
+          <span className="sr-only">Loading</span>
+        </div>
+      ) : (
+        <div className="doc-metric-value">
+          {empty ? (
+            <span
+              className="doc-metric-empty"
+              title={
+                isError
+                  ? "This number could not be loaded"
+                  : "This insight has no single number"
+              }
+            >
+              —
+            </span>
+          ) : (
+            value
+          )}
+          {delta !== null ? <MetricDelta delta={delta} /> : null}
+        </div>
+      )}
+      {series ? <MetricSparkline points={series} /> : null}
     </div>
   );
+}
+
+function MetricTile({ item }: { item: MetricRowItem }) {
+  const metric = useInsightMetric(item.shortId);
+  return <MetricTileView label={item.label} {...metric} />;
 }
 
 export const MetricRow = Node.create({

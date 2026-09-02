@@ -115,8 +115,10 @@ export class TaskCreationSaga extends Saga<
       ? undefined
       : await this.importClaudeSession(input);
 
+    // A cloud pi run warms and activates like any other cloud run: the pool
+    // matches on the runtime, so a pi request can only take a pi sandbox.
     const warmPayload =
-      !isPiRuntime && !taskId && input.workspaceMode === "cloud"
+      !taskId && input.workspaceMode === "cloud"
         ? await this.prepareWarmActivation(input)
         : null;
 
@@ -777,7 +779,7 @@ export class TaskCreationSaga extends Saga<
     };
 
     const lease =
-      (input.repository || input.allowNoRepo) && input.runtime !== "pi"
+      input.repository || input.allowNoRepo
         ? this.deps.host.takeWarmTaskLease({
             repository: input.repository ?? null,
             repositories: input.repositories,
@@ -845,11 +847,11 @@ export class TaskCreationSaga extends Saga<
           input.filePaths ?? [],
           this.deps.fileReadClient,
         );
-        const canActivateWarmRun =
-          input.runtime !== "pi" && !warmPayload?.suppressWarmReuse;
+        const canActivateWarmRun = !warmPayload?.suppressWarmReuse;
         const result = await this.deps.posthogClient.createTask({
           description,
           naming_source: namingSource,
+          json_schema: input.outputSchema,
           // Signal-report tasks are code-access-exempt, so their repository is
           // resolved server-side from the report's own repo selection — the
           // backend rejects a client-set repo (it would bypass that gate).
@@ -881,22 +883,18 @@ export class TaskCreationSaga extends Saga<
             input.workspaceMode === "cloud" && canActivateWarmRun
               ? (input.branch ?? null)
               : undefined,
+          // The pool matches a warm run on these, so they travel on every cloud
+          // creation, pi included.
           runtime_adapter:
-            input.workspaceMode === "cloud" &&
-            canActivateWarmRun &&
-            input.runtime !== "pi"
+            input.workspaceMode === "cloud" && canActivateWarmRun
               ? (input.adapter ?? null)
               : undefined,
           model:
-            input.workspaceMode === "cloud" &&
-            canActivateWarmRun &&
-            input.runtime !== "pi"
+            input.workspaceMode === "cloud" && canActivateWarmRun
               ? (input.model ?? null)
               : undefined,
           reasoning_effort:
-            input.workspaceMode === "cloud" &&
-            canActivateWarmRun &&
-            input.runtime !== "pi"
+            input.workspaceMode === "cloud" && canActivateWarmRun
               ? (input.reasoningLevel ?? null)
               : undefined,
           sandbox_environment_id:

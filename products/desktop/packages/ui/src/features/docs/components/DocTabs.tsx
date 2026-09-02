@@ -1,9 +1,14 @@
 import { ListIcon, PlusIcon } from "@phosphor-icons/react";
 import type { DocSchemas } from "@posthog/api-client/docs";
 import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
   cn,
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -33,12 +38,14 @@ export function DocTabs({
   docs,
   activeDocId,
   onCreate,
+  onDelete,
   creating,
 }: {
   channelId: string;
   docs: DocSchemas.DocSummary[];
   activeDocId: string | null;
   onCreate: (template: DocSchemas.DocTemplate) => void;
+  onDelete: (doc: DocSchemas.DocSummary) => void;
   creating: boolean;
 }) {
   const navigate = useNavigate();
@@ -58,39 +65,54 @@ export function DocTabs({
           <ListIcon size={13} />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start">
-          <DropdownMenuLabel>Pages in this space</DropdownMenuLabel>
-          {docs.map((doc) => (
-            <DropdownMenuItem
-              key={doc.id}
-              onClick={() =>
-                void navigate({
-                  to: "/spaces/$channelId/docs/$docId",
-                  params: { channelId, docId: doc.id },
-                })
-              }
-            >
-              {doc.title || "Untitled"}
-            </DropdownMenuItem>
-          ))}
+          {/* A label is a group's label in Base UI, so it needs the group. */}
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Pages in this space</DropdownMenuLabel>
+            {docs.map((doc) => (
+              <DropdownMenuItem
+                key={doc.id}
+                onClick={() =>
+                  void navigate({
+                    to: "/spaces/$channelId/docs/$docId",
+                    params: { channelId, docId: doc.id },
+                  })
+                }
+              >
+                {doc.title || "Untitled"}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
 
       {docs.map((doc) => {
         const active = doc.id === activeDocId;
         return (
-          <Link
-            key={doc.id}
-            to="/spaces/$channelId/docs/$docId"
-            params={{ channelId, docId: doc.id }}
-            className={cn(
-              "flex h-[26px] shrink-0 items-center gap-1.5 rounded-t-(--radius-1) px-[13px] text-xs",
-              active
-                ? "border-(--gray-5) border-x border-t bg-(--gray-1) font-medium text-(--gray-12)"
-                : "text-(--gray-11) hover:bg-(--gray-4)",
-            )}
-          >
-            <span className="max-w-40 truncate">{doc.title || "Untitled"}</span>
-          </Link>
+          <ContextMenu key={doc.id}>
+            <ContextMenuTrigger
+              render={
+                <Link
+                  to="/spaces/$channelId/docs/$docId"
+                  params={{ channelId, docId: doc.id }}
+                  className={cn(
+                    "flex h-[26px] shrink-0 items-center gap-1.5 rounded-t-(--radius-1) px-[13px] text-xs",
+                    active
+                      ? "border-(--gray-5) border-x border-t bg-(--gray-1) font-medium text-(--gray-12)"
+                      : "text-(--gray-11) hover:bg-(--gray-4)",
+                  )}
+                />
+              }
+            >
+              <span className="max-w-40 truncate">
+                {doc.title || "Untitled"}
+              </span>
+            </ContextMenuTrigger>
+            <ContextMenuContent>
+              <ContextMenuItem onClick={() => onDelete(doc)}>
+                Delete page…
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
         );
       })}
 
@@ -107,17 +129,19 @@ export function DocTabs({
         >
           <PlusIcon size={13} />
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start">
-          <DropdownMenuLabel>Make a new page</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          {TEMPLATES.map((entry) => (
-            <DropdownMenuItem
-              key={entry.template}
-              onClick={() => onCreate(entry.template)}
-            >
-              {entry.label}
-            </DropdownMenuItem>
-          ))}
+        <DropdownMenuContent align="start" className="min-w-48">
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Make a new page</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {TEMPLATES.map((entry) => (
+              <DropdownMenuItem
+                key={entry.template}
+                onClick={() => onCreate(entry.template)}
+              >
+                {entry.label}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
 

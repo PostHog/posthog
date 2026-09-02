@@ -218,7 +218,16 @@ def create_channel_page(organization_id: uuid.UUID | str, channel_id: uuid.UUID 
         raise PageNotFoundError(f"no channel {channel_id} in this organization")
     team_id, name = details
     path = proposed_channel_page_path(organization_id, channel_id)
-    content = _channel_page(team_id, str(channel_id), name, None)
+    # A space enabled after the import may still hold notes in the legacy
+    # channel instructions, so the page starts from them the way the import did.
+    with team_scope(team_id):
+        instructions = tasks_facade.get_channel_instructions(channel_id, team_id, None)
+    imported = (
+        instructions.content
+        if instructions is not None and instructions.version > 0 and instructions.content.strip()
+        else None
+    )
+    content = _channel_page(team_id, str(channel_id), name, imported)
 
     def mutate(root: Path) -> None:
         target = root / path

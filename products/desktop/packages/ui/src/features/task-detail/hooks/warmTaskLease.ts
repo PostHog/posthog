@@ -4,6 +4,10 @@ export interface WarmTaskLease {
 }
 
 export interface WarmTaskLeaseKeyParts {
+  /** Omitted by callers on the standard cloud harness. */
+  runtime?: string | null;
+  /** Omitted by callers that let the runtime pick the mode. */
+  initialPermissionMode?: string | null;
   repository?: string | null;
   repositories?: string[];
   branch?: string | null;
@@ -16,6 +20,8 @@ export interface WarmTaskLeaseKeyParts {
 
 export function buildWarmTaskLeaseKey(parts: WarmTaskLeaseKeyParts): string {
   return [
+    parts.runtime ?? "",
+    parts.initialPermissionMode ?? "",
     (parts.repositories ?? (parts.repository ? [parts.repository] : [])).join(
       ",",
     ),

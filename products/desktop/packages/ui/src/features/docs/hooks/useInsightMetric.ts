@@ -6,6 +6,10 @@ const METRIC_STALE_MS = 60_000;
 
 interface InsightMetricResult {
   value: string;
+  /** The primary series, when the insight has one, for the tile's sparkline. */
+  series: number[] | null;
+  /** Step change to the last point, as a fraction. Null when it cannot be read. */
+  delta: number | null;
   isLoading: boolean;
   isError: boolean;
 }
@@ -43,6 +47,26 @@ export function headlineNumber(results: unknown): number | null {
   return null;
 }
 
+/** The primary series behind the headline, when the result carries one. */
+export function headlineSeries(results: unknown): number[] | null {
+  if (!Array.isArray(results) || results.length === 0) return null;
+  const first = results[0];
+  if (!isRecord(first) || !Array.isArray(first.data)) return null;
+  const points = first.data.filter(
+    (point): point is number => typeof point === "number",
+  );
+  return points.length > 1 ? points : null;
+}
+
+/** Change into the last point, as a fraction. Null when the step has no base. */
+export function seriesDelta(series: number[] | null): number | null {
+  if (!series || series.length < 2) return null;
+  const last = series[series.length - 1];
+  const previous = series[series.length - 2];
+  if (previous === 0) return null;
+  return (last - previous) / Math.abs(previous);
+}
+
 /** Groups thousands and keeps at most one decimal, so a row of numbers lines up. */
 export function formatMetric(value: number): string {
   const rounded =
@@ -62,12 +86,16 @@ export function useInsightMetric(shortId: string): InsightMetricResult {
     },
   );
 
-  const number = headlineNumber(query.data?.response?.results);
+  const results = query.data?.response?.results;
+  const number = headlineNumber(results);
+  const series = headlineSeries(results);
 
   return {
     // A dash rather than a sentence: an insight with no single number should
     // stay quiet in a row of numbers instead of shouting about itself.
     value: number === null ? "—" : formatMetric(number),
+    series,
+    delta: seriesDelta(series),
     isLoading: query.isLoading,
     isError: query.isError,
   };

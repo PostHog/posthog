@@ -1,0 +1,128 @@
+/* Rendered wiki markdown, on the same measure and rhythm as a doc page: a
+   15.2px body on a 1.74 line, headings that own the space above them. */
+
+.wiki-prose {
+  font-size: 15.2px;
+  line-height: 1.74;
+  color: var(--gray-11);
+}
+
+.wiki-prose > * + * {
+  margin-top: 0.85rem;
+}
+
+.wiki-prose h1,
+.wiki-prose h2,
+.wiki-prose h3,
+.wiki-prose h4 {
+  color: var(--gray-12);
+  font-weight: 620;
+  letter-spacing: -0.008em;
+}
+
+.wiki-prose h1 {
+  font-size: 21px;
+}
+
+.wiki-prose h2 {
+  font-size: 17px;
+}
+
+.wiki-prose h3,
+.wiki-prose h4 {
+  font-size: 15px;
+}
+
+/* Nested under a section label, the same headings step below the 15px that
+   label takes. A page whose parts outrank their container reads as several
+   pages. */
+.wiki-prose--nested h1 {
+  font-size: 15.2px;
+}
+
+.wiki-prose--nested h2 {
+  font-size: 14.6px;
+}
+
+.wiki-prose--nested h3,
+.wiki-prose--nested h4 {
+  font-size: 14px;
+  color: var(--gray-11);
+}
+
+.wiki-prose--nested > * + h1,
+.wiki-prose--nested > * + h2 {
+  margin-top: 26px;
+}
+
+.wiki-prose > * + h1,
+.wiki-prose > * + h2 {
+  margin-top: 34px;
+}
+
+.wiki-prose > * + h3,
+.wiki-prose > * + h4 {
+  margin-top: 26px;
+}
+
+.wiki-prose ul,
+.wiki-prose ol {
+  padding-left: 1.15rem;
+}
+
+.wiki-prose ul {
+  list-style: disc;
+}
+
+.wiki-prose ol {
+  list-style: decimal;
+}
+
+.wiki-prose li + li {
+  margin-top: 0.3rem;
+}
+
+.wiki-prose blockquote {
+  border-left: 2px solid var(--gray-6);
+  padding-left: 0.85rem;
+}
+
+.wiki-prose code {
+  font-family: var(--code-font-family, monospace);
+  font-size: 0.85em;
+  background: var(--gray-3);
+  border-radius: var(--radius-1);
+  padding: 0.1em 0.3em;
+}
+
+.wiki-prose pre code {
+  background: none;
+  padding: 0;
+}
+
+.wiki-prose a {
+  color: var(--gray-12);
+  text-decoration: underline;
+  text-decoration-color: var(--gray-7);
+  text-underline-offset: 3px;
+}
+
+.wiki-prose a:hover {
+  text-decoration-color: var(--gray-10);
+}
+
+.wiki-prose hr {
+  border: 0;
+  border-top: 1px solid var(--gray-5);
+  margin: 1.75rem 0;
+}
+
+/* The notes while they are being written: markdown in the reading type, with
+   the line kept at the same measure, so save changes nothing but the marks. */
+.wiki-prose--edit {
+  font-family: inherit;
+  font-size: 15.2px;
+  line-height: 1.74;
+  color: var(--gray-12);
+  field-sizing: content;
+}

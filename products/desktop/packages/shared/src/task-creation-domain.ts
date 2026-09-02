@@ -114,6 +114,12 @@ export interface TaskCreationInput {
    */
   allowNoRepo?: boolean;
   /**
+   * JSON schema the run's result must satisfy. A task with one returns a
+   * validated object in its run output, so a caller can read the answer
+   * instead of parsing prose.
+   */
+  outputSchema?: Record<string, unknown>;
+  /**
    * Continue a Claude Code CLI session by importing its transcript and resuming
    * with replay. Local mode only; forces the claude adapter. `branch` is what the
    * session last worked on, linked so the branch-mismatch prompt can fire.

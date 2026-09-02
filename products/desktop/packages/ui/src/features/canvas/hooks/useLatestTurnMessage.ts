@@ -1,6 +1,8 @@
 import {
   latestAgentMessage,
+  latestAgentMessageText,
   persistedTurnMessage,
+  persistedTurnText,
 } from "@posthog/core/sessions/latestTurnMessage";
 import type { Task } from "@posthog/shared/domain-types";
 import { useSessionSelector } from "@posthog/ui/features/sessions/useSession";
@@ -24,4 +26,19 @@ export function useLatestTurnMessage(
     latestAgentMessage(session?.events),
   );
   return live ?? persistedTurnMessage(task?.latest_run?.output);
+}
+
+/**
+ * The same message, whole, for a surface that reads it rather than shows it.
+ *
+ * A page picking a query out of the agent's answer needs the text the agent
+ * wrote, not the one line a card has room for.
+ */
+export function useLatestTurnText(
+  task: Task | null | undefined,
+): string | null {
+  const live = useSessionSelector(task?.id, (session) =>
+    latestAgentMessageText(session?.events),
+  );
+  return live ?? persistedTurnText(task?.latest_run?.output);
 }

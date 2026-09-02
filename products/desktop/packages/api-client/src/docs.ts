@@ -10,6 +10,8 @@ import type { ApiClient, Method } from "./generated";
 
 export namespace DocSchemas {
   export type DocStatus = "draft" | "active" | "done";
+  /** A page the space writes, or the one doc that is the space's context notes. */
+  export type DocKind = "page" | "context";
   export type DocTemplate = "blank" | "notes";
 
   export interface DocPerson {
@@ -28,11 +30,28 @@ export namespace DocSchemas {
     channel_id: string;
     title: string;
     status: DocStatus;
+    kind: DocKind;
     position: number;
     version: number;
     created_by: DocPerson | null;
     created_at: string;
     updated_at: string;
+    /** The first words of the page. Filled on the space home only. */
+    excerpt: string;
+    open_thread_count: number;
+    watch_count: number;
+  }
+
+  /** A section under watch, as the space's context page lists it. */
+  export interface WatchSummary {
+    doc_id: string;
+    doc_title: string;
+    anchor_key: string;
+    anchor_text: string;
+    loop_id: string | null;
+    last_report: string;
+    last_report_at: string | null;
+    created_at: string;
   }
 
   export interface Doc extends DocSummary {
@@ -40,22 +59,67 @@ export namespace DocSchemas {
     text_content: string;
   }
 
+  export type PostAuthorKind = "human" | "agent" | "system";
+  /** A thread hangs off a phrase, a data point the page asked for, or a section the agent keeps checking. */
+  export type DiscussionKind = "text" | "data" | "watch";
+  export type AgentDelivery = "not_requested" | "sent" | "no_run" | "failed";
+
   export interface DiscussionPost {
     id: string;
     content: string;
+    /** Null for the agent and for a system line. */
     created_by: DocPerson | null;
     created_at: string;
+    author_kind: PostAuthorKind;
+    sent_to_agent: boolean;
+  }
+
+  /** The query behind a data point. The page runs it on every read. */
+  export interface DataAnswer {
+    query: string;
+    label: string;
+    note: string;
+    run_id: string | null;
+    updated_at: string | null;
   }
 
   export interface DiscussionThread extends DiscussionPost {
     anchor_key: string;
     anchor_text: string;
     resolved: boolean;
+    kind: DiscussionKind;
+    /** The agent task this thread talks to, once someone tagged the agent. */
+    task_id: string | null;
+    /** The loop behind a watched section. Its reports land as posts. */
+    loop_id: string | null;
+    answer: DataAnswer | null;
     replies: DiscussionPost[];
+  }
+
+  export interface DiscussionReplyResult extends DiscussionThread {
+    delivery: AgentDelivery;
+  }
+
+  export interface DiscussionStart {
+    content: string;
+    anchor_key: string;
+    anchor_text: string;
+    kind?: DiscussionKind;
+    task_id?: string | null;
+    loop_id?: string | null;
+    send_to_agent?: boolean;
+  }
+
+  export interface DiscussionReply {
+    content: string;
+    /** A task the client just started for this thread. The thread keeps it. */
+    task_id?: string | null;
+    send_to_agent?: boolean;
   }
 
   export interface SpaceHome {
     docs: DocSummary[];
+    watches: WatchSummary[];
   }
 
   export interface DocWrite {
@@ -220,6 +284,17 @@ export async function reorderDocs(
   });
 }
 
+/** The space's context notes as a doc, created on first use. */
+export async function retrieveContextDoc(
+  client: ApiClient,
+  projectId: string,
+  channelId: string,
+): Promise<DocSchemas.Doc> {
+  return docsRequest(client, "get", `${docsPath(projectId)}context/`, {
+    query: { channel: channelId },
+  });
+}
+
 export async function retrieveSpaceHome(
   client: ApiClient,
   projectId: string,
@@ -319,8 +394,8 @@ export async function startDiscussion(
   client: ApiClient,
   projectId: string,
   docId: string,
-  body: { content: string; anchor_key: string; anchor_text: string },
-): Promise<DocSchemas.DiscussionThread> {
+  body: DocSchemas.DiscussionStart,
+): Promise<DocSchemas.DiscussionReplyResult> {
   return docsRequest(
     client,
     "post",
@@ -334,13 +409,13 @@ export async function replyToDiscussion(
   projectId: string,
   docId: string,
   threadId: string,
-  content: string,
-): Promise<DocSchemas.DiscussionThread> {
+  body: DocSchemas.DiscussionReply,
+): Promise<DocSchemas.DiscussionReplyResult> {
   return docsRequest(
     client,
     "post",
     docActionPath(projectId, docId, `discussions/${threadId}/reply`),
-    { body: { content } },
+    { body },
   );
 }
 

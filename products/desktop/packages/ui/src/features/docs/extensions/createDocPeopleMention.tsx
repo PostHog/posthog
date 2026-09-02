@@ -1,8 +1,9 @@
 import type { UserBasic } from "@posthog/shared/domain-types";
+import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
-import type { SuggestionItem } from "@posthog/ui/features/message-editor/types";
 import type { Extension } from "@tiptap/core";
 import { createDocSuggestion } from "./createDocSuggestion";
+import type { DocSuggestionItem } from "./DocSuggestionList";
 
 const MAX_PEOPLE_SUGGESTIONS = 8;
 
@@ -16,10 +17,11 @@ export function createDocPeopleMention(options: {
   sessionId: string;
   people: () => UserBasic[];
 }): Extension {
-  return createDocSuggestion<SuggestionItem>({
+  return createDocSuggestion<DocSuggestionItem>({
     name: "docPeopleMention",
     sessionId: options.sessionId,
     char: "@",
+    emptyMessage: "Nobody by that name",
     items: (query) => {
       const needle = query.trim().toLowerCase();
       return options
@@ -35,6 +37,7 @@ export function createDocPeopleMention(options: {
         .slice(0, MAX_PEOPLE_SUGGESTIONS)
         .map((person) => ({
           id: person.uuid ?? String(person.id ?? ""),
+          icon: <UserAvatar user={person} size="xs" />,
           label: userDisplayName(person),
           description: person.email ?? undefined,
         }));

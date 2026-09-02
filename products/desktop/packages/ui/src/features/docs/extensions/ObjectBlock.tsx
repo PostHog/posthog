@@ -1,5 +1,19 @@
-import { Button, Textarea } from "@posthog/quill";
+import {
+  ArrowSquareOutIcon,
+  CaretDownIcon,
+  CaretRightIcon,
+  PencilSimpleIcon,
+} from "@phosphor-icons/react";
+import {
+  Button,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@posthog/quill";
+import { useEvidenceUrl } from "@posthog/ui/features/editor/components/EvidenceRefChip";
 import { MessageChartCard } from "@posthog/ui/features/editor/components/MessageChartCard";
+import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import type { ChartBlockSpec } from "@posthog/ui/utils/chartBlocks";
 import { chartBlockKey } from "@posthog/ui/utils/chartBlocks";
 import { mergeAttributes, Node } from "@tiptap/core";
@@ -8,7 +22,7 @@ import {
   type ReactNodeViewProps,
   ReactNodeViewRenderer,
 } from "@tiptap/react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /**
  * A live chart in a doc: a saved insight, a SQL query, or a session replay.
@@ -45,6 +59,162 @@ function toSpec(attrs: ObjectBlockAttrs): ChartBlockSpec | null {
   return null;
 }
 
+const SQL_PLACEHOLDER = "select count() from events where event = '$pageview'";
+
+/** The query on one line, for the head of a block that keeps the rest folded. */
+function oneLine(query: string): string {
+  return query.replace(/\s+/g, " ").trim();
+}
+
+function SqlEditor({
+  initial,
+  canCancel,
+  onRun,
+  onCancel,
+}: {
+  initial: string;
+  canCancel: boolean;
+  onRun: (query: string) => void;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState(initial);
+  const input = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    input.current?.focus();
+  }, []);
+  const ready = draft.trim().length > 0;
+  const run = () => {
+    if (ready) onRun(draft.trim());
+  };
+  return (
+    <div className="doc-sql-card">
+      <div className="doc-sql-head">SQL</div>
+      <div className="doc-sql-editor">
+        <HighlightedCode
+          code={draft ? `${draft}\n` : ""}
+          language="sql"
+          className="doc-sql-editor-mirror"
+        />
+        <textarea
+          className="doc-sql-editor-input"
+          value={draft}
+          ref={input}
+          rows={1}
+          spellCheck={false}
+          placeholder={SQL_PLACEHOLDER}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+              event.preventDefault();
+              run();
+              return;
+            }
+            if (event.key === "Escape" && canCancel) {
+              event.preventDefault();
+              onCancel();
+            }
+          }}
+        />
+      </div>
+      <div className="doc-sql-foot">
+        <span>⌘↵ runs the query</span>
+        <span className="flex-1" />
+        {canCancel ? (
+          <Button size="sm" variant="default" onClick={onCancel}>
+            Cancel
+          </Button>
+        ) : null}
+        <Button size="sm" variant="primary" disabled={!ready} onClick={run}>
+          Run
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function SqlCard({
+  query,
+  spec,
+  onEdit,
+}: {
+  query: string;
+  spec: ChartBlockSpec;
+  onEdit: () => void;
+}) {
+  const [showQuery, setShowQuery] = useState(false);
+  const url = useEvidenceUrl("hogql", query);
+  return (
+    <div className="doc-sql-card">
+      <div className="doc-sql-head">
+        <button
+          type="button"
+          className="doc-sql-toggle"
+          aria-expanded={showQuery}
+          onClick={() => setShowQuery((open) => !open)}
+        >
+          {showQuery ? (
+            <CaretDownIcon size={11} />
+          ) : (
+            <CaretRightIcon size={11} />
+          )}
+          <span>SQL</span>
+          {showQuery ? null : (
+            <HighlightedCode
+              code={oneLine(query)}
+              language="sql"
+              className="doc-sql-peek"
+            />
+          )}
+        </button>
+        <span className="doc-sql-actions">
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  size="icon"
+                  variant="default"
+                  aria-label="Edit the query"
+                  onClick={onEdit}
+                />
+              }
+            >
+              <PencilSimpleIcon size={13} />
+            </TooltipTrigger>
+            <TooltipContent>Edit the query</TooltipContent>
+          </Tooltip>
+          {url ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="icon"
+                    variant="default"
+                    aria-label="Open in PostHog"
+                    onClick={() => openExternalUrl(url)}
+                  />
+                }
+              >
+                <ArrowSquareOutIcon size={13} />
+              </TooltipTrigger>
+              <TooltipContent>Open in PostHog</TooltipContent>
+            </Tooltip>
+          ) : null}
+        </span>
+      </div>
+      {showQuery ? (
+        <HighlightedCode code={query} language="sql" className="doc-sql-full" />
+      ) : null}
+      <div className="doc-sql-result">
+        <MessageChartCard
+          spec={spec}
+          blockKey={chartBlockKey(JSON.stringify(spec))}
+          showStat={false}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function ObjectBlockView({
   node,
   updateAttributes,
@@ -52,70 +222,38 @@ export function ObjectBlockView({
   const attrs = node.attrs as ObjectBlockAttrs;
   const isSql = attrs.mode === "hogql";
   const [editing, setEditing] = useState(isSql && !attrs.query);
-  const [draft, setDraft] = useState(attrs.query ?? "");
   const spec = toSpec(attrs);
 
-  if (isSql && editing) {
+  if (isSql && (editing || !spec)) {
     return (
       <NodeViewWrapper className="my-4">
-        <div className="rounded-(--radius-3) border border-(--gray-6) p-2">
-          <Textarea
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="select count() from events where event = '$pageview'"
-            rows={4}
-            className="font-mono text-xs"
-            autoFocus
-          />
-          <div className="mt-1.5 flex items-center justify-end gap-2">
-            {attrs.query ? (
-              <Button
-                size="sm"
-                variant="default"
-                onClick={() => {
-                  setDraft(attrs.query ?? "");
-                  setEditing(false);
-                }}
-              >
-                Cancel
-              </Button>
-            ) : null}
-            <Button
-              size="sm"
-              variant="primary"
-              disabled={draft.trim().length === 0}
-              onClick={() => {
-                updateAttributes({ query: draft.trim() });
-                setEditing(false);
-              }}
-            >
-              Run
-            </Button>
-          </div>
-        </div>
+        <SqlEditor
+          initial={attrs.query ?? ""}
+          canCancel={!!attrs.query}
+          onRun={(query) => {
+            updateAttributes({ query });
+            setEditing(false);
+          }}
+          onCancel={() => setEditing(false)}
+        />
       </NodeViewWrapper>
     );
   }
 
   return (
     <NodeViewWrapper className="my-4" data-drag-handle>
-      {spec ? (
-        <>
-          <MessageChartCard
-            spec={spec}
-            blockKey={chartBlockKey(JSON.stringify(spec))}
-            showStat={false}
-          />
-          {isSql ? (
-            <button
-              type="button"
-              className="mt-1 cursor-pointer text-(--gray-9) text-[11.5px] hover:text-(--gray-11)"
-              onClick={() => setEditing(true)}
-            >
-              Show query
-            </button>
-          ) : null}
-        </>
+      {spec && isSql && attrs.query ? (
+        <SqlCard
+          query={attrs.query}
+          spec={spec}
+          onEdit={() => setEditing(true)}
+        />
+      ) : spec ? (
+        <MessageChartCard
+          spec={spec}
+          blockKey={chartBlockKey(JSON.stringify(spec))}
+          showStat={false}
+        />
       ) : (
         <div className="rounded-(--radius-3) border border-(--gray-6) p-3 text-(--gray-11) text-sm">
           This block lost the thing it pointed at. Delete it and add the chart

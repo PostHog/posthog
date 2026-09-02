@@ -20,7 +20,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.context_layer.backend import repo_lint, store
+from products.context_layer.backend import page_format, repo_lint, store
 from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.scaffold import AGENTS_MD
 from products.tasks.backend.facade import api as tasks_facade
@@ -213,7 +213,13 @@ def _channel_page(team_id: int, channel_id: str, channel_name: str, content: str
             else ""
         )
         body = f"{repair_note}\n{sanitized_content}\n"
-    return f"---\nteam_id: {team_id}\nchannel_id: {channel_id}\nsummary: {summary}\nstatus: active\nsources: {source}\n---\n\n# {title} (project {team_id}, Space {channel_id[:8]})\n{body}"
+    header = page_format.SpacePageHeader(
+        team_id=team_id,
+        channel_id=channel_id,
+        summary=summary,
+        sources=source,
+    )
+    return page_format.render_space_page(header, f"{title} (project {team_id}, Space {channel_id[:8]})", body)
 
 
 def _sanitize_imported_context(content: str) -> tuple[str, bool]:

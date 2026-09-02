@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import Any, ClassVar
 from uuid import UUID, uuid4
 
+from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.db import close_old_connections
@@ -1911,3 +1912,50 @@ class TestOrganizationHasContext(TestCase):
 
         self.assertFalse(facade.organization_has_context(self.organization.id))
         self.assertTrue(facade.organization_has_context(other_org.id))
+
+
+class TestForwardMessageToRun(APIBaseTest):
+    def _task(self) -> Task:
+        return Task.objects.create(
+            team=self.team,
+            title="Doc question",
+            description="From a page",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+        )
+
+    def test_a_task_that_never_ran_reports_no_run(self) -> None:
+        task = self._task()
+
+        outcome = facade.forward_message_to_run(task.id, self.team.pk, content="hello", actor_user_id=self.user.pk)
+
+        assert outcome == "no_run"
+
+    def test_a_live_run_gets_the_text_with_the_sender_named(self) -> None:
+        task = self._task()
+        run = TaskRun.objects.create(team=self.team, task=task, status=TaskRun.Status.IN_PROGRESS)
+
+        with patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True) as signal:
+            outcome = facade.forward_message_to_run(
+                task.id, self.team.pk, content="use last 30 days", actor_user_id=self.user.pk
+            )
+
+        assert outcome == "ok"
+        assert signal.call_args.args[0] == run.id
+        assert signal.call_args.kwargs["content"].endswith("] use last 30 days")
+
+    def test_an_ended_cloud_run_is_resumed_with_the_text_waiting(self) -> None:
+        task = self._task()
+        run = TaskRun.objects.create(team=self.team, task=task, status=TaskRun.Status.COMPLETED)
+
+        with patch(
+            "products.tasks.backend.facade.api.resume_task_run_in_cloud", return_value=("resumed", None, None)
+        ) as resume:
+            outcome = facade.forward_message_to_run(
+                task.id, self.team.pk, content="and now?", actor_user_id=self.user.pk
+            )
+
+        run.refresh_from_db()
+        assert outcome == "ok"
+        assert resume.call_args.args[0] == run.id
+        assert run.state["pending_user_message"].endswith("] and now?")

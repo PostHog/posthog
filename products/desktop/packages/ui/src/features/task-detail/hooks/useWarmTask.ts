@@ -14,6 +14,10 @@ const WARM_DEBOUNCE_MS = 600;
 
 interface UseWarmTaskOptions {
   workspaceMode: WorkspaceMode;
+  /** Harness to boot. Omit for the standard cloud harness. */
+  runtime?: string | null;
+  /** Permission mode to boot with. Omit to take the runtime's default. */
+  initialPermissionMode?: string | null;
   selectedRepository?: string | null;
   repositories?: string[];
   githubIntegrationId?: number;
@@ -29,6 +33,8 @@ interface UseWarmTaskOptions {
 
 export function useWarmTask({
   workspaceMode,
+  runtime,
+  initialPermissionMode,
   selectedRepository,
   repositories,
   githubIntegrationId,
@@ -50,6 +56,8 @@ export function useWarmTask({
 
   const isCloud = workspaceMode === "cloud";
   const normalizedBranch = branch ?? null;
+  const normalizedRuntime = runtime ?? null;
+  const normalizedPermissionMode = initialPermissionMode ?? null;
   const normalizedRuntimeAdapter = runtimeAdapter ?? null;
   const normalizedModel = model ?? null;
   const normalizedReasoningEffort = reasoningEffort ?? null;
@@ -80,6 +88,8 @@ export function useWarmTask({
   const key =
     allowNoRepo || (warmRepository && warmGithubIntegrationId !== null)
       ? `${warmGithubIntegrationId ?? ""}:${buildWarmTaskLeaseKey({
+          runtime: normalizedRuntime,
+          initialPermissionMode: normalizedPermissionMode,
           repository: warmRepository,
           repositories: warmRepositories,
           branch: normalizedBranch,
@@ -116,11 +126,15 @@ export function useWarmTask({
     const warmReasoningEffort = normalizedReasoningEffort;
     const warmSandboxEnvironmentId = normalizedSandboxEnvironmentId;
     const warmCustomImageId = normalizedCustomImageId;
+    const warmRuntime = normalizedRuntime;
+    const warmPermissionMode = normalizedPermissionMode;
     debounceRef.current = setTimeout(() => {
       debounceRef.current = null;
       lastWarmedKeyRef.current = key;
       void client
         .warmTask({
+          runtime: warmRuntime,
+          initial_permission_mode: warmPermissionMode,
           repository,
           // Older backends ignore this additive field and fall back to cold creation for multi-repo tasks.
           ...(repositories !== undefined
@@ -140,6 +154,8 @@ export function useWarmTask({
           if (warm && latestKeyRef.current === key) {
             rememberWarmTaskLease(
               buildWarmTaskLeaseKey({
+                runtime: warmRuntime,
+                initialPermissionMode: warmPermissionMode,
                 repository,
                 repositories: warmRepositories,
                 branch: warmBranch,
@@ -166,6 +182,8 @@ export function useWarmTask({
     eligible,
     key,
     client,
+    normalizedRuntime,
+    normalizedPermissionMode,
     warmRepository,
     warmRepositories,
     repositories,

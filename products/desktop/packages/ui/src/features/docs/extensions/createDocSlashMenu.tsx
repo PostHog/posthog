@@ -1,154 +1,184 @@
-import type { SuggestionItem } from "@posthog/ui/features/message-editor/types";
+import {
+  CodeIcon,
+  ListBulletsIcon,
+  ListChecksIcon,
+  ListNumbersIcon,
+  MinusIcon,
+  QuotesIcon,
+  TableIcon,
+  TextHOneIcon,
+  TextHThreeIcon,
+  TextHTwoIcon,
+} from "@phosphor-icons/react";
+import { DocMark } from "@posthog/ui/primitives/DocMark";
 import type { Editor, Extension } from "@tiptap/core";
 import { createDocSuggestion } from "./createDocSuggestion";
+import type { DocSuggestionItem } from "./DocSuggestionList";
 
 /** What the person chose, once the typeahead has narrowed it down. */
 export type DocSlashChoice =
+  | { kind: "heading"; level: 1 | 2 | 3 }
+  | { kind: "code" }
+  | { kind: "bulletList" }
+  | { kind: "orderedList" }
   | { kind: "taskList" }
-  | { kind: "discussion" }
+  | { kind: "quote" }
+  | { kind: "divider" }
   | { kind: "sql" }
-  | { kind: "insight"; shortId: string; label: string }
-  | { kind: "metric"; shortId: string; label: string }
-  | { kind: "task"; taskId: string; label: string };
+  | { kind: "data" };
 
-interface SlashItem extends SuggestionItem {
+interface SlashItem extends DocSuggestionItem {
   choice: DocSlashChoice;
+  /** Other words a person might type for it. */
+  keywords?: string;
 }
 
-/**
- * The words that switch the list from blocks to things.
- *
- * Typing `/insight weekly` searches insights straight in the popup, so adding a
- * chart never leaves the page. Each entry says which source the rest of the
- * query searches.
- */
-const SOURCES: Array<{
-  word: string;
-  label: string;
-  hint: string;
-  source: "insight" | "metric" | "task";
-}> = [
-  { word: "insight", label: "Insight", hint: "chart", source: "insight" },
-  {
-    word: "number",
-    label: "Number",
-    hint: "one value in a row",
-    source: "metric",
-  },
-  { word: "task", label: "Task", hint: "link one that exists", source: "task" },
-];
+const ICON = 15;
 
+/**
+ * The blocks `/` offers, in the order a page uses them.
+ *
+ * Nothing here searches. A data point comes from asking with `+`, because a
+ * person knows what they want to see long before they know which saved insight
+ * holds it.
+ */
 const BLOCKS: SlashItem[] = [
   {
+    id: "data",
+    group: "Data",
+    icon: <DocMark variant="agent" state="still" size={13} />,
+    label: "Data point",
+    description: "a live number",
+    hint: "+",
+    keywords: "number metric ask agent insight",
+    choice: { kind: "data" },
+  },
+  {
     id: "sql",
+    group: "Data",
+    icon: <TableIcon size={ICON} />,
     label: "SQL query",
-    description: "rows",
+    description: "rows from a query",
+    keywords: "hogql table",
     choice: { kind: "sql" },
   },
   {
+    id: "heading-1",
+    group: "Text",
+    icon: <TextHOneIcon size={ICON} />,
+    label: "Heading",
+    description: "a section",
+    hint: "#",
+    keywords: "h1 title",
+    choice: { kind: "heading", level: 1 },
+  },
+  {
+    id: "heading-2",
+    group: "Text",
+    icon: <TextHTwoIcon size={ICON} />,
+    label: "Subheading",
+    description: "a part of a section",
+    hint: "##",
+    keywords: "h2",
+    choice: { kind: "heading", level: 2 },
+  },
+  {
+    id: "heading-3",
+    group: "Text",
+    icon: <TextHThreeIcon size={ICON} />,
+    label: "Small heading",
+    description: "the level under that",
+    hint: "###",
+    keywords: "h3",
+    choice: { kind: "heading", level: 3 },
+  },
+  {
+    id: "quote",
+    group: "Text",
+    icon: <QuotesIcon size={ICON} />,
+    label: "Quote",
+    description: "someone else's words",
+    hint: ">",
+    keywords: "blockquote",
+    choice: { kind: "quote" },
+  },
+  {
+    id: "code",
+    group: "Text",
+    icon: <CodeIcon size={ICON} />,
+    label: "Code",
+    description: "kept as written",
+    hint: "```",
+    keywords: "snippet",
+    choice: { kind: "code" },
+  },
+  {
+    id: "bullet-list",
+    group: "Lists",
+    icon: <ListBulletsIcon size={ICON} />,
+    label: "Bullet list",
+    description: "points",
+    hint: "-",
+    keywords: "unordered",
+    choice: { kind: "bulletList" },
+  },
+  {
+    id: "ordered-list",
+    group: "Lists",
+    icon: <ListNumbersIcon size={ICON} />,
+    label: "Numbered list",
+    description: "steps in order",
+    hint: "1.",
+    keywords: "ordered",
+    choice: { kind: "orderedList" },
+  },
+  {
     id: "task-list",
+    group: "Lists",
+    icon: <ListChecksIcon size={ICON} />,
     label: "Task list",
     description: "checkboxes",
+    hint: "[]",
+    keywords: "todo checklist",
     choice: { kind: "taskList" },
   },
   {
-    id: "discussion",
-    label: "Discussion",
-    description: "on the selected text",
-    choice: { kind: "discussion" },
+    id: "divider",
+    group: "Lists",
+    icon: <MinusIcon size={ICON} />,
+    label: "Divider",
+    description: "a line between sections",
+    hint: "---",
+    keywords: "rule hr",
+    choice: { kind: "divider" },
   },
 ];
-
-export interface DocSlashSources {
-  /** Saved insights matching a search. */
-  insights: (
-    query: string,
-  ) => Promise<Array<{ shortId: string; label: string }>>;
-  /** Tasks in this space matching a search. */
-  tasks: (query: string) => Array<{ taskId: string; label: string }>;
-}
-
-function splitQuery(query: string): { word: string; rest: string } {
-  const trimmed = query.trimStart();
-  const space = trimmed.indexOf(" ");
-  if (space < 0) return { word: trimmed.toLowerCase(), rest: "" };
-  return {
-    word: trimmed.slice(0, space).toLowerCase(),
-    rest: trimmed.slice(space + 1).trim(),
-  };
-}
 
 /**
  * `/` in a doc.
  *
- * One popup does everything: the plain list of blocks, and a search over the
- * real thing as soon as the query names a source. Nothing here opens a window.
+ * One list of blocks, filtered as you type. Nothing here opens a window.
  */
 export function createDocSlashMenu(options: {
   sessionId: string;
-  sources: DocSlashSources;
   onPick: (choice: DocSlashChoice, editor: Editor) => void;
 }): Extension {
   return createDocSuggestion<SlashItem>({
     name: "docSlashMenu",
     sessionId: options.sessionId,
     char: "/",
-    startOfLine: true,
-    allowSpaces: true,
-    debounceMs: 150,
-    items: async (query) => {
-      const { word, rest } = splitQuery(query);
-      const matched = SOURCES.find(
-        (source) => word.length >= 2 && source.word.startsWith(word),
+    startOfLine: false,
+    allowSpaces: false,
+    emptyMessage: "No block by that name",
+    items: (query) => {
+      const needle = query.trim().toLowerCase();
+      if (!needle) return BLOCKS;
+      return BLOCKS.filter((item) =>
+        `${item.label} ${item.description ?? ""} ${item.keywords ?? ""}`
+          .toLowerCase()
+          .includes(needle),
       );
-
-      if (matched?.source === "task") {
-        return options.sources.tasks(rest).map((task) => ({
-          id: task.taskId,
-          label: task.label,
-          description: "task in this space",
-          choice: { kind: "task", taskId: task.taskId, label: task.label },
-        }));
-      }
-
-      if (matched) {
-        const insights = await options.sources.insights(rest);
-        return insights.map((insight) => ({
-          id: insight.shortId,
-          label: insight.label,
-          description:
-            matched.source === "metric" ? "as a number" : "as a chart",
-          choice: {
-            kind: matched.source === "metric" ? "metric" : "insight",
-            shortId: insight.shortId,
-            label: insight.label,
-          },
-        }));
-      }
-
-      // No source named yet: offer the blocks, plus the sources as words to type.
-      const needle = word;
-      const sourceItems: SlashItem[] = SOURCES.map((source) => ({
-        id: `source-${source.word}`,
-        label: source.label,
-        description: `${source.hint} — keep typing to search`,
-        // Selecting a source word only moves the query along; the real choice
-        // comes from the search that follows.
-        choice: { kind: "taskList" },
-      }));
-      const all = [...sourceItems, ...BLOCKS];
-      return needle
-        ? all.filter((item) => item.label.toLowerCase().includes(needle))
-        : all;
     },
-    renderItem: undefined,
-    onSelect: ({ editor, item }) => {
-      if (item.id.startsWith("source-")) {
-        const word = item.id.slice("source-".length);
-        editor.chain().focus().insertContent(`/${word} `).run();
-        return;
-      }
-      options.onPick(item.choice, editor);
-    },
+    onSelect: ({ editor, item }) => options.onPick(item.choice, editor),
   });
 }

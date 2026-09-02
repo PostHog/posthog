@@ -37,17 +37,16 @@ export function useDiscussionMutations(docId: string | null) {
   };
 
   const start = useMutation({
-    mutationFn: async (input: {
-      content: string;
-      anchorKey: string;
-      anchorText: string;
-    }): Promise<DocSchemas.DiscussionThread> => {
+    mutationFn: async (
+      input: DocSchemas.DiscussionStart,
+    ): Promise<DocSchemas.DiscussionReplyResult> => {
       if (!docsClient || !docId) throw new Error("No doc to discuss");
-      return startDiscussion(docsClient.client, docsClient.projectId, docId, {
-        content: input.content,
-        anchor_key: input.anchorKey,
-        anchor_text: input.anchorText,
-      });
+      return startDiscussion(
+        docsClient.client,
+        docsClient.projectId,
+        docId,
+        input,
+      );
     },
     onSuccess: refresh,
   });
@@ -55,15 +54,15 @@ export function useDiscussionMutations(docId: string | null) {
   const reply = useMutation({
     mutationFn: async (input: {
       threadId: string;
-      content: string;
-    }): Promise<DocSchemas.DiscussionThread> => {
+      body: DocSchemas.DiscussionReply;
+    }): Promise<DocSchemas.DiscussionReplyResult> => {
       if (!docsClient || !docId) throw new Error("No doc to discuss");
       return replyToDiscussion(
         docsClient.client,
         docsClient.projectId,
         docId,
         input.threadId,
-        input.content,
+        input.body,
       );
     },
     onSuccess: refresh,

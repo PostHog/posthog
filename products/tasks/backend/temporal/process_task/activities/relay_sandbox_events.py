@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import time
 import asyncio
+import hashlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -20,6 +21,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.feature_flags import run_stream_presence_gated
+from products.tasks.backend.facade.signals import task_run_turn_finished
 from products.tasks.backend.logic.services.agent_command import sandbox_transport_token, validate_sandbox_url
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.permission_broker import (
@@ -76,23 +78,48 @@ def _sanitize_httpx_error(e: httpx.HTTPStatusError) -> str:
 
 
 class FinalMessageTracker:
+    """Collects the agent's prose for one turn.
+
+    A tool call closes a part: the text after the last tool call is the answer, and the
+    text before it is narration on the way ("Let me check…"). Both are kept: the whole
+    turn for the run, the last part for surfaces that show a reply.
+    """
+
     def __init__(self) -> None:
         self._current_turn_parts: list[str] = []
+        self._answer_start = 0
+        self._between_messages = False
+        self.last_part: str | None = None
 
     def collect(self, event_data: dict) -> None:
+        if _is_tool_call_event(event_data):
+            self._answer_start = len(self._current_turn_parts)
+            self._between_messages = True
+            return
         text = _extract_agent_message_text(event_data)
-        if text:
-            self._current_turn_parts.append(text)
+        if not text:
+            # Anything that is not prose ends a message; the next prose starts a new one.
+            self._between_messages = bool(self._current_turn_parts)
+            return
+        if self._between_messages and self._current_turn_parts:
+            self._current_turn_parts.append("\n\n")
+        self._between_messages = False
+        self._current_turn_parts.append(text)
 
     def end_turn(self) -> str | None:
         if not self._current_turn_parts:
+            self.last_part = None
             return None
         text = "".join(self._current_turn_parts)[:FINAL_MESSAGE_MAX_CHARS]
-        self._current_turn_parts.clear()
+        tail = "".join(self._current_turn_parts[self._answer_start :]).strip()
+        self.last_part = (tail or text)[:FINAL_MESSAGE_MAX_CHARS]
+        self.reset()
         return text
 
     def reset(self) -> None:
         self._current_turn_parts.clear()
+        self._answer_start = 0
+        self._between_messages = False
 
 
 @dataclass
@@ -501,7 +528,9 @@ async def _relay_loop(
                                     await _signal_safely(workflow_handle, "turn_completed")
                                 final_text = final_message_tracker.end_turn()
                                 if final_text is not None and task_run is not None:
-                                    await asyncio.to_thread(_persist_final_message, run_id, final_text)
+                                    await asyncio.to_thread(
+                                        _persist_final_message, run_id, final_text, final_message_tracker.last_part
+                                    )
                             elif not agent_active[0] and _is_active_agent_update(event_data):
                                 agent_active[0] = True
                                 if workflow_handle is not None:
@@ -777,6 +806,14 @@ def _tool_args_preview(raw_input: Any) -> str | None:
     return one_line
 
 
+def _is_tool_call_event(event_data: dict) -> bool:
+    notification = event_data.get("notification", {})
+    if notification.get("method") != "session/update":
+        return False
+    update = (notification.get("params") or {}).get("update") or {}
+    return update.get("sessionUpdate") == "tool_call"
+
+
 def _extract_agent_message_text(event_data: dict) -> str | None:
     """Text from an agent message event, else None."""
     pi_event = _pi_conversation_event(event_data)
@@ -916,7 +953,7 @@ def _safe_dispatch_turn_completed(task_run: TaskRunModel) -> None:
         )
 
 
-def _persist_final_message(run_id: str, text: str) -> None:
+def _persist_final_message(run_id: str, text: str, last_part: str | None = None) -> None:
     """Sync DB write; call via asyncio.to_thread."""
     try:
         if not settings.TEST:
@@ -928,6 +965,17 @@ def _persist_final_message(run_id: str, text: str) -> None:
             run.save(update_fields=["output", "updated_at"])
     except Exception:
         logger.warning("relay_final_message_persist_failed", run_id=run_id, exc_info=True)
+        return
+    try:
+        task_run_turn_finished.send(
+            sender=TaskRunModel,
+            task_run=run,
+            text=text,
+            last_text=last_part or text,
+            turn_key=hashlib.sha1(text.encode()).hexdigest()[:16],
+        )
+    except Exception:
+        logger.warning("relay_turn_finished_signal_failed", run_id=run_id, exc_info=True)
 
 
 def _broker_permission_request(task_run: TaskRunModel, permission_request: dict) -> None:

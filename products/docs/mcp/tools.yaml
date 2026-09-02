@@ -1,0 +1,47 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# Two things share the "docs" attribution: the search over PostHog's own
+# documentation, and the pages people write in a space.
+category: Docs
+feature: docs
+url_prefix: /
+ui_apps: {}
+tools:
+    docs-search:
+        operation: docs_search
+        enabled: true
+        scopes:
+            - project:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Search documentation
+        description_file: ./prompts/docs-search.md
+    doc-data-point-submit:
+        operation: docs_data_points_submit_create
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Submit the query behind a data point
+        description: >
+            Hand in the HogQL query behind a data point a page asked you for. Pass the `request_id` from your task,
+            a `query` that returns exactly one row and one column, and a short `label`. The page checks the query and
+            runs it once: on `ok: false` fix the query and call again; on `ok: true` the page shows the value live
+            from then on. Call again with the same `request_id` to replace the query after a follow-up. When the
+            project's data cannot answer, call with `status: none` and say why in `note`.
+        param_overrides:
+            request_id:
+                description: The request id given in the task description. Copy it exactly.
+            query:
+                description: One HogQL SELECT (or WITH … SELECT) that returns exactly one row and one column. No semicolon, no other statements.
+            label:
+                description: What the number measures, in a few words, as the reader will see it. For example "teams with replay on this month".
+            note:
+                description: One short line for the reader when the number needs a caveat, or why there is no answer when status is none. Leave empty otherwise.

@@ -97,6 +97,9 @@ def get_desktop_access_decision(user: User, organization: "Organization") -> Des
 
 
 def has_loops_access(user: User, team: "Team | None" = None) -> bool:
+    # Local dev rarely has the flag client wired up, and a closed gate there hides Loops entirely.
+    if settings.DEBUG and not settings.TEST:
+        return True
     if not user.distinct_id:
         return False
 

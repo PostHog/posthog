@@ -10,10 +10,19 @@ import type { EditorState } from "@tiptap/pm/state";
  */
 function leafText(node: ProseMirrorNode): string {
   const label = node.attrs?.label;
-  if (typeof label === "string" && label.trim()) return label.trim();
   const title = node.attrs?.title;
-  if (typeof title === "string" && title.trim()) return title.trim();
-  return "";
+  const words =
+    typeof label === "string" && label.trim()
+      ? label.trim()
+      : typeof title === "string" && title.trim()
+        ? title.trim()
+        : "";
+  if (!words) return "";
+  // A live number reads as what it measures, marked so the sentence still scans:
+  // "came to [signups last month], and" rather than words run into words.
+  const isFigure =
+    node.type.name === "dataValue" || node.type.name === "dataRequest";
+  return isFigure ? `[${words}]` : words;
 }
 
 /**

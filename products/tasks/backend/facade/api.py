@@ -814,6 +814,13 @@ def task_exists(task_id: str | UUID, team_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id, deleted=False).exists()
 
 
+def latest_run_id(task_id: str | UUID, team_id: int) -> UUID | None:
+    """The id of a task's newest run, or None when it has never run."""
+    task = Task.objects.filter(id=task_id, team_id=team_id, deleted=False).first()
+    run = task.latest_run if task else None
+    return run.id if run else None
+
+
 def task_channel_id(task_id: str | UUID, team_id: int) -> UUID | None:
     """The channel a (non-deleted) task is filed in, or None."""
     return Task.objects.filter(id=task_id, team_id=team_id, deleted=False).values_list("channel_id", flat=True).first()
@@ -5635,6 +5642,7 @@ def create_task(
             team_id,
             user_id,
             origin_product=validated_data["origin_product"],
+            runtime=validated_data.get("runtime"),
             repository=validated_data.get("repository"),
             repositories=validated_data.get("repositories", []),
             github_integration_id=getattr(validated_data.get("github_integration"), "id", None),
@@ -5695,6 +5703,13 @@ def create_task(
             if channel is not None and warm_task.channel_id != channel.id:
                 warm_task.channel = channel
                 update_fields.append("channel")
+            # A warm row is created before anyone asks anything, so it carries no schema. Without
+            # this the caller's schema is dropped on every warm hit and the run returns no
+            # structured result, which is the whole point of asking with one.
+            json_schema = validated_data.get("json_schema")
+            if json_schema and warm_task.json_schema is None:
+                warm_task.json_schema = json_schema
+                update_fields.append("json_schema")
             if update_fields:
                 warm_task.save(update_fields=[*update_fields, "updated_at"])
             if should_set_client_provenance:
@@ -6201,6 +6216,7 @@ def _find_idling_warm_run(
     user_id: int | None,
     *,
     origin_product: str,
+    runtime: str | None = None,
     repository: str | None,
     repositories: list[str] | None = None,
     github_integration_id: int | None,
@@ -6257,8 +6273,13 @@ def _find_idling_warm_run(
         str(sandbox_environment_id) if sandbox_environment_id else None,
         str(custom_image_id) if custom_image_id else None,
     )
+    wanted_runtime = runtime or Task.Runtime.ACP.value
     for run in candidates:
         state = run.state or {}
+        # The harness starts with the sandbox, so a warm Run booted on another
+        # runtime can never serve this request.
+        if (run.task.runtime or Task.Runtime.ACP.value) != wanted_runtime:
+            continue
         have_repositories = [
             repo.lower() for repo in (run.task.repositories or ([run.task.repository] if run.task.repository else []))
         ]
@@ -6399,6 +6420,7 @@ def warm_task_sandbox(
     team_id: int,
     user_id: int,
     *,
+    runtime: str | None = None,
     repository: str | None,
     repositories: list[str] | None = None,
     github_integration_id: int | None,
@@ -6490,6 +6512,7 @@ def warm_task_sandbox(
         team_id,
         user_id,
         origin_product=origin_product,
+        runtime=runtime,
         repository=repository,
         repositories=normalized_repositories,
         github_integration_id=github_integration_id,
@@ -6511,6 +6534,7 @@ def warm_task_sandbox(
         origin_product=Task.OriginProduct(origin_product),
         user_id=user_id,
         repository=repository,
+        runtime=runtime or Task.Runtime.ACP.value,
         client_provenance=client_provenance,
     )
     task.repositories = normalized_repositories
@@ -8660,6 +8684,40 @@ def forward_thread_message(
         message.forwarded_run = run
         message.save(update_fields=["forwarded_to_agent_at", "forwarded_by", "forwarded_run"])
     return "ok", _thread_message_to_dto(message)
+
+
+def forward_message_to_run(
+    task_id: str | UUID, team_id: int, *, content: str, actor_user_id: int | None
+) -> Literal["ok", "not_found", "no_run", "signal_failed"]:
+    """Send text into a task's run on behalf of a product that owns its own thread.
+
+    A live run takes the text as a follow-up. A cloud run that has ended is resumed with the
+    text waiting for it, so one thread keeps one task for as long as people talk in it. Unlike
+    ``forward_thread_message`` there is no author gate and no thread row: the calling product
+    decides who may talk to the run and keeps the message itself.
+    """
+    task = Task.objects.filter(id=task_id, team_id=team_id, deleted=False).first()
+    if task is None:
+        return "not_found"
+    run = task.latest_run
+    if run is None:
+        return "no_run"
+    actor = User.objects.filter(id=actor_user_id).first() if actor_user_id else None
+    author_name = (actor.get_full_name() or actor.email) if actor else "A teammate"
+    text = f"[Doc thread from {author_name}] {content}"
+
+    if run.status in (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED):
+        # The resumed workflow delivers a pending user message the way a fresh start does.
+        TaskRun.update_state_atomic(run.id, updates={"pending_user_message": text})
+        outcome, _, _ = resume_task_run_in_cloud(run.id, task.id, team_id, actor_user_id)
+        if outcome == "resumed":
+            return "ok"
+        TaskRun.update_state_atomic(run.id, updates=None, remove_keys=["pending_user_message"])
+        return "no_run"
+
+    if not signal_task_run_user_message(run.id, task.id, team_id, content=text, artifact_ids=[]):
+        return "signal_failed"
+    return "ok"
 
 
 # Threads are a Channels (project-bluebird) surface, so agent-authored thread

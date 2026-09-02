@@ -294,7 +294,7 @@ export function loopToFormValues(loop: LoopSchemas.Loop): LoopFormValues {
     notifications: loop.notifications,
     contextTarget: loop.context_target
       ? {
-          folderId: loop.context_target.folder_id,
+          folderId: loop.context_target.channel_id,
           name: loop.context_target.name,
           outputs: loop.context_target.outputs,
         }
@@ -332,7 +332,7 @@ export function formValuesToLoopWrite(
     notifications: values.notifications,
     context_target: values.contextTarget
       ? {
-          folder_id: values.contextTarget.folderId,
+          channel_id: values.contextTarget.folderId,
           name: values.contextTarget.name,
           outputs: values.contextTarget.outputs,
         }

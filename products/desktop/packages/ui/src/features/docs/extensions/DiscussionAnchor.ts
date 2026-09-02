@@ -22,6 +22,12 @@ export const DiscussionAnchor = Mark.create({
           "data-anchor-key": attributes.anchorKey,
         }),
       },
+      /** What hangs off the phrase: a thread, or a watch. The page styles them apart. */
+      kind: {
+        default: "text",
+        parseHTML: (element) => element.getAttribute("data-kind") ?? "text",
+        renderHTML: (attributes) => ({ "data-kind": attributes.kind }),
+      },
       resolved: {
         default: false,
         parseHTML: (element) =>

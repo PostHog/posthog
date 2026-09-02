@@ -1172,6 +1172,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         result = tasks_facade.warm_task_sandbox(
             self.team_id,
             user_id,
+            runtime=request.validated_data.get("runtime"),
             repository=request.validated_data.get("repository"),
             repositories=request.validated_data.get("repositories"),
             github_integration_id=github_integration_id,

@@ -40,7 +40,7 @@ export function DocTitle({
   };
 
   return (
-    <div className="pt-1 pb-3">
+    <div className="doc-page-head pt-1 pb-3">
       <input
         value={draft}
         onChange={(event) => setDraft(event.target.value)}

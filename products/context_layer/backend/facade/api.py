@@ -28,15 +28,16 @@ from products.context_layer.backend.dreams import (
 )
 from products.context_layer.backend.enablement import enable_context_layer
 from products.context_layer.backend.models import ContextLayerConfig
+from products.context_layer.backend.page_format import SpacePageHeader, doc_page_header, render_space_page
 from products.context_layer.backend.pages import (
     PAGE_MAX_BYTES,
-    create_channel_page,
     InvalidPagePathError,
     PageNotFoundError,
     WikiHealthFinding,
     WikiHealthReport,
     WikiPage,
     WikiTree,
+    create_channel_page,
     get_health_report,
     get_page,
     get_tree,
@@ -99,8 +100,11 @@ __all__ = [
     "WikiPage",
     "WikiHealthFinding",
     "WikiHealthReport",
+    "SpacePageHeader",
     "WikiTree",
     "create_channel_page",
+    "doc_page_header",
+    "render_space_page",
     "enable_context_layer",
     "get_bundle_export",
     "get_config",

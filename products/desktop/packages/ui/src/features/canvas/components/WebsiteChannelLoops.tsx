@@ -56,7 +56,7 @@ function contextQuickStarts(name: string): { label: string; prompt: string }[] {
 
 /** The "Loops" tab of a context: same layout as the main Loops page (list on top, agent
  * composer pinned at the bottom), but the build surface is tuned to automations that feed
- * this context. `channelId` is the desktop folder id, matching `context_target.folder_id`. */
+ * this context. `channelId` is the desktop folder id, matching `context_target.channel_id`. */
 export function WebsiteChannelLoops({ channelId }: { channelId: string }) {
   const { channels, isLoading } = useChannels();
   const channel = channels.find((candidate) => candidate.id === channelId);
@@ -122,7 +122,7 @@ function SpaceAttachedLoops({
   const attachedLoops = useMemo(
     () =>
       (loops ?? []).filter(
-        (loop) => loop.context_target?.folder_id === channelId,
+        (loop) => loop.context_target?.channel_id === channelId,
       ),
     [loops, channelId],
   );

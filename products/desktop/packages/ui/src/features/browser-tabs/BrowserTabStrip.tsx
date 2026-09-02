@@ -1,4 +1,4 @@
-import { MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { FileTextIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { useService } from "@posthog/di/react";
 import {
   closeTab as closeTabLocal,
@@ -36,6 +36,15 @@ import {
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
 import { feedIdFromHref } from "@posthog/ui/features/canvas/stores/taskFeedSelectionStore";
+import { useDoc } from "@posthog/ui/features/docs/hooks/useDocs";
+
+/** The page id in a space page's href, if the href names one. */
+const DOC_HREF = /\/spaces\/[^/]+\/docs\/([^/?#]+)/;
+
+function docIdFromHref(href: string): string | null {
+  return DOC_HREF.exec(href)?.[1] ?? null;
+}
+
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
 import { useInboxReportById } from "@posthog/ui/features/inbox/hooks/useInboxReports";
@@ -140,6 +149,7 @@ function BrowserTabStripImpl() {
   const params = useParams({ strict: false }) as {
     channelId?: string;
     dashboardId?: string;
+    docId?: string;
     taskId?: string;
     feedId?: string;
   };
@@ -252,6 +262,10 @@ function BrowserTabStripImpl() {
   // Only poll the all-tasks list when a task tab actually needs a title.
   const hasTaskTab = snapshot.tabs.some((t) => t.taskId != null);
   const { dashboards } = useDashboards(params.channelId);
+  // The open page names the tab: a space has many pages, and "general" says
+  // nothing about which one you are reading. The page's own view holds this
+  // query too, so the name costs no request.
+  const openDoc = useDoc(params.docId ?? null);
   const { dashboard: activeRecord } = useDashboard(params.dashboardId);
   const { data: allTasks } = useTasks(undefined, { enabled: hasTaskTab });
   // Keyed on the active SESSION, not the path param: on Activity the session
@@ -288,6 +302,12 @@ function BrowserTabStripImpl() {
   // the record is still loading, which keeps a loading frame from overwriting
   // the name already stored.
   const activeTitle = useMemo(() => {
+    // The open page names the tab before anything else: the pane can still hold
+    // a session from an earlier route, and that session is not what you read.
+    if (params.docId) {
+      if (openDoc.data?.id !== params.docId) return null;
+      return openDoc.data.title || "Untitled";
+    }
     const sessionId = activeSession.taskId;
     if (sessionId) {
       if (activeTaskRecord?.id === sessionId) return activeTaskRecord.title;
@@ -305,6 +325,8 @@ function BrowserTabStripImpl() {
   }, [
     activeSession.taskId,
     params.dashboardId,
+    params.docId,
+    openDoc.data,
     activeActivityReportId,
     activeTaskRecord,
     allTasks,
@@ -513,6 +535,34 @@ function BrowserTabStripImpl() {
     router,
   ]);
 
+  // A name that resolves after the navigation settled still belongs on the tab:
+  // an open page's title arrives with its query, one frame after the route.
+  useEffect(() => {
+    if (!windowId || !routeTitle) return;
+    const mirror = readMirror();
+    const mirrorWin = primaryWindow(mirror);
+    const mirrorActive = mirrorWin?.activeTabId
+      ? mirror.tabs.find((tab) => tab.id === mirrorWin.activeTabId)
+      : undefined;
+    if (!mirrorActive) return;
+    if (mirrorActive.href !== locationHref) return;
+    if (mirrorActive.viewState?.title === routeTitle) return;
+    const target = {
+      tabId: mirrorActive.id,
+      href: mirrorActive.href,
+      viewState: { ...(mirrorActive.viewState ?? {}), title: routeTitle },
+      dashboardId: mirrorActive.dashboardId,
+      taskId: mirrorActive.taskId,
+      channelId: mirrorActive.channelId,
+      channelSection: mirrorActive.channelSection,
+      appView: mirrorActive.appView,
+    };
+    applyLocalTransform((state) =>
+      setTabTargetLocal(state, { ...target, now: Date.now }),
+    );
+    void persistWrite(() => client.setTabTarget(target));
+  }, [windowId, routeTitle, locationHref, client]);
+
   const tabs: TabView[] = useMemo(() => {
     if (!windowId) return [];
     // Reference the reactive sources directly so labels recompute the instant a
@@ -624,6 +674,23 @@ function BrowserTabStripImpl() {
             pinned,
           };
         }
+        // A page in a space is named by the page. The space name still rides
+        // along as the tab's secondary label.
+        const docId = isActive
+          ? (params.docId ?? null)
+          : docIdFromHref(t.href ?? "");
+        if (docId) {
+          const title = isActive
+            ? (activeTitle ?? t.viewState?.title)
+            : t.viewState?.title;
+          return {
+            id: t.id,
+            label: title || "Untitled",
+            icon: <FileTextIcon size={14} />,
+            channelName: channel,
+            pinned,
+          };
+        }
         // A channel tab: a sub-section (Recents/CONTEXT.md/…) or the channel home.
         // The section drives the label; the channel name carries the space
         // context. Home has no section, so it labels by the channel name.
@@ -656,6 +723,7 @@ function BrowserTabStripImpl() {
   }, [
     snapshot,
     windowId,
+    params.docId,
     pinnedTabIds,
     previewOrder,
     channelName,

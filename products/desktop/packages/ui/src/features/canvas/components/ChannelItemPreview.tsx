@@ -313,6 +313,28 @@ export function ChannelItemPreview({
   // the menu goes away with its card. Lower it here, so a card left with
   // "File to…" open cannot pin the shared popup open behind it.
   useEffect(() => () => onSubmenuOpenChange(false), [onSubmenuOpenChange]);
+
+  return (
+    <ItemGroup className="gap-0!">
+      <ChannelItemSummary item={item} />
+      <ItemSeparator className="my-0" />
+      <div className="p-1">
+        <TaskRowMenuList
+          menu={menu}
+          onAction={onAction}
+          onSubmenuOpenChange={onSubmenuOpenChange}
+        />
+      </div>
+    </ItemGroup>
+  );
+}
+
+/**
+ * The card without its menu: what the thing is, what its marks mean, and the
+ * last thing the agent said. Other surfaces that point at a session, a task
+ * chip in a doc for one, show this and nothing more.
+ */
+export function ChannelItemSummary({ item }: { item: ChannelItemModel }) {
   // The PR lookup runs here even where the row skipped it (the space tree does,
   // to stay off the host): a hover is one row at a time and a deliberate ask,
   // and the card is the surface that should be able to say "merged".
@@ -331,7 +353,7 @@ export function ChannelItemPreview({
   const pullRequest = badges.find((badge) => badge.key === "pr");
 
   return (
-    <ItemGroup className="gap-0!">
+    <>
       <Item size="xs" className="flex-nowrap p-2">
         <ItemContent className="min-w-0 gap-2">
           <ItemTitle className="wrap-break-word flex items-start gap-2">
@@ -355,14 +377,6 @@ export function ChannelItemPreview({
         )}
         message={message}
       />
-      <ItemSeparator className="my-0" />
-      <div className="p-1">
-        <TaskRowMenuList
-          menu={menu}
-          onAction={onAction}
-          onSubmenuOpenChange={onSubmenuOpenChange}
-        />
-      </div>
-    </ItemGroup>
+    </>
   );
 }

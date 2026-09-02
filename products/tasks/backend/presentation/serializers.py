@@ -3340,6 +3340,17 @@ class WarmTaskRequestSerializer(serializers.Serializer):
     def validate_repositories(self, value: list[str]) -> list[str]:
         return TaskWriteSerializer().validate_repositories(value)
 
+    runtime = serializers.ChoiceField(
+        choices=tasks_facade.TaskRuntime.choices,
+        required=False,
+        default=None,
+        allow_null=True,
+        help_text=(
+            "Agent protocol and harness the warm Run boots on. A submit only reuses a warm Run booted "
+            "on the same runtime, because the harness starts with the sandbox and cannot change later."
+        ),
+    )
+
     github_integration = serializers.IntegerField(
         required=False,
         default=None,

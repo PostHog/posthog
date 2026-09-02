@@ -10,11 +10,15 @@ from django.utils import timezone
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
-from .facade.enums import DocStatus
+from .facade.enums import DocKind, DocStatus
 
 
 def doc_status_choices() -> list[tuple[str, str]]:
     return [(status.value, status.value) for status in DocStatus]
+
+
+def doc_kind_choices() -> list[tuple[str, str]]:
+    return [(kind.value, kind.value) for kind in DocKind]
 
 
 class Doc(TeamScopedRootMixin, UUIDModel):
@@ -36,6 +40,9 @@ class Doc(TeamScopedRootMixin, UUIDModel):
 
     title = models.CharField(max_length=400, blank=True, default="")
     status = models.CharField(max_length=16, choices=doc_status_choices, default=DocStatus.DRAFT)
+    # One doc per space is its context notes: edited like any page, compiled into the
+    # space's wiki page every agent reads. It never shows in the space's tab row.
+    kind = models.CharField(max_length=16, choices=doc_kind_choices, default=DocKind.PAGE)
     position = models.IntegerField(default=0)
 
     content = models.JSONField(null=True, blank=True)

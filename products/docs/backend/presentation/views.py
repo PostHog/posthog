@@ -14,12 +14,13 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import sse_streaming_response
+from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.models.user import User
 from posthog.renderers import ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
@@ -28,7 +29,10 @@ from ee.hogai.utils.aio import async_to_sync
 
 from ..facade import api, contracts
 from .serializers import (
+    DataPointSubmitResultSerializer,
+    DataPointSubmitSerializer,
     DiscussionCreateSerializer,
+    DiscussionReplyResultSerializer,
     DiscussionReplySerializer,
     DiscussionResolveSerializer,
     DiscussionThreadSerializer,
@@ -57,6 +61,22 @@ def _display_name(user: User) -> str:
     return user.get_full_name() or "Wandering Hog"
 
 
+def _reply_result_data(result: contracts.ReplyResultDTO) -> dict:
+    data = DiscussionThreadSerializer(result.thread).data
+    data["delivery"] = result.delivery.value
+    return data
+
+
+def _sandbox_task_id(request: Request) -> str | None:
+    """The calling run's task, only when the header matches the token minted for that run."""
+    raw = (request.headers.get("X-PostHog-Task-Id") or "").strip()
+    authenticator = request.successful_authenticator
+    if not raw or not isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return None
+    bound = authenticator.access_token.sandbox_task_id
+    return raw if bound is not None and str(bound) == raw else None
+
+
 class DocViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Docs: collaborative rich-text documents filed in a space.
 
@@ -79,6 +99,8 @@ class DocViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "discussions",
         "discussion_reply",
         "discussion_resolve",
+        "data_points_submit",
+        "context",
     ]
     serializer_class = DocSerializer
     # A space holds a handful of docs and the tab row shows all of them at once.
@@ -146,6 +168,19 @@ class DocViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         api.reorder_docs(self.team_id, self._actor().pk, data["channel"], data["doc_ids"])
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(parameters=[_CHANNEL_PARAM], responses={200: DocSerializer})
+    @action(methods=["GET"], detail=False, url_path="context", pagination_class=None)
+    def context(self, request: Request, **kwargs) -> Response:
+        """The space's context notes as a doc. Made on first use, from the wiki page when there is one."""
+        channel_id = request.GET.get("channel")
+        if not channel_id:
+            raise ValidationError({"channel": "A channel id is required."})
+        try:
+            doc = api.context_doc(self.team_id, self._actor().pk, channel_id)
+        except api.ChannelNotVisibleError as err:
+            raise NotFound(str(err))
+        return Response(DocSerializer(doc).data)
 
     @extend_schema(parameters=[_CHANNEL_PARAM], responses={200: SpaceHomeSerializer})
     @action(methods=["GET"], detail=False, url_path="home", pagination_class=None)
@@ -246,7 +281,9 @@ class DocViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
     @extend_schema(methods=["GET"], request=None, responses={200: DiscussionThreadSerializer(many=True)})
-    @extend_schema(methods=["POST"], request=DiscussionCreateSerializer, responses={201: DiscussionThreadSerializer})
+    @extend_schema(
+        methods=["POST"], request=DiscussionCreateSerializer, responses={201: DiscussionReplyResultSerializer}
+    )
     @action(methods=["GET", "POST"], detail=True, url_path="discussions", pagination_class=None)
     def discussions(self, request: Request, pk: str, **kwargs) -> Response:
         user = self._actor()
@@ -261,37 +298,89 @@ class DocViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        thread = api.create_thread(
-            self.team_id,
-            user.pk,
-            pk,
-            content=data["content"],
-            anchor_key=data["anchor_key"],
-            anchor_text=data["anchor_text"],
+        result = api.create_thread(
+            contracts.CreateThreadInput(
+                team_id=self.team_id,
+                user_id=user.pk,
+                doc_id=UUID(pk),
+                content=data["content"],
+                anchor_key=data["anchor_key"],
+                anchor_text=data["anchor_text"],
+                kind=data["kind"],
+                task_id=data.get("task_id") or None,
+                send_to_agent=data["send_to_agent"],
+                loop_id=data.get("loop_id") or None,
+            )
         )
-        if thread is None:
+        if result is None:
             raise NotFound(_DOC_NOT_FOUND)
-        return Response(DiscussionThreadSerializer(thread).data, status=status.HTTP_201_CREATED)
+        return Response(_reply_result_data(result), status=status.HTTP_201_CREATED)
 
-    @extend_schema(request=DiscussionReplySerializer, responses={201: DiscussionThreadSerializer})
+    @extend_schema(request=DiscussionReplySerializer, responses={201: DiscussionReplyResultSerializer})
     @action(methods=["POST"], detail=True, url_path=r"discussions/(?P<thread_id>[^/.]+)/reply")
     def discussion_reply(self, request: Request, pk: str, thread_id: str, **kwargs) -> Response:
         serializer = DiscussionReplySerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
 
         try:
-            thread = api.reply_to_thread(
-                self.team_id,
-                self._actor().pk,
-                pk,
-                thread_id=thread_id,
-                content=serializer.validated_data["content"],
+            result = api.reply_to_thread(
+                contracts.ReplyInput(
+                    team_id=self.team_id,
+                    user_id=self._actor().pk,
+                    doc_id=UUID(pk),
+                    thread_id=UUID(thread_id),
+                    content=data["content"],
+                    task_id=data.get("task_id") or None,
+                    send_to_agent=data["send_to_agent"],
+                )
             )
         except api.ThreadNotFoundError as err:
             raise NotFound(str(err))
-        if thread is None:
+        if result is None:
             raise NotFound(_DOC_NOT_FOUND)
-        return Response(DiscussionThreadSerializer(thread).data, status=status.HTTP_201_CREATED)
+        return Response(_reply_result_data(result), status=status.HTTP_201_CREATED)
+
+    @extend_schema(
+        request=DataPointSubmitSerializer,
+        responses={
+            200: DataPointSubmitResultSerializer,
+            403: OpenApiResponse(description="The data point belongs to another run."),
+            404: OpenApiResponse(description="No data point with this request id."),
+        },
+        summary="Submit the query behind a data point",
+        description=(
+            "Called by the agent that a page asked for a data point. The query is checked and run once; "
+            "on ok the page shows it live from then on. Submit again with the same request id to replace it."
+        ),
+    )
+    # A task sandbox token carries task:write and no doc scope, and only such a token can call this.
+    @action(methods=["POST"], detail=False, url_path="data_points/submit", required_scopes=["task:write"])
+    def data_points_submit(self, request: Request, **kwargs) -> Response:
+        task_id = _sandbox_task_id(request)
+        if task_id is None:
+            raise PermissionDenied("Only the run a page asked can submit its data point.")
+        serializer = DataPointSubmitSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        try:
+            result = api.submit_data_point(
+                contracts.SubmitDataPointInput(
+                    team_id=self.team_id,
+                    task_id=task_id,
+                    request_id=data["request_id"],
+                    status=data["status"],
+                    query=data["query"],
+                    label=data["label"],
+                    note=data["note"],
+                )
+            )
+        except PermissionError as err:
+            raise PermissionDenied(str(err))
+        if result is None:
+            raise NotFound("No data point with this request id.")
+        return Response(DataPointSubmitResultSerializer(result).data)
 
     @extend_schema(request=DiscussionResolveSerializer, responses={200: DiscussionThreadSerializer})
     @action(methods=["POST"], detail=True, url_path=r"discussions/(?P<thread_id>[^/.]+)/resolve")

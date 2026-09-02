@@ -1,8 +1,4 @@
 import { createSuggestionLoader } from "@posthog/core/message-editor/suggestionLoader";
-import {
-  SuggestionList,
-  type SuggestionListRef,
-} from "@posthog/ui/features/message-editor/tiptap/SuggestionList";
 import type { SuggestionItem } from "@posthog/ui/features/message-editor/types";
 import { getPortalContainer } from "@posthog/ui/primitives/ThemeWrapper";
 import type { Editor, Range } from "@tiptap/core";
@@ -10,8 +6,11 @@ import { Extension } from "@tiptap/core";
 import { PluginKey } from "@tiptap/pm/state";
 import { ReactRenderer } from "@tiptap/react";
 import Suggestion, { type SuggestionOptions } from "@tiptap/suggestion";
-import type { ReactNode } from "react";
 import tippy, { type Instance as TippyInstance } from "tippy.js";
+import {
+  DocSuggestionList,
+  type DocSuggestionListRef,
+} from "./DocSuggestionList";
 
 export interface DocSuggestionConfig<T extends SuggestionItem> {
   /** Extension name; must be unique in the editor. */
@@ -23,16 +22,17 @@ export interface DocSuggestionConfig<T extends SuggestionItem> {
   allowSpaces?: boolean;
   debounceMs?: number;
   items: (query: string) => T[] | Promise<T[]>;
-  renderItem?: (item: T) => ReactNode;
+  /** Said when nothing matches what was typed. */
+  emptyMessage?: string;
   /** Runs with the trigger text already deleted; insert whatever the item means. */
   onSelect: (context: { editor: Editor; item: T }) => void;
 }
 
 /**
- * A typeahead inside a doc: `@` for people, `/` for blocks.
+ * A typeahead inside a doc: `@` for people, `/` for blocks, `+` for data.
  *
  * The message composer has its own factory that always inserts a mention chip.
- * A doc needs the same popup but different results, so this one hands the
+ * A doc needs its own popup and different results, so this one hands the
  * selected item back instead of deciding what to insert.
  */
 export function createDocSuggestion<T extends SuggestionItem>(
@@ -43,12 +43,8 @@ export function createDocSuggestion<T extends SuggestionItem>(
     debounceMs: config.debounceMs ?? 0,
   });
 
-  let renderer: ReactRenderer<SuggestionListRef> | null = null;
+  let renderer: ReactRenderer<DocSuggestionListRef> | null = null;
   let currentCommand: ((item: SuggestionItem) => void) | null = null;
-
-  const renderItemUntyped = config.renderItem
-    ? (item: SuggestionItem) => config.renderItem?.(item as T)
-    : undefined;
 
   const pushProps = () => {
     if (!renderer || !currentCommand) return;
@@ -56,8 +52,8 @@ export function createDocSuggestion<T extends SuggestionItem>(
     renderer.updateProps({
       items,
       command: currentCommand,
-      renderItem: renderItemUntyped,
       loading,
+      emptyMessage: config.emptyMessage,
     });
   };
 
@@ -84,12 +80,12 @@ export function createDocSuggestion<T extends SuggestionItem>(
           dismissed = false;
           currentCommand = props.command;
           const { items, loading } = loader.getState();
-          renderer = new ReactRenderer(SuggestionList, {
+          renderer = new ReactRenderer(DocSuggestionList, {
             props: {
               items,
               command: props.command,
-              renderItem: renderItemUntyped,
               loading,
+              emptyMessage: config.emptyMessage,
             },
             editor: props.editor,
           });

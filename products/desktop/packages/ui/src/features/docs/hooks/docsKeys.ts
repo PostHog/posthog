@@ -7,4 +7,6 @@ export const docsKeys = {
     ["docs", "discussions", projectId, docId] as const,
   home: (projectId: string | null, channelId: string) =>
     ["docs", "home", projectId, channelId] as const,
+  contextDoc: (projectId: string | null, channelId: string) =>
+    ["docs", "context-doc", projectId, channelId] as const,
 };

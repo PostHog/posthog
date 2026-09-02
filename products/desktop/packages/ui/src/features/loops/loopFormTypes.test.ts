@@ -287,7 +287,7 @@ describe("formValuesToLoopWrite", () => {
       },
     });
     expect(attached.context_target).toEqual({
-      folder_id: "f1",
+      channel_id: "f1",
       name: "growth",
       outputs: { post_to_feed: true, update_context: false, canvas_id: null },
     });
@@ -421,7 +421,7 @@ describe("loopToFormValues round trip", () => {
         slack: { enabled: false, events: [], params: {} },
       },
       context_target: {
-        folder_id: "f1",
+        channel_id: "f1",
         name: "growth",
         outputs: { post_to_feed: true, update_context: false, canvas_id: null },
       },

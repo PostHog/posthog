@@ -12,7 +12,9 @@ export interface ChannelSection {
 export const CHANNEL_SECTIONS: readonly ChannelSection[] = [
   { key: "loops", label: "Loops" },
   { key: "history", label: "Recents" },
-  { key: "context", label: "CONTEXT.md" },
+  // The space's notes are pages now, not a file, and every other surface calls
+  // this Context: the page's own title, the breadcrumb, and the sidebar.
+  { key: "context", label: "Context" },
 ] as const;
 
 const BY_KEY = new Map(CHANNEL_SECTIONS.map((s) => [s.key, s]));

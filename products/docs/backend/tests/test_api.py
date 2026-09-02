@@ -1,9 +1,11 @@
+import uuid
 from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.conf import settings
+from django.core.cache import cache
 
 import fakeredis
 from parameterized import parameterized
@@ -12,6 +14,8 @@ from rest_framework import status
 from posthog import redis as redis_module
 from posthog.models.user import User
 
+from products.docs.backend.facade import api
+from products.docs.backend.tasks.tasks import sync_context_doc_task
 from products.tasks.backend.facade.api import ensure_personal_channel_id
 
 # Keep the SSE generator lifetime tiny so the stream test terminates deterministically.
@@ -145,3 +149,274 @@ class TestDocsAPI(APIBaseTest):
         assert threads[0]["anchor_text"] == "18,400 people"
         assert threads[0]["resolved"] is True
         assert [reply["content"] for reply in threads[0]["replies"]] == ["Checked, it is"]
+
+    def _start_thread(self, doc: dict, **extra: Any) -> dict:
+        response = self.client.post(
+            self._url(f"{doc['id']}/discussions/"),
+            data={"content": "Is this right?", "anchor_key": "a1", "anchor_text": "18,400 people", **extra},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        return response.json()
+
+    def test_reply_that_starts_a_task_keeps_the_task_on_the_thread(self):
+        doc = self._create_doc()
+        thread = self._start_thread(doc)
+
+        replied = self.client.post(
+            self._url(f"{doc['id']}/discussions/{thread['id']}/reply/"),
+            data={"content": "@agent what does this count?", "task_id": "task-1", "send_to_agent": True},
+            format="json",
+        )
+
+        assert replied.status_code == status.HTTP_201_CREATED, replied.json()
+        assert replied.json()["delivery"] == "sent"
+        assert replied.json()["task_id"] == "task-1"
+        assert replied.json()["replies"][0]["sent_to_agent"] is True
+
+    @parameterized.expand([("ok", "sent", True), ("no_run", "no_run", False), ("signal_failed", "failed", False)])
+    def test_reply_to_the_agent_reports_what_the_run_did(self, outcome: str, delivery: str, sent: bool):
+        doc = self._create_doc()
+        thread = self._start_thread(doc, task_id="task-1")
+
+        with patch("products.docs.backend.facade.api.tasks_facade.forward_message_to_run", return_value=outcome):
+            replied = self.client.post(
+                self._url(f"{doc['id']}/discussions/{thread['id']}/reply/"),
+                data={"content": "@agent use last 30 days", "send_to_agent": True},
+                format="json",
+            )
+
+        assert replied.json()["delivery"] == delivery
+        assert replied.json()["replies"][0]["sent_to_agent"] is sent
+
+    def test_agent_turn_lands_once_and_a_data_thread_reads_the_query_out_of_it(self):
+        doc = self._create_doc()
+        self._start_thread(doc, kind="data", anchor_key="req-1", task_id="task-1", send_to_agent=True)
+        text = 'Counted them: <hogql label="teams with replay">SELECT uniq(team_id) FROM events;</hogql>'
+
+        with patch("products.docs.backend.facade.api.data_points.run_once", return_value=("7", None)):
+            for _ in range(2):
+                api.record_agent_turn(team_id=self.team.pk, task_id="task-1", run_id="run-1", turn_key="k1", text=text)
+
+        thread = self.client.get(self._url(f"{doc['id']}/discussions/")).json()[0]
+        assert [post["author_kind"] for post in thread["replies"]] == ["agent"]
+        assert thread["answer"]["query"] == "SELECT uniq(team_id) FROM events"
+        assert thread["answer"]["label"] == "teams with replay"
+
+    def test_a_data_thread_that_gets_words_and_no_query_reminds_the_run_once_per_ask(self):
+        doc = self._create_doc()
+        thread = self._start_thread(doc, kind="data", anchor_key="req-1", task_id="task-1", send_to_agent=True)
+        forward = "products.docs.backend.facade.api.tasks_facade.forward_message_to_run"
+
+        with patch(forward, return_value="ok") as forwarded:
+            api.record_agent_turn(
+                team_id=self.team.pk, task_id="task-1", run_id="run-1", turn_key="k1", text="0 events."
+            )
+            api.record_agent_turn(
+                team_id=self.team.pk, task_id="task-1", run_id="run-1", turn_key="k2", text="Still 0."
+            )
+        assert forwarded.call_count == 1
+        assert "req-1" in forwarded.call_args.kwargs["content"]
+
+        with patch(forward, return_value="ok") as forwarded:
+            self.client.post(
+                self._url(f"{doc['id']}/discussions/{thread['id']}/reply/"),
+                data={"content": "@agent try again", "send_to_agent": True},
+                format="json",
+            )
+            api.record_agent_turn(team_id=self.team.pk, task_id="task-1", run_id="run-1", turn_key="k3", text="Sorry.")
+        assert forwarded.call_count == 2
+
+        posts = self.client.get(self._url(f"{doc['id']}/discussions/")).json()[0]["replies"]
+        assert [post["author_kind"] for post in posts] == ["agent", "system", "agent", "human", "agent", "system"]
+
+    def _submit(self, task_id: str | None, body: dict):
+        with (
+            patch("products.docs.backend.presentation.views._sandbox_task_id", return_value=task_id),
+            patch("products.docs.backend.facade.api.data_points.run_once", return_value=("7", None)),
+            patch("products.docs.backend.facade.api.tasks_facade.latest_run_id", return_value=None),
+        ):
+            return self.client.post(self._url("data_points/submit/"), data=body, format="json")
+
+    def test_only_the_asked_run_can_submit_and_a_second_submit_replaces_the_query(self):
+        doc = self._create_doc()
+        self._start_thread(doc, kind="data", anchor_key="req-1", task_id="task-1", send_to_agent=True)
+
+        other = self._submit("task-2", {"request_id": "req-1", "query": "SELECT 1", "label": "one"})
+        assert other.status_code == status.HTTP_403_FORBIDDEN
+
+        first = self._submit("task-1", {"request_id": "req-1", "query": "SELECT 1;", "label": "one"})
+        second = self._submit("task-1", {"request_id": "req-1", "query": "SELECT 2", "label": "two"})
+        assert first.json() == {"ok": True, "value": "7", "error": None}
+        assert second.status_code == status.HTTP_200_OK
+
+        thread = self.client.get(self._url(f"{doc['id']}/discussions/")).json()[0]
+        assert thread["answer"]["query"] == "SELECT 2"
+        assert thread["answer"]["label"] == "two"
+        assert [post["content"] for post in thread["replies"]] == [
+            "Put the data point on the page.",
+            "Updated the data point.",
+        ]
+
+    @parameterized.expand([("DELETE FROM events",), ("SELECT 1; SELECT 2",), ("",)])
+    def test_submit_refuses_anything_but_one_select(self, query: str):
+        doc = self._create_doc()
+        self._start_thread(doc, kind="data", anchor_key="req-1", task_id="task-1", send_to_agent=True)
+
+        response = self._submit("task-1", {"request_id": "req-1", "query": query, "label": "x"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["ok"] is False
+        assert self.client.get(self._url(f"{doc['id']}/discussions/")).json()[0]["answer"] is None
+
+    def test_submit_with_no_answer_says_why_in_the_thread(self):
+        doc = self._create_doc()
+        self._start_thread(doc, kind="data", anchor_key="req-1", task_id="task-1", send_to_agent=True)
+
+        response = self._submit("task-1", {"request_id": "req-1", "status": "none", "note": "No replay events yet."})
+
+        assert response.json()["ok"] is True
+        thread = self.client.get(self._url(f"{doc['id']}/discussions/")).json()[0]
+        assert thread["answer"] is None
+        assert thread["replies"][-1]["content"] == "No replay events yet."
+        assert thread["replies"][-1]["author_kind"] == "agent"
+
+    def test_a_watched_section_gets_every_report_of_its_loop(self):
+        doc = self._create_doc()
+        self._start_thread(doc, kind="watch", anchor_key="w1", loop_id="loop-1")
+
+        api.record_agent_turn(
+            team_id=self.team.pk, task_id="task-9", run_id="run-9", turn_key="k9", text="Still holds.", loop_id="loop-1"
+        )
+
+        thread = self.client.get(self._url(f"{doc['id']}/discussions/")).json()[0]
+        assert thread["loop_id"] == "loop-1"
+        assert [post["content"] for post in thread["replies"]] == ["Still holds."]
+
+    def test_a_turn_shaped_by_the_schema_becomes_the_data_point(self):
+        doc = self._create_doc()
+        self._start_thread(doc, kind="data", anchor_key="req-2", task_id="task-2", send_to_agent=True)
+
+        with patch("products.docs.backend.facade.api.data_points.run_once", return_value=("42", None)):
+            api.record_agent_turn(
+                team_id=self.team.pk,
+                task_id="task-2",
+                run_id="run-2",
+                turn_key="k2",
+                text='{"status": "ok", "query": "SELECT count() FROM events", "label": "events", "note": ""}',
+            )
+
+        thread = self.client.get(self._url(f"{doc['id']}/discussions/")).json()[0]
+        assert thread["answer"]["query"] == "SELECT count() FROM events"
+        assert [(post["author_kind"], post["content"]) for post in thread["replies"]] == [
+            ("system", "Put the data point on the page.")
+        ]
+
+    def test_space_home_says_what_lives_in_each_page_and_lists_the_watches(self):
+        doc = self._create_doc()
+        self.client.post(
+            self._url(f"{doc['id']}/collab/save/"),
+            data={
+                "client_id": "c",
+                "steps": [],
+                "version": 0,
+                "content": {"type": "doc", "content": [{"type": "paragraph"}]},
+                "text_content": "Replay went on for the whole team in August.",
+            },
+            format="json",
+        )
+        self._start_thread(doc)
+        self._start_thread(doc, kind="watch", anchor_key="w1", anchor_text="signups grow", loop_id="loop-1")
+        api.record_agent_turn(
+            team_id=self.team.pk, task_id="t", run_id="r", turn_key="k", text="Still growing.", loop_id="loop-1"
+        )
+
+        home = self.client.get(self._url("home/") + f"?channel={self.channel_id}").json()
+
+        page = next(entry for entry in home["docs"] if entry["id"] == doc["id"])
+        assert page["excerpt"] == "Replay went on for the whole team in August."
+        assert page["open_thread_count"] == 1
+        assert page["watch_count"] == 1
+        assert home["watches"][0]["anchor_text"] == "signups grow"
+        assert home["watches"][0]["last_report"] == "Still growing."
+
+    def _wiki(self, content: str):
+        page = type("Page", (), {"content": content, "head_sha": "abc", "path": "projects/1/spaces/general.md"})()
+        return (
+            patch(
+                "products.docs.backend.logic.documents.context_layer.resolve_channel_page",
+                return_value="projects/1/spaces/general.md",
+            ),
+            patch("products.docs.backend.logic.documents.context_layer.get_page", return_value=page),
+            patch(
+                "products.docs.backend.facade.api.context_layer.resolve_channel_page",
+                return_value="projects/1/spaces/general.md",
+            ),
+            patch("products.docs.backend.facade.api.context_layer.get_page", return_value=page),
+        )
+
+    def test_the_context_doc_is_made_once_from_the_wiki_notes_and_stays_out_of_the_pages(self):
+        wiki = "---\nteam_id: 1\nchannel_id: c\n---\n\n# General (project 1)\n\nSessions are **cheap**.\n"
+        with (
+            self._wiki(wiki)[0],
+            self._wiki(wiki)[1],
+        ):
+            first = self.client.get(self._url("context/") + f"?channel={self.channel_id}")
+            second = self.client.get(self._url("context/") + f"?channel={self.channel_id}")
+
+        assert first.status_code == status.HTTP_200_OK, first.json()
+        assert first.json()["id"] == second.json()["id"]
+        assert first.json()["kind"] == "context"
+        paragraph = first.json()["content"]["content"][0]
+        assert paragraph["content"][1] == {"type": "text", "text": "cheap", "marks": [{"type": "bold"}]}
+        pages = self.client.get(self._url() + f"?channel={self.channel_id}").json()
+        assert first.json()["id"] not in {page["id"] for page in pages}
+
+    def test_saving_the_context_doc_compiles_it_into_the_wiki_page(self):
+        wiki = "---\nteam_id: 1\n---\n\n# General (project 1)\n\nOld notes.\n"
+        patches = self._wiki(wiki)
+        with patches[0], patches[1]:
+            doc = self.client.get(self._url("context/") + f"?channel={self.channel_id}").json()
+
+        with patch("products.docs.backend.facade.api.schedule_context_sync") as schedule:
+            saved = self.client.post(
+                self._url(f"{doc['id']}/collab/save/"),
+                data={
+                    "client_id": "c",
+                    "steps": [],
+                    "version": doc["version"],
+                    "content": {
+                        "type": "doc",
+                        "content": [
+                            {"type": "heading", "attrs": {"level": 2}, "content": [{"type": "text", "text": "Rules"}]},
+                            {"type": "paragraph", "content": [{"type": "text", "text": "Ship small."}]},
+                        ],
+                    },
+                },
+                format="json",
+            )
+        assert saved.status_code == status.HTTP_200_OK, saved.json()
+        schedule.assert_called_once()
+
+        with (
+            patches[2],
+            patches[3],
+            patch("products.docs.backend.facade.api.context_layer.write_page", return_value="def") as write,
+        ):
+            head = api.sync_context_doc(doc["id"])
+
+        assert head == "def"
+        written = write.call_args.kwargs["content"]
+        assert "# General (project 1)" in written
+        assert "## Rules\n\nShip small.\n" in written
+        assert f"doc_id: {doc['id']}" in written
+
+    def test_scheduling_the_compile_coalesces_a_burst_of_saves_into_one_task(self):
+        doc_id = uuid.uuid4()
+        cache.delete(f"docs:context-sync:{doc_id}")
+        with patch.object(sync_context_doc_task, "apply_async") as apply_async:
+            api.schedule_context_sync(doc_id)
+            api.schedule_context_sync(doc_id)
+
+        apply_async.assert_called_once_with((str(doc_id),), countdown=api.CONTEXT_SYNC_DELAY_SECONDS)
+        cache.delete(f"docs:context-sync:{doc_id}")

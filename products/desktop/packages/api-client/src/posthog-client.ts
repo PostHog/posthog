@@ -3748,6 +3748,10 @@ export class PostHogAPIClient {
   }
 
   async warmTask(options: {
+    /** Harness the warm run boots on; a submit only reuses a matching one. */
+    runtime?: string | null;
+    /** Permission mode the sandbox boots with; reuse matches on it too. */
+    initial_permission_mode?: string | null;
     repository?: string | null;
     repositories?: string[];
     github_integration?: number | null;
@@ -3770,6 +3774,10 @@ export class PostHogAPIClient {
         path: urlPath,
         overrides: {
           body: JSON.stringify({
+            ...(options.runtime ? { runtime: options.runtime } : {}),
+            ...(options.initial_permission_mode
+              ? { initial_permission_mode: options.initial_permission_mode }
+              : {}),
             repository: options.repository,
             repositories: options.repositories,
             github_integration: options.github_integration,

@@ -1,4 +1,10 @@
-import { ChatCircleTextIcon } from "@phosphor-icons/react";
+import {
+  CaretDownIcon,
+  ChatCircleTextIcon,
+  CheckIcon,
+  CloudSlashIcon,
+  DotsThreeIcon,
+} from "@phosphor-icons/react";
 import type { DocSchemas } from "@posthog/api-client/docs";
 import {
   Button,
@@ -21,17 +27,17 @@ const STATUS_LABELS: Record<DocSchemas.DocStatus, string> = {
   done: "Done",
 };
 
-/** The status is a word, not a pill: colour carries the state and the row stays quiet. */
-const STATUS_TONES: Record<DocSchemas.DocStatus, string> = {
-  draft: "text-(--gray-11)",
-  active: "text-(--primary)",
-  done: "text-(--grass-11)",
+/** The status is a dot before a word: colour carries the state and the row stays quiet. */
+const STATUS_DOTS: Record<DocSchemas.DocStatus, string> = {
+  draft: "bg-(--gray-8)",
+  active: "bg-(--primary)",
+  done: "bg-(--grass-9)",
 };
 
 const CONNECTION_LABELS: Record<DocConnectionStatus, string> = {
-  connecting: "saving",
-  live: "saved",
-  offline: "offline",
+  connecting: "Saving…",
+  live: "Saved",
+  offline: "Offline",
 };
 
 /**
@@ -46,20 +52,23 @@ export function DocHeader({
   version,
   connection,
   peers,
-  discussionCount,
+  threadCount,
   onStatusChange,
-  onOpenDiscussions,
+  onOpenThreads,
   onJumpToPeer,
+  onDelete,
 }: {
   spaceName: string;
   doc: DocSchemas.Doc;
   version: number;
   connection: DocConnectionStatus;
   peers: RemoteCaret[];
-  discussionCount: number;
+  threadCount: number;
   onStatusChange: (status: DocSchemas.DocStatus) => void;
-  onOpenDiscussions: () => void;
+  onOpenThreads: () => void;
   onJumpToPeer: (clientId: string) => void;
+  /** Absent for the space's own notes, which cannot be deleted. */
+  onDelete?: () => void;
 }) {
   return (
     <header className="flex min-w-0 items-center gap-2 border-(--gray-5) border-b px-4 py-1.5">
@@ -76,27 +85,39 @@ export function DocHeader({
       <Tooltip>
         <TooltipTrigger
           render={
-            <span className="shrink-0 text-(--gray-9) text-xs">
-              {CONNECTION_LABELS[connection]}
-            </span>
-          }
-        />
-        <TooltipContent>Version {version}</TooltipContent>
-      </Tooltip>
-
-      <DropdownMenu>
-        <DropdownMenuTrigger
-          render={
-            <button
-              type="button"
+            <span
               className={cn(
-                "shrink-0 cursor-pointer px-1 font-medium text-xs",
-                STATUS_TONES[doc.status],
+                "mr-1 flex shrink-0 items-center gap-1 text-[11.5px]",
+                connection === "offline"
+                  ? "text-(--amber-11)"
+                  : "text-(--gray-9)",
               )}
             />
           }
         >
+          {connection === "offline" ? (
+            <CloudSlashIcon size={12} />
+          ) : connection === "live" ? (
+            <CheckIcon size={12} />
+          ) : null}
+          {CONNECTION_LABELS[connection]}
+        </TooltipTrigger>
+        <TooltipContent>Version {version}</TooltipContent>
+      </Tooltip>
+
+      {peers.length > 0 ? (
+        <DocFaces peers={peers} onJump={onJumpToPeer} />
+      ) : null}
+
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          render={<Button size="sm" variant="default" className="shrink-0" />}
+        >
+          <span
+            className={cn("size-1.5 rounded-full", STATUS_DOTS[doc.status])}
+          />
           {STATUS_LABELS[doc.status]}
+          <CaretDownIcon size={10} className="text-(--gray-9)" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
           {(Object.keys(STATUS_LABELS) as DocSchemas.DocStatus[]).map(
@@ -105,6 +126,9 @@ export function DocHeader({
                 key={status}
                 onClick={() => onStatusChange(status)}
               >
+                <span
+                  className={cn("size-1.5 rounded-full", STATUS_DOTS[status])}
+                />
                 {STATUS_LABELS[status]}
               </DropdownMenuItem>
             ),
@@ -112,22 +136,38 @@ export function DocHeader({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {peers.length > 0 ? (
-        <DocFaces peers={peers} onJump={onJumpToPeer} />
-      ) : null}
-
       <Button
         size="sm"
         variant="default"
         className="shrink-0"
-        onClick={onOpenDiscussions}
+        onClick={onOpenThreads}
       >
         <ChatCircleTextIcon size={13} />
-        Discussions
-        {discussionCount > 0 ? (
-          <span className="text-(--gray-9)">{discussionCount}</span>
+        Threads
+        {threadCount > 0 ? (
+          <span className="text-(--gray-9)">{threadCount}</span>
         ) : null}
       </Button>
+
+      {onDelete ? (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                size="icon"
+                variant="default"
+                aria-label="Page actions"
+                className="shrink-0"
+              />
+            }
+          >
+            <DotsThreeIcon size={15} />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={onDelete}>Delete page…</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ) : null}
     </header>
   );
 }

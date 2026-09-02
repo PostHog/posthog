@@ -34,7 +34,6 @@ import {
 import { ContextWikiPagePane } from "@posthog/ui/features/context-wiki/components/ContextWikiPagePane";
 import {
   useChannelContextWikiPage,
-  useContextWikiPage,
   useCreateChannelContextWikiPage,
 } from "@posthog/ui/features/context-wiki/hooks/useContextWiki";
 import { SpacePagesSection } from "@posthog/ui/features/docs/components/SpacePagesSection";
@@ -43,15 +42,6 @@ import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useConte
 import { RepositoriesField } from "@posthog/ui/features/integrations/components/RepositoriesField";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { AgentMark } from "@posthog/ui/primitives/AgentMark";
-import {
-  PageHeader,
-  PageHeaderActions,
-  PageHeaderDescription,
-  PageHeaderHeading,
-  PageHeaderTitle,
-  PageHeaderTitleRow,
-} from "@posthog/ui/primitives/PageHeader";
-import { navigateToSpacesContext } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
 import {
   Box,
@@ -142,56 +132,51 @@ function WikiWebsiteContext({
   const spacesLayout = useChannelsLayout();
   const { channels: taskChannels } = useTaskChannels();
   const taskChannel = taskChannels.find((channel) => channel.id === channelId);
-  // Same query key as the pane below, so the row's age costs no request.
-  const wikiPage = useContextWikiPage(path);
   const headerContent = useMemo(
     () => <ChannelHeader channelId={channelId} page="context" />,
     [channelId],
   );
   useSetHeaderContent(headerContent);
 
+  if (!spacesLayout) {
+    return exists ? (
+      <ContextWikiPagePane key={path} path={path} />
+    ) : (
+      <StartWikiPage channelId={channelId} channelName={taskChannel?.name} />
+    );
+  }
+
+  const spaceLabel = channelDisplayLabel(taskChannel?.name ?? "space");
+
+  // One column, one scroll: the space's pages, what it works in, and the notes
+  // it keeps, read as one page rather than three panes stacked on each other.
   return (
-    <div className="flex h-full flex-col overflow-hidden">
-      {spacesLayout ? (
-        <PageHeader>
-          <PageHeaderHeading>
-            <PageHeaderTitleRow>
-              <PageHeaderTitle>Context</PageHeaderTitle>
-            </PageHeaderTitleRow>
-            <PageHeaderDescription>
-              Agents working in this space can find this page in the shared
-              context wiki.
-            </PageHeaderDescription>
-          </PageHeaderHeading>
-          <PageHeaderActions>
-            <QuillButton
-              variant="outline"
-              size="sm"
-              onClick={() => navigateToSpacesContext(path)}
-            >
-              Open in context wiki
-            </QuillButton>
-          </PageHeaderActions>
-        </PageHeader>
-      ) : null}
-      {spacesLayout && taskChannel ? (
-        <div className="flex shrink-0 flex-col gap-7 px-8 pt-2 pb-6">
-          <SpacePagesSection
-            channelId={channelId}
-            contextPage={{
-              path,
-              updatedAt: exists ? wikiPage.data?.updated_at : undefined,
-              onOpen: () => navigateToSpacesContext(path),
-            }}
-          />
-          <SpaceRepositories channel={taskChannel} />
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto w-full max-w-[46rem] px-8 pt-8 pb-24">
+          <h1 className="font-[540] text-(--gray-12) text-[30px] leading-[1.14] tracking-[-0.03em]">
+            Context
+          </h1>
+          {/* The lede takes the column, so its line ends where the sections
+              below it end rather than short of them. */}
+          <p className="mt-2.5 text-(--gray-11) text-[15.2px] leading-[1.6]">
+            What {spaceLabel} writes down: its pages, the repositories it works
+            in, and the notes every agent reads first.
+          </p>
+
+          {/* Where the space works comes first and stays small: one line of
+              repositories under the lede, before the things it writes. */}
+          {taskChannel ? (
+            <div className="mt-5">
+              <SpaceRepositories channel={taskChannel} compact />
+            </div>
+          ) : null}
+
+          <div className="mt-9 flex flex-col gap-10">
+            <SpacePagesSection channelId={channelId} />
+          </div>
         </div>
-      ) : null}
-      {exists ? (
-        <ContextWikiPagePane key={path} path={path} />
-      ) : (
-        <StartWikiPage channelId={channelId} channelName={taskChannel?.name} />
-      )}
+      </div>
     </div>
   );
 }
@@ -543,15 +528,54 @@ function LegacyWebsiteContext({ channelId }: WebsiteContextProps) {
   );
 }
 
-function SpaceRepositories({ channel }: { channel: TaskChannel }) {
+function SpaceRepositories({
+  channel,
+  compact = false,
+}: {
+  channel: TaskChannel;
+  /** One line under the page's lede, instead of a section of its own. */
+  compact?: boolean;
+}) {
   const update = useUpdateTaskChannelRepositories();
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client });
   const canEdit = currentUser?.id === channel.created_by?.id;
+  const repositories = channel.repositories ?? [];
+
+  if (compact) {
+    return (
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span className="shrink-0 text-(--gray-10) text-[13px]">
+          {repositories.length === 0
+            ? "Works in no repository yet"
+            : "Works in"}
+        </span>
+        <RepositoriesField
+          selected={repositories}
+          integrationId={channel.github_integration ?? null}
+          disabled={!canEdit || update.isPending}
+          onChange={(repositories, githubIntegration) =>
+            update.mutate({
+              channelId: channel.id,
+              githubIntegration,
+              repositories,
+            })
+          }
+        />
+        {update.isPending ? (
+          <Spinner size="1" />
+        ) : update.error ? (
+          <span className="text-[12px] text-red-11">
+            Couldn't save. Try again.
+          </span>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
-    <div className="flex shrink-0 flex-col gap-2.5">
-      <div className="flex items-center gap-2">
+    <div className="flex shrink-0 flex-col">
+      <div className="flex items-center gap-2 border-(--gray-4) border-b pb-2.5">
         <h2 className="font-semibold text-(--gray-12) text-[15px] tracking-[-0.008em]">
           Repositories
         </h2>
@@ -563,18 +587,25 @@ function SpaceRepositories({ channel }: { channel: TaskChannel }) {
           </span>
         ) : null}
       </div>
-      <RepositoriesField
-        selected={channel.repositories ?? []}
-        integrationId={channel.github_integration ?? null}
-        disabled={!canEdit || update.isPending}
-        onChange={(repositories, githubIntegration) =>
-          update.mutate({
-            channelId: channel.id,
-            githubIntegration,
-            repositories,
-          })
-        }
-      />
+      {repositories.length === 0 ? (
+        <p className="pt-3 text-(--gray-10) text-[13.5px] leading-relaxed">
+          No repository yet, so a session here starts with nothing checked out.
+        </p>
+      ) : null}
+      <div className="pt-3.5">
+        <RepositoriesField
+          selected={repositories}
+          integrationId={channel.github_integration ?? null}
+          disabled={!canEdit || update.isPending}
+          onChange={(repositories, githubIntegration) =>
+            update.mutate({
+              channelId: channel.id,
+              githubIntegration,
+              repositories,
+            })
+          }
+        />
+      </div>
     </div>
   );
 }
