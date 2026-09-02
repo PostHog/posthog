@@ -747,6 +747,23 @@ export const ScannerModelEnumApi = {
 } as const
 
 /**
+ * * `ai` - AI goal flow
+ * * `template` - Template
+ * * `scratch` - From scratch
+ * * `mcp` - MCP
+ * * `api` - Direct API
+ */
+export type CreationMethodEnumApi = (typeof CreationMethodEnumApi)[keyof typeof CreationMethodEnumApi]
+
+export const CreationMethodEnumApi = {
+    Ai: 'ai',
+    Template: 'template',
+    Scratch: 'scratch',
+    Mcp: 'mcp',
+    Api: 'api',
+} as const
+
+/**
  * The experiment a scanner watches. Scans derive their person-scoped exposure filter from
  * this blob at query time, so it is the only place an experiment can enter a scanner's
  * targeting — which is what lets the write-side access check and read-side redaction cover it.
@@ -857,6 +874,14 @@ export interface ReplayScannerApi {
     enabled?: boolean
     /** When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals. */
     emits_signals?: boolean
+    /** Which entry point created this scanner, for the creation funnel: ai, template, scratch, mcp, or api. Write-only and not stored — it only tags the creation event. Defaults to api.
+     *
+     * * `ai` - AI goal flow
+     * * `template` - Template
+     * * `scratch` - From scratch
+     * * `mcp` - MCP
+     * * `api` - Direct API */
+    creation_method?: CreationMethodEnumApi
     /** The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed. */
     experiment_targeting?: ScannerExperimentTargetingApi | null
     /** Increments on every config-changing save. Observations snapshot this value. */
@@ -970,6 +995,14 @@ export interface PatchedReplayScannerApi {
     enabled?: boolean
     /** When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals. */
     emits_signals?: boolean
+    /** Which entry point created this scanner, for the creation funnel: ai, template, scratch, mcp, or api. Write-only and not stored — it only tags the creation event. Defaults to api.
+     *
+     * * `ai` - AI goal flow
+     * * `template` - Template
+     * * `scratch` - From scratch
+     * * `mcp` - MCP
+     * * `api` - Direct API */
+    creation_method?: CreationMethodEnumApi
     /** The experiment this scanner's targeting watches, if any. Set null when the experiment targeting is removed. */
     experiment_targeting?: ScannerExperimentTargetingApi | null
     /** Increments on every config-changing save. Observations snapshot this value. */

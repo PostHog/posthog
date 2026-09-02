@@ -1015,6 +1015,38 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         self.assertEqual(properties["organization_id"], str(self.team.organization_id))
         # Session auth resolves to "web" (the app UI), MCP callers to "mcp".
         self.assertEqual(properties["source"], "web")
+        # No creation_method sent, so the funnel event records the api default rather than dropping the tag.
+        self.assertEqual(properties["creation_method"], "api")
+
+    @parameterized.expand(
+        [
+            ("ai", "ai"),
+            ("template", "template"),
+            ("scratch", "scratch"),
+        ]
+    )
+    def test_create_reports_creation_method(self, _name: str, method: str) -> None:
+        # The frontend sends the funnel entry point on create; it must reach the event and never persist.
+        with patch("posthoganalytics.capture") as capture:
+            resp = self.client.post(
+                self.scanners_url,
+                data={
+                    "name": f"telemetry-method-{method}",
+                    "scanner_type": ScannerType.MONITOR,
+                    "scanner_config": {"prompt": "did checkout complete?"},
+                    "model": ScannerModel.GEMINI_3_7_FLASH,
+                    "creation_method": method,
+                },
+                format="json",
+            )
+
+        self.assertEqual(resp.status_code, 201, resp.json())
+        # Write-only: it tags the event but never comes back in the response body.
+        self.assertNotIn("creation_method", resp.json())
+        created = [
+            call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_scanner_created"
+        ]
+        self.assertEqual(created[0].kwargs["properties"]["creation_method"], method)
 
     @parameterized.expand(
         [

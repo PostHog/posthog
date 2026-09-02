@@ -358,6 +358,15 @@ export const VisionScannersCreateBody = () => zod
             .describe(
                 'When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals.'
             ),
+        creation_method: zod
+            .enum(['ai', 'template', 'scratch', 'mcp', 'api'])
+            .describe(
+                '\* `ai` - AI goal flow\n\* `template` - Template\n\* `scratch` - From scratch\n\* `mcp` - MCP\n\* `api` - Direct API'
+            )
+            .optional()
+            .describe(
+                'Which entry point created this scanner, for the creation funnel: ai, template, scratch, mcp, or api. Write-only and not stored — it only tags the creation event. Defaults to api.\n\n\* `ai` - AI goal flow\n\* `template` - Template\n\* `scratch` - From scratch\n\* `mcp` - MCP\n\* `api` - Direct API'
+            ),
         experiment_targeting: zod
             .union([
                 zod
@@ -511,6 +520,15 @@ export const VisionScannersPartialUpdateBody = () => zod
             .optional()
             .describe(
                 'When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals.'
+            ),
+        creation_method: zod
+            .enum(['ai', 'template', 'scratch', 'mcp', 'api'])
+            .describe(
+                '\* `ai` - AI goal flow\n\* `template` - Template\n\* `scratch` - From scratch\n\* `mcp` - MCP\n\* `api` - Direct API'
+            )
+            .optional()
+            .describe(
+                'Which entry point created this scanner, for the creation funnel: ai, template, scratch, mcp, or api. Write-only and not stored — it only tags the creation event. Defaults to api.\n\n\* `ai` - AI goal flow\n\* `template` - Template\n\* `scratch` - From scratch\n\* `mcp` - MCP\n\* `api` - Direct API'
             ),
         experiment_targeting: zod
             .union([

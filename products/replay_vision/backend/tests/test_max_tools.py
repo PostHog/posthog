@@ -650,6 +650,8 @@ class TestCreateReplayVisionScannerTool(BaseTest):
         assert "error" not in artifact, artifact
         refresh.assert_called_once()
         assert report.call_args.args[1] == "replay_vision_scanner_created"
+        # An MCP-made scanner must tag the funnel as mcp, not fall through to the api default.
+        assert report.call_args.args[2]["creation_method"] == "mcp"
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

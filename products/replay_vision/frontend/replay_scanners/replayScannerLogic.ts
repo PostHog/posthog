@@ -800,7 +800,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         copyAllObservationsFinished: true,
     }),
 
-    forms(({ props, actions }) => ({
+    forms(({ props, actions, values }) => ({
         scanner: {
             defaults: newScanner(
                 props.id === 'new' ? currentTemplateKey() : null,
@@ -881,7 +881,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 const body = apiScanner.query == null ? omitQuery(apiScanner) : apiScanner
                 try {
                     if (props.id === 'new') {
-                        const response = await visionScannersCreate(String(teamId), scannerToApiBody(body))
+                        // Tags the creation event with the entry point. Omitted when a reloaded draft
+                        // dropped it, so the backend records its `api` default rather than a wrong path.
+                        const createBody = values.creationMethod
+                            ? { ...body, creation_method: values.creationMethod }
+                            : body
+                        const response = await visionScannersCreate(String(teamId), scannerToApiBody(createBody))
                         actions.scannerSaved(scanner)
                         router.actions.replace(urls.replayVision(response.id))
                         // First scheduled results are minutes away, so the copy matches the Overview's
@@ -1026,9 +1031,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 startFromTemplate: () => null,
             },
         ],
-        // How the current new-scanner draft was started, so the completion event can split the
-        // creation funnel by path. Set by the same actions that emit `creation_started`; null until
-        // one fires, so a resumed draft after a reload records the method as unknown.
+        // How the current new-scanner draft was started, sent on create so the backend event splits
+        // the funnel by path. Set by the same actions that emit `creation_started`; null until one
+        // fires, so a draft resumed after a reload sends nothing and the backend records `api`.
         creationMethod: [
             null as 'ai' | 'template' | 'scratch' | null,
             {
@@ -1868,17 +1873,11 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 actions.setExperimentContext(null)
                 actions.resetScanner(values.originalScanner ?? newScanner(null))
             },
-            scannerSaved: ({ scanner }) => {
+            scannerSaved: () => {
                 actions.requestScannerEstimate()
                 // Saving recomputes the persisted estimate, which shifts the org-wide fleet sum.
                 refreshVisionQuota()
                 if (props.id === 'new') {
-                    // Completes the creation funnel `creation_started` opened, tagged with the same
-                    // path so a first save from each entry point can be counted and compared.
-                    posthog.capture('replay_vision_scanner_created', {
-                        creation_method: values.creationMethod ?? 'unknown',
-                        scanner_type: scanner.scanner_type,
-                    })
                     clearScannerDraft()
                     actions.setScannerDraftSavedAt(null)
                     // The saved scanner's experiment association ends here; a new scanner started in

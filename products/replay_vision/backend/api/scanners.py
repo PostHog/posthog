@@ -2,7 +2,7 @@ import json
 from typing import Any, NoReturn, cast
 from uuid import UUID
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models import CharField, Count, F, IntegerField, OuterRef, Prefetch, Q, QuerySet, Subquery, Sum, Value
 from django.db.models.functions import Coalesce, NullIf
 from django.utils import timezone
@@ -145,6 +145,17 @@ def _reject_direct_experiment_exposure(query: dict[str, Any]) -> None:
         raise serializers.ValidationError(
             "Recording filter can't set experiment exposure directly. Set experiment_targeting instead."
         )
+
+
+class ScannerCreationMethod(models.TextChoices):
+    # Which entry point a scanner was created from, for the creation funnel. Not persisted:
+    # a write-only serializer field the completion event reads. `api` is the default for
+    # callers that send nothing (direct API, and a UI draft resumed after a reload).
+    AI = "ai", "AI goal flow"
+    TEMPLATE = "template", "Template"
+    SCRATCH = "scratch", "From scratch"
+    MCP = "mcp", "MCP"
+    API = "api", "Direct API"
 
 
 # Size caps enforced at the write boundary; scanner_config and query are copied into every observation's snapshot.
@@ -379,6 +390,15 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         required=False,
         help_text="When true, the prompt is augmented with the Signal side mission and the scanner emits PostHog Signals.",
     )
+    creation_method = serializers.ChoiceField(
+        choices=ScannerCreationMethod.choices,
+        required=False,
+        write_only=True,
+        help_text=(
+            "Which entry point created this scanner, for the creation funnel: ai, template, scratch, mcp, or api. "
+            "Write-only and not stored — it only tags the creation event. Defaults to api."
+        ),
+    )
 
     scanner_version = serializers.IntegerField(
         read_only=True,
@@ -463,6 +483,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "model",
             "enabled",
             "emits_signals",
+            "creation_method",
             "experiment_targeting",
             "scanner_version",
             "estimated_monthly_observations",
@@ -688,6 +709,8 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             )
         # Tags become TaggedItem rows below, not a scanner column.
         tags = validated_data.pop("tags", None)
+        # Write-only telemetry, not a scanner column. Defaults to api for callers that send nothing.
+        creation_method = validated_data.pop("creation_method", ScannerCreationMethod.API)
         # One transaction so a failed tag write can't leave an untagged scanner behind. Side effects stay outside.
         with transaction.atomic():
             try:
@@ -700,7 +723,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         report_user_action(
             user,
             "replay_vision_scanner_created",
-            _scanner_lifecycle_properties(scanner),
+            {**_scanner_lifecycle_properties(scanner), "creation_method": creation_method},
             team=team,
             request=self.context.get("request"),
         )
