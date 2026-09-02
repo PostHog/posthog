@@ -4415,7 +4415,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 // The server baseline, not the flag list cache: a flag opened straight from its URL
                 // mounts no list logic, so a cache lookup reads as "never saved" even when the
                 // server already holds the payload encrypted.
-                return originalFeatureFlag?.has_encrypted_payloads === true
+                if (originalFeatureFlag?.has_encrypted_payloads !== true) {
+                    return false
+                }
+                // Lock only while the working copy still shows the stored ciphertext. A reset clears
+                // the payload, so re-enabling encryption to enter a replacement diverges it from the
+                // redacted baseline: keep that editable until the replacement is saved.
+                return featureFlag.filters?.payloads?.['true'] === originalFeatureFlag.filters?.payloads?.['true']
             },
         ],
         hasExperiment: [

@@ -782,6 +782,37 @@ describe('featureFlagLogic', () => {
                 })
             }).toMatchValues({ hasEncryptedPayloadBeenSaved: expected })
         })
+
+        it('stays false after a reset when encryption is re-enabled before typing', async () => {
+            // A saved encrypted flag: working copy and baseline both hold the redacted ciphertext.
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlag({
+                    ...logic.values.featureFlag,
+                    is_remote_configuration: true,
+                    has_encrypted_payloads: true,
+                    filters: { ...logic.values.featureFlag.filters, payloads: { true: '"********* (encrypted)"' } },
+                })
+                logic.actions.setOriginalFeatureFlag({
+                    ...logic.values.featureFlag,
+                    is_remote_configuration: true,
+                    has_encrypted_payloads: true,
+                })
+            }).toMatchValues({ hasEncryptedPayloadBeenSaved: true })
+
+            // Reset clears the working payload and disables encryption, unlocking the editor.
+            await expectLogic(logic, () => {
+                logic.actions.resetEncryptedPayload()
+            }).toMatchValues({ hasEncryptedPayloadBeenSaved: false })
+
+            // Re-enabling encryption before typing must not re-lock: the empty working payload no
+            // longer matches the baseline ciphertext, so a replacement can still be entered.
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlag({
+                    ...logic.values.featureFlag,
+                    has_encrypted_payloads: true,
+                })
+            }).toMatchValues({ hasEncryptedPayloadBeenSaved: false })
+        })
     })
 
     describe('setFeatureFlagFilters', () => {
