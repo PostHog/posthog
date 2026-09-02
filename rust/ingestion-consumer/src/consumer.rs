@@ -851,6 +851,74 @@ mod tests {
         assert_eq!(in_flight[1].covered, 4);
     }
 
+    /// A poll whose offset spans cover several partitions, as any real poll
+    /// does.
+    fn poll_spanning(epoch: u64, spans: &[(i32, i64, i64)], count: u32) -> InFlightPoll {
+        let mut offsets = HashMap::new();
+        for (partition, first, last) in spans {
+            offsets.insert(
+                ("test".to_string(), *partition),
+                OffsetSpan {
+                    first: *first,
+                    last: *last,
+                },
+            );
+        }
+        InFlightPoll {
+            poll_id: format!("poll-{epoch}"),
+            assignment_epoch: epoch,
+            offsets,
+            stats: BatchStats::new(),
+            message_count: count,
+            covered: 0,
+            accepted: 0,
+            dispatched_at: Instant::now(),
+        }
+    }
+
+    /// Review repro, not a regression test: `submit` reads the assignment
+    /// epoch after `collect_batch` returns, so a partition revoked and
+    /// reassigned inside one collection window leaves the poll stamped with
+    /// the post-assign epoch although its messages predate the revoke. The
+    /// replay of that partition from the committed offset then lands in the
+    /// next poll under the same epoch, with an overlapping span — the state
+    /// `apply_completion_requires_a_matching_epoch` assumes cannot exist.
+    ///
+    /// Poll A: P0[0] on a slow worker, P1[0..1] on a fast one. Collected
+    /// under epoch 1; P1 revoked and reassigned before submit; stamped 2.
+    /// Poll B: P1[0..1] replayed, stamped 2.
+    #[test]
+    fn epoch_read_after_collection_lets_a_replay_credit_the_older_poll() {
+        let mut in_flight = VecDeque::from([
+            poll_spanning(2, &[(0, 0, 0), (1, 0, 1)], 3),
+            poll_spanning(2, &[(1, 0, 1)], 2),
+        ]);
+
+        // A's P1 group completes on the fast worker.
+        apply_completion(&mut in_flight, completion(2, 1, &[0, 1], 2));
+        assert_eq!(in_flight[0].covered, 2);
+        assert!(!in_flight[0].is_complete());
+
+        // B's replayed P1 group completes on the same fast worker while A's
+        // P0 group is still held by the slow one. Same epoch, overlapping
+        // span: the deque scan credits A, the older poll.
+        apply_completion(&mut in_flight, completion(2, 1, &[0, 1], 2));
+        assert_eq!(in_flight[1].covered, 0, "B got nothing");
+        assert!(in_flight[0].is_complete(), "A reads complete without P0");
+
+        // `complete_oldest_poll` now pops A. Its accepted count clears the
+        // commit guard, so P0[0] is committed although no worker accepted it.
+        let a = in_flight.pop_front().expect("A is the oldest poll");
+        assert!(a.accepted >= a.message_count, "commit guard passes: {} >= {}", a.accepted, a.message_count);
+
+        // A's P0 completion arrives after A is gone. B does not hold P0, so it
+        // is discarded as stale; B stays incomplete and the consumer loops in
+        // `complete_oldest_poll` forever, reporting healthy each second.
+        apply_completion(&mut in_flight, completion(2, 0, &[0], 1));
+        assert_eq!(in_flight[0].covered, 0);
+        assert!(!in_flight[0].is_complete(), "B never completes");
+    }
+
     #[test]
     fn apply_completion_discards_a_completion_matching_no_poll() {
         let mut in_flight = VecDeque::from([poll(1, 0, 0, 3, 4)]);
