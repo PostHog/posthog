@@ -4312,6 +4312,31 @@ class TestSurveyQuestionValidation(APIBaseTest):
             assert f"<strong>{field}</strong>" in sanitized_value
             assert "onerror" not in sanitized_value
 
+    def test_update_survey_sanitizes_html_in_appearance_text(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Survey with an updated intro",
+            type="popover",
+            questions=[],
+        )
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "name": survey.name,
+                "type": survey.type,
+                "appearance": {
+                    "introScreenDescription": '<strong>Welcome</strong><img src="invalid" onerror="void 0">'
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert "<strong>Welcome</strong>" in response.json()["appearance"]["introScreenDescription"]
+        assert "onerror" not in response.json()["appearance"]["introScreenDescription"]
+
 
 class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
     def setUp(self):
