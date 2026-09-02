@@ -4538,6 +4538,36 @@
         },
         "feature_flag": "experiment-behavior-comparison"
     },
+    "external-data-destinations-list": {
+        "description": "List the places this project's warehouse sources can write synced rows to. The PostHog warehouse is one of them, and it is where a source writes when nothing else is configured.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "List warehouse destinations",
+        "title": "List warehouse destinations",
+        "required_scopes": ["external_data_source:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "warehouse-multi-destination"
+    },
+    "external-data-destinations-retrieve": {
+        "description": "Read one warehouse destination, including the target database or schema it writes to. Credentials live on the linked integration and are never returned here.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Get a warehouse destination",
+        "title": "Get a warehouse destination",
+        "required_scopes": ["external_data_source:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "warehouse-multi-destination"
+    },
     "external-data-schemas-cancel": {
         "description": "Cancel a currently running sync job for a specific table schema. If no sync is running, returns an error. Use 'external-data-schemas-list' to check which schemas have status 'Running' before calling this.",
         "category": "Warehouse sources",
@@ -4565,6 +4595,21 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "external-data-schemas-destinations-retrieve": {
+        "description": "Read one table's destination override. `inherits_from_source` tells you whether the table follows its source; `effective_destination_ids` is where it actually syncs once inheritance is resolved.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Get a table's destinations",
+        "title": "Get a table's destinations",
+        "required_scopes": ["external_data_source:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "warehouse-multi-destination"
     },
     "external-data-schemas-incremental-fields-create": {
         "description": "Re-inspect the source for a single table schema and return the currently available incremental fields, detected primary keys, column list, and which sync methods (incremental/append/cdc/webhook) are available. Use this when the source schema has changed, an incremental field has been dropped, or the user wants to switch to a different incremental_field/sync_type on an existing schema. The operation_id is external_data_schemas_incremental_fields_create but semantically this is a read-only refresh.",
@@ -4733,6 +4778,21 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "external-data-sources-destinations-retrieve": {
+        "description": "Read the destinations every table on this source syncs to. An empty list means the source writes to the PostHog warehouse only, which is the default for any source nobody configured destinations for.",
+        "category": "Warehouse sources",
+        "feature": "warehouse_sources",
+        "summary": "Get a source's destinations",
+        "title": "Get a source's destinations",
+        "required_scopes": ["external_data_source:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "warehouse-multi-destination"
     },
     "external-data-sources-destroy": {
         "description": "Delete a data warehouse source and all its table schemas, synced tables, and sync schedules. This is a soft delete. Any running syncs are cancelled first. This cannot be undone — the source must be recreated to resume syncing.",
