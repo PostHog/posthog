@@ -1573,15 +1573,31 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         // settings you just saved (same flow as Apply filters).
                         const shouldRefreshTilesAfterSave = filtersChanged || variablesChanged
 
+                        // View-time filters (URL / intermittent / filter-bar preview) must not hitch a ride
+                        // on a layout, color, or theme save. Only persist them when they differ from
+                        // persisted_filters and this save isn't carrying those other edits.
+                        const persistFilters =
+                            filtersChanged && !layoutsChanged && !breakdownColorsChanged && !themeChanged
+
+                        const updatePayload: {
+                            tiles: typeof layoutsToUpdate
+                            variables: typeof values.effectiveDashboardVariableOverrides
+                            breakdown_colors: typeof breakdownColorsToSave
+                            data_color_theme_id: typeof values.dataColorThemeId
+                            filters?: DashboardFilter
+                        } = {
+                            tiles: layoutsToUpdate,
+                            variables: values.effectiveDashboardVariableOverrides,
+                            breakdown_colors: breakdownColorsToSave,
+                            data_color_theme_id: values.dataColorThemeId,
+                        }
+                        if (persistFilters) {
+                            updatePayload.filters = values.effectiveEditBarFilters
+                        }
+
                         const updatedDashboard: DashboardType<InsightModel> = await api.update(
                             `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
-                            {
-                                filters: values.effectiveEditBarFilters,
-                                variables: values.effectiveDashboardVariableOverrides,
-                                breakdown_colors: breakdownColorsToSave,
-                                data_color_theme_id: values.dataColorThemeId,
-                                tiles: layoutsToUpdate,
-                            }
+                            updatePayload
                         )
                         if (breakdownColorsChanged) {
                             eventUsageLogic.actions.reportDashboardBreakdownColorsSaved(
