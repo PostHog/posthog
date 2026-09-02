@@ -1959,7 +1959,7 @@ class HogFlowConversionSerializer(serializers.Serializer):
         help_text=(
             "How long after entering the workflow a conversion still counts, as a duration string: "
             "'7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. "
-            "Omit it to use the default window."
+            "Omit it to use the default window. Set this or 'window_minutes', not both."
         ),
     )
     window_minutes = serializers.IntegerField(
@@ -1967,7 +1967,8 @@ class HogFlowConversionSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a "
-            "person enters the workflow. Maximum 129600 (90 days). null = use the default window."
+            "person enters the workflow. Maximum 129600 (90 days). null = use the default window. "
+            "Set this or 'window', not both."
         ),
     )
     # Not DRF read_only: drf-spectacular puts readOnly fields in the component's `required` list
@@ -2811,7 +2812,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; "
             "events: event-based goals [{filters: {events: [...]}}]; "
             "window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', "
-            "maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds). "
+            "maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds); set one, not both. "
             "Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. "
             "bytecode compiled server-side."
         ),
