@@ -165,16 +165,29 @@ def parse_openai_responses_citations(body: dict[str, Any]) -> tuple[str, list[st
     return "".join(answer_parts), _dedupe_urls(cited), queries
 
 
-def openai_incomplete_error(body: dict[str, Any]) -> str | None:
-    """An incomplete Responses body with no message item ran out of output budget
-    before answering — a failed check, not a zero-citation answer."""
-    if body.get("status") != "incomplete":
+def openai_response_error(body: dict[str, Any]) -> str | None:
+    """A Responses body that reports a non-completed status and produced no message
+    item did not answer (budget exhausted, failed, or cancelled). That is a failed
+    check, not a zero-citation answer, so the scout can tell "the engine broke" from
+    "the citations disappeared"."""
+    status = body.get("status")
+    if status in (None, "completed"):
         return None
     if any(item.get("type") == "message" for item in body.get("output") or []):
         return None
-    details = body.get("incomplete_details")
-    reason = details.get("reason") if isinstance(details, dict) else None
-    return f"incomplete_response: {reason or 'unknown'}"
+    # 'incomplete' carries incomplete_details.reason; 'failed' carries error.message.
+    details = body.get("incomplete_details") or body.get("error")
+    reason = (details.get("reason") or details.get("message")) if isinstance(details, dict) else None
+    return f"{status}_response: {reason or 'unknown'}"
+
+
+def anthropic_truncated_error(body: dict[str, Any], cited_urls: list[str]) -> str | None:
+    """A Messages body cut off at max_tokens before any citation did not finish
+    answering. Treat it as a failed check rather than a zero-citation answer, the
+    same way openai_response_error handles a budget-exhausted Responses body."""
+    if body.get("stop_reason") == "max_tokens" and not cited_urls:
+        return "max_tokens_response: truncated before citing"
+    return None
 
 
 def parse_exa_citations(body: dict[str, Any]) -> tuple[str, list[str], float | None]:
@@ -301,6 +314,8 @@ class ClaudeWebSearchEngine:
         except requests.RequestException as e:
             return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=_request_error(e))
         _, cited_urls, retrieved_urls, search_queries = parse_anthropic_citations(body)
+        if (truncated := anthropic_truncated_error(body, cited_urls)) is not None:
+            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=truncated)
         return CitationCheck(
             engine=self.name,
             model=self.model,
@@ -339,8 +354,8 @@ class OpenAIWebSearchEngine:
             body = gateway_post_json(self._session, self._gateway.url.rstrip("/") + "/responses", headers, payload)
         except requests.RequestException as e:
             return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=_request_error(e))
-        if (incomplete := openai_incomplete_error(body)) is not None:
-            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=incomplete)
+        if (error := openai_response_error(body)) is not None:
+            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=error)
         _, cited_urls, search_queries = parse_openai_responses_citations(body)
         return CitationCheck(
             engine=self.name,

@@ -1,11 +1,12 @@
 """The AEO citation runner: execute the prompt set against every configured
 answer engine and capture one `$aeo_citation_check` event per prompt x engine.
 
-The citation record is ordinary events — queryable in HogQL, chartable in
-insights, and readable by the alerting scout — with no new storage. Gateway
+The citation record is ordinary events, queryable in HogQL, chartable in
+insights, and readable by the alerting scout, with no new storage. Gateway
 engines additionally get a `$ai_generation` event per call (emitted by the
-gateway itself) carrying cost and web-search fees, joinable via
-`gateway_trace_id` / the `aeo_prompt_id` custom property.
+gateway itself) carrying cost and web-search fees. That event lands in the
+gateway-key owner's project, not the checked team's, and carries the
+`aeo_prompt_id` / `team_id` custom properties for attribution.
 """
 
 from __future__ import annotations
@@ -55,7 +56,7 @@ def run_citation_checks(
     prompts = list(
         AEOPrompt.objects.for_team(team.id)
         .filter(active=True)
-        .order_by("-rank", "created_at")[: limit or DEFAULT_MAX_PROMPTS_PER_RUN]
+        .order_by("-rank", "created_at")[: DEFAULT_MAX_PROMPTS_PER_RUN if limit is None else limit]
     )
     if not prompts:
         logger.warning("aeo_citation_run_no_prompts", team_id=team.id)
@@ -79,6 +80,9 @@ def run_citation_checks(
                     "aeo_prompt_id": str(prompt.id),
                     "aeo_run_id": run_id,
                     "aeo_prompt_source": prompt.prompt_source,
+                    # No $ai_ prefix, so the gateway keeps this on the $ai_generation
+                    # event, which lets usage attribute spend back to the checked team.
+                    "team_id": str(team.id),
                 },
             )
             if check.error is not None:

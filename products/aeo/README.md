@@ -4,10 +4,11 @@ Answers two questions for a project: **are AI answer engines citing our domain**
 
 Everything is built from existing machinery:
 
-- **Prompt execution (Track A)** goes through the AI gateway (`AI_GATEWAY_URL`) using the providers' native web-search tools, so the citations are the models' real ones and every call gets cost attribution on its `$ai_generation` event for free. Citations are parsed from the **live response** — the gateway's captured events intentionally drop web-search result payloads, so the cited URLs exist nowhere else.
+- **Prompt execution (Track A)** goes through the AI gateway (`AI_GATEWAY_URL`) using the providers' native web-search tools, so the citations are the models' real ones. Every call emits a `$ai_generation` event carrying cost, which lands in the gateway-key owner's project (not the checked team's) tagged with `team_id` for attribution. Citations are parsed from the **live response**, because the gateway's captured events intentionally drop web-search result payloads, so the cited URLs exist nowhere else.
 - **Breadth (Track B)** uses Exa `/answer` — its citations are Exa's own (a proxy, not a measurement of ChatGPT/Claude behavior), useful as a cheap retrievability check and as a comparison baseline against Track A.
-- **Storage** is ordinary events: one `$aeo_citation_check` event per prompt × engine × run. No new tables.
+- **Storage**: the citation records are ordinary events (one `$aeo_citation_check` per prompt × engine × run); the prompt set is one small Postgres table (`posthog_aeo_prompt`). No new event/ClickHouse tables.
 - **Alerting** is a per-team signals scout (see `scout/SKILL.md`) that reads those events and files inbox/Slack reports on citation-rate drops or spikes.
+- **Data handling**: `user_reported` prompts are real signup free-text (`referral_source_ai_prompt`). They are forwarded to the answer engines (Claude, OpenAI, and Exa act as sub-processors) and stored in `prompt_text`. This is acceptable for the posthog.com-scoped POC; revisit the raw-text capture and egress before any rollout beyond PostHog's own team.
 
 ## Setup
 

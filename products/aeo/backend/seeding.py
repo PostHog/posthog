@@ -98,14 +98,20 @@ def collect_candidates(
         entry_paths = best_effort("ai_entry_pages", lambda: fetch_ai_entry_paths(team))
         notes.append(f"AI entry pages observed: {len(entry_paths)}")
         if expand:
-            candidates += expand_paths_to_prompts(entry_paths, source=AEOPrompt.Source.AI_ENTRY_PAGE)
+            candidates += best_effort(
+                "ai_entry_pages_expand",
+                lambda: expand_paths_to_prompts(entry_paths, source=AEOPrompt.Source.AI_ENTRY_PAGE),
+            )
         elif entry_paths:
             notes.append("pass expand=True (--expand) to turn AI entry pages into prompts")
     if source in ("all", "crawled_content"):
         crawled_paths = best_effort("crawled_content", lambda: fetch_ai_crawled_paths(team))
         notes.append(f"AI-crawled content paths observed: {len(crawled_paths)}")
         if expand:
-            candidates += expand_paths_to_prompts(crawled_paths, source=AEOPrompt.Source.CRAWLED_CONTENT)
+            candidates += best_effort(
+                "crawled_content_expand",
+                lambda: expand_paths_to_prompts(crawled_paths, source=AEOPrompt.Source.CRAWLED_CONTENT),
+            )
         elif crawled_paths:
             notes.append("pass expand=True (--expand) to turn AI-crawled paths into prompts")
 

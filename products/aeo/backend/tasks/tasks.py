@@ -31,6 +31,23 @@ RUN_SOFT_TIME_LIMIT_SECONDS = 4 * 60 * 60
 RUN_TIME_LIMIT_SECONDS = RUN_SOFT_TIME_LIMIT_SECONDS + 300
 
 
+def _citation_tracking_enabled(team: Team) -> bool:
+    """The double gate: a team runs only when it is in the env allowlist AND has
+    the flag on. Both default off, so this is fail-closed. Shared by the dispatcher
+    and the per-team task so a task queued directly cannot skip the gate."""
+    allowlist = {str(raw).strip() for raw in settings.AEO_CITATION_TEAM_IDS}
+    if str(team.id) not in allowlist:
+        return False
+    # No person is behind this scheduled run; the team UUID keeps the flag call
+    # well-formed and the organization group lets the flag target teams.
+    return feature_enabled_or_false(
+        AEO_CITATION_TRACKING_FLAG,
+        str(team.uuid),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+    )
+
+
 @shared_task(ignore_result=True)
 def run_aeo_citation_checks_task() -> None:
     """Beat entrypoint: fan out one runner task per allowlisted, flag-enabled team."""
@@ -40,15 +57,7 @@ def run_aeo_citation_checks_task() -> None:
         except (Team.DoesNotExist, ValueError):
             logger.warning("aeo_citation_task_unknown_team", team_id=raw_team_id)
             continue
-        # No person is behind this scheduled run; the team UUID keeps the flag
-        # call well-formed and the organization group lets the flag target teams.
-        enabled = feature_enabled_or_false(
-            AEO_CITATION_TRACKING_FLAG,
-            str(team.uuid),
-            groups={"organization": str(team.organization_id)},
-            group_properties={"organization": {"id": str(team.organization_id)}},
-        )
-        if not enabled:
+        if not _citation_tracking_enabled(team):
             logger.info("aeo_citation_task_flag_disabled", team_id=team.id)
             continue
         run_aeo_citation_checks_for_team_task.delay(team.id)
@@ -65,6 +74,11 @@ def run_aeo_citation_checks_for_team_task(team_id: int) -> None:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
         logger.warning("aeo_citation_task_unknown_team", team_id=team_id)
+        return
+    # Re-check the gate here too, so this task fails closed even if it is queued
+    # outside the dispatcher (which already checks before fan-out).
+    if not _citation_tracking_enabled(team):
+        logger.info("aeo_citation_task_flag_disabled", team_id=team_id)
         return
     try:
         run_citation_checks(team)

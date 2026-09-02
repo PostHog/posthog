@@ -1,8 +1,17 @@
+from types import SimpleNamespace
+
+from unittest.mock import patch
+
+from parameterized import parameterized
+
 from products.aeo.backend.engines import (
+    OPENAI_MAX_OUTPUT_TOKENS,
     CitationCheck,
+    OpenAIWebSearchEngine,
+    anthropic_truncated_error,
     build_check_properties,
     is_target_url,
-    openai_incomplete_error,
+    openai_response_error,
     parse_anthropic_citations,
     parse_exa_citations,
     parse_openai_responses_citations,
@@ -133,22 +142,68 @@ OPENAI_INCOMPLETE_BODY = {
     ],
 }
 
-
-def test_openai_incomplete_without_message_is_an_error() -> None:
-    assert openai_incomplete_error(OPENAI_INCOMPLETE_BODY) == "incomplete_response: max_output_tokens"
-
-
-def test_openai_incomplete_with_message_is_not_an_error() -> None:
-    body = {
-        **OPENAI_INCOMPLETE_BODY,
-        "output": [*OPENAI_INCOMPLETE_BODY["output"], {"type": "message", "content": []}],
-    }
-    assert openai_incomplete_error(body) is None
+OPENAI_FAILED_BODY = {
+    "id": "resp_03",
+    "status": "failed",
+    "error": {"code": "server_error", "message": "upstream boom"},
+    "output": [{"type": "reasoning", "id": "rs_2", "summary": []}],
+}
 
 
-def test_openai_completed_is_not_an_error() -> None:
-    assert openai_incomplete_error(OPENAI_RESPONSES_BODY) is None
-    assert openai_incomplete_error({"output": []}) is None
+@parameterized.expand(
+    [
+        # A non-completed status with no message item never answered, so it is a failed check.
+        ("incomplete_no_message", OPENAI_INCOMPLETE_BODY, "incomplete_response: max_output_tokens"),
+        ("failed_no_message", OPENAI_FAILED_BODY, "failed_response: upstream boom"),
+        # A message item means the model answered, and a completed/absent status is a normal answer.
+        ("incomplete_with_message", {**OPENAI_INCOMPLETE_BODY, "output": [{"type": "message", "content": []}]}, None),
+        ("completed", OPENAI_RESPONSES_BODY, None),
+        ("no_status", {"output": []}, None),
+    ]
+)
+def test_openai_response_error(_name: str, body: dict, expected: str | None) -> None:
+    assert openai_response_error(body) == expected
+
+
+@parameterized.expand(
+    [
+        ("truncated_uncited", {"stop_reason": "max_tokens"}, [], "max_tokens_response: truncated before citing"),
+        ("truncated_after_citing", {"stop_reason": "max_tokens"}, ["https://posthog.com/x"], None),
+        ("normal_stop", {"stop_reason": "end_turn"}, [], None),
+    ]
+)
+def test_anthropic_truncated_error(_name: str, body: dict, cited: list, expected: str | None) -> None:
+    assert anthropic_truncated_error(body, cited) == expected
+
+
+@parameterized.expand(
+    [
+        ("completed_answer", OPENAI_RESPONSES_BODY, None),
+        ("incomplete_is_failed_check", OPENAI_INCOMPLETE_BODY, "incomplete_response: max_output_tokens"),
+        ("failed_is_failed_check", OPENAI_FAILED_BODY, "failed_response: upstream boom"),
+    ]
+)
+def test_openai_engine_run_wires_response_error(_name: str, body: dict, expected_error: str | None) -> None:
+    captured: dict = {}
+
+    def fake_post(_session, _url, _headers, payload, **_kwargs):
+        captured["payload"] = payload
+        return body
+
+    with (
+        patch(
+            "products.aeo.backend.engines.resolve_ai_gateway_config",
+            return_value=SimpleNamespace(url="https://gw.test/v1", api_key="k"),
+        ),
+        patch("products.aeo.backend.engines.ai_gateway_headers", return_value={}),
+        patch("products.aeo.backend.engines.gateway_post_json", side_effect=fake_post),
+    ):
+        check = OpenAIWebSearchEngine().run("best web analytics tool", trace_id="t1", custom_properties={})
+
+    assert check.error == expected_error
+    assert captured["payload"]["max_output_tokens"] == OPENAI_MAX_OUTPUT_TOKENS
+    if expected_error is None:
+        assert check.cited_urls  # completed body carries citations
 
 
 def test_parse_exa_citations() -> None:
