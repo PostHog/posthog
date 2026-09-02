@@ -15,7 +15,7 @@ from posthog.dataclasses import frozen
 from posthog.security.url_validation import is_url_allowed
 
 from .models import MCPServerInstallation, MCPServerTemplate, TemplateOAuthCredentials
-from .oauth_credentials import resolve_oauth_credentials_source
+from .oauth_credentials import resolve_oauth_credentials_source, validate_oauth_credentials_source_metadata
 
 logger = structlog.get_logger(__name__)
 
@@ -466,6 +466,7 @@ class InstallationOAuthContext:
 
 def resolve_template_oauth_credentials(template: MCPServerTemplate) -> TemplateOAuthCredentials:
     if template.oauth_credentials_source:
+        validate_oauth_credentials_source_metadata(template.oauth_credentials_source, template.oauth_metadata or {})
         credentials = resolve_oauth_credentials_source(template.oauth_credentials_source)
         if not credentials["client_id"] or not credentials["client_secret"]:
             raise ValueError(f"OAuth credential source '{template.oauth_credentials_source}' is not configured")

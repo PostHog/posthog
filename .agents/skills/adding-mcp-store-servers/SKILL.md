@@ -77,6 +77,6 @@ This server does not support Dynamic Client Registration, so it ships inactive. 
 
 - Don't add entries with unprobed URLs — a dead catalog entry is user-visible breakage.
 - Don't edit `is_active`, `oauth_credentials`, or `oauth_metadata` expectations into the catalog — those are operational state owned by the row, not by code.
-- Don't add an instance credential source for a newly registered vendor app. Sources are only for an existing client already provisioned across every target environment.
+- Don't add an instance credential source for a newly registered vendor app. Sources are only for an existing client already provisioned across every target environment, with exact trusted issuer, authorization, and token endpoints enforced before any secret is used.
 - Don't add icon assets or `icon_key` values — icons resolve from `icon_domain` via logo.dev at render time.
 - Don't batch unrelated servers into one PR unless explicitly doing a scaffold sweep; per-server PRs keep review and reverts clean.
