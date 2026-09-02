@@ -43,8 +43,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use std::collections::HashMap;
-
 use dashmap::DashMap;
 use metrics::{counter, gauge, histogram};
 use sqlx::postgres::PgPool;
@@ -62,9 +60,6 @@ use crate::cache::PersonCacheKey;
 pub struct FenceState {
     pub op_id: Uuid,
     pub op_type: LifecycleOpType,
-    /// The event whose merge installed the fence, echoed on rejections.
-    /// Advisory: ownership keys on the op id.
-    pub creator_event_uuid: Option<Uuid>,
 }
 
 pub type FenceMap = Arc<DashMap<PersonCacheKey, FenceState>>;
@@ -75,9 +70,6 @@ pub type FenceMap = Arc<DashMap<PersonCacheKey, FenceState>>;
 pub const FENCED_METADATA_KEY: &str = "x-person-fenced";
 /// Metadata key carrying the fencing operation's id on rejections.
 pub const FENCED_OP_ID_METADATA_KEY: &str = "x-person-fenced-op-id";
-/// Metadata key carrying the fencing operation's creator event uuid on
-/// rejections, when the fence has one.
-pub const FENCED_CREATOR_METADATA_KEY: &str = "x-person-fenced-creator";
 
 /// A definitive FAILED_PRECONDITION the router passes through to the
 /// caller instead of bouncing. Bare FAILED_PRECONDITION classifies as a
@@ -109,13 +101,6 @@ pub fn fenced_status(state: &FenceState) -> Status {
         status
             .metadata_mut()
             .insert(FENCED_OP_ID_METADATA_KEY, value);
-    }
-    if let Some(creator) = state.creator_event_uuid {
-        if let Ok(value) = creator.to_string().parse() {
-            status
-                .metadata_mut()
-                .insert(FENCED_CREATOR_METADATA_KEY, value);
-        }
     }
     status
 }
@@ -181,57 +166,22 @@ pub async fn rebuild_partition_fences(
     // left behind.
     drop_partition_fences(fences, partition, num_partitions);
 
-    // Keep only this partition's rows before touching the frozen
-    // requests: extracting a jsonb field detoasts the whole request.
-    let mut ours: Vec<(i64, i64, Uuid, String)> = Vec::new();
+    let mut installed = 0usize;
     for row in rows {
         let team_id: i32 = row.get("team_id");
         let person_id: i64 = row.get("person_id");
         if partition_for_person(team_id as i64, person_id, num_partitions) != partition {
             continue;
         }
-        ours.push((
-            team_id as i64,
-            person_id,
-            row.get("op_id"),
-            row.get("op_type"),
-        ));
-    }
-
-    let mut op_ids: Vec<Uuid> = ours.iter().map(|(_, _, op_id, _)| *op_id).collect();
-    op_ids.sort_unstable();
-    op_ids.dedup();
-    let mut creators: HashMap<Uuid, Uuid> = HashMap::new();
-    if !op_ids.is_empty() {
-        let creator_rows = sqlx::query(
-            r#"
-            SELECT op_id, request->>'creator_event_uuid' AS creator_event_uuid
-            FROM lifecycle_op
-            WHERE op_id = ANY($1)
-            "#,
-        )
-        .bind(&op_ids)
-        .fetch_all(pool)
-        .await?;
-        for row in creator_rows {
-            // Frozen requests predating the field, and delete ops, carry none.
-            if let Some(creator) = row
-                .get::<Option<String>, _>("creator_event_uuid")
-                .and_then(|raw| Uuid::parse_str(&raw).ok())
-            {
-                creators.insert(row.get("op_id"), creator);
-            }
-        }
-    }
-
-    let mut installed = 0usize;
-    for (team_id, person_id, op_id, op_type) in ours {
+        let op_type: String = row.get("op_type");
         fences.insert(
-            PersonCacheKey { team_id, person_id },
+            PersonCacheKey {
+                team_id: team_id as i64,
+                person_id,
+            },
             FenceState {
-                op_id,
+                op_id: row.get("op_id"),
                 op_type: LifecycleOpType::from_op_type_str(&op_type),
-                creator_event_uuid: creators.get(&op_id).copied(),
             },
         );
         installed += 1;

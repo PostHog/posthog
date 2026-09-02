@@ -19,7 +19,6 @@ use personhog_common::grpc::{current_client_name, SEMANTIC_REFUSAL_METADATA_KEY}
 /// the router does not depend on the leader crate.
 const FENCED_METADATA_KEY: &str = "x-person-fenced";
 const FENCED_OP_ID_METADATA_KEY: &str = "x-person-fenced-op-id";
-const FENCED_CREATOR_METADATA_KEY: &str = "x-person-fenced-creator";
 use personhog_common::partitioning::partition_for_person;
 
 use super::stash::{StashDecision, StashTable};
@@ -483,11 +482,7 @@ impl LeaderBackend {
                         // Keys travel only from the bounce that ended the
                         // request, so a dead leader cannot report as held.
                         if let ForwardDecision::BouncedFenced { headers: fence } = &decision {
-                            for key in [
-                                FENCED_METADATA_KEY,
-                                FENCED_OP_ID_METADATA_KEY,
-                                FENCED_CREATOR_METADATA_KEY,
-                            ] {
+                            for key in [FENCED_METADATA_KEY, FENCED_OP_ID_METADATA_KEY] {
                                 if let Some(value) = fence.get(key) {
                                     response.headers_mut().insert(key, value.clone());
                                 }

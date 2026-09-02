@@ -649,10 +649,6 @@ pub struct TestLeaderService {
     person_fence_op: Arc<Mutex<Option<String>>>,
 }
 
-/// The creator event uuid the simulated person fence carries, asserted
-/// forwarded end to end by the raw-proxy tests.
-pub const SIM_FENCE_CREATOR: &str = "0189f0e0-1111-7000-8000-000000000000";
-
 impl TestLeaderService {
     pub fn new() -> Self {
         Self {
@@ -778,10 +774,6 @@ impl PersonHogLeader for TestLeaderService {
             status
                 .metadata_mut()
                 .insert("x-person-fenced-op-id", op_id.parse().unwrap());
-            status.metadata_mut().insert(
-                "x-person-fenced-creator",
-                SIM_FENCE_CREATOR.parse().unwrap(),
-            );
             return Err(status);
         }
         let key = (req.team_id, req.person_id);

@@ -391,8 +391,6 @@ async fn seal(pool: &PgPool, leader: &dyn LifecycleLeader, op: &OpRow) -> Result
                 person_id: victim.person_id,
                 op_id: op.op_id.to_string(),
                 op_type: LifecycleOpType::Delete.into(),
-                // A delete has no creating event to name.
-                creator_event_uuid: String::new(),
             };
             let person_id = victim.person_id;
             async move { (person_id, leader.fence_person(request).await) }

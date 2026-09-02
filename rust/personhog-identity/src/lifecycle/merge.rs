@@ -110,8 +110,9 @@ pub struct MergeRequest {
     /// Per-source distinct-id count guard. Required: an unlimited merge
     /// would make the flip's repoint an unbounded statement.
     pub move_limit: i64,
-    /// The event that asked for this merge, echoed on its fences. Skipped
-    /// when empty so older frozen rows compare equal.
+    /// The event that asked for this merge, recorded as $creator_event_uuid
+    /// on a person the establish path births. Skipped when empty so older
+    /// frozen rows compare equal.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub creator_event_uuid: String,
 }
@@ -934,7 +935,6 @@ impl MergeDriver {
                     person_id: source.person_id,
                     op_id: op.op_id.to_string(),
                     op_type: LifecycleOpType::Merge.into(),
-                    creator_event_uuid: request.creator_event_uuid.clone(),
                 };
                 let person_id = source.person_id;
                 async move { (person_id, leader.fence_person(request).await) }

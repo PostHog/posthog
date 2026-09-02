@@ -14,9 +14,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use chrono::Utc;
-use common::sim_leader::{
-    LeaderCall, Rpc, SimLeader, FENCED_CREATOR_METADATA_KEY, FENCED_METADATA_KEY,
-};
+use common::sim_leader::{LeaderCall, Rpc, SimLeader, FENCED_METADATA_KEY};
 use common::TestContext;
 use personhog_common::grpc::semantic_refusal;
 use personhog_common::persons::person_uuid;
@@ -412,9 +410,7 @@ async fn a_walkthrough_asserts_every_state_and_shields_it_from_other_actors() {
         .await;
 
     let op_id = Uuid::now_v7();
-    let creator = Uuid::now_v7();
-    let mut request = merge_request("walk-target", &["walk-source"]);
-    request.creator_event_uuid = creator.to_string();
+    let request = merge_request("walk-target", &["walk-source"]);
 
     // State: started. Nothing claimed, nothing fenced, everyone writable.
     let row = h.create(op_id, &request).await;
@@ -465,17 +461,7 @@ async fn a_walkthrough_asserts_every_state_and_shields_it_from_other_actors() {
     let fence = h.leader.fence_for(source).expect("fence installed");
     assert_eq!(fence.op_id, op_id);
     assert_eq!(fence.op_type, LifecycleOpType::Merge);
-    assert_eq!(
-        fence.creator_event_uuid,
-        Some(creator),
-        "the seal carries the frozen request's creator onto the fence"
-    );
     let err = h.leader.admit_write(team, source).await.unwrap_err();
-    assert_eq!(
-        err.metadata().get(FENCED_CREATOR_METADATA_KEY).unwrap(),
-        creator.to_string().as_str(),
-        "the rejection names the creator for the event's own caller"
-    );
     h.assert_write_fenced(err, op_id);
     h.leader
         .admit_write(team, target)

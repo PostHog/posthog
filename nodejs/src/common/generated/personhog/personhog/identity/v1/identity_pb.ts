@@ -501,11 +501,8 @@ export type MergePersonsRequest = Message<'personhog.identity.v1.MergePersonsReq
      * event can own several ops at once (a fold plan and its per-event
      * fallback merges share this value but not op ids), so the two fields
      * answer different questions — op_id names the operation, this names
-     * the event behind it. The seal step copies it onto each fence, and a
-     * fenced write's rejection echoes it as `x-person-fenced-creator`, so
-     * the caller holding the event can classify the fence. It is also
-     * recorded as $creator_event_uuid on a person the establish path
-     * births. Send the same value on every retry.
+     * the event behind it. Recorded as $creator_event_uuid on a person the
+     * establish path births. Send the same value on every retry.
      *
      * @generated from field: string creator_event_uuid = 10;
      */

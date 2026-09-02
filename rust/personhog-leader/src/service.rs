@@ -1605,10 +1605,6 @@ impl PersonHogLeader for PersonHogLeaderService {
         if op_type == LifecycleOpType::Unspecified {
             return Err(Status::invalid_argument("op_type must be specified"));
         }
-        // Advisory, so lenient: an unparseable creator fences without one
-        // rather than failing the saga over a field nothing branches on.
-        let creator_event_uuid = Uuid::parse_str(&req.creator_event_uuid).ok();
-
         // A fence installed anywhere but the current owner protects
         // nothing: the map that gates writes is the owner's. Both guards
         // are needed — ownership covers a pod that already handed the
@@ -1688,14 +1684,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             .emitted_versions
             .floor_for(partition, &cache_key, person.version);
 
-        self.fences.insert(
-            cache_key,
-            FenceState {
-                op_id,
-                op_type,
-                creator_event_uuid,
-            },
-        );
+        self.fences.insert(cache_key, FenceState { op_id, op_type });
         counter!("personhog_leader_fences_total", "action" => "fenced").increment(1);
 
         Ok(Response::new(FencePersonResponse {

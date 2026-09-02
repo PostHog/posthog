@@ -322,14 +322,6 @@ async fn raw_proxy_exhausted_person_fence_bounce_names_the_holder() {
         Some("0189f0e0-0000-7000-8000-000000000000"),
     );
     assert!(status.metadata().get("x-person-fenced").is_some());
-    assert_eq!(
-        status
-            .metadata()
-            .get("x-person-fenced-creator")
-            .map(|value| value.to_str().unwrap()),
-        Some(common::SIM_FENCE_CREATOR),
-        "the creator travels with the fence keys"
-    );
 }
 
 /// Callers ack rather than retry a fence naming somebody else's operation,
@@ -374,7 +366,6 @@ async fn raw_proxy_a_dead_leader_after_a_fence_is_not_reported_as_fenced() {
         "a transport failure must not inherit the earlier bounce's fence keys"
     );
     assert!(status.metadata().get("x-person-fenced-op-id").is_none());
-    assert!(status.metadata().get("x-person-fenced-creator").is_none());
 }
 
 #[tokio::test]

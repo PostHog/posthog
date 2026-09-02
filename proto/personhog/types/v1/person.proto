@@ -287,13 +287,6 @@ message FencePersonRequest {
   int64 person_id = 2;
   string op_id = 3;
   LifecycleOpType op_type = 4;
-  // The uuid of the event whose merge installed this fence, echoed on
-  // fenced-write rejections as `x-person-fenced-creator`: the stable
-  // identity behind a salted op_id, letting a caller holding the same
-  // event classify the fence as a sibling of its own work. Advisory only
-  // — one event owns several operations, so ownership keys on the op id;
-  // empty for delete ops, and the leader never branches on it.
-  string creator_event_uuid = 5;
 }
 
 // The kind of lifecycle operation — mirrors lifecycle_op.op_type. The
