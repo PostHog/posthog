@@ -570,7 +570,9 @@ impl KeyOrderSentinel {
 pub struct SentinelContext {
     commit_sentinel: Arc<CommitSentinel>,
     key_sentinel: Arc<KeyOrderSentinel>,
-    topic_offset_ledger: Mutex<Option<Arc<TopicOffsetLedger>>>,
+    /// The offset ledger the commit path settles against. Owned here so the
+    /// rebalance callbacks forget partitions on the same ledger.
+    topic_offset_ledger: Arc<TopicOffsetLedger>,
     /// Bumped on every partition assignment; the gRPC transport stamps it on
     /// sub-batches so the worker's feed-order sentinel rebaselines across
     /// rebalances.
@@ -578,11 +580,15 @@ pub struct SentinelContext {
 }
 
 impl SentinelContext {
-    pub fn new(commit_sentinel: Arc<CommitSentinel>, key_sentinel: Arc<KeyOrderSentinel>) -> Self {
+    pub fn new(
+        commit_sentinel: Arc<CommitSentinel>,
+        key_sentinel: Arc<KeyOrderSentinel>,
+        topic_offset_ledger: Arc<TopicOffsetLedger>,
+    ) -> Self {
         Self {
             commit_sentinel,
             key_sentinel,
-            topic_offset_ledger: Mutex::new(None),
+            topic_offset_ledger,
             assignment_epoch: None,
         }
     }
@@ -593,24 +599,22 @@ impl SentinelContext {
         self.assignment_epoch = Some(epoch);
     }
 
-    /// Attach the consumer-owned ledger observer after the context is created.
-    /// This is also used by `IngestionConsumer::from_parts`, whose context is
-    /// constructed by integration tests before the consumer itself.
-    pub(crate) fn set_topic_offset_ledger(&self, ledger: Arc<TopicOffsetLedger>) {
-        *self.topic_offset_ledger.lock().unwrap() = Some(ledger);
-    }
-
-    /// A context with its own free-standing sentinels, for tests and tools
-    /// that build the Kafka consumer separately from the dispatcher.
+    /// A context with its own free-standing sentinels and ledger, for tests
+    /// and tools that build the Kafka consumer separately from the dispatcher.
     pub fn detached() -> Self {
         Self::new(
             Arc::new(CommitSentinel::new()),
             Arc::new(KeyOrderSentinel::new()),
+            Arc::new(TopicOffsetLedger::new()),
         )
     }
 
     pub fn commit_sentinel(&self) -> Arc<CommitSentinel> {
         Arc::clone(&self.commit_sentinel)
+    }
+
+    pub fn topic_offset_ledger(&self) -> Arc<TopicOffsetLedger> {
+        Arc::clone(&self.topic_offset_ledger)
     }
 }
 
@@ -630,13 +634,10 @@ impl ConsumerContext for SentinelContext {
                 info!(partitions = tpl.count(), "Rebalance: partitions revoked");
                 self.commit_sentinel
                     .forget_partitions(tpl.elements().iter().map(|e| (e.topic(), e.partition())));
-                if let Some(ledger) = self.topic_offset_ledger.lock().unwrap().as_ref().cloned() {
-                    ledger.forget_partitions(
-                        tpl.elements().iter().map(|e| (e.topic(), e.partition())),
-                    );
-                    for element in tpl.elements() {
-                        set_depth_gauge(element.topic(), element.partition(), 0);
-                    }
+                self.topic_offset_ledger
+                    .forget_partitions(tpl.elements().iter().map(|e| (e.topic(), e.partition())));
+                for element in tpl.elements() {
+                    set_depth_gauge(element.topic(), element.partition(), 0);
                 }
                 // Revoked partitions may be replayed by another consumer (or by
                 // us after re-assignment) from the last commit — every per-key
@@ -659,11 +660,10 @@ impl ConsumerContext for SentinelContext {
             // any surviving ledger for them is stale. The revoke callback
             // normally dropped it already; this covers losses with no revoke
             // callback (an error rebalance, a fenced member).
-            if let Some(ledger) = self.topic_offset_ledger.lock().unwrap().as_ref().cloned() {
-                ledger.forget_partitions(tpl.elements().iter().map(|e| (e.topic(), e.partition())));
-                for element in tpl.elements() {
-                    set_depth_gauge(element.topic(), element.partition(), 0);
-                }
+            self.topic_offset_ledger
+                .forget_partitions(tpl.elements().iter().map(|e| (e.topic(), e.partition())));
+            for element in tpl.elements() {
+                set_depth_gauge(element.topic(), element.partition(), 0);
             }
             if let Some(epoch) = &self.assignment_epoch {
                 epoch.fetch_add(1, Ordering::Relaxed);

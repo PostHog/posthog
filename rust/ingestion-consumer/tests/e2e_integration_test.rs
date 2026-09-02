@@ -23,8 +23,6 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use std::sync::atomic::AtomicU64;
-
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::discovery::reconcile_membership;
 use ingestion_consumer::dispatcher::Dispatcher;
@@ -443,7 +441,6 @@ fn make_kafka_consumer(
     topic: &str,
     group_id: &str,
     instance_id: Option<&str>,
-    assignment_epoch: Arc<AtomicU64>,
 ) -> StreamConsumer<SentinelContext> {
     let mut config = ClientConfig::new();
     config
@@ -457,12 +454,9 @@ fn make_kafka_consumer(
     if let Some(id) = instance_id {
         config.set("group.instance.id", id);
     }
-    // Wire the epoch as production's constructor does, so rebalances advance
-    // the transport's assignment epoch in these tests too.
-    let mut context = SentinelContext::detached();
-    context.set_assignment_epoch(assignment_epoch);
-    let kafka_consumer: StreamConsumer<SentinelContext> =
-        config.create_with_context(context).expect("kafka consumer");
+    let kafka_consumer: StreamConsumer<SentinelContext> = config
+        .create_with_context(SentinelContext::detached())
+        .expect("kafka consumer");
     kafka_consumer.subscribe(&[topic]).expect("subscribe");
     kafka_consumer
 }
@@ -609,8 +603,7 @@ impl Harness {
         let _monitor = manager.monitor_background();
 
         let group_id = format!("e2e-{}", Uuid::new_v4());
-        let kafka_consumer =
-            make_kafka_consumer(topic, &group_id, None, transport.assignment_epoch());
+        let kafka_consumer = make_kafka_consumer(topic, &group_id, None);
 
         let consumer = IngestionConsumer::from_parts(
             kafka_consumer,
@@ -681,12 +674,7 @@ impl Harness {
         let handle = manager.register("consumer", ComponentOptions::new());
         self.shutdown = handle.shutdown_token();
 
-        let kafka_consumer = make_kafka_consumer(
-            &self.topic,
-            &self.group_id,
-            None,
-            transport.assignment_epoch(),
-        );
+        let kafka_consumer = make_kafka_consumer(&self.topic, &self.group_id, None);
         let consumer = IngestionConsumer::from_parts(
             kafka_consumer,
             Arc::clone(&dispatcher),
@@ -2468,12 +2456,7 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
     let handle2 = manager2.register("consumer", ComponentOptions::new());
     let shutdown2 = handle2.shutdown_token();
     let consumer2 = IngestionConsumer::from_parts(
-        make_kafka_consumer(
-            &topic,
-            &harness.group_id,
-            None,
-            transport2.assignment_epoch(),
-        ),
+        make_kafka_consumer(&topic, &harness.group_id, None),
         dispatcher2,
         transport2,
         worker_urls,
@@ -2569,12 +2552,7 @@ async fn partition_lost_and_regained_keeps_the_consumer_alive() {
     let handle2 = manager2.register("consumer", ComponentOptions::new());
     let shutdown2 = handle2.shutdown_token();
     let consumer2 = IngestionConsumer::from_parts(
-        make_kafka_consumer(
-            &topic,
-            &harness.group_id,
-            None,
-            transport2.assignment_epoch(),
-        ),
+        make_kafka_consumer(&topic, &harness.group_id, None),
         dispatcher2,
         transport2,
         worker_urls,
@@ -2666,7 +2644,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
     let handle = manager.register("consumer", ComponentOptions::new());
     let group = format!("e2e-{}", Uuid::new_v4());
     let consumer = IngestionConsumer::from_parts(
-        make_kafka_consumer(&topic, &group, Some("pod-1"), transport.assignment_epoch()),
+        make_kafka_consumer(&topic, &group, Some("pod-1")),
         dispatcher,
         transport,
         urls,
@@ -2692,7 +2670,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
     .await;
 
     // The usurper joins with the SAME instance id; polling drives the join.
-    let usurper = make_kafka_consumer(&topic, &group, Some("pod-1"), Arc::new(AtomicU64::new(1)));
+    let usurper = make_kafka_consumer(&topic, &group, Some("pod-1"));
     let usurper_task = tokio::spawn(async move {
         let mut stream = usurper.stream();
         let _ = tokio::time::timeout(Duration::from_secs(30), stream.next()).await;
