@@ -94,6 +94,10 @@ describe('nativeAlertEditorLogic', () => {
         expect(logic.values.saveDisabledReason).toEqual('Pick a Slack workspace and channel')
 
         logic.actions.updateDestination(0, { integrationId: 7 })
+        // A workspace without a channel would be dropped silently; saving stays blocked until it is complete.
+        expect(logic.values.saveDisabledReason).toEqual(
+            'Pick a channel for every Slack destination, or remove the empty one'
+        )
         logic.actions.updateDestination(0, { channel: 'C0456|#spikes' })
         expect(logic.values.saveDisabledReason).toBeNull()
 

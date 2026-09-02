@@ -204,6 +204,7 @@ class ErrorTrackingAlertPreviewParamsSerializer(serializers.Serializer):
 
 class ErrorTrackingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "error_tracking"
+    scope_object_read_actions = ["list", "retrieve", "preview"]
     serializer_class = ErrorTrackingAlertSerializer
 
     def initial(self, request: Request, *args, **kwargs) -> None:
