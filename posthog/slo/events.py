@@ -1,8 +1,10 @@
 from collections.abc import Callable
+from typing import Any
 
 import posthoganalytics
 from prometheus_client import Counter, Histogram
 
+from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_commit_short
 from posthog.slo.types import SloCompletedProperties, SloStartedProperties
@@ -70,6 +72,14 @@ def _capture_emit_exception(
         pass
 
 
+def _send(capture: Callable | None, **event: Any) -> None:
+    # The module-level client carries PostHog's own project token in every non-debug run mode, so without this
+    # guard a self-hosted instance reports its SLO events into PostHog's internal project, with no region.
+    if capture is None and not is_cloud():
+        return
+    (capture or posthoganalytics.capture)(**event)
+
+
 def emit_slo_started(
     distinct_id: str,
     properties: SloStartedProperties,
@@ -86,12 +96,7 @@ def emit_slo_started(
         if sample_rate < 1.0:
             all_properties["sample_rate"] = sample_rate
 
-        _capture = capture or posthoganalytics.capture
-        _capture(
-            distinct_id=distinct_id,
-            event="slo_operation_started",
-            properties=all_properties,
-        )
+        _send(capture, distinct_id=distinct_id, event="slo_operation_started", properties=all_properties)
         OPERATION_STARTED_COUNTER.labels(
             area=properties.area,
             operation=properties.operation,
@@ -122,12 +127,7 @@ def emit_slo_completed(
         if sample_rate < 1.0:
             all_properties["sample_rate"] = sample_rate
 
-        _capture = capture or posthoganalytics.capture
-        _capture(
-            distinct_id=distinct_id,
-            event="slo_operation_completed",
-            properties=all_properties,
-        )
+        _send(capture, distinct_id=distinct_id, event="slo_operation_completed", properties=all_properties)
         OPERATION_COMPLETED_COUNTER.labels(
             area=properties.area,
             operation=properties.operation,
