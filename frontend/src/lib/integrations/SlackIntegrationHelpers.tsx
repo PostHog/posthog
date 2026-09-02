@@ -85,6 +85,34 @@ const getSlackChannelOptions = (slackChannels?: SlackChannelType[] | null): Lemo
         : null
 }
 
+// A private channel the connecting user cannot see has no readable name, so keep it out of the list
+// unless it is the current selection or the exact id being searched for.
+const withoutInaccessiblePrivateChannels = (
+    options: LemonInputSelectOption[] | null,
+    isPrivateChannelWithoutAccess: (channelId: string) => boolean,
+    visibleIds: (string | null | undefined)[]
+): LemonInputSelectOption[] => {
+    return (options ?? []).filter((option) => {
+        const channelId = slackChannelId(option.key)
+        return !isPrivateChannelWithoutAccess(channelId) || visibleIds.includes(channelId)
+    })
+}
+
+// A saved channel beyond the loaded page has no option of its own, so add one labelled by name.
+// Without it the picker renders the raw composite value.
+const withSavedChannelOption = (
+    options: LemonInputSelectOption[],
+    savedValue: string | null | undefined
+): LemonInputSelectOption[] => {
+    if (!savedValue || options.some((option) => option.key === savedValue)) {
+        return options
+    }
+    return [
+        ...options,
+        { key: savedValue, label: savedValue.includes('|') ? savedValue.split('|')[1] : 'Slack channel' },
+    ]
+}
+
 const getSlackUserOptions = (slackUsers: SlackUserApi[]): LemonInputSelectOption[] => {
     return slackUsers.map((user) => {
         // Display names are not unique in a workspace, so surface the unique handle alongside
@@ -277,6 +305,79 @@ export function SlackUserPicker({
     )
 }
 
+// Everything the picker reports about the current selection and the loaded list. Reads the same
+// keyed logic as the picker rather than taking eight props for values it can select itself.
+function SlackChannelPickerNotices({
+    integration,
+    value,
+    showUnselectedSearchError,
+}: {
+    integration: IntegrationType
+    value?: string
+    showUnselectedSearchError: boolean
+}): JSX.Element {
+    const logic = slackIntegrationLogic({ id: integration.id })
+    const {
+        allSlackChannels,
+        allSlackChannelsLoading,
+        isMemberOfSlackChannel,
+        isPrivateChannelWithoutAccess,
+        getChannelRefreshButtonDisabledReason,
+        slackIntegrationInactiveMessage,
+    } = useValues(logic)
+    const { loadAllSlackChannels } = useActions(logic)
+
+    const showSlackMembershipWarning = value && isMemberOfSlackChannel(value) === false
+
+    return (
+        <>
+            {showUnselectedSearchError ? (
+                <p className="mt-1 mb-0 text-xs text-danger" role="alert">
+                    No channel selected. Pick one from the list.
+                </p>
+            ) : null}
+
+            {slackIntegrationInactiveMessage ? (
+                <SlackIntegrationInactiveBanner message={slackIntegrationInactiveMessage} />
+            ) : null}
+
+            {allSlackChannels?.has_more && !allSlackChannelsLoading ? (
+                <p className="text-secondary text-xs mt-1 mb-0">
+                    Only the first page of channels is shown. Type to search for a specific channel.
+                </p>
+            ) : null}
+
+            {showSlackMembershipWarning ? (
+                <LemonBanner type="info">
+                    <div className="flex gap-2 items-center">
+                        <span>
+                            The PostHog Slack App is not in this channel. Please add it to the channel otherwise
+                            Subscriptions will fail to be delivered.{' '}
+                            <Link to="https://posthog.com/docs/webhooks/slack" target="_blank">
+                                See the Docs for more information
+                            </Link>
+                        </span>
+                        <LemonButton
+                            type="secondary"
+                            disabledReason={getChannelRefreshButtonDisabledReason()}
+                            onClick={() => loadAllSlackChannels(true)}
+                            loading={allSlackChannelsLoading}
+                        >
+                            Check again
+                        </LemonButton>
+                    </div>
+                </LemonBanner>
+            ) : isPrivateChannelWithoutAccess(value ?? '') ? (
+                <LemonBanner type="info">
+                    This is a private Slack channel. Ask{' '}
+                    <ProfilePicture user={integration.created_by} showName size="sm" /> or connect your own Slack
+                    account to configure private channels.
+                </LemonBanner>
+            ) : null}
+        </>
+    )
+}
+
 export type SlackChannelPickerProps = {
     integration: IntegrationType
     value?: string
@@ -289,13 +390,10 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     const {
         slackChannels,
         slackChannelsForPicker,
-        allSlackChannels,
         allSlackChannelsLoading,
         slackChannelByIdLoading,
-        isMemberOfSlackChannel,
         isPrivateChannelWithoutAccess,
         getChannelRefreshButtonDisabledReason,
-        slackIntegrationInactiveMessage,
     } = useValues(logic)
     const { loadAllSlackChannels, loadSlackChannelById, loadSlackChannelByIdSuccess } = useActions(logic)
     const [localValue, setLocalValue] = useState<string | null>(null)
@@ -320,16 +418,6 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         [slackChannelsForPicker]
     )
 
-    const slackChannelOptions = (): LemonInputSelectOption[] | null => {
-        return rawSlackChannelOptions
-            ? rawSlackChannelOptions.filter((x) => {
-                  const id = slackChannelId(x.key)
-                  // Only show a private channel if searching for the exact channelId or it's currently selected
-                  return !isPrivateChannelWithoutAccess(id) || id === value || id === localValue
-              })
-            : []
-    }
-    const showSlackMembershipWarning = value && isMemberOfSlackChannel(value) === false
     const showUnselectedSearchError = blurredWithoutSelection && !value
 
     const modifiedValue = useMemo(() => {
@@ -390,17 +478,10 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         }
     }, [loadSlackChannelById, value])
 
-    const fallbackOption = modifiedValue
-        ? {
-              key: modifiedValue,
-              label: modifiedValue.includes('|') ? modifiedValue.split('|')[1] : 'Slack channel',
-          }
-        : null
-    const availableOptions = slackChannelOptions() ?? []
-    const options =
-        fallbackOption && !availableOptions.some((option) => option.key === fallbackOption.key)
-            ? [...availableOptions, fallbackOption]
-            : availableOptions
+    const options = withSavedChannelOption(
+        withoutInaccessiblePrivateChannels(rawSlackChannelOptions, isPrivateChannelWithoutAccess, [value, localValue]),
+        modifiedValue
+    )
 
     return (
         <>
@@ -479,49 +560,11 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                 loading={allSlackChannelsLoading || slackChannelByIdLoading}
             />
 
-            {showUnselectedSearchError ? (
-                <p className="mt-1 mb-0 text-xs text-danger" role="alert">
-                    No channel selected. Pick one from the list.
-                </p>
-            ) : null}
-
-            {slackIntegrationInactiveMessage ? (
-                <SlackIntegrationInactiveBanner message={slackIntegrationInactiveMessage} />
-            ) : null}
-
-            {allSlackChannels?.has_more && !allSlackChannelsLoading ? (
-                <p className="text-secondary text-xs mt-1 mb-0">
-                    Only the first page of channels is shown. Type to search for a specific channel.
-                </p>
-            ) : null}
-
-            {showSlackMembershipWarning ? (
-                <LemonBanner type="info">
-                    <div className="flex gap-2 items-center">
-                        <span>
-                            The PostHog Slack App is not in this channel. Please add it to the channel otherwise
-                            Subscriptions will fail to be delivered.{' '}
-                            <Link to="https://posthog.com/docs/webhooks/slack" target="_blank">
-                                See the Docs for more information
-                            </Link>
-                        </span>
-                        <LemonButton
-                            type="secondary"
-                            disabledReason={getChannelRefreshButtonDisabledReason()}
-                            onClick={() => loadAllSlackChannels(true)}
-                            loading={allSlackChannelsLoading}
-                        >
-                            Check again
-                        </LemonButton>
-                    </div>
-                </LemonBanner>
-            ) : isPrivateChannelWithoutAccess(value ?? '') ? (
-                <LemonBanner type="info">
-                    This is a private Slack channel. Ask{' '}
-                    <ProfilePicture user={integration.created_by} showName size="sm" /> or connect your own Slack
-                    account to configure private channels.
-                </LemonBanner>
-            ) : null}
+            <SlackChannelPickerNotices
+                integration={integration}
+                value={value}
+                showUnselectedSearchError={showUnselectedSearchError}
+            />
         </>
     )
 }
