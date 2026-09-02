@@ -63,7 +63,7 @@ jobs:
 
             - name: Check lockfile consistency
               run: |
-                  if ! git diff --exit-code -- uv.lock pnpm-lock.yaml; then
+                  if ! git diff --exit-code -- uv.lock pnpm-lock.yaml .flox/env/manifest.lock; then
                     echo "::error::Lockfiles were modified by flox activate. Please commit the updated lockfiles."
                     exit 1
                   fi
