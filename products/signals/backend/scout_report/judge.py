@@ -175,3 +175,38 @@ async def judge_scout_report(
     )
     status = resolve_authored_report_status(safe=safety_response.choice, actionability=actionability.actionability)
     return ScoutReportJudgement(status=status, safety=safety, actionability=actionability)
+
+
+async def judge_edited_report_content(
+    *,
+    team_id: int,
+    title: str | None = None,
+    summary: str | None = None,
+    charts: Sequence[ReportChart] = (),
+    suggested_prompts: Sequence[str] = (),
+) -> SafetyJudgment:
+    """Run the safety judge over the content an `edit_report` call supplies, before it is written.
+
+    `emit_report` judges everything it authors before the report can surface; the edit path writes
+    the same fields onto a report that already surfaced, so without its own judge it would be an
+    unjudged door for the exact content the emit judge exists to stop. Suggested prompts carry
+    furthest: a reader clicks one and its wording is handed to an agent run that is told to act on
+    it. Judges only the pieces the edit supplies — a note/reviewer-only edit, or one that clears a
+    field, adds no new content and returns safe without an LLM call.
+    """
+    safety_input: list[SignalData] = []
+    if title is not None or summary is not None:
+        safety_input.append(_report_content_signal(title or "", summary or ""))
+    chart_signal = _chart_signal(charts)
+    if chart_signal is not None:
+        safety_input.append(chart_signal)
+    prompts_signal = _suggested_prompts_signal(suggested_prompts)
+    if prompts_signal is not None:
+        safety_input.append(prompts_signal)
+    if not safety_input:
+        return SafetyJudgment(choice=True, explanation=None)
+    safety_response = await judge_report_safety(team_id=team_id, signals=safety_input)
+    return SafetyJudgment(
+        choice=safety_response.choice,
+        explanation=safety_response.explanation if not safety_response.choice else None,
+    )

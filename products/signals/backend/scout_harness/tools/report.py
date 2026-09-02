@@ -44,6 +44,7 @@ from products.signals.backend.artefact_schemas import (
     ActionabilityChoice,
     Priority,
     PriorityAssessment,
+    SafetyJudgment,
     SuggestedReviewerEntry,
     SuggestedReviewers,
 )
@@ -80,7 +81,11 @@ from products.signals.backend.scout_report import (
     set_scout_report_reviewers,
     update_scout_report,
 )
-from products.signals.backend.scout_report.judge import ScoutReportJudgement, judge_scout_report
+from products.signals.backend.scout_report.judge import (
+    ScoutReportJudgement,
+    judge_edited_report_content,
+    judge_scout_report,
+)
 from products.signals.backend.slack_formatting import strip_chart_references
 
 logger = logging.getLogger(__name__)
@@ -1319,9 +1324,7 @@ def _do_edit_report(
     the sync path, via `database_sync_to_async` in the async path. Reviewer resolution does a DB read
     and the autostart re-eval bridges an async hand-off via `async_to_sync`, both safe on this sync
     thread."""
-    preflight = _preflight_emit_gates(team, run)
-    if preflight is not None:
-        raise InvalidScoutReportError(f"edit_report blocked by preflight gate: {preflight}")
+    _assert_edit_gates(team, run)
 
     attribution = _attribution_for(_resolve_task_id(run))
     # Resolve reviewers *before* any write. Resolution (user_uuid → login) is the only step that can
@@ -1513,6 +1516,26 @@ def _do_edit_report(
     return result
 
 
+def _assert_edit_gates(team: Team, run: SignalScoutRun) -> None:
+    """The emit preflight gates, applied to an edit. Shared by the entrypoints (which must gate
+    before spending the safety-judge LLM call) and `_do_edit_report` (so a future caller that skips
+    the entrypoints still fails closed)."""
+    preflight = _preflight_emit_gates(team, run)
+    if preflight is not None:
+        raise InvalidScoutReportError(f"edit_report blocked by preflight gate: {preflight}")
+
+
+def _raise_if_unsafe_edit(safety: SafetyJudgment) -> None:
+    """Reject an edit whose new content the safety judge marked unsafe.
+
+    Rejecting the edit, rather than applying it and suppressing the report the way an unsafe emit is
+    born SUPPRESSED, keeps the already-surfaced report on the content that passed its own judgment —
+    suppress-on-edit would let one bad edit take down a report someone else authored.
+    """
+    if not safety.choice:
+        raise InvalidScoutReportError(f"edit rejected by the safety judge: {safety.explanation}")
+
+
 def _validate_edit_inputs(
     team: Team, run: SignalScoutRun, title, summary, append_note, suggested_reviewers, charts, suggested_prompts
 ) -> None:
@@ -1547,8 +1570,25 @@ async def edit_report(
 ) -> EditReportResult:
     """Edit an existing inbox report: rewrite title/summary, append a note, and/or set suggested
     reviewers (which re-runs autostart so a report missing a qualifying reviewer can open a draft PR).
-    Team-scoped fail-closed in the service. Async entry; runs the sync edit core in the thread pool."""
+    Team-scoped fail-closed in the service. Async entry; runs the sync edit core in the thread pool.
+
+    Content-changing edits pass the same safety judge as `emit_report` before anything is written
+    (see `_raise_if_unsafe_edit`); an unsafe edit is rejected whole and the report keeps what it
+    had."""
     _validate_edit_inputs(team, run, title, summary, append_note, suggested_reviewers, charts, suggested_prompts)
+    built_charts = _build_edit_charts(charts)
+    built_prompts = _build_edit_suggested_prompts(suggested_prompts)
+    # Gates before the judge, mirroring emit: a disabled or dry-run scout must not spend an LLM call.
+    await database_sync_to_async(_assert_edit_gates, thread_sensitive=False)(team, run)
+    _raise_if_unsafe_edit(
+        await judge_edited_report_content(
+            team_id=team.id,
+            title=title,
+            summary=summary,
+            charts=built_charts or (),
+            suggested_prompts=built_prompts or (),
+        )
+    )
     result = await database_sync_to_async(_do_edit_report, thread_sensitive=False)(
         team=team,
         run=run,
@@ -1557,8 +1597,8 @@ async def edit_report(
         summary=summary,
         append_note=append_note,
         suggested_reviewers=suggested_reviewers,
-        charts=_build_edit_charts(charts),
-        suggested_prompts=_build_edit_suggested_prompts(suggested_prompts),
+        charts=built_charts,
+        suggested_prompts=built_prompts,
     )
     forward = await database_sync_to_async(_capture_report_edited, thread_sensitive=False)(
         team=team,
@@ -1589,6 +1629,19 @@ def edit_report_sync(
 ) -> EditReportResult:
     """Sync entry used by the DRF view path. Same behavior as `edit_report`, on the calling thread."""
     _validate_edit_inputs(team, run, title, summary, append_note, suggested_reviewers, charts, suggested_prompts)
+    built_charts = _build_edit_charts(charts)
+    built_prompts = _build_edit_suggested_prompts(suggested_prompts)
+    # Gates before the judge, mirroring emit: a disabled or dry-run scout must not spend an LLM call.
+    _assert_edit_gates(team, run)
+    _raise_if_unsafe_edit(
+        async_to_sync(judge_edited_report_content)(
+            team_id=team.id,
+            title=title,
+            summary=summary,
+            charts=built_charts or (),
+            suggested_prompts=built_prompts or (),
+        )
+    )
     result = _do_edit_report(
         team=team,
         run=run,
@@ -1597,8 +1650,8 @@ def edit_report_sync(
         summary=summary,
         append_note=append_note,
         suggested_reviewers=suggested_reviewers,
-        charts=_build_edit_charts(charts),
-        suggested_prompts=_build_edit_suggested_prompts(suggested_prompts),
+        charts=built_charts,
+        suggested_prompts=built_prompts,
     )
     forward = _capture_report_edited(
         team=team,
