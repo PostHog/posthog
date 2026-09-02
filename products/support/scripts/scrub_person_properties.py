@@ -239,7 +239,9 @@ def scrub_via_api(
         except PostHogScriptError as err:
             status_counts["error"] += 1
             batch_counts["error"] += 1
-            failures.append(f"{person['uuid']} / {', '.join(props)}: {err}")
+            message = f"{person['uuid']} / {', '.join(props)}: {err}"
+            failures.append(message)
+            log(f"  FAILED: {printable(message)}")
         else:
             code = response.status_code
             status_counts[str(code)] += 1
@@ -247,7 +249,9 @@ def scrub_via_api(
             if 200 <= code < 300:
                 values_deleted += len(props)
             else:
-                failures.append(f"{person['uuid']} / {', '.join(props)}: HTTP {code} {response.text[:200]}")
+                message = f"{person['uuid']} / {', '.join(props)}: HTTP {code} {response.text[:200]}"
+                failures.append(message)
+                log(f"  FAILED: {printable(message)}")
         if index % API_REPORT_EVERY == 0 or index == total:
             log(f"  persons {batch_start}-{index} of {total}: {format_status_counts(batch_counts)}")
             log_session_expiry(session, host)
@@ -398,11 +402,8 @@ def main() -> int:
                 f"  {bad_request} rejected (HTTP 400): often field-level access control on one of the "
                 "properties - a request naming any restricted property fails as a whole."
             )
-        for failure in failures[:20]:
-            log(f"  FAILED: {printable(failure)}")
-        if len(failures) > 20:
-            log(f"  ... and {len(failures) - 20} more failures")
         if failures:
+            log(f"  {len(failures)} failure(s) - see the FAILED lines above for details")
             return 1
     return 0
 

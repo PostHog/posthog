@@ -133,13 +133,17 @@ def prune_definitions(
         except PostHogScriptError as err:
             status_counts["error"] += 1
             batch_counts["error"] += 1
-            failures.append(f"{definition['name']} ({definition['id']}): {err}")
+            message = f"{definition['name']} ({definition['id']}): {err}"
+            failures.append(message)
+            log(f"  FAILED: {printable(message)}")
         else:
             code = response.status_code
             status_counts[str(code)] += 1
             batch_counts[str(code)] += 1
             if not 200 <= code < 300:
-                failures.append(f"{definition['name']} ({definition['id']}): HTTP {code} {response.text[:200]}")
+                message = f"{definition['name']} ({definition['id']}): HTTP {code} {response.text[:200]}"
+                failures.append(message)
+                log(f"  FAILED: {printable(message)}")
         if index % batch_size == 0 or index == total:
             log(f"  deletes {batch_start}-{index} of {total}: {format_status_counts(batch_counts)}")
             log_session_expiry(session, host)
@@ -322,11 +326,8 @@ def main() -> int:
             f"  {forbidden} forbidden (HTTP 403): the credential can't delete these - a read-only "
             "session/key, or field-level access control on restricted properties."
         )
-    for failure in failures[:20]:
-        log(f"  FAILED: {printable(failure)}")
-    if len(failures) > 20:
-        log(f"  ... and {len(failures) - 20} more failures")
     if failures:
+        log(f"  {len(failures)} failure(s) - see the FAILED lines above for details")
         return 1
     return 0
 

@@ -71,7 +71,7 @@ Anything that writes or deletes follows this order:
 3. Offer `--output <file>` to dump the full affected set as JSON.
 4. `--dry-run` returns here, changing nothing.
 5. Otherwise confirm with `confirm(prompt, "<verb>", eof_message=...)` (a typed keyword such as `scrub` / `prune`), skippable with `--yes`.
-6. When there is no bulk endpoint, mutate one item per request and report outcomes with `format_status_counts`: count only 2xx as success, surface a 403 hint (read-only credential or field-level access control), and cap the printed failure list.
+6. When there is no bulk endpoint, mutate one item per request and report outcomes: count only 2xx as success, log a `FAILED: ...` line with the HTTP status/message immediately for every failure (don't wait until the run finishes), and log a running `format_status_counts` histogram every batch. Surface a 403 hint (read-only credential or field-level access control) and a final failure total at the end - don't re-print the individual failures there, they already scrolled by live.
 
 Call out anything eventually-consistent (e.g. ingestion lag) in the module docstring so the operator isn't surprised when a value lingers after the run.
 
