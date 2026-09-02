@@ -14,7 +14,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { lemonToast, type PaginationManual } from '@posthog/lemon-ui'
+import { lemonToast, type PaginationManual, type Sorting } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -37,11 +37,15 @@ import type {
 
 import {
     customerTasksQuery,
+    DEFAULT_CUSTOMER_TASK_ORDERING,
     defaultCustomerTaskFilters,
     hasCustomerTaskFilters,
     type CustomerTaskAccountFilter,
     type CustomerTaskFilters,
+    type CustomerTaskOrdering,
     type CustomerTasksContext,
+    customerTaskOrderingToSorting,
+    customerTaskSortingToOrdering,
 } from './customerTaskFilters'
 
 const ACCOUNT_PAGE_SIZE = 20
@@ -64,12 +68,14 @@ export interface customerTasksLogicValues {
     modalOpen: boolean
     modalTask: CustomerTaskApi | null
     mutationKeys: Record<string, boolean>
+    ordering: CustomerTaskOrdering
     page: number
     pageSize: number
     pagination: PaginationManual
     taskPage: CustomerTaskPageApi | null
     taskPageError: unknown
     taskPageLoading: boolean
+    taskSorting: Sorting
     tasks: CustomerTaskApi[]
     timezone: string
     draftName: string
@@ -92,6 +98,8 @@ export interface customerTasksLogicActions {
     setAccountFilter: (account: CustomerTaskAccountFilter | null) => { account: CustomerTaskAccountFilter | null }
     setAccountFilterOpen: (open: boolean) => { open: boolean }
     setFilters: (filters: Partial<CustomerTaskFilters>) => { filters: Partial<CustomerTaskFilters> }
+    setTaskOrdering: (ordering: CustomerTaskOrdering) => { ordering: CustomerTaskOrdering }
+    setTaskSorting: (sorting: Sorting | null) => { sorting: Sorting | null }
     setPage: (page: number) => { page: number }
     setSearch: (search: string) => { search: string }
     setDraftAssignedTo: (assignedToId: number | null) => { assignedToId: number | null }
@@ -118,6 +126,8 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
         loadTaskPage: true,
         loadAccountOptions: (payload: { query: string }) => payload,
         setFilters: (filters: Partial<CustomerTaskFilters>) => ({ filters }),
+        setTaskOrdering: (ordering: CustomerTaskOrdering) => ({ ordering }),
+        setTaskSorting: (sorting: Sorting | null) => ({ sorting }),
         setSearch: (search: string) => ({ search }),
         setAccountFilter: (account: CustomerTaskAccountFilter | null) => ({ account }),
         setAccountFilterOpen: (open: boolean) => ({ open }),
@@ -156,7 +166,8 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                             values.page,
                             values.pageSize,
                             values.timezone,
-                            props.canViewAll
+                            props.canViewAll,
+                            values.ordering
                         )
                     )
                     breakpoint()
@@ -202,6 +213,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                     resetFilters: () => defaultCustomerTaskFilters(props.context),
                 },
             ],
+            ordering: [DEFAULT_CUSTOMER_TASK_ORDERING, { setTaskOrdering: (_, { ordering }) => ordering }],
             page: [
                 1,
                 {
@@ -210,6 +222,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
                     setSearch: () => 1,
                     setAccountFilter: () => 1,
                     resetFilters: () => 1,
+                    setTaskOrdering: () => 1,
                 },
             ],
             accountFilterOpen: [false, { setAccountFilterOpen: (_, { open }) => open }],
@@ -293,6 +306,7 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
             (s) => [s.filters],
             (f: CustomerTaskFilters): boolean => hasCustomerTaskFilters(f, props.context),
         ],
+        taskSorting: [(s) => [s.ordering], (ordering: CustomerTaskOrdering) => customerTaskOrderingToSorting(ordering)],
         pageSize: [() => [], (): number => (props.context === 'account' ? ACCOUNT_PAGE_SIZE : INBOX_PAGE_SIZE)],
         pagination: [
             (s) => [s.page, s.taskPage],
@@ -311,6 +325,13 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
         setSearch: () => actions.loadTaskPage(),
         setAccountFilter: () => actions.loadTaskPage(),
         setPage: () => actions.loadTaskPage(),
+        setTaskOrdering: () => actions.loadTaskPage(),
+        setTaskSorting: ({ sorting }) => {
+            const ordering = customerTaskSortingToOrdering(sorting)
+            if (ordering) {
+                actions.setTaskOrdering(ordering)
+            }
+        },
         resetFilters: () => actions.loadTaskPage(),
         submitModal: () => {
             if (values.mutationKeys.create || (values.modalTask && values.mutationKeys[values.modalTask.id])) {

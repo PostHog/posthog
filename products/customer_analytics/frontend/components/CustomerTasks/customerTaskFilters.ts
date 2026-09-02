@@ -1,9 +1,11 @@
+import type { Sorting } from '@posthog/lemon-ui'
+
 import { dayjs, dayjsLocalToTimezone, dayjsNowInTimezone } from 'lib/dayjs'
 
 import type {
-    CustomerTasksListParams,
-    CustomerTasksListArchiveState,
     CustomerTaskStatusEnumApi,
+    CustomerTasksListArchiveState,
+    CustomerTasksListParams,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 export type CustomerTasksContext = 'account' | 'inbox'
@@ -11,6 +13,25 @@ export type CustomerTaskStatusFilter = 'open' | 'completed' | 'canceled' | 'all'
 export type CustomerTaskAssigneeFilter = 'any' | 'me' | 'unassigned' | number
 export type CustomerTaskDueFilter = 'any' | 'overdue' | 'today' | 'upcoming' | 'no_due_date'
 export type CustomerTaskAccountFilter = { id: string; name: string }
+const CUSTOMER_TASK_ORDERINGS = [
+    'name',
+    '-name',
+    'status',
+    '-status',
+    'assigned_to',
+    '-assigned_to',
+    'due_at',
+    '-due_at',
+    'updated_at',
+    '-updated_at',
+    'account',
+    '-account',
+] as const satisfies readonly NonNullable<CustomerTasksListParams['ordering']>[]
+
+export type CustomerTaskOrdering = (typeof CUSTOMER_TASK_ORDERINGS)[number]
+
+export const DEFAULT_CUSTOMER_TASK_ORDERING: CustomerTaskOrdering = 'due_at'
+
 export type CustomerTaskFilters = {
     search: string
     status: CustomerTaskStatusFilter
@@ -18,6 +39,21 @@ export type CustomerTaskFilters = {
     archiveState: CustomerTasksListArchiveState
     account: CustomerTaskAccountFilter | null
     due: CustomerTaskDueFilter
+}
+
+const CUSTOMER_TASK_SORTING: Record<CustomerTaskOrdering, Sorting> = {
+    name: { columnKey: 'name', order: 1 },
+    '-name': { columnKey: 'name', order: -1 },
+    status: { columnKey: 'status', order: 1 },
+    '-status': { columnKey: 'status', order: -1 },
+    assigned_to: { columnKey: 'assigned_to', order: 1 },
+    '-assigned_to': { columnKey: 'assigned_to', order: -1 },
+    due_at: { columnKey: 'due_at', order: 1 },
+    '-due_at': { columnKey: 'due_at', order: -1 },
+    updated_at: { columnKey: 'updated_at', order: 1 },
+    '-updated_at': { columnKey: 'updated_at', order: -1 },
+    account: { columnKey: 'account', order: 1 },
+    '-account': { columnKey: 'account', order: -1 },
 }
 
 export const CUSTOMER_TASK_STATUS_OPTIONS: readonly { value: CustomerTaskStatusFilter; label: string }[] = [
@@ -45,6 +81,32 @@ export const CUSTOMER_TASK_STATUS_TRANSITIONS: Readonly<
     in_progress: ['open', 'completed', 'canceled'],
     completed: ['open'],
     canceled: ['open'],
+}
+
+export function customerTaskOrderingToSorting(ordering: CustomerTaskOrdering): Sorting {
+    return CUSTOMER_TASK_SORTING[ordering]
+}
+
+export function customerTaskSortingToOrdering(sorting: Sorting | null): CustomerTaskOrdering | null {
+    if (!sorting) {
+        return null
+    }
+    switch (sorting.columnKey) {
+        case 'name':
+            return sorting.order === -1 ? '-name' : 'name'
+        case 'status':
+            return sorting.order === -1 ? '-status' : 'status'
+        case 'assigned_to':
+            return sorting.order === -1 ? '-assigned_to' : 'assigned_to'
+        case 'due_at':
+            return sorting.order === -1 ? '-due_at' : 'due_at'
+        case 'updated_at':
+            return sorting.order === -1 ? '-updated_at' : 'updated_at'
+        case 'account':
+            return sorting.order === -1 ? '-account' : 'account'
+        default:
+            return null
+    }
 }
 
 export function defaultCustomerTaskFilters(context: CustomerTasksContext): CustomerTaskFilters {
@@ -94,7 +156,8 @@ export function customerTasksQuery(
     page: number,
     pageSize: number,
     timezone: string,
-    canViewAll = true
+    canViewAll = true,
+    ordering: CustomerTaskOrdering = DEFAULT_CUSTOMER_TASK_ORDERING
 ): CustomerTasksListParams {
     const query: CustomerTasksListParams = {
         search: filters.search || undefined,
@@ -112,7 +175,7 @@ export function customerTasksQuery(
         statuses:
             filters.status === 'all' ? undefined : filters.status === 'open' ? 'open,in_progress' : filters.status,
         archive_state: filters.archiveState,
-        ordering: 'due_at',
+        ordering,
         limit: pageSize,
         offset: (page - 1) * pageSize,
         ...customerTaskDueBounds(filters.due, timezone),

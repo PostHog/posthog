@@ -33,8 +33,9 @@ export function CustomerTasksTable({
     canCreate = false,
     canViewAll = false,
 }: CustomerTasksTableProps): JSX.Element {
-    const { taskPage, taskPageError, taskPageLoading, tasks, pagination, hasActiveFilters, timezone } = useValues(logic)
-    const { loadTaskPage, openCreateModal, openEditModal } = useActions(logic)
+    const { taskPage, taskPageError, taskPageLoading, tasks, pagination, hasActiveFilters, taskSorting, timezone } =
+        useValues(logic)
+    const { loadTaskPage, openCreateModal, openEditModal, setTaskSorting } = useActions(logic)
     if (taskPage === null && taskPageLoading) {
         return <LemonSkeleton className="h-64 w-full" />
     }
@@ -47,37 +48,37 @@ export function CustomerTasksTable({
     }
     const columns: LemonTableColumns<CustomerTaskApi> = [
         {
-            title: 'Status',
-            key: 'status',
-            width: 130,
-            render: (_, task) => <CustomerTaskStatusSelect task={task} logic={logic} />,
-        },
-        {
             title: 'Task',
             key: 'name',
             width: '35%',
+            sorter: true,
             render: (_, task) => (
-                <div className="min-w-0">
-                    <LemonButton
-                        type="tertiary"
-                        size="small"
-                        className="max-w-full truncate font-semibold"
-                        onClick={() => openEditModal(task)}
-                        data-attr="customer-task-name"
-                    >
+                <div className="flex min-w-0 flex-col gap-1 py-1">
+                    <Link className="font-semibold" onClick={() => openEditModal(task)} data-attr="customer-task-name">
                         {task.name}
-                    </LemonButton>
+                    </Link>
+                    {task.description?.trim() && (
+                        <span className="text-xs text-muted line-clamp-2">{task.description}</span>
+                    )}
                     <div className="CustomerTasksTable__narrow-assignee">
                         <CustomerTaskAssigneeSelect task={task} logic={logic} />
                     </div>
                 </div>
             ),
         },
+        {
+            title: 'Status',
+            key: 'status',
+            width: 130,
+            sorter: true,
+            render: (_, task) => <CustomerTaskStatusSelect task={task} logic={logic} />,
+        },
         ...(context === 'inbox'
             ? [
                   {
                       title: 'Account',
                       key: 'account',
+                      sorter: true as const,
                       render: (_: unknown, task: CustomerTaskApi) =>
                           task.account ? (
                               <Link to={urls.customerAnalyticsAccount(task.account.id, 'tasks')}>
@@ -93,18 +94,21 @@ export function CustomerTasksTable({
             title: 'Assignee',
             key: 'assigned_to',
             className: 'CustomerTasksTable__assignee',
+            sorter: true,
             render: (_, task) => <CustomerTaskAssigneeSelect task={task} logic={logic} />,
         },
         {
             title: 'Due',
             key: 'due_at',
             width: 170,
+            sorter: true,
             render: (_, task) => <CustomerTaskDueAtInput task={task} logic={logic} timezone={timezone} />,
         },
         {
             title: 'Updated',
             key: 'updated_at',
             className: 'CustomerTasksTable__updated',
+            sorter: true,
             render: (_, task) => <TZLabel time={task.updated_at} />,
         },
         {
@@ -149,6 +153,10 @@ export function CustomerTasksTable({
                 dataSource={tasks}
                 columns={columns}
                 rowKey="id"
+                sorting={taskSorting}
+                onSort={setTaskSorting}
+                useURLForSorting={false}
+                noSortingCancellation
                 loading={taskPageLoading}
                 pagination={pagination}
                 emptyState={empty}
