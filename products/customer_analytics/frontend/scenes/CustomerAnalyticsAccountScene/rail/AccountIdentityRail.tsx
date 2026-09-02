@@ -28,9 +28,10 @@ export function AccountIdentityRail({ account }: AccountIdentityRailProps): JSX.
             className="w-72 shrink-0 flex flex-col rounded border overflow-y-auto min-h-0 bg-surface-primary"
             data-attr="account-identity-rail"
         >
-            <div className="flex items-center gap-2 px-5 pt-4 pb-3">
+            <div className="flex items-start gap-2 px-5 pt-4 pb-3">
                 <AccountLogo domain={account.properties?.website_domain} name={account.name} />
                 <div className="min-w-0 flex flex-col">
+                    <h2 className="text-lg font-semibold leading-tight mb-0 truncate">{account.name}</h2>
                     {account.external_id ? (
                         <CopyToClipboardInline
                             explicitValue={account.external_id}

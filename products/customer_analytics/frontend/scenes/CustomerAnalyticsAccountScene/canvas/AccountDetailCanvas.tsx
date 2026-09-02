@@ -121,16 +121,11 @@ export function AccountDetailCanvas({ account }: AccountDetailCanvasProps): JSX.
                     </div>
                 ) : (
                     <>
-                        <div className="flex items-center gap-2 mb-3">
-                            <span className="text-xs text-secondary">
-                                Viewing <span className="font-semibold text-primary">{selectedView.name}</span> ·{' '}
-                                {selectedView.scope === 'team' ? 'team view' : 'your view'}
-                            </span>
+                        <div className="flex items-center justify-end mb-3">
                             <LemonButton
                                 type="secondary"
                                 size="small"
                                 icon={<IconPlus />}
-                                className="ml-auto"
                                 onClick={() => setAddWidgetOpen(true)}
                                 loading={viewSaving}
                                 disabledReason={viewSaving ? 'Saving…' : undefined}
