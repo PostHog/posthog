@@ -1,4 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
@@ -75,15 +77,20 @@ type StoryArgs = { recentlySubscribedChannelIds: string[] }
 const meta: Meta<StoryArgs> = {
     title: 'Components/Slack channel picker',
     parameters: { layout: 'fullscreen', viewMode: 'story' },
-    render: ({ recentlySubscribedChannelIds }) => {
-        useStorybookMocks({
-            get: {
-                '/api/projects/:id/integrations/:intId/channels': { channels },
-                '/api/environments/:id/integrations/:intId/channels': { channels },
-            },
-        })
-        return <OrderingScene recentlySubscribedChannelIds={recentlySubscribedChannelIds} />
-    },
+    decorators: [
+        function MocksDecorator(Story) {
+            useStorybookMocks({
+                get: {
+                    '/api/projects/:id/integrations/:intId/channels': { channels },
+                    '/api/environments/:id/integrations/:intId/channels': { channels },
+                },
+            })
+            return <Story />
+        },
+    ],
+    render: ({ recentlySubscribedChannelIds }) => (
+        <OrderingScene recentlySubscribedChannelIds={recentlySubscribedChannelIds} />
+    ),
 }
 export default meta
 
@@ -98,4 +105,20 @@ export const Alphabetical: Story = {
 // (most recent first); everything else stays alphabetical below them.
 export const RecentlySubscribedFirst: Story = {
     args: { recentlySubscribedChannelIds: ['C4', 'C1'] },
+}
+
+// Typing a channel name and clicking away drops the search, because the picker takes an option
+// rather than free text. The state below is what tells the user their channel is still unset.
+export const SearchDroppedOnBlur: Story = {
+    render: () => (
+        <div className="p-4 max-w-md">
+            <SlackChannelPicker integration={integration} onChange={() => {}} />
+        </div>
+    ),
+    play: async ({ canvasElement }) => {
+        const input = canvasElement.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')!
+        await userEvent.type(input, 'general')
+        await userEvent.click(canvasElement)
+        await within(canvasElement).findByText('No channel selected. Pick one from the list.')
+    },
 }
