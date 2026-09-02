@@ -2,6 +2,7 @@ from products.aeo.backend.engines import (
     CitationCheck,
     build_check_properties,
     is_target_url,
+    openai_incomplete_error,
     parse_anthropic_citations,
     parse_exa_citations,
     parse_openai_responses_citations,
@@ -120,6 +121,34 @@ def test_parse_openai_responses_citations() -> None:
     assert answer == "Several tools offer feature flags."
     assert cited == ["https://posthog.com/feature-flags", "https://example.com/flags"]
     assert queries == ["feature flag tools comparison"]
+
+
+OPENAI_INCOMPLETE_BODY = {
+    "id": "resp_02",
+    "status": "incomplete",
+    "incomplete_details": {"reason": "max_output_tokens"},
+    "output": [
+        {"type": "reasoning", "id": "rs_1", "summary": []},
+        {"type": "web_search_call", "id": "ws_1", "status": "completed", "action": {"type": "search", "query": "q"}},
+    ],
+}
+
+
+def test_openai_incomplete_without_message_is_an_error() -> None:
+    assert openai_incomplete_error(OPENAI_INCOMPLETE_BODY) == "incomplete_response: max_output_tokens"
+
+
+def test_openai_incomplete_with_message_is_not_an_error() -> None:
+    body = {
+        **OPENAI_INCOMPLETE_BODY,
+        "output": [*OPENAI_INCOMPLETE_BODY["output"], {"type": "message", "content": []}],
+    }
+    assert openai_incomplete_error(body) is None
+
+
+def test_openai_completed_is_not_an_error() -> None:
+    assert openai_incomplete_error(OPENAI_RESPONSES_BODY) is None
+    assert openai_incomplete_error({"output": []}) is None
 
 
 def test_parse_exa_citations() -> None:

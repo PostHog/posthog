@@ -24,7 +24,7 @@ import requests
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import ai_gateway_headers, resolve_ai_gateway_config
 
-GATEWAY_TIMEOUT_SECONDS = 180  # web-search turns routinely take 10-60s
+GATEWAY_TIMEOUT_SECONDS = 420  # web-search turns routinely take 10-60s, and multi-search answers several minutes
 EXA_TIMEOUT_SECONDS = 60
 EXA_ANSWER_URL = "https://api.exa.ai/answer"
 
@@ -33,6 +33,10 @@ EXA_ANSWER_URL = "https://api.exa.ai/answer"
 ANTHROPIC_WEB_SEARCH_TOOL_TYPE = "web_search_20260209"
 MAX_WEB_SEARCHES_PER_PROMPT = 3
 MAX_ANSWER_TOKENS = 2048
+# Reasoning models spend output budget on reasoning before emitting the annotated
+# answer; too small a cap yields incomplete, citation-less responses that would
+# otherwise read as "not cited".
+OPENAI_MAX_OUTPUT_TOKENS = 12000
 
 # Property-size guards so a single check event stays small.
 MAX_URLS_PER_CHECK = 40
@@ -159,6 +163,18 @@ def parse_openai_responses_citations(body: dict[str, Any]) -> tuple[str, list[st
                         cited.append(str(annotation["url"]))
 
     return "".join(answer_parts), _dedupe_urls(cited), queries
+
+
+def openai_incomplete_error(body: dict[str, Any]) -> str | None:
+    """An incomplete Responses body with no message item ran out of output budget
+    before answering — a failed check, not a zero-citation answer."""
+    if body.get("status") != "incomplete":
+        return None
+    if any(item.get("type") == "message" for item in body.get("output") or []):
+        return None
+    details = body.get("incomplete_details")
+    reason = details.get("reason") if isinstance(details, dict) else None
+    return f"incomplete_response: {reason or 'unknown'}"
 
 
 def parse_exa_citations(body: dict[str, Any]) -> tuple[str, list[str], float | None]:
@@ -313,7 +329,7 @@ class OpenAIWebSearchEngine:
             "model": self.model,
             "input": prompt,
             "tools": [{"type": "web_search"}],
-            "max_output_tokens": MAX_ANSWER_TOKENS,
+            "max_output_tokens": OPENAI_MAX_OUTPUT_TOKENS,
         }
         headers = {
             "Authorization": f"Bearer {self._gateway.api_key}",
@@ -323,6 +339,8 @@ class OpenAIWebSearchEngine:
             body = gateway_post_json(self._session, self._gateway.url.rstrip("/") + "/responses", headers, payload)
         except requests.RequestException as e:
             return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=_request_error(e))
+        if (incomplete := openai_incomplete_error(body)) is not None:
+            return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=incomplete)
         _, cited_urls, search_queries = parse_openai_responses_citations(body)
         return CitationCheck(
             engine=self.name,
