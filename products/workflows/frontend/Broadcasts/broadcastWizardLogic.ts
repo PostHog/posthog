@@ -47,6 +47,8 @@ export const BROADCAST_WIZARD_STEPS: BroadcastWizardStep[] = ['recipients', 'goa
 
 export type BroadcastScheduleMode = 'now' | 'later' | 'recurring'
 
+export type BroadcastSummaryTab = 'overview' | 'content' | 'sent' | 'recipients'
+
 // The value stored in the email action's `inputs.email.value`, mirroring the
 // `template-email` hog function template's default input shape.
 export interface BroadcastEmailValue {
@@ -118,6 +120,7 @@ export interface broadcastWizardLogicValues {
     goalEnabled: boolean
     hasHydrated: boolean
     hasOpenedFullEditor: boolean
+    summaryTab: BroadcastSummaryTab
     isReadOnly: boolean
     launching: boolean
     name: string
@@ -140,6 +143,9 @@ export interface broadcastWizardLogicActions {
     }
     openFullEditor: () => {
         value: true
+    }
+    setSummaryTab: (tab: BroadcastSummaryTab) => {
+        tab: BroadcastSummaryTab
     }
     hydrateFromBroadcast: (broadcast: HogFlowApi) => {
         broadcast: HogFlowApi
@@ -317,6 +323,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
     actions({
         setStep: (step: BroadcastWizardStep) => ({ step }),
         openFullEditor: true,
+        setSummaryTab: (tab: BroadcastSummaryTab) => ({ tab }),
         nextStep: true,
         prevStep: true,
         continueStep: true,
@@ -536,6 +543,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             false,
             {
                 openFullEditor: () => true,
+            },
+        ],
+        summaryTab: [
+            'overview' as BroadcastSummaryTab,
+            {
+                setSummaryTab: (_, { tab }) => tab,
             },
         ],
         hasHydrated: [

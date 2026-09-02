@@ -272,14 +272,14 @@
         },
         {
             "path": "Workflows",
-            "category": "Tools",
+            "category": "Messaging",
             "iconType": "workflows",
             "type": "workflows",
             "intents": ["workflows"]
         },
         {
             "path": "Broadcasts",
-            "category": "Tools",
+            "category": "Messaging",
             "iconType": "broadcasts",
             "type": "broadcasts",
             "intents": ["workflows"]
