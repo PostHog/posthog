@@ -15,6 +15,10 @@ on:
         paths:
             - pnpm-lock.yaml
             - .github/workflows/pnpm-store-cache.yml
+    # A PR that edits this file runs the install as a dry run; the save stays master only.
+    pull_request:
+        paths:
+            - .github/workflows/pnpm-store-cache.yml
     workflow_dispatch:
 
 concurrency:
@@ -69,8 +73,10 @@ jobs:
               if: steps.lookup.outputs.cache-hit != 'true'
               run: pnpm install --frozen-lockfile
 
+            # Master only: Depot Cache has no branch isolation, so a dispatch from a
+            # branch would write the key every PR restores.
             - name: Save pnpm store
-              if: steps.lookup.outputs.cache-hit != 'true'
+              if: github.ref == 'refs/heads/master' && steps.lookup.outputs.cache-hit != 'true'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: ${{ steps.pnpm-store.outputs.path }}
