@@ -17,16 +17,18 @@ from posthog.models.user_integration import UserIntegration
 from posthog.sync import database_sync_to_async
 from posthog.temporal.oauth import grants_scratchpad_write
 
-from products.signals.backend.artefact_schemas import DISMISSAL_REASON_WRONG_REPO, Dismissal
+from products.signals.backend.artefact_schemas import DISMISSAL_REASON_WRONG_REPO, Dismissal, NoteArtefact
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutNote
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
     ActionabilityUpdate,
+    FixVerificationOutput,
     Priority,
     PriorityAssessment,
     PriorityUpdate,
+    ReportPresentationOutput,
     ReportResearchOutput,
     SignalFinding,
     _resolve_actionability_response,
@@ -79,6 +81,13 @@ def _build_research_output() -> ReportResearchOutput:
     return ReportResearchOutput(
         title="Onboarding funnel completion tracking may be regressing",
         summary="Signals point to a likely regression around onboarding completion event tracking.",
+        verification_note=NoteArtefact(
+            note=(
+                "## Steps to verify fix\n\n"
+                "1. Run query-trends for onboarding_completed over the same 14-day window.\n"
+                "2. Confirm completion volume returns to its pre-regression baseline."
+            )
+        ),
         new_artefacts=[
             SignalFinding(
                 signal_id="sig-1",
@@ -416,6 +425,7 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
         )()
         assert [artefact.type for artefact in artefacts] == [
             SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+            SignalReportArtefact.ArtefactType.NOTE,
             SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
             SignalReportArtefact.ArtefactType.REPO_SELECTION,
             SignalReportArtefact.ArtefactType.SIGNAL_FINDING,
@@ -429,14 +439,24 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
             "already_addressed": False,
         }
 
-        priority_content = json.loads(artefacts[1].content)
+        note_content = json.loads(artefacts[1].content)
+        assert note_content == {
+            "note": (
+                "## Steps to verify fix\n\n"
+                "1. Run query-trends for onboarding_completed over the same 14-day window.\n"
+                "2. Confirm completion volume returns to its pre-regression baseline."
+            ),
+            "author": None,
+        }
+
+        priority_content = json.loads(artefacts[2].content)
         assert priority_content == {
             "priority": "P1",
             "explanation": "The regression affects a core onboarding flow and should be addressed quickly.",
             "dollar_value": 5000.0,
         }
 
-        repo_selection_content = json.loads(artefacts[2].content)
+        repo_selection_content = json.loads(artefacts[3].content)
         assert repo_selection_content == {
             "repository": "posthog/posthog",
             "reason": "Single repository connected: posthog/posthog",
@@ -444,7 +464,7 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
             "autostart_eligible": True,
         }
 
-        finding_contents = [json.loads(artefact.content) for artefact in artefacts[3:]]
+        finding_contents = [json.loads(artefact.content) for artefact in artefacts[4:]]
         assert [finding["signal_id"] for finding in finding_contents] == ["sig-1", "sig-2"]
 
 
@@ -756,6 +776,79 @@ async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(mo
             lambda: SignalReportArtefact.objects.filter(report=report).count()
         )()
         assert artefact_count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("actionability", "expected_labels", "expects_note"),
+    [
+        (
+            ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+            ["actionability", "priority", "presentation", "fix_verification"],
+            True,
+        ),
+        (
+            ActionabilityChoice.REQUIRES_HUMAN_INPUT,
+            ["actionability", "priority", "presentation", "fix_verification"],
+            True,
+        ),
+        (ActionabilityChoice.NOT_ACTIONABLE, ["actionability", "presentation"], False),
+    ],
+)
+async def test_run_multi_turn_research_requests_verification_note_as_the_final_actionable_step(
+    actionability, expected_labels, expects_note
+):
+    session = Mock()
+    session.task = Mock(id="research-task-id")
+    session.end = AsyncMock()
+
+    responses: list[ActionabilityAssessment | PriorityAssessment | ReportPresentationOutput | FixVerificationOutput] = [
+        ActionabilityAssessment(
+            explanation="The research found a concrete code path and measured impact.",
+            actionability=actionability,
+            already_addressed=False,
+        )
+    ]
+    if actionability != ActionabilityChoice.NOT_ACTIONABLE:
+        responses.append(
+            PriorityAssessment(
+                explanation="The measured impact supports this priority.",
+                priority=Priority.P2,
+                dollar_value=1000.0,
+            )
+        )
+    responses.append(
+        ReportPresentationOutput(
+            title="fix(onboarding): restore completion tracking",
+            summary="Users cannot complete the tracked onboarding flow.",
+        )
+    )
+    if expects_note:
+        responses.append(
+            FixVerificationOutput(
+                steps=[
+                    "Run query-trends for onboarding_completed over the same 14-day window.",
+                    "Confirm event volume returns to the pre-regression baseline.",
+                ]
+            )
+        )
+    session.send_followup = AsyncMock(side_effect=responses)
+    first_finding = SignalFinding(signal_id="sig-1", relevant_code_paths=[], data_queried="", verified=True)
+
+    with patch(
+        "products.tasks.backend.facade.agents.MultiTurnSession.start",
+        AsyncMock(return_value=(session, first_finding)),
+    ):
+        result = await run_multi_turn_research(_build_signals()[:1], Mock())
+
+    labels = [call.kwargs["label"] for call in session.send_followup.await_args_list]
+    assert labels == expected_labels
+    if expects_note:
+        assert result.verification_note is not None
+        assert result.verification_note.note.startswith("## Steps to verify fix\n\n1. ")
+    else:
+        assert result.verification_note is None
+    session.end.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio

@@ -425,7 +425,9 @@ async def _persist_agentic_report_artefacts(
         else ArtefactAttribution.system()
     )
     # Everything the run flagged as new gets persisted; the artefact type derives from each content
-    # model. Reviewers are derived from findings, so they're only re-persisted when a finding changed.
+    # model. The verification note is fresh output from the final turn of every actionable research
+    # run, so it is appended as a log entry rather than folded into the latest-wins research state.
+    # Reviewers are derived from findings, so they're only re-persisted when a finding changed.
     has_new_finding = any(isinstance(content, SignalFinding) for content in result.new_artefacts)
 
     # A reviewer can rewrite the selection while this run is in flight (a wrong-repo dismissal
@@ -451,6 +453,8 @@ async def _persist_agentic_report_artefacts(
         ),
         *(ArtefactDraft(content=content, attribution=research_attribution) for content in result.new_artefacts),
     ]
+    if result.verification_note is not None:
+        artefacts.append(ArtefactDraft(content=result.verification_note, attribution=research_attribution))
     if reviewers_content and has_new_finding:
         artefacts.append(
             ArtefactDraft(
