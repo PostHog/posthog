@@ -1,7 +1,10 @@
 // One grammar for every duration a workflow expresses: `10d`, `1.5h`, `30m`, `45s`. The sign is parsed
 // here because a `delay_until` offset may point before its instant, but nothing else may carry one, so
 // unsigned callers reject it rather than quietly accepting `-5d`.
-const DURATION_REGEX = /^(-?)(\d*\.?\d+)([dhms])$/
+// The alternation keeps each digit run owned by one quantifier. The obvious `\d*\.?\d+` lets two
+// quantifiers claim the same digits, so a long non-matching value backtracks quadratically. This form
+// matches the same strings linearly.
+const DURATION_REGEX = /^(-?)(\d+(?:\.\d+)?|\.\d+)([dhms])$/
 
 export type DurationUnit = 'd' | 'h' | 'm' | 's'
 

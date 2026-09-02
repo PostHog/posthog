@@ -98,7 +98,8 @@
                         "window": {
                             "anyOf": [
                                 {
-                                    "pattern": "^\\d*\\.?\\d+[dhms]$",
+                                    "maxLength": 32,
+                                    "pattern": "^(?:\\d+(?:\\.\\d+)?|\\.\\d+)[dhms]$",
                                     "type": "string"
                                 },
                                 {

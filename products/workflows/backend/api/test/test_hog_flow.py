@@ -1081,6 +1081,10 @@ class TestHogFlowAPI(APIBaseTest):
             # silently shortened window into an error that names the unit.
             ("legacy seconds mistaken for minutes", {"window_minutes": 604800}, 400),
             ("both forms", {"window": "7d", "window_minutes": 60}, 400),
+            # A valid 7-day window padded past the length cap. Without max_length the regex accepts it and
+            # it stores as 7 days; the cap rejects it, which is what keeps arbitrarily long input off the
+            # regex and the float parse.
+            ("over the length cap", {"window": "0" * 40 + "7d"}, 400),
         ]
     )
     def test_hog_flow_conversion_window(self, _name, conversion_window, expected_status):

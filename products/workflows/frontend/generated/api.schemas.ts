@@ -368,8 +368,9 @@ export interface HogFlowConversionApi {
     events?: HogFlowConversionEventApi[]
     /**
      * How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. Omit it to use the default window. Set this or 'window_minutes', not both.
+     * @maxLength 32
      * @nullable
-     * @pattern ^\d*\.?\d+[dhms]$
+     * @pattern ^(?:\d+(?:\.\d+)?|\.\d+)[dhms]$
      */
     window?: string | null
     /**

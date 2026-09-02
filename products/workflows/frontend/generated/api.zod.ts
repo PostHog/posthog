@@ -407,7 +407,9 @@ export const hogFlowsCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsCreateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
-export const hogFlowsCreateBodyConversionOneWindowRegExp = new RegExp('^\\d\*\\.?\\d+[dhms]$')
+export const hogFlowsCreateBodyConversionOneWindowMax = 32
+
+export const hogFlowsCreateBodyConversionOneWindowRegExp = new RegExp('^(?:\\d+(?:\\.\\d+)?|\\.\\d+)[dhms]$')
 export const hogFlowsCreateBodyEmailSendingRateLimitOneCountMax = 1000000
 
 export const hogFlowsCreateBodyActionsItemIdMax = 200
@@ -510,6 +512,7 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
                         ),
                     window: zod
                         .string()
+                        .max(hogFlowsCreateBodyConversionOneWindowMax)
                         .regex(hogFlowsCreateBodyConversionOneWindowRegExp)
                         .nullish()
                         .describe(
@@ -808,7 +811,9 @@ export const hogFlowsUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsUpdateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsUpdateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
-export const hogFlowsUpdateBodyConversionOneWindowRegExp = new RegExp('^\\d\*\\.?\\d+[dhms]$')
+export const hogFlowsUpdateBodyConversionOneWindowMax = 32
+
+export const hogFlowsUpdateBodyConversionOneWindowRegExp = new RegExp('^(?:\\d+(?:\\.\\d+)?|\\.\\d+)[dhms]$')
 export const hogFlowsUpdateBodyEmailSendingRateLimitOneCountMax = 1000000
 
 export const hogFlowsUpdateBodyActionsItemIdMax = 200
@@ -905,6 +910,7 @@ export const HogFlowsUpdateBody = /* @__PURE__ */ zod
                         ),
                     window: zod
                         .string()
+                        .max(hogFlowsUpdateBodyConversionOneWindowMax)
                         .regex(hogFlowsUpdateBodyConversionOneWindowRegExp)
                         .nullish()
                         .describe(
@@ -1203,7 +1209,9 @@ export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsPartialUpdateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsPartialUpdateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
-export const hogFlowsPartialUpdateBodyConversionOneWindowRegExp = new RegExp('^\\d\*\\.?\\d+[dhms]$')
+export const hogFlowsPartialUpdateBodyConversionOneWindowMax = 32
+
+export const hogFlowsPartialUpdateBodyConversionOneWindowRegExp = new RegExp('^(?:\\d+(?:\\.\\d+)?|\\.\\d+)[dhms]$')
 export const hogFlowsPartialUpdateBodyEmailSendingRateLimitOneCountMax = 1000000
 
 export const hogFlowsPartialUpdateBodyActionsItemIdMax = 200
@@ -1305,6 +1313,7 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
                         ),
                     window: zod
                         .string()
+                        .max(hogFlowsPartialUpdateBodyConversionOneWindowMax)
                         .regex(hogFlowsPartialUpdateBodyConversionOneWindowRegExp)
                         .nullish()
                         .describe(
@@ -1791,8 +1800,10 @@ export const hogFlowsInvocationsCreateBodyConfigurationOneTriggerMaskingOneTtlMi
 export const hogFlowsInvocationsCreateBodyConfigurationOneTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsInvocationsCreateBodyConfigurationOneConversionOneEventsItemFiltersOneSourceDefault = `events`
+export const hogFlowsInvocationsCreateBodyConfigurationOneConversionOneWindowMax = 32
+
 export const hogFlowsInvocationsCreateBodyConfigurationOneConversionOneWindowRegExp = new RegExp(
-    '^\\d\*\\.?\\d+[dhms]$'
+    '^(?:\\d+(?:\\.\\d+)?|\\.\\d+)[dhms]$'
 )
 export const hogFlowsInvocationsCreateBodyConfigurationOneEmailSendingRateLimitOneCountMax = 1000000
 
@@ -1957,6 +1968,7 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                             ),
                         window: zod
                             .string()
+                            .max(hogFlowsInvocationsCreateBodyConfigurationOneConversionOneWindowMax)
                             .regex(hogFlowsInvocationsCreateBodyConfigurationOneConversionOneWindowRegExp)
                             .nullish()
                             .describe(
@@ -2550,7 +2562,9 @@ export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsBulkDeleteCreateBodyTriggerMaskingOneTtlMax = 94608000
 
 export const hogFlowsBulkDeleteCreateBodyConversionOneEventsItemFiltersOneSourceDefault = `events`
-export const hogFlowsBulkDeleteCreateBodyConversionOneWindowRegExp = new RegExp('^\\d\*\\.?\\d+[dhms]$')
+export const hogFlowsBulkDeleteCreateBodyConversionOneWindowMax = 32
+
+export const hogFlowsBulkDeleteCreateBodyConversionOneWindowRegExp = new RegExp('^(?:\\d+(?:\\.\\d+)?|\\.\\d+)[dhms]$')
 export const hogFlowsBulkDeleteCreateBodyEmailSendingRateLimitOneCountMax = 1000000
 
 export const hogFlowsBulkDeleteCreateBodyActionsItemIdMax = 200
@@ -2658,6 +2672,7 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
                         ),
                     window: zod
                         .string()
+                        .max(hogFlowsBulkDeleteCreateBodyConversionOneWindowMax)
                         .regex(hogFlowsBulkDeleteCreateBodyConversionOneWindowRegExp)
                         .nullish()
                         .describe(

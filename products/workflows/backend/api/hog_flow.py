@@ -1925,7 +1925,10 @@ class HogFlowConversionEventSerializer(serializers.Serializer):
 
 
 # Duration strings as the workflow's delay steps already express them, so one convention covers both.
-CONVERSION_WINDOW_REGEX = r"^\d*\.?\d+[dhms]$"
+# The alternation keeps each digit run owned by one quantifier. The obvious `\d*\.?\d+` lets `\d*` and
+# `\d+` both claim the same digits, so a long non-matching value backtracks quadratically, which lets an
+# authenticated caller burn a web process with one request. This form matches the same strings linearly.
+CONVERSION_WINDOW_REGEX = r"^(?:\d+(?:\.\d+)?|\.\d+)[dhms]$"
 
 _MINUTES_PER_DURATION_UNIT = {"d": 1440, "h": 60, "m": 1, "s": 1 / 60}
 
@@ -1954,6 +1957,9 @@ class HogFlowConversionSerializer(serializers.Serializer):
     )
     window = serializers.RegexField(
         regex=CONVERSION_WINDOW_REGEX,
+        # A real window is a handful of characters ('365d', '31536000s'); the cap keeps the regex and the
+        # float parse off arbitrarily long input and flows a bound into the generated client schemas.
+        max_length=32,
         required=False,
         allow_null=True,
         help_text=(
