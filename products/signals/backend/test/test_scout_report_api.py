@@ -834,7 +834,7 @@ class TestScoutReportAPI(APIBaseTest):
             created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
         report_id = created["report_id"]
         original_title = SignalReport.objects.get(id=report_id).title
-        with _safe_judge():
+        with _safe_judge() as judge_mock:
             response = self.client.post(
                 self._edit_url(str(run.id)),
                 data={
@@ -845,6 +845,8 @@ class TestScoutReportAPI(APIBaseTest):
                 format="json",
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        # Reviewer resolution runs before the judge, so a bad reviewer never spends an LLM call.
+        judge_mock.assert_not_awaited()
         assert SignalReport.objects.get(id=report_id).title == original_title
 
     def test_emit_report_skips_autostart_and_artefacts_when_suppressed(self) -> None:

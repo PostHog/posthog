@@ -325,7 +325,9 @@ def update_scout_report(
     behind — both `title` and `summary` as they will be stored (the `edit_report` tool path on a full
     rewrite) — so the save re-embeds the report instead of retracting its embedding. Callers must not
     set it for a partial edit: the stored other half may itself be unreviewed, and re-embedding would
-    republish it. The default keeps unjudged callers fail-closed.
+    republish it. The default keeps unjudged callers fail-closed. A reviewed rewrite that changes
+    nothing still saves, marked for re-indexing: re-sending the stored document through the judge is
+    the recovery route for an embedding an earlier unreviewed edit tombstoned.
 
     When `attribution` is supplied and the content actually changes, a typed `title_change` /
     `summary_change` artefact is appended to the report's work log for each edited field, recording the
@@ -354,6 +356,14 @@ def update_scout_report(
                 # receivers.py).
                 report._unreviewed_edit = True  # type: ignore[attr-defined]
             report.save(update_fields=updated_fields)
+        elif reviewed and title is not None and summary is not None:
+            # A judged rewrite to the exact stored document: nothing changes in Postgres, but the
+            # embedding row may be a tombstone from an earlier unreviewed edit, and only a save marked
+            # as re-indexable lets the receiver restore it (see receivers.py). The receiver cannot see
+            # whether the row is live, so this spends one re-embed of identical text when it was — a
+            # judged re-send is rare, and a supersede write is cheap.
+            report._reviewed_reindex = True  # type: ignore[attr-defined]
+            report.save(update_fields=["title", "summary", "updated_at"])
             if attribution is not None:
                 edit_artefacts: list[TitleChange | SummaryChange] = []
                 if "title" in updated_fields:

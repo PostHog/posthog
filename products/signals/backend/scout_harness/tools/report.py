@@ -1318,27 +1318,22 @@ def _do_edit_report(
     title: str | None,
     summary: str | None,
     append_note: str | None,
-    suggested_reviewers: list[ReviewerInput] | None,
+    reviewers: SuggestedReviewers | None,
     charts: list[ReportChart] | None,
     suggested_prompts: list[str] | None,
 ) -> EditReportResult:
     """Fully-sync edit core (no LLM step). The async/sync entrypoints both funnel here — directly in
-    the sync path, via `database_sync_to_async` in the async path. Reviewer resolution does a DB read
-    and the autostart re-eval bridges an async hand-off via `async_to_sync`, both safe on this sync
-    thread."""
+    the sync path, via `database_sync_to_async` in the async path. The autostart re-eval bridges an
+    async hand-off via `async_to_sync`, safe on this sync thread.
+
+    `reviewers` arrives already resolved (`_build_suggested_reviewers` in the entrypoints, before the
+    safety judge): resolution is the only step that can reject caller input, so a combined edit with a
+    bad reviewer fails before the judge spends an LLM call and before any write. None leaves existing
+    reviewers untouched; a supplied set replaces them verbatim (nothing injected), with owner
+    provenance stamped so a picked owner can't become the autostart identity."""
     _assert_edit_gates(team, run, report_id)
 
     attribution = _attribution_for(_resolve_task_id(run))
-    # Resolve reviewers *before* any write. Resolution (user_uuid → login) is the only step that can
-    # reject caller input — an unresolvable user_uuid raises, which the view turns into a 400. Doing it
-    # first means a combined edit (title/summary + a bad reviewer) fails before the content write
-    # commits, rather than leaving the report partially mutated behind a failed call.
-    #
-    # When no reviewers are supplied, this resolves to None and existing reviewers are left untouched.
-    # When reviewers are supplied, the scout's picks replace them verbatim (nothing injected); owner
-    # provenance is stamped so a picked owner still can't become the autostart identity, regardless of
-    # which report the edit targets.
-    reviewers = _build_suggested_reviewers(team, suggested_reviewers, skill_name=run.skill_name)
     updated_fields: list[str] = []
     note_appended = False
     charts_changed = False
@@ -1623,6 +1618,11 @@ async def edit_report(
     built_prompts = _build_edit_suggested_prompts(suggested_prompts)
     # Gates before the judge, mirroring emit: a disabled or dry-run scout must not spend an LLM call.
     await database_sync_to_async(_assert_edit_gates, thread_sensitive=False)(team, run, report_id)
+    # Reviewers resolve before the judge too: resolution is the one step that rejects caller input
+    # (an unresolvable user_uuid 400s), so a bad reviewer must not cost a judge call first.
+    built_reviewers = await database_sync_to_async(_build_suggested_reviewers, thread_sensitive=False)(
+        team, suggested_reviewers, skill_name=run.skill_name
+    )
     _raise_if_unsafe_edit(
         await judge_edited_report_content(
             team_id=team.id,
@@ -1640,7 +1640,7 @@ async def edit_report(
         title=title,
         summary=summary,
         append_note=append_note,
-        suggested_reviewers=suggested_reviewers,
+        reviewers=built_reviewers,
         charts=built_charts,
         suggested_prompts=built_prompts,
     )
@@ -1677,6 +1677,9 @@ def edit_report_sync(
     built_prompts = _build_edit_suggested_prompts(suggested_prompts)
     # Gates before the judge, mirroring emit: a disabled or dry-run scout must not spend an LLM call.
     _assert_edit_gates(team, run, report_id)
+    # Reviewers resolve before the judge too: resolution is the one step that rejects caller input
+    # (an unresolvable user_uuid 400s), so a bad reviewer must not cost a judge call first.
+    built_reviewers = _build_suggested_reviewers(team, suggested_reviewers, skill_name=run.skill_name)
     _raise_if_unsafe_edit(
         async_to_sync(judge_edited_report_content)(
             team_id=team.id,
@@ -1694,7 +1697,7 @@ def edit_report_sync(
         title=title,
         summary=summary,
         append_note=append_note,
-        suggested_reviewers=suggested_reviewers,
+        reviewers=built_reviewers,
         charts=built_charts,
         suggested_prompts=built_prompts,
     )

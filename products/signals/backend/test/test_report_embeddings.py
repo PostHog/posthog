@@ -360,6 +360,28 @@ class TestReportEmbeddingReceiver(BaseTest):
         assert self.embed.call_count == 1
         assert self.embed.call_args.kwargs["content"] == "Checkout errors on mobile\n\nRate tripled on iOS"
 
+    def test_reviewed_no_op_rewrite_restores_a_tombstoned_embedding(self) -> None:
+        # An unreviewed edit tombstoned the embedding while Postgres kept the text. Re-sending that
+        # exact document through the judged edit path is the recovery route: nothing changes in
+        # Postgres, but the marked save must re-index instead of being skipped as a no-op rewrite.
+        with self.captureOnCommitCallbacks(execute=True):
+            report = self._create_report(title=REPORT_TITLE, summary=REPORT_SUMMARY)
+        with self.captureOnCommitCallbacks(execute=True):
+            report._unreviewed_edit = True  # type: ignore[attr-defined]
+            report.save(update_fields=["title", "updated_at"])
+        assert self.tombstone.call_count == 1
+        self.embed.reset_mock()
+        with self.captureOnCommitCallbacks(execute=True):
+            update_scout_report(
+                team_id=self.team.id,
+                report_id=str(report.id),
+                title=REPORT_TITLE,
+                summary=REPORT_SUMMARY,
+                reviewed=True,
+            )
+        assert self.embed.call_count == 1
+        assert self.embed.call_args.kwargs["content"] == REPORT_DOCUMENT
+
     @parameterized.expand([("no_verdicts", []), ("cascading_verdicts", [False, True])])
     def test_hard_deleting_a_report_retracts_it_exactly_once(self, _name: str, verdicts: list[bool]) -> None:
         # The reingestion workflow and the cleanup command drop rows instead of flipping status, and
