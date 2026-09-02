@@ -257,3 +257,52 @@ class TestOAuthApplicationAdmin(BaseTest):
         assert (warning is not None) is expects_warning
         if warning is not None:
             assert "partner.example.com/client.json" in warning
+
+    def _saved_app(self, *, is_cimd: bool, name: str, client_id: str) -> OAuthApplication:
+        return OAuthApplication.objects.create(
+            name=name,
+            client_id=client_id,
+            client_secret="secret",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            is_cimd_client=is_cimd,
+        )
+
+    def _deletion_request(self):
+        request = RequestFactory().get("/")
+        self.user.is_staff = True
+        request.user = self.user
+        return request
+
+    def test_get_deleted_objects_warns_on_the_single_object_delete_path(self):
+        cimd_app = self._saved_app(is_cimd=True, name="CIMD App", client_id="https://partner.example.com/client.json")
+
+        to_delete, _model_count, _perms_needed, _protected = self.admin.get_deleted_objects(
+            [cimd_app], self._deletion_request()
+        )
+
+        assert any("partner.example.com/client.json" in str(item) for item in to_delete)
+
+    def test_get_deleted_objects_warns_on_the_bulk_delete_path(self):
+        cimd_app = self._saved_app(is_cimd=True, name="CIMD App", client_id="https://partner.example.com/client.json")
+        regular_app = self._saved_app(is_cimd=False, name="Regular App", client_id="opaque_client_id")
+        queryset = OAuthApplication.objects.filter(pk__in=[cimd_app.pk, regular_app.pk])
+
+        to_delete, _model_count, _perms_needed, _protected = self.admin.get_deleted_objects(
+            queryset, self._deletion_request()
+        )
+
+        warnings = [item for item in to_delete if "blocklists" in str(item)]
+        assert len(warnings) == 1
+        assert "partner.example.com/client.json" in str(warnings[0])
+
+    def test_get_deleted_objects_adds_no_warning_for_a_regular_app(self):
+        regular_app = self._saved_app(is_cimd=False, name="Regular App", client_id="opaque_client_id")
+
+        to_delete, _model_count, _perms_needed, _protected = self.admin.get_deleted_objects(
+            [regular_app], self._deletion_request()
+        )
+
+        assert not any("blocklists" in str(item) for item in to_delete)

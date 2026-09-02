@@ -198,9 +198,9 @@ def cimd_blocklist_warning(application: OAuthApplication) -> str | None:
     """The warning to show before deleting an application, or None when it needs none.
 
     A post_delete signal blocklists a CIMD app's metadata URL so the partner cannot register
-    again from the same document. Nothing else on the delete page says so, and afterwards the
-    only symptom is authorize rejecting that client_id, so warn while the operator can still
-    stop.
+    again from the same document. Nothing else on the delete confirmation page says so (either
+    the single-object page or the bulk "Delete selected" one), and afterwards the only symptom
+    is authorize rejecting that client_id, so warn while the operator can still stop.
 
     A CIMD app carries its metadata URL as its client_id, which is the value the signal blocks.
     """
@@ -292,12 +292,10 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
         }
         return TemplateResponse(request, "admin/posthog/oauthapplication/revoke_all_sessions_confirm.html", context)
 
-    def delete_view(self, request, object_id, extra_context=None):
-        if request.method == "GET":
-            application = self.get_object(request, object_id)
-            if application is not None and (warning := cimd_blocklist_warning(application)):
-                self.message_user(request, warning, level=messages.WARNING)
-        return super().delete_view(request, object_id, extra_context)
+    def get_deleted_objects(self, objs, request):
+        to_delete, model_count, perms_needed, protected = super().get_deleted_objects(objs, request)
+        to_delete.extend(warning for app in objs if (warning := cimd_blocklist_warning(app)))
+        return to_delete, model_count, perms_needed, protected
 
     def view_on_site(self, obj: OAuthApplication):
         code_verifier = "test"
