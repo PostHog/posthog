@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Any
 
-from django.db.models import CharField, Exists, OuterRef, Q
+from django.db.models import CharField, Exists, OuterRef, Q, Subquery
 from django.db.models.functions import Cast, Coalesce
 from django.utils import timezone
 
@@ -39,25 +39,44 @@ def conversations_ticket_fetcher(
     # Quiet for long enough, measured from the last message when there is one. Tickets predating
     # last_message_at backfill fall back to created_at.
     thread_is_quiet = Q(last_message_at__lte=quiet_since) | Q(last_message_at__isnull=True, created_at__lte=quiet_since)
-    # Skip a ticket when we already snapshotted it at or after its latest message (nothing new to
-    # read), or when the last snapshot is too recent to take another.
+    # Time of the newest customer-authored message, per ticket. Re-emission gates on this rather
+    # than on last_message_at, because a support agent chasing the customer advances last_message_at
+    # without adding anything to read — the thread is emptiest exactly when an agent is nudging it.
+    # Missing author_type reads as customer, matching how the fetcher attributes messages below.
+    # Every team-side path sets an explicit non-customer author_type (support/team/human/AI).
+    last_customer_message_at = (
+        Comment.objects.filter(
+            team=team,
+            scope="conversations_ticket",
+            item_id=Cast(OuterRef("id"), output_field=CharField()),
+            deleted=False,
+        )
+        .filter(~Q(item_context__is_private=True) | Q(item_context__is_private__isnull=True))
+        .filter(Q(item_context__author_type="customer") | Q(item_context__author_type__isnull=True))
+        .order_by("-created_at")
+        .values("created_at")[:1]
+    )
+    # Skip a ticket when we already snapshotted it at or after its latest customer message (nothing
+    # new from the customer to read), or when the last snapshot is too recent to take another.
     snapshot_still_current = SignalEmissionRecord.objects.filter(
         team=team,
         source_product=config.source_product,
         source_type=config.source_type,
         source_id=Cast(OuterRef("id"), output_field=CharField()),
     ).filter(
-        Q(emitted_at__gte=Coalesce(OuterRef("last_message_at"), OuterRef("created_at")))
+        Q(emitted_at__gte=Coalesce(OuterRef("last_customer_message_at"), OuterRef("created_at")))
         | Q(emitted_at__gte=resnapshot_floor)
     )
-    tickets_qs = Ticket.objects.filter(team=team, created_at__gte=lookback).filter(
-        thread_is_quiet, ~Exists(snapshot_still_current)
+    tickets_qs = (
+        Ticket.objects.filter(team=team, created_at__gte=lookback)
+        .annotate(last_customer_message_at=Subquery(last_customer_message_at))
+        .filter(thread_is_quiet, ~Exists(snapshot_still_current))
     )
     if config.where_clause:
         # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (where_clause is a hardcoded config constant, not user input)
         tickets_qs = tickets_qs.extra(where=[config.where_clause])
-    tickets_qs = tickets_qs.values(*config.fields).order_by(config.partition_field)[: config.max_records]
-    tickets = list(tickets_qs)
+    ticket_rows = tickets_qs.values(*config.fields).order_by(config.partition_field)[: config.max_records]
+    tickets = list(ticket_rows)
     if not tickets:
         return []
     ticket_ids = [t["id"] for t in tickets]
