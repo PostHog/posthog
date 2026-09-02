@@ -31010,6 +31010,7 @@
                 "apns",
                 "postgresql",
                 "aws-s3",
+                "aws-redshift",
                 "s3-compatible",
                 "snowflake",
                 "youtube-analytics"
