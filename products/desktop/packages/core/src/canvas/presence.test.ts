@@ -2,6 +2,7 @@ import {
   liveUuidsFromTasks,
   PRESENCE_LIVE_WINDOW_MS,
   PRESENCE_RECENT_WINDOW_MS,
+  presenceByChannel,
   presenceTier,
 } from "@posthog/core/canvas/presence";
 import type { Task, UserBasic } from "@posthog/shared/domain-types";
@@ -71,5 +72,65 @@ describe("liveUuidsFromTasks", () => {
       NOW,
     );
     expect(live.size).toBe(0);
+  });
+});
+
+describe("presenceByChannel", () => {
+  function chanTask(
+    channel: string | null,
+    createdBy: UserBasic | null,
+    agoMs: number,
+  ): Pick<Task, "created_by" | "last_activity_at" | "channel"> {
+    return {
+      channel,
+      created_by: createdBy,
+      last_activity_at: new Date(NOW - agoMs).toISOString(),
+    };
+  }
+
+  it("groups recently-active people by channel, most-recent first", () => {
+    const map = presenceByChannel(
+      [
+        chanTask("c1", user("a"), 30_000), // most recent in c1
+        chanTask("c1", user("b"), 90_000),
+        chanTask("c2", user("c"), 60_000),
+        chanTask("c1", user("d"), PRESENCE_RECENT_WINDOW_MS + 1), // idle, dropped
+      ],
+      { now: NOW, limit: 5 },
+    );
+    expect(map.get("c1")?.people.map((p) => p.uuid)).toEqual(["a", "b"]);
+    expect(map.get("c2")?.people.map((p) => p.uuid)).toEqual(["c"]);
+  });
+
+  it("marks only the live people, and only ones it kept", () => {
+    const map = presenceByChannel(
+      [
+        chanTask("c1", user("a"), 30_000), // live
+        chanTask("c1", user("b"), PRESENCE_LIVE_WINDOW_MS + 60_000), // recent
+      ],
+      { now: NOW, limit: 5 },
+    );
+    expect([...(map.get("c1")?.liveUuids ?? [])]).toEqual(["a"]);
+  });
+
+  it("dedupes a person across their tasks and caps at the limit", () => {
+    const map = presenceByChannel(
+      [
+        chanTask("c1", user("a"), 10_000),
+        chanTask("c1", user("a"), 20_000),
+        chanTask("c1", user("b"), 30_000),
+        chanTask("c1", user("c"), 40_000),
+      ],
+      { now: NOW, limit: 2 },
+    );
+    expect(map.get("c1")?.people.map((p) => p.uuid)).toEqual(["a", "b"]);
+  });
+
+  it("skips tasks with no channel", () => {
+    const map = presenceByChannel([chanTask(null, user("a"), 0)], {
+      now: NOW,
+      limit: 5,
+    });
+    expect(map.size).toBe(0);
   });
 });

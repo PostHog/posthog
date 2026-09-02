@@ -3,8 +3,10 @@ import {
   type ChannelItemModel,
 } from "@posthog/core/canvas/channelItems";
 import {
+  type ChannelPresence,
   liveUuidsFromTasks,
   NO_LIVE_UUIDS,
+  presenceByChannel,
 } from "@posthog/core/canvas/presence";
 import type { Task, UserBasic } from "@posthog/shared/domain-types";
 import { useArchivedTaskIds } from "@posthog/ui/features/archive/useArchivedTaskIds";
@@ -367,4 +369,75 @@ export function spacePeople(
   add(createdBy);
   for (const task of tasks) add(task.created_by);
   return people;
+}
+
+/** Faces a collapsed space row shows — kept small so the row stays a glance. */
+const SPACE_PRESENCE_LIMIT = 3;
+/**
+ * One page of the team's most recently active tasks across every space, which
+ * the whole list's presence is aggregated from. Full task records are heavy, so
+ * this is a short page polled slowly — presence here is "recently active", not
+ * a live cursor, so a minute of lag is invisible. A slim server-side field
+ * would be cheaper if this ever needs to grow.
+ */
+const SPACE_PRESENCE_FETCH_LIMIT = 100;
+const SPACE_PRESENCE_POLL_INTERVAL_MS = 90_000;
+
+const NO_PRESENCE: ReadonlyMap<string, ChannelPresence> = new Map();
+
+/** Whether two channels' presence draw the same, so a row can reuse the old object. */
+function samePresence(a: ChannelPresence, b: ChannelPresence): boolean {
+  if (a.people.length !== b.people.length) return false;
+  if (a.liveUuids.size !== b.liveUuids.size) return false;
+  for (let index = 0; index < a.people.length; index++) {
+    if (a.people[index]?.uuid !== b.people[index]?.uuid) return false;
+  }
+  for (const uuid of a.liveUuids) if (!b.liveUuids.has(uuid)) return false;
+  return true;
+}
+
+/**
+ * Who is recently active in each space, keyed by space id — the faces a
+ * collapsed space row wears without expanding it. One project-wide query feeds
+ * the whole list, rather than one per space.
+ *
+ * Each channel's entry keeps its object identity across polls while its faces
+ * don't change, so a memoized space row only re-renders when its own presence
+ * does.
+ */
+export function useSpacePresence(): ReadonlyMap<string, ChannelPresence> {
+  const client = useOptionalAuthenticatedClient();
+  const archivedTaskIds = useArchivedTaskIds();
+  const { data } = useQuery({
+    queryKey: ["space-presence"],
+    queryFn: async (): Promise<SpaceTaskPage> => {
+      if (!client) throw new Error("Not authenticated");
+      return (await client.getTasksPage({
+        limit: SPACE_PRESENCE_FETCH_LIMIT,
+        ordering: "-last_activity_at",
+      })) as SpaceTaskPage;
+    },
+    enabled: !!client,
+    refetchInterval: SPACE_PRESENCE_POLL_INTERVAL_MS,
+    gcTime: SPACE_QUERY_GC_TIME_MS,
+    meta: AUTH_SCOPED_QUERY_META,
+    staleTime: SPACE_QUERY_STALE_TIME_MS,
+  });
+
+  const cache = useRef(new Map<string, ChannelPresence>());
+  return useMemo(() => {
+    if (!data) return NO_PRESENCE;
+    const live = data.tasks.filter((task) => !archivedTaskIds.has(task.id));
+    const fresh = presenceByChannel(live, {
+      now: Date.now(),
+      limit: SPACE_PRESENCE_LIMIT,
+    });
+    const stable = new Map<string, ChannelPresence>();
+    for (const [channelId, next] of fresh) {
+      const prev = cache.current.get(channelId);
+      stable.set(channelId, prev && samePresence(prev, next) ? prev : next);
+    }
+    cache.current = stable;
+    return stable;
+  }, [data, archivedTaskIds]);
 }

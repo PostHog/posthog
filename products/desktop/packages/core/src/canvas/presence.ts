@@ -72,4 +72,80 @@ export function liveUuidsFromTasks(
 /** An empty presence result, shared so a quiet surface's props stay stable. */
 export const NO_LIVE_UUIDS: ReadonlySet<string> = new Set<string>();
 
+/** Who is around in one channel: the recently-active people, and who's live. */
+export interface ChannelPresence {
+  /** Recently-active people, most-recent first, deduped, capped by `limit`. */
+  people: UserBasic[];
+  /** Of `people`, whoever is working right now. */
+  liveUuids: ReadonlySet<string>;
+}
+
+type ChannelActivityTask = Pick<
+  Task,
+  "created_by" | "last_activity_at" | "channel"
+>;
+
+interface PresenceByChannelOptions extends PresenceWindows {
+  now: number;
+  /** How many faces a channel keeps — the freshest, once sorted. */
+  limit: number;
+}
+
+/**
+ * The recently-active people in each channel, keyed by channel id, built from a
+ * flat page of tasks across all channels. A task with no channel, no author, or
+ * an unparseable timestamp is skipped; a channel with nobody recent is absent
+ * from the map entirely.
+ *
+ * Tasks are sorted most-recent first here, so the result never depends on the
+ * order the caller fetched them in.
+ */
+export function presenceByChannel(
+  tasks: readonly ChannelActivityTask[],
+  { now, limit, liveWindowMs, recentWindowMs }: PresenceByChannelOptions,
+): Map<string, ChannelPresence> {
+  const dated = tasks
+    .map((task) => ({
+      channel: task.channel ?? null,
+      author: task.created_by ?? null,
+      ts: task.last_activity_at
+        ? Date.parse(task.last_activity_at)
+        : Number.NaN,
+    }))
+    .filter(
+      (t): t is { channel: string; author: UserBasic; ts: number } =>
+        t.channel != null && t.author != null && !Number.isNaN(t.ts),
+    )
+    .sort((a, b) => b.ts - a.ts);
+
+  const byChannel = new Map<
+    string,
+    { people: UserBasic[]; liveUuids: Set<string>; seen: Set<string> }
+  >();
+  for (const { channel, author, ts } of dated) {
+    const tier = presenceTier(ts, now, { liveWindowMs, recentWindowMs });
+    if (tier === "idle") continue;
+    let entry = byChannel.get(channel);
+    if (!entry) {
+      entry = { people: [], liveUuids: new Set(), seen: new Set() };
+      byChannel.set(channel, entry);
+    }
+    if (!entry.seen.has(author.uuid)) {
+      if (entry.people.length >= limit) continue;
+      entry.seen.add(author.uuid);
+      entry.people.push(author);
+    }
+    // Only after the author is on the list, so a live mark never names a face
+    // the cap dropped. The first task per author is their most recent (sorted),
+    // so this decides liveness on that one.
+    if (tier === "live") entry.liveUuids.add(author.uuid);
+  }
+
+  const result = new Map<string, ChannelPresence>();
+  for (const [channel, entry] of byChannel) {
+    result.set(channel, { people: entry.people, liveUuids: entry.liveUuids });
+  }
+  return result;
+}
+
 export type { UserBasic };

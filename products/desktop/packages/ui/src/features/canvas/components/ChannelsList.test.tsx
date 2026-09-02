@@ -93,6 +93,7 @@ vi.mock(
 vi.mock("@posthog/ui/features/canvas/hooks/useRecentSpaceTasks", () => ({
   NO_TASKS: { items: [], total: 0 },
   usePrefetchSpaceTasks: () => () => undefined,
+  useSpacePresence: () => new Map(),
   useRecentSpaceTasks: (spaceIds: string[]) =>
     new Map(
       spaceIds.map((spaceId) => {
