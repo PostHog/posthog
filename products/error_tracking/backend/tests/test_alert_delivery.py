@@ -7,6 +7,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from temporalio.common import WorkflowIDReusePolicy
@@ -16,6 +17,7 @@ from posthog.models.scoping import team_scope
 
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertThread, ErrorTrackingIssue
 from products.error_tracking.backend.temporal.alerts.delivery import (
+    PENDING_CLAIM_TTL,
     AlertDeliveryError,
     deliver_alert_notifications,
     plan_alert_deliveries,
@@ -247,6 +249,66 @@ class TestSlackThreadDelivery(AlertTestMixin):
         client.chat_postMessage.assert_not_called()
         thread.refresh_from_db()
         assert thread.delivered_notification_ids == []
+
+    def test_concurrent_opener_waits_for_the_holder_then_replies(self):
+        # Two openers for the same issue race into the Slack call. The second must
+        # not post a second root: it fails fast while the first holds the claim, and
+        # its retry lands as a reply in the first one's thread.
+        client = self._mock_slack()
+        self._create_alert(triggers=["issue_created", "issue_reopened"])
+        first = self._inputs("$error_tracking_issue_created", notification_id="notif-1")
+        second = self._inputs("$error_tracking_issue_reopened", notification_id="notif-2")
+
+        def post_while_holding_claim(**kwargs):
+            client.chat_postMessage.side_effect = None
+            with self.assertRaises(AlertDeliveryError):
+                deliver_alert_notifications(second)
+            return {"channel": "C0123", "ts": "111.222"}
+
+        client.chat_postMessage.side_effect = post_while_holding_claim
+        assert deliver_alert_notifications(first) == 1
+        assert deliver_alert_notifications(second) == 1
+
+        assert client.chat_postMessage.call_count == 2
+        assert client.chat_postMessage.call_args_list[1].kwargs["thread_ts"] == "111.222"
+        with team_scope(self.team.id):
+            thread = ErrorTrackingAlertThread.objects.get(issue=self.issue)
+        assert thread.delivered_notification_ids == ["notif-1", "notif-2"]
+        assert thread.pending_notification_id is None
+
+    @parameterized.expand(
+        [
+            ("own_retry", "notif-1", timedelta(seconds=0)),
+            ("stale_holder", "notif-dead", PENDING_CLAIM_TTL + timedelta(seconds=1)),
+        ]
+    )
+    def test_claim_is_reusable_by_its_holder_or_after_it_goes_stale(self, _name, holder, age):
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        thread = self._thread(alert, rooted=False)
+        thread.pending_notification_id = holder
+        thread.pending_claimed_at = timezone.now() - age
+        thread.save()
+
+        assert deliver_alert_notifications(self._inputs("$error_tracking_issue_created")) == 1
+
+        client.chat_postMessage.assert_called_once()
+        thread.refresh_from_db()
+        assert thread.pending_notification_id is None
+        assert thread.delivered_notification_ids == ["notif-1"]
+
+    def test_failed_post_releases_the_claim(self):
+        client = self._mock_slack()
+        client.chat_postMessage.side_effect = RuntimeError("slack down")
+        alert = self._create_alert(triggers=["issue_created"])
+
+        with self.assertRaises(AlertDeliveryError):
+            deliver_alert_notifications(self._inputs("$error_tracking_issue_created"))
+
+        with team_scope(self.team.id):
+            thread = ErrorTrackingAlertThread.objects.get(alert=alert, issue=self.issue)
+        assert thread.pending_notification_id is None
+        assert thread.external_ref == {}
 
     def test_retry_after_failed_root_post_roots_the_thread(self):
         # A crash between the thread insert and the root post must not wedge the
