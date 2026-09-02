@@ -225,6 +225,10 @@ from products.managed_warehouse.backend.facade.temporal import (
     ACTIVITIES as DUCKLAKE_COPY_ACTIVITIES,
     WORKFLOWS as DUCKLAKE_COPY_WORKFLOWS,
 )
+from products.metrics.backend.facade.temporal import (
+    ACTIVITIES as METRICS_ALERTING_ACTIVITIES,
+    WORKFLOWS as METRICS_ALERTING_WORKFLOWS,
+)
 from products.notebooks.backend.facade.temporal import (
     ACTIVITIES as NOTEBOOKS_ACTIVITIES,
     WORKFLOWS as NOTEBOOKS_WORKFLOWS,
@@ -511,6 +515,11 @@ _task_queue_specs = [
         settings.LOGS_ALERTING_TASK_QUEUE,
         LOGS_ALERTING_WORKFLOWS,
         LOGS_ALERTING_ACTIVITIES,
+    ),
+    (
+        settings.METRICS_ALERTING_TASK_QUEUE,
+        METRICS_ALERTING_WORKFLOWS,
+        METRICS_ALERTING_ACTIVITIES,
     ),
     # Dedicated queue, never merged with alerting: the tick becomes the scan-heavy
     # rollup writer and must not share pods with the latency-sensitive alert checks.
