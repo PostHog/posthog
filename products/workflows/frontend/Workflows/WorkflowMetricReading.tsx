@@ -5,7 +5,7 @@ import { MIN_EVIDENCE_SAMPLE, formatValue } from './suggestionEvidence'
 
 export function WorkflowMetricReading({ reading }: { reading: WorkflowProposalMetricApi }): JSX.Element {
     return (
-        <span className="flex items-center gap-1">
+        <span className="flex items-center gap-1 flex-wrap">
             {reading.metric} {formatValue(reading.value) ?? 'no data'}
             <span className="text-secondary">(n={reading.n})</span>
             {reading.below_minimum_sample && (

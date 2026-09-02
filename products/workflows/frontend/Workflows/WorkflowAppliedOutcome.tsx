@@ -11,7 +11,7 @@ export function WorkflowAppliedOutcome({
     outcome: WorkflowProposalOutcomeApi
 }): JSX.Element {
     return (
-        <div className="border rounded p-3 bg-surface-primary flex flex-col gap-2">
+        <div className="@container border rounded p-3 bg-surface-primary flex flex-col gap-2">
             <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-semibold">{proposal.title}</span>
                 <LemonTag type="success">Applied as version {proposal.applied_version}</LemonTag>
@@ -22,7 +22,9 @@ export function WorkflowAppliedOutcome({
                 Measured over {outcome.window}, before and after. Different periods, so treat a difference as a signal
                 to look closer, not as proof.
             </p>
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            {/* One column until there is room for two: at side-panel widths the pair would clip, and
+                the scene hides horizontal overflow. */}
+            <div className="grid grid-cols-1 @md:grid-cols-2 gap-3 text-sm">
                 {(['before', 'after'] as const).map((side) => {
                     const reading = outcome[side]
                     return (
