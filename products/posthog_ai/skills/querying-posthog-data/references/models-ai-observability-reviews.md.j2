@@ -7,17 +7,7 @@ Each active trace can have at most one active review at a time.
 
 ### Columns
 
-Column | Type | Nullable | Description
-`id` | uuid | NOT NULL | Primary key
-`team_id` | integer | NOT NULL | Owning team
-`trace_id` | varchar(255) | NOT NULL | Reviewed LLM trace ID
-`created_by_id` | integer | NULL | User ID that originally created the review
-`reviewed_by_id` | integer | NULL | User ID that last saved the review
-`comment` | text | NULL | Optional comment attached to the review
-`created_at` | timestamp with tz | NOT NULL | Creation timestamp
-`updated_at` | timestamp with tz | NULL | Last save timestamp
-`deleted` | integer | NULL | Soft-delete flag (`0` = active, `1` = deleted)
-`deleted_at` | timestamp with tz | NULL | When the review was soft-deleted
+{{ schema_columns('system.trace_reviews') }}
 
 ### Key relationships
 
@@ -33,20 +23,7 @@ Each row captures one scorer definition and exactly one value type.
 
 ### Columns
 
-Column | Type | Nullable | Description
-`id` | uuid | NOT NULL | Primary key
-`team_id` | integer | NOT NULL | Owning team
-`review_id` | uuid | NOT NULL | FK to `system.trace_reviews.id`
-`definition_id` | uuid | NOT NULL | Stable scorer definition ID
-`definition_version` | uuid | NOT NULL | Immutable scorer version ID used when saving the score
-`definition_version_number` | integer | NOT NULL | Immutable scorer version number used when saving the score
-`definition_config` | jsonb | NOT NULL | Snapshot of the scorer configuration used for validation
-`categorical_values` | array(varchar) | NULL | Selected categorical option keys
-`numeric_value` | decimal(12,6) | NULL | Saved numeric score
-`boolean_value` | boolean | NULL | Saved boolean score
-`created_by_id` | integer | NULL | User ID that created the score row
-`created_at` | timestamp with tz | NOT NULL | Creation timestamp
-`updated_at` | timestamp with tz | NULL | Last update timestamp
+{{ schema_columns('system.trace_review_scores') }}
 
 ### Important notes
 
@@ -61,15 +38,7 @@ Review queues are named buckets used to route traces that still need review.
 
 ### Columns
 
-Column | Type | Nullable | Description
-`id` | uuid | NOT NULL | Primary key
-`team_id` | integer | NOT NULL | Owning team
-`name` | varchar(255) | NOT NULL | Display name for the queue
-`created_by_id` | integer | NULL | User ID that created the queue
-`created_at` | timestamp with tz | NOT NULL | Creation timestamp
-`updated_at` | timestamp with tz | NULL | Last update timestamp
-`deleted` | integer | NULL | Soft-delete flag (`0` = active, `1` = deleted)
-`deleted_at` | timestamp with tz | NULL | When the queue was soft-deleted
+{{ schema_columns('system.review_queues') }}
 
 ### Key relationships
 
@@ -84,16 +53,7 @@ An active trace can only be pending in one queue at a time.
 
 ### Columns
 
-Column | Type | Nullable | Description
-`id` | uuid | NOT NULL | Primary key
-`team_id` | integer | NOT NULL | Owning team
-`queue_id` | uuid | NOT NULL | FK to `system.review_queues.id`
-`trace_id` | varchar(255) | NOT NULL | Pending LLM trace ID
-`created_by_id` | integer | NULL | User ID that queued the trace
-`created_at` | timestamp with tz | NOT NULL | Creation timestamp
-`updated_at` | timestamp with tz | NULL | Last update timestamp
-`deleted` | integer | NULL | Soft-delete flag (`0` = active, `1` = deleted)
-`deleted_at` | timestamp with tz | NULL | When the queue item was soft-deleted
+{{ schema_columns('system.review_queue_items') }}
 
 ### Important notes
 
@@ -109,17 +69,7 @@ Each scorer has a stable identity but config is versioned and immutable — bump
 
 ### Columns
 
-Column | Type | Nullable | Description
-`id` | uuid | NOT NULL | Stable scorer ID
-`team_id` | integer | NOT NULL | Owning team
-`name` | varchar(255) | NOT NULL | Display name
-`description` | text | NOT NULL | Optional description (defaults to empty string)
-`kind` | varchar(32) | NOT NULL | One of `categorical`, `numeric`, `boolean`. Immutable after creation
-`archived` | boolean | NOT NULL | Whether the scorer is archived (hidden from default lists)
-`current_version_id` | uuid | NULL | FK to the latest `score_definition_versions` row (config + version number)
-`created_by_id` | integer | NULL | User ID that created the scorer
-`created_at` | timestamp with tz | NOT NULL | Creation timestamp
-`updated_at` | timestamp with tz | NULL | Last metadata update timestamp
+{{ schema_columns('system.score_definitions') }}
 
 ### Key relationships
 
