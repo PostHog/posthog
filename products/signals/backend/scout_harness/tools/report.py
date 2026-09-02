@@ -64,6 +64,7 @@ from products.signals.backend.scout_harness.tools.emit import (
     _resolve_task_id,
     remediation_for_skip,
 )
+from products.signals.backend.scout_harness.tools.notes import MAX_NOTE_CONTENT_LENGTH
 from products.signals.backend.scout_report import (
     INFERRED_REPOSITORY_REASON,
     MAX_REPORT_SIGNALS,
@@ -1551,6 +1552,8 @@ def _validate_edit_inputs(
     _assert_team_owns_run(team, run)
     if summary is not None and len(summary) > MAX_REPORT_SUMMARY_LENGTH:
         raise InvalidScoutReportError(f"summary exceeds {MAX_REPORT_SUMMARY_LENGTH} chars ({len(summary)})")
+    if append_note is not None and len(append_note) > MAX_NOTE_CONTENT_LENGTH:
+        raise InvalidScoutReportError(f"note exceeds {MAX_NOTE_CONTENT_LENGTH} chars ({len(append_note)})")
     # `charts` / `suggested_prompts` are checked against None rather than falsiness: an explicit
     # empty list clears them, so a clear-only edit is a real edit and must not be rejected as empty.
     if (

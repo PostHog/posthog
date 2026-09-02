@@ -935,6 +935,8 @@ export const signalsScoutEditReportBodyTitleMax = 300
 
 export const signalsScoutEditReportBodySummaryMax = 20000
 
+export const signalsScoutEditReportBodyAppendNoteMax = 10000
+
 export const signalsScoutEditReportBodySuggestedReviewersItemGithubLoginMax = 200
 
 export const signalsScoutEditReportBodySuggestedReviewersItemReasonMax = 500
@@ -972,6 +974,7 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
             ),
         append_note: zod
             .string()
+            .max(signalsScoutEditReportBodyAppendNoteMax)
             .nullish()
             .describe("Optional free-form note to append to the report's work log (attributed to this scout)."),
         suggested_reviewers: zod

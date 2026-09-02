@@ -3400,6 +3400,7 @@ export interface EditReportRequestApi {
     summary?: string | null
     /**
      * Optional free-form note to append to the report's work log (attributed to this scout).
+     * @maxLength 10000
      * @nullable
      */
     append_note?: string | null

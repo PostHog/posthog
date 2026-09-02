@@ -1276,6 +1276,7 @@ class EditReportRequestSerializer(serializers.Serializer):
     append_note = serializers.CharField(
         required=False,
         allow_null=True,
+        max_length=MAX_NOTE_CONTENT_LENGTH,
         help_text="Optional free-form note to append to the report's work log (attributed to this scout).",
     )
     suggested_reviewers = serializers.ListField(
