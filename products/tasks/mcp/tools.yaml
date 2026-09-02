@@ -379,6 +379,12 @@ tools:
     tasks-comments-retrieve:
         operation: tasks_comments_retrieve
         enabled: false
+    tasks-config-create:
+        operation: tasks_config_create
+        enabled: false
+    tasks-config-list:
+        operation: tasks_config_list
+        enabled: false
     tasks-create:
         operation: tasks_create
         enabled: true
@@ -460,6 +466,12 @@ tools:
                 - latest_run.status
                 - created_at
                 - updated_at
+    tasks-me-config-create:
+        operation: tasks_me_config_create
+        enabled: false
+    tasks-me-config-list:
+        operation: tasks_me_config_list
+        enabled: false
     tasks-models-retrieve:
         operation: tasks_models_retrieve
         enabled: false
