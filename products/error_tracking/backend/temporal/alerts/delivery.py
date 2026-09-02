@@ -97,8 +97,16 @@ SLACK_TERMINAL_ERRORS = frozenset(
         "token_revoked",
         "missing_scope",
         "not_allowed_token_type",
+        "not_authed",
+        "no_permission",
+        "org_login_required",
+        "ekm_access_denied",
+        "restricted_action",
+        "team_access_not_granted",
     }
 )
+# Longest a per-issue throttle key may live in shared Redis, whatever the alert says.
+MAX_THROTTLE_TTL = timedelta(days=30)
 
 
 class AlertDeliveryError(ApplicationError):
@@ -300,7 +308,8 @@ def _opener_throttle_allows(alert: ErrorTrackingAlert, inputs: AlertDeliveryWork
     key = f"{ALERT_THROTTLE_KEY_PREFIX}:{alert.id}:{inputs.issue_id}"
     try:
         client = get_client()
-        if client.set(key, inputs.notification_id, nx=True, ex=alert.throttle_seconds):
+        ttl = min(alert.throttle_seconds, int(MAX_THROTTLE_TTL.total_seconds()))
+        if client.set(key, inputs.notification_id, nx=True, ex=ttl):
             return True
         holder = client.get(key)
         allowed = holder is not None and holder.decode() == inputs.notification_id
