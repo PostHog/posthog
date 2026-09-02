@@ -18,6 +18,11 @@ PARTITIONED_TABLES = ["sourcebatch", "sourcebatchstatus"]
 PARTITIONS_AHEAD = 7
 RETENTION_DAYS = 7
 
+# Dropping a partition needs ACCESS EXCLUSIVE on the parent, so a waiting DROP
+# queues every reader of the queue behind it. Wait a few seconds, then give up:
+# the error is recorded and alerted, and tomorrow's run retries.
+DDL_LOCK_TIMEOUT_SECONDS = 5
+
 # Deliberately not the lock-takeover sentinel — that string has special
 # downstream semantics in the dead-job gate.
 RETENTION_STRANDED_ERROR = "batches aged out of retention without being processed"
@@ -47,6 +52,7 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
     errors: list[str] = []
 
     with psycopg.Connection.connect(database_url, autocommit=True) as conn:
+        conn.execute(f"SET lock_timeout = '{DDL_LOCK_TIMEOUT_SECONDS}s'")
         today = datetime.now(UTC).date()
 
         for table in PARTITIONED_TABLES:
@@ -66,22 +72,9 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
 
         cutoff = today - timedelta(days=RETENTION_DAYS)
         for table in PARTITIONED_TABLES:
-            for row in conn.execute(
-                """
-                SELECT inhrelid::regclass::text AS partition_name
-                FROM pg_inherits
-                WHERE inhparent = %s::regclass
-                ORDER BY inhrelid::regclass::text
-                """,
-                [table],
-            ).fetchall():
-                partition_name = row[0]
-                if partition_name.endswith("_default"):
-                    continue
-                suffix = partition_name.rsplit("_", 1)[-1]
-                try:
-                    partition_date = date(int(suffix[:4]), int(suffix[4:6]), int(suffix[6:8]))
-                except (ValueError, IndexError):
+            for partition_name in _attached_partitions(conn, table) + _detached_partitions(conn, table):
+                partition_date = _partition_date(partition_name)
+                if partition_date is None:
                     continue
                 if partition_date < cutoff:
                     if table == "sourcebatch":
@@ -128,6 +121,56 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
         "errors": result.errors,
         "success": result.success,
     }
+
+
+def _partition_date(partition_name: str) -> date | None:
+    """Parse the ``YYYYMMDD`` suffix of a daily partition. ``None`` if the name has no date."""
+    suffix = partition_name.rsplit("_", 1)[-1]
+    try:
+        return date(int(suffix[:4]), int(suffix[4:6]), int(suffix[6:8]))
+    except (ValueError, IndexError):
+        return None
+
+
+def _attached_partitions(conn: psycopg.Connection, table: str) -> list[str]:
+    return [
+        row[0]
+        for row in conn.execute(
+            """
+            SELECT inhrelid::regclass::text AS partition_name
+            FROM pg_inherits
+            WHERE inhparent = %s::regclass
+            ORDER BY inhrelid::regclass::text
+            """,
+            [table],
+        ).fetchall()
+    ]
+
+
+def _detached_partitions(conn: psycopg.Connection, table: str) -> list[str]:
+    """Dated tables that no longer hang off the parent.
+
+    A detached partition disappears from ``pg_inherits``, so the attached scan
+    alone would keep it and its indexes forever. Match on the name instead. The
+    pattern is anchored, so ``sourcebatch`` never claims a ``sourcebatchstatus``
+    table.
+    """
+    return [
+        row[0]
+        for row in conn.execute(
+            """
+            SELECT c.relname
+            FROM pg_class c
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE c.relkind = 'r'
+              AND n.nspname = ANY (current_schemas(false))
+              AND c.relname ~ %s
+              AND NOT EXISTS (SELECT 1 FROM pg_inherits WHERE inhrelid = c.oid)
+            ORDER BY c.relname
+            """,
+            [f"^{table}_[0-9]{{8}}$"],
+        ).fetchall()
+    ]
 
 
 def _terminalize_stranded_runs(conn: psycopg.Connection, partition_name: str) -> None:
@@ -243,23 +286,34 @@ def _cleanup_old_s3_extractions(today: date, errors: list[str]) -> list[str]:
 
 
 def _verify_partitions(conn: psycopg.Connection, today: date, errors: list[str]) -> None:
+    cutoff = today - timedelta(days=RETENTION_DAYS)
     for table in PARTITIONED_TABLES:
-        existing = set()
-        for row in conn.execute(
-            """
-            SELECT inhrelid::regclass::text AS partition_name
-            FROM pg_inherits
-            WHERE inhparent = %s::regclass
-            """,
-            [table],
-        ).fetchall():
-            existing.add(row[0])
+        attached = set(_attached_partitions(conn, table))
 
         for offset in range(PARTITIONS_AHEAD):
             d = today + timedelta(days=offset)
             expected = f"{table}_{d.strftime('%Y%m%d')}"
-            if expected not in existing:
+            if expected not in attached:
                 errors.append(f"Partition {expected} missing after creation attempt")
+
+        # Nothing else in the system notices unreclaimed partitions, so retention
+        # can drift for months in silence. Report the leftovers as a failure.
+        expired = sorted(
+            name
+            for name in attached.union(_detached_partitions(conn, table))
+            if (partition_date := _partition_date(name)) is not None and partition_date < cutoff
+        )
+        if expired:
+            errors.append(
+                f"{table} partitions older than {RETENTION_DAYS} days survived retention: "
+                f"{', '.join(expired[:5])} (total {len(expired)})"
+            )
+
+        # Rows that fall outside every daily partition land here. Retention is keyed
+        # on the partition name, so it can never reclaim them, and their presence
+        # also makes the next CREATE ... PARTITION OF fail.
+        if conn.execute(f"SELECT 1 FROM {table}_default LIMIT 1").fetchall():
+            errors.append(f"{table}_default holds rows: retention cannot reclaim them")
 
 
 def _send_slack_failure(errors: list[str]) -> None:
