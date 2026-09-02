@@ -6,8 +6,8 @@ from posthog.models.utils import UpdatedMetaFields, UUIDModel
 
 
 class UserCustomerAnalyticsConfig(TeamScopedRootMixin, UUIDModel, UpdatedMetaFields):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
-    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     pinned_custom_property_definition_ids = ArrayField(models.UUIDField(), default=list)
     created_at = models.DateTimeField(auto_now_add=True)
 
