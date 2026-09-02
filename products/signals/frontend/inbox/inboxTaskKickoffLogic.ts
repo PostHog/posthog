@@ -21,6 +21,7 @@ import {
     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
     SignalReport,
+    SignalReportStatus,
     SignalReportTaskRelationship,
 } from './types'
 import { aiConsentDisabledReason } from './utils/aiConsent'
@@ -63,9 +64,17 @@ function buildCreatePrReportPrompt(report: SignalReport, feedback?: string): str
     return `${base}\n\nAdditional feedback from the user (take this into account):\n${trimmed}`
 }
 
-function buildDiscussReportPrompt(reportUrl: string, question: string): string {
+export function buildDiscussReportPrompt(report: SignalReport, reportUrl: string, question: string): string {
     // The task is already linked to the report, but including the URL lets the agent open and read
     // the full report itself. The user's message follows after a blank line for clear separation.
+    //
+    // A suppressed report never earned (or lost) the inbox's judgment — safety suppression means the
+    // report's own prose carries the instructions the judge rejected — so the agent is pinned to
+    // answering about it rather than told to carry actions from it out. Restoring the report is the
+    // route back to action prompts.
+    if (report.status === SignalReportStatus.SUPPRESSED) {
+        return `Answer this question about the PostHog Inbox report at ${reportUrl}:\n\n${question.trim()}`
+    }
     // Framed as question-or-action because a report's suggested prompts include next-step requests
     // ("create the alert the report recommends"); "answer this question" would pin the agent to
     // replying instead of acting.
@@ -263,7 +272,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 await createReportTask(
                     report,
                     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
-                    buildDiscussReportPrompt(reportUrl, question),
+                    buildDiscussReportPrompt(report, reportUrl, question),
                     'Ask AI about report',
                     DISCUSS_RUNTIME
                 )
