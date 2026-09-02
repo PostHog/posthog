@@ -288,6 +288,31 @@ describe('SlackChannelPicker', () => {
         expect(await screen.findByText('No channel selected. Pick one from the list.')).toBeInTheDocument()
     })
 
+    it('drops the reported search when the caller swaps the workspace', async () => {
+        // Some callers swap the integration without unmounting, so an error raised against the old
+        // workspace would otherwise sit over a picker now listing a different workspace's channels.
+        const { container, rerender } = render(
+            <Provider>
+                <SlackChannelPicker integration={INTEGRATION} onChange={jest.fn()} />
+            </Provider>
+        )
+        const input = container.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')!
+        await userEvent.click(input)
+        await userEvent.type(input, 'general')
+        await userEvent.click(document.body)
+        expect(await screen.findByText('No channel selected. Pick one from the list.')).toBeInTheDocument()
+
+        rerender(
+            <Provider>
+                <SlackChannelPicker integration={{ ...INTEGRATION, id: 2 }} onChange={jest.fn()} />
+            </Provider>
+        )
+
+        await waitFor(() => {
+            expect(screen.queryByText('No channel selected. Pick one from the list.')).toBeNull()
+        })
+    })
+
     it('reports no dropped search when the user picks a channel from the list', async () => {
         // Selecting an option blurs the input before it reports the new value, so the picker sees
         // the same "blurred with typed text" signal it does for a genuine click-away.
