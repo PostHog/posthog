@@ -1,14 +1,17 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { MockSignature } from '~/mocks/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { PEOPLE_LIST_DEFAULT_QUERY, personsSceneLogic } from './personsSceneLogic'
+import { PEOPLE_LIST_DEFAULT_QUERY, isPeopleListDefaultQuerySource, personsSceneLogic } from './personsSceneLogic'
 
 const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
 const scenes: any = { [Scene.Persons]: blankScene }
@@ -80,6 +83,27 @@ describe('personsSceneLogic', () => {
                     }),
                 }),
             })
+        })
+    })
+
+    describe('isPeopleListDefaultQuerySource', () => {
+        it.each([true, false])(
+            'recognizes the team default query source when person_last_seen_at_enabled is %s',
+            (enabled) => {
+                teamLogic.actions.loadCurrentTeamSuccess({
+                    ...MOCK_DEFAULT_TEAM,
+                    extra_settings: { person_last_seen_at_enabled: enabled },
+                })
+
+                // The default columns depend on this setting. A saved table view must still restore
+                // for teams that turned it on. The old static-constant check missed that case.
+                expect(isPeopleListDefaultQuerySource(logic.values.defaultQuery.source)).toBe(true)
+            }
+        )
+
+        it('rejects a query source with custom columns', () => {
+            const source = { ...PEOPLE_LIST_DEFAULT_QUERY.source, select: ['person', 'pdi.distinct_id'] }
+            expect(isPeopleListDefaultQuerySource(source)).toBe(false)
         })
     })
 
