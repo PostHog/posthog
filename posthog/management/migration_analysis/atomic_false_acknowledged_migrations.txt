@@ -29,3 +29,8 @@ warehouse_sources_queue.0009_sourcebatch_job_id_idx
 # on the table the flags API writes to. Re-running is a no-op: the transform is idempotent and
 # each swap only matches rows still holding the pre-clean value.
 feature_flags.0014_clean_flag_filters_inert_violations
+# Drops the two foreign keys of an orphaned table. Each DROP CONSTRAINT locks the referenced parent
+# (posthog_team, then posthog_user) with ACCESS EXCLUSIVE, so one transaction would hold the
+# posthog_team lock for up to lock_timeout while waiting for posthog_user. Separate transactions
+# release each parent immediately. Both statements are IF EXISTS, so a retry is a no-op.
+posthog.1334_delete_persistedfolder

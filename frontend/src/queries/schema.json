@@ -39642,31 +39642,6 @@
             "required": ["event"],
             "type": "object"
         },
-        "PersistedFolder": {
-            "additionalProperties": false,
-            "properties": {
-                "created_at": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "string"
-                },
-                "path": {
-                    "type": "string"
-                },
-                "protocol": {
-                    "type": "string"
-                },
-                "type": {
-                    "type": "string"
-                },
-                "updated_at": {
-                    "type": "string"
-                }
-            },
-            "required": ["id", "type", "protocol", "path", "created_at", "updated_at"],
-            "type": "object"
-        },
         "PersonMetadataPropertyFilter": {
             "additionalProperties": false,
             "properties": {

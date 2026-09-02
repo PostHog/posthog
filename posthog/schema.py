@@ -2488,18 +2488,6 @@ class PathsV2StepSource(BaseModel):
     )
 
 
-class PersistedFolder(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    created_at: str
-    id: str
-    path: str
-    protocol: str
-    type: str
-    updated_at: str
-
-
 class PersonType(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

@@ -10451,21 +10451,6 @@ export namespace Schemas {
     previous?: (string | null) | undefined;
     results: Array<PauseStateResponse>;
   };
-  export type PersistedFolderTypeEnum = "home" | "pinned" | "custom_products";
-  export type PersistedFolder = {
-    id: string;
-    type: PersistedFolderTypeEnum;
-    protocol?: string | undefined;
-    path?: string | undefined;
-    created_at: string;
-    updated_at: string;
-  };
-  export type PaginatedPersistedFolderList = {
-    count: number;
-    next?: (string | null) | undefined;
-    previous?: (string | null) | undefined;
-    results: Array<PersistedFolder>;
-  };
   export type PersonRecord = {
     id: number;
     name: string;
@@ -12298,14 +12283,6 @@ export namespace Schemas {
     is_2fa_enabled: boolean;
     has_social_auth: boolean;
     last_login: string;
-  }>;
-  export type PatchedPersistedFolder = Partial<{
-    id: string;
-    type: PersistedFolderTypeEnum;
-    protocol: string;
-    path: string;
-    created_at: string;
-    updated_at: string;
   }>;
   export type PatchedPersonRecord = Partial<{
     id: number;
@@ -23006,67 +22983,6 @@ export namespace Endpoints {
     };
     responses: { 200: Schemas.ObjectMediaPreview };
   };
-  export type get_Persisted_folder_list = {
-    method: "GET";
-    path: "/api/projects/{project_id}/persisted_folder/";
-    requestFormat: "json";
-    parameters: {
-      query: Partial<{ limit: number; offset: number }>;
-      path: { project_id: string };
-    };
-    responses: { 200: Schemas.PaginatedPersistedFolderList };
-  };
-  export type post_Persisted_folder_create = {
-    method: "POST";
-    path: "/api/projects/{project_id}/persisted_folder/";
-    requestFormat: "json";
-    parameters: {
-      path: { project_id: string };
-
-      body: Schemas.PersistedFolder;
-    };
-    responses: { 201: Schemas.PersistedFolder };
-  };
-  export type get_Persisted_folder_retrieve = {
-    method: "GET";
-    path: "/api/projects/{project_id}/persisted_folder/{id}/";
-    requestFormat: "json";
-    parameters: {
-      path: { id: string; project_id: string };
-    };
-    responses: { 200: Schemas.PersistedFolder };
-  };
-  export type put_Persisted_folder_update = {
-    method: "PUT";
-    path: "/api/projects/{project_id}/persisted_folder/{id}/";
-    requestFormat: "json";
-    parameters: {
-      path: { id: string; project_id: string };
-
-      body: Schemas.PersistedFolder;
-    };
-    responses: { 200: Schemas.PersistedFolder };
-  };
-  export type patch_Persisted_folder_partial_update = {
-    method: "PATCH";
-    path: "/api/projects/{project_id}/persisted_folder/{id}/";
-    requestFormat: "json";
-    parameters: {
-      path: { id: string; project_id: string };
-
-      body: Schemas.PatchedPersistedFolder;
-    };
-    responses: { 200: Schemas.PersistedFolder };
-  };
-  export type delete_Persisted_folder_destroy = {
-    method: "DELETE";
-    path: "/api/projects/{project_id}/persisted_folder/{id}/";
-    requestFormat: "json";
-    parameters: {
-      path: { id: string; project_id: string };
-    };
-    responses: { 204: unknown };
-  };
   export type get_Persons_list = {
     method: "GET";
     path: "/api/projects/{project_id}/persons/";
@@ -25958,8 +25874,6 @@ export type EndpointByMethod = {
     "/api/projects/{project_id}/object_media_previews/": Endpoints.get_Object_media_previews_list;
     "/api/projects/{project_id}/object_media_previews/{id}/": Endpoints.get_Object_media_previews_retrieve;
     "/api/projects/{project_id}/object_media_previews/preferred_for_event/": Endpoints.get_Object_media_previews_preferred_for_event_retrieve;
-    "/api/projects/{project_id}/persisted_folder/": Endpoints.get_Persisted_folder_list;
-    "/api/projects/{project_id}/persisted_folder/{id}/": Endpoints.get_Persisted_folder_retrieve;
     "/api/projects/{project_id}/persons/": Endpoints.get_Persons_list;
     "/api/projects/{project_id}/persons/{id}/": Endpoints.get_Persons_retrieve;
     "/api/projects/{project_id}/persons/{id}/activity/": Endpoints.get_Persons_activity_retrieve;
@@ -26275,7 +26189,6 @@ export type EndpointByMethod = {
     "/api/projects/{project_id}/notebooks/{short_id}/kernel/start/": Endpoints.post_Notebooks_kernel_start_create;
     "/api/projects/{project_id}/notebooks/{short_id}/kernel/stop/": Endpoints.post_Notebooks_kernel_stop_create;
     "/api/projects/{project_id}/object_media_previews/": Endpoints.post_Object_media_previews_create;
-    "/api/projects/{project_id}/persisted_folder/": Endpoints.post_Persisted_folder_create;
     "/api/projects/{project_id}/persons/{id}/delete_property/": Endpoints.post_Persons_delete_property_create;
     "/api/projects/{project_id}/persons/{id}/split/": Endpoints.post_Persons_split_create;
     "/api/projects/{project_id}/persons/{id}/update_property/": Endpoints.post_Persons_update_property_create;
@@ -26420,7 +26333,6 @@ export type EndpointByMethod = {
     "/api/projects/{project_id}/logs/alerts/{id}/": Endpoints.put_Logs_alerts_update;
     "/api/projects/{project_id}/notebooks/{short_id}/": Endpoints.put_Notebooks_update;
     "/api/projects/{project_id}/object_media_previews/{id}/": Endpoints.put_Object_media_previews_update;
-    "/api/projects/{project_id}/persisted_folder/{id}/": Endpoints.put_Persisted_folder_update;
     "/api/projects/{project_id}/persons/{id}/": Endpoints.put_Persons_update;
     "/api/projects/{project_id}/product_tours/{id}/": Endpoints.put_Product_tours_update;
     "/api/projects/{project_id}/project_secret_api_keys/{id}/": Endpoints.put_Project_secret_api_keys_update;
@@ -26523,7 +26435,6 @@ export type EndpointByMethod = {
     "/api/projects/{project_id}/logs/alerts/{id}/": Endpoints.patch_Logs_alerts_partial_update;
     "/api/projects/{project_id}/notebooks/{short_id}/": Endpoints.patch_Notebooks_partial_update;
     "/api/projects/{project_id}/object_media_previews/{id}/": Endpoints.patch_Object_media_previews_partial_update;
-    "/api/projects/{project_id}/persisted_folder/{id}/": Endpoints.patch_Persisted_folder_partial_update;
     "/api/projects/{project_id}/persons/{id}/": Endpoints.patch_Persons_partial_update;
     "/api/projects/{project_id}/product_tours/{id}/": Endpoints.patch_Product_tours_partial_update;
     "/api/projects/{project_id}/product_tours/{id}/draft/": Endpoints.patch_Product_tours_draft_partial_update;
@@ -26618,7 +26529,6 @@ export type EndpointByMethod = {
     "/api/projects/{project_id}/logs/alerts/{id}/": Endpoints.delete_Logs_alerts_destroy;
     "/api/projects/{project_id}/notebooks/{short_id}/": Endpoints.delete_Notebooks_destroy;
     "/api/projects/{project_id}/object_media_previews/{id}/": Endpoints.delete_Object_media_previews_destroy;
-    "/api/projects/{project_id}/persisted_folder/{id}/": Endpoints.delete_Persisted_folder_destroy;
     "/api/projects/{project_id}/product_tours/{id}/": Endpoints.delete_Product_tours_destroy;
     "/api/projects/{project_id}/product_tours/{id}/discard_draft/": Endpoints.delete_Product_tours_discard_draft_destroy;
     "/api/projects/{project_id}/project_secret_api_keys/{id}/": Endpoints.delete_Project_secret_api_keys_destroy;
