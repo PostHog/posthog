@@ -331,6 +331,7 @@ DEFAULT_TRUSTED_DOMAINS = [
     "github.com",
     "www.github.com",
     "api.github.com",
+    "uploads.github.com",
     "raw.githubusercontent.com",
     "objects.githubusercontent.com",
     "codeload.github.com",

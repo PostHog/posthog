@@ -70,7 +70,7 @@ Do not invent a different format.
 Always fill the `## 🤖 Agent context` section when creating PRs.
 NEVER share sensitive information in a PR description. Users may share sensitive data in an agent session, but those should never surface to a PR description, or comments.
 
-**Screenshots:** Upload frontend/visual changes with `hogli pr:upload-image <file>` and embed the printed markdown. The first run only warns and uploads nothing; re-run with `--yes` to confirm. Only PostHog employees can upload, but the public can permanently view these assets, so only upload the image if you're certain it doesn't contain customer data (including customer names), secrets, or sensitive internal info.
+**Screenshots and videos:** Attach frontend/visual evidence with the repeatable `--attach <file>` flag on `gh pr create`, `gh pr edit`, or `gh pr comment`. To control placement, reference the same local path in the Markdown body; keep a video image reference alone in its paragraph so GitHub renders a player. GitHub uploads cannot be undone, so inspect every file first and never attach customer data (including customer names), secrets, or sensitive internal info.
 
 ### Rules
 

@@ -98,7 +98,7 @@ RUN UV_TOOL_BIN_DIR=/usr/local/bin uv tool install "ruff==${RUFF_VERSION}" && \
     ty --version
 
 # Install GitHub CLI without adding another apt repository refresh.
-ARG GH_CLI_VERSION=2.97.0
+ARG GH_CLI_VERSION=2.99.0
 RUN set -eux; \
     arch="$(dpkg --print-architecture)"; \
     curl -fsSL -o /tmp/gh.deb \
