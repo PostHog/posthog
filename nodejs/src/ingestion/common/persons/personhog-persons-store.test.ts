@@ -285,6 +285,29 @@ describe('PersonhogPersonsStore', () => {
         expect(repository.fetchPersonById).not.toHaveBeenCalled()
     })
 
+    it('an update read does not trust a checking-read document', async () => {
+        repository.resolvePersonsByDistinctIds.mockResolvedValue([
+            { teamId: 1, distinctId: 'd1', person: { ...person, version: 3, properties: { plan: 'lagged' } } },
+        ] as never)
+        repository.fetchPersonById.mockResolvedValue({ ...person, version: 5, properties: { plan: 'fresh' } } as never)
+        const bound = store.forBatch(0)
+
+        const checked = await bound.fetchForChecking(1, 'd1')
+        expect(checked?.properties).toEqual({ plan: 'lagged' })
+        expect(repository.fetchPersonById).not.toHaveBeenCalled()
+
+        // The checking read installed identity's writer-lagged document; the
+        // update path pays the leader read it skipped, the way the Postgres
+        // store keeps its check cache out of the update path.
+        const updated = await bound.fetchForUpdate(1, 'd1')
+        expect(updated?.properties).toEqual({ plan: 'fresh' })
+        expect(repository.fetchPersonById).toHaveBeenCalledTimes(1)
+
+        // Upgraded once: the next update read serves the memo.
+        await bound.fetchForUpdate(1, 'd1')
+        expect(repository.fetchPersonById).toHaveBeenCalledTimes(1)
+    })
+
     it('prefetch resolves a whole batch in one call instead of one per id', async () => {
         // The saving is the batching, not the caching: without a prefetch
         // each id resolves on its own. A single id cannot show the
@@ -1489,6 +1512,34 @@ describe('PersonhogPersonsStore', () => {
             // person really merged, so its id already reads the survivor, or
             // later events fold onto the destroyed person.
             expect((store as any).memo.resolutionOf('1:anon-1')).toBe('1:7')
+        })
+
+        it('a fold with an unsettled source aborts, whatever name carries it', async () => {
+            const bound = store.forBatch(0)
+            repository.resolvePersonsByDistinctIds.mockResolvedValue([
+                { teamId: 1, distinctId: 'anon-1', person: { ...person, id: '9' } },
+            ] as never)
+            // An unsettled verdict under a name outside the conflict
+            // vocabulary: a retry may change it, so executing the fold would
+            // ack anon-2's event on an answer that is not final.
+            repository.mergePersons = jest.fn().mockResolvedValue({
+                survivor: { ...person, version: 7 },
+                results: [
+                    { sourceDistinctId: 'anon-1', outcome: 'merged', sourcePersonId: '9', settled: true },
+                    { sourceDistinctId: 'anon-2', outcome: 'error', settled: false },
+                ],
+            })
+
+            const result = await bound.mergePersons({
+                ...mergeReq(),
+                sources: [
+                    { distinctId: 'anon-1', eventUuid: 'event-uuid' },
+                    { distinctId: 'anon-2', eventUuid: 'event-uuid-2' },
+                ],
+            })
+
+            expect(result.foldAborted).toBe('conflict')
+            expect(result.survivor).toBeNull()
         })
 
         it('reports a fold whose every source conflicted as an abort, not a success', async () => {

@@ -4,7 +4,7 @@ import pLimit from 'p-limit'
 import { Counter } from 'prom-client'
 
 import { SEMANTIC_REFUSAL_METADATA_KEY, SEMANTIC_REFUSAL_OP_ID_REUSED } from '~/common/personhog/identity'
-import { grpcErrorType } from '~/common/personhog/metrics'
+import { errorClassLabel } from '~/common/personhog/metrics'
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
 import { PersonhogFencedError, PersonhogPropertiesSizeError } from '~/common/personhog/persons'
 import { PersonMessage } from '~/common/persons/person-message'
@@ -85,15 +85,6 @@ const DEFAULT_OPTIONS: PersonhogPersonsStoreOptions = {
 }
 
 const CALLER_TAG = 'ingestion/personhog-store'
-
-/** A bounded label: gRPC faults carry their status code, everything else its constructor name. */
-function flushErrorClass(error: unknown): string {
-    if (error instanceof ConnectError) {
-        return grpcErrorType(error)
-    }
-    const name = error instanceof Error ? error.constructor?.name : undefined
-    return typeof name === 'string' && name.length > 0 && name.length <= 64 ? name : 'unknown'
-}
 
 /** SYNC uses the store's limit; other modes carry their own, validated at startup. */
 function moveLimitFor(mergeMode: MergeMode, syncMergeMoveLimit: number): number {
@@ -211,8 +202,18 @@ export class PersonhogPersonsStore implements PersonsStore {
     /** Identity resolves the distinct id, then the leader supplies the freshest document. */
     async fetchForUpdate(teamId: number, distinctId: string, batchId: number): Promise<InternalPerson | null> {
         const cached = this.memo.lookup(teamId, distinctId)
+        if (cached === null) {
+            return null
+        }
         if (cached !== undefined) {
-            return cached
+            if (this.memo.hasAuthoritativeBaseline(`${teamId}:${cached.id}`)) {
+                return cached
+            }
+            // The edge is trusted (identity resolves off the primary), but
+            // the document came from a checking read or drain, which lag
+            // the leader; the update path pays one leader read to upgrade.
+            const person = await this.repository.fetchPersonById(teamId, cached.id, CALLER_TAG)
+            return this.memo.record(teamId, distinctId, person, batchId, { authoritative: true })
         }
         const [resolved] = await this.repository.resolvePersonsByDistinctIds([{ teamId, distinctId }], CALLER_TAG)
         if (!resolved?.person) {
@@ -222,7 +223,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         // (merged or deleted mid-flight); record the resolution miss and
         // let the caller's create path re-resolve authoritatively.
         const person = await this.repository.fetchPersonById(teamId, resolved.person.id, CALLER_TAG)
-        return this.memo.record(teamId, distinctId, person, batchId)
+        return this.memo.record(teamId, distinctId, person, batchId, { authoritative: true })
     }
 
     async createPerson(
@@ -269,7 +270,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         this.memo.recordResolution(batchId, `${teamId}:${primaryDistinctId.distinctId}`, personKey)
         // Extras are never memoized: the service can leave a conflicting
         // extra mapped to its existing person, so they resolve on first touch.
-        this.memo.offerBaseline(personKey, person)
+        this.memo.offerBaseline(personKey, person, { authoritative: true })
         // The identity service publishes its own downstream messages on creation.
         return { success: true, person: this.memo.snapshot(person), messages: [], created }
     }
@@ -364,8 +365,8 @@ export class PersonhogPersonsStore implements PersonsStore {
     /**
      * Runs the identity service's merge saga and folds its outcome into
      * the batch view: ids naming a destroyed person resolve to the
-     * survivor. A call with no verdict drops the team's resolutions
-     * instead, since which persons died is unknowable.
+     * survivor. A call with no verdict fails the batch instead; any edge
+     * the unobserved saga flipped heals through the tombstone redirect.
      */
     async mergePersons(request: MergePersonsRequest, batchId: number): Promise<MergePersonsResult> {
         const fresh = await this.resolveForDrain(
@@ -518,8 +519,9 @@ export class PersonhogPersonsStore implements PersonsStore {
                 throw error
             }
             // Deterministic and pre-durable, so it propagates raw. Keyed on
-            // the reason slug: a semantic refusal from a later saga step
-            // must still take the invalidation below.
+            // the reason slug: a semantic refusal from a later saga step is
+            // a parked op that only redelivery resumes, so it must fail the
+            // batch below rather than ack as settled.
             if (
                 error instanceof ConnectError &&
                 error.metadata.get(SEMANTIC_REFUSAL_METADATA_KEY) === SEMANTIC_REFUSAL_OP_ID_REUSED
@@ -564,7 +566,12 @@ export class PersonhogPersonsStore implements PersonsStore {
         // sequential decision on redelivery.
         if (!singleSource) {
             const overLimit = result.results.some((source) => source.outcome === 'skipped_move_limit')
-            const conflicted = result.results.some((source) => source.outcome === 'skipped_conflict')
+            // The settled clause states the invariant directly: the fold
+            // never acks an unsettled source, whatever outcome name carries
+            // it; only the sequential path has the per-event gate for that.
+            const conflicted = result.results.some(
+                (source) => source.outcome === 'skipped_conflict' || source.settled === false
+            )
             const refused = result.results.some((source) => source.outcome === 'skipped_refused')
             // An error verdict with no merged source can only be an abort,
             // because completion implies at least one source folded.
@@ -586,9 +593,11 @@ export class PersonhogPersonsStore implements PersonsStore {
         if (result.survivor) {
             // Serves the batch's later reads of the touched ids without a
             // re-resolve; a replayed verdict's older document loses.
-            this.memo.record(request.teamId, request.targetDistinctId, result.survivor, batchId)
+            this.memo.record(request.teamId, request.targetDistinctId, result.survivor, batchId, {
+                authoritative: true,
+            })
             for (const distinctId of touched) {
-                this.memo.record(request.teamId, distinctId, result.survivor, batchId)
+                this.memo.record(request.teamId, distinctId, result.survivor, batchId, { authoritative: true })
             }
         }
         return {
@@ -639,8 +648,8 @@ export class PersonhogPersonsStore implements PersonsStore {
         propertiesToSet: Properties,
         propertiesToUnset: string[],
         otherUpdates: Partial<InternalPerson>,
-        _distinctId: string,
-        _batchId: number,
+        distinctId: string,
+        batchId: number,
         forceUpdate?: boolean,
         _tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, PersonMessage[], boolean]> {
@@ -679,8 +688,8 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
         // This path bypasses the lane, so buffered ops replay on top; the
         // edge is recorded so the baseline releases with the batch.
-        this.memo.recordResolution(_batchId, `${person.team_id}:${_distinctId}`, personKey)
-        this.memo.offerBaseline(personKey, updated)
+        this.memo.recordResolution(batchId, `${person.team_id}:${distinctId}`, personKey)
+        this.memo.offerBaseline(personKey, updated, { authoritative: true })
         // No ClickHouse message: the leader's changelog is the person feed.
         return [updated, [], false]
     }
@@ -734,7 +743,10 @@ export class PersonhogPersonsStore implements PersonsStore {
                         // Fill-only: this response raced everything the batch
                         // did since the request went out, so it may supply a
                         // document but must not move a standing edge.
-                        this.memo.record(entry.teamId, entry.distinctId, person, batchId, { fillOnly: true })
+                        this.memo.record(entry.teamId, entry.distinctId, person, batchId, {
+                            fillOnly: true,
+                            authoritative: true,
+                        })
                     })
                 )
             )
@@ -911,7 +923,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                     // recounting would file it twice.
                     if (!(error instanceof CountedRedirectError)) {
                         personhogStoreFlushCounter.inc({ outcome: 'error' })
-                        personhogStoreFlushErrorCounter.inc({ error: flushErrorClass(error) })
+                        personhogStoreFlushErrorCounter.inc({ error: errorClassLabel(error) })
                     }
                     if (error instanceof PersonhogFencedError) {
                         // An expected coordination outcome: the holder
@@ -998,7 +1010,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             if (personId === entry.personId) {
                 const personKey = `${entry.teamId}:${personId}`
                 if (answer !== null) {
-                    this.memo.offerBaseline(personKey, answer)
+                    this.memo.offerBaseline(personKey, answer, { authoritative: true })
                 } else {
                     // The call returned without throwing, so the write
                     // applied and the leader moved past what we held; drop

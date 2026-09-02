@@ -10,6 +10,9 @@ interface ResolutionEntry {
  * shared by every open batch. The leader classifies every write, so the
  * only install rule is newer-wins and a stale view heals on the next
  * leader answer or write bounce; reads replay unsent lane ops on top.
+ * Documents additionally carry provenance: the update path insists on an
+ * authoritative (leader- or saga-answered) document, the way the
+ * Postgres store keeps its check cache out of the update path.
  */
 export class PersonhogPersonMemo {
     /**
@@ -23,6 +26,12 @@ export class PersonhogPersonMemo {
      * can replay the lane's unsent ops over it without double-counting.
      */
     private baselines: Map<string, InternalPerson> = new Map()
+    /**
+     * Persons whose baseline lineage includes an authoritative answer.
+     * A miss only costs one extra leader read, so an untagged install
+     * fails safe.
+     */
+    private authoritativeBaselines: Set<string> = new Set()
     /**
      * How many live resolutions name each person; a counter because
      * scanning resolutions per drop would be linear.
@@ -72,7 +81,7 @@ export class PersonhogPersonMemo {
         distinctId: string,
         fetched: InternalPerson | null,
         batchId: number,
-        options: { fillOnly?: boolean } = {}
+        options: { fillOnly?: boolean; authoritative?: boolean } = {}
     ): InternalPerson | null {
         const distinctKey = `${teamId}:${distinctId}`
         if (fetched === null) {
@@ -92,12 +101,12 @@ export class PersonhogPersonMemo {
         const standingEdge = this.resolutions.get(distinctKey)?.personKey
         if (options.fillOnly && standingEdge !== undefined) {
             if (standingEdge === personKey) {
-                this.offerBaseline(personKey, fetched)
+                this.offerBaseline(personKey, fetched, options)
             }
             return standingEdge !== null ? (this.viewOf(standingEdge) ?? null) : null
         }
         this.recordResolution(batchId, distinctKey, personKey)
-        this.offerBaseline(personKey, fetched)
+        this.offerBaseline(personKey, fetched, options)
         return this.viewOf(personKey) ?? this.snapshot(fetched)
     }
 
@@ -106,7 +115,12 @@ export class PersonhogPersonMemo {
      * delivered out of order. Versions that are not both numbers fall
      * through rather than block a legitimate install.
      */
-    offerBaseline(personKey: string, doc: InternalPerson): void {
+    offerBaseline(personKey: string, doc: InternalPerson, opts: { authoritative?: boolean } = {}): void {
+        if (opts.authoritative) {
+            // Marked even when the install below loses: a standing newer
+            // document is at least as fresh as this authoritative answer.
+            this.authoritativeBaselines.add(personKey)
+        }
         const existing = this.baselines.get(personKey)
         if (
             existing !== undefined &&
@@ -117,6 +131,11 @@ export class PersonhogPersonMemo {
             return
         }
         this.baselines.set(personKey, this.snapshot(doc))
+    }
+
+    /** Whether this person's baseline lineage includes an authoritative answer. */
+    hasAuthoritativeBaseline(personKey: string): boolean {
+        return this.authoritativeBaselines.has(personKey)
     }
 
     /** Callers get copies, so stamping a result cannot edit the shared memo. */
@@ -152,6 +171,7 @@ export class PersonhogPersonMemo {
      */
     deletePerson(personKey: string): void {
         this.baselines.delete(personKey)
+        this.authoritativeBaselines.delete(personKey)
         this.baselineRefCount.delete(personKey)
     }
 
@@ -221,9 +241,12 @@ export class PersonhogPersonMemo {
     /**
      * Forgets the document because something it cannot account for
      * happened; the lane keeps its unsent ops and the next reader re-reads.
+     * The mark goes with it, or a later checking read could reinstall a
+     * lagged document the update path would trust.
      */
     dropBaseline(personKey: string): void {
         this.baselines.delete(personKey)
+        this.authoritativeBaselines.delete(personKey)
     }
 
     /**
@@ -235,6 +258,7 @@ export class PersonhogPersonMemo {
             return
         }
         this.baselines.delete(personKey)
+        this.authoritativeBaselines.delete(personKey)
     }
 
     /**
