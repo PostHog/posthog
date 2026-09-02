@@ -275,13 +275,13 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         )
 
     def test_can_create_many_playlists_without_n_plus_1(self):
-        # one query to get started and then 13 per creation
-        with self.assertNumQueries(13 * 50 + 1):
+        # one query to get started and then 14 per creation (was 13, +1 for organization query)
+        with self.assertNumQueries(14 * 50 + 1):
             for i in range(50):
                 self._create_playlist({"name": f"test-{i}", "type": "collection"})
 
-        # 13 per creation
-        with self.assertNumQueries(13 * 100):
+        # 14 per creation (was 13, +1 for organization query)
+        with self.assertNumQueries(14 * 100):
             for i in range(100):
                 self._create_playlist({"name": f"test-{i}", "type": "collection"})
 

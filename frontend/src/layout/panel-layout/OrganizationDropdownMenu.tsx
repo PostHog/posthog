@@ -28,8 +28,10 @@ import { panelLayoutLogic } from './panelLayoutLogic'
 
 export function OrganizationDropdownMenu({
     buttonProps = { className: 'font-semibold' },
+    allowCreate = true,
 }: {
     buttonProps?: ButtonPrimitiveProps
+    allowCreate?: boolean
 }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { otherOrganizations } = useValues(userLogic)
@@ -142,7 +144,7 @@ export function OrganizationDropdownMenu({
                                 </Combobox.Group>
                             ))}
 
-                            {preflight?.can_create_org && (
+                            {preflight?.can_create_org && allowCreate && (
                                 <Combobox.Item asChild>
                                     <ButtonPrimitive
                                         menuItem
