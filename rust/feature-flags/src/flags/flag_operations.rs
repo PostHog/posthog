@@ -1372,8 +1372,8 @@ mod tests {
 
     #[test]
     fn test_has_hash_dependent_variants_partial_before_100_percent() {
-        // The old rule saw the 100 and returned false, but hashes below 0.40 select "control",
-        // so assignment does depend on the hash and continuity lookups must not be skipped.
+        // Hashes below 0.40 select "control", so assignment depends on the hash and
+        // continuity lookups must not be skipped.
         let mut flag = mock!(FeatureFlag);
         flag.filters.multivariate = Some(MultivariateFlagOptions {
             variants: vec![
@@ -1436,8 +1436,7 @@ mod tests {
 
     #[test]
     fn test_has_hash_dependent_variants_all_zero() {
-        // No variant is ever selected, so the hash decides nothing. The old rule called this
-        // hash dependent because nothing sat at 100.
+        // No variant is ever selected, so the hash decides nothing.
         let mut flag = mock!(FeatureFlag);
         flag.filters.multivariate = Some(MultivariateFlagOptions {
             variants: vec![
