@@ -367,7 +367,13 @@ export interface HogFlowConversionApi {
     /** Event-based conversion goals: [{filters: {events: [{id, name, type: 'events'}], ...}}]. */
     events?: HogFlowConversionEventApi[]
     /**
-     * Conversion window in minutes after a person enters the workflow. null = no explicit window.
+     * How long after entering the workflow a conversion still counts, as a duration string: '7d', '12h', '30m', '45s'. Same form the delay steps use. Maximum '365d'. Omit it to use the default window.
+     * @nullable
+     * @pattern ^\d*\.?\d+[dhms]$
+     */
+    window?: string | null
+    /**
+     * DEPRECATED, use 'window' instead. Conversion window in MINUTES (not seconds) after a person enters the workflow. Maximum 129600 (90 days). null = use the default window.
      * @nullable
      */
     window_minutes?: number | null
@@ -594,7 +600,7 @@ export interface HogFlowApi {
     readonly trigger: unknown
     /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
     trigger_masking?: HogFlowMaskingApi | null
-    /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+    /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds). Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
     conversion?: HogFlowConversionApi | null
     /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
      *
@@ -758,7 +764,7 @@ export interface PatchedHogFlowUpdateApi {
     readonly trigger?: unknown
     /** Optional dedup/throttle on an already-matched trigger: {hash: <HogQL template>, ttl: <seconds, 60-94608000>, threshold?: <int>}. Without threshold: fire once per hash, then suppress repeats within ttl (hash '{person.id}' = once per person per ttl). With threshold N: fire once per N matches of the same hash — a sampler, the 1st then every Nth. Throttles an already-qualifying trigger; it doesn't decide who enters. Server compiles bytecode from hash; omit to disable. */
     trigger_masking?: HogFlowMaskingApi | null
-    /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
+    /** Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; events: event-based goals [{filters: {events: [...]}}]; window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds). Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. bytecode compiled server-side. */
     conversion?: HogFlowConversionApi | null
     /** exit_only_at_end: only at exit node (default). exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). exit_on_trigger_not_matched: also when trigger filter stops matching. exit_on_trigger_not_matched_or_conversion: both (needs 'conversion').
      *

@@ -2809,7 +2809,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         allow_null=True,
         help_text=(
             "Conversion goal. filters: ARRAY of property conditions [{key, value, operator, type: event|person|group}]; "
-            "events: event-based goals [{filters: {events: [...]}}]; window_minutes: minutes after entry. "
+            "events: event-based goals [{filters: {events: [...]}}]; "
+            "window: how long after entry a conversion counts, as a duration string such as '7d' or '12h', "
+            "maximum '365d' (window_minutes is the deprecated integer form, in MINUTES not seconds). "
             "Required for exit_on_conversion / exit_on_trigger_not_matched_or_conversion. "
             "bytecode compiled server-side."
         ),
