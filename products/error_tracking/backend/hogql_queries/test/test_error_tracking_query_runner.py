@@ -355,7 +355,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
     def test_date_range_resolution(self):
         date_from = ErrorTrackingQueryRunner.parse_relative_date_from("-1d")
         date_to = ErrorTrackingQueryRunner.parse_relative_date_to("+1d")
-        self.assertEqual(date_from, datetime(2022, 1, 9, 12, 11, 0, tzinfo=ZoneInfo(key="UTC")))
+        self.assertEqual(date_from, datetime(2022, 1, 9, 0, 0, 0, tzinfo=ZoneInfo(key="UTC")))
         self.assertEqual(date_to, datetime(2022, 1, 11, 12, 11, 0, tzinfo=ZoneInfo(key="UTC")))
 
     def test_event_fetching_defaults_off(self):

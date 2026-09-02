@@ -95,7 +95,9 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
             # A missing date_from must not silently mean "all time" — that's a 4-year events
             # scan. Anchor the default window to the range end so date_to-only queries stay valid.
             return (default_end or datetime.datetime.now(tz=ZoneInfo("UTC"))) - datetime.timedelta(days=7)
-        return relative_date_parse(date, now=datetime.datetime.now(tz=ZoneInfo("UTC")), timezone_info=ZoneInfo("UTC"))
+        return relative_date_parse(
+            date, now=datetime.datetime.now(tz=ZoneInfo("UTC")), timezone_info=ZoneInfo("UTC"), always_truncate=True
+        )
 
     @classmethod
     def parse_relative_date_to(cls, date: str | None) -> datetime.datetime:

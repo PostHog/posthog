@@ -40,7 +40,9 @@ class ErrorTrackingBreakdownsQueryRunner(
         if date == "all" or date is None:
             return datetime.datetime.now(tz=ZoneInfo("UTC")) - datetime.timedelta(days=7)
 
-        return relative_date_parse(date, now=datetime.datetime.now(tz=ZoneInfo("UTC")), timezone_info=ZoneInfo("UTC"))
+        return relative_date_parse(
+            date, now=datetime.datetime.now(tz=ZoneInfo("UTC")), timezone_info=ZoneInfo("UTC"), always_truncate=True
+        )
 
     @classmethod
     def parse_relative_date_to(cls, date: str | None) -> datetime.datetime:
