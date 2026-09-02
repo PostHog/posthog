@@ -34,11 +34,13 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     EmitEvaluationEventInputs,
     EmitInternalTelemetryInputs,
     RunEvaluationInputs,
+    RunLocalEvaluationInputs,
     SendEvaluationDisabledEmailInputs,
     disable_evaluation_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
+    run_local_evaluation_activity,
     send_evaluation_disabled_email_activity,
     update_key_state_activity,
 )
@@ -64,6 +66,7 @@ __all__ = [
     "EvaluationActivityResult",
     "RunEvaluationInputs",
     "RunEvaluationWorkflow",
+    "RunLocalEvaluationInputs",
     "SendEvaluationDisabledEmailInputs",
     "WorkflowResult",
     "build_system_prompt",
@@ -80,6 +83,7 @@ __all__ = [
     "handle_llm_judge_activity_error",
     "handle_terminal_user_error_result",
     "run_hog_eval",
+    "run_local_evaluation_activity",
     "send_evaluation_disabled_email_activity",
     "update_key_state_activity",
 ]
@@ -254,47 +258,70 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         temporalio.workflow.deprecate_patch("remove-trial-evals")
 
         start_time = temporalio.workflow.now()
-        evaluation = await temporalio.workflow.execute_activity(
-            fetch_evaluation_activity,
-            inputs,
-            schedule_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+
+        # One activity fetches the evaluation and, for hog and sentiment, also executes it and
+        # emits its event — three Temporal Cloud actions become one on ~90% of evaluation volume.
+        # Pre-patch histories replay the separate fetch/execute/emit commands below.
+        result: EvaluationActivityResult | None = None
+        if temporalio.workflow.patched("merge-local-eval-activities-2026-09"):
+            outcome = await temporalio.workflow.execute_activity(
+                run_local_evaluation_activity,
+                RunLocalEvaluationInputs(
+                    evaluation_id=inputs.evaluation_id,
+                    event_data=inputs.event_data,
+                    start_time=start_time,
+                ),
+                start_to_close_timeout=timedelta(seconds=120),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            evaluation = outcome.evaluation
+            result = outcome.result
+        else:
+            evaluation = await temporalio.workflow.execute_activity(
+                fetch_evaluation_activity,
+                inputs,
+                schedule_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
 
         evaluation_type = evaluation.get("evaluation_type", "llm_judge")
+        emitted_in_activity = result is not None
 
-        if evaluation_type == "hog":
-            result = await temporalio.workflow.execute_activity(
-                execute_hog_eval_activity,
-                args=[evaluation, inputs.event_data],
-                schedule_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
-        elif evaluation_type == "sentiment":
-            result = await temporalio.workflow.execute_activity(
-                execute_sentiment_eval_activity,
-                args=[evaluation, inputs.event_data],
-                schedule_to_close_timeout=timedelta(seconds=120),
-                retry_policy=RetryPolicy(maximum_attempts=1),
-            )
-        elif evaluation_type == "llm_judge":
-            try:
+        if result is None:
+            if evaluation_type == "hog":
                 result = await temporalio.workflow.execute_activity(
-                    execute_llm_judge_activity,
-                    ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=inputs.event_data),
-                    schedule_to_close_timeout=timedelta(minutes=6),
-                    retry_policy=LLM_JUDGE_RETRY_POLICY,
+                    execute_hog_eval_activity,
+                    args=[evaluation, inputs.event_data],
+                    schedule_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
                 )
-            except temporalio.exceptions.ActivityError as e:
-                handled = await handle_llm_judge_activity_error(e, evaluation, evaluation_type)
-                if handled is not None:
-                    return handled
-                raise
-        else:
-            raise ApplicationError(
-                f"Unsupported evaluation type: {evaluation_type}",
-                non_retryable=True,
-            )
+            elif evaluation_type == "sentiment":
+                result = await temporalio.workflow.execute_activity(
+                    execute_sentiment_eval_activity,
+                    args=[evaluation, inputs.event_data],
+                    schedule_to_close_timeout=timedelta(seconds=120),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            elif evaluation_type == "llm_judge":
+                try:
+                    result = await temporalio.workflow.execute_activity(
+                        execute_llm_judge_activity,
+                        ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=inputs.event_data),
+                        schedule_to_close_timeout=timedelta(minutes=6),
+                        retry_policy=LLM_JUDGE_RETRY_POLICY,
+                    )
+                except temporalio.exceptions.ActivityError as e:
+                    handled = await handle_llm_judge_activity_error(e, evaluation, evaluation_type)
+                    if handled is not None:
+                        return handled
+                    raise
+            else:
+                raise ApplicationError(
+                    f"Unsupported evaluation type: {evaluation_type}",
+                    non_retryable=True,
+                )
+
+        assert result is not None  # every dispatch branch above assigns, returns, or raises
 
         if is_terminal_user_error_result(result):
             return await handle_terminal_user_error_result(
@@ -303,21 +330,22 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 result=result,
             )
 
-        try:
-            await temporalio.workflow.execute_activity(
-                emit_evaluation_event_activity,
-                EmitEvaluationEventInputs(
-                    evaluation=evaluation,
-                    event_data=inputs.event_data,
-                    result=result,
-                    start_time=start_time,
-                ),
-                schedule_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-        except Exception:
-            increment_errors("emit_evaluation_event_failed", provider=result.get("provider"))
-            raise
+        if not emitted_in_activity:
+            try:
+                await temporalio.workflow.execute_activity(
+                    emit_evaluation_event_activity,
+                    EmitEvaluationEventInputs(
+                        evaluation=evaluation,
+                        event_data=inputs.event_data,
+                        result=result,
+                        start_time=start_time,
+                    ),
+                    schedule_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+            except Exception:
+                increment_errors("emit_evaluation_event_failed", provider=result.get("provider"))
+                raise
 
         if evaluation_type == "llm_judge" and not result.get("skipped"):
             await temporalio.workflow.execute_activity(

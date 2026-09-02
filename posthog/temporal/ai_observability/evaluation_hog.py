@@ -335,9 +335,11 @@ def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = F
     return execute_hog_eval_bytecode(bytecode, globals_dict, allows_na=allows_na)
 
 
-@temporalio.activity.defn
-async def execute_hog_eval_activity(evaluation: dict[str, Any], event_data: dict[str, Any]) -> EvaluationActivityResult:
-    """Execute Hog code to evaluate the target event."""
+async def run_hog_eval_for_event(evaluation: dict[str, Any], event_data: dict[str, Any]) -> EvaluationActivityResult:
+    """Execute Hog code to evaluate the target event.
+
+    Shared by the standalone activity and the merged local-evaluation activity.
+    """
     if evaluation["evaluation_type"] != "hog":
         raise ApplicationError(
             f"Unsupported evaluation type: {evaluation['evaluation_type']}",
@@ -358,3 +360,9 @@ async def execute_hog_eval_activity(evaluation: dict[str, Any], event_data: dict
     result = await database_sync_to_async(_execute, thread_sensitive=False)()
 
     return finalize_hog_eval_result(result, evaluation=evaluation, allows_na=allows_na, unit_label=None)
+
+
+@temporalio.activity.defn
+async def execute_hog_eval_activity(evaluation: dict[str, Any], event_data: dict[str, Any]) -> EvaluationActivityResult:
+    """Execute Hog code to evaluate the target event."""
+    return await run_hog_eval_for_event(evaluation, event_data)

@@ -60,11 +60,11 @@ def _build_sentiment_activity_result(
     }
 
 
-@activity.defn
-async def execute_sentiment_eval_activity(
-    evaluation: dict[str, Any], event_data: dict[str, Any]
-) -> EvaluationActivityResult:
-    """Classify sentiment for the target event's user messages."""
+async def run_sentiment_eval(evaluation: dict[str, Any], event_data: dict[str, Any]) -> EvaluationActivityResult:
+    """Classify sentiment for the target event's user messages.
+
+    Shared by the standalone activity and the merged local-evaluation activity.
+    """
     if evaluation["evaluation_type"] != "sentiment":
         raise ApplicationError(
             f"Unsupported evaluation type: {evaluation['evaluation_type']}",
@@ -105,3 +105,11 @@ async def execute_sentiment_eval_activity(
 
     classification_results = await asyncio.to_thread(classify, texts)
     return _build_sentiment_activity_result(event_uuid, trace_id, user_messages, classification_results)
+
+
+@activity.defn
+async def execute_sentiment_eval_activity(
+    evaluation: dict[str, Any], event_data: dict[str, Any]
+) -> EvaluationActivityResult:
+    """Classify sentiment for the target event's user messages."""
+    return await run_sentiment_eval(evaluation, event_data)
