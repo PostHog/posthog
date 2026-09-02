@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from unittest.mock import patch
 
 from django.test import override_settings
@@ -21,7 +23,13 @@ COMPLETED = SloCompletedProperties(
         ("completed_self_hosted", emit_slo_completed, COMPLETED, None, False),
     ]
 )
-def test_slo_events_only_reach_posthog_from_cloud(_name, emit, properties, cloud_deployment, expected_sent) -> None:
+def test_slo_events_only_reach_posthog_from_cloud(
+    _name: str,
+    emit: Callable[..., None],
+    properties: SloStartedProperties | SloCompletedProperties,
+    cloud_deployment: str | None,
+    expected_sent: bool,
+) -> None:
     with (
         override_settings(CLOUD_DEPLOYMENT=cloud_deployment),
         patch("posthog.slo.events.posthoganalytics.capture") as capture,

@@ -72,12 +72,12 @@ def _capture_emit_exception(
         pass
 
 
-def _send(capture: Callable | None, **event: Any) -> None:
+def _send(capture: Callable | None, *, distinct_id: str, event: str, properties: dict[str, Any]) -> None:
     # The module-level client carries PostHog's own project token in every non-debug run mode, so without this
     # guard a self-hosted instance reports its SLO events into PostHog's internal project, with no region.
     if capture is None and not is_cloud():
         return
-    (capture or posthoganalytics.capture)(**event)
+    (capture or posthoganalytics.capture)(distinct_id=distinct_id, event=event, properties=properties)
 
 
 def emit_slo_started(
