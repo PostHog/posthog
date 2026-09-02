@@ -64,6 +64,14 @@ export function MetricsClauseRow({
         }
     }
 
+    // Every control edit both focuses this row and applies its own change.
+    const withSelect =
+        <T,>(setter: (value: T) => void) =>
+        (value: T): void => {
+            select()
+            setter(value)
+        }
+
     const recommendedAggregation = clause.selectedMetricType
         ? RECOMMENDED_AGGREGATION_BY_TYPE[clause.selectedMetricType]
         : undefined
@@ -92,10 +100,7 @@ export function MetricsClauseRow({
             <div className="flex flex-col gap-1">
                 <MetricNameFilter
                     value={clause.metricName}
-                    onChange={(name) => {
-                        select()
-                        setMetricName(name)
-                    }}
+                    onChange={withSelect(setMetricName)}
                     disabled={!!disabledReason}
                     disabledReason={disabledReason}
                 />
@@ -111,10 +116,7 @@ export function MetricsClauseRow({
                 size="small"
                 value={clause.aggregation}
                 options={AGGREGATION_OPTIONS}
-                onChange={(value) => {
-                    select()
-                    setAggregation(value as MetricAggregation)
-                }}
+                onChange={withSelect(setAggregation)}
                 data-attr="metrics-viewer-aggregation"
                 disabledReason={disabledReason}
             />
@@ -127,8 +129,7 @@ export function MetricsClauseRow({
                 endpointFilters={attributeEndpointFilters}
                 onChange={(group) => {
                     if (!disabledReason) {
-                        select()
-                        setFilterGroup({ type: FilterLogicalOperator.And, values: [group] })
+                        withSelect(setFilterGroup)({ type: FilterLogicalOperator.And, values: [group] })
                     }
                 }}
             >
@@ -136,10 +137,7 @@ export function MetricsClauseRow({
             </UniversalFilters>
             <MetricsGroupByButton
                 groupByKeys={clause.groupByKeys}
-                onChange={(keys) => {
-                    select()
-                    setGroupByKeys(keys)
-                }}
+                onChange={withSelect(setGroupByKeys)}
                 disabledReason={disabledReason}
             />
             <LemonMenu
