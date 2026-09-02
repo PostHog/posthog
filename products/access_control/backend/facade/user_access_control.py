@@ -79,6 +79,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "revenue_analytics",
     "session_recording",
     "sharing_configuration",
+    "stamphog",
     "survey",
     "ticket",
     "web_analytics",
@@ -196,6 +197,9 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
     if resource == "llm_playground":
         # The playground is a single page, not a collection of objects
         return "LLM playground"
+    if resource == "stamphog":
+        # Product name, so it does not take a plural
+        return "stamphog"
 
     # Default: replace underscores and add 's' for plural
     return f"{resource.replace('_', ' ')}s"

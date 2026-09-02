@@ -26,6 +26,7 @@ from rest_framework.views import APIView
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.scoping.manager import resolve_effective_team_id
+from posthog.permissions import is_service_auth
 
 from products.stamphog.backend.facade import (
     api as facade_api,
@@ -59,6 +60,9 @@ logger = structlog.get_logger(__name__)
 # against another team's session.
 _INSTALL_STATE_SALT = "stamphog-install-state"
 _INSTALL_STATE_MAX_AGE_SECONDS = 60 * 60
+
+# These decide whether a pull request gets reviewed, so changing them takes the manager level.
+REVIEW_GATE_FIELDS = ("enabled", "review_mode", "trigger_label")
 
 
 class StamphogCanonicalTeamAccessPermission(BasePermission):
@@ -149,6 +153,22 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
                 return config
         raise NotFound()
 
+    def _require_review_gate_manager(self, request: Request) -> None:
+        """Refuse a review-gating write below the manager level on the stamphog resource.
+
+        Service credentials (project secret keys, team secret tokens) are synthetic users the RBAC
+        layer cannot resolve, and a key is never a manager, so they are refused here rather than
+        silently passed through by AccessControlPermission's service-auth shortcut.
+        """
+        if not is_service_auth(request) and self.user_access_control.check_access_level_for_resource(
+            "stamphog", "manager"
+        ):
+            return
+        raise PermissionDenied(
+            "Only a stamphog manager can change whether this repository is reviewed. "
+            "Ask an organization admin for manager access."
+        )
+
     def list(self, request: Request, **kwargs) -> Response:
         configs = facade_api.list_repo_configs(self.canonical_team_id)
         page = self.paginate_queryset(configs)
@@ -159,6 +179,9 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
 
     @extend_schema(request=StamphogRepoConfigWriteSerializer, responses={201: StamphogRepoConfigSerializer})
     def create(self, request: Request, **kwargs) -> Response:
+        # Editor is enough here, unlike the gate fields below: a manually created config carries no
+        # installation, and _adopt_preexisting_config binds it disabled at sync time, so an enabled
+        # placeholder never reviews a pull request.
         serializer = StamphogRepoConfigWriteSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
         try:
@@ -180,6 +203,11 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
             context=self.get_serializer_context(),
         )
         serializer.is_valid(raise_exception=True)
+        if any(
+            field in serializer.validated_data and serializer.validated_data[field] != getattr(current, field)
+            for field in REVIEW_GATE_FIELDS
+        ):
+            self._require_review_gate_manager(request)
         config = facade_api.update_repo_config(self.canonical_team_id, str(pk), **serializer.validated_data)
         return Response(self.get_serializer(config).data)
 
@@ -189,6 +217,8 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
 
     def destroy(self, request: Request, pk: str | None = None, **kwargs) -> Response:
         self._get_or_404(pk)
+        # A soft delete flips `enabled`, so it is a review-gating write like the PATCH above.
+        self._require_review_gate_manager(request)
         facade_api.disable_repo_config(self.canonical_team_id, str(pk))
         return Response(status=204)
 

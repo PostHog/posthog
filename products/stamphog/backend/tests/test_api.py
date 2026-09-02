@@ -11,11 +11,15 @@ from django.test import SimpleTestCase, override_settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, uuid7
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.stamphog.backend.facade import contracts
 from products.stamphog.backend.facade.enums import ChannelResolutionSource, DigestRunStatus, ReviewMode, ReviewRunStatus
 from products.stamphog.backend.models import DigestRun, PullRequest, ReviewRun, StamphogRepoConfig
@@ -40,6 +44,83 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.url = f"/api/projects/{self.team.id}/stamphog/repo_configs/"
+        # Flipping the review-gating fields takes the manager level, which org admins hold
+        # everywhere. The plain-member cases below cover the other side.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def _create_config(self) -> str:
+        created = self.client.post(self.url, {"repository": "PostHog/posthog", "enabled": True}, format="json").json()
+        return created["id"]
+
+    def _login_as_member(self, *, stamphog_level: str | None = None) -> User:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "member@posthog.com", "testtest")
+        if stamphog_level is not None:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="stamphog",
+                resource_id=None,
+                access_level=stamphog_level,
+                organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+            )
+        self.client.force_login(member)
+        return member
+
+    @parameterized.expand(
+        [
+            ("enabled", {"enabled": False}),
+            ("review_mode", {"review_mode": ReviewMode.LABEL}),
+            ("trigger_label", {"trigger_label": "review-me"}),
+        ]
+    )
+    def test_member_cannot_change_a_review_gating_field(self, _name: str, payload: dict) -> None:
+        # These three decide whether a pull request is reviewed at all, so a project member who is
+        # only an editor must not be able to switch reviews off or point them at a label nobody uses.
+        config_id = self._create_config()
+        self._login_as_member()
+
+        response = self.client.patch(f"{self.url}{config_id}/", payload, format="json")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert "manager" in response.json()["detail"]
+        assert StamphogRepoConfig.objects.unscoped().get(id=config_id).enabled is True
+
+    def test_member_can_still_change_the_digest_toggle(self) -> None:
+        # The digest only decides who reads about merges, so gating it on manager too would take a
+        # setting away from editors that was never a review decision.
+        config_id = self._create_config()
+        self._login_as_member()
+
+        response = self.client.patch(f"{self.url}{config_id}/", {"digest_enabled": True}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["digest_enabled"] is True
+
+    def test_member_cannot_soft_delete_a_config(self) -> None:
+        # The soft delete flips `enabled` behind a different verb, so gating only PATCH would leave
+        # the same switch reachable through DELETE.
+        config_id = self._create_config()
+        self._login_as_member()
+
+        response = self.client.delete(f"{self.url}{config_id}/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert StamphogRepoConfig.objects.unscoped().get(id=config_id).enabled is True
+
+    def test_member_granted_manager_can_change_a_review_gating_field(self) -> None:
+        # An admin must be able to hand the review switch to somebody through the normal access
+        # control settings, or the manager gate would be an admin-only hardcode.
+        config_id = self._create_config()
+        self._login_as_member(stamphog_level="manager")
+
+        response = self.client.patch(f"{self.url}{config_id}/", {"enabled": False}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["enabled"] is False
 
     def test_create_ignores_client_supplied_installation_id(self) -> None:
         # installation_id is read-only: a manual create must not let a caller claim an installation

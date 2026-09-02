@@ -170,6 +170,9 @@ narrow:
 
 ## Trust boundaries
 
+- The review-gating fields (`enabled`, `review_mode`, `trigger_label`) and the soft-delete need the
+  `manager` level on the `stamphog` resource, because they decide whether a pull request is reviewed
+  at all. Connecting a repository and the digest toggle stay at `editor`.
 - Review policy is read from the repo's **default branch**, never the PR head — a PR must not be
   able to rewrite the policy that gates it. Same for the `digest:` channel declaration and the
   root `owners.yaml` team registry the digest routes through.
