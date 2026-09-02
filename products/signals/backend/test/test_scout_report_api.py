@@ -421,6 +421,43 @@ class TestScoutReportAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         judge_mock.assert_awaited_once()
 
+    def test_only_a_full_content_rewrite_re_embeds_the_report(self) -> None:
+        # A partial edit is judged on the supplied field alone, but the receiver embeds the whole
+        # stored document — the other half can carry an unreviewed PATCH, so re-embedding would
+        # republish text the retraction exists to withhold. Only a full title+summary rewrite,
+        # where the judge saw the exact document, may re-embed.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        receiver_embed = "products.signals.backend.receivers.emit_report_embedding"
+        receiver_tombstone = "products.signals.backend.receivers.emit_report_tombstone"
+        with (
+            _safe_judge(),
+            patch(receiver_embed) as embed,
+            patch(receiver_tombstone) as tombstone,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            partial = self.client.post(
+                self._edit_url(str(run.id)), data={"report_id": report_id, "title": "partial rewrite"}, format="json"
+            )
+        assert partial.status_code == status.HTTP_200_OK, partial.json()
+        assert (tombstone.call_count, embed.call_count) == (1, 0)
+        with (
+            _safe_judge(),
+            patch(receiver_embed) as embed,
+            patch(receiver_tombstone) as tombstone,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            full = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": report_id, "title": "full rewrite", "summary": "judged alongside the title"},
+                format="json",
+            )
+        assert full.status_code == status.HTTP_200_OK, full.json()
+        assert (tombstone.call_count, embed.call_count) == (0, 1)
+        assert embed.call_args.kwargs["content"] == "full rewrite\n\njudged alongside the title"
+
     def test_edit_core_rechecks_stale_run_status(self) -> None:
         TaskRun = apps.get_model("tasks", "TaskRun")
         run = _make_run(self.team)

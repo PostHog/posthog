@@ -342,7 +342,7 @@ class TestReportEmbeddingReceiver(BaseTest):
         assert self.tombstone.call_count == 1
 
     def test_reviewed_edit_re_embeds_instead_of_retracting(self) -> None:
-        # The scout edit tool runs the safety judge over the new title/summary before writing
+        # The scout edit tool runs the safety judge over the full title+summary rewrite before writing
         # (`edit_report` → `update_scout_report(reviewed=True)`), so its save must re-index the judged
         # text — tombstoning it would retract every judged scout edit from the dedupe index.
         with self.captureOnCommitCallbacks(execute=True):
@@ -350,11 +350,15 @@ class TestReportEmbeddingReceiver(BaseTest):
         self.embed.reset_mock()
         with self.captureOnCommitCallbacks(execute=True):
             update_scout_report(
-                team_id=self.team.id, report_id=str(report.id), title="Checkout errors on mobile", reviewed=True
+                team_id=self.team.id,
+                report_id=str(report.id),
+                title="Checkout errors on mobile",
+                summary="Rate tripled on iOS",
+                reviewed=True,
             )
         assert self.tombstone.call_count == 0
         assert self.embed.call_count == 1
-        assert self.embed.call_args.kwargs["content"] == f"Checkout errors on mobile\n\n{REPORT_SUMMARY}"
+        assert self.embed.call_args.kwargs["content"] == "Checkout errors on mobile\n\nRate tripled on iOS"
 
     @parameterized.expand([("no_verdicts", []), ("cascading_verdicts", [False, True])])
     def test_hard_deleting_a_report_retracts_it_exactly_once(self, _name: str, verdicts: list[bool]) -> None:

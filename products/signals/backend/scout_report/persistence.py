@@ -321,9 +321,11 @@ def update_scout_report(
     the modified field names. Title/summary edits are best-effort authorship — the pipeline may later
     re-research and overwrite them (decision #6); that is documented in the scout-facing contract.
 
-    `reviewed=True` means the caller ran the safety judge over exactly this title/summary before
-    calling (the `edit_report` tool path), so the save re-embeds the report instead of retracting its
-    embedding. The default keeps unjudged callers fail-closed.
+    `reviewed=True` means the caller ran the safety judge over the full document this save leaves
+    behind — both `title` and `summary` as they will be stored (the `edit_report` tool path on a full
+    rewrite) — so the save re-embeds the report instead of retracting its embedding. Callers must not
+    set it for a partial edit: the stored other half may itself be unreviewed, and re-embedding would
+    republish it. The default keeps unjudged callers fail-closed.
 
     When `attribution` is supplied and the content actually changes, a typed `title_change` /
     `summary_change` artefact is appended to the report's work log for each edited field, recording the
