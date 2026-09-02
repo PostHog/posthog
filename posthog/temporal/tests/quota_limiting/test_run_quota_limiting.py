@@ -22,6 +22,10 @@ from posthog.temporal.quota_limiting.run_quota_limiting import (
         # on a healthy replica, so the run must not end here.
         (wrap_clickhouse_query_error(ServerException("All connection tries failed.", code=279)), True),
         (wrap_clickhouse_query_error(ServerException("Too many simultaneous queries.", code=202)), True),
+        # Server-side socket timeout (209) and network error (210) reach the activity wrapped by
+        # sync_execute into dynamic classes no isinstance tuple can name, so they must match by code.
+        (wrap_clickhouse_query_error(ServerException("Socket timeout.", code=209)), True),
+        (wrap_clickhouse_query_error(ServerException("Network error.", code=210)), True),
         (SocketTimeoutError("Read timed out."), True),
         # A bug in the run repeats on every attempt, so retrying only adds cluster load.
         (ValueError("bad usage row"), False),

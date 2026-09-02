@@ -4,7 +4,7 @@ import dataclasses
 from datetime import timedelta
 
 import structlog
-from clickhouse_driver.errors import NetworkError, SocketTimeoutError
+from clickhouse_driver.errors import Error, ErrorCodes, NetworkError, SocketTimeoutError
 from temporalio import activity, common, workflow
 from temporalio.exceptions import ApplicationError
 
@@ -19,6 +19,16 @@ logging.basicConfig(level=logging.INFO)
 
 # Cluster trouble the next attempt can get past: a busy or unreachable ClickHouse host.
 RETRIABLE_ERRORS = (*CH_TRANSIENT_ERRORS, NetworkError, SocketTimeoutError)
+# A socket timeout (209) or network error (210) raised server-side reaches this activity wrapped by
+# sync_execute into a fresh dynamic class on every call, which no isinstance tuple can name, so those
+# transient transport failures must be matched by code too.
+RETRIABLE_CH_ERROR_CODES = (ErrorCodes.SOCKET_TIMEOUT, ErrorCodes.NETWORK_ERROR)
+
+
+def _is_retriable_error(e: Exception) -> bool:
+    if isinstance(e, RETRIABLE_ERRORS):
+        return True
+    return isinstance(e, Error) and getattr(e, "code", None) in RETRIABLE_CH_ERROR_CODES
 
 
 @dataclasses.dataclass
@@ -68,7 +78,7 @@ async def run_quota_limiting_all_orgs(
             raise ApplicationError(
                 f"Quota limiting failed: {type(e).__name__}: {str(e)[:200]}...",
                 # A deterministic failure repeats, so only retry the transient classes.
-                non_retryable=not isinstance(e, RETRIABLE_ERRORS),
+                non_retryable=not _is_retriable_error(e),
             ) from None
     return result
 
