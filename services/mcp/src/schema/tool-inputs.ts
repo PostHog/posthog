@@ -686,7 +686,7 @@ const ReadActionSamplePropertyValuesQuerySchema = z.object({
     property_name: z.string().describe('Verified property name of an action.'),
 })
 
-export const ReadDataSchemaSchema = z.object({
+const ReadDataSchemaBodySchema = z.object({
     query: z
         .discriminatedUnion('kind', [
             ReadEventsQuerySchema,
@@ -699,6 +699,42 @@ export const ReadDataSchemaSchema = z.object({
         ])
         .describe('The data schema query to execute.'),
 })
+
+// Person and session properties are read through `entity_properties`, but the two names below
+// read so naturally next to `event_properties` that callers keep sending them. Accept them:
+// the call says exactly what it wants, and a rejection costs the caller a whole round trip.
+const READ_DATA_SCHEMA_KIND_ALIASES: Record<string, { kind: string; entity: string }> = {
+    person_properties: { kind: 'entity_properties', entity: 'person' },
+    session_properties: { kind: 'entity_properties', entity: 'session' },
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Accept a call that puts the query fields at the top level (`{kind, event_name}`) instead of
+ * under `query`, and an aliased `kind`. Both say exactly what they want, so a rejection only
+ * costs the caller a round trip. `query` still wins whenever it is an object, so a well-formed
+ * call is never reinterpreted.
+ *
+ * Same `z.preprocess` seam as `normalizeParamAliases`, and transparent to JSON Schema output
+ * for the same reason: the advertised shape stays the wrapped one.
+ */
+function normalizeReadDataSchemaInput(input: unknown): unknown {
+    if (!isRecord(input)) {
+        return input
+    }
+    const { query, ...topLevel } = input
+    const source = isRecord(query) ? query : typeof topLevel['kind'] === 'string' ? topLevel : query
+    if (!isRecord(source)) {
+        return input
+    }
+    const alias = typeof source['kind'] === 'string' ? READ_DATA_SCHEMA_KIND_ALIASES[source['kind']] : undefined
+    return { query: alias ? { ...source, ...alias } : source }
+}
+
+export const ReadDataSchemaSchema = z.preprocess(normalizeReadDataSchemaInput, ReadDataSchemaBodySchema)
 
 // Mirrors the Django serializer's `validate` rule so the MCP layer fails fast
 // instead of forwarding an empty/ambiguous body and waiting for a 400.
