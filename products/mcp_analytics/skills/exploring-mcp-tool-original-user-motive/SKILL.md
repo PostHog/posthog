@@ -90,7 +90,7 @@ sess AS (
         max(if(toString(person.properties.email) ILIKE '%@posthog.com', 1, 0)) AS is_staff,
         coalesce(nullIf(any(toString(properties.$mcp_consumer)), ''), '') AS consumer,
         coalesce(nullIf(any(toString(properties.$mcp_client_name)), ''), '') AS client,
-        coalesce(nullIf(any(toString(properties.mcp_vendor_client)), ''), '') AS vendor,
+        coalesce(nullIf(any(toString(properties.$mcp_vendor_client)), ''), nullIf(any(toString(properties.mcp_vendor_client)), ''), '') AS vendor,
         coalesce(
             nullIf(any(toString(properties.$mcp_organization_id)), ''),
             nullIf(any(toString(properties.organization_id)), ''),
@@ -124,15 +124,18 @@ SELECT
     -- Caller and org are client-controlled and end up transcribed into Python
     -- source, so they are constrained here rather than trusted later. The
     -- charset excludes quotes, backslashes, newlines and the pipe delimiter.
+    -- The vendor outranks the client name: Anthropic's pooled surfaces all
+    -- report the generic "Anthropic/ClaudeAI" client name, and only the vendor
+    -- header separates Claude Code from Cowork from Claude.ai.
     if(match(multiIf(
             o.consumer != '', concat('consumer:', o.consumer),
-            o.client != '', o.client,
             o.vendor != '', o.vendor,
+            o.client != '', o.client,
             'unattributed'), '^[A-Za-z0-9 ()._:/-]{1,60}$'),
        multiIf(
             o.consumer != '', concat('consumer:', o.consumer),
-            o.client != '', o.client,
             o.vendor != '', o.vendor,
+            o.client != '', o.client,
             'unattributed'),
        'unsafe-caller-value') AS caller,
     if(match(o.org, '^[0-9a-fA-F-]{1,40}$'), o.org, 'unsafe-org-value') AS org,
@@ -164,7 +167,7 @@ Names are what makes the output actionable, though — nobody follows up with `0
 
 Session ids have no readable equivalent and should not get one. They are transport handles, and the useful upgrade is a trace link (see "Linking an intention to real sessions"), not a label.
 
-**Never paste a telemetry value into Python or SQL source without constraining it first.** `$mcp_client_name`, `$mcp_consumer` and `mcp_vendor_client` are set by the calling client, so a customer chooses their contents. Those values end up transcribed into a `DATA = '''...'''` literal that the notebook kernel executes, and a value carrying a triple quote closes the literal and runs whatever follows. A pipe would corrupt the parse more quietly.
+**Never paste a telemetry value into Python or SQL source without constraining it first.** `$mcp_client_name`, `$mcp_consumer` and `$mcp_vendor_client` / `mcp_vendor_client` are set by the calling client, so a customer chooses their contents. Those values end up transcribed into a `DATA = '''...'''` literal that the notebook kernel executes, and a value carrying a triple quote closes the literal and runs whatever follows. A pipe would corrupt the parse more quietly.
 
 Measured over 30 days, the pattern above accepts 16,424,323 caller values and rejects 3, so it costs no real data. No live value carries a quote, backslash, newline or pipe today — the hole is latent, and the query closes it by construction rather than relying on anyone noticing. The rejections were all over-length, and inspecting them is what the fallback is for: this field has carried a pasted credential, which is precisely the kind of value that must never reach a shareable notebook. Do not widen the pattern to preserve an odd-looking caller. Rendering it as `unsafe-caller-value` is the correct outcome.
 
@@ -209,12 +212,12 @@ Report both shares — the automated one is a real finding, not noise to hide.
 
 Caller identity is spread across four properties, and you have to check all of them, in this order:
 
-| Property                 | Identifies             | Example values                                                            |
-| ------------------------ | ---------------------- | ------------------------------------------------------------------------- |
-| `$mcp_client_user_agent` | PostHog's own programs | `posthog/wizard; version: 2.45.0; program: nextjs`                        |
-| `$mcp_consumer`          | the upstream surface   | `posthog-code` (Desktop), `slack`, `plugin`, `posthog-cli`                |
-| `$mcp_client_name`       | the calling agent      | `claude-code`, `cowork`, `claude-ai`, `cursor-vscode`, `codex-mcp-client` |
-| `mcp_vendor_client`      | vendor identity        | `ClaudeCode`, `Cowork`, `ClaudeAI`                                        |
+| Property                 | Identifies             | Example values                                                                                   |
+| ------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------ |
+| `$mcp_client_user_agent` | PostHog's own programs | `posthog/wizard; version: 2.45.0; program: nextjs`                                               |
+| `$mcp_consumer`          | the upstream surface   | `posthog-code` (Desktop), `slack`, `plugin`, `posthog-cli`                                       |
+| `$mcp_vendor_client`     | vendor identity        | `ClaudeCode`, `Cowork`, `ClaudeAI` (coalesce the legacy `mcp_vendor_client` for historical rows) |
+| `$mcp_client_name`       | the calling agent      | `claude-code`, `cowork`, `claude-ai`, `cursor-vscode`, `codex-mcp-client`                        |
 
 **Checking only `$mcp_client_name` will mislead you.** The setup wizard sets none of client, consumer, or vendor — it identifies itself solely in the user agent. Group by client alone and every wizard session collapses into an `unknown` bucket that looks like missing instrumentation — on a wizard-heavy tool that bucket is the largest row in the table.
 
