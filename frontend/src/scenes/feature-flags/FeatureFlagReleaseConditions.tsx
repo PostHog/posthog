@@ -367,6 +367,24 @@ export function FeatureFlagReleaseConditions({
                         </>
                     ) : (
                         <div>
+                            {filters.aggregation_group_type_index != null && (
+                                <LemonBanner type="info" className="mb-3">
+                                    This flag matches by{' '}
+                                    <b>{aggregationTargetName(group.aggregation_group_type_index)}</b>, so only{' '}
+                                    <b>
+                                        {capitalizeFirstLetter(
+                                            aggregationTargetName(group.aggregation_group_type_index)
+                                        )}
+                                    </b>{' '}
+                                    properties are available here. Person properties like email aren't shown.
+                                    {!hideMatchOptions && (
+                                        <>
+                                            {' '}
+                                            To filter by person properties, change "Match by" above to <b>User</b>.
+                                        </>
+                                    )}
+                                </LemonBanner>
+                            )}
                             <PropertyFilters
                                 orFiltering={true}
                                 pageKey={`feature-flag-${id}-${group.sort_key}-${filterGroups.length}-${
