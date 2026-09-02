@@ -768,6 +768,13 @@ class TestCurrentPeriodBounds(SimpleTestCase):
         assert period.start == datetime.fromisoformat(f"{expected_start}T00:00:00+00:00")
         assert period.end == datetime.fromisoformat(f"{expected_end}T00:00:00+00:00")
 
+    def test_inclusive_period_end_still_rolls_by_month(self) -> None:
+        # Billing closes a period a second before the next starts; the shortfall must not demote it to a fixed length.
+        organization = Organization(usage={"period": ["2026-02-01T00:00:00+00:00", "2026-02-28T23:59:59+00:00"]})
+        period = _current_period_bounds(organization, datetime.fromisoformat("2026-03-29T12:00:00+00:00"))
+        assert period.start == datetime.fromisoformat("2026-03-01T00:00:00+00:00")
+        assert period.end == datetime.fromisoformat("2026-03-31T23:59:59+00:00")
+
 
 class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
     def _make_scanner(

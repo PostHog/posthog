@@ -182,16 +182,23 @@ def _as_utc(value: datetime) -> datetime:
 
 def _roll_period_forward(start: datetime, end: datetime, now: datetime) -> BillingPeriod:
     """Advance a stale synced period along its own cadence until it contains `now`."""
-    whole_months = (end.year - start.year) * 12 + end.month - start.month
-    # Anniversary plans keep their day of month, so a whole-month period rolls by calendar months
-    # from the original start: re-anchoring on a February-clamped end would drift a day-31 plan.
-    if whole_months > 0 and start + relativedelta(months=whole_months) == end:
+    month_diff = (end.year - start.year) * 12 + end.month - start.month
+    # Billing may close a period a second before the next one starts, so an end up to a day short
+    # of the calendar boundary is still a whole-month period; the shortfall is carried along.
+    for whole_months in (month_diff, month_diff + 1):
+        if whole_months <= 0:
+            continue
+        shortfall = start + relativedelta(months=whole_months) - end
+        if not timedelta(0) <= shortfall < timedelta(days=1):
+            continue
+        # Anniversary plans keep their day of month, so roll by calendar months from the original
+        # start: re-anchoring on a February-clamped end would drift a day-31 plan.
         steps = 0
-        while start + relativedelta(months=whole_months * (steps + 1)) <= now:
+        while start + relativedelta(months=whole_months * (steps + 1)) - shortfall <= now:
             steps += 1
         return BillingPeriod(
             start=start + relativedelta(months=whole_months * steps),
-            end=start + relativedelta(months=whole_months * (steps + 1)),
+            end=start + relativedelta(months=whole_months * (steps + 1)) - shortfall,
         )
     length = end - start
     elapsed = (now - start) // length
