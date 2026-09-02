@@ -171,7 +171,7 @@ export function normalizeEvent<T extends PipelineEvent | PluginEvent>(event: T):
 
     if (!['$snapshot', '$performance_event'].includes(event.event)) {
         normalizeOsAlias(event.properties!)
-        event.properties = personInitialAndUTMProperties(event.properties!, event.timestamp)
+        event.properties = personInitialAndUTMProperties(event.properties!)
     }
 
     return event

@@ -62,63 +62,6 @@ describe('normalizeEvent()', () => {
         })
     })
 
-    describe('$fbc', () => {
-        const NOW = Date.UTC(2026, 7, 20, 12, 0, 0)
-        const TODAY = Date.UTC(2026, 7, 20)
-
-        beforeEach(() => {
-            jest.spyOn(Date, 'now').mockReturnValue(NOW)
-        })
-
-        test.each([
-            {
-                name: 'stamps the day the click was seen',
-                timestamp: '2026-08-20T11:59:00.000Z',
-                properties: { fbclid: 'AbC_123-x' },
-                expected: `fb.1.${TODAY}.AbC_123-x`,
-            },
-            {
-                name: 'keeps an older event timestamp so a replayed backlog stays true',
-                timestamp: '2026-08-18T09:00:00.000Z',
-                properties: { fbclid: 'AbC_123-x' },
-                expected: `fb.1.${Date.UTC(2026, 7, 18)}.AbC_123-x`,
-            },
-            {
-                name: 'clamps a client clock that runs ahead',
-                timestamp: '2027-01-01T00:00:00.000Z',
-                properties: { fbclid: 'AbC_123-x' },
-                expected: `fb.1.${TODAY}.AbC_123-x`,
-            },
-            {
-                name: 'stamps an event that carries no timestamp',
-                timestamp: undefined,
-                properties: { fbclid: 'AbC_123-x' },
-                expected: `fb.1.${TODAY}.AbC_123-x`,
-            },
-            {
-                name: 'keeps an fbc the event states itself',
-                timestamp: '2026-08-20T11:59:00.000Z',
-                properties: { fbclid: 'AbC_123-x', $set: { $fbc: 'fb.1.1700000000000.own' } },
-                expected: 'fb.1.1700000000000.own',
-            },
-            {
-                name: 'ignores a null fbclid',
-                timestamp: '2026-08-20T11:59:00.000Z',
-                properties: { fbclid: null },
-                expected: undefined,
-            },
-            {
-                name: 'ignores an fbclid with characters Meta never emits',
-                timestamp: '2026-08-20T11:59:00.000Z',
-                properties: { fbclid: 'not a click id' },
-                expected: undefined,
-            },
-        ])('$name', ({ timestamp, properties, expected }) => {
-            const event = { distinct_id: 'user1', event: '$pageview', timestamp, properties }
-            expect(normalizeEvent(event as any).properties!.$set.$fbc).toBe(expected)
-        })
-    })
-
     describe('$os_name alias', () => {
         test.each([
             {

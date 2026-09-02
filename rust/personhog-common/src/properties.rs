@@ -73,7 +73,6 @@ static PROTECTED_PROPERTIES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| 
         "epik",
         "qclid",
         "sccid",
-        // Derived from a campaign param rather than lifted from the event
         "$fbc",
         // Session and page tracking
         "$session_id",

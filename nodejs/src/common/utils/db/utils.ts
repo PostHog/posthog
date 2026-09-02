@@ -59,33 +59,8 @@ const INITIAL_KEY_MAP: Map<string, string> = new Map(
     Array.from(eventToPersonProperties, (key) => [key, `$initial_${key.replace('$', '')}`])
 )
 
-const FBCLID_PATTERN = /^[A-Za-z0-9_-]{1,400}$/
-// Meta rejects a click older than 90 days, so anything that sends fbc has to know when the click
-// happened. A person property carries no timestamp of its own, and by the time a conversion event
-// reaches a destination the click can be months old, so the click time is stamped here, where the
-// click is observed.
-//
-// A day of precision is enough for a 90-day window. A finer stamp would produce a different value
-// on every event that still carries the fbclid in its URL, and every change rewrites the person.
-const FBC_STAMP_GRANULARITY_MS = 24 * 60 * 60 * 1000
-
-/**
- * Builds Meta's _fbc cookie value, `fb.<subdomainIndex>.<clickTimeMs>.<fbclid>`, which the
- * Conversions API expects verbatim. Returns null when the event carries no usable fbclid.
- */
-function facebookClickId(fbclid: unknown, eventTimestamp: string | null | undefined): string | null {
-    if (typeof fbclid !== 'string' || !FBCLID_PATTERN.test(fbclid)) {
-        return null
-    }
-    const eventMs = eventTimestamp ? Date.parse(eventTimestamp) : NaN
-    // A client clock that runs ahead would stretch the 90-day window, so never stamp a click later
-    // than the moment we saw it. An older event timestamp is kept, so a replayed backlog stays true.
-    const clickMs = Math.min(Date.now(), isNaN(eventMs) ? Infinity : eventMs)
-    return `fb.1.${Math.floor(clickMs / FBC_STAMP_GRANULARITY_MS) * FBC_STAMP_GRANULARITY_MS}.${fbclid}`
-}
-
 /** If we get new UTM params, make sure we set those  **/
-export function personInitialAndUTMProperties(properties: Properties, eventTimestamp?: string | null): Properties {
+export function personInitialAndUTMProperties(properties: Properties): Properties {
     // Instead of iterating all properties (could be 50+), iterate the known set (16 keys)
     // and check if each exists in properties - O(16) instead of O(n)
     let $set: Record<string, any> | undefined
@@ -147,15 +122,6 @@ export function personInitialAndUTMProperties(properties: Properties, eventTimes
         // $os_name is normalized to $os, so remove it from person properties
         delete $set.$os_name
         delete $set_once!.$initial_os_name
-    }
-
-    // $fbc is derived from fbclid rather than lifted from the event, so it sits outside the loop.
-    // A value the event states itself wins, so a site that mints its own _fbc keeps it.
-    if (!('$fbc' in $set)) {
-        const fbc = facebookClickId(properties.fbclid, eventTimestamp)
-        if (fbc !== null) {
-            $set.$fbc = fbc
-        }
     }
 
     // Mutate in place instead of spreading entire properties object
