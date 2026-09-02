@@ -91,6 +91,8 @@ interface PoisonRow {
 export class CyclotronV2Janitor {
     private pool: Pool
     private intervalHandle: ReturnType<typeof setInterval> | null = null
+    // Queue names this process has seen hold work, so a drained queue can report 0.
+    private readonly seenQueues = new Set<string>()
 
     private readonly cleanupBatchSize: number
     private readonly cleanupIntervalMs: number
@@ -481,7 +483,19 @@ export class CyclotronV2Janitor {
         for (const row of result.rows) {
             const count = parseInt(row.count, 10)
             depths.set(row.queue_name, count)
+            this.seenQueues.add(row.queue_name)
             queueDepthGauge.labels({ queue: row.queue_name }).set(count)
+        }
+
+        // GROUP BY returns no row for a queue that is empty. Without the write below,
+        // that queue keeps the last depth this process set, and an alert on the value
+        // fires while the queue is idle. Write 0 for every queue this process saw
+        // before. The set holds only observed queue names, so it needs no maintenance
+        // and it adds no series for a queue that does not use this table.
+        for (const queue of this.seenQueues) {
+            if (!depths.has(queue)) {
+                queueDepthGauge.labels({ queue }).set(0)
+            }
         }
 
         return depths

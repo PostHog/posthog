@@ -1,3 +1,4 @@
+from typing import cast
 from uuid import UUID
 
 from django.http import JsonResponse
@@ -17,6 +18,7 @@ from posthog.api.utils import action
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
+from posthog.models.user import User
 
 from products.error_tracking.backend.facade import (
     api as facade_api,
@@ -273,7 +275,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def merge(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
         ids = [str(issue_id) for issue_id in request.validated_data["ids"]]
         try:
-            merge_result = issues_facade.merge_issues(self.team.id, UUID(str(pk)), ids)
+            merge_result = issues_facade.merge_issues(
+                self.team.id,
+                UUID(str(pk)),
+                ids,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated(request),
+            )
         except IssueNotFoundError:
             raise NotFound("Issue not found")
         if merge_result == issues_facade.ErrorTrackingIssueMergeResult.STALE_ISSUES:
@@ -290,7 +298,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
     def split(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
         fingerprints = request.validated_data["fingerprints"]
         try:
-            new_issue_ids = issues_facade.split_issue(self.team.id, UUID(str(pk)), fingerprints)
+            new_issue_ids = issues_facade.split_issue(
+                self.team.id,
+                UUID(str(pk)),
+                fingerprints,
+                user=cast(User, request.user),
+                was_impersonated=is_impersonated(request),
+            )
         except IssueNotFoundError:
             raise NotFound("Issue not found")
         return Response({"success": True, "new_issue_ids": [str(i) for i in new_issue_ids]})
