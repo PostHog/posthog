@@ -57,8 +57,10 @@ import {
   hogFlowTeamSkills,
   UnsupportedLoopShapeError,
 } from "../loopHogFlowMapping";
+import { LoopScheduleSaveError } from "../loopHogFlowWrites";
 import { formatLoopModel } from "../loopModels";
 import { buildSkillInstructions, loopSkillBundles } from "../loopSkill";
+import { WORKFLOW_TRIGGER_LIMITS } from "../loopTriggerLimits";
 import { LoopBehaviorFields } from "./LoopBehaviorFields";
 import { LoopContextFields } from "./LoopContextFields";
 import { Field } from "./LoopFormPrimitives";
@@ -68,10 +70,7 @@ import { LoopNotificationsFields } from "./LoopNotificationsFields";
 import { LoopRepositoryPicker } from "./LoopRepositoryPicker";
 import { LoopInstructionsFields } from "./LoopSkillFields";
 import { LoopSpaceBreadcrumb } from "./LoopSpaceBreadcrumb";
-import {
-  LoopTriggerEditor,
-  WORKFLOW_TRIGGER_LIMITS,
-} from "./LoopTriggerEditor";
+import { LoopTriggerEditor } from "./LoopTriggerEditor";
 import { LoopWorkflowPromptFields } from "./LoopWorkflowPromptFields";
 
 const VISIBILITY_OPTIONS: {
@@ -325,6 +324,19 @@ export function LoopForm({
         navigateToLoopDetail(saved.id);
       }
     } catch (error) {
+      if (error instanceof LoopScheduleSaveError) {
+        // Keep the form open with its state intact: saving again retries the
+        // schedule write against the graph that already stuck.
+        toast.error("Loop saved, but its schedule didn't update", {
+          description: [
+            hogFlowRequestDetail(error.cause),
+            "Save again to retry.",
+          ]
+            .filter(Boolean)
+            .join(" "),
+        });
+        return;
+      }
       toast.error(isEdit ? "Failed to save loop" : "Failed to create loop", {
         description:
           error instanceof UnsupportedLoopShapeError

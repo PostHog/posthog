@@ -7,7 +7,11 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import { emptyLoopFormValues } from "./loopFormTypes";
 import { formValuesToHogFlowWrite } from "./loopHogFlowMapping";
-import { createLoopHogFlow, updateLoopHogFlow } from "./loopHogFlowWrites";
+import {
+  createLoopHogFlow,
+  LoopScheduleSaveError,
+  updateLoopHogFlow,
+} from "./loopHogFlowWrites";
 
 type Route = { method: string; path: string };
 
@@ -196,6 +200,27 @@ describe("loopHogFlowWrites", () => {
     expect(keys).toContain("actions");
     expect(keys).not.toContain("status");
     expect(keys).not.toContain("origin_product");
+    expect(keys).not.toContain("exit_condition");
     expect(patched?.actions).toHaveLength(3);
+  });
+
+  it("reports a schedule that failed after the graph saved as its own error", async () => {
+    const { client, calls } = scriptedClient(({ method, path }) =>
+      method === "patch" && path.includes("/schedules/")
+        ? { status: 400, body: { rrule: ["Invalid RRULE."] } }
+        : { status: 200, body: { ...FLOW, schedules: [SCHEDULE_ROW] } },
+    );
+    await expect(
+      updateLoopHogFlow(
+        client,
+        "7",
+        { id: "flow-1", schedules: [SCHEDULE_ROW] },
+        scheduleWrite("0 17 * * *"),
+      ),
+    ).rejects.toBeInstanceOf(LoopScheduleSaveError);
+    expect(calls.map((call) => `${call.method} ${call.path}`)).toEqual([
+      "patch /api/projects/7/hog_flows/flow-1/",
+      "patch /api/projects/7/hog_flows/flow-1/schedules/sched-1/",
+    ]);
   });
 });
