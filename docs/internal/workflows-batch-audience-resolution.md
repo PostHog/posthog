@@ -24,4 +24,8 @@ A near-budget fetch holds one job for ~30s, the same magnitude as the janitor's 
 ## Observing
 
 - Fetch durations: `instrumented_function_duration_seconds` for `cdpBatchResolve.getBlastRadiusPersons` and `cdpBatchResolve.getAccountAudiencePage`. Watch the p99 against the budget before tuning either.
-- Failures: `cdp_batch_hog_flow_resolver_pages_processed{outcome="fetch_failure"}`, and the `Batch resolver failed:` entry on the workflow's **Logs** tab (`log_source_id` = the batch job id).
+- Failures: `cdp_batch_hog_flow_resolver_pages_processed{outcome="fetch_failure"}`, and a `Batch resolver failed: <reason>` row in ClickHouse `log_entries` with `log_source = 'hog_flow'` and `log_source_id` = the **batch job id** (not the workflow id).
+
+## Known gap: the failure reason is not visible in the app
+
+The resolver keys its failure, audience-truncation, and cancel logs by batch job id, but every in-app log reader queries by workflow id (`LogsViewer sourceId={workflow.id}`; the Logs panel of a batch workflow redirects to Invocations). Normal run logs use `log_source_id` = workflow id and `instance_id` = run id. So a batch run that fails before enrolling anyone shows only a `failed` badge, and the reason is only reachable by querying `log_entries` directly. Re-keying those three resolver log sites to `log_source_id: state.hogFlowId, instance_id: state.batchJobId` would make them appear in the workflow's Logs view and as the batch job's own log stream; that is a separate change from the timeout.
