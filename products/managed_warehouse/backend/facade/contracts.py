@@ -290,7 +290,7 @@ class TrinoCompiledQuery:
 
     sql: str
     values: dict[str, Any]
-    hogql: str
+    hogql: str | None = None
 
 
 @dataclass
