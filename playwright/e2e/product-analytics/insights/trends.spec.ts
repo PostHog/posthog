@@ -309,8 +309,8 @@ test.describe('Trends insights', () => {
         await test.step('navigate away and verify no orphaned tooltip', async () => {
             await insight.goToList()
             // This project saves no insight, so the list opens on the product analytics setup
-            // screen instead of the table. Either surface proves the new scene mounted.
-            await expect(page.locator('table').or(page.getByTestId('product-empty-state')).first()).toBeVisible()
+            // screen rather than the table.
+            await expect(page.getByTestId('product-empty-state')).toBeVisible()
             await expect(insight.trends.tooltip).toHaveCount(0, { timeout: 3000 })
         })
     })
