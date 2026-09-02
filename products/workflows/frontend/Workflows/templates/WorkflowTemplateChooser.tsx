@@ -203,7 +203,8 @@ function TemplateItem({
                 </div>
             )}
             <div
-                className={clsx('transition-all w-full overflow-hidden', isHovering ? 'h-4 min-h-4' : 'h-30 min-h-30')}
+                // The cover absorbs the space a wrapping name or tag row takes, so the text below keeps whole lines
+                className={clsx('transition-all w-full overflow-hidden', isHovering ? 'h-4 min-h-4' : 'h-30')}
             >
                 <FallbackCoverImage
                     src={template?.image_url || undefined}
@@ -213,8 +214,8 @@ function TemplateItem({
                 />
             </div>
 
-            <h5 className="px-2 mb-1">{template?.name || 'Unnamed template'}</h5>
-            <div className="flex gap-x-1 gap-y-0.5 px-2 mb-1 flex-wrap">
+            <h5 className="px-2 mb-1 shrink-0">{template?.name || 'Unnamed template'}</h5>
+            <div className="flex gap-x-1 gap-y-0.5 px-2 mb-1 flex-wrap shrink-0">
                 {scopeTag && (
                     <LemonTag key="scope" type="option" className="shrink-0">
                         {scopeTag}
@@ -226,7 +227,7 @@ function TemplateItem({
                     </LemonTag>
                 ))}
             </div>
-            <div className={clsx('px-2 py-1 grow', isHovering ? 'overflow-y-auto' : 'overflow-hidden')}>
+            <div className={clsx('px-2 py-1 grow', isHovering ? 'overflow-y-auto' : 'overflow-hidden shrink-0')}>
                 <p className={clsx('text-secondary text-xs', isHovering ? '' : 'line-clamp-2')}>
                     {template?.description ?? ' '}
                 </p>
