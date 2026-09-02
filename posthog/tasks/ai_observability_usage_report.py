@@ -994,10 +994,11 @@ def _get_all_ai_observability_reports(
         raise
     logger.info(f"Retrieved survey metrics for {len(survey_metrics)} teams")
 
-    # Get team to organization mapping
-    teams = Team.objects.filter(id__in=team_ids).select_related("organization")
-    team_to_org: dict[int, str] = {team.id: str(team.organization_id) for team in teams}
-    org_id_to_name: dict[str, str] = {str(team.organization_id): team.organization.name for team in teams}
+    # Get team to organization mapping. Read the three columns the maps need, so the query does not
+    # hydrate the wide `posthog_team` row and the whole organization row for every team.
+    team_org_rows = Team.objects.filter(id__in=team_ids).values_list("id", "organization_id", "organization__name")
+    team_to_org: dict[int, str] = {team_id: str(org_id) for team_id, org_id, _ in team_org_rows}
+    org_id_to_name: dict[str, str] = {str(org_id): org_name for _, org_id, org_name in team_org_rows}
 
     # Aggregate by organization
     org_reports: dict[str, dict[str, Any]] = {}
