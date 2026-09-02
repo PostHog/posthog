@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM posthog_errortrackingstackframe WHERE symbol_set_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "28d77b2fa2b11155bac3f3b4c430f53723f9585e95106e3ce82a3fd6938f12a9"
+}
