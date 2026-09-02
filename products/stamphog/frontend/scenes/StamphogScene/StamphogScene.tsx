@@ -17,8 +17,8 @@ import { ReviewModeEnumApi, type StamphogRepoConfigApi } from '../../generated/a
 import { REVIEW_MODE_LABELS } from '../../reviewModeLabels'
 import { stamphogSceneLogic } from './stamphogSceneLogic'
 
-// Whether a repository is reviewed at all is a manager decision. Connecting a repository and the
-// digest only change who hears about the work, so they stay at editor.
+// Whether a repository is reviewed at all is a manager decision. The digest only changes who hears
+// about the work, and connecting a repository starts no review on its own, so both stay at editor.
 const managerDisabledReason = (): string | null =>
     getAccessControlDisabledReason(AccessControlResourceType.Stamphog, AccessControlLevel.Manager)
 const editorDisabledReason = (): string | null =>

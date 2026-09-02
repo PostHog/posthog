@@ -184,7 +184,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
         ):
             return
         raise PermissionDenied(
-            "Only a stamphog manager can change whether this repository is reviewed. "
+            "Only a Stamphog manager can change whether this repository is reviewed. "
             "Ask an organization admin for manager access."
         )
 

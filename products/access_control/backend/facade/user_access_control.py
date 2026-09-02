@@ -198,8 +198,8 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
         # The playground is a single page, not a collection of objects
         return "LLM playground"
     if resource == "stamphog":
-        # Product name, so it does not take a plural
-        return "stamphog"
+        # Product name: a proper noun, and it does not take a plural
+        return "Stamphog"
 
     # Default: replace underscores and add 's' for plural
     return f"{resource.replace('_', ' ')}s"

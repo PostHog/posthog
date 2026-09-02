@@ -199,7 +199,8 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
     } else if (resourceType === AccessControlResourceType.ReplayScanner) {
         return 'replay vision resource'
     } else if (resourceType === AccessControlResourceType.Stamphog) {
-        return 'stamphog resource'
+        // Proper noun, so it stays capitalized inside "...permissions for this Stamphog resource."
+        return 'Stamphog resource'
     }
 
     return resourceType.replace(/_/g, ' ')
