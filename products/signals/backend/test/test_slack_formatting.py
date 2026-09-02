@@ -95,12 +95,31 @@ class TestStripChartReferences(SimpleTestCase):
 
 class TestSplitMarkdownByHeadings(SimpleTestCase):
     def test_lead_precedes_one_segment_per_heading(self) -> None:
-        summary = "Intro line.\n\n## First\nbody one\n\n### Second\nbody two"
+        summary = "Intro line.\n\n## First\nbody one\n\n## Second\nbody two"
         segments = split_markdown_by_headings(summary)
 
         assert segments[0].strip() == "Intro line."
         assert segments[1].startswith("## First")
-        assert segments[2].startswith("### Second")
+        assert segments[2].startswith("## Second")
+        assert len(segments) == 3
+
+    def test_sub_headings_stay_inside_their_parent_segment(self) -> None:
+        # A split at every level bursts a sub-headed report into a segment per sub-point, which the
+        # reader gets as one Slack reply each. The split runs at the level the summary repeats at.
+        summary = "## First\nbody one\n\n### Detail\nmore\n\n## Second\nbody two"
+        segments = split_markdown_by_headings(summary)
+
+        assert segments == ["", "## First\nbody one\n\n### Detail\nmore\n\n", "## Second\nbody two"]
+
+    def test_a_lone_top_heading_is_not_a_split_point(self) -> None:
+        # A level used once is the summary's own title. Splitting there returns everything under it
+        # as a single segment, which is the wall of text threading exists to break up.
+        summary = "# Title\n\nIntro line.\n\n## First\nbody one\n\n## Second\nbody two"
+        segments = split_markdown_by_headings(summary)
+
+        assert segments[0].strip() == "# Title\n\nIntro line."
+        assert segments[1].startswith("## First")
+        assert segments[2].startswith("## Second")
         assert len(segments) == 3
 
     def test_leading_heading_yields_empty_lead(self) -> None:

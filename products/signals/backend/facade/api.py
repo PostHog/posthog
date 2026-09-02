@@ -1,7 +1,7 @@
 import uuid
 import dataclasses
 from collections.abc import Callable, Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
@@ -20,9 +20,22 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
-from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
+from products.signals.backend.contracts import DIRECT_STEERABLE_SOURCES, SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
+from products.signals.backend.scout_harness.run_gates import (
+    # Re-exported so the workflows endpoint can branch on why a fire was refused without reaching
+    # into the scout harness. Every decision behind them stays Signals-side.
+    ScoutRunRejectionKind as ScoutRunRejectionKind,
+)
+from products.signals.backend.scout_harness.workflow_runs import (
+    WorkflowScoutRunRejected as WorkflowScoutRunRejected,
+    WorkflowScoutRunStarted as WorkflowScoutRunStarted,
+    # Facade entrypoint for a workflow's "Run scout" step: the workflows endpoint proves which
+    # workflow is firing, and everything after that (enrolment, budget, quota, the paused-scout
+    # rule, the workflow cooldown, single-flight, dispatch) happens here.
+    start_workflow_scout_run as start_workflow_scout_run,
+)
 from products.signals.backend.signal_metadata import fetch_signal_stats_for_source_slice
 
 # Re-exported for external products (tasks presentation catches it around facade create_task).
@@ -511,6 +524,11 @@ async def emit_signal(
     Active path:
         emit_signal() -> SignalEmitterWorkflow -> BufferSignalsWorkflow -> TeamSignalGroupingV2Workflow
 
+    A source in `DIRECT_STEERABLE_SOURCES` is checked against the team's steering first and dropped
+    when the team's rules say to skip it (see `emission/direct_gate.py`). A team that wrote no
+    steering is unaffected. Sources that reach here through the batch pipeline already ran their own
+    steered gate, so they stay out of that set and are never judged twice.
+
     Args:
         team: The team object
         source_product: Product emitting the signal (e.g., "experiments", "web_analytics")
@@ -589,8 +607,9 @@ async def emit_signal(
     )
 
     # Fire a "started" marker so direct callers (error tracking, AI observability evals, etc.)
-    # that don't go through the data-source pipeline still have a top-of-funnel event. The
-    # gap to `signal_emitted` surfaces Temporal/dispatch failures.
+    # that don't go through the data-source pipeline still have a top-of-funnel event. The gap to
+    # `signal_emitted` surfaces Temporal/dispatch failures, once the steering gate below is
+    # subtracted: started - signal_data_source_filtered - emitted = failures.
     try:
         posthoganalytics.capture(
             event="signal_emission_started",
@@ -611,6 +630,25 @@ async def emit_signal(
             source_type=source_type,
             source_id=source_id,
         )
+
+    # Below the started event on purpose: a filtered signal then has a top-of-funnel event to be
+    # counted against, so a steering drop reads apart from a dispatch failure rather than as one.
+    if (source_product, source_type) in DIRECT_STEERABLE_SOURCES:
+        # Deferred: the emission package imports this facade back, and its __init__ registers every
+        # emitter, which must stay off the import path of Celery workers and management commands.
+        from products.signals.backend.emission.direct_gate import steering_filters_signal  # noqa: PLC0415
+
+        if await steering_filters_signal(
+            team=team,
+            organization=organization,
+            source_product=source_product,
+            source_type=source_type,
+            source_id=source_id,
+            description=description,
+            weight=weight,
+            extra=extra or {},
+        ):
+            return
 
     client = await async_connect()
 
@@ -923,3 +961,126 @@ def scout_reports_for_source(
             )
         )
     return reports
+
+
+@frozen
+class ScoutSummary:
+    """One scout standing on another product's object, in the shape that product needs to render
+    or manage it without reaching into scout tables."""
+
+    config_id: str
+    skill_name: str
+    source_id: str | None
+    enabled: bool
+    run_cron_schedule: str | None
+    run_interval_minutes: int
+    output_destinations: dict[str, Any]
+    description: str
+    created_at: datetime
+    created_by_id: int | None
+    last_run_at: datetime | None
+
+
+def list_scouts_for_source(
+    team_id: int, source_product: str, source_ids: list[str] | None = None
+) -> list[ScoutSummary]:
+    """The scouts a product stood up on its own objects, oldest first.
+
+    `(source_product, source_id)` was recorded at creation and is not user-editable, so the rows
+    returned are exactly the ones the calling product owns. Descriptions come from the live skill;
+    a scout whose skill was archived comes back with an empty description, matching the scout UI.
+    """
+    # Imported inside the call for the same reason as `create_scout_for_source`: keeps the skills
+    # API surface off the facade's import path.
+    from products.skills.backend.models.skills import (
+        LLMSkill,  # noqa: PLC0415 — keeps the API surface off the import path
+    )
+
+    configs_qs = SignalScoutConfig.objects.for_team(team_id).filter(source_product=source_product)
+    if source_ids is not None:
+        configs_qs = configs_qs.filter(source_id__in=source_ids)
+    configs = list(configs_qs.order_by("created_at"))
+    descriptions = dict(
+        LLMSkill.objects.filter(
+            team_id=team_id,
+            name__in=[config.skill_name for config in configs],
+            is_latest=True,
+            deleted=False,
+        ).values_list("name", "description")
+    )
+    return [
+        ScoutSummary(
+            config_id=str(config.id),
+            skill_name=config.skill_name,
+            source_id=config.source_id,
+            enabled=config.enabled,
+            run_cron_schedule=config.run_cron_schedule,
+            run_interval_minutes=config.run_interval_minutes,
+            output_destinations=config.output_destinations or {},
+            description=descriptions.get(config.skill_name, ""),
+            created_at=config.created_at,
+            created_by_id=config.created_by_id,
+            last_run_at=config.last_run_at,
+        )
+        for config in configs
+    ]
+
+
+def update_scout_for_source(
+    team_id: int,
+    source_product: str,
+    config_id: str,
+    *,
+    enabled: bool | None = None,
+    run_cron_schedule: str | None = None,
+    output_destinations: dict[str, Any] | None = None,
+) -> bool:
+    """Apply the schedule/enablement/delivery updates a source product may make to its own scout.
+
+    Returns False when no scout with that config id belongs to the source. The skill body is
+    deliberately not updatable here — prompt edits go through the scout surface, where the
+    skill-authoring bar applies.
+    """
+    config = SignalScoutConfig.objects.for_team(team_id).filter(id=config_id, source_product=source_product).first()
+    if config is None:
+        return False
+    update_fields: list[str] = ["updated_at"]
+    if enabled is not None and enabled != config.enabled:
+        config.enabled = enabled
+        update_fields.append("enabled")
+    if run_cron_schedule is not None and run_cron_schedule != config.run_cron_schedule:
+        config.run_cron_schedule = run_cron_schedule
+        config.schedule_changed_at = datetime.now(UTC)
+        update_fields += ["run_cron_schedule", "schedule_changed_at"]
+    if output_destinations is not None and output_destinations != config.output_destinations:
+        config.output_destinations = output_destinations
+        update_fields.append("output_destinations")
+    if len(update_fields) > 1:
+        config.save(update_fields=update_fields)
+    return True
+
+
+def delete_scout_for_source(*, team: "Team", source_product: str, config_id: str) -> bool:
+    """Retire a source-owned scout for good: archive its skill and remove its config.
+
+    Deleting only the config is not enough — the coordinator recreates a default config while the
+    skill exists — so the skill is archived in the same transaction. Returns False when no scout
+    with that config id belongs to the source.
+    """
+    from django.db import transaction  # noqa: PLC0415 — keeps the API surface off the import path
+
+    from products.skills.backend.api.skill_services import (  # noqa: PLC0415 — keeps the API surface off the import path
+        LLMSkillNotFoundError,
+        archive_skill,
+    )
+
+    config = SignalScoutConfig.objects.for_team(team.id).filter(id=config_id, source_product=source_product).first()
+    if config is None:
+        return False
+    with transaction.atomic():
+        try:
+            archive_skill(team, config.skill_name)
+        except LLMSkillNotFoundError:
+            pass  # Already archived; the config is the orphan being cleaned up.
+        config.delete()
+    return True

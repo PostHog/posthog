@@ -293,6 +293,108 @@ class PostHogSCIMUser(SCIMUser):
 
         SCIMProvisionedUser.objects.for_config(self._config).filter(user=self.obj).delete()
 
+    def _activate(self) -> None:
+        """Give the user back their organization membership and mark the SCIM record active."""
+        OrganizationMembership.objects.get_or_create(
+            user=self.obj,
+            organization=self._config.organization,
+            defaults={"level": OrganizationMembership.Level.MEMBER},
+        )
+        SCIMProvisionedUser.objects.upsert(
+            user=self.obj,
+            config=self._config,
+            defaults={
+                "active": True,
+                "username": self.user_name,
+                "identity_provider": self.identity_provider,
+            },
+        )
+
+    def _set_username(self, username: str) -> None:
+        SCIMProvisionedUser.objects.upsert(
+            user=self.obj,
+            config=self._config,
+            defaults={
+                "username": username,
+                "active": True,
+                "identity_provider": self.identity_provider,
+            },
+        )
+
+    def _apply_name(self, sub_attr: Optional[str], value: Union[str, list, dict]) -> None:
+        if sub_attr == "givenName" and isinstance(value, str):
+            self.obj.first_name = value
+        elif sub_attr == "familyName" and isinstance(value, str):
+            self.obj.last_name = value
+        elif isinstance(value, dict):
+            if "givenName" in value:
+                self.obj.first_name = value["givenName"]
+            if "familyName" in value:
+                self.obj.last_name = value["familyName"]
+
+    def _clear_name(self, sub_attr: Optional[str]) -> None:
+        if sub_attr == "givenName":
+            self.obj.first_name = ""
+        elif sub_attr == "familyName":
+            self.obj.last_name = ""
+        elif not sub_attr:
+            self.obj.first_name = ""
+            self.obj.last_name = ""
+
+    @classmethod
+    def _email_from_operation(cls, path: AttrPath, value: Union[str, list, dict]) -> Optional[str]:
+        """Read the target email out of a PATCH value, which is a bare string for a filtered path."""
+        if path.is_complex and isinstance(value, str):
+            return value
+        if isinstance(value, list):
+            return cls._extract_email_from_value(value)
+        return None
+
+    def _apply_email(self, email: str) -> None:
+        if User.objects.filter(email__iexact=email).exclude(id=self.obj.id).exists():
+            raise ValueError("Email belongs to another user")
+        _validate_email_domain_is_verified(email, self._config.organization)
+        # Org must also own the current email domain to prevent cross-tenant account takeover
+        _validate_email_domain_is_verified(self.obj.email, self._config.organization)
+        self.obj.email = email
+
+    def _write_attribute(self, path: AttrPath, value: Union[str, list, dict]) -> bool:
+        """
+        Write one SCIM attribute. Returns True when the User row still needs a save.
+
+        Unknown attributes are ignored, because the SCIM spec lets a provider support a subset.
+        """
+        first_path = path.first_path
+        attr_name = first_path.attr_name
+
+        if attr_name == "active":
+            if value:
+                self._activate()
+            else:
+                self.deactivate()
+            return False
+
+        if attr_name == "name":
+            self._apply_name(first_path.sub_attr, value)
+            return True
+
+        if attr_name == "emails":
+            email = self._email_from_operation(path, value)
+            if not email:
+                return False
+            self._apply_email(email)
+            return True
+
+        if attr_name == "userName" and isinstance(value, str):
+            self._set_username(value)
+
+        return False
+
+    def _handle_write(self, path: AttrPath, value: Union[str, list, dict]) -> None:
+        with transaction.atomic():
+            if self._write_attribute(path, value):
+                self.obj.save()
+
     def handle_replace(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:
         """
         Handle SCIM PATCH replace operations (called by django-scim2 handle_operations).
@@ -300,135 +402,15 @@ class PostHogSCIMUser(SCIMUser):
         Each attribute update comes as a separate call with its specific path and value.
         Supports complex paths like 'emails[type eq "work"].value' via scim2-filter-parser.
         """
-        first_path = path.first_path
-        attr_name = first_path.attr_name
-        sub_attr = first_path.sub_attr
-
-        with transaction.atomic():
-            if attr_name == "active":
-                if not value:
-                    self.deactivate()
-                    return
-                else:
-                    OrganizationMembership.objects.get_or_create(
-                        user=self.obj,
-                        organization=self._config.organization,
-                        defaults={"level": OrganizationMembership.Level.MEMBER},
-                    )
-
-                    SCIMProvisionedUser.objects.upsert(
-                        user=self.obj,
-                        config=self._config,
-                        defaults={
-                            "active": True,
-                            "username": self.user_name,
-                            "identity_provider": self.identity_provider,
-                        },
-                    )
-
-            elif attr_name == "name":
-                if sub_attr == "givenName" and isinstance(value, str):
-                    self.obj.first_name = value
-                elif sub_attr == "familyName" and isinstance(value, str):
-                    self.obj.last_name = value
-                elif isinstance(value, dict):
-                    if "givenName" in value:
-                        self.obj.first_name = value["givenName"]
-                    if "familyName" in value:
-                        self.obj.last_name = value["familyName"]
-
-            elif attr_name == "emails":
-                email = None
-                if path.is_complex and isinstance(value, str):
-                    email = value
-                elif isinstance(value, list):
-                    email = self._extract_email_from_value(value)
-
-                if email:
-                    if User.objects.filter(email__iexact=email).exclude(id=self.obj.id).exists():
-                        raise ValueError("Email belongs to another user")
-                    _validate_email_domain_is_verified(email, self._config.organization)
-                    # Org must also own the current email domain to prevent cross-tenant account takeover
-                    _validate_email_domain_is_verified(self.obj.email, self._config.organization)
-                    self.obj.email = email
-
-            elif attr_name == "userName" and isinstance(value, str):
-                SCIMProvisionedUser.objects.upsert(
-                    user=self.obj,
-                    config=self._config,
-                    defaults={
-                        "username": value,
-                        "active": True,
-                        "identity_provider": self.identity_provider,
-                    },
-                )
-
-            self.obj.save()
+        self._handle_write(path, value)
 
     def handle_add(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:
         """
         Handle SCIM PATCH add operations (called by django-scim2 handle_operations).
+
+        A SCIM single-valued attribute has one slot, so an add on one behaves as a replace.
         """
-        first_path = path.first_path
-        attr_name = first_path.attr_name
-        sub_attr = first_path.sub_attr
-
-        with transaction.atomic():
-            if attr_name == "active" and value:
-                OrganizationMembership.objects.get_or_create(
-                    user=self.obj,
-                    organization=self._config.organization,
-                    defaults={"level": OrganizationMembership.Level.MEMBER},
-                )
-
-                SCIMProvisionedUser.objects.upsert(
-                    user=self.obj,
-                    config=self._config,
-                    defaults={
-                        "active": True,
-                        "username": self.user_name,
-                        "identity_provider": self.identity_provider,
-                    },
-                )
-
-            elif attr_name == "name":
-                if sub_attr == "givenName" and isinstance(value, str):
-                    self.obj.first_name = value
-                elif sub_attr == "familyName" and isinstance(value, str):
-                    self.obj.last_name = value
-                elif isinstance(value, dict):
-                    if "givenName" in value:
-                        self.obj.first_name = value["givenName"]
-                    if "familyName" in value:
-                        self.obj.last_name = value["familyName"]
-                self.obj.save()
-
-            elif attr_name == "emails":
-                email = None
-                if path.is_complex and isinstance(value, str):
-                    email = value
-                elif isinstance(value, list):
-                    email = self._extract_email_from_value(value)
-
-                if email:
-                    if User.objects.filter(email__iexact=email).exclude(id=self.obj.id).exists():
-                        raise ValueError("Email belongs to another user")
-                    _validate_email_domain_is_verified(email, self._config.organization)
-                    # Org must also own the current email domain to prevent cross-tenant account takeover
-                    _validate_email_domain_is_verified(self.obj.email, self._config.organization)
-                    self.obj.email = email
-                    self.obj.save()
-
-            elif attr_name == "userName" and isinstance(value, str):
-                SCIMProvisionedUser.objects.upsert(
-                    user=self.obj,
-                    config=self._config,
-                    defaults={
-                        "username": value,
-                        "active": True,
-                        "identity_provider": self.identity_provider,
-                    },
-                )
+        self._handle_write(path, value)
 
     def handle_remove(self, path: AttrPath, value: Union[str, list, dict], operation: dict) -> None:
         """
@@ -436,21 +418,13 @@ class PostHogSCIMUser(SCIMUser):
         """
         first_path = path.first_path
         attr_name = first_path.attr_name
-        sub_attr = first_path.sub_attr
 
         with transaction.atomic():
             if attr_name == "active":
                 self.deactivate()
-                return
 
             elif attr_name == "name":
-                if sub_attr == "givenName":
-                    self.obj.first_name = ""
-                elif sub_attr == "familyName":
-                    self.obj.last_name = ""
-                elif not sub_attr:
-                    self.obj.first_name = ""
-                    self.obj.last_name = ""
+                self._clear_name(first_path.sub_attr)
                 self.obj.save()
 
             elif attr_name == "emails":

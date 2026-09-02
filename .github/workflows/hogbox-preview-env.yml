@@ -25,10 +25,11 @@
 # to --reset-db.
 #
 # --- TRIGGER (who gets a preview) -----------------------------------------------
-# The `decide` job (cheap, credential-free) is the gate. A same-repo, human,
-# ready (non-draft) PR gets a preview when it carries the `hogbox-preview` label
-# (manual opt-in, ANY paths) OR its diff touches the frontend (frontend/**,
-# products/*/frontend/**, common/esbuilder/**). The `no-preview` label opts out.
+# The `decide` job (cheap, credential-free) is the gate. A same-repo, human PR
+# gets a preview when it carries the `hogbox-preview` label (manual opt-in, ANY
+# paths, draft or ready) OR it is ready (non-draft) and its diff touches the
+# frontend (frontend/**, products/*/frontend/**, common/esbuilder/**). A draft
+# only ever previews through the label. The `no-preview` label opts out.
 # Auto-previews for frontend PRs are org-visible default behavior; the opt-out +
 # hibernation (below) keep them cheap. See the trigger notes on `on.pull_request`.
 #
@@ -52,7 +53,8 @@
 #   - the golden is referenced by its global alias `posthog-preview-golden`
 #   - target hogland deploy has HOG_GITHUB_OIDC_AUDIENCE + a github_oidc
 #     TrustMapping for PostHog/posthog on prod-us
-#   - frontend PRs auto-preview; `hogbox-preview` forces it for any paths,
+#   - ready frontend PRs auto-preview; `hogbox-preview` forces it for any paths
+#     and any draft state,
 #     `no-preview` opts out (see the TRIGGER section above)
 # The box is driven entirely by the posthog-hogland SDK (pip-installable, keyless
 # over hogplane's HTTP API) — no `hogland` CLI binary and no box SSH key needed.
@@ -179,8 +181,9 @@ jobs:
                           return decide(false, false, `label ${action} '${label}' — not preview-relevant → skip`);
                       }
 
-                      // Build eligibility: same-repo AND human AND ready AND not
-                      // opted-out AND (labeled OR frontend-touching).
+                      // Build eligibility: same-repo AND human AND (ready OR
+                      // labeled) AND not opted-out AND (labeled OR
+                      // frontend-touching).
                       const labels = (pr.labels || []).map(l => l.name);
                       const hasPreviewLabel = labels.includes('hogbox-preview');
                       const optedOut = labels.includes('no-preview');
@@ -193,8 +196,19 @@ jobs:
 
                       if (!sameRepo) return decide(false, false, `fork PR (${pr.head && pr.head.repo && pr.head.repo.full_name}) → skip`);
                       if (isBot) return decide(false, false, `bot author (${login}) → skip`);
-                      if (!ready) return decide(false, false, 'draft PR → skip');
+                      // A draft never AUTO-previews, but `hogbox-preview` opts one
+                      // in: self-review wants a clickable box before the PR is
+                      // ready. An unlabeled draft still waits for the draft→ready
+                      // flip.
+                      if (!ready && !hasPreviewLabel) return decide(false, false, 'draft PR without hogbox-preview → skip');
                       if (optedOut) return decide(false, false, 'no-preview label present → skip');
+
+                      // A labeled draft already has its preview (pushes keep it
+                      // current), so the draft→ready flip has nothing to build —
+                      // skip the identical rebuild at the same SHA.
+                      if (action === 'ready_for_review' && hasPreviewLabel) {
+                          return decide(false, false, 'ready_for_review on an already-previewed draft → skip');
+                      }
 
                       // The manual label opts a PR in for ANY paths; without it we
                       // require a frontend-touching diff. Only pay for the files
@@ -330,7 +344,7 @@ jobs:
               with:
                   # A dispatched run would otherwise check out master (the dispatch ref)
                   # and ship master's SPA as the "PR frontend" — dispatch is the only
-                  # preview path for draft/bot-authored PRs. The PR head is safe here:
+                  # preview path for bot-authored PRs. The PR head is safe here:
                   # the fork guard above has already hard-failed non-same-repo numbers,
                   # and this job runs without credentials. pull_request events keep the
                   # default merge-ref behavior (empty ref).
@@ -388,6 +402,7 @@ jobs:
               with:
                   name: hogbox-preview-frontend-dist
                   path: ${{ runner.temp }}/frontend-dist.tgz
+                  compression-level: 0
                   retention-days: 1
 
     # ----------------------------------------------------------------------------

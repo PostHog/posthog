@@ -39,6 +39,7 @@ import {
   isRateLimitError,
   isTransientUpstreamError,
   leadingSlashCommand,
+  type ModelAccess,
   mergeConfigOptions,
   type OptimisticItem,
   type PermissionRequest,
@@ -60,6 +61,7 @@ import {
   type EffortLevel,
   effortLevelSchema,
   isTerminalStatus,
+  readPendingFollowupMessages,
   type Task,
 } from "@posthog/shared/domain-types";
 import type { SendCommandOutput } from "../cloud-task/schemas";
@@ -122,6 +124,7 @@ import {
   normalizePromptToBlocks,
   promptReferencesAbsoluteFolder,
   selectEchoedOptimisticItemIds,
+  selectUnseededPendingFollowups,
   shellExecutesToContextBlocks,
 } from "./sessionEvents";
 import { selectSessionsToEvict } from "./sessionEviction";
@@ -150,7 +153,6 @@ const LOCAL_SESSION_RECOVERY_MESSAGE =
   "Lost connection to the agent. Reconnecting…";
 const LOCAL_SESSION_RECOVERY_FAILED_MESSAGE =
   "Connecting to to the agent has been lost. Retry, or start a new session.";
-const GITHUB_AUTHORIZATION_REQUIRED_CODE = "github_authorization_required";
 const AUTO_RETRY_MAX_ATTEMPTS = 2;
 const AUTO_RETRY_DELAY_MS = 10_000;
 const AUTH_RESTORE_MAX_RETRY_WAITS = 6;
@@ -247,15 +249,6 @@ function endsAtConversationClearedBoundary(events: AcpMessage[]): boolean {
     );
 }
 
-class GitHubAuthorizationRequiredForCloudHandoffError extends Error {
-  constructor(
-    message = "Connect GitHub before continuing this task in cloud.",
-  ) {
-    super(message);
-    this.name = "GitHubAuthorizationRequiredForCloudHandoffError";
-  }
-}
-
 type TrpcMutation = { mutate: (input?: any) => Promise<any> };
 type TrpcQuery = { query: (input?: any) => Promise<any> };
 type TrpcSubscription = {
@@ -343,12 +336,6 @@ export interface SessionTrpc {
     designateRelayedMcpServers: TrpcMutation;
     onUpdate: TrpcSubscription;
   };
-  handoff: {
-    execute: TrpcMutation;
-    executeToCloud: TrpcMutation;
-    preflight: TrpcQuery;
-    preflightToCloud: TrpcQuery;
-  };
   logs: {
     readLocalLogs: TrpcQuery;
     /** Optional: merges superseded tool_call_update snapshots server-side so
@@ -363,12 +350,13 @@ export interface SessionTrpc {
     fetchS3Logs: TrpcQuery;
     writeLocalLogs: TrpcMutation;
   };
-  os: { openExternal: TrpcMutation };
 }
 
 export interface ISessionStore {
   setSession(session: AgentSession): void;
   removeSession(taskRunId: string): void;
+  setTaskStarting?(taskId: string): void;
+  clearTaskStarting?(taskId: string): void;
   updateSession(taskRunId: string, updates: Partial<AgentSession>): void;
   appendEvents(
     taskRunId: string,
@@ -511,6 +499,8 @@ export interface SessionServiceDeps {
     spokenNotifications?: boolean;
     spokenNarrationEnabled?: boolean;
     bedrockGatewayVariant?: BedrockGatewayVariant;
+    codexModelAccess?: ModelAccess;
+    claudeModelAccess?: ModelAccess;
   };
   usageLimit: { show: (...args: any[]) => any };
   readonly addDirectoryDialog: { open: boolean };
@@ -543,12 +533,19 @@ type AuthCredentialsStatus =
   | { kind: "restoring" }
   | { kind: "missing" };
 
+export interface AdapterModelAccess {
+  codex?: ModelAccess;
+  claude?: ModelAccess;
+}
+
 export interface ConnectParams {
   task: Task;
   repoPath: string;
   initialPrompt?: ContentBlock[];
   executionMode?: ExecutionMode;
   adapter?: Adapter;
+  codexModelAccess?: ModelAccess;
+  claudeModelAccess?: ModelAccess;
   model?: string;
   reasoningLevel?: string;
   contextWindow?: "200k" | "1m";
@@ -1914,8 +1911,12 @@ export class SessionService {
     // Check for existing connected session
     const existingSession = this.d.store.getSessionByTaskId(taskId);
     if (existingSession?.status === "connected") {
+      this.d.store.clearTaskStarting?.(taskId);
       this.d.log.info("Already connected to task", { taskId });
       return;
+    }
+    if (task.latest_run?.environment !== "cloud") {
+      this.d.store.setTaskStarting?.(taskId);
     }
     if (existingSession?.status === "connecting") {
       this.d.log.info("Session already in connecting state", { taskId });
@@ -1933,6 +1934,8 @@ export class SessionService {
 
   private stampRunConfig(session: AgentSession, params: ConnectParams): void {
     session.adapter = params.adapter;
+    session.codexModelAccess = params.codexModelAccess;
+    session.claudeModelAccess = params.claudeModelAccess;
     session.model = params.model;
     session.executionMode = params.executionMode;
     session.reasoningLevel = params.reasoningLevel;
@@ -1950,6 +1953,8 @@ export class SessionService {
       initialPrompt,
       executionMode,
       adapter,
+      codexModelAccess,
+      claudeModelAccess,
       model,
       reasoningLevel,
       contextWindow,
@@ -2069,6 +2074,7 @@ export class SessionService {
           importedSessionId,
           contextWindow,
           fastMode,
+          { codex: codexModelAccess, claude: claudeModelAccess },
         );
       }
     } catch (error) {
@@ -2288,12 +2294,16 @@ export class SessionService {
         rtkEnabledLocal,
         spokenNarrationEnabled,
         bedrockGatewayVariant,
+        codexModelAccess,
+        claudeModelAccess: settingsClaudeModelAccess,
       } = this.d.settings;
       const result = await this.d.trpc.agent.reconnect.mutate({
         taskId,
         taskRunId,
         repoPath,
         rtkEnabled: rtkEnabledLocal,
+        codexModelAccess,
+        claudeModelAccess: settingsClaudeModelAccess,
         spokenNarration: spokenNarrationEnabled === true,
         bedrockGatewayVariant,
         apiHost: auth.apiHost,
@@ -2629,6 +2639,7 @@ export class SessionService {
     importedSessionId?: string,
     contextWindow?: "200k" | "1m",
     fastMode?: boolean,
+    modelAccess?: AdapterModelAccess,
   ): Promise<void> {
     const { client } = auth;
     if (!client) {
@@ -2645,7 +2656,13 @@ export class SessionService {
       rtkEnabledLocal,
       spokenNarrationEnabled,
       bedrockGatewayVariant,
+      codexModelAccess: settingsCodexModelAccess,
+      claudeModelAccess: settingsClaudeModelAccess,
     } = this.d.settings;
+    const resolvedModelAccess: AdapterModelAccess = {
+      codex: modelAccess?.codex ?? settingsCodexModelAccess,
+      claude: modelAccess?.claude ?? settingsClaudeModelAccess,
+    };
     const preferredModel = model ?? this.d.DEFAULT_GATEWAY_MODEL;
     const result = await this.d.trpc.agent.start.mutate({
       taskId,
@@ -2655,6 +2672,8 @@ export class SessionService {
       projectId: auth.projectId,
       permissionMode: executionMode,
       adapter,
+      codexModelAccess: resolvedModelAccess.codex,
+      claudeModelAccess: resolvedModelAccess.claude,
       customInstructions: startCustomInstructions || undefined,
       rtkEnabled: rtkEnabledLocal,
       spokenNarration: spokenNarrationEnabled === true,
@@ -2672,6 +2691,8 @@ export class SessionService {
     session.channel = result.channel;
     session.status = "connected";
     session.adapter = adapter;
+    session.codexModelAccess = resolvedModelAccess.codex;
+    session.claudeModelAccess = resolvedModelAccess.claude;
     session.model = model;
     session.executionMode = executionMode;
     session.reasoningLevel = reasoningLevel;
@@ -3020,7 +3041,7 @@ export class SessionService {
   ): session is AgentSession {
     if (!session || session.isPromptPending) return false;
     // A cloud run's `status` can read "disconnected" while the run is still
-    // alive (cloud handoff and SSE-retry both write it), so a cloud transcript
+    // alive because SSE retries write it, so a cloud transcript
     // is only safe to release once its `cloudStatus` is terminal, mirroring
     // isSessionIdle. Local runs still key off `status`.
     return session.isCloud
@@ -5239,6 +5260,7 @@ export class SessionService {
       runtimeOptions = getCloudRuntimeOptions(session, previousRun);
 
       try {
+        this.markTaskCreationInFlight(session.taskId);
         // Backend derives the snapshot from resumeFromRunId and restores the sandbox.
         updatedTask = await authCredentials.client.runTaskInCloud(
           session.taskId,
@@ -5278,11 +5300,13 @@ export class SessionService {
         throw error;
       }
     } catch (error) {
+      this.clearTaskCreationInFlight(session.taskId);
       rollbackOptimisticPrompt();
       throw error;
     }
     const newRun = updatedTask.latest_run;
     if (!newRun?.id) {
+      this.clearTaskCreationInFlight(session.taskId);
       rollbackOptimisticPrompt();
       throw new Error("Failed to create resume run");
     }
@@ -5867,27 +5891,35 @@ export class SessionService {
    * Set a session configuration option with optimistic update and rollback.
    * This is the unified method for model, mode, thought level, etc.
    */
+  /**
+   * Returns whether the change reached the agent: `true` once the backend
+   * accepted it (or it was already set), `false` when the session is missing,
+   * the option is unknown, the change was skipped because the local session is
+   * offline, or the backend call failed and rolled back. Callers that gate a
+   * user action on the switch (the mid-session model switch) rely on this to
+   * tell success from a swallowed failure.
+   */
   async setSessionConfigOption(
     taskId: string,
     configId: string,
     value: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const session = this.d.store.getSessionByTaskId(taskId);
-    if (!session) return;
+    if (!session) return false;
 
     // Find the config option and save previous value for rollback
     const configOptions = session.configOptions ?? [];
     const optionIndex = configOptions.findIndex((opt) => opt.id === configId);
     if (optionIndex === -1) {
       this.d.log.warn("Config option not found", { taskId, configId });
-      return;
+      return false;
     }
 
     const previousValue = configOptions[optionIndex].currentValue;
 
     // Skip if value is already set — avoids expensive IPC round-trip (e.g. setModel ~2s)
     if (previousValue === value) {
-      return;
+      return true;
     }
 
     // Optimistic update
@@ -5901,13 +5933,35 @@ export class SessionService {
     });
     this.d.setPersistedConfigOptions(session.taskRunId, updatedOptions);
 
+    const rollbackConfigOption = (): void => {
+      const latestConfigOptions =
+        this.d.store.getSessionByTaskId(taskId)?.configOptions ?? [];
+      const latestOption = latestConfigOptions.find(
+        (option) => option.id === configId,
+      );
+      if (latestOption?.currentValue !== value) return;
+      const rolledBackOptions = latestConfigOptions.map((option) =>
+        option.id === configId
+          ? ({
+              ...option,
+              currentValue: previousValue,
+            } as SessionConfigOption)
+          : option,
+      );
+      this.d.store.updateSession(session.taskRunId, {
+        configOptions: rolledBackOptions,
+      });
+      this.d.setPersistedConfigOptions(session.taskRunId, rolledBackOptions);
+    };
+
     if (
       !session.isCloud &&
       (session.idleKilled ||
         session.status === "disconnected" ||
         session.status === "connecting")
     ) {
-      return;
+      rollbackConfigOption();
+      return false;
     }
 
     try {
@@ -5923,26 +5977,9 @@ export class SessionService {
           value,
         });
       }
+      return true;
     } catch (error) {
-      const latestConfigOptions =
-        this.d.store.getSessionByTaskId(taskId)?.configOptions ?? [];
-      const latestOption = latestConfigOptions.find(
-        (option) => option.id === configId,
-      );
-      if (latestOption?.currentValue === value) {
-        const rolledBackOptions = latestConfigOptions.map((option) =>
-          option.id === configId
-            ? ({
-                ...option,
-                currentValue: previousValue,
-              } as SessionConfigOption)
-            : option,
-        );
-        this.d.store.updateSession(session.taskRunId, {
-          configOptions: rolledBackOptions,
-        });
-        this.d.setPersistedConfigOptions(session.taskRunId, rolledBackOptions);
-      }
+      rollbackConfigOption();
       this.d.log.error("Failed to set session config option", {
         taskId,
         configId,
@@ -5950,6 +5987,7 @@ export class SessionService {
         error,
       });
       this.d.toast.error("Failed to change setting. Please try again.");
+      return false;
     }
   }
 
@@ -6060,6 +6098,8 @@ export class SessionService {
         reasoningLevel,
         contextWindow,
         fastMode,
+        codexModelAccess,
+        claudeModelAccess,
       } = session;
       await this.teardownSession(session.taskRunId);
       const authStatus = await this.getAuthCredentialsStatus();
@@ -6084,6 +6124,7 @@ export class SessionService {
         undefined,
         contextWindow,
         fastMode,
+        { codex: codexModelAccess, claude: claudeModelAccess },
       );
       return;
     }
@@ -7346,6 +7387,19 @@ export class SessionService {
       this.initialCloudOptimisticPrompt.delete(taskId);
       this.d.store.clearTailOptimisticItems(taskRunId);
     }
+    const unseededFollowups = selectUnseededPendingFollowups(
+      isTerminalRun ? [] : readPendingFollowupMessages(runState),
+      events,
+      this.getSessionByRunId(taskRunId)?.optimisticItems ?? [],
+    );
+    for (const message of unseededFollowups) {
+      this.d.store.appendOptimisticItem(taskRunId, {
+        type: "user_message",
+        content: message.content,
+        timestamp: Date.now(),
+        pinToTop: false,
+      });
+    }
 
     if (rawEntries.length === 0) {
       this.pendingPermissionHydratedRuns.add(taskRunId);
@@ -7694,304 +7748,6 @@ export class SessionService {
     this.cloudLogGapReconciler.forgetDeficiency(watcher.runId);
   }
 
-  async preflightToLocal(taskId: string, repoPath: string) {
-    const session = this.d.store.getSessionByTaskId(taskId);
-    if (!session)
-      return {
-        canHandoff: false as const,
-        localTreeDirty: false as const,
-        reason: "No session found",
-      };
-
-    const auth = await this.getHandoffAuth();
-    if (!auth)
-      return {
-        canHandoff: false as const,
-        localTreeDirty: false as const,
-        reason: "Authentication required",
-      };
-
-    const preflight = await this.d.trpc.handoff.preflight.query({
-      taskId,
-      runId: session.taskRunId,
-      repoPath,
-      apiHost: auth.apiHost,
-      teamId: auth.projectId,
-    });
-
-    return {
-      canHandoff: preflight.canHandoff,
-      localTreeDirty: preflight.localTreeDirty,
-      localGitState: preflight.localGitState,
-      changedFiles: preflight.changedFiles,
-      reason: preflight.reason,
-    };
-  }
-
-  async handoffToLocal(
-    taskId: string,
-    repoPath: string,
-    repositoryPaths?: Record<string, string>,
-  ): Promise<void> {
-    const session = this.d.store.getSessionByTaskId(taskId);
-    if (!session) {
-      this.d.log.warn("No session found for handoff", { taskId });
-      return;
-    }
-
-    const runId = session.taskRunId;
-    const auth = await this.getHandoffAuth();
-    if (!auth) return;
-
-    this.d.store.updateSession(runId, { handoffInProgress: true });
-
-    try {
-      const paths = [...new Set(Object.values(repositoryPaths ?? {}))];
-      if (!paths.includes(repoPath)) paths.unshift(repoPath);
-      let localGitState:
-        | Awaited<
-            ReturnType<typeof this.d.trpc.handoff.preflight.query>
-          >["localGitState"]
-        | undefined;
-      for (const path of paths) {
-        const preflight = await this.runHandoffPreflight(
-          taskId,
-          runId,
-          path,
-          auth,
-        );
-        if (path === repoPath) localGitState = preflight.localGitState;
-      }
-      this.stopCloudTaskWatch(taskId);
-      this.d.store.updateSession(runId, { status: "connecting" });
-      await this.executeHandoff(
-        taskId,
-        runId,
-        repoPath,
-        repositoryPaths,
-        auth,
-        localGitState,
-      );
-      this.transitionToLocalSession(runId);
-      this.subscribeToChannel(runId);
-      await Promise.all([
-        this.d.queryClient.refetchQueries({ queryKey: ["tasks"] }),
-        this.d.queryClient.refetchQueries({
-          queryKey: this.d.WORKSPACE_QUERY_KEY,
-        }),
-      ]);
-      this.d.store.updateSession(runId, { handoffInProgress: false });
-      this.d.log.info("Cloud-to-local handoff complete", { taskId, runId });
-    } catch (err) {
-      this.d.log.error("Handoff failed", { taskId, err });
-      this.d.toast.error(
-        err instanceof Error ? err.message : "Handoff to local failed",
-      );
-      this.watchCloudTask(taskId, runId, auth.apiHost, auth.projectId);
-      this.d.store.updateSession(runId, {
-        handoffInProgress: false,
-        status: "disconnected",
-      });
-    }
-  }
-
-  async handoffToCloud(taskId: string, repoPath: string): Promise<void> {
-    const session = this.d.store.getSessionByTaskId(taskId);
-    if (!session) {
-      this.d.log.warn("No session found for cloud handoff", { taskId });
-      return;
-    }
-
-    const runId = session.taskRunId;
-    const auth = await this.getHandoffAuth();
-    if (!auth) return;
-
-    this.d.store.updateSession(runId, { handoffInProgress: true });
-
-    try {
-      const preflight = await this.d.trpc.handoff.preflightToCloud.query({
-        taskId,
-        runId,
-        repoPath,
-      });
-      if (!preflight.canHandoff) {
-        this.d.store.updateSession(runId, {
-          handoffInProgress: false,
-        });
-        throw new Error(preflight.reason ?? "Cannot hand off to cloud");
-      }
-
-      this.unsubscribeFromChannel(runId);
-      this.d.store.updateSession(runId, { status: "connecting" });
-
-      const result = await this.d.trpc.handoff.executeToCloud.mutate({
-        taskId,
-        runId,
-        repoPath,
-        apiHost: auth.apiHost,
-        teamId: auth.projectId,
-        localGitState: preflight.localGitState,
-      });
-      if (!result.success) {
-        if (result.code === GITHUB_AUTHORIZATION_REQUIRED_CODE) {
-          throw new GitHubAuthorizationRequiredForCloudHandoffError(
-            result.error,
-          );
-        }
-        throw new Error(result.error ?? "Handoff to cloud failed");
-      }
-
-      this.d.store.updateSession(runId, {
-        isCloud: true,
-        cloudStatus: undefined,
-        cloudStage: undefined,
-        cloudOutput: undefined,
-        cloudErrorMessage: undefined,
-        cloudBranch: undefined,
-        status: "disconnected",
-        processedLineCount: result.logEntryCount ?? 0,
-      });
-
-      this.watchCloudTask(taskId, runId, auth.apiHost, auth.projectId);
-      await Promise.all([
-        this.d.queryClient.refetchQueries({ queryKey: ["tasks"] }),
-        this.d.queryClient.refetchQueries({
-          queryKey: this.d.WORKSPACE_QUERY_KEY,
-        }),
-      ]);
-      this.d.store.updateSession(runId, { handoffInProgress: false });
-      this.d.log.info("Local-to-cloud handoff complete", { taskId, runId });
-    } catch (err) {
-      this.d.log.error("Handoff to cloud failed", { taskId, err });
-      if (err instanceof GitHubAuthorizationRequiredForCloudHandoffError) {
-        await this.startGithubReauthForCloudHandoff(auth.projectId);
-      } else {
-        this.d.toast.error(
-          err instanceof Error ? err.message : "Handoff to cloud failed",
-        );
-      }
-      this.subscribeToChannel(runId);
-      this.d.store.updateSession(runId, {
-        handoffInProgress: false,
-        status: "disconnected",
-      });
-    }
-  }
-
-  private async startGithubReauthForCloudHandoff(
-    projectId: number,
-  ): Promise<void> {
-    const client = await this.d.getAuthenticatedClient();
-    if (!client) {
-      this.d.toast.error("Sign in before connecting GitHub.");
-      return;
-    }
-
-    try {
-      const { install_url: installUrl } =
-        await client.startGithubUserIntegrationConnect(projectId);
-      const url = installUrl?.trim();
-      if (!url) {
-        this.d.toast.error(
-          "GitHub connection did not return a URL. Please try again.",
-        );
-        return;
-      }
-
-      await this.d.trpc.os.openExternal.mutate({ url });
-      this.d.toast.info(
-        "Connect GitHub to continue in cloud",
-        "Complete the authorization in your browser, then click Continue again.",
-      );
-    } catch (error) {
-      this.d.toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to start GitHub connection",
-      );
-    }
-  }
-
-  private async getHandoffAuth(): Promise<{
-    apiHost: string;
-    projectId: number;
-  } | null> {
-    let auth: Awaited<ReturnType<SessionServiceDeps["fetchAuthState"]>>;
-    try {
-      auth = await this.d.fetchAuthState();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      this.d.toast.error(`Authentication required for handoff: ${message}`);
-      return null;
-    }
-    if (!auth.currentProjectId || !auth.cloudRegion) {
-      this.d.toast.error("Missing project configuration for handoff");
-      return null;
-    }
-    return {
-      apiHost: getCloudUrlFromRegion(auth.cloudRegion),
-      projectId: auth.currentProjectId,
-    };
-  }
-
-  private async runHandoffPreflight(
-    taskId: string,
-    runId: string,
-    repoPath: string,
-    auth: { apiHost: string; projectId: number },
-  ): Promise<Awaited<ReturnType<typeof this.d.trpc.handoff.preflight.query>>> {
-    const preflight = await this.d.trpc.handoff.preflight.query({
-      taskId,
-      runId,
-      repoPath,
-      apiHost: auth.apiHost,
-      teamId: auth.projectId,
-    });
-    if (!preflight.canHandoff) {
-      this.d.store.updateSession(runId, {
-        handoffInProgress: false,
-      });
-      throw new Error(preflight.reason ?? "Cannot hand off to local");
-    }
-    return preflight;
-  }
-
-  private async executeHandoff(
-    taskId: string,
-    runId: string,
-    repoPath: string,
-    repositoryPaths: Record<string, string> | undefined,
-    auth: { apiHost: string; projectId: number },
-    localGitState?: Awaited<
-      ReturnType<typeof this.d.trpc.handoff.preflight.query>
-    >["localGitState"],
-  ): Promise<void> {
-    const result = await this.d.trpc.handoff.execute.mutate({
-      taskId,
-      runId,
-      repoPath,
-      repositoryPaths,
-      apiHost: auth.apiHost,
-      teamId: auth.projectId,
-      localGitState,
-    });
-    if (!result.success) {
-      throw new Error(result.error ?? "Handoff failed");
-    }
-  }
-
-  private transitionToLocalSession(runId: string): void {
-    this.d.store.updateSession(runId, {
-      isCloud: false,
-      cloudStatus: undefined,
-      cloudStage: undefined,
-      cloudOutput: undefined,
-      cloudErrorMessage: undefined,
-      cloudBranch: undefined,
-      status: "connected",
-    });
-  }
-
   async retryCloudTaskWatch(taskId: string): Promise<void> {
     const session = this.d.store.getSessionByTaskId(taskId);
     if (!session?.isCloud) {
@@ -8226,6 +7982,12 @@ export class SessionService {
 
   public markTaskCreationInFlight(taskId: string): void {
     this.taskCreationMarks.set(taskId, Date.now());
+    this.d.store.setTaskStarting?.(taskId);
+  }
+
+  private clearTaskCreationInFlight(taskId: string): void {
+    this.taskCreationMarks.delete(taskId);
+    this.d.store.clearTaskStarting?.(taskId);
   }
 
   private isTaskCreationInFlight(taskId: string): boolean {
@@ -8234,7 +7996,7 @@ export class SessionService {
     const expired =
       Date.now() - markedAt > SessionService.TASK_CREATION_IN_FLIGHT_TTL_MS;
     if (expired) {
-      this.taskCreationMarks.delete(taskId);
+      this.clearTaskCreationInFlight(taskId);
       return false;
     }
     return true;

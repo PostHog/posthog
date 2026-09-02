@@ -124,9 +124,9 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @extend_schema(
         parameters=[QuerySerializer],
         description=(
-            "Full-text search across project entities. Each result includes `user_access_level`, "
-            "the requesting user's resolved access level for that object (`none` means the user "
-            "cannot open it); `null` when access controls don't apply to the entity type."
+            "Full-text search across project entities. Objects the user cannot access are left out. "
+            "Each result includes `user_access_level`, the requesting user's resolved access level for "
+            "that object; `null` when access controls don't apply to the entity type."
         ),
     )
     def list(self, request: Request, **kw) -> HttpResponse:

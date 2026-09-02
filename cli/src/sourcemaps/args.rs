@@ -54,9 +54,47 @@ impl TryFrom<FileSelectionArgs> for FileSelection {
     }
 }
 
+/// Caps on the selection roots Display renders. A stdin-provided selection can hold
+/// thousands of paths, and printing them all produces a log line larger than the pipe
+/// buffer (16-64 KiB depending on the platform), which kills the process with EAGAIN
+/// when stderr is a non-blocking pipe (e.g. inherited from a Node.js parent, as the
+/// PostHog bundler plugins do). The count cap keeps the line readable; the byte budget
+/// bounds it even when the individual paths are long.
+const MAX_DISPLAYED_ROOTS: usize = 8;
+const MAX_DISPLAY_BYTES: usize = 1024;
+
 impl Display for FileSelectionArgs {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.directory)
+        let mut rendered = String::from("[");
+        let mut shown = 0usize;
+        for path in self.directory.iter().take(MAX_DISPLAYED_ROOTS) {
+            let mut formatted = format!("{path:?}");
+            // Truncate rather than skip, so even a single pathological path stays inside
+            // the budget: Debug escaping can inflate a path well past PATH_MAX.
+            if formatted.len() > MAX_DISPLAY_BYTES {
+                let mut cut = MAX_DISPLAY_BYTES;
+                while !formatted.is_char_boundary(cut) {
+                    cut -= 1;
+                }
+                formatted.truncate(cut);
+                formatted.push_str("...");
+            }
+            if shown > 0 && rendered.len() + formatted.len() + 2 > MAX_DISPLAY_BYTES {
+                break;
+            }
+            if shown > 0 {
+                rendered.push_str(", ");
+            }
+            rendered.push_str(&formatted);
+            shown += 1;
+        }
+        rendered.push(']');
+        let omitted = self.directory.len() - shown;
+        if omitted > 0 {
+            write!(f, "{rendered} and {omitted} more")
+        } else {
+            write!(f, "{rendered}")
+        }
     }
 }
 
@@ -160,11 +198,11 @@ impl UploadConflictArgs {
     /// Resolve what to do about changed content, given the release mode.
     ///
     /// Event mode always overwrites, and neither flag changes that. A chunk's id and its uploaded
-    /// bytes move independently there: the id is derived from the pristine minified source and so
-    /// survives a new release, while the injected snippet inside the payload carries the release id
-    /// and changes with every release. Every chunk therefore conflicts on every release after the
-    /// first, so honoring `--skip-on-conflict` would skip all of them and leave the server serving
-    /// the previous release's id forever.
+    /// bytes move independently there. The id comes from content that survives a new release,
+    /// while the release id travels inside the payload. Every change to that release id makes the
+    /// chunk conflict under an unchanged id. A web bundle carries it in the injected snippet, so
+    /// it conflicts on every release. A Hermes map conflicts once, on the build that changes mode.
+    /// To honor `--skip-on-conflict` would keep the stored payload, so the newer one never lands.
     pub fn resolve(&self, release_mode: ReleaseMode) -> ConflictBehavior {
         match release_mode {
             ReleaseMode::Event => ConflictBehavior {
@@ -260,6 +298,58 @@ mod tests {
         }
 
         parsed
+    }
+
+    #[test]
+    fn display_is_bounded_for_large_selections() {
+        let args = FileSelectionArgs {
+            directory: (0..10_000)
+                .map(|i| PathBuf::from(format!("static/chunks/chunk-{i}.js")))
+                .collect(),
+            stdin: false,
+            include: Vec::new(),
+            exclude: Vec::new(),
+        };
+
+        let rendered = args.to_string();
+
+        // Keep the rendered selection far under the smallest pipe buffer (16 KiB): a
+        // single oversized log line kills the CLI when stderr is a non-blocking pipe.
+        assert!(rendered.len() < 2048, "rendered {} bytes", rendered.len());
+        assert!(rendered.ends_with("and 9992 more"), "rendered: {rendered}");
+    }
+
+    #[test]
+    fn display_truncates_a_single_oversized_path() {
+        let args = FileSelectionArgs {
+            directory: vec![PathBuf::from("a".repeat(50_000))],
+            stdin: false,
+            include: Vec::new(),
+            exclude: Vec::new(),
+        };
+
+        let rendered = args.to_string();
+
+        assert!(rendered.len() < 2048, "rendered {} bytes", rendered.len());
+        assert!(rendered.contains("..."), "rendered: {rendered}");
+    }
+
+    #[test]
+    fn display_is_bounded_for_long_paths() {
+        let long_segment = "a".repeat(300);
+        let args = FileSelectionArgs {
+            directory: (0..10_000)
+                .map(|i| PathBuf::from(format!("{long_segment}/chunk-{i}.js")))
+                .collect(),
+            stdin: false,
+            include: Vec::new(),
+            exclude: Vec::new(),
+        };
+
+        let rendered = args.to_string();
+
+        assert!(rendered.len() < 2048, "rendered {} bytes", rendered.len());
+        assert!(rendered.ends_with("more"), "rendered: {rendered}");
     }
 
     fn make_args(name: Option<&str>, version: Option<&str>, build: Option<&str>) -> ReleaseArgs {

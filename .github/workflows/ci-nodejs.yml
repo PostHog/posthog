@@ -45,7 +45,7 @@ jobs:
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
@@ -85,6 +85,9 @@ jobs:
                         # so no app image is built here. Dockerfile.node is gated separately in
                         # ci-nodejs-container.yml.
                         - 'docker*.yml'
+                        # The compose stack mounts this ClickHouse config; the Kafka engine settings
+                        # in it set how long every ClickHouse-backed Jest test waits for a row.
+                        - 'docker/clickhouse/**'
                       rust:
                         - 'rust/**'
                         - 'proto/**'
@@ -156,7 +159,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -221,7 +224,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -310,6 +313,7 @@ jobs:
               continue-on-error: true
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -340,7 +344,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -542,7 +546,9 @@ jobs:
                   # jest-junit's outputDir resolves against the jest process cwd, which is the
                   # workspace root for the turbo invocation but `nodejs/` if a shard ever runs
                   # jest directly; cover both.
-                  name: junit-results-nodejs-${{ matrix.shard }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
+                  # Lane-qualified: serial 1/3 and parallel 1/1 are both shard 1, and the
+                  # artifact list returns one entry per name, so a lane-less name hides one.
+                  name: junit-results-nodejs-${{ matrix.lane }}-${{ matrix.shard }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
                   path: |
                       junit-results/junit-nodejs-*.xml
                       junit-results/posthog-jest-quarantine-*.jsonl
@@ -611,6 +617,7 @@ jobs:
               continue-on-error: true
 
             - name: Log in to Docker Hub
+              continue-on-error: true
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
@@ -641,7 +648,7 @@ jobs:
               continue-on-error: true
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
                   skip-token-revoke: true
 
@@ -769,6 +776,10 @@ jobs:
             # explicitly since we invoke the test directly.
             - name: Build Node.js workspace dependencies
               run: bin/turbo --filter=@posthog/nodejs prepare
+
+            # ingestion-consumer depends on ingestion-worker-proto, whose build script runs protoc.
+            - name: Install protoc
+              uses: ./.github/actions/setup-protoc
 
             - name: Pre-build Rust ingestion consumer
               working-directory: rust

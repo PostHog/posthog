@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.shopify import (
+    ShopifyAuthMethodConfig,
     ShopifySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.constants import (
@@ -47,7 +48,10 @@ class TestApiVersionResolution:
     ) -> None:
         source = ShopifySource()
         config = ShopifySourceConfig(
-            shopify_store_id="my-store", shopify_client_id="client-id", shopify_client_secret="secret"
+            shopify_store_id="my-store",
+            auth_method=ShopifyAuthMethodConfig(
+                selection="client_credentials", shopify_client_id="client-id", shopify_client_secret="secret"
+            ),
         )
 
         source.source_for_pipeline(config, MagicMock(spec=ResumableSourceManager), _make_inputs(pin))
@@ -111,7 +115,10 @@ class TestNonSyncSurfacesUseResolvedPin:
     def test_validate_credentials_passes_resolved_pin(self, mock_validate: Any, pin: str | None, expected: str) -> None:
         mock_validate.return_value = True
         config = ShopifySourceConfig(
-            shopify_store_id="my-store", shopify_client_id="id", shopify_client_secret="secret"
+            shopify_store_id="my-store",
+            auth_method=ShopifyAuthMethodConfig(
+                selection="client_credentials", shopify_client_id="id", shopify_client_secret="secret"
+            ),
         )
 
         ShopifySource().validate_credentials(config, team_id=1, api_version=pin)
@@ -131,7 +138,10 @@ class TestNonSyncSurfacesUseResolvedPin:
     def test_endpoint_permissions_pass_resolved_pin(self, mock_check: Any, pin: str | None, expected: str) -> None:
         mock_check.return_value = {}
         config = ShopifySourceConfig(
-            shopify_store_id="my-store", shopify_client_id="id", shopify_client_secret="secret"
+            shopify_store_id="my-store",
+            auth_method=ShopifyAuthMethodConfig(
+                selection="client_credentials", shopify_client_id="id", shopify_client_secret="secret"
+            ),
         )
 
         ShopifySource().get_endpoint_permissions(config, team_id=1, endpoints=[ORDERS], api_version=pin)

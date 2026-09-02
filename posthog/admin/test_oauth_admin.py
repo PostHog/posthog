@@ -205,6 +205,43 @@ class TestOAuthApplicationAdmin(BaseTest):
 
     @parameterized.expand(
         [
+            ("cimd_url", "https://partner.example.com/.well-known/oauth-client-metadata", True),
+            ("opaque", "IqK3fT9vBs2LwQ8xNc4Zr7Hd", False),
+        ]
+    )
+    def test_new_app_cannot_take_a_cimd_shaped_client_id(self, _name, client_id, expects_error):
+        # A metadata refresh writes the document's redirect URIs and auth settings onto the row
+        # holding that URL. An operator who could type one here would point a partner's document
+        # at an app registered by hand.
+        request = RequestFactory().get("/")
+        request.user = self.user
+        form_class = self.admin.get_form(request, None, change=False)
+        form = form_class(data={"name": "Manually registered app", "client_id": client_id})
+        form.is_valid()
+        assert ("client_id" in form.errors) is expects_error
+
+    @parameterized.expand(
+        [
+            ("add_form", False),
+            ("change_form", True),
+        ]
+    )
+    def test_cimd_identity_fields_are_not_editable(self, _name, change):
+        # An operator who could turn on is_cimd_client would hand the next metadata refresh
+        # an app that no partner registered.
+        app = OAuthApplication(is_cimd_client=False) if change else None
+        request = RequestFactory().get("/")
+        # A user without change permission gets an empty change form, which would pass this
+        # assertion without proving anything.
+        self.user.is_staff = True
+        request.user = self.user
+        form_class = self.admin.get_form(request, app, change=change)
+        assert "name" in form_class.base_fields
+        editable = [name for name in ("is_cimd_client", "is_dcr_client") if name in form_class.base_fields]
+        assert editable == []
+
+    @parameterized.expand(
+        [
             ("cimd_app", True, True),
             ("regular_app", False, False),
         ]
@@ -212,7 +249,7 @@ class TestOAuthApplicationAdmin(BaseTest):
     def test_only_a_cimd_app_warns_that_deletion_blocklists_its_url(self, _name, is_cimd, expects_warning):
         app = OAuthApplication(
             is_cimd_client=is_cimd,
-            cimd_metadata_url="https://partner.example.com/client.json" if is_cimd else None,
+            client_id="https://partner.example.com/client.json" if is_cimd else "IqK3fT9vBs2LwQ8xNc4Zr7Hd",
         )
 
         warning = cimd_blocklist_warning(app)

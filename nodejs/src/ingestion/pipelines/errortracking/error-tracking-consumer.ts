@@ -84,7 +84,7 @@ export interface ErrorTrackingConsumerDeps {
     cookielessManager: CookielessManager
     redisPool: GenericPool<Redis>
     personRepository: PersonReadRepository
-    createEventUsageBatch?: () => UsageRecordBatch
+    createEventUsageBatch: () => UsageRecordBatch
 }
 
 // Batch processing status - useful for tracking failures (batch sizes already tracked by KafkaConsumer)

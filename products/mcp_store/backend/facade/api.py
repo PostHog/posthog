@@ -34,6 +34,11 @@ from products.mcp_store.backend.models import (
 )
 from products.mcp_store.backend.policy import GatewayCaller, PolicyContext
 
+# Re-exported for the presentation layer ("presentation must use facade"
+# import-linter contract): the single MCP URL policy entry point — shared SSRF
+# validation, overridden only by the exact team-scoped internal allowlist.
+from products.mcp_store.backend.url_policy import check_mcp_url_policy as check_mcp_url_policy
+
 logger = structlog.get_logger(__name__)
 
 
@@ -116,6 +121,14 @@ def _resolve_name(installation: MCPServerInstallation) -> str:
     return installation.url
 
 
+def _resolve_description(installation: MCPServerInstallation) -> str:
+    if installation.description:
+        return installation.description
+    if installation.template and installation.template.description:
+        return installation.template.description
+    return ""
+
+
 def _is_oauth_ready(installation: MCPServerInstallation) -> bool:
     if installation.auth_type != "oauth":
         return True
@@ -132,6 +145,7 @@ def _to_info(installation: MCPServerInstallation, team_id: int) -> ActiveInstall
         id=str(installation.id),
         name=_resolve_name(installation),
         proxy_path=f"/api/environments/{team_id}/mcp_server_installations/{installation.id}/proxy/",
+        description=_resolve_description(installation),
         scope=installation.scope,
     )
 
@@ -305,9 +319,10 @@ def get_installations_for_sandbox(
     URL as a shared one, only the personal one is returned — the user acts as
     themselves rather than through the shared credential.
 
-    ``allowed_gateway_server_ids`` narrows the agent mounts to the listed
-    gateway servers regardless of grant scope (a scout's per-scout selection);
-    see ``_mounts_for_agent_run``. It only applies on the agent path.
+    ``allowed_gateway_server_ids`` narrows the mounts to the listed gateway
+    servers regardless of grant scope (a scout's per-scout selection); see
+    ``_mounts_for_agent_run``. It binds on both paths: passing ``[]`` mounts no
+    MCP Store servers at all, and passing ``None`` leaves the mounts unnarrowed.
     """
     try:
         base_queryset = MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True).select_related(
@@ -353,6 +368,11 @@ def get_installations_for_sandbox(
             shared_queryset = shared_queryset.filter(
                 Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True)
             )
+            if allowed_gateway_server_ids is not None:
+                # An explicit allowlist binds here too, so a caller that narrowed its mounts does
+                # not silently get every shared installation while the team waits for the
+                # `mcp-gateway` rollout. An empty list means the run wants no MCP Store servers.
+                shared_queryset = shared_queryset.filter(gateway_server_id__in=allowed_gateway_server_ids)
             if user_id is not None:
                 shared_queryset = shared_queryset.exclude(gateway_server__member_revocations__user_id=user_id)
             # list() evaluates the lazy querysets here so DB errors hit this handler.

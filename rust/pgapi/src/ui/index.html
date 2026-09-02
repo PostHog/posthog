@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pgcollector</title>
+<style>
+  :root {
+    --bg: #14161a; --panel: #1c1f25; --panel2: #22262d; --border: #2c313a;
+    --text: #e6e8eb; --muted: #8b93a1; --accent: #7aa2f7; --ok: #6cc38b; --warn: #e0af68; --error: #f7768e;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--text); font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; display: flex; flex-direction: column; }
+  a { color: var(--accent); text-decoration: none; } a:hover { text-decoration: underline; }
+  header { display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel); }
+  header .brand { font-weight: 700; letter-spacing: .3px; }
+  header .brand span { color: var(--muted); font-weight: 400; margin-left: 6px; }
+  header .spacer { flex: 1; }
+  header .me { color: var(--muted); font-size: 12px; }
+  select, input, button { background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 5px 9px; font-size: 12px; font-family: inherit; }
+  button { cursor: pointer; } button:hover { border-color: var(--accent); }
+  .layout { display: flex; flex: 1; min-height: 0; }
+  nav { width: 170px; flex: 0 0 170px; border-right: 1px solid var(--border); padding: 10px 0; background: var(--panel); overflow-y: auto; }
+  nav a { display: block; padding: 7px 16px; color: var(--muted); } nav a.active { color: var(--text); background: var(--panel2); border-right: 2px solid var(--accent); }
+  nav .group { padding: 10px 16px 4px; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  main { flex: 1; overflow: auto; padding: 16px 20px; }
+  h1 { font-size: 16px; margin: 0 0 12px; } h1 .sub { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 8px; }
+  .toolbar { display: flex; gap: 8px; align-items: center; margin: 0 0 12px; flex-wrap: wrap; }
+  .grid { display: grid; gap: 12px; } .grid.two { grid-template-columns: 1fr 1fr; } .grid.tiles { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+  .panel h2 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+  .tile .v { font-size: 20px; font-weight: 600; font-family: var(--mono); } .tile .l { color: var(--muted); font-size: 11px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; white-space: nowrap; cursor: pointer; user-select: none; } th.sorted { color: var(--text); }
+  td.num, th.num { text-align: right; font-family: var(--mono); white-space: nowrap; }
+  td.mono { font-family: var(--mono); } .muted { color: var(--muted); } .ok { color: var(--ok); } .warn { color: var(--warn); } .err { color: var(--error); }
+  .q { font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 520px; display: block; }
+  .grid.two .q { max-width: 300px; }
+  pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px; font-family: var(--mono); font-size: 11.5px; overflow: auto; white-space: pre-wrap; word-break: break-word; margin: 0; max-height: 420px; }
+  .error-box { padding: 10px 14px; color: var(--error); font-family: var(--mono); font-size: 12px; white-space: pre-wrap; border: 1px solid var(--error); border-radius: 6px; }
+  .empty { color: var(--muted); padding: 8px 0; }
+  .bar { display: inline-block; height: 8px; background: var(--accent); border-radius: 2px; vertical-align: middle; }
+  svg.chart { width: 100%; height: 140px; display: block; }
+  .legend { display: flex; gap: 12px; font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .legend i { display: inline-block; width: 10px; height: 3px; margin-right: 4px; vertical-align: middle; }
+  .kv td:first-child { color: var(--muted); width: 180px; }
+  .pill { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; background: var(--panel2); border: 1px solid var(--border); }
+  .clickable { cursor: pointer; } tr.clickable:hover td { background: var(--panel2); }
+  details summary { cursor: pointer; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">pgcollector<span>Postgres telemetry</span></div>
+  <label>server <select id="server"></select></label>
+  <label>range <select id="range">
+    <option value="15m">15m</option><option value="1h" selected>1h</option><option value="6h">6h</option><option value="24h">24h</option><option value="7d">7d</option>
+  </select></label>
+  <button id="refresh" title="reload">↻</button>
+  <div class="spacer"></div>
+  <div class="me" id="me"></div>
+</header>
+<div class="layout">
+  <nav id="nav"></nav>
+  <main id="main"></main>
+</div>
+<script>
+(() => {
+  // ---------- state & routing ----------
+  const PAGES = [
+    ['overview', 'Overview'], ['queries', 'Queries'], ['activity', 'Activity'], ['waits', 'Wait events'],
+    ['tables', 'Tables'], ['indexes', 'Indexes'], ['vacuum', 'Vacuum'], ['events', 'Events'], ['logs', 'Logs'],
+    ['system', 'System'], ['schema', 'Schema'], ['settings', 'Settings'], ['collector', 'Collector health'],
+  ];
+  const state = { servers: [], server: null, page: 'overview', params: {}, range: '1h' };
+  const $ = (s, r = document) => r.querySelector(s);
+  const el = (tag, attrs = {}, ...kids) => {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) { if (k === 'class') e.className = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else if (v != null) e.setAttribute(k, v); }
+    for (const k of kids.flat()) if (k != null) e.append(k.nodeType ? k : document.createTextNode(String(k)));
+    return e;
+  };
+
+  function parseHash() {
+    const m = location.hash.match(/^#\/([^/]+)\/([^?]+)(?:\?(.*))?$/);
+    if (!m) return null;
+    return { server: decodeURIComponent(m[1]), page: m[2], params: Object.fromEntries(new URLSearchParams(m[3] || '')) };
+  }
+  function go(page, params = {}, server = state.server) {
+    const qs = new URLSearchParams(params).toString();
+    location.hash = `#/${encodeURIComponent(server)}/${page}${qs ? '?' + qs : ''}`;
+  }
+
+  // ---------- api & formatting ----------
+  async function api(path, params = {}) {
+    const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null && v !== '')).toString();
+    const r = await fetch(`/api/v1${path}${qs ? '?' + qs : ''}`, { headers: { accept: 'application/json' } });
+    if (!r.ok) { let msg = `${r.status} ${r.statusText}`; try { msg += ': ' + (await r.json()).error; } catch {} throw new Error(msg); }
+    return r.json();
+  }
+  const fmt = {
+    num: v => v == null ? '–' : Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 }),
+    dec: (v, d = 2) => v == null ? '–' : Number(v).toLocaleString(undefined, { maximumFractionDigits: d, minimumFractionDigits: 0 }),
+    ms: v => v == null ? '–' : (v >= 1000 ? (v / 1000).toFixed(2) + ' s' : v >= 10 ? v.toFixed(1) + ' ms' : v.toFixed(3) + ' ms'),
+    bytes: v => { if (v == null) return '–'; const u = ['B', 'KB', 'MB', 'GB', 'TB']; let i = 0; v = Number(v); while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; } return v.toFixed(i ? 1 : 0) + ' ' + u[i]; },
+    pct: v => v == null ? '–' : Number(v).toFixed(1) + '%',
+    ago: t => { if (!t) return '–'; const s = (Date.now() - new Date(t)) / 1000; if (s < 90) return Math.round(s) + 's ago'; if (s < 5400) return Math.round(s / 60) + 'm ago'; if (s < 172800) return Math.round(s / 3600) + 'h ago'; return Math.round(s / 86400) + 'd ago'; },
+    ts: t => t ? new Date(t).toLocaleString(undefined, { hour12: false }) : '–',
+    time: t => t ? new Date(t).toLocaleTimeString(undefined, { hour12: false }) : '–',
+    ratio: v => v == null ? '–' : el('span', { class: v >= 1 ? 'err' : v >= 0.7 ? 'warn' : '' }, Number(v).toFixed(2)),
+  };
+
+  // ---------- generic table ----------
+  // cols: [{key, label, fmt?, num?, sort?(row)->number, render?(row)->node, cls?}]
+  function table(rows, cols, { sortKey, desc = true, onRow, empty = 'nothing in this range', limit } = {}) {
+    if (!rows || !rows.length) return el('div', { class: 'empty' }, empty);
+    let sk = sortKey, sd = desc;
+    const wrap = el('div');
+    const render = () => {
+      const sorted = [...rows];
+      if (sk) { const c = cols.find(c => c.key === sk); const get = c && c.sort ? c.sort : r => r[sk]; sorted.sort((a, b) => { const x = get(a), y = get(b); if (x == null) return 1; if (y == null) return -1; return (typeof x === 'number' ? x - y : String(x).localeCompare(String(y))) * (sd ? -1 : 1); }); }
+      const shown = limit ? sorted.slice(0, limit) : sorted;
+      const t = el('table', {},
+        el('thead', {}, el('tr', {}, cols.map(c => el('th', { class: (c.num ? 'num ' : '') + (sk === c.key ? 'sorted' : ''), onclick: () => { if (sk === c.key) sd = !sd; else { sk = c.key; sd = true; } render(); } }, c.label, sk === c.key ? (sd ? ' ▾' : ' ▴') : '')))),
+        el('tbody', {}, shown.map(r => el('tr', { class: onRow ? 'clickable' : '', onclick: onRow ? () => onRow(r) : null }, cols.map(c => {
+          const v = c.render ? c.render(r) : c.fmt ? c.fmt(r[c.key], r) : r[c.key];
+          return el('td', { class: (c.num ? 'num ' : '') + (c.cls || '') }, v == null ? el('span', { class: 'muted' }, '–') : v);
+        })))));
+      wrap.replaceChildren(...[t, limit && rows.length > limit ? el('div', { class: 'muted', style: 'padding:6px 8px' }, `showing ${limit} of ${rows.length}`) : null].filter(Boolean));
+    };
+    render();
+    return wrap;
+  }
+  const panel = (title, ...kids) => el('div', { class: 'panel' }, title ? el('h2', {}, title) : null, ...kids);
+  const tile = (label, value, cls = '') => el('div', { class: 'panel tile' }, el('div', { class: 'v ' + cls }, value ?? '–'), el('div', { class: 'l' }, label));
+  const queryCell = q => el('span', { class: 'q', title: q || '' }, q || el('span', { class: 'muted' }, '(text not captured)'));
+
+  // ---------- simple SVG line chart ----------
+  // series: [{name, color, points: [[Date, number]]}]
+  function chart(series, { yfmt = v => fmt.dec(v, 1) } = {}) {
+    const W = 800, H = 140, P = { l: 48, r: 8, t: 8, b: 20 };
+    const all = series.flatMap(s => s.points);
+    if (!all.length) return el('div', { class: 'empty' }, 'no data points');
+    const xs = all.map(p => +p[0]), ys = all.map(p => p[1]);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs) || x0 + 1, y1 = Math.max(...ys, 0) || 1;
+    const X = x => P.l + (x - x0) / (x1 - x0 || 1) * (W - P.l - P.r), Y = y => H - P.b - (y / y1) * (H - P.t - P.b);
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`); svg.setAttribute('class', 'chart'); svg.setAttribute('preserveAspectRatio', 'none');
+    const n = (tag, a) => { const e = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const [k, v] of Object.entries(a)) e.setAttribute(k, v); return e; };
+    for (let i = 0; i <= 3; i++) { const y = Y(y1 * i / 3); svg.append(n('line', { x1: P.l, x2: W - P.r, y1: y, y2: y, stroke: '#2c313a', 'stroke-width': 1 })); const t = n('text', { x: P.l - 4, y: y + 4, 'text-anchor': 'end', fill: '#8b93a1', 'font-size': 10 }); t.textContent = yfmt(y1 * i / 3); svg.append(t); }
+    for (const [i, x] of [x0, (x0 + x1) / 2, x1].entries()) { const t = n('text', { x: X(x), y: H - 4, 'text-anchor': i === 0 ? 'start' : i === 1 ? 'middle' : 'end', fill: '#8b93a1', 'font-size': 10 }); t.textContent = fmt.time(new Date(x)); svg.append(t); }
+    for (const s of series) {
+      const pts = [...s.points].sort((a, b) => a[0] - b[0]);
+      svg.append(n('path', { d: pts.map((p, i) => (i ? 'L' : 'M') + X(+p[0]).toFixed(1) + ' ' + Y(p[1]).toFixed(1)).join(' '), fill: 'none', stroke: s.color, 'stroke-width': 1.5, 'vector-effect': 'non-scaling-stroke' }));
+    }
+    return el('div', {}, svg, el('div', { class: 'legend' }, series.map(s => el('span', {}, el('i', { style: `background:${s.color}` }), s.name))));
+  }
+  const COLORS = ['#7aa2f7', '#6cc38b', '#e0af68', '#f7768e', '#bb9af7', '#7dcfff', '#ff9e64', '#9ece6a'];
+
+  // ---------- pages ----------
+  const pages = {};
+  const sv = () => state.servers.find(s => s.server_id === state.server) || {};
+  const dbSelect = (onchange) => { const dbs = sv().databases || []; const cur = state.params.datname || dbs[0] || ''; const s = el('select', { onchange: e => onchange(e.target.value) }, dbs.map(d => el('option', { value: d, selected: d === cur ? '' : null }, d))); return [s, cur]; };
+
+  pages.overview = async () => {
+    const d = await api(`/servers/${state.server}/overview`, { since: state.range });
+    const conns = d.connections.reduce((a, c) => { a[c.state] = (a[c.state] || 0) + c.backends; return a; }, {});
+    const dbs = d.databases;
+    const sum = k => dbs.reduce((a, r) => a + (r[k] || 0), 0);
+    const hit = (() => { const h = sum('blks_hit'), r = sum('blks_read'); return h + r ? h / (h + r) * 100 : null; })();
+    return [
+      el('h1', {}, state.server, el('span', { class: 'sub' }, `${sv().version || ''} · ${fmt.ago(sv().last_collected_at)}`)),
+      el('div', { class: 'grid tiles' },
+        tile('connections (active)', conns.active ?? 0), tile('connections (idle)', conns.idle ?? 0), tile('idle in transaction', conns['idle in transaction'] ?? 0),
+        tile('commits', fmt.num(sum('xact_commit'))), tile('rollbacks', fmt.num(sum('xact_rollback'))), tile('cache hit', hit == null ? '–' : hit.toFixed(2) + '%', hit != null && hit < 95 ? 'warn' : ''),
+        tile('deadlocks', fmt.num(sum('deadlocks')), sum('deadlocks') ? 'err' : ''), tile('temp bytes', fmt.bytes(sum('temp_bytes'))), tile('max xid age', fmt.num(Math.max(0, ...dbs.map(r => r.xid_age || 0)))),
+      ),
+      el('div', { class: 'grid two', style: 'margin-top:12px' },
+        panel('Top queries by total time', table(d.top_queries, [
+          { key: 'query', label: 'query', render: r => el('a', { href: `#/${state.server}/query?queryid=${r.queryid}` }, queryCell(r.query)) },
+          { key: 'calls', label: 'calls', num: true, fmt: fmt.num }, { key: 'mean_ms', label: 'mean', num: true, fmt: fmt.ms }, { key: 'pct_of_total_time', label: '% time', num: true, fmt: fmt.pct },
+        ])),
+        panel('Top wait events (active sessions, sampled)', table(d.top_wait_events, [
+          { key: 'wait_event_type', label: 'type', fmt: v => v || 'CPU' }, { key: 'wait_event', label: 'event', fmt: v => v || '–' }, { key: 'samples', label: 'samples', num: true, fmt: fmt.num },
+        ])),
+        panel('Databases', table(dbs, [
+          { key: 'datname', label: 'database' }, { key: 'instance', label: 'instance' }, { key: 'xact_commit', label: 'commits', num: true, fmt: fmt.num }, { key: 'cache_hit_pct', label: 'cache hit', num: true, fmt: fmt.pct },
+          { key: 'tup_inserted', label: 'ins', num: true, fmt: fmt.num }, { key: 'tup_updated', label: 'upd', num: true, fmt: fmt.num }, { key: 'tup_deleted', label: 'del', num: true, fmt: fmt.num }, { key: 'xid_age', label: 'xid age', num: true, fmt: fmt.num },
+        ])),
+        panel('Events in range', table(d.events, [{ key: 'kind', label: 'kind', render: r => el('a', { href: `#/${state.server}/events?kind=${encodeURIComponent(r.kind)}` }, r.kind) }, { key: 'n', label: 'count', num: true, fmt: fmt.num }])),
+        panel('Vacuum attention', table(d.vacuum_attention, [
+          { key: 'datname', label: 'db' }, { key: 'relname', label: 'table' }, { key: 'vacuum_ratio', label: 'dead / threshold', num: true, render: r => fmt.ratio(r.vacuum_ratio) }, { key: 'freeze_ratio', label: 'freeze', num: true, render: r => fmt.ratio(r.freeze_ratio) }, { key: 'autovacuum_enabled', label: 'autovac', fmt: v => v ? 'on' : el('span', { class: 'err' }, 'off') },
+        ], { empty: 'no tables past 100% of their vacuum threshold' })),
+      ),
+    ];
+  };
+
+  pages.queries = async () => {
+    const order = state.params.order || 'total_exec_time';
+    const rows = await api(`/servers/${state.server}/queries`, { since: state.range, order, limit: 200, datname: state.params.datname });
+    const orders = [['total_exec_time', 'total time'], ['calls', 'calls'], ['mean_exec_time', 'mean time'], ['rows', 'rows'], ['shared_blks_read', 'blocks read'], ['wal_bytes', 'WAL bytes'], ['storage_blks_read', 'Aurora storage reads']];
+    const [dbsel] = dbSelect(v => go('queries', { ...state.params, datname: v }));
+    dbsel.prepend(el('option', { value: '', selected: state.params.datname ? null : '' }, 'all databases'));
+    return [
+      el('h1', {}, 'Queries', el('span', { class: 'sub' }, 'pg_stat_statements, per-interval deltas summed over the range')),
+      el('div', { class: 'toolbar' }, el('label', {}, 'order by ', el('select', { onchange: e => go('queries', { ...state.params, order: e.target.value }) }, orders.map(([v, l]) => el('option', { value: v, selected: v === order ? '' : null }, l)))), el('label', {}, 'database ', dbsel)),
+      panel(null, table(rows, [
+        { key: 'query', label: 'query', render: r => queryCell(r.query) },
+        { key: 'datname', label: 'db' }, { key: 'rolname', label: 'role' },
+        { key: 'calls', label: 'calls', num: true, fmt: fmt.num }, { key: 'total_ms', label: 'total', num: true, fmt: fmt.ms }, { key: 'mean_ms', label: 'mean', num: true, fmt: fmt.ms }, { key: 'stddev_ms', label: 'stddev', num: true, fmt: fmt.ms },
+        { key: 'rows', label: 'rows', num: true, fmt: fmt.num }, { key: 'shared_blks_read', label: 'blks read', num: true, fmt: fmt.num }, { key: 'pct_of_total_time', label: '% time', num: true, render: r => el('span', {}, el('span', { class: 'bar', style: `width:${Math.min(100, r.pct_of_total_time || 0)}px` }), ' ', fmt.pct(r.pct_of_total_time)) },
+      ], { onRow: r => go('query', { queryid: r.queryid }) })),
+    ];
+  };
+
+  pages.query = async () => {
+    const qid = state.params.queryid;
+    const d = await api(`/servers/${state.server}/queries/${qid}`, { since: state.range });
+    const t = d.texts[0] || {};
+    const byMin = {};
+    for (const r of d.series) { const k = r.minute; (byMin[k] ||= { calls: 0, total: 0 }); byMin[k].calls += r.calls || 0; byMin[k].total += r.total_ms || 0; }
+    const pts = Object.entries(byMin).map(([m, v]) => [new Date(m), v]);
+    const lat = d.latency_from_logs || {};
+    return [
+      el('h1', {}, 'Query ', el('span', { class: 'mono' }, qid), el('span', { class: 'sub' }, t.datname || '')),
+      panel('Text', el('pre', {}, t.query || '(not captured yet)'), t.truncated ? el('div', { class: 'muted' }, 'truncated at 10 KB') : null),
+      el('div', { class: 'grid two', style: 'margin-top:12px' },
+        panel('Calls per minute', chart([{ name: 'calls', color: COLORS[0], points: pts.map(([m, v]) => [m, v.calls]) }], { yfmt: fmt.num })),
+        panel('Mean time per minute', chart([{ name: 'mean ms', color: COLORS[2], points: pts.map(([m, v]) => [m, v.calls ? v.total / v.calls : 0]) }], { yfmt: v => fmt.ms(v) })),
+        panel('Latency from sampled statement log', lat.samples ? el('div', { class: 'grid tiles' }, tile('samples', fmt.num(lat.samples)), tile('p50', fmt.ms(lat.p50)), tile('p90', fmt.ms(lat.p90)), tile('p95', fmt.ms(lat.p95)), tile('p99', fmt.ms(lat.p99)), tile('max', fmt.ms(lat.max_ms))) : el('div', { class: 'empty' }, 'no sampled durations in this range (needs log_min_duration_sample and the logs collector)')),
+        panel('Wait events while running', table(d.wait_events, [{ key: 'wait_event_type', label: 'type', fmt: v => v || 'CPU' }, { key: 'wait_event', label: 'event', fmt: v => v || '–' }, { key: 'samples', label: 'samples', num: true, fmt: fmt.num }])),
+      ),
+      el('div', { style: 'margin-top:12px' }, panel('Slowest logged samples', table(d.slowest_samples, [{ key: 'log_time', label: 'time', fmt: fmt.ts }, { key: 'log_stream', label: 'instance' }, { key: 'usename', label: 'user' }, { key: 'duration_ms', label: 'duration', num: true, fmt: fmt.ms }, { key: 'query', label: 'statement', render: r => queryCell(r.query) }]))),
+      el('div', { style: 'margin-top:12px' }, panel('Execution plans (Aurora plan stats)', d.plans.length ? d.plans.map(p => el('details', { open: '' }, el('summary', {}, `plan ${p.planid} · ${p.plan_type} · calls ${fmt.num(p.calls)} · total ${fmt.ms(p.total_ms)} · captured ${fmt.ago(p.plan_captured_time)}`), el('pre', {}, p.explain_plan || ''))) : el('div', { class: 'empty' }, 'no plans (aurora_stat_plans is Aurora-only)'))),
+      el('div', { style: 'margin-top:12px' }, panel('auto_explain plans from the log', d.logged_plans.length ? d.logged_plans.map(p => el('details', {}, el('summary', {}, `${fmt.ts(p.log_time)} · ${fmt.ms(p.duration_ms)} · ${p.datname}`), el('pre', {}, JSON.stringify(p.plan, null, 2)))) : el('div', { class: 'empty' }, 'none in range'))),
+    ];
+  };
+
+  pages.activity = async () => {
+    const d = await api(`/servers/${state.server}/activity`);
+    return [
+      el('h1', {}, 'Activity', el('span', { class: 'sub' }, 'latest 10s sample')),
+      el('div', { class: 'grid two' },
+        panel('Connections by state', table(d.connections, [{ key: 'instance', label: 'instance' }, { key: 'datname', label: 'db' }, { key: 'state', label: 'state' }, { key: 'backends', label: 'backends', num: true, fmt: fmt.num }])),
+        panel('Lock waits (blocking graph)', table(d.lock_waits, [{ key: 'waiter_pid', label: 'waiter', num: true }, { key: 'waiting_s', label: 'waiting', num: true, fmt: v => fmt.dec(v, 0) + ' s' }, { key: 'wanted_mode', label: 'mode' }, { key: 'relation', label: 'relation' }, { key: 'blocker_pid', label: 'blocker', num: true }, { key: 'blocker_state', label: 'blocker state' }, { key: 'blocker_query', label: 'blocker query', render: r => queryCell(r.blocker_query) }], { empty: 'nothing blocked' })),
+      ),
+      el('div', { style: 'margin-top:12px' }, panel('Long-running / waiting / idle-in-transaction sessions', table(d.sessions, [
+        { key: 'pid', label: 'pid', num: true }, { key: 'instance', label: 'instance' }, { key: 'datname', label: 'db' }, { key: 'usename', label: 'user' }, { key: 'application_name', label: 'app' }, { key: 'state', label: 'state' },
+        { key: 'wait_event_type', label: 'wait', fmt: (v, r) => v ? `${v}:${r.wait_event}` : 'CPU' }, { key: 'query_age_s', label: 'query age', num: true, fmt: v => fmt.dec(v, 0) + ' s' }, { key: 'xact_age_s', label: 'xact age', num: true, fmt: v => fmt.dec(v, 0) + ' s' }, { key: 'blocked_by', label: 'blocked by' },
+        { key: 'query', label: 'query', render: r => queryCell(r.query) },
+      ], { empty: 'no interesting sessions right now' }))),
+      d.memory_hogs.length ? el('div', { style: 'margin-top:12px' }, panel('Backends over 64 MB (Aurora memory contexts)', table(d.memory_hogs, [{ key: 'pid', label: 'pid', num: true }, { key: 'usename', label: 'user' }, { key: 'allocated_bytes', label: 'allocated', num: true, fmt: fmt.bytes }, { key: 'top_context', label: 'largest context' }, { key: 'query', label: 'query', render: r => queryCell(r.query) }]))) : null,
+    ];
+  };
+
+  pages.waits = async () => {
+    const d = await api(`/servers/${state.server}/waits`, { since: state.range, bucket: state.range === '15m' ? '10s' : state.range === '7d' ? '1h' : state.range === '24h' ? '5m' : '1m' });
+    const byEv = {};
+    for (const r of d.sampled) { const k = `${r.wait_event_type}:${r.wait_event}`; (byEv[k] ||= []).push([new Date(r.bucket), r.avg_active_sessions]); }
+    const top = Object.entries(byEv).map(([k, pts]) => [k, pts.reduce((a, p) => a + p[1], 0), pts]).sort((a, b) => b[1] - a[1]).slice(0, 8);
+    return [
+      el('h1', {}, 'Wait events', el('span', { class: 'sub' }, 'average active sessions by wait event (10s samples)')),
+      panel('Top wait events over time', chart(top.map(([k, , pts], i) => ({ name: k, color: COLORS[i % COLORS.length], points: pts })), { yfmt: v => fmt.dec(v, 1) })),
+      d.measured_aurora.length ? el('div', { style: 'margin-top:12px' }, panel('Measured wait time (Aurora, exact)', table(d.measured_aurora, [{ key: 'instance', label: 'instance' }, { key: 'type_name', label: 'type' }, { key: 'event_name', label: 'event' }, { key: 'waits', label: 'waits', num: true, fmt: fmt.num }, { key: 'wait_time_us', label: 'time', num: true, fmt: v => fmt.ms(v / 1000) }]))) : null,
+    ];
+  };
+
+  pages.tables = async () => {
+    const [dbsel, db] = dbSelect(v => go('tables', { datname: v }));
+    if (!db) return [el('h1', {}, 'Tables'), el('div', { class: 'empty' }, 'no databases discovered yet')];
+    const rows = await api(`/servers/${state.server}/tables`, { since: state.range, datname: db, limit: 500 });
+    return [
+      el('h1', {}, 'Tables', el('span', { class: 'sub' }, 'counters summed over the range; sizes and tuples latest')),
+      el('div', { class: 'toolbar' }, el('label', {}, 'database ', dbsel)),
+      panel(null, table(rows, [
+        { key: 'relname', label: 'table', fmt: (v, r) => `${r.schemaname}.${v}`, cls: 'mono' }, { key: 'total_bytes', label: 'size', num: true, fmt: fmt.bytes }, { key: 'index_bytes', label: 'indexes', num: true, fmt: fmt.bytes },
+        { key: 'n_live_tup', label: 'live', num: true, fmt: fmt.num }, { key: 'n_dead_tup', label: 'dead', num: true, fmt: fmt.num }, { key: 'seq_scan', label: 'seq scans', num: true, fmt: fmt.num }, { key: 'idx_scan', label: 'idx scans', num: true, fmt: fmt.num },
+        { key: 'n_tup_ins', label: 'ins', num: true, fmt: fmt.num }, { key: 'n_tup_upd', label: 'upd', num: true, fmt: fmt.num }, { key: 'n_tup_del', label: 'del', num: true, fmt: fmt.num }, { key: 'xid_age', label: 'xid age', num: true, fmt: fmt.num }, { key: 'last_autovacuum', label: 'last autovac', fmt: fmt.ago },
+      ], { sortKey: 'total_bytes', onRow: r => go('schema', { datname: db, relname: r.relname }) })),
+    ];
+  };
+
+  pages.indexes = async () => {
+    const [dbsel, db] = dbSelect(v => go('indexes', { datname: v }));
+    if (!db) return [el('h1', {}, 'Indexes'), el('div', { class: 'empty' }, 'no databases discovered yet')];
+    const rows = await api(`/servers/${state.server}/indexes`, { since: state.range, datname: db });
+    return [
+      el('h1', {}, 'Indexes', el('span', { class: 'sub' }, 'scans summed over the range; unused = zero scans and not unique/primary')),
+      el('div', { class: 'toolbar' }, el('label', {}, 'database ', dbsel)),
+      panel(null, table(rows, [
+        { key: 'unused_in_range', label: '', render: r => r.unused_in_range ? el('span', { class: 'pill warn' }, 'unused') : (r.is_valid === false ? el('span', { class: 'pill err' }, 'invalid') : null) },
+        { key: 'indexname', label: 'index', fmt: (v, r) => `${r.schemaname}.${r.relname} › ${v}`, cls: 'mono' }, { key: 'idx_scan', label: 'scans', num: true, fmt: fmt.num }, { key: 'idx_tup_read', label: 'tuples read', num: true, fmt: fmt.num },
+        { key: 'columns', label: 'columns', cls: 'mono' }, { key: 'access_method', label: 'am' }, { key: 'definition', label: 'definition', render: r => queryCell(r.definition) },
+      ], { sortKey: 'idx_scan', desc: false, empty: 'no index metadata yet (schema collector runs hourly)' })),
+    ];
+  };
+
+  pages.vacuum = async () => {
+    const d = await api(`/servers/${state.server}/vacuum`, { since: state.range, datname: state.params.datname });
+    return [
+      el('h1', {}, 'Vacuum', el('span', { class: 'sub' }, 'effective autovacuum thresholds per table (reloptions ⊕ GUCs)')),
+      el('div', { class: 'grid two' },
+        panel('Database xid age', table(d.database_xid_age, [{ key: 'datname', label: 'db' }, { key: 'xid_age', label: 'xid age', num: true, fmt: fmt.num }])),
+        panel('In progress', table(d.in_progress, [{ key: 'datname', label: 'db' }, { key: 'phase', label: 'phase' }, { key: 'heap_blks_scanned', label: 'scanned', num: true, fmt: fmt.num }, { key: 'heap_blks_total', label: 'total', num: true, fmt: fmt.num }, { key: 'running_seconds', label: 'running', num: true, fmt: v => fmt.dec(v, 0) + ' s' }], { empty: 'no vacuum running' })),
+      ),
+      el('div', { style: 'margin-top:12px' }, panel('Tables over 50% of a threshold', table(d.needed, [
+        { key: 'datname', label: 'db' }, { key: 'relname', label: 'table', fmt: (v, r) => `${r.schemaname}.${v}`, cls: 'mono' }, { key: 'autovacuum_enabled', label: 'autovac', fmt: v => v ? 'on' : el('span', { class: 'err' }, 'off') },
+        { key: 'n_dead_tup', label: 'dead', num: true, fmt: fmt.num }, { key: 'vacuum_ratio', label: 'vacuum', num: true, render: r => fmt.ratio(r.vacuum_ratio) }, { key: 'analyze_ratio', label: 'analyze', num: true, render: r => fmt.ratio(r.analyze_ratio) }, { key: 'insert_ratio', label: 'insert', num: true, render: r => fmt.ratio(r.insert_ratio) },
+        { key: 'freeze_ratio', label: 'freeze', num: true, render: r => fmt.ratio(r.freeze_ratio) }, { key: 'xid_age', label: 'xid age', num: true, fmt: fmt.num }, { key: 'last_autovacuum', label: 'last autovac', fmt: fmt.ago }, { key: 'last_autoanalyze', label: 'last analyze', fmt: fmt.ago },
+      ], { sortKey: 'vacuum_ratio', empty: 'nothing near a threshold' }))),
+      el('div', { style: 'margin-top:12px' }, panel('Recent autovacuum runs (from the log)', table(d.recent_runs, [
+        { key: 'log_time', label: 'time', fmt: fmt.ts }, { key: 'kind', label: 'kind' }, { key: 'relation', label: 'relation', cls: 'mono' }, { key: 'aggressive', label: 'aggr', fmt: v => v ? 'yes' : '' }, { key: 'tuples_removed', label: 'removed', num: true, fmt: fmt.num }, { key: 'tuples_remain', label: 'remain', num: true, fmt: fmt.num }, { key: 'tuples_dead_not_removable', label: 'not removable', num: true, fmt: fmt.num }, { key: 'index_scans', label: 'idx scans', num: true }, { key: 'elapsed_s', label: 'elapsed', num: true, fmt: v => fmt.dec(v, 1) + ' s' },
+      ], { empty: 'none in range (needs log_autovacuum_min_duration and the logs collector)' }))),
+    ];
+  };
+
+  pages.events = async () => {
+    const rows = await api(`/servers/${state.server}/events`, { since: state.range, kind: state.params.kind, limit: 500 });
+    const kinds = ['', 'schema_%', 'settings_%', 'log_%', 'stats_reset', 'pgss_dealloc'];
+    return [
+      el('h1', {}, 'Events', el('span', { class: 'sub' }, 'schema and settings changes, deadlocks, lock waits, cancellations, stats resets')),
+      el('div', { class: 'toolbar' }, el('label', {}, 'kind ', el('select', { onchange: e => go('events', { kind: e.target.value }) }, kinds.map(k => el('option', { value: k, selected: k === (state.params.kind || '') ? '' : null }, k || 'all'))))),
+      panel(null, table(rows, [
+        { key: 'at', label: 'time', fmt: fmt.ts }, { key: 'kind', label: 'kind', render: r => el('span', { class: 'pill' }, r.kind) }, { key: 'datname', label: 'db' }, { key: 'subject', label: 'subject', cls: 'mono' },
+        { key: 'after', label: 'details', render: r => el('details', {}, el('summary', {}, summarize(r)), el('pre', {}, JSON.stringify({ before: r.before, after: r.after }, null, 2))) },
+      ], { empty: 'no events in range' })),
+    ];
+  };
+  function summarize(e) {
+    const a = e.after || {}, b = e.before || {};
+    if (e.kind === 'settings_changed') return `${b.setting} → ${a.setting}`;
+    if (e.kind.startsWith('log_')) return (a.statement || a.reason || a.detail || '').slice(0, 120);
+    const keys = Object.keys(a).filter(k => k !== 'columns');
+    return keys.slice(0, 4).map(k => `${k}=${JSON.stringify(a[k])}`).join(' ').slice(0, 140) || 'details';
+  }
+
+  pages.logs = async () => {
+    const d = await api(`/servers/${state.server}/logs`, { since: state.range, limit: 300 });
+    return [
+      el('h1', {}, 'Logs', el('span', { class: 'sub' }, 'errors, cancellations and temp files from the Postgres log')),
+      el('div', { class: 'grid two' },
+        panel('Log lines by class', table(d.counts, [{ key: 'level', label: 'level' }, { key: 'class', label: 'class' }, { key: 'n', label: 'lines', num: true, fmt: fmt.num }])),
+        panel('Errors grouped', table(d.summary, [{ key: 'class', label: 'class' }, { key: 'sqlstate', label: 'sqlstate', cls: 'mono' }, { key: 'message', label: 'message' }, { key: 'n', label: 'count', num: true, fmt: fmt.num }])),
+      ),
+      el('div', { style: 'margin-top:12px' }, panel('Recent errors', table(d.recent, [
+        { key: 'log_time', label: 'time', fmt: fmt.ts }, { key: 'level', label: 'level', render: r => el('span', { class: r.level === 'ERROR' ? 'warn' : 'err' }, r.level) }, { key: 'datname', label: 'db' }, { key: 'usename', label: 'user' }, { key: 'message', label: 'message' }, { key: 'statement', label: 'statement', render: r => queryCell(r.statement) },
+      ], { empty: 'no errors in range' }))),
+      el('div', { style: 'margin-top:12px' }, panel('Largest temp-file spills', table(d.temp_files, [{ key: 'log_time', label: 'time', fmt: fmt.ts }, { key: 'datname', label: 'db' }, { key: 'usename', label: 'user' }, { key: 'size_bytes', label: 'size', num: true, fmt: fmt.bytes }, { key: 'statement', label: 'statement', render: r => queryCell(r.statement) }], { empty: 'none (needs log_temp_files)' }))),
+    ];
+  };
+
+  pages.system = async () => {
+    const d = await api(`/servers/${state.server}/system`, { since: state.range });
+    const byInst = (rows, key) => { const m = {}; for (const r of rows) (m[r.instance] ||= []).push([new Date(r.collected_at), r[key]]); return Object.entries(m).map(([n, pts], i) => ({ name: n, color: COLORS[i], points: pts })); };
+    return [
+      el('h1', {}, 'System'),
+      el('div', { class: 'grid two' },
+        panel('CPU % (pg_proctab)', d.cpu.length ? chart(byInst(d.cpu, 'cpu_pct'), { yfmt: fmt.pct }) : el('div', { class: 'empty' }, 'no pg_proctab data (CREATE EXTENSION pg_proctab)')),
+        panel('Load average', d.memory.length ? chart(byInst(d.memory, 'load1'), { yfmt: v => fmt.dec(v, 2) }) : el('div', { class: 'empty' }, 'no pg_proctab data')),
+        panel('Checkpoints (from the log)', table(d.checkpoints, [{ key: 'log_time', label: 'time', fmt: fmt.ts }, { key: 'kind', label: 'kind' }, { key: 'buffers_written', label: 'buffers', num: true, fmt: fmt.num }, { key: 'buffers_pct', label: '%', num: true, fmt: fmt.pct }, { key: 'write_s', label: 'write', num: true, fmt: v => fmt.dec(v, 2) + ' s' }, { key: 'sync_s', label: 'sync', num: true, fmt: v => fmt.dec(v, 2) + ' s' }, { key: 'distance_kb', label: 'distance', num: true, fmt: v => fmt.bytes(v * 1024) }], { empty: 'none in range' })),
+        panel('bgwriter / checkpointer (summed)', table(d.bgwriter, [{ key: 'instance', label: 'instance' }, { key: 'checkpoints_timed', label: 'timed', num: true, fmt: fmt.num }, { key: 'checkpoints_req', label: 'requested', num: true, fmt: fmt.num }, { key: 'buffers_checkpoint', label: 'ckpt buffers', num: true, fmt: fmt.num }, { key: 'buffers_clean', label: 'bgw buffers', num: true, fmt: fmt.num }, { key: 'buffers_alloc', label: 'allocated', num: true, fmt: fmt.num }])),
+        panel('Aurora replicas', table(d.aurora_replicas, [{ key: 'instance_id', label: 'instance' }, { key: 'role', label: 'role' }, { key: 'replica_lag_ms', label: 'lag', num: true, fmt: v => v == null ? '–' : fmt.ms(v) }, { key: 'replay_latency_us', label: 'replay', num: true, fmt: v => fmt.ms(v / 1000) }, { key: 'active_txns', label: 'txns', num: true }, { key: 'storage_daemon_cpu', label: 'storage cpu', num: true, fmt: fmt.pct }], { empty: 'not Aurora' })),
+        panel('Aurora per-database latency', table(d.aurora_db_latency, [{ key: 'datname', label: 'db' }, { key: 'commit_latency_us', label: 'commit latency (sum)', num: true, fmt: v => fmt.ms(v / 1000) }, { key: 'selects', label: 'selects', num: true, fmt: fmt.num }, { key: 'updates', label: 'updates', num: true, fmt: fmt.num }, { key: 'avg_update_latency_us', label: 'avg update', num: true, fmt: v => fmt.ms(v / 1000) }], { empty: 'not Aurora' })),
+      ),
+      d.top_backends_by_cpu.length ? el('div', { style: 'margin-top:12px' }, panel('Top backends by CPU (pg_proctab)', table(d.top_backends_by_cpu, [{ key: 'instance', label: 'instance' }, { key: 'datname', label: 'db' }, { key: 'usename', label: 'user' }, { key: 'application_name', label: 'app' }, { key: 'backend_type', label: 'type' }, { key: 'cpu_jiffies', label: 'cpu jiffies', num: true, fmt: fmt.num }, { key: 'max_rss_kb', label: 'max rss', num: true, fmt: v => fmt.bytes(v * 1024) }]))) : null,
+    ];
+  };
+
+  pages.schema = async () => {
+    const [dbsel, db] = dbSelect(v => go('schema', { datname: v }));
+    if (!db) return [el('h1', {}, 'Schema'), el('div', { class: 'empty' }, 'no databases discovered yet')];
+    const d = await api(`/servers/${state.server}/schema`, { datname: db, relname: state.params.relname });
+    const rel = state.params.relname;
+    return [
+      el('h1', {}, 'Schema', el('span', { class: 'sub' }, rel ? `${db} › ${rel}` : db)),
+      el('div', { class: 'toolbar' }, el('label', {}, 'database ', dbsel), rel ? el('button', { onclick: () => go('schema', { datname: db }) }, '← all relations') : null),
+      rel ? [
+        panel('Columns', d.relations.length ? table(d.relations[0].columns || [], [{ key: 'name', label: 'column', cls: 'mono' }, { key: 'type', label: 'type', cls: 'mono' }, { key: 'notnull', label: 'not null', fmt: v => v ? 'yes' : '' }, { key: 'default', label: 'default', cls: 'mono' }]) : el('div', { class: 'empty' }, 'unknown relation')),
+        el('div', { style: 'margin-top:12px' }, panel('Indexes', table(d.indexes, [{ key: 'indexname', label: 'index', cls: 'mono' }, { key: 'is_valid', label: 'valid', fmt: v => v ? 'yes' : el('span', { class: 'err' }, 'no') }, { key: 'definition', label: 'definition', cls: 'mono' }]))),
+        el('div', { style: 'margin-top:12px' }, panel('Constraints', table(d.constraints, [{ key: 'conname', label: 'name', cls: 'mono' }, { key: 'contype', label: 'type' }, { key: 'definition', label: 'definition', cls: 'mono' }, { key: 'is_validated', label: 'validated', fmt: v => v ? 'yes' : el('span', { class: 'warn' }, 'no') }]))),
+      ] : panel(null, table(d.relations, [
+        { key: 'relname', label: 'relation', fmt: (v, r) => `${r.schemaname}.${v}`, cls: 'mono' }, { key: 'relkind', label: 'kind', fmt: v => ({ r: 'table', p: 'partitioned', v: 'view', m: 'matview' })[v] || v }, { key: 'parent', label: 'parent', cls: 'mono' }, { key: 'n_columns', label: 'cols', num: true }, { key: 'partition_key', label: 'partition key', cls: 'mono' }, { key: 'last_seen', label: 'seen', fmt: fmt.ago },
+      ], { sortKey: 'relname', desc: false, onRow: r => go('schema', { datname: db, relname: r.relname }), empty: 'no schema snapshot yet (runs hourly)' })),
+    ];
+  };
+
+  pages.settings = async () => {
+    const all = state.params.all === '1';
+    const rows = await api(`/servers/${state.server}/settings`, { non_default: !all });
+    return [
+      el('h1', {}, 'Settings'),
+      el('div', { class: 'toolbar' }, el('label', {}, el('input', { type: 'checkbox', checked: all ? '' : null, onchange: e => go('settings', { all: e.target.checked ? '1' : '0' }) }), ' show defaults too')),
+      panel(null, table(rows, [{ key: 'name', label: 'name', cls: 'mono' }, { key: 'setting', label: 'value', cls: 'mono' }, { key: 'unit', label: 'unit' }, { key: 'source', label: 'source' }, { key: 'category', label: 'category' }, { key: 'pending_restart', label: 'pending restart', fmt: v => v ? el('span', { class: 'warn' }, 'yes') : '' }], { sortKey: 'name', desc: false, empty: 'no settings snapshot yet (runs hourly)' })),
+    ];
+  };
+
+  pages.collector = async () => {
+    const rows = await api('/collector/health');
+    return [
+      el('h1', {}, 'Collector health', el('span', { class: 'sub' }, 'last 15 minutes, all servers')),
+      panel(null, table(rows, [
+        { key: 'server_id', label: 'server' }, { key: 'instance', label: 'instance' }, { key: 'collector', label: 'collector', cls: 'mono' }, { key: 'ticks', label: 'ticks', num: true }, { key: 'errors', label: 'errors', num: true, render: r => el('span', { class: r.errors ? 'err' : 'ok' }, r.errors) },
+        { key: 'avg_ms', label: 'avg', num: true, fmt: fmt.ms }, { key: 'max_ms', label: 'max', num: true, fmt: fmt.ms }, { key: 'last_tick', label: 'last tick', fmt: fmt.ago }, { key: 'last_error', label: 'last error', render: r => r.last_error ? el('span', { class: 'q err', title: r.last_error }, r.last_error) : null },
+      ], { sortKey: 'errors', empty: 'no collector runs recorded' })),
+    ];
+  };
+
+  // ---------- shell ----------
+  function renderNav() {
+    $('#nav').replaceChildren(el('div', { class: 'group' }, 'server'), ...PAGES.map(([p, l]) => el('a', { href: `#/${encodeURIComponent(state.server)}/${p}`, class: state.page === p || (p === 'queries' && state.page === 'query') ? 'active' : '' }, l)));
+  }
+  async function render() {
+    const main = $('#main');
+    const fn = pages[state.page];
+    if (!fn) { main.replaceChildren(el('div', { class: 'error-box' }, `unknown page ${state.page}`)); return; }
+    main.replaceChildren(el('div', { class: 'muted' }, 'loading…'));
+    try { const out = await fn(); main.replaceChildren(...[out].flat(Infinity).filter(Boolean)); }
+    catch (e) { main.replaceChildren(el('div', { class: 'error-box' }, String(e.message || e))); }
+  }
+  async function route() {
+    const h = parseHash();
+    if (!h && state.servers.length) { go('overview', {}, state.servers[0].server_id); return; }
+    if (h) { state.server = h.server; state.page = h.page; state.params = h.params; }
+    $('#server').value = state.server;
+    renderNav();
+    render();
+  }
+  async function boot() {
+    try { const me = await api('/me'); $('#me').textContent = `${me.email} · ${me.source}`; } catch (e) { $('#me').textContent = 'unauthenticated'; }
+    try { state.servers = await api('/servers'); } catch (e) { $('#main').replaceChildren(el('div', { class: 'error-box' }, String(e.message))); return; }
+    const sel = $('#server');
+    sel.replaceChildren(...state.servers.map(s => el('option', { value: s.server_id }, `${s.server_id}${s.errors_10m ? ' ⚠' : ''}`)));
+    sel.onchange = () => go(state.page === 'query' ? 'queries' : state.page, {}, sel.value);
+    $('#range').onchange = e => { state.range = e.target.value; render(); };
+    $('#refresh').onclick = render;
+    window.addEventListener('hashchange', route);
+    if (!state.servers.length) { $('#main').replaceChildren(el('div', { class: 'empty' }, 'no servers registered yet — is the collector running?')); return; }
+    route();
+  }
+  boot();
+})();
+</script>
+</body>
+</html>

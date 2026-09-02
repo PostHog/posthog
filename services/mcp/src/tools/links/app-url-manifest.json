@@ -574,6 +574,11 @@
         "params": ["handle"],
         "scope": "project"
     },
+    "engineeringAnalyticsHealth": {
+        "template": "/engineering-analytics/health",
+        "params": [],
+        "scope": "project"
+    },
     "engineeringAnalyticsPullRequest": {
         "template": "/engineering-analytics/repos/{repoOwner}/{repoName}/pull-requests/{number}",
         "params": ["repoOwner", "repoName", "number"],
@@ -824,6 +829,11 @@
         "params": ["tab", "reportId"],
         "scope": "project"
     },
+    "inboxRuns": {
+        "template": "/inbox/scouts/runs",
+        "params": [],
+        "scope": "project"
+    },
     "inboxScout": {
         "template": "/inbox/scouts/{skillName}",
         "params": ["skillName"],
@@ -831,6 +841,11 @@
     },
     "inboxScratchpad": {
         "template": "/inbox/scouts/scratchpad",
+        "params": [],
+        "scope": "project"
+    },
+    "inboxTriage": {
+        "template": "/inbox/reports/triage",
         "params": [],
         "scope": "project"
     },
@@ -1039,6 +1054,11 @@
         "params": [],
         "scope": "project"
     },
+    "mcpAnalytics": {
+        "template": "/mcp-analytics",
+        "params": [],
+        "scope": "project"
+    },
     "mcpAnalyticsActivity": {
         "template": "/mcp-analytics/activity",
         "params": [],
@@ -1051,6 +1071,11 @@
     },
     "mcpAnalyticsIntentClustering": {
         "template": "/mcp-analytics/intent-clustering",
+        "params": [],
+        "scope": "project"
+    },
+    "mcpAnalyticsMissingCapabilities": {
+        "template": "/mcp-analytics/missing-capabilities",
         "params": [],
         "scope": "project"
     },
@@ -1146,6 +1171,11 @@
     },
     "organizationBilling": {
         "template": "/organization/billing",
+        "params": [],
+        "scope": "global"
+    },
+    "organizationBillingRealTimeUsage": {
+        "template": "/organization/billing/real-time-usage",
         "params": [],
         "scope": "global"
     },
@@ -1326,6 +1356,11 @@
     },
     "replayVisionScannerDetails": {
         "template": "/replay-vision/{id}/details",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "replayVisionScannerOverview": {
+        "template": "/replay-vision/{id}/overview",
         "params": ["id"],
         "scope": "project"
     },
@@ -1676,6 +1711,11 @@
     },
     "webAnalytics": {
         "template": "/web",
+        "params": [],
+        "scope": "project"
+    },
+    "webAnalyticsAgents": {
+        "template": "/web/agents",
         "params": [],
         "scope": "project"
     },

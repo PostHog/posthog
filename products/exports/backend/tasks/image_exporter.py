@@ -29,7 +29,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_query
-from posthog.security.url_validation import is_url_allowed
 from posthog.tasks.exporter import EXPORT_TIMER
 from posthog.utils import absolute_uri
 
@@ -42,8 +41,8 @@ from products.exports.backend.tasks.failure_handler import (
     InvalidExportContext,
     classify_failure_type,
 )
-from products.product_analytics.backend.facade.api import map_stale_to_latest
-from products.product_analytics.backend.facade.models import InsightVariable
+from products.exports.backend.url_security import is_heatmap_url_allowed
+from products.product_analytics.backend.facade.api import insight_variables_for_team, map_stale_to_latest
 
 logger = structlog.get_logger(__name__)
 
@@ -257,7 +256,7 @@ def _export_to_png(
             )
         elif exported_asset.export_context and exported_asset.export_context.get("heatmap_url"):
             heatmap_url = exported_asset.export_context["heatmap_url"]
-            ok, err = is_url_allowed(heatmap_url)
+            ok, err = is_heatmap_url_allowed(heatmap_url, exported_asset.export_context.get("heatmap_type"))
             if not ok:
                 raise Exception(f"heatmap_url blocked by SSRF protection: {err}")
 
@@ -548,7 +547,7 @@ def export_image(
                 tile_filters_override = None
                 if exported_asset.dashboard:
                     if exported_asset.dashboard.variables:
-                        variables = list(InsightVariable.objects.filter(team=exported_asset.team).all())
+                        variables = insight_variables_for_team(exported_asset.team_id)
                         dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
                     tile = DashboardTile.objects.filter(
                         dashboard=exported_asset.dashboard,
@@ -600,7 +599,7 @@ def export_image(
                 export_context = exported_asset.export_context or {}
                 dashboard_variables = export_context.get("variables_override")
                 if not dashboard_variables and exported_asset.dashboard.variables:
-                    variables = list(InsightVariable.objects.filter(team=exported_asset.team).all())
+                    variables = insight_variables_for_team(exported_asset.team_id)
                     dashboard_variables = map_stale_to_latest(exported_asset.dashboard.variables, variables)
 
                 tiles = (

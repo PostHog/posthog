@@ -38,6 +38,8 @@ import type {
     EvaluationRunRequestApi,
     EvaluationRunsCreate200,
     EvaluationsListParams,
+    InstrumentationCheckActionApi,
+    InstrumentationChecklistApi,
     LLMModelsListResponseApi,
     LLMPromptApi,
     LLMPromptDuplicateApi,
@@ -162,6 +164,69 @@ export const llmAnalyticsPersonalSpendList = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getAiObservabilityInstrumentationChecklistRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/instrumentation_checklist/`
+}
+
+/**
+ * Grade every instrumentation check for this project.
+ */
+export const aiObservabilityInstrumentationChecklistRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<InstrumentationChecklistApi> => {
+    return apiMutator<InstrumentationChecklistApi>(getAiObservabilityInstrumentationChecklistRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityInstrumentationChecklistDismissCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/instrumentation_checklist/dismiss/`
+}
+
+/**
+ * Mark a check as not applicable to this project.
+ */
+export const aiObservabilityInstrumentationChecklistDismissCreate = async (
+    projectId: string,
+    instrumentationCheckActionApi: InstrumentationCheckActionApi,
+    options?: RequestInit
+): Promise<InstrumentationChecklistApi> => {
+    return apiMutator<InstrumentationChecklistApi>(
+        getAiObservabilityInstrumentationChecklistDismissCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(instrumentationCheckActionApi),
+        }
+    )
+}
+
+export const getAiObservabilityInstrumentationChecklistRestoreCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/instrumentation_checklist/restore/`
+}
+
+/**
+ * Bring a dismissed check back into grading.
+ */
+export const aiObservabilityInstrumentationChecklistRestoreCreate = async (
+    projectId: string,
+    instrumentationCheckActionApi: InstrumentationCheckActionApi,
+    options?: RequestInit
+): Promise<InstrumentationChecklistApi> => {
+    return apiMutator<InstrumentationChecklistApi>(
+        getAiObservabilityInstrumentationChecklistRestoreCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(instrumentationCheckActionApi),
+        }
+    )
 }
 
 export const getDatasetItemsListUrl = (projectId: string, params: DatasetItemsListParams) => {

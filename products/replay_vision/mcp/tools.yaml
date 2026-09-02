@@ -162,6 +162,36 @@ tools:
             - created_by
             - updated_at
         requires_ai_consent: true
+    vision-alerts-create:
+        operation: vision_alerts_create
+        enabled: false
+    vision-alerts-destinations-create:
+        operation: vision_alerts_destinations_create
+        enabled: false
+    vision-alerts-destinations-delete-create:
+        operation: vision_alerts_destinations_delete_create
+        enabled: false
+    vision-alerts-destroy:
+        operation: vision_alerts_destroy
+        enabled: false
+    vision-alerts-events-list:
+        operation: vision_alerts_events_list
+        enabled: false
+    vision-alerts-list:
+        operation: vision_alerts_list
+        enabled: false
+    vision-alerts-partial-update:
+        operation: vision_alerts_partial_update
+        enabled: false
+    vision-alerts-reset-create:
+        operation: vision_alerts_reset_create
+        enabled: false
+    vision-alerts-retrieve:
+        operation: vision_alerts_retrieve
+        enabled: false
+    vision-alerts-update:
+        operation: vision_alerts_update
+        enabled: false
     vision-observations-create-task-create:
         operation: vision_observations_create_task_create
         enabled: false
@@ -397,6 +427,9 @@ tools:
             `vision-scanners-update` instead.
     vision-scanners-draft-create:
         operation: vision_scanners_draft_create
+        enabled: false
+    vision-scanners-duplicate-create:
+        operation: vision_scanners_duplicate_create
         enabled: false
     vision-scanners-estimate-create:
         operation: vision_scanners_estimate_create

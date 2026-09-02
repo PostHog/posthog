@@ -1,6 +1,5 @@
-import { LemonButton, LemonMenuOverlay } from '@posthog/lemon-ui'
-
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
+import { Button, Tooltip, TooltipContent, TooltipTrigger } from 'lib/ui/quill'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
@@ -27,39 +26,25 @@ export const IssueStatusButton = ({
     return (
         <>
             <HogfettiComponent />
-            <LemonButton
-                type="primary"
-                onClick={handleResolve}
-                tooltip={
-                    status === 'active'
+            <Tooltip>
+                <TooltipTrigger
+                    render={
+                        <Button
+                            variant="primary"
+                            className="[translate:0_0]"
+                            onClick={handleResolve}
+                            data-attr="error-tracking-resolve"
+                        >
+                            {status === 'active' ? 'Resolve' : 'Reopen'}
+                        </Button>
+                    }
+                />
+                <TooltipContent>
+                    {status === 'active'
                         ? ISSUE_STATUS_CONFIG.resolved.intentLabel
-                        : ISSUE_STATUS_CONFIG.active.intentLabel
-                }
-                data-attr="error-tracking-resolve"
-                sideAction={
-                    status === 'active'
-                        ? {
-                              dropdown: {
-                                  placement: 'bottom-end',
-                                  overlay: (
-                                      <LemonMenuOverlay
-                                          items={[
-                                              {
-                                                  label: 'Suppress',
-                                                  onClick: () => onChange('suppressed'),
-                                                  tooltip: ISSUE_STATUS_CONFIG.suppressed.intentLabel,
-                                              },
-                                          ]}
-                                      />
-                                  ),
-                              },
-                          }
-                        : undefined
-                }
-                size="small"
-            >
-                {status === 'active' ? 'Resolve' : 'Reopen'}
-            </LemonButton>
+                        : ISSUE_STATUS_CONFIG.active.intentLabel}
+                </TooltipContent>
+            </Tooltip>
         </>
     )
 }

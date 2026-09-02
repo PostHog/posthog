@@ -4,8 +4,22 @@ from uuid import UUID
 
 from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
-from django.db.models import Case, Count, IntegerField, Prefetch, Q, QuerySet, Value, When
-from django.db.models.functions import Lower
+from django.db.models import (
+    Case,
+    CharField,
+    Count,
+    F,
+    IntegerField,
+    Min,
+    OuterRef,
+    Prefetch,
+    Q,
+    QuerySet,
+    Subquery,
+    Value,
+    When,
+)
+from django.db.models.functions import Coalesce, Concat, Lower, NullIf, Trim
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -140,11 +154,19 @@ def _to_feature_request_view(
         can_update=_get_feature_request_can_update(feature_request, user_access_control),
         account=legacy_account,
         account_links=account_links,
+        evidence_count=sum(link.evidence_count for link in account_links),
         product_areas=[_to_product_area_view(area) for area in feature_request.product_areas.all()],
         created_by=feature_request.created_by_id,
         updated_by=feature_request.updated_by_id,
         created_at=feature_request.created_at,
         updated_at=feature_request.updated_at,
+    )
+
+
+def _accessible_account_ids(team_id: int, user_access_control: "UserAccessControl") -> QuerySet[Account]:
+    return cast(
+        QuerySet[Account],
+        user_access_control.filter_queryset_by_access_level(Account.objects.for_team(team_id)).values("id"),
     )
 
 
@@ -154,9 +176,7 @@ def _feature_request_queryset(
     *,
     include_evidence: bool = True,
 ) -> QuerySet[FeatureRequest]:
-    accessible_account_ids = user_access_control.filter_queryset_by_access_level(
-        Account.objects.for_team(team_id)
-    ).values("id")
+    accessible_account_ids = _accessible_account_ids(team_id, user_access_control)
     visible_links = (
         FeatureRequestAccountLink.objects.for_team(team_id)
         .filter(account_id__in=accessible_account_ids, unlinked_at__isnull=True)
@@ -199,15 +219,60 @@ def _apply_priority_ordering(queryset: QuerySet[FeatureRequest], ordering: str) 
     return queryset.alias(priority_order=priority_order).order_by("priority_order", "id")
 
 
-def _apply_ordering(queryset: QuerySet[FeatureRequest], ordering: str) -> QuerySet[FeatureRequest]:
+def _order_by_annotation(
+    queryset: QuerySet[FeatureRequest], annotation: str, direction: str
+) -> QuerySet[FeatureRequest]:
+    ordering = F(annotation).desc(nulls_last=True) if direction else F(annotation).asc(nulls_last=True)
+    return queryset.order_by(ordering, f"{direction}id")
+
+
+def _apply_ordering(
+    queryset: QuerySet[FeatureRequest], ordering: str, accessible_account_ids: QuerySet[Account]
+) -> QuerySet[FeatureRequest]:
     if ordering in {"priority", "-priority"}:
         return _apply_priority_ordering(queryset, ordering)
     if ordering == "title":
         return queryset.order_by(Lower("title"), "id")
     if ordering == "-title":
         return queryset.order_by(Lower("title").desc(), "-id")
+
     direction = "-" if ordering.startswith("-") else ""
     field = ordering.removeprefix("-")
+    if field == "account":
+        queryset = queryset.annotate(
+            _ordering_account=Min(
+                Lower("account_links__account__name"),
+                filter=Q(account_links__account_id__in=accessible_account_ids, account_links__unlinked_at__isnull=True),
+            )
+        )
+        return _order_by_annotation(queryset, "_ordering_account", direction)
+    if field == "product_area":
+        queryset = queryset.annotate(_ordering_product_area=Min(Lower("product_area_links__product_area__name")))
+        return _order_by_annotation(queryset, "_ordering_product_area", direction)
+    if field == "evidence_count":
+        queryset = queryset.annotate(
+            _ordering_evidence_count=Count(
+                "account_links__evidence",
+                filter=Q(account_links__account_id__in=accessible_account_ids, account_links__unlinked_at__isnull=True),
+                distinct=True,
+            )
+        )
+        return _order_by_annotation(queryset, "_ordering_evidence_count", direction)
+    if field == "created_by":
+        creator_name = (
+            User.objects.filter(pk=OuterRef("created_by_id"))
+            .annotate(
+                display_name=Coalesce(
+                    NullIf(Trim(Concat("first_name", Value(" "), "last_name")), Value("")),
+                    "email",
+                    output_field=CharField(),
+                )
+            )
+            .order_by()
+            .values("display_name")[:1]
+        )
+        queryset = queryset.annotate(_ordering_created_by=Lower(Subquery(creator_name, output_field=CharField())))
+        return _order_by_annotation(queryset, "_ordering_created_by", direction)
     if field == "updated_at":
         return queryset.order_by(ordering, f"{direction}created_at", f"{direction}id")
     return queryset.order_by(ordering, f"{direction}id")
@@ -550,12 +615,13 @@ def list_feature_requests(
             .filter(id__in=filters.account_ids)
             .values_list("id", flat=True)
         )
+    accessible_account_ids = _accessible_account_ids(team_id, user_access_control)
     queryset = _apply_filters(
         _feature_request_queryset(team_id, user_access_control, include_evidence=False),
         filters,
         account_filter_ids,
     )
-    queryset = _apply_ordering(queryset, filters.ordering)
+    queryset = _apply_ordering(queryset, filters.ordering, accessible_account_ids)
     total_count = queryset.count()
     return [
         _to_feature_request_view(item, user_access_control=user_access_control, include_evidence=False)

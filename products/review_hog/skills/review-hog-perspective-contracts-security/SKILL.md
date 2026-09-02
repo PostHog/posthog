@@ -1,8 +1,8 @@
 ---
 name: review-hog-perspective-contracts-security
 description: >
-  The Contracts & Security review perspective for ReviewHog. Verifies that changed code is safe and
-  maintains compatibility — API contracts and breaking changes, injection / authz / data exposure,
+  The Contracts & Security review perspective for PostHog Review. Verifies that changed code is safe and
+  maintains compatibility: API contracts and breaking changes, injection / authz / data exposure,
   input validation, and schema / interface alignment. Reports security and contract issues only.
 metadata:
   owner_team: review_hog
@@ -77,7 +77,7 @@ handling for context, but don't raise contract / security findings on them.
 
 - Logic and correctness errors → Logic & Correctness
 - Performance optimizations and error-handling completeness → Performance & Reliability
-- Code style or formatting → not a ReviewHog concern
+- Code style or formatting → not a PostHog Review concern
 
 ## Key questions
 

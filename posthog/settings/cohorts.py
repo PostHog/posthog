@@ -42,6 +42,25 @@ BEHAVIORAL_BACKFILL_PERSON_TTL_ATTESTED: bool = get_from_env(
 BEHAVIORAL_BACKFILL_FINALIZER_ENABLED: bool = get_from_env(
     "BEHAVIORAL_BACKFILL_FINALIZER_ENABLED", False, type_cast=str_to_bool
 )
+# Which runs the finalizer may stamp. Comma list of run UUIDs; empty / "all" / "*" lifts the
+# restriction, "none" matches nothing. Whitespace and case are tolerated and ids compare as parsed
+# UUIDs, so a line emitted by `manage_cohort_backfill_runs inventory` pastes in verbatim.
+#
+# It exists because a readiness stamp is one way. The moment
+# `BEHAVIORAL_BACKFILL_FINALIZER_ENABLED` flips, every reconciling run the seeder has observed
+# qualifies and gets stamped, and there is no un-stamp — so enabling the finalizer against an
+# unaudited backlog is irreversible. This narrows that to the short list of runs an operator
+# inspected by hand.
+#
+# A value meant as a restriction never degrades into "every run": if every token is malformed, the
+# parser matches nothing and logs, because widening is the direction that cannot be undone.
+#
+# The default lifts the restriction on purpose. A fail-closed default would silently park every
+# future run the first time someone forgot to widen it, which is the invisible backlog the
+# `not_allowlisted` gauge label exists to expose. Safety comes from ordering instead: set this to a
+# verified list (or "none") in every region before `BEHAVIORAL_BACKFILL_FINALIZER_ENABLED` is
+# turned on, so the default never applies where it matters.
+BEHAVIORAL_BACKFILL_FINALIZER_RUN_ALLOWLIST: str = os.getenv("BEHAVIORAL_BACKFILL_FINALIZER_RUN_ALLOWLIST", "all")
 # Whether the finalizer may terminalize person-property runs and stamp
 # `last_backfill_person_properties_at`.
 #

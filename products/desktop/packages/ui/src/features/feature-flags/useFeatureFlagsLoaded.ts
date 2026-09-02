@@ -10,3 +10,27 @@ export function useFeatureFlagsLoaded(): boolean {
 
   return loaded;
 }
+
+export async function resolveFeatureFlagAfterLoad(
+  flags: FeatureFlags,
+  flagKey: string,
+  flagsLoaded: boolean,
+): Promise<boolean> {
+  if (!flagsLoaded) {
+    await new Promise<void>((resolve) => {
+      let unsubscribe: (() => void) | undefined;
+      let resolvedSynchronously = false;
+      const handleLoaded = (): void => {
+        resolvedSynchronously = true;
+        unsubscribe?.();
+        resolve();
+      };
+      unsubscribe = flags.onFlagsLoaded(handleLoaded);
+      if (resolvedSynchronously) {
+        unsubscribe();
+      }
+    });
+  }
+
+  return flags.isEnabled(flagKey);
+}

@@ -29,7 +29,6 @@ from posthog.api.oauth.cimd import (
     CIMDFetchError,
     CIMDValidationError,
     fetch_and_upsert_cimd_application,
-    get_application_by_client_id,
     is_cimd_client_id,
     is_cimd_url_blocked,
 )
@@ -75,7 +74,7 @@ class ClientRegistrationView(ProvisioningAPIView):
         )
         return Response(
             {
-                "client_id": app.effective_client_id,
+                "client_id": app.client_id,
                 "registered": True,
                 "client_type": app.client_type,
                 "token_endpoint_auth_method": app.token_endpoint_auth_method.value,
@@ -110,7 +109,7 @@ class ClientRegistrationView(ProvisioningAPIView):
             # A non-CIMD client_id has no document to fetch, so it can only have been
             # registered by a PostHog admin.
             try:
-                admin_registered = get_application_by_client_id(client_id)
+                admin_registered = OAuthApplication.objects.get(client_id=client_id)
             except OAuthApplication.DoesNotExist:
                 _record(checks, "client_exists", False, "No client is registered with this client_id")
                 return None
@@ -124,7 +123,7 @@ class ClientRegistrationView(ProvisioningAPIView):
         # An already-registered client keeps working when its document is momentarily
         # unreachable, so a failed re-fetch is reported as one failed check rather than
         # suppressing every other diagnostic the caller came for.
-        existing = OAuthApplication.objects.filter(cimd_metadata_url=client_id).first()
+        existing = OAuthApplication.objects.filter(client_id=client_id).first()
         try:
             # A CIMD client that has never been used for provisioning carries no provisioning
             # config yet, and this is the call that gives it one, so the rest of the namespace

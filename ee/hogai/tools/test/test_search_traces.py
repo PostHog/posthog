@@ -2,6 +2,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
 from langchain_core.runnables import RunnableConfig
+from parameterized import parameterized
 
 from posthog.schema import DateRange, LLMTrace, LLMTraceEvent, TracesQuery
 
@@ -71,19 +72,27 @@ class TestSearchLLMTracesTool(BaseTest):
         self.assertIn("trace-1", content)
         self.assertIsNone(artifact)
 
+    @parameterized.expand(
+        [
+            ("first_page", 1, None, '"1"'),
+            ("later_page", 10, "20", '"30"'),
+        ]
+    )
     @patch("ee.hogai.context.insight.query_executor.AssistantQueryExecutor.aexecute_query", new_callable=AsyncMock)
-    def test_search_shows_has_more_with_cursor(self, mock_execute):
+    def test_search_shows_has_more_with_cursor(self, _name, limit, cursor, expected_cursor, mock_execute):
+        # A full page is what the runner returns now, so the cursor has to advance by the page
+        # size. Advancing by anything else re-reads or skips a trace on the next page.
         mock_execute.return_value = {
-            "results": [_make_trace()],
+            "results": [_make_trace(trace_id=f"trace-{i}") for i in range(limit)],
             "hasMore": True,
         }
 
         tool = self._create_tool()
-        query = TracesQuery(dateRange=DateRange(date_from="-7d"), limit=1)
-        content, _ = tool._run(query=query, config=RunnableConfig(configurable={}))
+        query = TracesQuery(dateRange=DateRange(date_from="-7d"), limit=limit)
+        content, _ = tool._run(query=query, cursor=cursor, config=RunnableConfig(configurable={}))
 
         self.assertIn("More traces are available", content)
-        self.assertIn('cursor="1"', content)
+        self.assertIn(f"cursor={expected_cursor}", content)
 
     @patch("ee.hogai.context.insight.query_executor.AssistantQueryExecutor.aexecute_query", new_callable=AsyncMock)
     def test_search_without_cursor_uses_offset_zero(self, mock_execute):
@@ -113,8 +122,7 @@ class TestSearchLLMTracesTool(BaseTest):
 
     @patch("ee.hogai.context.insight.query_executor.AssistantQueryExecutor.aexecute_query", new_callable=AsyncMock)
     def test_search_trims_detection_row_and_advances_cursor(self, mock_execute):
-        # The query runner returns limit+1 results when hasMore=True.
-        # With limit=10, it returns 11 results. The tool trims to 10.
+        # TracesQueryRunner trims the page, so this over-long response exercises the tool's own guard.
         mock_execute.return_value = {
             "results": [_make_trace(trace_id=f"trace-{i}") for i in range(11)],
             "hasMore": True,

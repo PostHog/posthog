@@ -1,4 +1,5 @@
 import uuid
+import datetime as dt
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Optional
@@ -27,6 +28,7 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     mark_initial_sync_complete,
+    update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -40,7 +42,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     filter_dwh_columns_by_enabled_columns,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import (
+    DataWarehouseTableCreatedVia,
+    DataWarehouseTableFormat,
+    ExternalDataSourceType,
+)
 
 LOGGER = get_logger(__name__)
 
@@ -121,11 +127,16 @@ async def update_last_synced_at(job_id: str, schema_id: str, team_id: int) -> No
     @retry_on_operational_error
     def _update():
         job = ExternalDataJob.objects.get(pk=job_id)
-        schema = ExternalDataSchema.objects.exclude(deleted=True).get(id=schema_id, team_id=team_id)
-        schema.last_synced_at = job.created_at
-        # Pipeline-internal bookkeeping, not a user edit — skip_activity_log avoids the extra
-        # `_get_before_update` SELECT that also needs a pooler connection (see save()).
-        schema.save(skip_activity_log=True)
+        # `last_full_run_at` rides along in the same locked write: only a run that reached
+        # post-load extracted anything, which is what bounds how long a schema can go on
+        # negative probes alone (see `_fast_return_eligible`). The helper's select_for_update
+        # also stops this save from clobbering a concurrent `sync_type_config` update.
+        update_sync_type_config_keys(
+            schema_id,
+            team_id,
+            updates={"last_full_run_at": dt.datetime.now(dt.UTC).isoformat()},
+            extra_model_fields={"last_synced_at": job.created_at},
+        )
 
     await _update()
 
@@ -171,7 +182,7 @@ async def validate_schema_and_update_table(
     team_id: int,
     schema_id: uuid.UUID,
     row_count: int,
-    table_format: DataWarehouseTable.TableFormat,
+    table_format: DataWarehouseTableFormat,
     queryable_folder: str,
     table_schema_dict: Optional[dict[str, str]] = None,
     primary_keys: Optional[list[str]] = None,
@@ -273,7 +284,7 @@ async def validate_schema_and_update_table(
                     logger.debug(f"Creating table for schema: {str(schema_id)}")
                     table_created = DataWarehouseTable.objects.create(
                         external_data_source_id=job.pipeline.id,
-                        created_via=DataWarehouseTable.CreatedVia.SOURCE,
+                        created_via=DataWarehouseTableCreatedVia.SOURCE,
                         **table_params,
                     )
 
@@ -357,7 +368,7 @@ async def register_cdc_companion_table(
     schema_id: uuid.UUID,
     resource_name: str,
     row_count: int,
-    table_format: DataWarehouseTable.TableFormat,
+    table_format: DataWarehouseTableFormat,
     queryable_folder: str,
     table_schema_dict: Optional[dict[str, str]] = None,
     set_as_schema_table: bool = False,
@@ -429,7 +440,7 @@ async def register_cdc_companion_table(
                 logger.debug(f"Creating CDC companion table: {companion_table_name}")
                 companion_table = DataWarehouseTable.objects.create(
                     external_data_source_id=job.pipeline.id,
-                    created_via=DataWarehouseTable.CreatedVia.SOURCE,
+                    created_via=DataWarehouseTableCreatedVia.SOURCE,
                     **table_params,
                 )
 

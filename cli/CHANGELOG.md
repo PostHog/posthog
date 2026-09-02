@@ -1,5 +1,23 @@
 # posthog-cli
 
+## 0.16.2 — 2026-09-01
+
+### Patch changes
+
+- [13dc107a02b](https://github.com/PostHog/posthog/commit/13dc107a02b4e14da3fcdb521c21317c9e87266f) Fix a race in `sourcemap process`: the source pairs are now read from disk once, injected, and the same in-memory pairs are uploaded. Previously inject and upload each re-walked the directory roots, so a bundler writing into the scanned directory mid-run (e.g. Turbopack's background filesystem-cache flush on Next.js 16.3+) could hand the upload pass chunks the inject pass never stamped, aborting the whole run with "Chunk ID not found". That error now names the offending file and says how to recover. `--delete-after` cleanup no longer fails the build when a file vanished or was replaced after upload: such pairs are skipped with a warning, and a replaced file's artifacts are left untouched instead of being stripped or deleted. Overlapping selection roots now process each file once instead of stamping it repeatedly. The "injecting selection" log line is bounded instead of printing every selected path, since a large stdin-provided selection used to produce a log line big enough to kill the CLI when stderr was a non-blocking pipe (e.g. spawned from Node.js). — Thanks @cat-ph!
+
+## 0.16.1 — 2026-09-01
+
+### Patch changes
+
+- [0a93bb9d822](https://github.com/PostHog/posthog/commit/0a93bb9d822a442e4af94b2659cf07f600231861) Fix `--release-mode event` keeping a stale source map for a chunk that gains a release. The content hash ignored which snippet the chunk carried. The release snippet is longer than the chunk-id snippet, so it shifts the generated columns the uploaded map records. The two uploads therefore shared one hash, the server kept the first map, and later frames resolved to the wrong source positions. The hash now covers the snippet variant. It still ignores the release id itself, so a new release does not re-upload every chunk. — Thanks @ablaszkiewicz!
+
+## 0.16.0 — 2026-08-26
+
+### Minor changes
+
+- [db85d262555](https://github.com/PostHog/posthog/commit/db85d262555a61d89eb71b5dfcfc969053b82236) Add `--release-mode` to `hermes clone` and `hermes upload`. `event` leaves the uploaded Hermes source maps release-independent, so a React Native build that ships unchanged JavaScript across two releases keeps one symbol set instead of colliding on the release the first upload stamped on it. Each exception resolves its own release from the `$app_namespace` / `$app_version` / `$app_build` the SDK already sends, so pass `--release-name`, `--release-version` and `--build` matching the app's bundle identifier or applicationId, version and build number. `symbol-set` stays the default. `hermes inject --release-mode=event` no longer errors: it injects content-addressed chunk ids and, unlike a web build, embeds no release id, because a Hermes bytecode bundle has nothing to read one back out. — Thanks @ablaszkiewicz!
+
 ## 0.15.1 — 2026-08-24
 
 ### Patch changes

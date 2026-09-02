@@ -39,24 +39,24 @@ dependencies = [
     "deltalake[pyarrow]==1.6.1",
     "dj-database-url~=3.0.0",
     "django~=5.2.0",
-    "django-axes[ipware]==8.0.0",
-    "django-cors-headers~=4.8.0",
-    "django-deprecate-fields==0.1.1",
+    "django-axes[ipware]==8.3.1",
+    "django-cors-headers~=4.9.0",
+    "django-deprecate-fields==0.2.3",
     "django-extensions~=4.1.0",
-    "django-filter~=25.1",
+    "django-filter~=26.1",
     "django-loginas==0.3.14",
-    "django-prometheus~=2.4.1",
-    "django-redis==6.0.0",
-    "django-structlog[celery]~=9.1.0",
+    "django-prometheus~=2.5.0",
+    "django-redis==7.0.0",
+    "django-structlog[celery]~=10.1.0",
     "django-two-factor-auth~=1.18.0",
-    "djangorestframework~=3.16.1",
+    "djangorestframework~=3.17.2",
     "djangorestframework-csv~=3.0.2",
     "djangorestframework-dataclasses~=1.4.0",
     "dlt==1.18.2",
     "dnspython==2.6.1",
     "drf-exceptions-hog==0.4.0",
     "drf-extensions~=0.8.0",
-    "drf-spectacular~=0.29.0",
+    "drf-spectacular~=0.30.0",
     "geoip2==4.6.0",
     "google-ads==31.2.0",
     "google-cloud-bigquery==3.26",
@@ -98,9 +98,9 @@ dependencies = [
     "ormsgpack~=1.12",
     "pandas~=2.2.2",
     "paramiko~=3.5.0",
-    "pillow==12.2.0",
+    "pillow==12.3.0",
     "protobuf~=5.29.6",
-    "posthoganalytics==7.44.0",
+    "posthoganalytics==7.45.2",
     "polars==1.37.1",
     "psycopg2-binary==2.9.10",
     "psycopg[binary]==3.2.4",
@@ -131,7 +131,7 @@ dependencies = [
     "snowflake-connector-python==4.3.0",
     "social-auth-app-django~=5.8.0",
     "social-auth-core~=4.8.7",
-    "django-scim2==0.19.0",
+    "django-scim2==0.23.0",
     "sqlparse==0.5.4",
     "sshtunnel==0.4.0",
     "statshog==1.0.6",
@@ -142,6 +142,7 @@ dependencies = [
     "tiktoken==0.9.*",
     "tldextract~=5.1",
     "trafilatura==2.0.0",
+    "trino==0.338.0",
     "types-cachetools==5.5.0.20240820",
     "css-inline==0.18.0",
     "click~=8.0",
@@ -205,7 +206,7 @@ dependencies = [
     "wrapt==1.17.3",
     "limits==5.8.0",
     "deltalite==0.1.7",
-    "posthog-hogland==0.3.1",
+    "posthog-hogland==0.4.1",
 ]
 
 [dependency-groups]
@@ -221,8 +222,11 @@ dev = [
     "debugpy~=1.8.0",
     "import-linter~=2.11",
     "deepdiff~=8.6.1",
-    "django-linear-migrations~=2.17.0",
+    "django-linear-migrations~=2.19.0",
     "django-stubs~=5.2.0",
+    # django-stubs requires this unbounded, so an upgrade run drifts it to a version
+    # that models a different Django. Hold it on the line django-stubs is on.
+    "django-stubs-ext~=5.2.5",
     "djangorestframework-stubs~=3.16.0",
     "faker==17.5.0",
     "fakeredis[lua]==2.23.3",
@@ -234,7 +238,7 @@ dev = [
     "ipython~=9.3.0",
     "mypy~=2.1.0",
     "mypy-extensions~=1.1.0",
-    "ty==0.0.29",
+    "ty==0.0.74",
     # openapi-spec-validator needed for prance as a validation backend
     "openapi-spec-validator==0.7.1",
     "orjson==3.11.9",
@@ -247,7 +251,7 @@ dev = [
     "pytest-asyncio~=1.3.0",
     "pytest-aiohttp~=1.1.0",
     "pytest-cov~=7.0.0",
-    "pytest-django~=4.11.1",
+    "pytest-django~=4.14.0",
     "pytest-durations~=1.6.2",
     "pytest-env~=1.2.0",
     "pytest-icdiff~=0.9",
@@ -445,6 +449,17 @@ section-order = [
 "posthog" = ["posthog"]
 "products" = ["products"]
 
+[tool.djlint]
+profile = "django"
+extension = "html"
+indent = 4
+# Formatting covers every Django template; linting is scoped to the email ones, so these
+# exclusions are read against those. H021 inline styles and H023 entity references are how
+# HTML email has to be written, since mail clients strip stylesheets and render bare
+# characters inconsistently. H016 title and H030 meta description are page rules that mean
+# nothing in an email.
+ignore = "H021,H023,H016,H030"
+
 [tool.dagster]
 python_version = "3.13"
 
@@ -502,6 +517,10 @@ exclude = [
     "posthog/schema.py",
     "posthog/schema_enums.py",
     "posthog/temporal/proxy_service/proto/**",
+    # PEP 723 scripts with their own deps; mypy excludes these dirs too
+    "products/*/skills/*/scripts/**",
+    "products/stamphog/packages/**",
+    "tools/**",
     "products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs/**",
     "rust/deltalite/python/**",
 ]
@@ -632,6 +651,7 @@ ignore_imports = [
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_runs",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_serializers",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_state",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_variables",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.client",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.sql_v2",
     # TODO: experiments presentation wave — these were invisible to import-linter until
@@ -708,6 +728,7 @@ ignore_imports = [
     "products.cohorts.backend.routes -> products.cohorts.backend.api.staff_tools",
     "products.conversations.backend.routes -> products.conversations.backend.api",
     "products.dashboards.backend.routes -> products.dashboards.backend.api.dashboard",
+    "products.dashboards.backend.routes -> products.dashboards.backend.api.dashboard_saved_view",
     "products.dashboards.backend.routes -> products.dashboards.backend.api.dashboard_templates",
     "products.early_access_features.backend.routes -> products.early_access_features.backend.api",
     "products.exports.backend.routes -> products.exports.backend.api.exports",
@@ -741,6 +762,7 @@ ignore_imports = [
     "products.signals.backend.routes -> products.signals.backend.views",
     "products.signals.backend.routes -> products.signals.backend.scout_chat",
     "products.signals.backend.routes -> products.signals.backend.scout_harness.views",
+    "products.signals.backend.routes -> products.signals.backend.scout_suggestions_api",
     "products.skills.backend.routes -> products.skills.backend.api.community_skills",
     "products.skills.backend.routes -> products.skills.backend.api.marketplace_views",
     "products.skills.backend.routes -> products.skills.backend.api.skills",
@@ -752,6 +774,7 @@ ignore_imports = [
     "products.web_analytics.backend.routes -> products.web_analytics.backend.api.web_analytics_path_cleaning_suggestions",
     "products.workflows.backend.routes -> products.workflows.backend.api.hog_flow",
     "products.workflows.backend.routes -> products.workflows.backend.api.hog_flow_template",
+    "products.workflows.backend.routes -> products.workflows.backend.api.workflow_scout_runs",
     "products.workflows.backend.routes -> products.workflows.backend.api.workflow_tasks",
 ]
 
@@ -802,12 +825,14 @@ too-many-positional-arguments = "ignore"  # Django metaprogramming signatures
 # Dual mypy+ty — mypy still runs, so its artifacts are legitimate
 redundant-cast = "ignore"  # casts needed by mypy that ty resolves
 unused-type-ignore-comment = "ignore"  # type: ignore comments required by mypy
+unused-ignore-comment = "error"  # default is warn, which does not fail CI; error keeps stale ty: ignore directives out
 
 # Django lazy imports and settings indirection
 possibly-missing-submodule = "ignore"
 
 # DRF serializer pattern — validate/update/create overrides are idiomatic
 invalid-method-override = "ignore"
+invalid-attribute-override = "ignore"  # Django manager/field overrides (e.g. `objects`)
 
 # Conditional base classes (e.g. EnterpriseEventQuery | EventQuery pattern)
 unsupported-base = "ignore"
@@ -838,3 +863,10 @@ deprecated = "ignore"
 # These rules catch real bugs in new code, so they stay enabled.
 # invalid-type-form is the exception: generated code + ty limitations on valid patterns.
 invalid-type-form = "ignore"
+
+[[tool.ty.overrides]]
+# Scanner schemas are built with create_model at runtime, so every kwarg looks extra to ty
+include = ["products/replay_vision/backend/tests/test_scanners.py"]
+
+[tool.ty.overrides.rules]
+pydantic-discarded-extra-argument = "ignore"

@@ -19,6 +19,8 @@ from slack_sdk.web import SlackResponse
 
 from posthog.models.integration import Integration, SlackIntegration
 
+from .digest import as_channel_paragraph
+
 if TYPE_CHECKING:
     from .channel_resolution import Destination
     from .digest import DigestSummary
@@ -84,24 +86,62 @@ def _scope_line(shown: int, considered: int) -> str:
     return f"{shown} Stamphog-approved {'merge' if shown == 1 else 'merges'}."
 
 
-def _lead_text(summary: DigestSummary) -> str:
-    """The one line the channel gets: the model's headline, or the scope line when it wrote none.
+def _lead_change_line(summary: DigestSummary) -> str:
+    """The first change's own line when it may stand in for a headline, otherwise "".
 
-    The headline is model output over untrusted PR content, so it is escaped and clipped like any
-    other summary text. The scope line is built from counts and is safe as it stands.
+    ``judged`` is the first condition. On the model path that line was written to the digest's bar
+    by something that read the diff, so promoting it to the channel promotes a sentence somebody
+    stood behind. On the deterministic fallback it is the PR's raw title, and putting an author's
+    unreviewed claim in the one slot the channel reads would present it as the digest's pick when
+    nothing judged it. A fallback keeps the scope line and reads like the quiet day it is.
+
+    Clearing ``as_channel_paragraph`` is the second. A change line is only ever validated for the
+    thread, where it is the label of its own link, and a model that omitted a summary leaves the
+    contributor's raw PR title standing in for it. Promoting one unchecked would put a title's URL
+    in the channel as bare clickable text, in the slot that rejects a headline for carrying one.
+    """
+    if not summary.judged or not summary.prs:
+        return ""
+    return as_channel_paragraph(summary.prs[0].summary)
+
+
+def _has_lead_line(summary: DigestSummary) -> bool:
+    """Whether anything better than the scope line is available to lead with.
+
+    One question asked in one place. The lead and the footer both branch on it, in opposite
+    directions, and a third lead source added to only one of them would make the post state its
+    count twice or not at all.
+    """
+    return bool(summary.headline or _lead_change_line(summary))
+
+
+def _lead_text(summary: DigestSummary) -> str:
+    """The one line the channel gets, best available first.
+
+    The headline when there is one, otherwise the first change's own line, which is already the
+    first entry in the thread. So the channel still gets a sentence about something that shipped,
+    and it is one the reader can click through to. Leading with a bare count while real judged
+    lines sat in the thread was the old behavior, and it read as the digest giving up.
+
+    Both are model output over untrusted PR content, so both are escaped and clipped. The scope
+    line is built from counts and is safe as it stands.
     """
     if summary.headline:
         return _clip(_escape_mrkdwn(summary.headline), _MAX_SECTION_CHARS)
+    change_line = _lead_change_line(summary)
+    if change_line:
+        return _clip(_escape_mrkdwn(change_line), _MAX_SECTION_CHARS)
     return _scope_line(len(summary.prs), summary.considered)
 
 
 def _footer_text(summary: DigestSummary) -> str:
     """The context line under the lead.
 
-    The scope line appears here only when the lead is a headline, because a digest with no headline
-    already leads with it. Printing it twice would make a two-line post state its own count twice.
+    The scope line is dropped only when the lead is already the scope line, because printing it
+    twice would make a two-line post state its own count twice. Asked through the same helper the
+    lead uses, so the two can never disagree about whether a lead exists.
     """
-    if not summary.headline:
+    if not _has_lead_line(summary):
         return f"{_BETA_LABEL} · {_FOOTER_INVITE}"
     return f"{_BETA_LABEL} · {_scope_line(len(summary.prs), summary.considered)}\n{_FOOTER_INVITE}"
 
