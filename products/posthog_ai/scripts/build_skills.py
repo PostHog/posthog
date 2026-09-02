@@ -405,15 +405,16 @@ def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
     return metadata, body
 
 
-def _shipped_skill_name(skill: DiscoveredSkill) -> str:
-    """Return the name the skill ships under.
+def _unrendered_skill_name(skill: DiscoveredSkill) -> str:
+    """Return the entry point's raw frontmatter ``name``, or the path name.
 
-    ``SkillBuilder.build_skill`` writes each skill to ``dist/skills/<name>``
-    where ``<name>`` is the entry-point frontmatter ``name`` when present, and
-    the discovered path name otherwise. The lint runs without rendering, so read
-    the raw frontmatter; a templated or unparseable name is not resolvable until
-    build and falls back to the path name. ``build_skill`` re-checks the rendered
-    name against ``OMNIBUS_SKILL_NAMES``, so a templated name is still caught.
+    Not the shipped name. ``SkillBuilder.build_skill`` writes each skill to
+    ``dist/skills/<name>`` using the *rendered* frontmatter ``name``, and the lint
+    runs without rendering, so a Jinja name such as ``instrument-{{ 'logs' }}``
+    comes back here verbatim. ``build_skill`` checks the rendered name against
+    ``OMNIBUS_SKILL_NAMES`` (see ``display_name`` there), which is what catches a
+    templated reserved name; this function only gives the lint an earlier, cheaper
+    shot at the plain case.
     """
     try:
         metadata, _ = parse_frontmatter(skill.source_file.read_text())
@@ -683,12 +684,10 @@ class SkillBuilder:
             else:
                 seen[skill.name] = skill
 
-            # build_skill ships each skill under its frontmatter name, not its
-            # discovered path, so check the name that actually reaches dist/.
-            shipped_name = _shipped_skill_name(skill)
-            if shipped_name in OMNIBUS_SKILL_NAMES:
+            unrendered_name = _unrendered_skill_name(skill)
+            if unrendered_name in OMNIBUS_SKILL_NAMES:
                 errors.append(
-                    f"'{shipped_name}' is owned by PostHog/context-mill, which every consumer "
+                    f"'{unrendered_name}' is owned by PostHog/context-mill, which every consumer "
                     f"overlays on top of this repo's skills, so a copy here is overwritten "
                     f"rather than shipped. Remove {skill.source_file.relative_to(self.repo_root)} "
                     f"and change the context-mill source instead."

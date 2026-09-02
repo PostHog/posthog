@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from typing import Any
 
 import pytest
@@ -18,9 +19,16 @@ from products.posthog_ai.evals.error_tracking.scorers import (
 from products.posthog_ai.evals.retrieval.scorers import SkillTriggered
 
 
-def _raw_tool_log(calls: list[tuple[str, dict[str, Any], object]]) -> str:
+def _raw_tool_log(calls: Sequence[tuple[Any, ...]]) -> str:
+    """Build an ACP log. A fourth tuple element overrides the result status.
+
+    ``"failed"`` is what makes ``ToolCall.is_error`` true, which every scorer here
+    uses to ignore an attempt the agent made and lost.
+    """
     lines = []
-    for index, (name, raw_input, raw_output) in enumerate(calls, start=1):
+    for index, call in enumerate(calls, start=1):
+        name, raw_input, raw_output = call[0], call[1], call[2]
+        result_status = call[3] if len(call) > 3 else "completed"
         call_id = f"call-{index}"
         lines.append(
             {
@@ -48,7 +56,7 @@ def _raw_tool_log(calls: list[tuple[str, dict[str, Any], object]]) -> str:
                         "update": {
                             "sessionUpdate": "tool_call_update",
                             "toolCallId": call_id,
-                            "status": "completed",
+                            "status": result_status,
                             "rawOutput": raw_output,
                         }
                     },
@@ -176,6 +184,24 @@ def test_skill_triggered_grades_against_the_expected_direction(
 
     assert score.score == expected_score
     assert score.metadata["loaded"] is (load_call is not None)
+
+
+@pytest.mark.parametrize(
+    "load_call",
+    [
+        (SKILL_TOOL_NAME, {"skill": _SKILL}),
+        ("Read", {"file_path": f"/root/.claude/skills/{_SKILL}/SKILL.md"}),
+        ("Bash", {"command": f"cat /scripts/plugins/posthog/skills/{_SKILL}/SKILL.md"}),
+    ],
+)
+def test_skill_triggered_ignores_a_failed_load_attempt(load_call: tuple[str, dict[str, Any]]) -> None:
+    score = SkillTriggered(_SKILL, name="trigger")._run_eval_sync(
+        {"raw_log": _raw_tool_log([(*load_call, "boom", "failed")])},
+        {"trigger": {"should_load": False}},
+    )
+
+    assert score.score == 1.0
+    assert score.metadata["loaded"] is False
 
 
 @pytest.mark.parametrize("expected", [None, {}, {"trigger": {}}, {"trigger": None}])

@@ -399,6 +399,8 @@ Every consumer below unzips `dist/skills.zip` first and then unzips context-mill
 so **context-mill wins on any skill they both define**.
 A same-named skill added here would have its `SKILL.md` overwritten
 while its extra reference files survived as orphans in the other source's directory.
+The Desktop harness bundle is the exception: it packages context-mill alone,
+so a skill from this repo is absent there rather than overwritten.
 
 | Consumer                              | Merge site                                                                                                                    |
 | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |

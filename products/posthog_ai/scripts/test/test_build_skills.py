@@ -576,7 +576,10 @@ def test_lint_all_catches_reserved_name_in_frontmatter(
         output_dir=tmp_path / "output",
     )
     assert builder.lint_all() is False
-    assert f"'{reserved_name}' is owned by PostHog/context-mill" in capsys.readouterr().err
+    stderr = capsys.readouterr().err
+    assert f"'{reserved_name}' is owned by PostHog/context-mill" in stderr
+    # The path is the only part that tells an author which file to delete.
+    assert str(skill_file.relative_to(tmp_path)) in stderr
 
 
 def test_build_skill_rejects_reserved_name_after_rendering(tmp_path: Path) -> None:
