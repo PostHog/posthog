@@ -89,6 +89,47 @@ tools:
             the connect page, take the newest credential_id for the source type and call 'data-warehouse-source-setup'
             with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use — they are deleted as
             soon as setup consumes them — and expire after 24 hours if never used.
+    external-data-destinations-create:
+        operation: external_data_destinations_create
+        enabled: false
+    external-data-destinations-destroy:
+        operation: external_data_destinations_destroy
+        enabled: false
+    external-data-destinations-list:
+        operation: external_data_destinations_list
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List warehouse destinations
+        description: >
+            List the places this project's warehouse sources can write synced rows to. The PostHog warehouse is one of
+            them, and it is where a source writes when nothing else is configured.
+        feature_flag: warehouse-multi-destination
+    external-data-destinations-partial-update:
+        operation: external_data_destinations_partial_update
+        enabled: false
+    external-data-destinations-retrieve:
+        operation: external_data_destinations_retrieve
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get a warehouse destination
+        description: >
+            Read one warehouse destination, including the target database or schema it writes to. Credentials live on
+            the linked integration and are never returned here.
+        feature_flag: warehouse-multi-destination
+    external-data-destinations-update:
+        operation: external_data_destinations_update
+        enabled: false
     external-data-schemas-cancel:
         operation: external_data_schemas_cancel_create
         enabled: true
@@ -115,6 +156,23 @@ tools:
         description: >
             Delete the synced table data from PostHog but keep the schema entry. The schema remains visible in the
             source and can be re-synced. Use this to clear stale or corrupt data before triggering a fresh sync.
+    external-data-schemas-destinations-partial-update:
+        operation: external_data_schemas_destinations_partial_update
+        enabled: false
+    external-data-schemas-destinations-retrieve:
+        operation: external_data_schemas_destinations_retrieve
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a table's destinations
+        description: >
+            Read one table's destination override. `inherits_from_source` tells you whether the table follows its
+            source; `effective_destination_ids` is where it actually syncs once inheritance is resolved.
+        feature_flag: warehouse-multi-destination
     external-data-schemas-destroy:
         operation: external_data_schemas_destroy
         enabled: false
@@ -340,6 +398,23 @@ tools:
             are preserved — only the webhook is removed. After deletion, schemas can be switched to a polling sync_type
             (incremental/full_refresh) via external-data-schemas-partial-update, or a new webhook can be created with
             create-webhook.
+    external-data-sources-destinations-partial-update:
+        operation: external_data_sources_destinations_partial_update
+        enabled: false
+    external-data-sources-destinations-retrieve:
+        operation: external_data_sources_destinations_retrieve
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a source's destinations
+        description: >
+            Read the destinations every table on this source syncs to. An empty list means the source writes to the
+            PostHog warehouse only, which is the default for any source nobody configured destinations for.
+        feature_flag: warehouse-multi-destination
     external-data-sources-destroy:
         operation: external_data_sources_destroy
         enabled: true
