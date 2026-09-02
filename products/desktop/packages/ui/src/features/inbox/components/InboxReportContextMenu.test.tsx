@@ -201,15 +201,10 @@ describe("InboxReportContextMenu", () => {
     openMenu(report);
 
     await user.click(screen.getByText("Restore"));
-    expect(mocks.restore).toHaveBeenCalledWith(
-      report.id,
-      expect.objectContaining({ onSuccess: expect.any(Function) }),
-    );
-    const restoreOptions = mocks.restore.mock.calls[0]?.[1] as {
-      onSuccess: () => void;
-    };
-    restoreOptions.onSuccess();
+    // Analytics fire on click, not via a per-call onSuccess: restore removes
+    // the row and unmounts this menu, so a mutation callback could be skipped.
     expect(mocks.trackAction).toHaveBeenCalledWith("restore");
+    expect(mocks.restore).toHaveBeenCalledWith(report.id);
 
     fireEvent.contextMenu(screen.getByText("Report one"));
     await user.click(screen.getByText("Copy link"));

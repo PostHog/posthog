@@ -137,11 +137,13 @@ export function InboxReportContextMenu({
             <ContextMenuGroup>
               <ContextMenuItem
                 disabled={restore.isPending}
-                onClick={() =>
-                  restore.mutate(report.id, {
-                    onSuccess: () => fireAction("restore"),
-                  })
-                }
+                onClick={() => {
+                  // Fire before the mutation: restore removes the row from the
+                  // list, unmounting this menu (and its mutation observer)
+                  // before a per-call onSuccess would run, which drops the event.
+                  fireAction("restore");
+                  restore.mutate(report.id);
+                }}
               >
                 <ArrowCounterClockwiseIcon size={14} />
                 Restore
