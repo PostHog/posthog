@@ -390,12 +390,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     # Pause the email of any workflow whose complaint or hard bounce rate breaches a threshold
+    # Hourly rather than a tight poll: the tier system's hourly send bucket bounds how much a
+    # breaching workflow can send between runs, and the detection windows are 1h and 24h anyway.
     add_periodic_task_with_expiry(
         sender,
-        crontab(minute="*/5"),
+        crontab(minute="35"),
         sweep_workflow_email_deliverability.s(),
         name="sweep workflow email deliverability",
-        expires_seconds=5 * 60,
+        expires_seconds=30 * 60,
     )
 
     # Flags cache sync - hourly
