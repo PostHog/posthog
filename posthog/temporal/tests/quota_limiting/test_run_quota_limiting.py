@@ -22,6 +22,11 @@ from posthog.temporal.quota_limiting.run_quota_limiting import (
         # on a healthy replica, so the run must not end here.
         (wrap_clickhouse_query_error(ServerException("All connection tries failed.", code=279)), True),
         (wrap_clickhouse_query_error(ServerException("Too many simultaneous queries.", code=202)), True),
+        # NO_FREE_CONNECTION (203) and SERVER_OVERLOADED (745) are capacity errors the error table
+        # marks RATE_LIMITED, but wrap leaves them as a dynamic class no isinstance tuple names, so
+        # they must match by category.
+        (wrap_clickhouse_query_error(ServerException("No free connection.", code=203)), True),
+        (wrap_clickhouse_query_error(ServerException("Server overloaded.", code=745)), True),
         # Server-side socket timeout (209) and network error (210) reach the activity wrapped by
         # sync_execute into dynamic classes no isinstance tuple can name, so they must match by code.
         (wrap_clickhouse_query_error(ServerException("Socket timeout.", code=209)), True),

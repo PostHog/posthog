@@ -8,7 +8,7 @@ from clickhouse_driver.errors import Error, ErrorCodes, NetworkError, SocketTime
 from temporalio import activity, common, workflow
 from temporalio.exceptions import ApplicationError
 
-from posthog.errors import CH_TRANSIENT_ERRORS
+from posthog.errors import CH_TRANSIENT_ERRORS, QueryErrorCategory, classify_query_error
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
@@ -32,7 +32,13 @@ RETRIABLE_CH_ERROR_CODES = (ErrorCodes.SOCKET_TIMEOUT, ErrorCodes.NETWORK_ERROR)
 def _is_retriable_error(e: Exception) -> bool:
     if isinstance(e, RETRIABLE_ERRORS):
         return True
-    return isinstance(e, Error) and getattr(e, "code", None) in RETRIABLE_CH_ERROR_CODES
+    if isinstance(e, Error) and getattr(e, "code", None) in RETRIABLE_CH_ERROR_CODES:
+        return True
+    # A busy cluster can answer with NO_FREE_CONNECTION (203) or SERVER_OVERLOADED (745), which
+    # wrap_clickhouse_query_error leaves as a dynamic class no isinstance tuple names. The error
+    # table marks every capacity error RATE_LIMITED, so match by that category, the busy-cluster
+    # class this run's other retriable errors already sit in.
+    return classify_query_error(e) == QueryErrorCategory.RATE_LIMITED
 
 
 @dataclasses.dataclass
