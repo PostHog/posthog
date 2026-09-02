@@ -15,7 +15,12 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
 
-from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertDestination
+from products.error_tracking.backend.models import (
+    ErrorTrackingAlert,
+    ErrorTrackingAlertDestination,
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -256,3 +261,73 @@ def _validate_destination(team_id: int, destination: dict[str, Any]) -> None:
             raise AlertValidationError("Slack destinations require a channel id string in the config.")
     else:
         raise AlertValidationError(f"Unsupported destination channel type: {channel_type}")
+
+
+PREVIEW_REPLY_EVENTS = ("$error_tracking_issue_assigned", "$error_tracking_issue_resolved")
+
+
+def preview_alert_messages(team_id: int, trigger: str, actor_email: str | None) -> dict[str, Any]:
+    """Render the Slack thread an alert would open for the team's most recent issue.
+
+    Returns the root for the trigger's opener event, then the replies and root edit a
+    typical lifecycle produces, so the editor can show the thread model on real data.
+    Returns the raw builder output; the facade shapes it into the contract.
+    """
+    # The temporal package aggregator loads every worker-only workflow module; keep it
+    # off the web import path.
+    from products.error_tracking.backend.temporal.alerts.delivery import OPENER_TRIGGERS  # noqa: PLC0415
+    from products.error_tracking.backend.temporal.alerts.messages import (  # noqa: PLC0415
+        build_reply_text,
+        build_root_edit,
+        build_root_message,
+    )
+    from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs  # noqa: PLC0415
+
+    events_by_trigger = {str(value): event for event, value in OPENER_TRIGGERS.items()}
+    if trigger not in events_by_trigger:
+        raise AlertValidationError(f"Unknown trigger: {trigger}")
+    opener_event = events_by_trigger[trigger]
+
+    issue = ErrorTrackingIssue.objects.filter(team_id=team_id).order_by("-created_at").first()
+    fingerprint = (
+        ErrorTrackingIssueFingerprintV2.objects.filter(team_id=team_id, issue_id=issue.id)
+        .values_list("fingerprint", flat=True)
+        .first()
+        if issue is not None
+        else None
+    )
+
+    def inputs(event: str, **overrides: Any) -> AlertDeliveryWorkflowInputs:
+        base: dict[str, Any] = {
+            "notification_id": "preview",
+            "team_id": team_id,
+            "issue_id": str(issue.id) if issue is not None else "preview",
+            "event": event,
+            "issue_name": issue.name if issue is not None else "TypeError: Cannot read properties of undefined",
+            "issue_description": issue.description
+            if issue is not None
+            else "at CheckoutForm.submit (checkout.tsx:142)",
+            "status": "Active",
+            "actor_email": actor_email,
+            "severity": issue.severity if issue is not None else None,
+            "fingerprint": fingerprint,
+        }
+        if event == "$error_tracking_issue_spiking":
+            base["extra"] = {"current_bucket_value": "600", "computed_baseline": "12.5"}
+        base.update(overrides)
+        return AlertDeliveryWorkflowInputs(**base)
+
+    root = build_root_message(inputs(opener_event))
+    messages: list[dict[str, Any]] = [
+        {"kind": "root", "event": opener_event, "text": root["text"], "blocks": root["blocks"]}
+    ]
+    for event in PREVIEW_REPLY_EVENTS:
+        status = "Resolved" if event == "$error_tracking_issue_resolved" else "Active"
+        reply = build_reply_text(inputs(event, status=status))
+        if reply is not None:
+            messages.append({"kind": "reply", "event": event, "text": reply, "blocks": None})
+    edit = build_root_edit(inputs("$error_tracking_issue_resolved", status="Resolved"), headline=root["headline"])
+    messages.append(
+        {"kind": "root_edit", "event": "$error_tracking_issue_resolved", "text": edit["text"], "blocks": edit["blocks"]}
+    )
+    return {"issue_id": issue.id if issue is not None else None, "messages": messages}

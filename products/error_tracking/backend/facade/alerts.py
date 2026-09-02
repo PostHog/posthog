@@ -109,3 +109,11 @@ def update_alert(
 
 def delete_alert(team_id: int, alert_id: UUID | str) -> bool:
     return _alerts.delete_alert(team_id, alert_id)
+
+
+def preview_alert_messages(team_id: int, trigger: str, actor_email: str | None) -> contracts.ErrorTrackingAlertPreview:
+    preview = _alerts.preview_alert_messages(team_id, trigger, actor_email)
+    return contracts.ErrorTrackingAlertPreview(
+        issue_id=preview["issue_id"],
+        messages=[contracts.ErrorTrackingAlertPreviewMessage(**message) for message in preview["messages"]],
+    )

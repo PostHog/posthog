@@ -301,3 +301,18 @@ class ErrorTrackingAlert:
     destinations: list[ErrorTrackingAlertDestination]
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass(frozen=True)
+class ErrorTrackingAlertPreviewMessage:
+    # "root" opens the thread, "reply" posts into it, "root_edit" is the root after a status change.
+    kind: Literal["root", "reply", "root_edit"]
+    event: str
+    text: str
+    blocks: list[dict] | None = None
+
+
+@dataclass(frozen=True)
+class ErrorTrackingAlertPreview:
+    issue_id: UUID | None
+    messages: list[ErrorTrackingAlertPreviewMessage]
