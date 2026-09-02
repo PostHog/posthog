@@ -157,6 +157,9 @@ class HogFlow(UUIDTModel):
     # Start bound for every detector window on this workflow. Without it, resuming instantly
     # re-trips on the feedback that caused the pause in the first place.
     email_sending_resumed_at = models.DateTimeField(null=True, blank=True)
+    # When the deliverability detector last warned this workflow's admins that its rates are
+    # approaching the pause thresholds. Bounds how often the warning email can repeat.
+    email_sending_warned_at = models.DateTimeField(null=True, blank=True)
 
     edges = models.JSONField(default=dict)
     actions = models.JSONField(default=dict)
