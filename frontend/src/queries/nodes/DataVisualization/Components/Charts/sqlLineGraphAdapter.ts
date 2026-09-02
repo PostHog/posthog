@@ -377,7 +377,12 @@ function buildLegendConfig(
 ): ChartLegendConfig {
     // No `hiddenKeys`, so the legend is uncontrolled: quill owns which series are toggled off, and
     // isolating a series works without SQL charts having to persist anything.
-    return { show: chartSettings.showLegend ?? false, position: 'top', interactive: true, renderItem }
+    return {
+        show: chartSettings.showLegend ?? false,
+        position: chartSettings.legendPosition ?? 'top',
+        interactive: true,
+        renderItem,
+    }
 }
 
 /** The X/Y axis-border toggles map onto quill's per-edge axis lines — undefined when both are on
