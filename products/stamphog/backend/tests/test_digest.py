@@ -24,6 +24,7 @@ from products.stamphog.backend.logic.channel_resolution import (
     RoutingContext,
     RoutingUnavailable,
     SlackChannel,
+    _candidate_repo_configs,
 )
 from products.stamphog.backend.logic.digest import (
     _HEADLINE_MAX_RETRIES,
@@ -448,6 +449,25 @@ def test_an_unreadable_registry_posts_nothing(team) -> None:
     assert not post.called
     with team_scope(team.id):
         assert PullRequestAudience.objects.filter(digest_run__isnull=True).count() == 2
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_blank_installation_placeholder_is_not_a_routing_candidate(team) -> None:
+    # A repo created through the API carries a blank installation and defaults to enabled, so it
+    # used to join the candidates. It can fetch no routing file, and every candidate is read, so the
+    # failed fetch raised RoutingUnavailable and silenced the whole team's digest. This does not
+    # relax that rule: a repo that was readable and broke still stops the run. A blank installation
+    # was never readable, resolves no webhook, and so reports no merges either.
+    repo_config = _seed_prs(team.id, pr_count=1)
+    with team_scope(team.id):
+        placeholder = StamphogRepoConfig.objects.for_team(team.id).create(
+            team_id=team.id, repository="acme/placeholder", installation_id="", enabled=True
+        )
+
+    candidates = _candidate_repo_configs(team.id)
+
+    assert [config.id for config in candidates] == [repo_config.id]
+    assert placeholder.id not in {config.id for config in candidates}
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

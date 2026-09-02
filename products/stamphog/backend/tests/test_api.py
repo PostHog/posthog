@@ -100,6 +100,27 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json()["digest_enabled"] is True
 
+    @parameterized.expand(
+        [
+            ("names_a_gate_field", {"enabled": True}, status.HTTP_403_FORBIDDEN),
+            ("leaves_the_defaults", {}, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_member_create_is_gated_only_when_it_names_a_review_field(
+        self, _name: str, extra: dict, expected_status: int
+    ) -> None:
+        # Spelling out a review policy is the same decision whichever verb carries it, so create
+        # gates on the field being present, like update does. Connecting a repository without one
+        # stays an editor's job: the row binds disabled at sync and routes no digest until then.
+        self._login_as_member()
+
+        response = self.client.post(self.url, {"repository": "PostHog/new", **extra}, format="json")
+
+        assert response.status_code == expected_status, response.content
+        assert StamphogRepoConfig.objects.unscoped().filter(repository="PostHog/new").exists() is (
+            expected_status == status.HTTP_201_CREATED
+        )
+
     def test_member_cannot_soft_delete_a_config(self) -> None:
         # The soft delete flips `enabled` behind a different verb, so gating only PATCH would leave
         # the same switch reachable through DELETE.

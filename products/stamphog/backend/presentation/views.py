@@ -218,11 +218,15 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
 
     @extend_schema(request=StamphogRepoConfigWriteSerializer, responses={201: StamphogRepoConfigSerializer})
     def create(self, request: Request, **kwargs) -> Response:
-        # Editor is enough here, unlike the gate fields below: a manually created config carries no
-        # installation, and _adopt_preexisting_config binds it disabled at sync time, so an enabled
-        # placeholder never reviews a pull request.
+        # Naming a gate field takes manager here for the same reason it does on update: a caller
+        # spelling out a review policy is making the review decision, whichever verb carries it.
+        # Leaving them out stays at editor. The row is created without an installation, which binds
+        # it disabled at sync time and keeps it out of the digest candidates, so the defaults reach
+        # nothing on their own.
         serializer = StamphogRepoConfigWriteSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
+        if any(field in serializer.validated_data for field in REVIEW_GATE_FIELDS):
+            self._require_review_gate_manager(request)
         try:
             config = facade_api.create_repo_config(self.canonical_team_id, **serializer.validated_data)
         except contracts.RepoAlreadyClaimedError:
