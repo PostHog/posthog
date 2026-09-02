@@ -383,6 +383,7 @@ def list_team_ci_health(
     date_to: str | None = None,
     min_failed_prs: int | None = None,
     limit: int | None = None,
+    owner_team: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> TeamCIHealthList:
@@ -392,6 +393,7 @@ def list_team_ci_health(
         date_to=date_to,
         min_failed_prs=min_failed_prs,
         limit=limit,
+        owner_team=owner_team,
     )
 
 
