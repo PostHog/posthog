@@ -64,7 +64,7 @@ class _RecordingBackend:
 
 
 @unittest.skipUnless(HAVE_SDK, "posthog-hogland SDK not installed")
-class OverridePersonhogParityTest(unittest.TestCase):
+class OverrideDjangoEnvironmentTest(unittest.TestCase):
     def _override(self, **kwargs) -> str:
         backend = _RecordingBackend()
         stack = PostHogPreviewStack(backend, **kwargs)
@@ -73,6 +73,9 @@ class OverridePersonhogParityTest(unittest.TestCase):
 
     def test_web_env_has_personhog_addr(self):
         self.assertIn("PERSONHOG_ADDR=personhog-router:50052", self._override())
+
+    def test_django_services_use_seeded_project_for_product_flags(self):
+        self.assertEqual(self._override().count("POSTHOG_SELF_TEAM_ID=1"), 2)
 
     def test_personhog_services_defined(self):
         override = self._override()

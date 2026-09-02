@@ -312,6 +312,9 @@ class PostHogPreviewStack:
             f"      - EXTRA_CSRF_TRUSTED_ORIGINS={_CSRF_TRUSTED_ORIGINS}",
             "      - DISABLE_SECURE_SSL_REDIRECT=1",
             "      - DEBUG=0",
+            # The golden seeds product flags in team 1. Pin the server SDK to the same team as the
+            # browser so that feature-gated API responses match the preview's flag controls.
+            "      - POSTHOG_SELF_TEAM_ID=1",
             # Random per-preview key (see self.secret_key) — PostHog's prod
             # settings refuse to boot on the default, and the migrate one-off
             # (compose run --rm web) needs it too. Not shared across previews, so
@@ -445,6 +448,7 @@ class PostHogPreviewStack:
             # Same story as web's, and the worker is the side that actually
             # writes the delta files to MinIO.
             "      - USE_LOCAL_SETUP=1",
+            "      - POSTHOG_SELF_TEAM_ID=1",
             # The health server only starts when BOTH of these are set:
             # start_temporal_worker.py gates on `health_port and
             # health_max_idle_seconds` and both settings default to None, so
