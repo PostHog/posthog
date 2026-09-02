@@ -6445,6 +6445,8 @@ export interface ExternalDataSourceCreatePayload {
     direct_query_enabled?: boolean
     created_via: 'web' | 'api' | 'mcp'
     payload: Record<string, any>
+    /** Destinations every table on the source writes to. Set at creation so the opening sync carries them. */
+    destination_ids?: string[]
 }
 
 /** Response of `POST warehouse_tables/upload_file` — the stored file a self-managed table is built from. */
@@ -6745,6 +6747,12 @@ export interface ExternalDataJob {
      * runs the customer isn't charged for. `null` on legacy rows and means billable.
      */
     billable?: boolean | null
+    /**
+     * Destinations this run delivered to, snapshotted when it started. Empty on runs that predate
+     * destinations, which wrote to the PostHog warehouse alone. `rows_synced` counts the rows read
+     * from the source once, not once per destination.
+     */
+    destination_ids?: string[]
 }
 
 export interface SimpleDataWarehouseTable {
