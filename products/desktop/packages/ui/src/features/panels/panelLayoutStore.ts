@@ -68,6 +68,10 @@ interface PanelLayoutStore {
     taskId: string,
     instructions: { body: string },
   ) => void;
+  openPosthogContextInSplit: (
+    taskId: string,
+    context: { body: string },
+  ) => void;
   openAutoresearchTab: (taskId: string) => void;
   openArtifactTab: (
     taskId: string,
@@ -287,6 +291,21 @@ export const usePanelLayoutStore = createWithEqualityFn<PanelLayoutStore>()(
                 "Canvas instructions",
                 { type: "canvas-instructions", body: instructions.body },
               ) as Partial<TaskLayout>,
+          ),
+        );
+      },
+
+      openPosthogContextInSplit: (taskId, context) => {
+        const tabId = `posthog-context-${contentHash(context.body)}`;
+        set((state) =>
+          updateTaskLayout(
+            state,
+            taskId,
+            (layout) =>
+              coreOpenReadonlyTab(layout, tabId, "PostHog context", {
+                type: "posthog-context",
+                body: context.body,
+              }) as Partial<TaskLayout>,
           ),
         );
       },

@@ -1,4 +1,5 @@
 import {
+  AppWindow,
   CaretDown,
   Check,
   Copy,
@@ -97,22 +98,15 @@ import { GitActionResult } from "@posthog/ui/features/sessions/components/GitAct
 import { isUserInitiatedConversationItem } from "@posthog/ui/features/sessions/components/isUserInitiatedConversationItem";
 import { mergeConversationItems } from "@posthog/ui/features/sessions/components/mergeConversationItems";
 import { isPlanItem } from "@posthog/ui/features/sessions/components/new-thread/buildThreadGroups";
-import { extractCanvasInstructions } from "@posthog/ui/features/sessions/components/session-update/canvasInstructions";
-import { extractChannelContext } from "@posthog/ui/features/sessions/components/session-update/channelContext";
-import { extractCustomInstructions } from "@posthog/ui/features/sessions/components/session-update/customInstructions";
-import {
-  extractOnboardingBrief,
-  ONBOARDING_BRIEF_LABEL,
-} from "@posthog/ui/features/sessions/components/session-update/onboardingBrief";
+import { ONBOARDING_BRIEF_LABEL } from "@posthog/ui/features/sessions/components/session-update/onboardingBrief";
 import {
   hasFileMentions,
   MentionChip,
   parseFileMentions,
 } from "@posthog/ui/features/sessions/components/session-update/parseFileMentions";
-import { extractPeerAgentMessage } from "@posthog/ui/features/sessions/components/session-update/peerAgentMessage";
-import { collapsePiSkillInvocation } from "@posthog/ui/features/sessions/components/session-update/piSkillInvocation";
 import { SessionUpdateView } from "@posthog/ui/features/sessions/components/session-update/SessionUpdateView";
 import { UserShellExecuteView } from "@posthog/ui/features/sessions/components/session-update/UserShellExecuteView";
+import { splitUserMessage } from "@posthog/ui/features/sessions/components/session-update/userMessageDisplay";
 import { UserMessageAttachments } from "@posthog/ui/features/sessions/components/UserMessageAttachments";
 import {
   CHAT_CONTENT_MAX_WIDTH,
@@ -540,46 +534,23 @@ function UserBubble({
   // message (start-aligned, outlined, provenance chip) instead of masquerading
   // as something this run's user typed. The envelope boilerplate never renders;
   // only the sender-authored body flows into the normal pipeline below.
-  const peerAgentMessage = useMemo(
-    () => extractPeerAgentMessage(content),
-    [content],
-  );
-  const baseContent = peerAgentMessage ? peerAgentMessage.body : content;
-  const channelContext = useMemo(
-    () => extractChannelContext(baseContent),
-    [baseContent],
-  );
-  const afterChannelContext = channelContext
-    ? channelContext.stripped
-    : baseContent;
-  const canvasInstructions = useMemo(
-    () => extractCanvasInstructions(afterChannelContext),
-    [afterChannelContext],
-  );
-  const afterCanvasInstructions = canvasInstructions
-    ? canvasInstructions.stripped
-    : afterChannelContext;
-  const customInstructions = useMemo(
-    () => extractCustomInstructions(afterCanvasInstructions),
-    [afterCanvasInstructions],
-  );
-  const afterCustomInstructions = customInstructions
-    ? customInstructions.stripped
-    : afterCanvasInstructions;
-  const onboardingBrief = useMemo(
-    () => extractOnboardingBrief(afterCustomInstructions),
-    [afterCustomInstructions],
-  );
-  const displayContent = collapsePiSkillInvocation(
-    onboardingBrief ? onboardingBrief.stripped : afterCustomInstructions,
-  );
+  const {
+    peerAgentMessage,
+    posthogContext,
+    channelContext,
+    canvasInstructions,
+    onboardingBrief,
+    displayContent,
+  } = useMemo(() => splitUserMessage(content), [content]);
   const showChannelContextTag = !!channelContext && bluebirdEnabled;
   const showCanvasInstructionsTag = !!canvasInstructions && bluebirdEnabled;
+  const showPosthogContextTag = !!posthogContext && bluebirdEnabled;
   // Provenance is never flag-gated: a peer message must not read as the user's.
   const showHeaderChips =
     !!peerAgentMessage ||
     showChannelContextTag ||
     showCanvasInstructionsTag ||
+    showPosthogContextTag ||
     !!onboardingBrief;
   const taskId = useSessionTaskId();
   const openChannelContextInSplit = usePanelLayoutStore(
@@ -587,6 +558,9 @@ function UserBubble({
   );
   const openCanvasInstructionsInSplit = usePanelLayoutStore(
     (s) => s.openCanvasInstructionsInSplit,
+  );
+  const openPosthogContextInSplit = usePanelLayoutStore(
+    (s) => s.openPosthogContextInSplit,
   );
 
   const containsFileMentions = hasFileMentions(displayContent);
@@ -658,6 +632,20 @@ function UserBubble({
                       ? () =>
                           openCanvasInstructionsInSplit(taskId, {
                             body: canvasInstructions.body,
+                          })
+                      : undefined
+                  }
+                />
+              )}
+              {showPosthogContextTag && posthogContext && (
+                <MentionChip
+                  icon={<AppWindow size={12} />}
+                  label="PostHog context"
+                  onClick={
+                    taskId
+                      ? () =>
+                          openPosthogContextInSplit(taskId, {
+                            body: posthogContext.body,
                           })
                       : undefined
                   }

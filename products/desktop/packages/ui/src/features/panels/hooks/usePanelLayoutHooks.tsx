@@ -1,4 +1,5 @@
 import {
+  AppWindow,
   ChartLineUp,
   ChatCenteredText,
   FileText,
@@ -122,6 +123,8 @@ export function useTabInjection(
             icon = <FileText size={14} />;
           } else if (tab.data.type === "canvas-instructions") {
             icon = <Scroll size={14} />;
+          } else if (tab.data.type === "posthog-context") {
+            icon = <AppWindow size={14} />;
           } else if (tab.data.type === "autoresearch") {
             icon = <ChartLineUp size={14} />;
           } else if (tab.data.type === "posthog-object") {

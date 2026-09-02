@@ -1,4 +1,5 @@
 import {
+  AppWindow,
   Check,
   Copy,
   FileText,
@@ -8,7 +9,7 @@ import {
 } from "@phosphor-icons/react";
 import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
-import { Box, Flex, IconButton } from "@radix-ui/themes";
+import { Box, IconButton } from "@radix-ui/themes";
 import { motion } from "framer-motion";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Tooltip } from "../../../../primitives/Tooltip";
@@ -18,20 +19,13 @@ import { usePanelLayoutStore } from "../../../panels/panelLayoutStore";
 import type { UserMessageAttachment } from "../../userMessageTypes";
 import { UserMessageAttachments } from "../UserMessageAttachments";
 import { CollapsibleMessageContent } from "./CollapsibleMessageContent";
-import { extractCanvasInstructions } from "./canvasInstructions";
-import { extractChannelContext } from "./channelContext";
-import { extractCustomInstructions } from "./customInstructions";
-import {
-  extractOnboardingBrief,
-  ONBOARDING_BRIEF_LABEL,
-} from "./onboardingBrief";
+import { ONBOARDING_BRIEF_LABEL } from "./onboardingBrief";
 import {
   hasFileMentions,
   MentionChip,
   parseFileMentions,
 } from "./parseFileMentions";
-import { extractPeerAgentMessage } from "./peerAgentMessage";
-import { collapsePiSkillInvocation } from "./piSkillInvocation";
+import { splitUserMessage } from "./userMessageDisplay";
 
 interface UserMessageProps {
   content: string;
@@ -69,15 +63,14 @@ export const UserMessage = memo(function UserMessage({
   taskId,
   keyboardFocused = false,
 }: UserMessageProps) {
-  // A channel's CONTEXT.md and the canvas generation instructions, if injected
-  // into this prompt, are each collapsed into a clickable tag instead of
-  // rendered inline; the rest of the prompt renders normally. Clicking a tag
-  // opens the snapshot as a split tab. The clickable tag + split tab is a
-  // project-bluebird feature, but we always strip the blocks so the raw
-  // <channel_context>/<canvas_generation_instructions> XML never leaks for
-  // flag-off viewers. The user's saved personalization
-  // (<user_custom_instructions>) is always-on background, not contextual to this
-  // message, so it's stripped without a tag.
+  // A channel's CONTEXT.md, the canvas generation instructions and the PostHog
+  // app context a web-app chat sends, if injected into this prompt, are each
+  // collapsed into a clickable tag instead of rendered inline; the rest of the
+  // prompt renders normally. Clicking a tag opens the snapshot as a split tab.
+  // The clickable tag + split tab is a project-bluebird feature, but we always
+  // strip the blocks so the raw XML never leaks for flag-off viewers. The
+  // user's saved personalization (<user_custom_instructions>) is always-on
+  // background, not contextual to this message, so it's stripped without a tag.
   const bluebirdEnabled = useFeatureFlag(
     PROJECT_BLUEBIRD_FLAG,
     import.meta.env.DEV,
@@ -85,46 +78,25 @@ export const UserMessage = memo(function UserMessage({
   // A message relayed from another agent run renders with a provenance chip and
   // neutral accent instead of masquerading as this run's user. The envelope
   // boilerplate never renders; only the sender-authored body flows on.
-  const peerAgentMessage = useMemo(
-    () => extractPeerAgentMessage(content),
-    [content],
-  );
-  const baseContent = peerAgentMessage ? peerAgentMessage.body : content;
-  const channelContext = useMemo(
-    () => extractChannelContext(baseContent),
-    [baseContent],
-  );
-  const afterChannelContext = channelContext
-    ? channelContext.stripped
-    : baseContent;
-  const canvasInstructions = useMemo(
-    () => extractCanvasInstructions(afterChannelContext),
-    [afterChannelContext],
-  );
-  const afterCanvasInstructions = canvasInstructions
-    ? canvasInstructions.stripped
-    : afterChannelContext;
-  const customInstructions = useMemo(
-    () => extractCustomInstructions(afterCanvasInstructions),
-    [afterCanvasInstructions],
-  );
-  const afterCustomInstructions = customInstructions
-    ? customInstructions.stripped
-    : afterCanvasInstructions;
-  const onboardingBrief = useMemo(
-    () => extractOnboardingBrief(afterCustomInstructions),
-    [afterCustomInstructions],
-  );
-  const displayContent = collapsePiSkillInvocation(
-    onboardingBrief ? onboardingBrief.stripped : afterCustomInstructions,
-  );
+  const {
+    peerAgentMessage,
+    posthogContext,
+    channelContext,
+    canvasInstructions,
+    onboardingBrief,
+    displayContent,
+  } = useMemo(() => splitUserMessage(content), [content]);
   const showChannelContextTag = !!channelContext && bluebirdEnabled;
   const showCanvasInstructionsTag = !!canvasInstructions && bluebirdEnabled;
+  const showPosthogContextTag = !!posthogContext && bluebirdEnabled;
   const openChannelContextInSplit = usePanelLayoutStore(
     (s) => s.openChannelContextInSplit,
   );
   const openCanvasInstructionsInSplit = usePanelLayoutStore(
     (s) => s.openCanvasInstructionsInSplit,
+  );
+  const openPosthogContextInSplit = usePanelLayoutStore(
+    (s) => s.openPosthogContextInSplit,
   );
 
   const containsFileMentions = hasFileMentions(displayContent);
@@ -165,11 +137,10 @@ export const UserMessage = memo(function UserMessage({
           {(!!peerAgentMessage ||
             showChannelContextTag ||
             showCanvasInstructionsTag ||
+            showPosthogContextTag ||
             !!onboardingBrief) && (
-            <Flex
-              wrap="wrap"
-              gap="1"
-              className={displayContent ? "mt-1.5" : ""}
+            <div
+              className={`flex flex-wrap gap-1 ${displayContent ? "mt-1.5" : ""}`}
             >
               {peerAgentMessage && (
                 <MentionChip
@@ -216,7 +187,21 @@ export const UserMessage = memo(function UserMessage({
                   }
                 />
               )}
-            </Flex>
+              {showPosthogContextTag && posthogContext && (
+                <MentionChip
+                  icon={<AppWindow size={12} />}
+                  label="PostHog context"
+                  onClick={
+                    taskId
+                      ? () =>
+                          openPosthogContextInSplit(taskId, {
+                            body: posthogContext.body,
+                          })
+                      : undefined
+                  }
+                />
+              )}
+            </div>
           )}
           {showAttachmentChips && (
             <div className={content.trim() ? "mt-1.5" : ""}>

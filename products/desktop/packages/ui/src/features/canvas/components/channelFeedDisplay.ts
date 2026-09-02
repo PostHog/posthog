@@ -2,13 +2,14 @@ import type { SignalReport, Task } from "@posthog/shared/domain-types";
 import type { ChannelFeedSystemMessage } from "@posthog/ui/features/canvas/hooks/useChannelFeedMessages";
 
 // Injected context wrappers a prompt may carry (Slack thread history, a
-// channel's CONTEXT.md, canvas instructions, saved personalization, the
-// onboarding session's whole brief). The feed shows what the user actually
-// asked, so these are stripped and the timeline renders them as their own
-// collapsible surfaces. Nobody asked for the onboarding brief, so it has no
-// surface of its own and the card falls back to its title.
+// channel's CONTEXT.md, canvas instructions, saved personalization, the PostHog
+// app context a web-app chat sends, the onboarding session's whole brief). The
+// feed shows what the user actually asked, so these are stripped and the
+// timeline renders them as their own collapsible surfaces. Nobody asked for the
+// onboarding brief, so it has no surface of its own and the card falls back to
+// its title.
 const CONTEXT_BLOCK_REGEX =
-  /<(slack_thread_context|channel_context|canvas_generation_instructions|user_custom_instructions|onboarding_brief)\b[^>]*>[\s\S]*?<\/\1>/g;
+  /<(slack_thread_context|channel_context|canvas_generation_instructions|user_custom_instructions|onboarding_brief|posthog_trusted_context|posthog_untrusted_context|posthog_context)\b[^>]*>[\s\S]*?<\/\1>/g;
 
 export function stripContextBlocks(text: string): string {
   return text

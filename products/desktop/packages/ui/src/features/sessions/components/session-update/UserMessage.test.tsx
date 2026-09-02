@@ -32,6 +32,9 @@ const PROMPT_WITH_CONTEXT =
 const PROMPT_WITH_CANVAS_INSTRUCTIONS =
   "add a retention chart\n\n<canvas_generation_instructions>\nauthoring contract\n</canvas_generation_instructions>";
 
+const PROMPT_WITH_POSTHOG_CONTEXT =
+  '<posthog_trusted_context>\n- You are running alongside the PostHog app.\n</posthog_trusted_context>\n<posthog_untrusted_context>\n- dashboard 42 ("Weekly active users")\n</posthog_untrusted_context>\n\nHow many monthly active users do we have';
+
 const PROMPT_WITH_PI_SKILL =
   '<skill name="code-review" location="/skills/code-review/SKILL.md">\nReferences are relative to /skills/code-review.\n\n# Review\n\nInspect the diff.\n</skill>\n\nReview this pull request.';
 
@@ -164,5 +167,36 @@ describe("UserMessage", () => {
     expect(
       screen.queryByText(/canvas_generation_instructions/),
     ).not.toBeInTheDocument();
+  });
+
+  it.each([
+    {
+      name: "shows the PostHog context tag when project-bluebird is enabled",
+      bluebirdEnabled: true,
+    },
+    {
+      name: "hides the PostHog context tag but still strips the blocks when off",
+      bluebirdEnabled: false,
+    },
+  ])("$name", ({ bluebirdEnabled }) => {
+    vi.stubEnv("DEV", false);
+    renderWithFlags(
+      <UserMessage content={PROMPT_WITH_POSTHOG_CONTEXT} taskId="task-1" />,
+      bluebirdEnabled,
+    );
+
+    expect(
+      screen.getByText("How many monthly active users do we have"),
+    ).toBeInTheDocument();
+    if (bluebirdEnabled) {
+      expect(screen.getByText("PostHog context")).toBeInTheDocument();
+    } else {
+      expect(screen.queryByText("PostHog context")).not.toBeInTheDocument();
+    }
+    // The blocks are collapsed into the tag, never rendered inline.
+    expect(
+      screen.queryByText(/posthog_trusted_context/),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Weekly active users/)).not.toBeInTheDocument();
   });
 });
