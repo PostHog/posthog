@@ -129,6 +129,7 @@ The discovery modal selects a connected GitHub repository and accepts an optiona
 Every feature detail view has Status, Planning, Owner, and Feed tabs for code context, implementation, feedback, measurements, and optimization work.
 Opening the Planning tab never starts a task. Its controls start, restart, or add a planning session explicitly.
 The list's New feature modal is the exception: it starts the first session and opens the new report on the Planning tab.
+After a planning run finishes, sending another message starts an interactive continuation that retains the planning context and cannot open a pull request.
 Finishing initial planning promotes a discovered or new feature, activates its owner scout, and attempts the first implementation pass.
 
 ## Invariants

@@ -2137,6 +2137,8 @@ def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int
 #     signal or terminate-and-restart it.
 #   - pending_external_followups / pending_external_followups_generation are the workflow-owned
 #     durable queue; a caller could otherwise inject actor identity into a restored follow-up.
+#   - create_pr is the server-selected execution posture; a caller could otherwise turn a
+#     conversation-only run into one that can push code and open a pull request.
 #   - timed_out_inactivity / timed_out_wall_clock / sandbox_gone are the workflow's terminal reason
 #     markers, written only by the update_task_run_status activity. Slack reads them to decide that
 #     a FAILED run was a timeout and stays quiet (post_slack_update._post_failure_or_timeout), so a
@@ -2179,6 +2181,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         *SERVER_OWNED_RESUME_STATE_KEYS,
         "workflow_id",
         "pending_dispatch",
+        "create_pr",
         # Written once at loop fire time; seeding copies these storage paths into the
         # run's artifact prefix, so a PATCHable value would be an arbitrary
         # object-storage read (and write-location) primitive.
@@ -4720,6 +4723,7 @@ def _trigger_task_processing_workflow(
     *,
     initial_message: str | None = None,
     initial_artifact_ids: list[str] | None = None,
+    create_pr: bool = True,
     raise_on_error: bool = False,
 ) -> None:
     from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415
@@ -4751,6 +4755,7 @@ def _trigger_task_processing_workflow(
             run,
             options=WorkflowDispatchOptions(
                 user_id=user_id,
+                create_pr=create_pr,
                 posthog_mcp_scopes=posthog_mcp_scopes,
                 initial_message=message,
             ),
@@ -6756,6 +6761,7 @@ def run_task(
     is_pi_task = task.runtime == Task.Runtime.PI
     previous_run: TaskRun | None = None
     previous_state = None
+    create_pr = True
     if resume_from_run_id:
         previous_run = task.runs.filter(id=resume_from_run_id).first()
         if previous_run is None:
@@ -6922,10 +6928,25 @@ def run_task(
     if resume_from_run_id:
         assert previous_run is not None and previous_state is not None
         prev_state = previous_state
+        previous_raw_state = previous_run.state if isinstance(previous_run.state, dict) else {}
         extra_state = extra_state or {}
         if not is_pi_task:
             extra_state["resume_from_run_id"] = str(resume_from_run_id)
             extra_state.update(prev_state.resume_snapshot_carry_state())
+
+        previous_create_pr = previous_raw_state.get("create_pr")
+        if not isinstance(previous_create_pr, bool):
+            pending_dispatch = previous_raw_state.get("pending_dispatch")
+            if isinstance(pending_dispatch, dict):
+                previous_create_pr = pending_dispatch.get("create_pr")
+        if isinstance(previous_create_pr, bool):
+            create_pr = previous_create_pr
+        extra_state["create_pr"] = create_pr
+
+        for inherited_key in ("ai_stage", "interaction_origin"):
+            inherited_value = previous_raw_state.get(inherited_key)
+            if isinstance(inherited_value, str) and inherited_value:
+                extra_state[inherited_key] = inherited_value
 
         # The resumed agent still pushes the head branch baked into the original prompt, so the
         # PR webhook must be able to match this run, not the terminal predecessor.
@@ -7151,10 +7172,11 @@ def run_task(
             user_id,
             initial_message=initial_message,
             initial_artifact_ids=pending_user_artifact_ids,
+            create_pr=create_pr,
             raise_on_error=False,
         )
     else:
-        _trigger_task_processing_workflow(task, task_run, user_id, raise_on_error=False)
+        _trigger_task_processing_workflow(task, task_run, user_id, create_pr=create_pr, raise_on_error=False)
 
     return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
 

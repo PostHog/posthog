@@ -27,6 +27,7 @@ import {
     type ModelChoiceApi,
     type ReasoningEffortEnumApi,
     RuntimeAdapterEnumApi,
+    TaskExecutionModeEnumApi,
     type WarmTaskResumeRequestApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
@@ -880,6 +881,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                         values.selectedEffort,
                         values.selectedMode,
                         {
+                            mode: TaskExecutionModeEnumApi.Interactive,
                             resume_from_run_id: props.runId,
                             pending_user_message: wrapWithPosthogContext(content, pendingContext),
                         }

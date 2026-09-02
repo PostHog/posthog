@@ -438,7 +438,9 @@ function FeaturePlanningTab({ report }: { report: SignalReport }): JSX.Element {
         startingPlanningSession,
     } = useValues(logic)
     const { finishPlanning, startPlanningSession } = useActions(logic)
-    const { reportArtefacts } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
+    const reportDetailLogic = inboxReportDetailLogic({ reportId: report.id, report })
+    const { reportArtefacts } = useValues(reportDetailLogic)
+    const { loadReportTasks } = useActions(reportDetailLogic)
 
     const planningTaskId = planningTask?.task.id
     const planningRun = planningTask?.task.latest_run
@@ -515,7 +517,11 @@ function FeaturePlanningTab({ report }: { report: SignalReport }): JSX.Element {
                         <div className="flex h-full min-h-0 flex-col overflow-hidden rounded border border-primary bg-surface-primary px-4">
                             {planningTaskId && planningRunId ? (
                                 <Suspense fallback={<LemonSkeleton className="my-4 h-24" />}>
-                                    <TaskRunChat taskId={planningTaskId} runId={planningRunId} />
+                                    <TaskRunChat
+                                        taskId={planningTaskId}
+                                        runId={planningRunId}
+                                        onRunStarted={loadReportTasks}
+                                    />
                                 </Suspense>
                             ) : (
                                 <div className="flex flex-1 items-center justify-center text-sm text-tertiary">

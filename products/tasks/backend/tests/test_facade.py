@@ -723,15 +723,20 @@ class TestFacadeReadsAndMappers(TestCase):
             self.assertNotIn("snapshot_kind", new_run.state)
             self.assertNotIn("snapshot_mount_path", new_run.state)
 
-    def test_run_task_resume_exposes_pending_prompt_to_agent(self):
+    def test_run_task_resume_preserves_planning_profile_and_pending_prompt(self):
         task = self._make_task()
         previous_run = TaskRun.objects.create(
             task=task,
             team=self.team,
             status=TaskRun.Status.COMPLETED,
+            state={
+                "ai_stage": "planning",
+                "interaction_origin": "signal_report",
+                "pending_dispatch": {"create_pr": False},
+            },
         )
 
-        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow") as mock_trigger:
             result = facade.run_task(
                 task.id,
                 self.team.id,
@@ -749,6 +754,11 @@ class TestFacadeReadsAndMappers(TestCase):
         detail = facade.get_task_run_detail(new_run.id, task.id, self.team.id)
         assert detail is not None
         self.assertEqual(detail.state["pending_user_message"], "Continue with the refactor")
+        assert new_run.state["mode"] == "interactive"
+        assert new_run.state["ai_stage"] == "planning"
+        assert new_run.state["interaction_origin"] == "signal_report"
+        assert new_run.state["create_pr"] is False
+        assert mock_trigger.call_args.kwargs["create_pr"] is False
 
     @parameterized.expand(
         [
@@ -1132,6 +1142,7 @@ class TestFacadeReadsAndMappers(TestCase):
         )
         assert created.latest_run is not None
         run = TaskRun.objects.get(id=created.latest_run.id)
+        self.assertEqual(run.state["create_pr"], False)
         self.assertEqual(run.state["pending_dispatch"]["create_pr"], False)
         self.assertEqual(run.state["pending_dispatch"]["posthog_mcp_scopes"], "full")
         self.assertEqual(run.state["pending_dispatch"]["user_id"], self.user.id)

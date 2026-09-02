@@ -1196,9 +1196,11 @@ class Task(DeletedMetaFields, models.Model):
 
         run_extra_state = dict(extra_state or {})
         # Caller-supplied run state (e.g. a workflow action's config_snapshot) wins over the
-        # derived defaults, matching how loop fires assemble their run state by hand.
+        # derived defaults, matching how loop fires assemble their run state by hand. The
+        # execution posture remains server-selected so user-derived state cannot enable PR creation.
         if extra_run_state:
             run_extra_state.update(extra_run_state)
+        run_extra_state["create_pr"] = create_pr
         if github_read_access:
             # Read by TaskProcessingContext.github_read_access: provisioning injects a read-only
             # GitHub token into the (repo-less) sandbox instead of the full credential path.

@@ -371,6 +371,7 @@ describe('runInteractionLogic', () => {
         // No live-run signal for a finished run — it resumes into a new run instead.
         expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
         expect(tasksRunCreate).toHaveBeenCalledWith('997', TASK_ID, {
+            mode: 'interactive',
             runtime_adapter: 'claude',
             model: 'claude-sonnet-5',
             reasoning_effort: 'high',

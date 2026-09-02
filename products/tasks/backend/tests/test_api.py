@@ -5378,6 +5378,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "handoff_resume_idle": False,
                 "workflow_id": "wf-real",
                 "pending_dispatch": {"workflow_id_prefix": "review-real", "create_pr": True},
+                "create_pr": False,
                 "pending_external_followups": pending_external_followups,
                 "pending_external_followups_generation": 7,
                 "sandbox_gone": False,
@@ -5429,6 +5430,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "handoff_resume_idle": True,
                     "workflow_id": "wf-another-teams-workflow",
                     "pending_dispatch": {"workflow_id_prefix": "attacker", "posthog_mcp_scopes": ["*"]},
+                    "create_pr": True,
                     "pending_external_followups": [
                         {
                             "message": "attacker message",
@@ -5484,6 +5486,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["handoff_resume_idle"] is False
         assert run.state["workflow_id"] == "wf-real"
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
+        assert run.state["create_pr"] is False
         assert run.state["pending_external_followups"] == pending_external_followups
         assert run.state["pending_external_followups_generation"] == 7
         assert "timed_out_inactivity" not in run.state  # caller cannot forge a timeout reason
@@ -5521,6 +5524,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "handoff_resume_idle",
                     "workflow_id",
                     "pending_dispatch",
+                    "create_pr",
                     "pending_external_followups",
                     "pending_external_followups_generation",
                     "sandbox_gone",
@@ -5553,6 +5557,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["handoff_resume_idle"] is False
         assert run.state["workflow_id"] == "wf-real"  # protected key survives removal
         assert run.state["pending_dispatch"] == {"workflow_id_prefix": "review-real", "create_pr": True}
+        assert run.state["create_pr"] is False
         assert run.state["pending_external_followups"] == pending_external_followups
         assert run.state["pending_external_followups_generation"] == 7
         assert run.state["sandbox_gone"] is False  # protected key survives removal
