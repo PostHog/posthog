@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -64,6 +66,23 @@ class QueueEventDeletionTests(BaseTest):
         queue_person_event_deletion(self.team.pk, [p], actor=self.user)
         queue_person_event_deletion(self.team.pk, [p], actor=self.user)
         assert AsyncDeletion.objects.filter(team_id=self.team.pk).count() == 1
+
+    def test_queues_again_once_the_earlier_request_is_verified(self):
+        p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        queue_person_event_deletion(self.team.pk, [p], actor=self.user)
+        AsyncDeletion.objects.filter(team_id=self.team.pk).update(delete_verified_at=timezone.now())
+
+        queue_person_event_deletion(self.team.pk, [p], actor=self.user)
+
+        assert (
+            AsyncDeletion.objects.filter(
+                team_id=self.team.pk,
+                deletion_type=DeletionType.Person,
+                key=str(p.uuid),
+                delete_verified_at__isnull=True,
+            ).count()
+            == 1
+        )
 
 
 class DeletePersonsProfileTests(BaseTest):

@@ -319,7 +319,7 @@ export interface PersonBulkDeleteResponseApi {
     persons_found: number
     /** Number of person records deleted from the database. 0 if keep_person was true. */
     persons_deleted: number
-    /** Whether event deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */
+    /** Whether event deletion was requested for the matched persons. A person that already has a queued deletion is not queued a second time. */
     events_queued_for_deletion: boolean
     /** Whether recording deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */
     recordings_queued_for_deletion: boolean
@@ -332,10 +332,10 @@ export interface AsyncDeletionStatusApi {
     person_uuid: string
     /** When the deletion was requested. */
     created_at: string
-    /** Current status: 'pending' or 'completed'. */
+    /** Status for this person: 'pending' while any of their deletions is still queued, 'completed' once none is. */
     readonly status: string
     /**
-     * When the deletion was verified complete. Null if still pending.
+     * When this deletion was verified complete. Null if this deletion is still queued.
      * @nullable
      */
     delete_verified_at: string | null
@@ -681,7 +681,7 @@ export type PersonsDeletionStatusListParams = {
      */
     person_uuid?: string
     /**
-     * Filter by deletion status: 'pending', 'completed', or 'all'.
+     * Filter by the person's deletion status: 'pending', 'completed', or 'all'.
      */
     status?: PersonsDeletionStatusListStatus
 }

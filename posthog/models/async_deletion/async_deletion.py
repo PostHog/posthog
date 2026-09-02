@@ -32,16 +32,20 @@ class AsyncDeletion(models.Model):
 
     class Meta:
         constraints = [
+            # Only unverified rows are unique. A verified row records a sweep that is already done,
+            # so it must not block a new request for the same key: the next sweep bounds itself on
+            # `created_at`, and without a new row any data left behind is unreachable forever.
             # :TRICKY: Postgres does not handle UNIQUE and NULL together well, so create 2 indexes.
             # See https://dba.stackexchange.com/questions/9759/postgresql-multi-column-unique-constraint-and-null-values for more details
             models.UniqueConstraint(
-                name="unique deletion",
+                name="unique pending deletion",
                 fields=["deletion_type", "key"],
-                condition=models.Q(group_type_index__isnull=True),
+                condition=models.Q(group_type_index__isnull=True, delete_verified_at__isnull=True),
             ),
             models.UniqueConstraint(
-                name="unique deletion for groups",
+                name="unique pending deletion for groups",
                 fields=["deletion_type", "key", "group_type_index"],
+                condition=models.Q(delete_verified_at__isnull=True),
             ),
         ]
         indexes = [models.Index(name="delete_verified_at index", fields=["delete_verified_at"])]
