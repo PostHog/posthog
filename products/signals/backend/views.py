@@ -516,9 +516,15 @@ _RESOLVABLE_STATUSES_BEFORE_SUPPRESSION = frozenset(
 )
 
 
+class SignalReportState(models.TextChoices):
+    SUPPRESSED = "suppressed", "suppressed"
+    POTENTIAL = "potential", "potential"
+    RESOLVED = "resolved", "resolved"
+
+
 class SignalReportStateRequestSerializer(serializers.Serializer):
     state = serializers.ChoiceField(
-        choices=[("suppressed", "suppressed"), ("potential", "potential"), ("resolved", "resolved")],
+        choices=SignalReportState.choices,
         help_text=(
             "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, "
             "'potential' to snooze/reopen it for later review, or 'resolved' when the work this report "

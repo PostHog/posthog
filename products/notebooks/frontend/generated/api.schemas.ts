@@ -703,8 +703,8 @@ export const GenerationOperationEnumApi = {
 
 export interface WidgetGenerateRequestApi {
     /**
-     * Instructions for the generated widget.
-     * @maxLength 20000
+     * Instructions for the generated widget. Initial and improvement instructions accept up to 20,000 characters; regeneration accepts complete instructions up to 50,000 characters.
+     * @maxLength 50000
      */
     prompt: string
     /** Idempotency key for this generation job. */
@@ -722,6 +722,8 @@ export interface WidgetGenerateRequestApi {
      * * `regenerate` - regenerate
      * * `improve` - improve */
     generation_operation?: GenerationOperationEnumApi
+    /** Current widget version the improvement is based on. Required for improve operations. */
+    expected_current_version_id?: string
 }
 
 /**
@@ -785,10 +787,10 @@ export interface WidgetJobApi {
  * * `high` - high
  * * `critical` - critical
  */
-export type WidgetSecurityReviewSeverityEnumApi =
-    (typeof WidgetSecurityReviewSeverityEnumApi)[keyof typeof WidgetSecurityReviewSeverityEnumApi]
+export type GeneratedWidgetVersionSecurityReviewSeverityEnumApi =
+    (typeof GeneratedWidgetVersionSecurityReviewSeverityEnumApi)[keyof typeof GeneratedWidgetVersionSecurityReviewSeverityEnumApi]
 
-export const WidgetSecurityReviewSeverityEnumApi = {
+export const GeneratedWidgetVersionSecurityReviewSeverityEnumApi = {
     None: 'none',
     Low: 'low',
     Medium: 'medium',
@@ -834,7 +836,7 @@ export interface WidgetSecurityReviewApi {
      * * `medium` - medium
      * * `high` - high
      * * `critical` - critical */
-    severity: WidgetSecurityReviewSeverityEnumApi
+    severity: GeneratedWidgetVersionSecurityReviewSeverityEnumApi
     /** Concise result from the automated security review. */
     summary: string
     /** Potential security issues found in the source. */
@@ -915,9 +917,10 @@ export interface WidgetSourceApi {
  * * `improve` - improve
  * * `revert` - revert
  */
-export type VersionOperationEnumApi = (typeof VersionOperationEnumApi)[keyof typeof VersionOperationEnumApi]
+export type GeneratedWidgetVersionOperationEnumApi =
+    (typeof GeneratedWidgetVersionOperationEnumApi)[keyof typeof GeneratedWidgetVersionOperationEnumApi]
 
-export const VersionOperationEnumApi = {
+export const GeneratedWidgetVersionOperationEnumApi = {
     Initial: 'initial',
     Regenerate: 'regenerate',
     Improve: 'improve',
@@ -958,10 +961,13 @@ export interface WidgetVersionApi {
      * * `regenerate` - regenerate
      * * `improve` - improve
      * * `revert` - revert */
-    version_operation: VersionOperationEnumApi
+    version_operation: GeneratedWidgetVersionOperationEnumApi
     /** Instructions added by this version. */
     prompt_delta: string
-    /** Complete instructions represented by this version. */
+    /**
+     * Complete instructions represented by this version, up to 50,000 characters.
+     * @maxLength 50000
+     */
     effective_prompt: string
     /**
      * AI model, or null when this version did not run a model.

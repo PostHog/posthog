@@ -236,6 +236,7 @@ export type SettingId =
     | 'reminders'
     | 'persons-on-events'
     | 'posthog-mcp-configure'
+    | 'profile-picture'
     | 'project-delete'
     | 'project-move'
     | 'realtime-notifications'
@@ -255,6 +256,8 @@ export type SettingId =
     | 'revenue-analytics-external-data-sources'
     | 'revenue-analytics-filter-test-accounts'
     | 'revenue-base-currency'
+    | 'saml-configuration'
+    | 'scim-configuration'
     | 'session-join-mode'
     | 'session-table-version'
     | 'sidebar-auto-suggest'
@@ -277,6 +280,7 @@ export type SettingId =
     | 'web-vitals-autocapture'
     | 'workflows-email-tracking-consent'
     | 'workflows-engagement-events'
+    | 'xaa-configuration'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
