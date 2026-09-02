@@ -2026,16 +2026,25 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
                 AuthFailed(_social_auth_backend(), "sso_enforced"),
                 "/login?error_code=sso_enforced",
             ),
+            (
+                "reauth_user_mismatch",
+                "/complete/google-oauth2/",
+                AuthFailed(_social_auth_backend(), "reauth_user_mismatch"),
+                "/login?error_code=reauth_user_mismatch",
+            ),
         ]
     )
     def test_redirects_with_expected_url(self, _name, path, exception, expected_url):
         request = self.factory.get(path)
-        response = self.middleware.process_exception(request, exception)
+
+        with patch("posthog.middleware.posthoganalytics.capture_exception") as capture_exception:
+            response = self.middleware.process_exception(request, exception)
 
         self.assertIsNotNone(response)
         assert isinstance(response, HttpResponseRedirect)
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(response.url, expected_url)
+        capture_exception.assert_not_called()
 
     @parameterized.expand(
         [
@@ -2057,21 +2066,17 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         ]
     )
     def test_redirects_with_social_login_failure(self, _name, path, exception):
-        from urllib.parse import parse_qs, urlparse
-
         request = self.factory.get(path)
-        response = self.middleware.process_exception(request, exception)
+
+        with patch("posthog.middleware.posthoganalytics.capture_exception") as capture_exception:
+            response = self.middleware.process_exception(request, exception)
 
         self.assertIsNotNone(response)
         assert isinstance(response, HttpResponseRedirect)
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertIn("error_code=social_login_failure", response.url)
-        self.assertIn("error_detail=", response.url)
-
-        parsed = urlparse(response.url)
-        error_detail = parse_qs(parsed.query).get("error_detail", [""])[0]
-        if isinstance(exception, AuthFailed):
-            self.assertFalse(error_detail.startswith("Authentication failed: "))
+        self.assertNotIn("error_detail", response.url)
+        capture_exception.assert_called_once_with(exception)
 
     @parameterized.expand(
         [
@@ -2092,6 +2097,16 @@ class TestSocialAuthExceptionMiddleware(APIBaseTest):
         response = self.middleware.process_exception(request, exception)
 
         self.assertIsNone(response)
+
+    def test_runs_before_the_sdk_exception_hook(self):
+        # Django calls process_exception hooks in reverse MIDDLEWARE order. This middleware only
+        # keeps expected outcomes out of error tracking while it runs before the SDK's hook.
+        middleware = list(settings.MIDDLEWARE)
+
+        self.assertGreater(
+            middleware.index("posthog.middleware.SocialAuthExceptionMiddleware"),
+            middleware.index("posthoganalytics.integrations.django.PosthogContextMiddleware"),
+        )
 
 
 @pytest.mark.parametrize(

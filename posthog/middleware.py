@@ -29,6 +29,7 @@ from django.utils.deprecation import MiddlewareMixin
 from django.utils.http import http_date, url_has_allowed_host_and_scheme
 
 import structlog
+import posthoganalytics
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
@@ -1248,9 +1249,24 @@ class CSPMiddleware:
 class SocialAuthExceptionMiddleware:
     """
     Middleware to handle custom social auth exceptions.
+
+    Django runs `process_exception` hooks in reverse `MIDDLEWARE` order, so this class sits below
+    the SDK's `PosthogContextMiddleware`. Returning a response here stops the SDK hook, which keeps
+    the expected outcomes out of error tracking. Real failures are reported explicitly instead.
     """
 
-    _AUTH_FAILED_PREFIX = "Authentication failed: "
+    # AuthFailed codes that end a login flow as the product intends. Each one has its own message
+    # on the login page, so it is an outcome, not a fault.
+    _EXPECTED_AUTH_FAILED_CODES = frozenset(
+        {
+            "saml_sso_enforced",
+            "google_sso_enforced",
+            "github_sso_enforced",
+            "gitlab_sso_enforced",
+            "sso_enforced",
+            "reauth_user_mismatch",
+        }
+    )
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -1263,44 +1279,25 @@ class SocialAuthExceptionMiddleware:
         if not request.path.startswith("/complete/") and not request.path.startswith("/login/"):
             return None
 
-        # Handle AuthCanceled (user cancelled OAuth flow)
+        # The user closed the provider's consent screen
         if isinstance(exception, AuthCanceled):
             return redirect(sso_failure_redirect_url(request, "oauth_cancelled"))
 
-        # Handle AuthFailed with specific error codes that have dedicated frontend messages
-        if isinstance(exception, AuthFailed) and len(exception.args) >= 1:
-            error = exception.args[0]
-            if error in (
-                "saml_sso_enforced",
-                "google_sso_enforced",
-                "github_sso_enforced",
-                "gitlab_sso_enforced",
-                "sso_enforced",
-                "reauth_user_mismatch",
-            ):
-                return redirect(sso_failure_redirect_url(request, error))
+        if (
+            isinstance(exception, AuthFailed)
+            and exception.args
+            and exception.args[0] in self._EXPECTED_AUTH_FAILED_CODES
+        ):
+            return redirect(sso_failure_redirect_url(request, exception.args[0]))
 
-        # Handle any other social auth exception by passing the error detail to the frontend
         if isinstance(exception, AuthException):
-            error_detail = self._get_error_detail(exception)
-            url = sso_failure_redirect_url(request, "social_login_failure")
-            separator = "&" if "?" in url else "?"
-            return redirect(f"{url}{separator}{urlencode({'error_detail': error_detail})}")
+            # A genuine login failure, such as the provider being unreachable. The exception text
+            # can name internal infrastructure, so it goes to error tracking rather than into the
+            # browser URL; the login page shows its own `social_login_failure` message.
+            posthoganalytics.capture_exception(exception)
+            return redirect(sso_failure_redirect_url(request, "social_login_failure"))
 
         return None
-
-    def _get_error_detail(self, exception: AuthException) -> str:
-        error_detail = str(exception).strip()
-
-        if isinstance(exception, AuthFailed):
-            error_detail = self._strip_auth_failed_prefix(error_detail)
-
-        return error_detail or "An unexpected error occurred during authentication."
-
-    def _strip_auth_failed_prefix(self, error_detail: str) -> str:
-        if error_detail.startswith(self._AUTH_FAILED_PREFIX):
-            return error_detail[len(self._AUTH_FAILED_PREFIX) :].strip()
-        return error_detail
 
 
 class ActiveOrganizationMiddleware:

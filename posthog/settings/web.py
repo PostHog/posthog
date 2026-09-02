@@ -186,7 +186,6 @@ MIDDLEWARE = [
     # (activity logging, structlog binding, etc.) sees the swapped staff user on /admin/* paths.
     "posthog.middleware.AdminImpersonationMiddleware",
     "posthog.api.query_coalescer.QueryCoalescingMiddleware",
-    "posthog.middleware.SocialAuthExceptionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
     "posthog.middleware.KnownLoginDeviceCookieMiddleware",
     "posthog.session.middleware.UserAuthSessionActivityMiddleware",
@@ -207,6 +206,10 @@ MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusAfterMiddleware",
     "posthog.middleware.PostHogTokenCookieMiddleware",
     "posthoganalytics.integrations.django.PosthogContextMiddleware",
+    # Django runs `process_exception` hooks in reverse order, so this must stay below
+    # PosthogContextMiddleware. It handles expected social auth outcomes, and returning a response
+    # keeps them out of error tracking. A test in posthog/test/test_middleware.py locks the order.
+    "posthog.middleware.SocialAuthExceptionMiddleware",
 ]
 
 DJANGO_STRUCTLOG_CELERY_ENABLED = True

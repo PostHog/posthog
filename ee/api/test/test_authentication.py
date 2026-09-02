@@ -522,14 +522,24 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             organization_domain=cls.organization_domain, identity_provider_config=config
         )
 
-    def _assert_saml_login_social_failure_redirect(self, response, error_detail_substring: str) -> None:
-        """SocialAuthExceptionMiddleware catches AuthFailed and redirects instead of propagating."""
+    def setUp(self):
+        super().setUp()
+        # SocialAuthExceptionMiddleware reports genuine login failures itself, so the exception text
+        # is only readable here through the capture call
+        patcher = patch("posthog.middleware.posthoganalytics.capture_exception")
+        self.mock_capture_exception = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _assert_saml_login_social_failure_redirect(self, response, error_substring: str) -> None:
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         parsed = urlparse(response["Location"])
         self.assertEqual(parsed.path, "/login")
         qs = parse_qs(parsed.query)
         self.assertEqual(qs.get("error_code"), ["social_login_failure"])
-        self.assertIn(error_detail_substring, qs.get("error_detail", [""])[0])
+        self.assertNotIn("error_detail", qs)
+
+        self.mock_capture_exception.assert_called_once()
+        self.assertIn(error_substring, str(self.mock_capture_exception.call_args.args[0]))
 
     # SAML Metadata
 
