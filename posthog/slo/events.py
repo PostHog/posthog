@@ -1,10 +1,12 @@
 from collections.abc import Callable
 from typing import Any
 
+from django.conf import settings
+
 import posthoganalytics
 from prometheus_client import Counter, Histogram
 
-from posthog.cloud_utils import is_cloud
+from posthog.cloud_utils import is_hobby
 from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_commit_short
 from posthog.slo.types import SloCompletedProperties, SloStartedProperties
@@ -73,9 +75,10 @@ def _capture_emit_exception(
 
 
 def _send(capture: Callable | None, *, distinct_id: str, event: str, properties: dict[str, Any]) -> None:
-    # The module-level client carries PostHog's own project token in every non-debug run mode, so without this
-    # guard a self-hosted instance reports its SLO events into PostHog's internal project, with no region.
-    if capture is None and not is_cloud():
+    # The module-level client carries PostHog's own project token on self-hosted installs too, so without this
+    # guard they report SLO events into PostHog's internal project, with no region. Tests run in hobby mode with
+    # that client patched, so they keep observing emission.
+    if capture is None and is_hobby() and not settings.TEST:
         return
     (capture or posthoganalytics.capture)(distinct_id=distinct_id, event=event, properties=properties)
 
