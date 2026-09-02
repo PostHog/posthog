@@ -534,6 +534,21 @@ describe('buildStreamItems — assistant tool activity: narration collapses, a t
             ],
             'Who should own this?',
         ],
+        [
+            'a Codex-style request_user_input call',
+            [userText('Review the plan'), toolCall('request_user_input', { question: 'Apply this plan?' })],
+            'Apply this plan?',
+        ],
+        [
+            'several questions in one call, joined in order',
+            [
+                userText('Set up my workspace'),
+                toolCall('AskUserQuestion', {
+                    questions: [{ question: 'Which workspace?' }, { question: 'Which region?' }],
+                }),
+            ],
+            'Which workspace?\n\nWhich region?',
+        ],
     ])('bubbles a turn-ending ask with %s', (_label, messages, expected) => {
         const items = buildStreamItems(messages)
         const bubbles = items.flatMap((item) => (item.kind === 'bubble' ? [item] : []))

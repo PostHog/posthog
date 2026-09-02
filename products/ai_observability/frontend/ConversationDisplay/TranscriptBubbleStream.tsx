@@ -159,7 +159,7 @@ function pillSideFor(labels: string[]): 'left' | 'right' {
 // calls like git_commit(message=…) can carry text-like arguments too. Exact names, so nothing
 // over-fires; an unknown ask tool keeps the hidden pill until its name is added here. The
 // normalization makes one entry cover the camelCase, snake_case, and kebab-case spellings.
-const ASK_TOOL_NAMES = new Set(['askuserquestion', 'askfollowupquestion', 'askhuman', 'askuser'])
+const ASK_TOOL_NAMES = new Set(['askuserquestion', 'askfollowupquestion', 'askhuman', 'askuser', 'requestuserinput'])
 
 function isAskLikeToolName(name: unknown): boolean {
     return typeof name === 'string' && ASK_TOOL_NAMES.has(name.toLowerCase().replace(/[^a-z0-9]/g, ''))
@@ -170,14 +170,13 @@ function hasAskLikeCall(message: CompatMessage): boolean {
 }
 
 function askQuestionText(message: CompatMessage): string {
-    return (
-        (message.tool_calls ?? [])
-            .filter((call) => isAskLikeToolName(call.function?.name))
-            .map((call) => parseToolArgumentsForDisplay(call.function?.arguments))
-            .flatMap((parsed) => (parsed.kind === 'parsed' ? parseSandboxQuestions(parsed.value) : []))
-            .map((question) => question.question.trim())
-            .find((text) => text.length > 0) ?? ''
-    )
+    return (message.tool_calls ?? [])
+        .filter((call) => isAskLikeToolName(call.function?.name))
+        .map((call) => parseToolArgumentsForDisplay(call.function?.arguments))
+        .flatMap((parsed) => (parsed.kind === 'parsed' ? parseSandboxQuestions(parsed.value) : []))
+        .map((question) => question.question.trim())
+        .filter((text) => text.length > 0)
+        .join('\n\n')
 }
 
 function isPlainAssistant(message: CompatMessage): boolean {
