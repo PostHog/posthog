@@ -65,7 +65,7 @@ import type { ScannerTypeEnumApi } from 'products/replay_vision/frontend/generat
 
 import type { ExperimentIdType } from '../../../types'
 import type { ExperimentSavedMetric } from '../experimentLogic'
-import { EXPERIMENT_EXPOSURE_EVENT, EXPOSURE_DEFAULT_EVENT } from '../exposureContract'
+import { EXPERIMENT_EXPOSURE_EVENT, EXPOSURE_DEFAULT_EVENT, getActivationConfig } from '../exposureContract'
 import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
 import {
     getExperimentVariants,
@@ -130,6 +130,12 @@ export type ExperimentReplayExposureScope = 'in_session' | 'all_exposed'
  * the default events it has no stamped-property stand-in. */
 export const IN_SESSION_EXPOSURE_UNAVAILABLE_REASON =
     "This experiment's exposure event is captured server-side without a session ID, so no session can contain it. Showing all exposed participants' sessions."
+
+/** Why in-session narrowing can't mean anything for an activation experiment, mirroring the
+ * backend's refusal: exposure is counted from the activation event, which can land in a later
+ * session than the flag call, so no single session reliably holds the exposure moment. */
+export const IN_SESSION_EXPOSURE_ACTIVATION_UNAVAILABLE_REASON =
+    "This experiment uses an activation event, so its exposure can span more than one session. Showing all exposed participants' sessions."
 
 /** What the tab asks the bucket endpoint for, and the spec a loaded response belongs to. */
 export interface ExperimentSessionBucketRequest {
@@ -750,6 +756,12 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         exposureInSessionUnavailableReason: [
             (s) => [s.linkabilityLoaded, s.unlinkableEventNames, (_, props) => props.experiment],
             (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, experiment: Experiment): string | null => {
+                if (getActivationConfig(experiment.exposure_criteria)) {
+                    // Activation experiments count exposure from the activation event, which can land
+                    // in a later session than the flag call, so no single session reliably holds the
+                    // exposure moment. Config-based, so it doesn't wait on the linkability check.
+                    return IN_SESSION_EXPOSURE_ACTIVATION_UNAVAILABLE_REASON
+                }
                 if (!linkabilityLoaded) {
                     return null
                 }

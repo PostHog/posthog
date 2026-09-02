@@ -582,6 +582,28 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
                 user=self.user,
             )
 
+    def test_in_session_with_activation_criteria_refuses(self) -> None:
+        # Activation mode counts exposure from the activation event, which lands at or after the
+        # flag call and often in a later session, while the in-session evidence matches the flag
+        # event. The two can't agree inside one session, so in_session is refused rather than
+        # listing the wrong session or nothing.
+        experiment = self._create_experiment(
+            exposure_criteria={
+                "activation_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "task_completed",
+                    "properties": [],
+                }
+            }
+        )
+
+        with self.assertRaises(ValidationError):
+            filter_recordings_by(
+                team=self.team,
+                recordings_filter={"experiment_exposure": {"experiment_id": experiment.id, "in_session": True}},
+                user=self.user,
+            )
+
     @parameterized.expand(
         [
             ("unknown_experiment", None, None),

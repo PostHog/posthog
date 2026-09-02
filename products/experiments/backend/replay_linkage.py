@@ -88,6 +88,11 @@ IN_SESSION_EXPOSURE_UNMATCHABLE_MESSAGE = (
     "session to record, so no session can contain it. Remove the in-session narrowing to see "
     "exposed participants' sessions."
 )
+IN_SESSION_EXPOSURE_ACTIVATION_MESSAGE = (
+    "This experiment uses an activation event, so its exposure can span more than one session and "
+    "can't be pinned to a single session. Remove the in-session narrowing to see exposed "
+    "participants' sessions."
+)
 # Sized an order of magnitude above the peak observed on the largest precompute-enabled team
 # (#83514), so it fires only for a scan far outside anything measured, and below the cluster's
 # default per-query limit, so the kill renders as the standard memory-limit error before the
@@ -205,6 +210,12 @@ def resolve_exposure_linkage(
 
     session_exposure: SessionExposure | None = None
     if in_session:
+        if has_activation_config(experiment.exposure_criteria):
+            # Activation mode counts exposure from the activation event, at or after the first flag
+            # exposure and often in a later session, while the in-session evidence matches the flag
+            # event. The two can't agree inside one session, so refuse rather than list the wrong
+            # session or nothing.
+            raise ValidationError(IN_SESSION_EXPOSURE_ACTIVATION_MESSAGE)
         # A Postgres EventProperty read, so it stays out of the common no-narrowing path.
         session_exposure = resolve_session_exposure(team, experiment, event_names=frozenset())
         if session_exposure.is_unmatchable:

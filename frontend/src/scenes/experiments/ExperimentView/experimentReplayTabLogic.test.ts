@@ -284,6 +284,33 @@ describe('experimentReplayTabLogic', () => {
         customExposure.unmount()
     })
 
+    it('forces all sessions for an activation experiment, whose exposure can span sessions', async () => {
+        const activation = experimentReplayTabLogic({
+            experiment: {
+                ...EXPERIMENT,
+                id: 53,
+                exposure_criteria: {
+                    activation_config: {
+                        kind: 'ExperimentEventExposureConfig',
+                        event: 'task_completed',
+                        properties: [],
+                    },
+                },
+            } as unknown as Experiment,
+        })
+        activation.mount()
+        await expectLogic(activation).toFinishAllListeners()
+        activation.actions.setExposureScope('in_session')
+
+        // The backend refuses in_session for activation experiments (exposure is counted from the
+        // activation event, which can land in a later session than the flag call), so sending it
+        // would turn the tab into an error banner.
+        expect(activation.values.exposureInSessionUnavailableReason).not.toBeNull()
+        expect(activation.values.effectiveExposureScope).toBe('all_exposed')
+        expect(activation.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 53 })
+        activation.unmount()
+    })
+
     it('keeps the person-scoped filter when the exposure event is server-side', async () => {
         // The case the person-scoped filter exists for: a server-side exposure event carries no
         // session id, and any client-side downgrade of the query on that signal would reintroduce
