@@ -1,4 +1,3 @@
-import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
@@ -18,7 +17,7 @@ import type {
 } from '../types'
 import { createAddLogFunction, destinationE2eLagMsSummary } from '../utils'
 import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
-import { cdpTrackedFetch, fetchErrorDetail, isFetchResponseRetriable } from '../utils/cdp-fetch'
+import { cdpTrackedFetch, fetchErrorDetail, getNextRetryTime, isFetchResponseRetriable, parseRetryAfterMs } from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
@@ -520,11 +519,11 @@ export class HogExecutorAsyncService {
                 : undefined
             const isNonFailure = isNonFailureStatus(fetchResponse?.status, nonFailureConfig)
 
-            const backoffMs = Math.min(
-                this.config.fetchBackoffBaseMs * result.invocation.state.attempts +
-                    Math.floor(Math.random() * this.config.fetchBackoffBaseMs),
-                this.config.fetchBackoffMaxMs
-            )
+            // A 429 means "come back later", so the retry has to survive the rate-limit window:
+            // honor the destination's Retry-After when it sends one, otherwise back off
+            // exponentially instead of landing every attempt in the window that just failed.
+            const isRateLimited = fetchResponse?.status === 429
+            const retryAfterMs = parseRetryAfterMs(fetchResponse)
 
             const canRetry = isFetchResponseRetriable(fetchResponse, fetchError)
             const maxRetries = options?.maxFetchRetries ?? this.config.fetchRetries
@@ -551,7 +550,12 @@ export class HogExecutorAsyncService {
                 await fetchResponse?.dump()
                 result.invocation.queueParameters = params
                 result.invocation.queuePriority = invocation.queuePriority + 1
-                result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: backoffMs })
+                result.invocation.queueScheduledAt = getNextRetryTime(
+                    this.config.fetchBackoffBaseMs,
+                    this.config.fetchBackoffMaxMs,
+                    result.invocation.state.attempts,
+                    { retryAfterMs, isRateLimited }
+                )
 
                 return result
             } else if (!isNonFailure) {
