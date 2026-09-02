@@ -122,7 +122,7 @@ HAVING value >= 0
             hogql=response.hogql,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LIVE,
-            preComputeIneligibleReason=lazy_precompute_ineligible_reason(),
+            preComputeIneligibleReason=lazy_precompute_ineligible_reason(WebAnalyticsPreComputeStrategy.LIVE),
         )
 
     def _get_results_for_band(

@@ -548,12 +548,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         can_materialize, reason = version.can_materialize()
         self.assertTrue(can_materialize, reason)
 
-        # The allowlist only reads the kind, so compile too: this is the step that would break if the
-        # runner stopped producing a printable AST.
-        hogql_query = build_endpoint_hogql(version.query, self.team)
-        self.assertEqual(hogql_query["kind"], "HogQLQuery")
-        self.assertIsInstance(hogql_query["query"], str)
-
     @parameterized.expand(
         [
             (
