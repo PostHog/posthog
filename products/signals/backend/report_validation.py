@@ -62,6 +62,7 @@ Rules:
 
 - Only claim steps you actually confirmed this session. A plausible reproduction that does not run costs the reader more than no prompt.
 - Give the reader the evidence, not a pointer to it: paste the query, the error, or the numbers rather than telling them to go and look the finding up.
+- **Every step must be read-only against anything shared.** The reader pastes this into an agent that will run it, so a step that writes is a change nobody reviewed. Reading production is fine: a query, a plan, a log, a metric, a recording. Changing it is not, and neither is a step that costs real capacity — no schema change, no data write, no configuration change, no job or backfill, no restart, and nothing that takes a lock or runs long enough to matter. When seeing the effect genuinely needs a write, say what the write would be and leave it for the change itself to make under review. Never put it in the prompt.
 - Leave it empty when you could not work out how to reproduce the finding. An honest gap is better than invented steps."""
 
 
@@ -80,7 +81,8 @@ Include:
 - Where the query comes from in the codebase: the file and function that builds it, so the reader can change it. Say plainly if you could not find it.
 - The numbers pganalyze gave for it — call count, mean and total time, rows read — so the reader knows what "slow" means here.
 - `EXPLAIN (ANALYZE, BUFFERS)` on a read replica rather than a local database, and the plan lines to compare: which node the time sits in, and whether it reads an index or scans the relation.
-- For an index recommendation, where to test it. A read replica rejects DDL, so the index cannot be built there — the reader needs a writable database whose statistics still resemble production, such as a restored snapshot or a clone. Tell them to capture the baseline plan on the replica, build the index on that writable copy, and compare the two plans. Say what a planner that ignores the new index would mean.""",
+- For an index recommendation, the read-only case for it. **Never tell the reader to create the index.** Building one takes locks and real I/O, and on a table this size it is a production operation that belongs in a reviewed migration, not in a validation step. What the prompt asks for instead: where the planner's row estimate diverges from the actual count, how selective the proposed columns are on real data, and whether an existing index already covers them. Where the database offers hypothetical indexes, say that the planner's choice can be read that way without building anything — and say so conditionally, because the extension may not be installed.
+- That the index itself lands as a Django migration using `SafeAddIndexConcurrently` from `posthog.migration_helpers`, reviewed by whoever owns the table. Django's own `AddIndexConcurrently` is blocked in CI.""",
 }
 
 

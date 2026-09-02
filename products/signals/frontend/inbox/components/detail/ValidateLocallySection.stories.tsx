@@ -22,9 +22,9 @@ Recreate:
 3. The plan reads the whole relation. pganalyze reports it as the slowest statement on the primary.
 
 Test:
-1. Save the plan you just captured.
-2. Build the candidate index on the replica with \`CREATE INDEX CONCURRENTLY\`.
-3. Re-run the same \`EXPLAIN\` and compare. If the planner still scans the relation, the index is the wrong shape.
+1. Compare the planner's estimated rows against the actual count on the scan node. A large gap is the case for the index; a small one means the scan is not the problem.
+2. Check how selective \`(team_id, active)\` is on real data, and whether an existing index already covers those columns.
+3. Do not create the index to check it. It lands as a \`SafeAddIndexConcurrently\` migration, reviewed by whoever owns the table.
 4. Run \`hogli test posthog/models/feature_flag\` before opening anything.`
 
 export const WithPrompt: Story = {

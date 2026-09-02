@@ -207,6 +207,17 @@ class TestBuildReportPresentationPrompt:
         assert ("EXPLAIN (ANALYZE, BUFFERS)" in prompt) is expected_present
         assert ("Signals from pganalyze" in prompt) is expected_present
 
+    # The reader pastes this prompt into an agent that runs it, so a step that writes is a change
+    # nobody reviewed. The pganalyze guidance shipped once telling them to build a candidate index
+    # with `CREATE INDEX CONCURRENTLY`, which takes locks and real I/O on a production table — a
+    # human caught it. Nothing but the guidance text stops that going back in.
+    @pytest.mark.parametrize("statement", ["CREATE INDEX", "ALTER TABLE", "DROP INDEX", "VACUUM FULL"])
+    def test_guidance_never_asks_the_reader_to_write_to_a_database(self, statement):
+        prompt = build_report_presentation_prompt(2, source_products=["pganalyze"])
+        assert statement not in prompt
+        assert "Never tell the reader to create the index" in prompt
+        assert "Every step must be read-only against anything shared" in prompt
+
     # Without this the reader loses their validation prompt every time a re-research rewrites the
     # prose: the presentation turn never sees the stored one, so it cannot re-send it.
     def test_previous_validation_prompt_offered_back_when_the_report_has_one(self):
