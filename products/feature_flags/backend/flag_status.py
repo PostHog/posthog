@@ -227,10 +227,10 @@ class FeatureFlagStatusChecker:
             # Flag has recent usage
             days_since_called = (datetime.now(UTC) - flag.last_called_at).days
             if days_since_called == 0:
-                return FeatureFlagStatus.ACTIVE, "A flag call event arrived today"
+                return FeatureFlagStatus.ACTIVE, "A flag call event occurred today"
             return (
                 FeatureFlagStatus.ACTIVE,
-                f"A flag call event last arrived {days_since_called} day{'s' if days_since_called != 1 else ''} ago",
+                f"A flag call event last occurred {days_since_called} day{'s' if days_since_called != 1 else ''} ago",
             )
         else:
             # No usage data - fall back to configuration-based detection
@@ -246,7 +246,7 @@ class FeatureFlagStatusChecker:
     def is_flag_stale_by_usage(self, flag: FeatureFlag) -> tuple[bool, FeatureFlagStatusReason]:
         """
         Check if flag is stale based on usage data (last_called_at).
-        A flag is stale if no flag call event arrived for it in 30+ days.
+        A flag is stale if no flag call event occurred for it in 30+ days.
         """
         assert flag.last_called_at is not None, "last_called_at must not be None"
         stale_threshold = stale_flag_threshold()
