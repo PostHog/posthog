@@ -62,7 +62,7 @@ const TOOL_CALLS: Record<InstrumentationCheckStatusEnumApi, InstrumentationCheck
         title: 'Tool calls',
         detail: 'Tool calls are being recorded.',
         docs_url: TOOLS_DOCS_URL,
-        stats: { generations: 1284, generations_with_tool_calls: 310, generations_with_tools_declared: 640 },
+        stats: { generations: 1284, generations_with_tool_calls: 310 },
     },
     warning: {
         key: AIObservabilityInstrumentationCheckEnumApi.ToolCalls,
@@ -70,7 +70,7 @@ const TOOL_CALLS: Record<InstrumentationCheckStatusEnumApi, InstrumentationCheck
         title: 'Tool calls',
         detail: 'No tool calls recorded, but you are sending tool definitions. If your agent does call tools, check that your SDK version reports them.',
         docs_url: TOOLS_DOCS_URL,
-        stats: { generations: 1284, generations_with_tool_calls: 0, generations_with_tools_declared: 640 },
+        stats: { generations: 1284, generations_with_tool_calls: 0 },
     },
     pending: {
         key: AIObservabilityInstrumentationCheckEnumApi.ToolCalls,
@@ -78,7 +78,7 @@ const TOOL_CALLS: Record<InstrumentationCheckStatusEnumApi, InstrumentationCheck
         title: 'Tool calls',
         detail: 'Still collecting data. This check runs once there are 20 generations.',
         docs_url: TOOLS_DOCS_URL,
-        stats: { generations: 4, generations_with_tool_calls: 0, generations_with_tools_declared: 0 },
+        stats: { generations: 4, generations_with_tool_calls: 0 },
     },
     dismissed: {
         key: AIObservabilityInstrumentationCheckEnumApi.ToolCalls,
@@ -86,7 +86,7 @@ const TOOL_CALLS: Record<InstrumentationCheckStatusEnumApi, InstrumentationCheck
         title: 'Tool calls',
         detail: 'No tool calls recorded. If your app uses tool or function calling, capture it to see which tools run and how often.',
         docs_url: TOOLS_DOCS_URL,
-        stats: { generations: 1284, generations_with_tool_calls: 0, generations_with_tools_declared: 0 },
+        stats: { generations: 1284, generations_with_tool_calls: 0 },
     },
 }
 
@@ -260,7 +260,7 @@ export const FirstLoad: Story = {
     parameters: {
         layout: 'padded',
         featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_INSTRUMENTATION_CHECKLIST],
-        // The skeleton stands in for a read that has not answered, so it never settles in a story.
+        // The card holds its header until the read answers, so this story never settles.
         testOptions: { waitForLoadersToDisappear: false },
     },
     decorators: [
