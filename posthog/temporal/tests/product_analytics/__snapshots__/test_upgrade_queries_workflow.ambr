@@ -2,9 +2,10 @@
 # name: TestUpgradeQueriesWorkflow.test_get_insights_to_migrate_activity
   '''
   
-  SELECT DISTINCT id
+  SELECT id
   FROM posthog_dashboarditem
-  WHERE (query @? '$.** ? (
+  WHERE query IS NOT NULL
+    AND (query @? '$.** ? (
       @.kind == "EventsNode" &&
       (!exists(@.version) || @.version == null || @.version < 8)
   )'
