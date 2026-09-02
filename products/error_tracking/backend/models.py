@@ -962,8 +962,10 @@ class ErrorTrackingAlertDestination(TeamScopedRootMixin, UUIDTModel):
     # destination (per the alerting RFC that stays an open question).
     last_delivered_at = models.DateTimeField(null=True, blank=True)
     last_failure_at = models.DateTimeField(null=True, blank=True)
-    last_error = models.TextField(blank=True, default="")
-    consecutive_failures = models.PositiveIntegerField(default=0)
+    # db_default keeps inserts from pods that predate these columns valid during a
+    # rolling deploy; Django would otherwise drop the database default after backfill.
+    last_error = models.TextField(blank=True, default="", db_default="")
+    consecutive_failures = models.PositiveIntegerField(default=0, db_default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

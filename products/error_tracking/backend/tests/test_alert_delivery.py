@@ -24,6 +24,7 @@ from posthog.redis import get_client
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertThread, ErrorTrackingIssue
 from products.error_tracking.backend.temporal.alerts.delivery import (
     ALERT_THROTTLE_KEY_PREFIX,
+    MAX_THROTTLE_TTL,
     PENDING_CLAIM_TTL,
     AlertDeliveryError,
     deliver_alert_notifications,
@@ -530,6 +531,20 @@ class TestSlackThreadDelivery(AlertTestMixin):
         terminal_channel, retried_channel = channels[0], channels[1]
         assert terminal_channel != retried_channel
         assert channels == [terminal_channel, retried_channel, retried_channel]
+
+    def test_throttle_key_ttl_is_capped(self):
+        # throttle_seconds is project-controlled; a per-issue key must not outlive the cap in shared Redis.
+        client = self._mock_slack()
+        alert = self._create_alert(triggers=["issue_created"])
+        with team_scope(self.team.id):
+            ErrorTrackingAlert.objects.filter(id=alert.id).update(throttle_seconds=2**31 - 1)
+
+        with patch("products.error_tracking.backend.temporal.alerts.delivery.get_client") as redis:
+            redis.return_value.set.return_value = True
+            assert deliver_alert_notifications(self._inputs("$error_tracking_issue_created")) == 1
+
+        assert redis.return_value.set.call_args.kwargs["ex"] == int(MAX_THROTTLE_TTL.total_seconds())
+        client.chat_postMessage.assert_called_once()
 
     def test_rate_limited_slack_call_retries_after_the_window(self):
         client = self._mock_slack()
