@@ -40,6 +40,7 @@ class TestBillComSource:
             "BILL sign-in failed: Invalid credentials",
             "401 Client Error: Unauthorized for url: https://gateway.prod.bill.com/connect/v3/bills",
             "403 Client Error: Forbidden for url: https://gateway.prod.bill.com/connect/v3/users",
+            "403 Client Error: Forbidden for url: https://www.bill.com",
         ],
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:

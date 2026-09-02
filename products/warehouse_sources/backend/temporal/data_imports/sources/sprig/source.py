@@ -71,8 +71,10 @@ Find your API key under **Integrations > Enrichment > Data Import API** in Sprig
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "401 Client Error: Unauthorized for url: https://api.sprig.com": "Your Sprig API key is invalid or has been revoked. Create a new API key in Sprig under Integrations > Enrichment > Data Import API, then reconnect.",
-            "403 Client Error: Forbidden for url: https://api.sprig.com": "Your Sprig API key does not have permission to read this data. Check the key's environment/permissions in Sprig, then reconnect.",
+            # `requests` builds the message from the URL after redirects, so match the stable status
+            # text only — a redirect off the API host makes any host-anchored key miss.
+            "401 Client Error: Unauthorized": "Your Sprig API key is invalid or has been revoked. Create a new API key in Sprig under Integrations > Enrichment > Data Import API, then reconnect.",
+            "403 Client Error: Forbidden": "Your Sprig API key does not have permission to read this data. Check the key's environment/permissions in Sprig, then reconnect.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

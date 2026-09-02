@@ -82,10 +82,11 @@ Sandbox and production environments use separate API keys — use the one for th
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             # A revoked or invalid key surfaces as an HTTPError when `_fetch_page` raises for status.
-            # Retrying can't fix a credential problem, so fail the sync. Match the stable status text
-            # and base host, not the per-request path.
-            "401 Client Error: Unauthorized for url: https://api.withpersona.com": "Your Persona API key is invalid or has been revoked. Create a new API key in your Persona dashboard, then reconnect.",
-            "403 Client Error: Forbidden for url: https://api.withpersona.com": "Your Persona API key is missing the read permissions needed to sync this data. Grant the required access in your Persona dashboard, then reconnect.",
+            # Retrying can't fix a credential problem, so fail the sync. `requests` builds the message
+            # from the URL after redirects, so match the stable status text only — a redirect off the
+            # API host makes any host-anchored key miss.
+            "401 Client Error: Unauthorized": "Your Persona API key is invalid or has been revoked. Create a new API key in your Persona dashboard, then reconnect.",
+            "403 Client Error: Forbidden": "Your Persona API key is missing the read permissions needed to sync this data. Grant the required access in your Persona dashboard, then reconnect.",
         }
 
     def get_schemas(

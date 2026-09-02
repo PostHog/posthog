@@ -85,9 +85,10 @@ Create a personal access token under **Settings > Integrations > OAuth > Access 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             # A missing/expired/invalid token surfaces as a requests HTTPError once `raise_for_status`
-            # runs. Match the stable status text and base host, not the per-request path.
-            "401 Client Error: Unauthorized for url: https://api.getbase.com": "Your Zendesk Sell access token is invalid or has expired. Create a new access token in your Zendesk Sell settings, then reconnect.",
-            "403 Client Error: Forbidden for url: https://api.getbase.com": "Your Zendesk Sell access token is missing the permissions needed to sync this data. Grant read access and reconnect.",
+            # runs. `requests` builds the message from the URL after redirects, so match the stable
+            # status text only — a redirect off the API host makes any host-anchored key miss.
+            "401 Client Error: Unauthorized": "Your Zendesk Sell access token is invalid or has expired. Create a new access token in your Zendesk Sell settings, then reconnect.",
+            "403 Client Error: Forbidden": "Your Zendesk Sell access token is missing the permissions needed to sync this data. Grant read access and reconnect.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
