@@ -68,7 +68,9 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
-                  if [ -f .github/scripts/post-duplication-section.mjs ] && [ -f duplication-findings-python.json ]; then
+                  # The status file (written before the scans) lets the poster mark a failed
+                  # scan; the findings file is the success path. Either one is enough to post.
+                  if [ -f .github/scripts/post-duplication-section.mjs ] && { [ -f duplication-scan-status.json ] || [ -f duplication-findings-python.json ]; }; then
                       node .github/scripts/post-duplication-section.mjs python duplication-findings-python.json
                   else
                       echo "Skipping the duplication report section: script or findings not on this branch"
@@ -78,7 +80,7 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
-                  if [ -f .github/scripts/post-duplication-section.mjs ] && [ -f duplication-findings-ts.json ]; then
+                  if [ -f .github/scripts/post-duplication-section.mjs ] && { [ -f duplication-scan-status.json ] || [ -f duplication-findings-ts.json ]; }; then
                       node .github/scripts/post-duplication-section.mjs typescript duplication-findings-ts.json
                   else
                       echo "Skipping the duplication report section: script or findings not on this branch"
