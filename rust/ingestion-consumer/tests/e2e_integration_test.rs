@@ -3236,7 +3236,57 @@ async fn rebalance_inside_a_collection_window_commits_unaccepted_offsets() {
         "consumer is still waiting on the second poll"
     );
 
-    harness.crash_consumer();
+    // The loop keeps collecting until the in-flight cap fills behind the
+    // stuck poll. A third poll on the kept partition is dispatched and
+    // accepted (ten messages were accepted so far: 3 + 5 on one worker, 2
+    // on the other), but it cannot commit behind the second.
+    for seq in 2..7 {
+        produce(&producer, &topic, kept, "tok", &kept_id, seq).await;
+    }
+    wait_until(Duration::from_secs(20), "third poll dispatched", || {
+        dispatched_polls(&recorder).len() == 3
+    })
+    .await;
+    let accepted_total =
+        |harness: &Harness| harness.workers.iter().map(|w| w.count()).sum::<usize>();
+    wait_until(Duration::from_secs(10), "third poll accepted", || {
+        accepted_total(&harness) == 15
+    })
+    .await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(
+        committed_polls(&recorder).len(),
+        1,
+        "only the first poll ever commits"
+    );
+
+    // With two polls in flight the loop no longer polls Kafka at all: a
+    // fourth batch is produced and never dispatched.
+    for seq in 7..12 {
+        produce(&producer, &topic, kept, "tok", &kept_id, seq).await;
+    }
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    assert_eq!(
+        dispatched_polls(&recorder).len(),
+        3,
+        "the consumer stopped collecting"
+    );
+    assert_eq!(
+        accepted_total(&harness),
+        15,
+        "nothing past the third poll was sent"
+    );
+
+    // Graceful shutdown drains in-flight polls before exiting, and the
+    // second poll never drains: the process cannot even stop cleanly.
+    harness.shutdown.cancel();
+    assert!(
+        !harness
+            .wait_for_consumer_exit(Duration::from_secs(10))
+            .await,
+        "shutdown must hang behind the second poll"
+    );
+
     harness.stop().await;
     drop(cluster);
 }
