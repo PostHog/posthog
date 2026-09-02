@@ -132,10 +132,10 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # gateway-configuration class as "Could not establish session to SSH gateway" above.
             _SSH_HANDSHAKE_EOF_ERROR: "Could not connect to your SSH tunnel — the gateway accepted the connection but closed it during the SSH handshake. Check that the SSH host and port point to an SSH server (not the database port), that the bastion is running and reachable, and that PostHog's IP addresses are allowed through its firewall, then re-enable the sync.",
             # Raised from the shared `_decimal_array_from_values` fallback in
-            # `pipelines/core/arrow_utils.py` when a numeric/decimal/money value exceeds the
-            # decimal256 fallback (precision > 76 or scale > 32). Fixed source-data shape —
-            # retrying won't help. Delta itself stores no decimal past 38 digits.
-            "Cannot build decimal array from values": "One of your numeric columns has values we can't store: more than 76 digits, or more than 32 decimal places. Round the values at the source, or constrain the column. We store decimals up to 38 digits. A column that needs more than that is rebuilt as text rather than numbers.",
+            # `pipelines/core/arrow_utils.py` when a numeric/decimal/money value exceeds Delta
+            # Lake's decimal budget (precision > 76 or scale > 32). Fixed source-data shape —
+            # retrying won't help.
+            "Cannot build decimal array from values": "One of your numeric columns contains values that exceed our decimal storage limits (max precision 76, max scale 32). Please constrain the column with a lower precision/scale, cast it to text in a view, or round the values at the source.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/core/arrow_utils.py`
             # when an integer column's source type was widened (e.g. `INT` → `BIGINT`) after the
             # destination table was created with the narrower type. Delta Lake can't widen an

@@ -805,10 +805,10 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             ),
             # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
             # decimal type — the pipeline falls back through the best-fit decimal and
-            # `decimal256(76, 32)` before giving up. Only triggers past that fallback
-            # (precision > 76 or scale > 32); retrying won't help because the value shape is
-            # fixed in the source. Delta itself stores no decimal past 38 digits.
-            "Cannot build decimal array from values": "One of your numeric columns has values we can't store: more than 76 digits, or more than 32 decimal places. Round the values at the source, or constrain the column. We store decimals up to 38 digits. A column that needs more than that is rebuilt as text rather than numbers.",
+            # `decimal256(76, 32)` before giving up. Only triggers when source data genuinely
+            # exceeds Delta Lake's decimal budget (precision > 76 or scale > 32); retrying won't
+            # help because the value shape is fixed in the source.
+            "Cannot build decimal array from values": "One of your numeric columns contains values that exceed our decimal storage limits (max precision 76, max scale 32). Please constrain the column with a lower precision/scale, cast it to text in a view, or round the values at the source.",
             # Raised when an integer column's source type was widened (e.g. `integer` → `bigint`)
             # after the destination table was created with the narrower type. Delta Lake can't widen
             # an existing column in place, so retrying won't help — the table must be reset and

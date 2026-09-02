@@ -155,10 +155,10 @@ Any_Source_Errors: dict[str, str | None] = {
     # The general message promises that a reset adopts the new type, which is wrong for a column wider
     # than Delta stores as a number: the reset re-creates it as text and downstream aggregations break.
     DECIMAL_OVERFLOW_FRAGMENT: (
-        "A decimal column no longer fits the type we stored for it. Reset and fully re-sync this "
-        "table, then re-enable the sync, to rebuild the column from your current data. We store "
-        "decimals up to 38 digits. A column that needs more than that is rebuilt as text rather "
-        "than numbers."
+        "A decimal column no longer fits the type we stored for it. Set a precision and scale on "
+        "that column in your source, then reset and fully re-sync this table and re-enable the "
+        "sync. Without a declared precision the re-sync can fail the same way part-way through. "
+        "We store decimals up to 38 digits; a wider column comes back as text."
     ),
     # Raised by the pipeline when a column's incoming values no longer fit the stored Delta column
     # type — the source column was widened (e.g. Postgres `integer` → `bigint`) or now carries larger

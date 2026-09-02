@@ -88,10 +88,9 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
                 "fully re-sync this table to adopt the new type."
             ),
             "Cannot build decimal array from values": (
-                "One of your numeric columns has values we can't store: more than 76 digits, or more "
-                "than 32 decimal places. Round the values at the source, or constrain the column. We "
-                "store decimals up to 38 digits. A column that needs more than that is rebuilt as "
-                "text rather than numbers."
+                "One of your numeric columns contains values that exceed our decimal storage limits "
+                "(max precision 76, max scale 32). Please constrain the column with a lower precision/scale, "
+                "cast it to text in a view, or round the values at the source."
             ),
         }
 

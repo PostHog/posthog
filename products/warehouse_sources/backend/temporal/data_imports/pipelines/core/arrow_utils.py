@@ -45,11 +45,11 @@ DLT_TO_PA_TYPE_MAP: dict[
 }
 
 # Widest decimal Delta stores as a number. `ensure_delta_compatible_arrow_schema` turns every
-# decimal256 into a string, so a column past this keeps its digits but stops being numeric.
-# Kept separate from `DEFAULT_NUMERIC_PRECISION`: they share a value today, but one is a physical
-# ceiling and the other is the precision we pick when a source declares none. A declared
-# NUMERIC(38, 0) stays numeric; only an inferred whole-number column reaches text a digit early,
-# because `_get_max_decimal_type` floors scale at 1 and so sizes 38 integer digits as precision 39.
+# decimal256 into a string, so a column past this keeps its digits but stops being numeric. Used
+# for customer-facing copy only: the decimal128 branch in `build_pyarrow_decimal_type` keeps its
+# own literal, because that boundary is pyarrow's limit rather than Delta's.
+# A declared NUMERIC(38, 0) stays numeric; only an inferred whole-number column reaches text a
+# digit early, because `_get_max_decimal_type` floors scale at 1 and sizes 38 digits as 39.
 DELTA_MAX_DECIMAL_PRECISION = 38
 DEFAULT_NUMERIC_PRECISION = 38  # Delta Lake maximum precision
 DEFAULT_NUMERIC_SCALE = 18  # Good default scale for decimal128, 20 int digits plus 18 decimal cases
@@ -1017,7 +1017,7 @@ def unify_schemas_with_text_fallback(schemas: list[pa.Schema], logger: Filtering
 
 
 def build_pyarrow_decimal_type(precision: int, scale: int) -> pa.Decimal128Type | pa.Decimal256Type:
-    if precision <= DELTA_MAX_DECIMAL_PRECISION:
+    if precision <= 38:
         return pa.decimal128(precision, scale)
     elif precision <= 76:
         return pa.decimal256(precision, scale)
@@ -1173,8 +1173,10 @@ def align_incoming_decimals_to_delta(pa_table: pa.Table, delta_schema: deltalake
         if aligned is None:
             raise SchemaColumnTypeChangedException(
                 f"Source column type changed: '{delta_field.name}' {DECIMAL_OVERFLOW_FRAGMENT} "
-                f"{delta_field.type}. Delta stores no decimal past {DELTA_MAX_DECIMAL_PRECISION} digits, "
-                f"so a wider column is re-created as text on the next full re-sync."
+                f"{delta_field.type}. Set a precision and scale on that column in your source, then "
+                f"reset and fully re-sync this table and re-enable the sync. Without a declared "
+                f"precision each batch infers its own type and the re-sync can fail the same way. "
+                f"A column needing more than {DELTA_MAX_DECIMAL_PRECISION} digits comes back as text."
             )
         pa_table = pa_table.set_column(pa_table.schema.get_field_index(delta_field.name), delta_field.name, aligned)
 
