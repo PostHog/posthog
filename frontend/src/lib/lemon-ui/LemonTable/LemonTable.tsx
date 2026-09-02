@@ -504,9 +504,58 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                     const truncateHeader =
                                                         !!maxHeaderWidth && !column.width && !column.fullWidth
 
+                                                    const sortingColumnKey = column.sorter
+                                                        ? determineColumnKey(column, 'sorting')
+                                                        : null
+                                                    const activeSortOrder =
+                                                        sortingColumnKey !== null &&
+                                                        currentSorting?.columnKey === sortingColumnKey
+                                                            ? currentSorting.order
+                                                            : null
+
+                                                    // Keyboard operability for sortable headers: the clickable
+                                                    // header content is a plain div, which screen readers and
+                                                    // keyboard users cannot operate or identify as sortable
+                                                    // (see #30826). Expose button semantics, Enter/Space handling,
+                                                    // and aria-sort state.
+                                                    const toggleHeaderSorting = (
+                                                        event:
+                                                            | React.MouseEvent<HTMLElement>
+                                                            | React.KeyboardEvent<HTMLElement>
+                                                    ): void => {
+                                                        const target = event.target as HTMLElement
+
+                                                        // Check if the click happened on the checkbox input, label, or its specific SVG (LemonCheckbox__box)
+                                                        if (
+                                                            target.closest('.LemonCheckbox') ||
+                                                            target.classList.contains('LemonCheckbox__box') ||
+                                                            target.tagName.toLowerCase() === 'label' ||
+                                                            target.tagName.toLowerCase() === 'input' ||
+                                                            target.closest('[data-attr="table-header-more"]')
+                                                        ) {
+                                                            return // Do nothing if the interaction is on the checkbox or more button
+                                                        }
+
+                                                        setLocalSorting(
+                                                            getNextSorting(
+                                                                currentSorting,
+                                                                determineColumnKey(column, 'sorting'),
+                                                                disableSortingCancellation,
+                                                                column.defaultSortOrder
+                                                            )
+                                                        )
+                                                    }
+
                                                     return (
                                                         <th
                                                             key={`LemonTable-th-${columnGroupIndex}-${columnKey}`}
+                                                            aria-sort={
+                                                                activeSortOrder === null
+                                                                    ? undefined
+                                                                    : activeSortOrder === 1
+                                                                      ? 'ascending'
+                                                                      : 'descending'
+                                                            }
                                                             className={clsx(
                                                                 'LemonTable__header',
                                                                 column.sorter && 'LemonTable__header--actionable',
@@ -536,36 +585,19 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                               ? 'flex-end'
                                                                               : 'flex-start',
                                                                 }}
-                                                                onClick={
+                                                                onClick={column.sorter ? toggleHeaderSorting : undefined}
+                                                                role={column.sorter ? 'button' : undefined}
+                                                                tabIndex={column.sorter ? 0 : undefined}
+                                                                onKeyDown={
                                                                     column.sorter
                                                                         ? (event) => {
-                                                                              const target = event.target as HTMLElement
-
-                                                                              // Check if the click happened on the checkbox input, label, or its specific SVG (LemonCheckbox__box)
                                                                               if (
-                                                                                  target.closest('.LemonCheckbox') ||
-                                                                                  target.classList.contains(
-                                                                                      'LemonCheckbox__box'
-                                                                                  ) ||
-                                                                                  target.tagName.toLowerCase() ===
-                                                                                      'label' ||
-                                                                                  target.tagName.toLowerCase() ===
-                                                                                      'input' ||
-                                                                                  target.closest(
-                                                                                      '[data-attr="table-header-more"]'
-                                                                                  )
+                                                                                  event.key === 'Enter' ||
+                                                                                  event.key === ' '
                                                                               ) {
-                                                                                  return // Do nothing if the click is on the checkbox or more button
+                                                                                  event.preventDefault()
+                                                                                  toggleHeaderSorting(event)
                                                                               }
-
-                                                                              const nextSorting = getNextSorting(
-                                                                                  currentSorting,
-                                                                                  determineColumnKey(column, 'sorting'),
-                                                                                  disableSortingCancellation,
-                                                                                  column.defaultSortOrder
-                                                                              )
-
-                                                                              setLocalSorting(nextSorting)
                                                                           }
                                                                         : undefined
                                                                 }
