@@ -1,3 +1,4 @@
+import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Optional
@@ -44,7 +45,10 @@ from products.product_analytics.backend.facade.models import Insight
 from ee.api.test.base import APILicensedTest
 from ee.tasks.subscriptions.slack_subscriptions import get_slack_integration_for_team
 from ee.tasks.subscriptions.subscription_utils import MAX_INSIGHTS
+from ee.tasks.subscriptions.teams_subscriptions import TEAMS_WEBHOOK_URL_ERROR, TEAMS_WEBHOOK_URL_MASKED_ERROR
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
+
+VALID_TEAMS_WEBHOOK_URL = "https://prod-25.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke"
 
 
 class TestSubscriptionTemporal(APILicensedTest):
@@ -143,6 +147,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             "next_delivery_date": data["next_delivery_date"],
             "integration_id": None,
             "invite_message": None,
+            "delivery_config": {"post_all_insights_in_main_message": False},
             "summary": "sent every week",
             "summary_enabled": False,
             "summary_prompt_guide": "",
@@ -697,6 +702,138 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "does not belong to your team" in response.json()["detail"]
 
+    def test_can_create_slack_subscription_with_delivery_config(self):
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
+        )
+        response = self._create_subscription(
+            target_type="slack",
+            target_value="C1234|#general",
+            integration_id=integration.id,
+            delivery_config={"post_all_insights_in_main_message": True},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["delivery_config"] == {"post_all_insights_in_main_message": True}
+        subscription = Subscription.objects.get(id=response.json()["id"])
+        assert subscription.delivery_config == {"post_all_insights_in_main_message": True}
+
+    def test_cannot_set_post_all_insights_in_main_message_on_email_subscription(self):
+        response = self._create_subscription(delivery_config={"post_all_insights_in_main_message": True})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "only supported for Slack subscriptions" in response.json()["detail"]
+
+    def test_can_patch_delivery_config_on_slack_subscription(self):
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
+        )
+        subscription_id = self._create_subscription(
+            target_type="slack",
+            target_value="C1234|#general",
+            integration_id=integration.id,
+        ).json()["id"]
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"delivery_config": {"post_all_insights_in_main_message": True}},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["delivery_config"] == {"post_all_insights_in_main_message": True}
+
+    def test_post_all_in_main_requires_files_write_scope(self):
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,channels:read"}
+        )
+        res = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/",
+            {
+                "target_type": "slack",
+                "target_value": "C1|#x",
+                "integration_id": integration.id,
+                "frequency": "weekly",
+                "interval": 1,
+                "insight": self.insight.id,
+                "start_date": "2026-01-01T00:00:00Z",
+                "delivery_config": {"post_all_insights_in_main_message": True},
+            },
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert "files:write" in str(res.json())
+
+    def test_patch_post_all_in_main_requires_files_write_scope(self):
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,channels:read"}
+        )
+        subscription_id = self._create_subscription(
+            target_type="slack",
+            target_value="C1234|#general",
+            integration_id=integration.id,
+        ).json()["id"]
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"delivery_config": {"post_all_insights_in_main_message": True}},
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert "files:write" in str(res.json())
+
+    def test_patch_to_integration_without_files_write_rejects_persisted_gallery_flag(self):
+        # Effective-config validation: moving an existing post_all_insights_in_main_message sub to an
+        # integration lacking files:write must be rejected even when the PATCH omits delivery_config.
+        with_scope = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
+        )
+        without_scope = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,channels:read"}
+        )
+        subscription_id = self._create_subscription(
+            target_type="slack",
+            target_value="C1234|#general",
+            integration_id=with_scope.id,
+            delivery_config={"post_all_insights_in_main_message": True},
+        ).json()["id"]
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"integration_id": without_scope.id},
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert "files:write" in str(res.json())
+
+    def test_patch_slack_to_email_rejects_persisted_gallery_flag(self):
+        # Effective-config validation across target_type: a Slack sub with the gallery flag PATCHed to
+        # email without resubmitting delivery_config must be rejected, not silently saved as email+flag.
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
+        )
+        subscription_id = self._create_subscription(
+            target_type="slack",
+            target_value="C1234|#general",
+            integration_id=integration.id,
+            delivery_config={"post_all_insights_in_main_message": True},
+        ).json()["id"]
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"target_type": "email", "target_value": "a@b.com"},
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert "only supported for Slack" in str(res.json())
+
+    def test_post_all_in_main_allowed_with_files_write(self):
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
+        )
+        res = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/",
+            {
+                "target_type": "slack",
+                "target_value": "C1|#x",
+                "integration_id": integration.id,
+                "frequency": "weekly",
+                "interval": 1,
+                "insight": self.insight.id,
+                "start_date": "2026-01-01T00:00:00Z",
+                "delivery_config": {"post_all_insights_in_main_message": True},
+            },
+        )
+        assert res.status_code == status.HTTP_201_CREATED
+
     def test_cannot_create_slack_subscription_with_non_slack_integration(self):
         integration = Integration.objects.create(team=self.team, kind="hubspot", config={})
 
@@ -707,6 +844,77 @@ class TestSubscriptionTemporal(APILicensedTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "require a Slack integration" in response.json()["detail"]
+
+    def test_can_create_teams_subscription_with_a_webhook_url(self):
+        response = self._create_subscription(target_type="teams", target_value=VALID_TEAMS_WEBHOOK_URL)
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["target_type"] == "teams"
+
+    def test_reading_a_teams_subscription_never_returns_the_webhook_url(self):
+        # The URL authorizes a post to the channel on its own, so subscription read access must not
+        # be enough to obtain it.
+        sub_id = self._create_subscription(target_type="teams", target_value=VALID_TEAMS_WEBHOOK_URL).json()["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{sub_id}")
+        listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions").json()["results"]
+
+        assert response.json()["target_value"] == "prod-25.westeurope.logic.azure.com"
+        assert [s["target_value"] for s in listed if s["id"] == sub_id] == ["prod-25.westeurope.logic.azure.com"]
+        assert "/workflows/" not in json.dumps(response.json())
+        assert Subscription.objects.get(id=sub_id).target_value == VALID_TEAMS_WEBHOOK_URL
+
+    @parameterized.expand([("email", "ben@posthog.com"), ("slack", "C1234|#general")])
+    def test_reading_a_non_teams_subscription_returns_its_target_value(self, target_type, target_value):
+        extra = {}
+        if target_type == "slack":
+            extra["integration_id"] = Integration.objects.create(team=self.team, kind="slack", config={}).id
+        sub_id = self._create_subscription(target_type=target_type, target_value=target_value, **extra).json()["id"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{sub_id}")
+
+        assert response.json()["target_value"] == target_value
+
+    def test_patching_an_unrelated_field_keeps_a_teams_subscription_saveable(self):
+        # target_value is absent from the PATCH body, so the webhook check falls back to the stored
+        # URL. Validating an empty string instead would make every edit of a Teams subscription 400.
+        sub_id = self._create_subscription(target_type="teams", target_value=VALID_TEAMS_WEBHOOK_URL).json()["id"]
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"title": "Renamed"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["title"] == "Renamed"
+        assert Subscription.objects.get(id=sub_id).target_value == VALID_TEAMS_WEBHOOK_URL
+
+    def test_patching_a_teams_subscription_with_the_masked_host_is_rejected(self):
+        # A client that echoes what it read would otherwise overwrite the stored URL with a value
+        # nothing could deliver to.
+        sub_id = self._create_subscription(target_type="teams", target_value=VALID_TEAMS_WEBHOOK_URL).json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"target_value": "prod-25.westeurope.logic.azure.com"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "target_value"
+        assert response.json()["detail"] == TEAMS_WEBHOOK_URL_MASKED_ERROR
+        assert Subscription.objects.get(id=sub_id).target_value == VALID_TEAMS_WEBHOOK_URL
+
+    def test_cannot_change_a_teams_subscription_to_another_target_without_replacing_its_webhook_url(self):
+        sub_id = self._create_subscription(target_type="teams", target_value=VALID_TEAMS_WEBHOOK_URL).json()["id"]
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"target_type": "email"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert Subscription.objects.get(id=sub_id).target_type == Subscription.SubscriptionTarget.TEAMS
+        assert Subscription.objects.get(id=sub_id).target_value == VALID_TEAMS_WEBHOOK_URL
+
+    def test_cannot_create_teams_subscription_with_a_lookalike_url(self):
+        response = self._create_subscription(target_type="teams", target_value="https://evilpowerautomate.com/x")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "target_value"
+        assert response.json()["detail"] == TEAMS_WEBHOOK_URL_ERROR
 
     def test_patch_enabled_true_rejected_when_slack_integration_missing(self):
         """Re-enabling a disabled Slack subscription whose integration is gone must be
