@@ -534,6 +534,39 @@ mod tests {
         );
     }
 
+    /// The env capture-ai will actually ship: broker hosts and a DLQ topic,
+    /// and nothing else. Every other test here starts from a full topic set and
+    /// blanks one field on the already-parsed struct, so none of them prove the
+    /// minimal env parses at all -- which is the entire point of making the
+    /// analytics topics per-mode optional.
+    ///
+    /// The same env must still fail on an analytics mode, or the check would be
+    /// passing for the wrong reason.
+    #[test]
+    fn ai_mode_accepts_the_minimal_sink_env_that_analytics_rejects() {
+        let env: HashMap<String, String> = [
+            ("CAPTURE_V1_SINK_WS_KAFKA_HOSTS", "localhost:9092"),
+            ("CAPTURE_V1_SINK_WS_KAFKA_TOPIC_DLQ", "events_dlq"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+
+        let sinks = load_sinks_from("ws", &env).expect("minimal AI sink env must parse");
+
+        sinks
+            .validate(CaptureMode::Ai)
+            .expect("the AI lane reaches only the DLQ and the AI topic");
+
+        let err = sinks
+            .validate(CaptureMode::Events)
+            .expect_err("an analytics deployment reaches every lane");
+        assert!(
+            format!("{err:#}").contains("KAFKA_TOPIC_MAIN"),
+            "should name the first analytics topic it is missing: {err:#}"
+        );
+    }
+
     /// A missing topic must tell an operator the whole variable to set. The
     /// inner error carries the suffix and the wrapper carries the sink's
     /// prefix, so the two have to concatenate into the real name.

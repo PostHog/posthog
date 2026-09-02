@@ -4507,6 +4507,36 @@ mod tests {
             .with_records(|records| assert_eq!(records.len(), 3));
     }
 
+    /// A batch with nothing but non-AI events leaves no event publishable, so
+    /// the gate hands straight to the all-dropped early return. Every other
+    /// AI-mode test keeps at least one `$ai_` event, so this is the only one
+    /// that exercises that path: the response must still be a 200 carrying a
+    /// per-event verdict for each event, not an error.
+    #[tokio::test]
+    async fn ai_mode_batch_of_only_non_ai_events_returns_200_with_every_event_dropped() {
+        let ts = TestStateBuilder::new()
+            .with_capture_mode(CaptureMode::Ai)
+            .build();
+        let mut ctx = test_utils::test_analytics_context();
+        let batch = valid_batch(vec![
+            named_event("$pageview"),
+            named_event("$exception"),
+            named_event("$ai_not_a_real_event"),
+        ]);
+
+        let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        let entries = resp.entries();
+        assert_eq!(entries.len(), 3, "every event still gets a verdict");
+        for (_, entry) in entries {
+            assert_eq!(entry.result, EventResult::Drop);
+            assert_eq!(entry.details, Some(DETAIL_NON_AI_EVENT));
+        }
+        assert!(!resp.has_retry, "a fully gated batch must not signal retry");
+        ts.mock_producer
+            .with_records(|records| assert!(records.is_empty(), "nothing may publish"));
+    }
+
     /// The gate keys on the event name, not the destination, so a restriction
     /// that has already retargeted an AI event cannot smuggle it into the
     /// non-AI drop. `force_overflow` sends it to `AiEventsOverflow`,
