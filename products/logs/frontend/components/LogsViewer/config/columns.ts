@@ -4,7 +4,15 @@ import { LogsQuery } from '~/queries/schema/schema-general'
 
 import { AttributeColumnConfig, ParsedLogMessage } from 'products/logs/frontend/types'
 
-export type LogsColumnType = 'timestamp' | 'level' | 'source' | 'trace_id' | 'span_id' | 'message' | 'custom'
+export type LogsColumnType =
+    | 'timestamp'
+    | 'level'
+    | 'source'
+    | 'trace_id'
+    | 'span_id'
+    | 'pattern'
+    | 'message'
+    | 'custom'
 
 export interface LogsColumnConfig {
     /** Stable identity for list operations (React keys, reorder). Never sent to the server. */
@@ -23,18 +31,24 @@ export interface LogsColumnConfig {
 
 interface BuiltInColumnDef {
     label: string
-    getValue: (log: ParsedLogMessage) => string
+    /** Reads the value off the row. Absent when the value only exists server-side (see `expression`). */
+    getValue?: (log: ParsedLogMessage) => string
+    /** HogQL the server computes for this column, for values a log row does not carry. */
+    expression?: string
 }
 
-// Built-in column types resolve client-side from fields every log row already carries —
+// Most built-in column types resolve client-side from fields every log row already carries —
 // they never hit the wire. `source` has no top-level row field; the service name rides in
-// resource_attributes per OTel convention.
+// resource_attributes per OTel convention. `pattern` is the exception: it is a table column the
+// row payload leaves out, so it rides the same wire mechanism as custom columns and is only
+// fetched while the column is on screen.
 export const LOGS_COLUMN_REGISTRY: Record<Exclude<LogsColumnType, 'custom'>, BuiltInColumnDef> = {
     timestamp: { label: 'Timestamp', getValue: (log) => log.timestamp },
     level: { label: 'Level', getValue: (log) => log.severity_text },
     source: { label: 'Source', getValue: (log) => String(log.resource_attributes?.['service.name'] ?? '') },
     trace_id: { label: 'Trace ID', getValue: (log) => log.trace_id },
     span_id: { label: 'Span ID', getValue: (log) => log.span_id },
+    pattern: { label: 'Pattern', expression: 'pattern' },
     message: { label: 'Message', getValue: (log) => log.body },
 }
 
@@ -75,12 +89,19 @@ export function columnLabel(column: LogsColumnConfig): string {
     return column.type === 'custom' ? (column.expression ?? '') : LOGS_COLUMN_REGISTRY[column.type].label
 }
 
-/** Lower a column list to the `LogsQuery.customColumns` wire value. Built-ins never hit the wire. */
+/**
+ * The HogQL the server must compute for a column, or undefined when the row already carries
+ * the value. Keys the server's returned alias, so the wire list and the cell lookup stay in step.
+ */
+export function columnExpression(column: LogsColumnConfig): string | undefined {
+    const expression = column.type === 'custom' ? column.expression : LOGS_COLUMN_REGISTRY[column.type].expression
+    return expression?.trim() || undefined
+}
+
+/** Lower a column list to the `LogsQuery.customColumns` wire value. Client-side built-ins never hit the wire. */
 export function columnsToCustomColumns(columns: LogsColumnConfig[]): LogsQuery['customColumns'] {
-    const expressions = columns
-        .map((column) => (column.type === 'custom' ? column.expression?.trim() : undefined))
-        .filter((expression): expression is string => !!expression)
-    // Undefined (not []) when there are no custom columns, so the query payload is
+    const expressions = columns.map(columnExpression).filter((expression): expression is string => !!expression)
+    // Undefined (not []) when there are no server-computed columns, so the query payload is
     // byte-identical to a pre-custom-columns query and cache keys are unaffected.
     return expressions.length > 0 ? expressions : undefined
 }

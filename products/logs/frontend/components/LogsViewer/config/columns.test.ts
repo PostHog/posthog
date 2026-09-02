@@ -4,20 +4,22 @@ import { columnsToCustomColumns, LogsColumnConfig, migrateAttributeColumns, norm
 
 describe('logs column config', () => {
     describe('columnsToCustomColumns', () => {
-        it('lowers only custom columns, in order, and never sends built-ins', () => {
+        it('lowers server-computed columns, in order, and never sends client-side built-ins', () => {
             const columns: LogsColumnConfig[] = [
                 { id: 'timestamp', type: 'timestamp' },
                 { id: 'a', type: 'custom', expression: 'attributes.http.url' },
                 { id: 'level', type: 'level' },
+                // Pattern lives only on the table, so it rides the wire like a custom column
+                { id: 'pattern', type: 'pattern' },
                 { id: 'b', type: 'custom', expression: ' upper(level) ' },
                 { id: 'message', type: 'message' },
             ]
-            expect(columnsToCustomColumns(columns)).toEqual(['attributes.http.url', 'upper(level)'])
+            expect(columnsToCustomColumns(columns)).toEqual(['attributes.http.url', 'pattern', 'upper(level)'])
         })
 
         it.each<[string, LogsColumnConfig[]]>([
             ['no columns', []],
-            ['built-ins only', [{ id: 'timestamp', type: 'timestamp' }]],
+            ['client-side built-ins only', [{ id: 'timestamp', type: 'timestamp' }]],
             ['custom with blank expression', [{ id: 'x', type: 'custom', expression: '   ' }]],
             ['custom with no expression', [{ id: 'x', type: 'custom' }]],
         ])('returns undefined (not []) for %s, keeping query payloads cache-identical', (_, columns) => {
