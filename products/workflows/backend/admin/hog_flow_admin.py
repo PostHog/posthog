@@ -117,6 +117,10 @@ class HogFlowAdmin(admin.ModelAdmin):
                     hog_flow_id=str(hog_flow.id),
                     triggered_by=getattr(request.user, "email", None),
                 )
+                # Durable audit trail in the object's admin history: the bulk action bypasses
+                # save_model, so without this the acting staff user is recorded only in the log
+                # aggregator, not anywhere an audit view can show.
+                self.log_change(request, hog_flow, "Paused email sending")
         self.message_user(
             request,
             f"Paused email sending for {paused} workflow(s). Workers pick this up within a few minutes; "
@@ -136,6 +140,7 @@ class HogFlowAdmin(admin.ModelAdmin):
                     hog_flow_id=str(hog_flow.id),
                     triggered_by=getattr(request.user, "email", None),
                 )
+                self.log_change(request, hog_flow, "Resumed email sending")
         self.message_user(
             request,
             f"Resumed email sending for {resumed} workflow(s). The detector re-arms, so a workflow that is "
