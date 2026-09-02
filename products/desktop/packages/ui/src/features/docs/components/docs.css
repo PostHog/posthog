@@ -338,41 +338,71 @@
 .doc-watch-status {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   min-width: 0;
+}
+
+/* The state is a dot and a word. Colour carries the state, the row stays quiet. */
+.doc-watch-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  font-weight: 600;
+  color: var(--blue-11);
+}
+
+.doc-watch-state::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.doc-watch-state[data-verdict="moved"] {
+  color: var(--amber-11);
+}
+
+.doc-watch-state[data-verdict="confirmed"] {
+  color: var(--green-11);
+}
+
+.doc-watch-state[data-verdict="refuted"] {
+  color: var(--red-11);
+}
+
+.doc-watch-state[data-verdict="stale"],
+.doc-watch-state[data-verdict="pending"],
+.doc-watch-state[data-status="paused"],
+.doc-watch-state[data-status="stopped"]:not([data-verdict="confirmed"]):not(
+    [data-verdict="refuted"]
+  ) {
+  color: var(--gray-10);
 }
 
 .doc-watch-status-text {
+  margin-top: 3px;
   min-width: 0;
-  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 12px;
+  color: var(--gray-10);
 }
 
-.doc-watch-figures {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-/* One figure is a small chip: the trend, the number, its change. The frame keeps them together. */
+/* The headline figure: the number, its change, and a small gray trend after them. */
 .doc-watch-figure {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   min-width: 0;
-  padding: 3px 8px 3px 6px;
-  border: 1px solid var(--gray-5);
-  border-radius: 999px;
-  background: var(--gray-1);
   font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
   color: var(--gray-10);
 }
 
 .doc-watch-figure b {
-  font-variant-numeric: tabular-nums;
   font-size: 12.5px;
   font-weight: 600;
   color: var(--gray-12);
@@ -380,16 +410,15 @@
 
 .doc-watch-figure .doc-spark {
   margin: 0;
-  stroke: var(--gray-8);
+  stroke: var(--gray-7);
 }
 
 .doc-watch-figure[data-moved="true"] {
-  border-color: color-mix(in srgb, var(--amber-9) 45%, var(--gray-5));
   color: var(--amber-11);
 }
 
 .doc-watch-figure[data-moved="true"] .doc-spark {
-  stroke: var(--amber-9);
+  stroke: var(--amber-8);
 }
 
 .doc-watch-history {

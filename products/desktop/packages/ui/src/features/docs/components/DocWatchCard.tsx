@@ -142,10 +142,16 @@ export function statusLine(watch: Watch): string {
   return parts.join(" · ");
 }
 
+/** The one figure the strip shows: the number that moved, else the first. */
+function headlineFigure(
+  evidence: DocSchemas.WatchEvidence[],
+): DocSchemas.WatchEvidence | undefined {
+  return evidence.find((entry) => entry.moved) ?? evidence[0];
+}
+
 /**
- * Fixed under the quote, two lines at most: where the claim stands, then its
- * numbers as small figures. The rest is a click away in the dossier, so the
- * conversation keeps the column.
+ * Fixed under the quote, two lines: the state word with the headline figure,
+ * then the reason. The rest is a click away in the dossier.
  */
 export function WatchStrip({
   watch,
@@ -154,43 +160,42 @@ export function WatchStrip({
   watch: Watch;
   onHistory: () => void;
 }) {
-  const evidence = watch.brief?.evidence ?? [];
+  const figure = headlineFigure(watch.brief?.evidence ?? []);
+  const points =
+    figure?.history
+      .map((point) => point[1])
+      .filter((value): value is number => typeof value === "number") ?? [];
+  const reason = watch.verdict.reason || statusLine(watch);
   return (
     <div className="doc-watch-strip">
       <div className="doc-watch-status">
-        <VerdictPill watch={watch} />
         <span
-          className="doc-watch-status-text"
-          title={watch.verdict.reason || statusLine(watch)}
+          className="doc-watch-state"
+          data-verdict={watch.verdict.verdict}
+          data-status={watch.status}
         >
-          {watch.verdict.reason || statusLine(watch)}
+          {verdictLabel(watch)}
         </span>
+        {figure ? (
+          <span
+            className="doc-watch-figure"
+            data-moved={figure.moved}
+            title={figure.label}
+          >
+            <b>{formatNumber(figure.value)}</b>
+            <span>{deltaShort(figure)}</span>
+            {points.length > 1 ? <Spark points={points} /> : null}
+          </span>
+        ) : null}
+        <span className="flex-1" />
         <button type="button" className="doc-watch-history" onClick={onHistory}>
           <ClockCounterClockwiseIcon size={13} />
           History
         </button>
       </div>
-      {evidence.length > 0 ? (
-        <div className="doc-watch-figures">
-          {evidence.slice(0, 3).map((entry) => {
-            const points = entry.history
-              .map((point) => point[1])
-              .filter((value): value is number => typeof value === "number");
-            return (
-              <span
-                key={`${entry.label}:${entry.query}`}
-                className="doc-watch-figure"
-                data-moved={entry.moved}
-                title={entry.label}
-              >
-                {points.length > 1 ? <Spark points={points} /> : null}
-                <b>{formatNumber(entry.value)}</b>
-                <span>{deltaShort(entry)}</span>
-              </span>
-            );
-          })}
-        </div>
-      ) : null}
+      <div className="doc-watch-status-text" title={reason}>
+        {reason}
+      </div>
     </div>
   );
 }
