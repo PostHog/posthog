@@ -507,6 +507,17 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         self.columns = columns
         self.column_order = list(columns.keys())
 
+    def _rejected_column_name_message(self, column_name: str) -> str:
+        base = (
+            f"PostHog can't use the column name {column_name!r}. Column names can't contain "
+            "backticks, backslashes, line breaks, or null bytes."
+        )
+        # A materialized view has no source column to rename. PostHog derives the name from the
+        # saved query, so the fix is to alias the select expression.
+        if self.created_via == self.CreatedVia.MATERIALIZED_VIEW:
+            return f"{base} Alias the matching select expression in the saved query, then try again."
+        return f"{base} Rename the column, then try again."
+
     def get_columns(
         self,
         safe_expose_ch_error: bool = True,
@@ -593,10 +604,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         for item in result:
             column_name = str(item[0])
             if REJECTED_COLUMN_NAME_CHARACTERS.intersection(column_name):
-                raise Exception(
-                    f"PostHog can't use the column name {column_name!r}. Column names can't contain "
-                    "backticks, backslashes, line breaks, or null bytes. Rename the column, then try again."
-                )
+                raise Exception(self._rejected_column_name_message(column_name))
             columns[column_name] = DataWarehouseTableIntrospectedColumn(
                 hogql=CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
                 clickhouse=item[1],
