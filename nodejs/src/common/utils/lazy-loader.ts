@@ -1,6 +1,7 @@
+import { Attributes } from '@opentelemetry/api'
 import { Counter, Gauge } from 'prom-client'
 
-import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { instrumentFn, setSpanAttributes } from '~/common/tracing/tracing-utils'
 
 import { defaultConfig } from '../config/config'
 import { logger } from './logger'
@@ -103,6 +104,12 @@ export type LoadOptions = {
 }
 
 type LazyLoaderMap<T> = Record<string, T | null | undefined>
+
+/**
+ * How a `loadViaCache` call was served: every key from the cache, by invoking the loader, or by
+ * waiting on a load another caller already had in flight.
+ */
+export type LazyLoaderSpanOutcome = 'all_cached' | 'loaded' | 'waited_pending'
 
 /**
  * A cached value together with the deadlines that govern it. These live on one object so that
@@ -272,10 +279,16 @@ export class LazyLoader<T> {
 
             if (keysToLoad.size === 0) {
                 lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'hit' }).inc()
+                setSpanAttributes(this.spanAttributes(keys, keysToLoad, 'all_cached'))
                 return results
             }
 
             lazyLoaderFullCacheHits.labels({ name: this.options.name, hit: 'miss' }).inc()
+
+            // A span that only waits on another caller's in-flight load has no query child of its
+            // own, so record the distinction here or it looks like a slow cache lookup.
+            const allPending = Array.from(keysToLoad).every((key) => this.pendingLoads[key] !== undefined)
+            setSpanAttributes(this.spanAttributes(keys, keysToLoad, allPending ? 'waited_pending' : 'loaded'))
 
             // We have something to load so we schedule it and then await all of them
             await this.load(Array.from(keysToLoad), options)
@@ -287,6 +300,15 @@ export class LazyLoader<T> {
 
             return results
         })
+    }
+
+    private spanAttributes(keys: string[], keysToLoad: Set<string>, outcome: LazyLoaderSpanOutcome): Attributes {
+        return {
+            'lazyloader.name': this.options.name,
+            'lazyloader.keys': keys.length,
+            'lazyloader.misses': keysToLoad.size,
+            'lazyloader.outcome': outcome,
+        }
     }
 
     /**

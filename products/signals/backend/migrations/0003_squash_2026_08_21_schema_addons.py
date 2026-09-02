@@ -63,7 +63,7 @@ class Migration(migrations.Migration):
         ("replay_vision", "0001_squash_2026_08_21_initial"),
         ("review_hog", "0001_squash_2026_08_21_initial"),
         ("signals", "0001_squash_2026_08_21_initial"),
-        ("signals", "0108_signalscratchpad_created_by_identity"),
+        ("signals", "0110_signalreportartefact_team_type_recent_idx"),
         ("skills", "0001_squash_2026_08_21_initial"),
         ("slack_app", "0001_squash_2026_08_21_initial"),
         ("stamphog", "0001_squash_2026_08_21_initial"),

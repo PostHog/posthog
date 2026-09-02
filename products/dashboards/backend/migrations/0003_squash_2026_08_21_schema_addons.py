@@ -24,7 +24,7 @@ class Migration(migrations.Migration):
         ("conversations", "0001_squash_2026_08_21_initial"),
         ("customer_analytics", "0002_squash_2026_08_21_finalize_fks"),
         ("dashboards", "0002_squash_2026_08_21_finalize_fks"),
-        ("dashboards", "0015_dashboard_customization"),
+        ("dashboards", "0016_dashboardsavedview"),
         ("data_catalog", "0001_squash_2026_08_21_initial"),
         ("data_modeling", "0002_squash_2026_08_21_finalize_fks"),
         ("data_quality", "0001_squash_2026_08_21_initial"),
