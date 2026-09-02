@@ -253,7 +253,7 @@ export function SidePanelSupport(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     useValues(userLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
-    const { billing, billingLoading, billingPlan } = useValues(billingLogic)
+    const { billing, billingLoading, billingPlan, canAccessBilling } = useValues(billingLogic)
     const { tickets, canCreateTicket, view, currentTicket } = useValues(sidepanelTicketsLogic)
 
     const isCloudOrDev = preflight?.cloud || process.env.NODE_ENV === 'development'
@@ -352,7 +352,7 @@ export function SidePanelSupport(): JSX.Element {
                         <strong>Support is open Monday - Friday</strong>
                     </div>
                     <SupportResponseTimesTable billing={billing} isCompact={true} />
-                    {billingPlan !== BillingPlan.Enterprise && (
+                    {billingPlan !== BillingPlan.Enterprise && canAccessBilling && (
                         <div className="flex justify-end">
                             <Link to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}>
                                 Upgrade support plan
