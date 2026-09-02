@@ -22,7 +22,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, Team
 from posthog.redis import get_async_client, get_client
 from posthog.settings import EE_AVAILABLE
-from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -156,10 +155,6 @@ async def get_all_rows_for_team(team_id: int) -> int:
             return 0
 
 
-# To be removed after 2025-11-06
-dwh_pricing_free_period_start = datetime(2025, 10, 29, 0, 0, 0, tzinfo=UTC)
-dwh_pricing_free_period_end = datetime(2025, 11, 6, 0, 0, 0, tzinfo=UTC)
-
 # The billing-period sum only moves when a job completes, so serving it from a cache for a
 # few minutes costs at most the rows one organization completes inside the window. The hard
 # stop behind this check (check_billing_limits_activity, reading the quota-limiting cache)
@@ -243,17 +238,6 @@ async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", log
         if source.created_at >= datetime.now(UTC) - timedelta(days=7):
             await logger.ainfo(
                 f"Skipping billing limits check for newly created data source for 7-days free rows. source.created_at = {source.created_at}"
-            )
-            return False
-
-        # Handle free period for data synced during free period (to be removed after 2025-11-06)
-        if (
-            not TEST
-            and datetime.now(UTC) >= dwh_pricing_free_period_start
-            and datetime.now(UTC) <= dwh_pricing_free_period_end
-        ):
-            await logger.ainfo(
-                f"Skipping billing limits check for data synced during free period from {dwh_pricing_free_period_start} to {dwh_pricing_free_period_end}."
             )
             return False
 

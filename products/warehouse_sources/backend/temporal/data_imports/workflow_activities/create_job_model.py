@@ -131,17 +131,15 @@ def _verify_v3_lock_still_held(team_id: int, schema_id: uuid.UUID) -> None:
 
 
 def _build_schema_snapshot(schema: ExternalDataSchema) -> dict[str, Any]:
+    """The schema state a later step reads back from the job row.
+
+    Hold this to the keys something reads. `post_import_job` reads `last_synced_at`, and CDC
+    extraction adds `cdc_write_mode` to this dict for the jobs API. Every other field of the
+    schema stays on the schema row: copying them here, `sync_type_config` above all, made each
+    job row carry a duplicate of the schema config that nothing ever read back.
+    """
     return {
-        "name": schema.name,
-        "sync_type": schema.sync_type,
-        "sync_type_config": schema.sync_type_config,
-        "sync_frequency_interval": schema.sync_frequency_interval.total_seconds()
-        if schema.sync_frequency_interval
-        else None,
-        "should_sync": schema.should_sync,
-        "status": schema.status,
         "last_synced_at": schema.last_synced_at.isoformat() if schema.last_synced_at else None,
-        "initial_sync_complete": schema.initial_sync_complete,
     }
 
 
