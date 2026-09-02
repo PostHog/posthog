@@ -497,8 +497,8 @@ class NotebookKernelStatusResponseSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Compute preset the configured shape matches, or null when it was tuned by hand. Describes the "
-            "configured shape, not necessarily the one a running kernel started with."
+            "Compute preset for the shape hourly_price describes: the running sandbox while a kernel is "
+            "live, otherwise the configured shape. Null when that shape was tuned by hand and matches no preset."
         ),
     )
 
@@ -549,14 +549,16 @@ class NotebookKernelConfigResponseSerializer(serializers.Serializer):
     )
     restart_required = serializers.BooleanField(
         help_text=(
-            "True when a kernel is live and still needs a restart for this config to take effect, which "
-            "happens for an idle timeout change. A resize restarts on its own, so it reports False here."
+            "True when a kernel is live and this call did not restart it, so the running sandbox may not "
+            "match the saved config. A resize restarts the kernel and reports False on success, or True if "
+            "that restart fails. An idle-timeout change and a no-op on a live kernel also report True."
         )
     )
     hourly_price = serializers.FloatField(
         help_text=(
-            "What the configured shape costs per hour in USD while the sandbox is alive, at this region's rates. "
-            "A resize restarts a live kernel, so this is the running sandbox's rate unless restart_required is true."
+            "What this sandbox shape costs per hour in USD while it is alive, at this region's rates. It "
+            "tracks the running sandbox while a kernel is live, otherwise the configured shape. After a "
+            "failed resize this stays the running sandbox's rate, not the size that failed to apply."
         )
     )
     preset_key = serializers.CharField(

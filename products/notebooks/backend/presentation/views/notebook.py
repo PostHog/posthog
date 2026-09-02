@@ -1372,8 +1372,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self._get_notebook_for_kernel()
         update_fields = []
         # A sandbox takes its size at provision time, so a live one keeps the old shape until it
-        # restarts. Capture the shape before the write so we can tell whether a restart is the
-        # only way to make the configuration true.
+        # restarts. Capture the shape before the write as the fallback baseline for the restart
+        # decision, used when no runtime has recorded the running shape.
         shape_before = build_notebook_sandbox_config(notebook)
 
         if "cpu_cores" in serializer.validated_data:
@@ -1409,9 +1409,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # A RUNNING row can outlive its sandbox, and restarting on a stale one would turn a
         # config-only call into new paid compute. Confirm the sandbox before acting on the row.
         kernel_is_live = live_runtime is not None and self._sandbox_is_running(notebook, config_user, live_runtime)
+        # Compare the desired shape against what the running sandbox was provisioned with, not just
+        # this request's change, so a retry after a failed restart still triggers one. Fall back to
+        # the pre-write config when no runtime has recorded a shape.
+        running_cpu_cores, running_memory_gb = self._priced_shape(
+            live_runtime, shape_before.cpu_cores, shape_before.memory_gb
+        )
         shape_changed = (
-            abs(shape_before.cpu_cores - configured.cpu_cores) > 1e-6
-            or abs(shape_before.memory_gb - configured.memory_gb) > 1e-6
+            abs(running_cpu_cores - configured.cpu_cores) > 1e-6 or abs(running_memory_gb - configured.memory_gb) > 1e-6
         )
 
         # Restart on a resize so the quoted price describes the sandbox that is actually running.
