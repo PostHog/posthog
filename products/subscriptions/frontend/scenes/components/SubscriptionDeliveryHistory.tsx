@@ -27,7 +27,8 @@ import {
     ExpandedDeliveryRow,
     partialDeliveryTag,
 } from './SubscriptionAiReportDelivery'
-import { SubscriptionDeliveryDestinationCell } from './SubscriptionDestinationCell'
+import { deliveryDestination } from './subscriptionDestination'
+import { SubscriptionDestinationCell } from './SubscriptionDestinationCell'
 import { TARGET_TYPE_LABEL } from './subscriptionLabels'
 
 /** API query `status` values; alias the const so Babel does not collide with the schema type of the same name. */
@@ -159,7 +160,7 @@ function buildDeliveryColumns(): LemonTableColumns<SubscriptionDeliveryApi> {
             style: () => ({ minWidth: '8rem', maxWidth: 0 }),
             render: (_v, row) => (
                 <div className="min-w-0 w-full overflow-hidden">
-                    <SubscriptionDeliveryDestinationCell targetType={row.target_type} targetValue={row.target_value} />
+                    <SubscriptionDestinationCell destination={deliveryDestination(row.target_type, row.target_value)} />
                 </div>
             ),
         },
