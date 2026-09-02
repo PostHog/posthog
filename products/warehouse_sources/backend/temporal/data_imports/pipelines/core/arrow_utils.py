@@ -53,9 +53,8 @@ DEFAULT_NUMERIC_PRECISION = 38  # Delta Lake maximum precision
 DEFAULT_NUMERIC_SCALE = 18  # Good default scale for decimal128, 20 int digits plus 18 decimal cases
 MAX_NUMERIC_SCALE = 32  # Maximum scale for Delta Lake
 
-# `external_data_job.Any_Source_Errors` keys on this fragment to keep the raw decimal error, which
-# names the column and its stored type. Both sides read it from here so a reword cannot break the
-# match silently.
+# `external_data_job.Any_Source_Errors` keys on this fragment to pick the decimal-specific message
+# it shows the customer. Both sides read it from here so a reword cannot break the match silently.
 DECIMAL_OVERFLOW_FRAGMENT = "has decimal values that no longer fit its stored type"
 
 # pyarrow infers `int64` for Python `int` columns; values outside this range overflow with
@@ -1172,9 +1171,8 @@ def align_incoming_decimals_to_delta(pa_table: pa.Table, delta_schema: deltalake
         if aligned is None:
             raise SchemaColumnTypeChangedException(
                 f"Source column type changed: '{delta_field.name}' {DECIMAL_OVERFLOW_FRAGMENT} "
-                f"{delta_field.type}. Reset and fully re-sync this table, then re-enable the sync, to "
-                f"rebuild the column from your current data. A column that needs more than "
-                f"{DELTA_MAX_DECIMAL_PRECISION} digits is rebuilt as text rather than a number."
+                f"{delta_field.type}. Delta stores no decimal past {DELTA_MAX_DECIMAL_PRECISION} digits, "
+                f"so a wider column is re-created as text on the next full re-sync."
             )
         pa_table = pa_table.set_column(pa_table.schema.get_field_index(delta_field.name), delta_field.name, aligned)
 

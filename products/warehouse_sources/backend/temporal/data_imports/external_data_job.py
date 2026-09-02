@@ -151,12 +151,15 @@ Any_Source_Errors: dict[str, str | None] = {
         "The incremental field configured for this table doesn't exist in the data the source returns. "
         "Edit the table's sync method, pick a valid incremental field, then re-enable the sync."
     ),
-    # The decimal case of the entry below, and it has to stay above it: the first matching key wins,
-    # and the general message promises that a reset adopts the new type. That is wrong when the source
-    # column is wider than Delta stores as a number, because the reset re-creates the column as text.
-    # The raw message names the column, its stored type and the right remedy for each case, so keep it
-    # rather than replacing it with a generic one.
-    DECIMAL_OVERFLOW_FRAGMENT: None,
+    # The decimal case of the entry below, and it has to stay above it: the first matching key wins.
+    # The general message promises that a reset adopts the new type, which is wrong for a column wider
+    # than Delta stores as a number: the reset re-creates it as text and downstream aggregations break.
+    DECIMAL_OVERFLOW_FRAGMENT: (
+        "A decimal column no longer fits the type we stored for it. Reset and fully re-sync this "
+        "table, then re-enable the sync, to rebuild the column from your current data. We store "
+        "decimals up to 38 digits. Wider columns, and whole-number columns that need all 38, are "
+        "rebuilt as text rather than numbers."
+    ),
     # Raised by the pipeline when a column's incoming values no longer fit the stored Delta column
     # type — the source column was widened (e.g. Postgres `integer` → `bigint`) or now carries larger
     # decimals than the stored type can hold. delta-rs can't widen a column in place, so every retry

@@ -103,13 +103,13 @@ class TestFriendlyErrorOverride(SimpleTestCase):
             (f"{shape}_{case}", shape, internal_error, expected)
             for shape in ("bare", "merged_postgres")
             for case, internal_error, expected in [
-                # A decimal column that outgrew its stored type keeps the raw error, because that one
-                # names the column and its stored type, and warns that a very wide column comes back
-                # as text. The general entry would replace all of that with a fixed sentence.
+                # A decimal column that outgrew its stored type gets its own message. The general
+                # entry would tell the customer a reset adopts the new type, which re-creates the
+                # column as text once the source is wider than Delta stores as a number.
                 (
                     "decimal",
                     f"Source column type changed: 'unit_price' {DECIMAL_OVERFLOW_FRAGMENT} decimal128(30, 12).",
-                    None,
+                    "A decimal column no longer fits",
                 ),
                 # Every other shape of the same failure still gets the general message.
                 (
@@ -120,21 +120,18 @@ class TestFriendlyErrorOverride(SimpleTestCase):
             ]
         ]
     )
-    def test_the_decimal_case_keeps_the_raw_error(
-        self, _name: str, shape: str, internal_error: str, expected: str | None
+    def test_the_decimal_case_gets_its_own_message(
+        self, _name: str, shape: str, internal_error: str, expected: str
     ) -> None:
         override = _friendly_error_override(internal_error, self._map(shape))
 
-        if expected is None:
-            assert override is None
-        else:
-            assert override is not None and override.startswith(expected)
+        assert override is not None and override.startswith(expected)
 
-    def test_the_map_still_classifies_the_message_the_pipeline_raises(self) -> None:
-        # Build the real exception rather than a copy of its text. `override is None` alone would
-        # also pass if the message matched no key at all, which is the worse regression: the failure
-        # stops being non-retryable, so the schema is never disabled and every schedule retries it.
-        # Assert both halves, so a reword that breaks either one fails here instead of in production.
+    def test_the_message_the_pipeline_raises_reaches_the_decimal_entry(self) -> None:
+        # Build the real exception rather than a copy of its text, so a reword that stops matching
+        # fails here instead of in production. Assert the classification too: without it the test
+        # would still pass if the message matched no key at all, which is the worse regression, since
+        # the failure would stop being non-retryable and every schedule would retry it forever.
         table = pa.table({"amount": pa.array([decimal.Decimal("1234.5")], type=pa.decimal128(18, 4))})
         stored = deltalake.Schema.from_arrow(pa.schema([pa.field("amount", pa.decimal128(3, 2))]))
 
@@ -142,7 +139,17 @@ class TestFriendlyErrorOverride(SimpleTestCase):
             align_incoming_decimals_to_delta(table, stored)
 
         assert error_message_matches(str(excinfo.value), Any_Source_Errors.keys())
-        assert _friendly_error_override(str(excinfo.value), Any_Source_Errors) is None
+        override = _friendly_error_override(str(excinfo.value), Any_Source_Errors)
+        assert override is not None and override.startswith("A decimal column no longer fits")
+
+    def test_the_customer_message_carries_no_pipeline_internals(self) -> None:
+        # The point of mapping this entry: a customer of any source reads it, so it must not leak
+        # pyarrow type syntax or the raw exception text.
+        message = Any_Source_Errors[DECIMAL_OVERFLOW_FRAGMENT]
+
+        assert message is not None
+        assert "decimal128" not in message and "decimal256" not in message
+        assert "Source column type changed" not in message
 
 
 class TestTriggerScheduleBufferOneActivity(BaseTest):
