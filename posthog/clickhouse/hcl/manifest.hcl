@@ -15,10 +15,9 @@
 # `shared` = all envs of that role and `prod` = both prod envs (e.g. the OPS metrics
 # suite is prod-only but env-identical).
 #
-# LOGS is modeled for all three cloud envs (dev, prod-us, prod-eu) and carries the shared
-# managed subset (env-identical, but verified per env for fidelity). OPS keeps only its
-# local-multi block: posthog-cloud-infra authors the ops env layers and goldens now, and
-# vendors roles/ops/shared from here. The satellite roles are modeled where a node of that role exists
+# OPS and LOGS are modeled for all three cloud envs (dev, prod-us, prod-eu). OPS carries
+# the env differences; LOGS carries the shared managed subset (env-identical, but verified
+# per env for fidelity). The satellite roles are modeled where a node of that role exists
 # to model: every role the multinode stack runs has a `local-multi` env block, and the
 # convergence gate (dump-live.sh + check-live.sh) dumps and gates all of them.
 #
@@ -27,6 +26,9 @@
 
 role "ops" {
   env "local-multi"   { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local"] }
+  env "dev"     { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/tophog", "roles/ops/shared", "roles/ops/dev"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/ops/shared", "roles/ops/prod", "roles/ops/prod-us"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/tophog", "roles/ops/shared", "roles/ops/prod", "roles/ops/prod-eu"] }
 }
 
 # Every logs node composes the trace suite and the metrics ingest chain
