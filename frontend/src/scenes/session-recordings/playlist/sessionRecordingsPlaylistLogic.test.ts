@@ -1,4 +1,4 @@
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { filterTestAccountsDefaultStorage } from 'lib/utils/filterTestAccountsDefault'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -1546,6 +1547,18 @@ describe('sessionRecordingsPlaylistLogic', () => {
         it('returns undefined when there are no stored filters', () => {
             expect(asUniversalFilters(undefined)).toBeUndefined()
         })
+
+        // A stored filter that holds its scalars as strings fails isValidRecordingFilters, so
+        // applying it drops what the user saved and falls back to the default filters
+        it('coerces scalars that were stored as strings', () => {
+            const stored = {
+                ...getDefaultFilters(),
+                filter_test_accounts: 'false',
+                date_to: 'null',
+            } as unknown as RecordingUniversalFilters
+
+            expect(asUniversalFilters(stored)).toMatchObject({ filter_test_accounts: false, date_to: null })
+        })
     })
 
     describe('convertLegacyFiltersToUniversalFilters', () => {
@@ -1648,14 +1661,16 @@ describe('sessionRecordingsPlaylistLogic', () => {
             expect(result.filter_test_accounts).toBe(false)
         })
 
-        it('returns filter_test_accounts as true when localStorage has default_filter_test_accounts set to true', () => {
-            localStorage.setItem('default_filter_test_accounts', 'true')
+        it.each([true, false])('returns filter_test_accounts as %s when that is the stored default', (stored) => {
+            filterTestAccountsDefaultStorage.set(stored)
             const result = getDefaultFilters()
-            expect(result.filter_test_accounts).toBe(true)
+            expect(result.filter_test_accounts).toBe(stored)
         })
 
-        it('returns filter_test_accounts as false when localStorage has default_filter_test_accounts set to false', () => {
-            localStorage.setItem('default_filter_test_accounts', 'false')
+        it('ignores a stored default that belongs to another team', () => {
+            filterTestAccountsDefaultStorage.set(true)
+            initKeaTests(true, { ...MOCK_DEFAULT_TEAM, id: MOCK_DEFAULT_TEAM.id + 1 })
+
             const result = getDefaultFilters()
             expect(result.filter_test_accounts).toBe(false)
         })
