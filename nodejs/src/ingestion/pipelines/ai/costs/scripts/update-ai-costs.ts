@@ -129,15 +129,39 @@ export const isFirstPartyRoute = (modelId: string, providerKey: string): boolean
 export interface RouteRate {
     discount: number
     firstParty: boolean
+    /** Prompt price as served, and where dividing the rate out would put it.
+     * Undefined when the feed's price does not parse, which corroborates nothing. */
+    servedPrompt: number | undefined
+    listPrompt: number | undefined
 }
 
+/** Where dividing a rate out puts a price. Shared with `buildModelCost` so a
+ * corroboration check compares against the number that actually gets stored. */
+const toListPrice = (value: number, discount: number): number =>
+    discount === 0 ? value : parseFloat((value / (1 - discount)).toPrecision(10))
+
 /** True when a rate is the vendor's own promotion, which its direct callers pay
- * too, so the route keeps the served price. A rate an unrelated operator also
- * runs is OpenRouter's promotion against a list the vendor still charges. */
-export const isVendorPromotion = (route: RouteRate, routes: RouteRate[]): boolean =>
-    route.firstParty &&
-    route.discount > 0 &&
-    !routes.some((other) => !other.firstParty && other.discount === route.discount)
+ * too, so the route keeps the served price. Two things refute it: an unrelated
+ * operator on the same rate, which makes the promotion OpenRouter's; and a
+ * de-discounted price landing on an undiscounted route, which proves the
+ * division recovers a list price somebody still charges. */
+export const isVendorPromotion = (route: RouteRate, routes: RouteRate[]): boolean => {
+    if (!route.firstParty || route.discount <= 0) {
+        return false
+    }
+
+    if (routes.some((other) => !other.firstParty && other.discount === route.discount)) {
+        return false
+    }
+
+    return !routes.some(
+        (other) => other.discount === 0 && other.servedPrompt !== undefined && other.servedPrompt === route.listPrompt
+    )
+}
+
+/** True when no route outside the model's vendor exists, so neither refutation
+ * above had anything to search. The verdict stands on the vendor's word. */
+export const isSoleVendorModel = (routes: RouteRate[]): boolean => !routes.some((route) => !route.firstParty)
 
 /** Keeps a cost at the price OpenRouter serves, promotion included. */
 export const buildServedCost = (
@@ -158,18 +182,16 @@ export const buildModelCost = (pricing: Record<string, unknown> | undefined, con
     }
 
     const discount = parseDiscountRate(pricing, context)
-    const toListPrice = (value: number): number =>
-        discount === 0 ? value : parseFloat((value / (1 - discount)).toPrecision(10))
 
     const cost: ModelCost = {
-        prompt_token: toListPrice(promptToken),
-        completion_token: toListPrice(completionToken),
+        prompt_token: toListPrice(promptToken, discount),
+        completion_token: toListPrice(completionToken, discount),
     }
 
     for (const [targetField, sourceField] of OPTIONAL_PRICING_FIELDS) {
         const parsedValue = parsePricingNumber(pricing[sourceField])
         if (parsedValue !== undefined && parsedValue !== 0) {
-            cost[targetField] = FLAT_FEE_FIELDS.has(targetField) ? parsedValue : toListPrice(parsedValue)
+            cost[targetField] = FLAT_FEE_FIELDS.has(targetField) ? parsedValue : toListPrice(parsedValue, discount)
         }
     }
 
@@ -181,6 +203,9 @@ export interface EndpointCandidate {
     cost: ModelCost
     discount: number
     vendorPromotion: boolean
+    /** True when the model has no route outside its vendor, so nothing could
+     * have refuted `vendorPromotion`. */
+    soleVendor: boolean
 }
 
 /*
@@ -218,12 +243,16 @@ export const confirmDiscountAgainstSiblings = (
 
 export interface DiscountReportEntry {
     model: string
-    endpoints: Array<{ key: string; discount: number; confirmation: DiscountConfirmation }>
+    endpoints: Array<{
+        key: string
+        discount: number
+        confirmation: DiscountConfirmation
+        /** What was stored, carried rather than read back off the verdict: the
+         * report is the only audit surface for these prices. */
+        vendorPromotion: boolean
+        soleVendor: boolean
+    }>
 }
-
-/** `not-applicable` is the only verdict a route stored at its served price can
- * carry, so it doubles as the marker for one. */
-const keptPromotion = (confirmation: DiscountConfirmation): boolean => confirmation === 'not-applicable'
 
 /** Share of the catalogue that may go unchecked before the run says so loudly. */
 export const UNCHECKED_WARN_FRACTION = 0.1
@@ -255,10 +284,16 @@ export const renderDiscountReport = (entries: DiscountReportEntry[], uncheckedMo
     const rows = [...entries].sort((a, b) => a.model.localeCompare(b.model))
     // Routes that kept their promotion would pad the denominator with nothing
     // reconstructed.
-    const verdicts = rows.map((row) => row.endpoints.map((e) => e.confirmation).filter((c) => !keptPromotion(c)))
+    const verdicts = rows.map((row) => row.endpoints.filter((e) => !e.vendorPromotion).map((e) => e.confirmation))
     const confirmed = verdicts.filter((v) => v.includes('confirmed')).length
     const checkable = verdicts.filter((v) => v.some((c) => c !== 'not-checkable')).length
-    const endpointCount = rows.reduce((total, row) => total + row.endpoints.length, 0)
+
+    const allEndpoints = rows.flatMap((row) => row.endpoints)
+    const kept = allEndpoints.filter((e) => e.vendorPromotion)
+    // The platform's own promotions: a vendor's is not OpenRouter running one.
+    const endpointCount = allEndpoints.length - kept.length
+    const modelCount = rows.filter((row) => row.endpoints.some((e) => !e.vendorPromotion)).length
+    const unrefutable = kept.filter((e) => e.soleVendor).length
 
     const flatFeeList = [...FLAT_FEE_FIELDS]
         .sort()
@@ -268,15 +303,19 @@ export const renderDiscountReport = (entries: DiscountReportEntry[], uncheckedMo
     const lines = [
         '## Discounts',
         '',
-        `OpenRouter is running a promotion on **${endpointCount} endpoint(s)** across **${rows.length} model(s)**.`,
+        `OpenRouter is running a promotion on **${endpointCount} endpoint(s)** across **${modelCount} model(s)**.`,
         'Reseller keys below are stored at list rate, with the promotion divided back',
         'out, so a provider key keeps meaning what that provider charges a direct caller.',
         `Per-call fees (${flatFeeList}) carry across untouched: promotional routes in`,
         'the feed serve `web_search` at the same fee as their undiscounted siblings,',
         'and every other per-call fee follows the same policy.',
-        'The `default` key is left as OpenRouter serves it, and so is any route marked',
-        '`served` below: the model vendor runs that route and no unrelated operator is on',
-        "the same rate, so the promotion is the vendor's and its direct callers pay it too.",
+        '',
+        `The \`default\` key is left as OpenRouter serves it, and so are **${kept.length} endpoint(s)**`,
+        'marked `served` below, where the model vendor runs the route and neither an',
+        'unrelated operator on the same rate nor an undiscounted sibling price',
+        `contradicts it. **${unrefutable}** of those sit on models with no route outside the`,
+        'vendor, so nothing could have contradicted them: check those against the',
+        "vendor's own pricing page before trusting a large rate.",
         '',
         `Independently confirmed against an undiscounted sibling route: ${confirmed}/${checkable} checkable model(s).`,
         unchecked,
@@ -296,7 +335,7 @@ export const renderDiscountReport = (entries: DiscountReportEntry[], uncheckedMo
         for (const [index, endpoint] of row.endpoints.entries()) {
             const model = index === 0 ? sanitizeReportCell(row.model) : ''
             const confirmation = endpoint.confirmation
-            const stored = keptPromotion(confirmation) ? 'served' : 'list'
+            const stored = endpoint.vendorPromotion ? (endpoint.soleVendor ? 'served (sole)' : 'served') : 'list'
             lines.push(
                 `| ${model} | \`${sanitizeReportCell(endpoint.key)}\` | ${Math.round(endpoint.discount * 100)}% | ${stored} | ${confirmation} |`
             )
@@ -348,15 +387,21 @@ export const buildModelRow = (
                 ? providerKey
                 : `provider-${normalizeProviderKey(endpoint.provider_name ?? 'unknown') || 'unknown'}`
         const context = `${modelId} (${endpoint.tag ?? '?'})`
+        // Silent here; the builder below warns on whatever it is handed.
+        const discount = parseDiscountRate(endpoint.pricing ?? {}, context, false)
+        const servedPrompt = parsePricingNumber(endpoint.pricing?.prompt)
         return {
             endpoint,
             key,
             context,
-            // Silent here; the builder below warns on whatever it is handed.
-            discount: parseDiscountRate(endpoint.pricing ?? {}, context, false),
+            discount,
             firstParty: isFirstPartyRoute(modelId, key),
+            servedPrompt,
+            listPrompt: servedPrompt === undefined ? undefined : toListPrice(servedPrompt, discount),
         }
     })
+
+    const soleVendor = isSoleVendorModel(routes)
 
     for (const route of routes) {
         const vendorPromotion = isVendorPromotion(route, routes)
@@ -368,7 +413,13 @@ export const buildModelRow = (
         }
 
         cost[route.key] = endpointCost
-        candidates.push({ key: route.key, cost: endpointCost, discount: route.discount, vendorPromotion })
+        candidates.push({
+            key: route.key,
+            cost: endpointCost,
+            discount: route.discount,
+            vendorPromotion,
+            soleVendor,
+        })
     }
 
     // Keyed on parsed candidates rather than the raw endpoint count: a payload
@@ -389,6 +440,8 @@ export const buildModelRow = (
                           key: candidate.key,
                           discount: candidate.discount,
                           confirmation: confirmDiscountAgainstSiblings(candidate, candidates),
+                          vendorPromotion: candidate.vendorPromotion,
+                          soleVendor: candidate.soleVendor,
                       })),
                   }
                 : undefined,
