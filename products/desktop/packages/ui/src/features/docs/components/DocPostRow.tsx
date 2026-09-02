@@ -1,4 +1,4 @@
-import { ArrowLineDownIcon, SpinnerGapIcon } from "@phosphor-icons/react";
+import { ArrowLineDownIcon } from "@phosphor-icons/react";
 import type { DocSchemas } from "@posthog/api-client/docs";
 import { parseObjectTags } from "@posthog/core/inbox/objectTags";
 import {
@@ -21,7 +21,6 @@ import { ThreadTimestamp } from "@posthog/ui/features/canvas/components/ThreadTi
 import { useEvidenceUrl } from "@posthog/ui/features/editor/components/EvidenceRefChip";
 import { DocMark } from "@posthog/ui/primitives/DocMark";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
-import { Spin } from "@posthog/ui/primitives/Spinner";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { Fragment, type ReactNode, useMemo } from "react";
 import {
@@ -239,12 +238,6 @@ export function DocStreamingRow({ text }: { text: string | null }) {
       <ThreadItemContent>
         <ThreadItemHeader>
           <ThreadItemAuthor className="text-[13px]">Agent</ThreadItemAuthor>
-          <span className="flex items-center gap-1 text-(--gray-9) text-[11px]">
-            <Spin>
-              <SpinnerGapIcon size={11} />
-            </Spin>
-            writing
-          </span>
         </ThreadItemHeader>
         {text ? (
           <ThreadItemBody className="mt-1 whitespace-pre-wrap break-words text-(--gray-11) text-[13px]">
