@@ -56,6 +56,7 @@ import {
 import { Experiment, InsightType, BreakdownAttributionType } from '~/types'
 
 import { isLaunched } from 'products/experiments/frontend/experimentStatus'
+import { DetailsModal } from 'products/experiments/frontend/modals/DetailsModal/DetailsModal'
 
 import { ChartCell } from './ChartCell'
 import {
@@ -69,7 +70,6 @@ import {
     VIEW_BOX_WIDTH,
 } from './constants'
 import { DetailsButton } from './DetailsButton'
-import { DetailsModal } from './DetailsModal'
 import { GridLines } from './GridLines'
 import { renderTooltipContent } from './MetricRowGroupTooltip'
 import { TimeseriesModal } from './TimeseriesModal'
