@@ -98,6 +98,10 @@ class RunQuotaLimitingWorkflow(PostHogWorkflow):
                 run_quota_limiting_all_orgs,
                 RunQuotaLimitingAllOrgsInputs(),
                 start_to_close_timeout=timedelta(hours=12),
+                # start_to_close_timeout bounds each attempt; this bounds the whole retry sequence.
+                # Without it the 3 attempts could hold the run open for ~36 hours while the schedule
+                # skips every tick, leaving quota limits stale far longer than one attempt did before.
+                schedule_to_close_timeout=timedelta(hours=12),
                 retry_policy=common.RetryPolicy(
                     # A shard host that refuses connections stays down for minutes, so the waits
                     # (2 then 4 minutes) must outlast it and still fit the 15-minute schedule.
