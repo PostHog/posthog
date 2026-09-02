@@ -1872,6 +1872,10 @@ snapshots:
         hash: v1.k794b7964.e344a03ab4fb6bbef2cf88d2b89c12bccfe1b5307e5e80051e47ad6adec22d93.w4TEddGy6INFXoaPeIr201fD_4xWA6jG0Uugfke9ytM
     components-product-empty-state--not-empty-with-action--light:
         hash: v1.k794b7964.1500e8a17e5bfb2cdc59cea8794c8499622f0218ea6a7dc2bdde259d044d3235.IqteBA6dHdaJztqTmvDTi_IdMolu_vwld3w7xHahpvo
+    components-product-empty-state--notebooks-needs-setup--dark:
+        hash: v1.k794b7964.be9dec9126ce31f33d3c19f4cd94cbc7602c6d102365f841197dbbdc66dd6349.L9TQMe38uFWnpl9gSVpRkebTBH24Gpkxgug29h0eojo
+    components-product-empty-state--notebooks-needs-setup--light:
+        hash: v1.k794b7964.8faed3905cb11fc08ac70fb3e958effbb7d0f06af399336ce3d7d1b43152dd60.S8d2m0fiT_yzW6FkMhJrj2jrWo3HxZa4fHMqVawEJbE
     components-product-empty-state--product-analytics-needs-setup--dark:
         hash: v1.k794b7964.1ba74ff0bea7eef70d4faedf8160e9edd14b89ac74b23b98a1322f74f29c7188.eXqkpdeyPlzK4NAYg9xIMc73g54455Ng0wnqLkFqOCg
     components-product-empty-state--product-analytics-needs-setup--light:
