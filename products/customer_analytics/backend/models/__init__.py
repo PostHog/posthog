@@ -17,6 +17,7 @@ from .custom_property_sync_run import CustomPropertySyncRun, SyncStatus, SyncTri
 from .custom_property_value import CustomPropertyValue
 from .customer_journey import CustomerJourney
 from .customer_profile_config import CustomerProfileConfig
+from .customer_task import CustomerTask, CustomerTaskActivity, CustomerTaskActivityType, CustomerTaskStatus
 from .event_stream import EventStream, EventStreamMember
 from .feature_request import (
     FeatureRequest,
@@ -51,6 +52,10 @@ __all__ = [
     "CustomPropertySyncRun",
     "CustomPropertyValue",
     "CustomerJourney",
+    "CustomerTask",
+    "CustomerTaskActivity",
+    "CustomerTaskActivityType",
+    "CustomerTaskStatus",
     "CustomerProfileConfig",
     "DataType",
     "DisplayType",

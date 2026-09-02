@@ -2,6 +2,7 @@ from posthog.api.routing import RouterRegistry
 
 from products.customer_analytics.backend.presentation.views.accounts_table_query import AccountsTableQueryViewSet
 from products.customer_analytics.backend.presentation.views.announcements import AnnouncementViewSet
+from products.customer_analytics.backend.presentation.views.customer_tasks import CustomerTaskViewSet
 from products.customer_analytics.backend.presentation.views.organization_members import (
     OrganizationMembersForAccountViewSet,
 )
@@ -120,3 +121,4 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_account_relationships",
         ["team_id", "account_id"],
     )
+    routers.projects.register(r"customer_tasks", CustomerTaskViewSet, "project_customer_tasks", ["team_id"])
