@@ -912,6 +912,7 @@ class CustomPropertyDefinitionView:
     created_by: int | None = None
     updated_at: datetime | None = None
     references: list[CustomPropertyReference] = field(default_factory=list)
+    has_workflow_reference: bool = False
     source: "CustomPropertySourceView | None" = None
     options: list[CustomPropertyOption] | None = None
 
