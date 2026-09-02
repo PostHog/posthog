@@ -6742,6 +6742,7 @@ export namespace Schemas {
       Apns: 'apns',
       Postgresql: 'postgresql',
       AwsS3: 'aws-s3',
+      AwsRedshift: 'aws-redshift',
       S3Compatible: 's3-compatible',
       Snowflake: 'snowflake',
       YoutubeAnalytics: 'youtube-analytics',
@@ -13211,8 +13212,8 @@ export namespace Schemas {
      */
     export interface RedshiftDestinationRequest {
       type: RedshiftDestinationRequestType;
-      /** ID of an aws-redshift-kind Integration providing connection credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
-      integration_id?: number;
+      /** ID of an aws-redshift-kind Integration providing connection credentials. Use the integrations-list MCP tool to find one. */
+      integration_id: number;
       config: RedshiftDestinationConfig;
     }
 

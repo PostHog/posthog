@@ -5606,6 +5606,7 @@ export const INTEGRATION_KINDS = [
     'apns',
     'postgresql',
     'aws-s3',
+    'aws-redshift',
     's3-compatible',
     'snowflake',
     'youtube-analytics',
@@ -6851,6 +6852,9 @@ export type BatchExportServiceHTTP = {
 
 export type BatchExportServiceRedshift = {
     type: 'Redshift'
+    // Credentials live on the linked `aws-redshift` integration. Exports created before integrations
+    // keep their inline user/password.
+    integration?: number
     config: {
         user: string
         password: string
@@ -6859,21 +6863,24 @@ export type BatchExportServiceRedshift = {
         database: string
         schema: string
         table_name: string
-        properties_data_type: boolean
+        properties_data_type: 'varchar' | 'super'
         mode: 'COPY' | 'INSERT'
-        authorization_mode: 'IAMRole' | 'Credentials'
+        // Form-only: derived from the shape of copy_inputs.authorization, never sent to the API.
+        authorization_mode: 'SameConnection' | 'DifferentConnection' | 'IAMRole' | 'Credentials'
         copy_inputs: BatchExportServiceRedshiftCopyInputs | null
         exclude_events: string[]
         include_events: string[]
     }
 }
 
+// The two COPY credentials can each reference an `aws-s3` integration by id instead of holding
+// inline keys. `authorization` additionally accepts the ARN of a role attached to the cluster.
 export type BatchExportServiceRedshiftCopyInputs = {
     s3_bucket: string
     s3_key_prefix: string
     region_name: string
-    bucket_credentials: AWSCredentials
-    authorization: string | AWSCredentials
+    bucket_credentials: number | AWSCredentials
+    authorization: number | string | AWSCredentials
 }
 
 export type AWSCredentials = {
