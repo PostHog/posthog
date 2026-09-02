@@ -7,6 +7,7 @@ swallows and logs every error.
 """
 
 import asyncio
+from datetime import timedelta
 
 from django.conf import settings
 
@@ -27,6 +28,9 @@ logger = structlog.get_logger(__name__)
 # and an oversized Temporal payload (~2 MiB cap) would silently skip the alert.
 MAX_ISSUE_NAME_LENGTH = 500
 MAX_ISSUE_DESCRIPTION_LENGTH = 5000
+# Manual transitions dispatch inline on the web worker after commit; a stalled
+# Temporal must not hold the worker for the SDK's unbounded default.
+START_RPC_TIMEOUT = timedelta(seconds=10)
 
 
 def _truncate(value: str | None, limit: int) -> str | None:
@@ -83,6 +87,7 @@ def start_alert_delivery_workflow(
                 # (the default ALLOW_DUPLICATE would run it again); failed runs stay
                 # retryable by a fresh start.
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                rpc_timeout=START_RPC_TIMEOUT,
             )
         )
     except WorkflowAlreadyStartedError:

@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -217,6 +218,7 @@ class TestAlertDeliveryDispatch(AlertTestMixin):
         assert kwargs["task_queue"] == settings.ERROR_TRACKING_TASK_QUEUE
         # A redelivered start after completion must be rejected, not rerun.
         assert kwargs["id_reuse_policy"] == WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
+        assert kwargs["rpc_timeout"] == timedelta(seconds=10)
 
     def test_dispatch_swallows_temporal_errors(self):
         self._create_alert()
