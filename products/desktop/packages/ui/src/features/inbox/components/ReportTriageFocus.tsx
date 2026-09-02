@@ -172,6 +172,10 @@ export function ReportTriageFocus({
     reviewedReportIdsRef.current.add(reportId);
     setExpanded(false);
     setChatOpen(false);
+    // Close the archive dialog so a confirm cannot act on the report that
+    // replaced the one it was opened for (for example after a reviewer removal
+    // drops the current report out of the "For you" queue).
+    setDismissOpen(false);
   }, [finishSession, reportId, setChatOpen]);
 
   // Triage is intentionally sequential, so the next destination is known as
@@ -262,7 +266,7 @@ export function ReportTriageFocus({
           break;
         case "a":
           event.preventDefault();
-          if (report) setDismissOpen(true);
+          if (report && !removingReviewer) setDismissOpen(true);
           break;
         case "o":
           event.preventDefault();
@@ -283,6 +287,7 @@ export function ReportTriageFocus({
   }, [
     dismissOpen,
     report,
+    removingReviewer,
     goNext,
     goPrev,
     handleExit,
@@ -324,9 +329,14 @@ export function ReportTriageFocus({
           canRemoveSelfFromReviewers={canRemoveSelfFromReviewers}
           actions={
             <ReportVerdictBanner
+              // Remount on report change so the PR popover cannot create a PR
+              // for the report that replaced the one it was opened for.
+              key={report.id}
               report={report}
               variant="triage-actions"
-              prHotkey={dismissOpen || !prShortcut ? undefined : "c"}
+              prHotkey={
+                dismissOpen || removingReviewer || !prShortcut ? undefined : "c"
+              }
               surface="triage"
             />
           }
