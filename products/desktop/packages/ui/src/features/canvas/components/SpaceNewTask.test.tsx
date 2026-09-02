@@ -126,6 +126,7 @@ vi.mock("@tanstack/react-router", () => ({
     }),
 }));
 
+import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { SpaceNewTask } from "./SpaceNewTask";
 
 function renderNewTask() {
@@ -143,6 +144,7 @@ describe("SpaceNewTask context panel", () => {
     useContextLayerFlag.mockReturnValue(false);
     useChannelWikiContext.mockReturnValue(NO_WIKI_PAGE);
     taskInputProps.mockReset();
+    useTaskInputPrefillStore.setState({ prefill: {} });
   });
 
   it("blocks submission while the enabled wiki page is unresolved", () => {
@@ -212,6 +214,41 @@ describe("SpaceNewTask context panel", () => {
         channelId: "chan-1",
         channelContextId: "chan-1",
         sessionId: "task-input:tab-1",
+      }),
+    );
+  });
+
+  // Recovery routes an interrupted prompt through this composer under the
+  // channels layout. It must forward the full content (chips + attachments) and
+  // the record key, or the prompt lands in an empty composer and the durable
+  // record is never cleared.
+  it("forwards a recovered prompt's content and record key into the composer", () => {
+    useFolderInstructions.mockReturnValue({ data: undefined });
+    const initialContent = {
+      segments: [
+        { type: "text" as const, text: "restore me" },
+        {
+          type: "chip" as const,
+          chip: { type: "file" as const, id: "src/app.ts", label: "app.ts" },
+        },
+      ],
+      attachments: [{ id: "att-1", label: "diagram.png" }],
+    };
+    useTaskInputPrefillStore.setState({
+      prefill: {
+        initialContent,
+        recoveredFromKey: "pending-key",
+        requestId: "req-1",
+      },
+    });
+
+    renderNewTask();
+
+    expect(taskInputProps).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        initialContent,
+        recoveredFromKey: "pending-key",
+        initialPromptKey: "req-1",
       }),
     );
   });

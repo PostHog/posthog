@@ -25,6 +25,7 @@ import logging
 from collections.abc import Iterable
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from django.conf import settings
 
@@ -96,7 +97,9 @@ _STATIC_BOX_ENV = {
 
 @lru_cache(maxsize=4)
 def _cached_client(base_url: str, token: str) -> Hogland:
-    return Hogland(token=token, base_url=base_url, timeout=_HTTP_TIMEOUT)
+    # trust_env=False keeps the in-cluster PrivateLink call off the egress proxy, which
+    # rejects the internal hogland host with 407.
+    return Hogland(token=token, base_url=base_url, timeout=_HTTP_TIMEOUT, trust_env=False)
 
 
 def _read_token_file() -> str | None:
@@ -127,10 +130,11 @@ def get_hogland_client() -> Hogland:
     file_token = _read_token_file()
     if base_url and file_token:
         # SDK 0.3.x binds the token at construction, so a cached client would keep a
-        # rotated-out JWT and 401. Build a fresh client per call until the SDK ships
-        # Hogland.from_token_file with per-request re-reads; then this collapses to a
-        # cached Hogland.from_token_file(...) client.
-        return Hogland(token=file_token, base_url=base_url, timeout=_HTTP_TIMEOUT)
+        # rotated-out JWT and 401. Build a fresh client per call until this adopts the
+        # SDK's Hogland.from_token_file (0.4.x) with per-request re-reads; then this
+        # collapses to a cached client. trust_env=False keeps the in-cluster PrivateLink
+        # call off the egress proxy, which rejects the internal hogland host with 407.
+        return Hogland(token=file_token, base_url=base_url, timeout=_HTTP_TIMEOUT, trust_env=False)
     token = settings.HOGLAND_API_TOKEN
     if not base_url or not token:
         raise SandboxProvisionError(
@@ -359,7 +363,7 @@ class HoglandSandbox(AgentServerLaunchMixin):
         events = self._box.exec_stream(["bash", "-c", command], timeout_seconds=timeout_seconds)
         return _HogboxExecutionStream(events)
 
-    def write_file(self, path: str, payload: bytes) -> ExecutionResult:
+    def write_file(self, path: str, payload: bytes, timeout_seconds: int | None = None) -> ExecutionResult:
         if not self.is_running():
             raise SandboxNotRunningError(
                 "Sandbox not in running state.",
@@ -392,6 +396,9 @@ class HoglandSandbox(AgentServerLaunchMixin):
         self._sandbox_url = self._box.proxy_url(AGENT_SERVER_PORT).rstrip("/")
         logger.info(f"Got connect credentials for sandbox {self.id}: {self._sandbox_url}")
         return AgentServerResult(url=self._sandbox_url, token=None)
+
+    def create_preview_connect_credentials(self, port: int, user_metadata: dict[str, Any]) -> AgentServerResult:
+        raise NotImplementedError("Hogland sandboxes do not support preview connect tokens")
 
     def setup_repository(self, repository: str) -> ExecutionResult:
         """No-op: repository setup is handled by agent-server."""

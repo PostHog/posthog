@@ -1,6 +1,7 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
 import {
   isDeepseekModelId,
+  isGlm53FlashModelId,
   isGlm53ModelId,
   isGlmModelId,
   isSelectGroup,
@@ -13,6 +14,7 @@ export interface ModelRolloutFlags {
   deepseek: boolean;
   glm: boolean;
   glm53: boolean;
+  glm53Flash: boolean;
   kimi: boolean;
 }
 
@@ -20,7 +22,11 @@ function isModelDisabled(modelId: string, flags: ModelRolloutFlags): boolean {
   return (
     (!flags.deepseek && isDeepseekModelId(modelId)) ||
     (!flags.glm53 && isGlm53ModelId(modelId)) ||
-    (!flags.glm && isGlmModelId(modelId) && !isGlm53ModelId(modelId)) ||
+    (!flags.glm53Flash && isGlm53FlashModelId(modelId)) ||
+    (!flags.glm &&
+      isGlmModelId(modelId) &&
+      !isGlm53ModelId(modelId) &&
+      !isGlm53FlashModelId(modelId)) ||
     (!flags.kimi && isKimiModelId(modelId))
   );
 }
@@ -32,10 +38,14 @@ function stripModelOptions(
   if (option.type !== "select") return option;
 
   if (isSelectGroup(option.options)) {
-    const options = option.options.map((group) => ({
-      ...group,
-      options: group.options.filter((model) => !isStripped(model.value)),
-    }));
+    // A group emptied by the filter must go with its models, or the picker
+    // renders a heading with no rows under it.
+    const options = option.options
+      .map((group) => ({
+        ...group,
+        options: group.options.filter((model) => !isStripped(model.value)),
+      }))
+      .filter((group) => group.options.length > 0);
     return {
       ...option,
       options,
@@ -53,24 +63,6 @@ function stripModelOptions(
       ? (options[0]?.value ?? "")
       : option.currentValue,
   };
-}
-
-export function stripGlmModelOption(
-  option: SessionConfigOption,
-): SessionConfigOption {
-  return stripModelOptions(option, isGlmModelId);
-}
-
-export function stripDeepseekModelOption(
-  option: SessionConfigOption,
-): SessionConfigOption {
-  return stripModelOptions(option, isDeepseekModelId);
-}
-
-export function stripKimiModelOption(
-  option: SessionConfigOption,
-): SessionConfigOption {
-  return stripModelOptions(option, isKimiModelId);
 }
 
 export function stripDisabledModelOption(

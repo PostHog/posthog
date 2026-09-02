@@ -12,6 +12,7 @@ import json
 import time
 import random
 import logging
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from django.conf import settings
@@ -32,6 +33,7 @@ _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
     "loop": "posthog_code",
     "onboarding": "onboarding",
     "posthog_ai": "posthog_ai",
+    "scout_suggestions": "signals",
     "signal_report": "signals",
     "signals_scout": "signals",
     "slack": "slack_app",
@@ -41,6 +43,9 @@ _ORIGIN_TO_GATEWAY_PRODUCT: dict[str, str] = {
 # Mirrors SIGNALS_STAGE_PRODUCTS + SCOUT_STAGE_PREFIX in gateway.ts.
 _SIGNALS_STAGE_PRODUCTS = frozenset({"scout", "research", "implementation", "repo_selection", "custom_agent"})
 _SCOUT_STAGE_PREFIX = "scout:"
+
+_MAX_CAP_USD = Decimal("10000")
+_MAX_CAP_DECIMAL_PLACES = 6
 
 # Products whose runs may mint an internally funded token. Mint scope needs
 # server-side provenance: `internal` and some origin_product values are
@@ -104,21 +109,51 @@ def _token_ttl_seconds() -> int:
     return max(60, min(configured, 86400))
 
 
-def _token_cap_usd(team_id: int) -> str:
-    """Per-run cap, with per-team overrides (JSON map of team id to dollars).
+def _cap_override(raw: str, key: str, setting_name: str) -> str | None:
+    if not raw:
+        return None
+    try:
+        override = json.loads(raw).get(key)
+    except (ValueError, AttributeError):
+        logger.warning("Ignoring invalid JSON object for %s", setting_name)
+        return None
+    if override is None:
+        return None
+    try:
+        cap = Decimal(str(override))
+    except (InvalidOperation, ValueError):
+        logger.warning("Ignoring invalid cap for %s", setting_name)
+        return None
+    if not cap.is_finite():
+        logger.warning("Ignoring invalid cap for %s", setting_name)
+        return None
+    exponent = cap.as_tuple().exponent
+    if not isinstance(exponent, int):
+        logger.warning("Ignoring invalid cap for %s", setting_name)
+        return None
+    decimal_places = max(0, -exponent)
+    if cap <= 0 or cap > _MAX_CAP_USD or decimal_places > _MAX_CAP_DECIMAL_PLACES:
+        logger.warning("Ignoring invalid cap for %s", setting_name)
+        return None
+    return f"{cap:f}"
 
-    Team 2's custom scouts run hotter than the external fleet, so it carries a
-    higher cap than the default without raising everyone's ceiling.
+
+def _token_cap_usd(team_id: int, ai_product: str) -> str:
+    """Per-run cap: the product override, else the team override, else the default.
+
+    The product override wins because run cost tracks the kind of work, not who
+    it runs for — implementation runs regularly outspend every other stage. The
+    team override raises a single team (team 2's custom scouts run hotter than
+    the external fleet) without raising everyone's ceiling.
     """
-    raw = settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES
-    if raw:
-        try:
-            override = json.loads(raw).get(str(team_id))
-        except (ValueError, AttributeError):
-            override = None
-            logger.warning("ai_gateway_token: cap overrides setting is not a JSON object; using the default cap")
-        if override is not None:
-            return str(override)
+    product_cap = _cap_override(
+        settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_PRODUCT_OVERRIDES, ai_product, "product cap overrides"
+    )
+    if product_cap is not None:
+        return product_cap
+    team_cap = _cap_override(settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES, str(team_id), "cap overrides")
+    if team_cap is not None:
+        return team_cap
     return str(settings.SANDBOX_AI_GATEWAY_TOKEN_CAP_USD)
 
 
@@ -136,7 +171,7 @@ def mint_scoped_token(*, ai_product: str, team_id: int, user: str | None = None)
         return None
 
     body: dict[str, Any] = {
-        "cap_usd": _token_cap_usd(team_id),
+        "cap_usd": _token_cap_usd(team_id, ai_product),
         "ttl_seconds": _token_ttl_seconds(),
         "product": ai_product,
         "obo": str(team_id),

@@ -149,6 +149,25 @@ class TestWorkflowTasksAPI(APIBaseTest):
         # `finish` holds a sandbox for the full background window.
         assert run.state["inactivity_timeout_seconds"] == 120
 
+    def test_a_run_with_no_thread_binding_ends_itself(self) -> None:
+        response = self._post()
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        # No binding means no reply to protect, and the idle timeout is not a safe
+        # fallback: the PR follow-up loop raises it far past the 2-minute window.
+        assert run.state["end_run_when_done"] is True
+
+    def test_a_thread_bound_run_stays_open_so_its_reply_can_relay(self) -> None:
+        integration = self._slack_integration()
+
+        response = self._post({"slack_context": self._slack_context(integration)})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert "end_run_when_done" not in run.state
+        assert SlackThreadTaskMapping.objects.filter(task_run=run).exists()
+
     def test_hands_the_agent_its_prompt_when_it_boots(self) -> None:
         response = self._post()
 
@@ -206,6 +225,9 @@ class TestWorkflowTasksAPI(APIBaseTest):
             ("no_header", "none"),
             ("wrong_signing_key", "wrong_key"),
             ("wrong_audience", "wrong_audience"),
+            # Same signing key as the scout-run step, distinct audience: that token must not
+            # spend a task creation, even though both mint from TASKS_CREATE_JWT_SECRETS.
+            ("scout_run_audience", "scout_run_audience"),
             ("expired", "expired"),
             ("missing_workflow_claim", "no_flow_claim"),
         ]
@@ -216,6 +238,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
             "none": None,
             "wrong_key": _token(self.team.id, flow_id, signing_key="not-the-secret"),
             "wrong_audience": _token(self.team.id, flow_id, audience=PosthogJwtAudience.RECORDING_API),
+            "scout_run_audience": _token(self.team.id, flow_id, audience=PosthogJwtAudience.WORKFLOW_SCOUT_RUN),
             "expired": _token(self.team.id, flow_id, expiry=timedelta(minutes=-1)),
             "no_flow_claim": _token(self.team.id, None),
         }[kind]

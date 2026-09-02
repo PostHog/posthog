@@ -163,6 +163,10 @@ from products.business_knowledge.backend.temporal import (
     ACTIVITIES as BUSINESS_KNOWLEDGE_ACTIVITIES,
     WORKFLOWS as BUSINESS_KNOWLEDGE_WORKFLOWS,
 )
+from products.canvas.backend.temporal.registry import (
+    ACTIVITIES as CANVAS_BUILD_ACTIVITIES,
+    WORKFLOWS as CANVAS_BUILD_WORKFLOWS,
+)
 from products.context_layer.backend.temporal import (
     ACTIVITIES as CONTEXT_LAYER_ACTIVITIES,
     WORKFLOWS as CONTEXT_LAYER_WORKFLOWS,
@@ -364,6 +368,13 @@ _task_queue_specs = [
         settings.SIGNUP_ENRICHMENT_TASK_QUEUE,
         GROWTH_WORKFLOWS,
         GROWTH_ACTIVITIES,
+    ),
+    # Canvas builds. CANVAS_BUILD_TASK_QUEUE defaults to the general-purpose queue name (so it merges
+    # into that fleet until a dedicated worker exists).
+    (
+        settings.CANVAS_BUILD_TASK_QUEUE,
+        CANVAS_BUILD_WORKFLOWS,
+        CANVAS_BUILD_ACTIVITIES,
     ),
     (
         settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,

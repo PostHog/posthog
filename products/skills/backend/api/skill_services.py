@@ -6,8 +6,10 @@ from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.utils import timezone
 
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
+from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ..models.skills import (
     LLMSkill,
     LLMSkillFile,
@@ -27,9 +29,20 @@ MAX_SKILL_FILE_COUNT = 200
 # importing the serializers that import it.
 RESERVED_SKILL_NAMES = {"new", "scouts", "review-hog", "community"}
 SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
+MAX_SKILL_NAME_LENGTH = 64
 # Bundled-file paths that would collide with generated artifacts in the exported skill
 # tree / plugin marketplace (the rendered SKILL.md). Compared case-insensitively.
 RESERVED_SKILL_FILE_PATHS = {"skill.md"}
+
+
+def skill_name_is_well_formed(value: str) -> bool:
+    """The shape half of the skill-name contract, without the reserved-name rule.
+
+    ``fullmatch`` rather than ``match``: ``$`` matches before a trailing newline, so ``match`` would
+    accept ``"safe\n"``. Archive writers use this to skip legacy rows that predate the validator,
+    where a name is a directory and a reserved route name is harmless.
+    """
+    return len(value) <= MAX_SKILL_NAME_LENGTH and SKILL_NAME_PATTERN.fullmatch(value) is not None and "--" not in value
 
 
 def normalize_skill_file_path(value: str) -> str:
@@ -100,6 +113,11 @@ class LLMSkillEditError(Exception):
 
 class LLMSkillDuplicateNameConflictError(Exception):
     pass
+
+
+@frozen
+class LLMSkillDescriptionTooLongError(Exception):
+    max_length: int
 
 
 @dataclass
@@ -288,6 +306,10 @@ def publish_skill_version(
         if current_latest.version >= MAX_SKILL_VERSION:
             raise LLMSkillVersionLimitError(max_version=MAX_SKILL_VERSION)
 
+        resolved_description = description if description is not None else current_latest.description
+        if len(resolved_description) > SPEC_DESCRIPTION_MAX_LENGTH:
+            raise LLMSkillDescriptionTooLongError(max_length=SPEC_DESCRIPTION_MAX_LENGTH)
+
         if edits is not None:
             resolved_body = apply_skill_body_edits(current_latest.body, edits)
         else:
@@ -301,7 +323,7 @@ def publish_skill_version(
         published_skill = LLMSkill.objects.create(
             team=team,
             name=current_latest.name,
-            description=_carry_forward(description, current_latest.description),
+            description=resolved_description,
             body=resolved_body,
             license=_carry_forward(license, current_latest.license),
             compatibility=_carry_forward(compatibility, current_latest.compatibility),
@@ -391,6 +413,9 @@ def create_skill(
     metadata: dict[str, Any] | None = None,
     files: list[dict[str, str]] | None = None,
 ) -> LLMSkill:
+    if len(description) > SPEC_DESCRIPTION_MAX_LENGTH:
+        raise LLMSkillDescriptionTooLongError(max_length=SPEC_DESCRIPTION_MAX_LENGTH)
+
     if files and len(files) > MAX_SKILL_FILE_COUNT:
         raise LLMSkillFileLimitError(max_count=MAX_SKILL_FILE_COUNT)
 
@@ -477,6 +502,8 @@ def duplicate_skill(
 
         if LLMSkill.objects.filter(team=team, name=new_name, deleted=False).exists():
             raise LLMSkillDuplicateNameConflictError()
+        if len(source_latest.description) > SPEC_DESCRIPTION_MAX_LENGTH:
+            raise LLMSkillDescriptionTooLongError(max_length=SPEC_DESCRIPTION_MAX_LENGTH)
 
         # A duplicate is a brand-new, user-authored skill under a new name, so it inherits nothing
         # from the source's provenance or classification: the harness seed marker is dropped, and
@@ -544,6 +571,9 @@ def _create_next_version_with_files(
     current_latest: LLMSkill,
     next_files: list[LLMSkillFile],
 ) -> LLMSkill:
+    if len(current_latest.description) > SPEC_DESCRIPTION_MAX_LENGTH:
+        raise LLMSkillDescriptionTooLongError(max_length=SPEC_DESCRIPTION_MAX_LENGTH)
+
     LLMSkill.objects.filter(pk=current_latest.pk).update(is_latest=False)
     next_skill = LLMSkill.objects.create(
         team=team,

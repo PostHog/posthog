@@ -19,12 +19,14 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.utils import close_db_connections
 
+from products.tasks.backend.feature_flags import run_stream_presence_gated
 from products.tasks.backend.logic.services.agent_command import sandbox_transport_token, validate_sandbox_url
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 from products.tasks.backend.logic.services.permission_broker import (
     parse_permission_request,
     try_auto_respond_permission_request,
 )
+from products.tasks.backend.logic.stream.agent_events import is_agent_command_dispatched, is_agent_generation_event
 from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 from products.tasks.backend.models import (
     Task as TaskModel,
@@ -143,7 +145,12 @@ async def _relay_sandbox_events(input: RelaySandboxEventsInput, *, finalize_stre
     ).total_seconds()
 
     stream_key = get_task_run_stream_key(input.run_id)
-    redis_stream = TaskRunRedisStream(stream_key, run_uses_dedicated_stream(task_run.state))
+    redis_stream = TaskRunRedisStream(
+        stream_key,
+        run_uses_dedicated_stream(task_run.state),
+        presence_gated=run_stream_presence_gated(task_run.state),
+        origin_product=origin_product,
+    )
     await redis_stream.initialize()
 
     actor_user = await sync_to_async(get_task_run_credential_user)(task_run.task, task_run.state)
@@ -401,7 +408,6 @@ async def _relay_loop(
     pending_text_parts: list[str] = []
     last_text_flush: list[float] = [0.0]
     final_message_tracker = FinalMessageTracker()
-
     stop_heartbeat = asyncio.Event()
     heartbeat_task = asyncio.create_task(
         _background_heartbeat(
@@ -453,6 +459,19 @@ async def _relay_loop(
                                 continue
 
                             await redis_stream.write_event(event_data)
+                            if workflow_handle is not None:
+                                if (
+                                    is_agent_command_dispatched(event_data)
+                                    and await redis_stream.claim_first_agent_command()
+                                ):
+                                    if not await _signal_safely(workflow_handle, "agent_command_dispatched"):
+                                        await redis_stream.release_first_agent_command()
+                                if (
+                                    is_agent_generation_event(event_data)
+                                    and await redis_stream.claim_first_agent_activity()
+                                ):
+                                    if not await _signal_safely(workflow_handle, "agent_activity_observed"):
+                                        await redis_stream.release_first_agent_activity()
                             if task_run is not None:
                                 permission_request = parse_permission_request(event_data)
                                 if permission_request is not None:
@@ -807,15 +826,17 @@ async def _signal_safely(
     workflow_handle: temporalio.client.WorkflowHandle,
     signal_name: str,
     arg: Any = None,
-) -> None:
+) -> bool:
     """Fire-and-forget signal — failures must never break the relay loop."""
     try:
         if arg is None:
             await workflow_handle.signal(signal_name)
         else:
             await workflow_handle.signal(signal_name, arg=arg)
+        return True
     except Exception as e:
         logger.warning("slack_app_relay_signal_failed", signal=signal_name, error=str(e))
+        return False
 
 
 def _is_keepalive_event(event_data: dict) -> bool:

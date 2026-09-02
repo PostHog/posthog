@@ -6,6 +6,7 @@ import api, { PaginatedResponse } from 'lib/api'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectClean, objectsEqual } from 'lib/utils/objects'
@@ -49,6 +50,17 @@ export const DEFAULT_FILTERS: DashboardsFilters = {
     shared: false,
     tags: [],
     folder: null,
+}
+
+export function hasDashboardFilters(filters: DashboardsFilters): boolean {
+    return Boolean(
+        filters.search ||
+        filters.pinned ||
+        filters.shared ||
+        (filters.createdBy !== 'All users' && filters.createdBy.length > 0) ||
+        filters.tags?.length ||
+        filters.folder != null
+    )
 }
 
 function moveTargetFor(dashboard: DashboardBasicType | undefined): FileSystemEntry | null {
@@ -237,45 +249,51 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         setTagSearch: (search: string) => ({ search }),
         setShowTagPopover: (visible: boolean) => ({ visible }),
     }),
-    reducers({
-        tableSorting: [
-            DEFAULT_SORTING,
-            { persist: true },
-            {
-                tableSortingChanged: (_, { sorting }) => sorting || DEFAULT_SORTING,
-            },
-        ],
-        currentTab: [
-            DashboardsTab.All as DashboardsTab,
-            {
-                setCurrentTab: (_, { tab }) => tab,
-            },
-        ],
+    reducers(() => {
+        const filtersPersistence = buildUserScopedPersistenceConfig('dashboard_list_filters__')
+        return {
+            tableSorting: [
+                DEFAULT_SORTING,
+                { persist: true },
+                {
+                    tableSortingChanged: (_, { sorting }) => sorting || DEFAULT_SORTING,
+                },
+            ],
+            currentTab: [
+                DashboardsTab.All as DashboardsTab,
+                {
+                    setCurrentTab: (_, { tab }) => tab,
+                },
+            ],
 
-        filters: [
-            DEFAULT_FILTERS,
-            {
-                setFilters: (state, { filters }) =>
-                    objectClean({
-                        ...state,
-                        ...filters,
-                    }),
-                setSearch: (state, { search }) => ({ ...state, search }),
-            },
-        ],
-        tagSearch: [
-            '',
-            {
-                setTagSearch: (_, { search }) => search,
-                setShowTagPopover: (state, { visible }) => (visible ? state : ''),
-            },
-        ],
-        showTagPopover: [
-            false,
-            {
-                setShowTagPopover: (_, { visible }) => visible,
-            },
-        ],
+            filters: [
+                DEFAULT_FILTERS,
+                filtersPersistence,
+                {
+                    setFilters: (state, { filters }) =>
+                        objectClean({
+                            ...state,
+                            ...filters,
+                        }),
+                    setSearch: (state, { search }) => ({ ...state, search }),
+                    setCurrentTab: (state, { tab }) =>
+                        tab === DashboardsTab.Yours ? { ...state, createdBy: DEFAULT_FILTERS.createdBy } : state,
+                },
+            ],
+            tagSearch: [
+                '',
+                {
+                    setTagSearch: (_, { search }) => search,
+                    setShowTagPopover: (state, { visible }) => (visible ? state : ''),
+                },
+            ],
+            showTagPopover: [
+                false,
+                {
+                    setShowTagPopover: (_, { visible }) => visible,
+                },
+            ],
+        }
     }),
 
     loaders({
@@ -329,15 +347,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     }),
 
     selectors({
-        isFiltering: [
-            (s) => [s.filters],
-            (filters: DashboardsFilters) => {
-                return Object.keys(filters).some((key) => {
-                    const filterKey = key as keyof DashboardsFilters
-                    return filters[filterKey] !== DEFAULT_FILTERS[filterKey]
-                })
-            },
-        ],
+        isFiltering: [(s) => [s.filters], (filters: DashboardsFilters) => hasDashboardFilters(filters)],
         filteredTags: [
             (s) => [s.tags, s.tagSearch],
             (tags: string[], search: string) => {
@@ -435,14 +445,15 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     trackedActionToUrl(({ values }) => ({
         setCurrentTab: () => {
             const tab = values.currentTab === DashboardsTab.All ? undefined : values.currentTab
-            if (router.values.searchParams['tab'] === tab) {
+            const searchParams: Record<string, any> = { ...router.values.searchParams, tab }
+            if (values.currentTab === DashboardsTab.Yours) {
+                delete searchParams['created_by']
+            }
+            if (objectsEqual(searchParams, router.values.searchParams)) {
                 return
             }
 
-            router.actions.push(router.values.location.pathname, {
-                ...router.values.searchParams,
-                tab,
-            })
+            router.actions.push(router.values.location.pathname, searchParams)
         },
         setSearch: ({ search }) => {
             const nextSearch = search ?? ''
@@ -467,6 +478,10 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         setFilters: () => {
             const { createdBy, pinned, shared, tags } = values.filters
             const searchParams: Record<string, any> = { ...router.values.searchParams }
+
+            if (searchParams['tab'] === DashboardsTab.Pinned) {
+                delete searchParams['tab']
+            }
 
             if (createdBy !== DEFAULT_FILTERS.createdBy) {
                 searchParams['created_by'] = createdBy
@@ -507,9 +522,36 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     })),
     urlToAction(({ actions, values }) => ({
         '/dashboard': (_, searchParams) => {
-            const tab = (searchParams['tab'] as DashboardsTab | undefined) || DashboardsTab.All
+            const requestedTab = (searchParams['tab'] as DashboardsTab | undefined) || DashboardsTab.All
+            const tab = requestedTab === DashboardsTab.Pinned ? DashboardsTab.All : requestedTab
             if (values.currentTab !== tab) {
                 actions.setCurrentTab(tab)
+            }
+
+            const hasFilterParams =
+                requestedTab === DashboardsTab.Pinned ||
+                ['created_by', 'pinned', 'shared', 'tags', 'folder', 'search'].some((key) => key in searchParams)
+            if (tab === DashboardsTab.Yours && values.filters.createdBy !== DEFAULT_FILTERS.createdBy) {
+                actions.setFilters({ createdBy: DEFAULT_FILTERS.createdBy })
+            }
+            if (!hasFilterParams) {
+                const { search: _search, ...filtersWithoutSearch } = values.filters
+                const { search: _defaultSearch, ...defaultsWithoutSearch } = DEFAULT_FILTERS
+                let filtersToRestore: Partial<DashboardsFilters> = filtersWithoutSearch
+                let defaultFilters: Partial<DashboardsFilters> = defaultsWithoutSearch
+                if (tab === DashboardsTab.Yours) {
+                    const { createdBy: _createdBy, ...filtersWithoutCreatedBy } = filtersToRestore
+                    const { createdBy: _defaultCreatedBy, ...defaultsWithoutCreatedBy } = defaultFilters
+                    filtersToRestore = filtersWithoutCreatedBy
+                    defaultFilters = defaultsWithoutCreatedBy
+                }
+                if (!objectsEqual(filtersToRestore, defaultFilters)) {
+                    actions.setFilters(filtersToRestore)
+                }
+                if (values.filters.search) {
+                    actions.setSearch(values.filters.search)
+                }
+                return
             }
 
             // Apply non-search filters before search so the setSearch listener's server fetch
@@ -524,7 +566,10 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                   : []
             const nextFilters = {
                 createdBy: createdByIds.length > 0 ? createdByIds : DEFAULT_FILTERS.createdBy,
-                pinned: searchParams['pinned'] === true || searchParams['pinned'] === 'true',
+                pinned:
+                    requestedTab === DashboardsTab.Pinned ||
+                    searchParams['pinned'] === true ||
+                    searchParams['pinned'] === 'true',
                 shared: searchParams['shared'] === true || searchParams['shared'] === 'true',
                 tags: Array.isArray(searchParams['tags']) ? searchParams['tags'] : DEFAULT_FILTERS.tags,
                 folder: 'folder' in searchParams ? urlSearchParamToString(searchParams['folder']) : null,

@@ -3,7 +3,6 @@ from products.tasks.backend.access import (
     DesktopAccessResolutionError,
     get_desktop_access_decision,
     has_loops_access,
-    has_tasks_access,
 )
 from products.tasks.backend.facade.contracts import DesktopAccessReason
 from products.tasks.backend.logic.services.code_usage_gate import (
@@ -20,6 +19,5 @@ __all__ = [
     "compute_quota_limit_response",
     "get_desktop_access_decision",
     "has_loops_access",
-    "has_tasks_access",
     "usage_limit_response",
 ]

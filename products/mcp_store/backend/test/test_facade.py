@@ -112,6 +112,29 @@ class TestGetActiveInstallations(BaseTest):
 
         assert results[0].name == "https://mcp.notion.com/mcp"
 
+    def test_returns_description_for_agent_discovery(self) -> None:
+        # Agents match a never-connected MCP server on this text alone, so an empty
+        # description leaves the server findable only by its exact name.
+        self._create_installation(description="Manage Linear issues, projects, teams, and workflows.")
+
+        results = get_active_installations(self.team.id, self.user.id)
+
+        assert results[0].description == "Manage Linear issues, projects, teams, and workflows."
+
+    def test_description_falls_back_to_template(self) -> None:
+        template = MCPServerTemplate.objects.create(
+            name="Described Template",
+            url="https://mcp.described-template.example.com/mcp",
+            description="Search and edit pages and databases.",
+            auth_type="oauth",
+            created_by=self.user,
+        )
+        self._create_installation(description="", template=template, url=template.url)
+
+        results = get_active_installations(self.team.id, self.user.id)
+
+        assert results[0].description == "Search and edit pages and databases."
+
     def test_only_returns_for_given_user(self) -> None:
         from posthog.models import User
 
@@ -227,6 +250,15 @@ class TestGetInstallationsForSandbox(BaseTest):
         assert results[0].id == str(shared.id)
         assert results[0].scope == "shared"
 
+    def test_returns_description_for_agent_discovery(self) -> None:
+        # A sandbox agent searches its MCP servers by capability before connecting to any of
+        # them, and this text is all it has to match against.
+        self._create_installation(scope="shared", description="Manage Linear issues, projects, and workflows.")
+
+        results = get_installations_for_sandbox(self.team.id)
+
+        assert results[0].description == "Manage Linear issues, projects, and workflows."
+
     def test_personal_excluded_by_default(self) -> None:
         self._create_installation(scope="personal")
 
@@ -281,6 +313,21 @@ class TestGetInstallationsForSandbox(BaseTest):
 
         assert {result.id for result in results} == {str(shared.id), str(personal.id)}
         assert all(result.proxy_token is None for result in results)
+
+    def test_empty_allowlist_mounts_nothing_before_the_gateway_flag_rollout(self) -> None:
+        # The rollout gate sends a mapped origin down the legacy path. An autonomous run that asked
+        # for no MCP Store servers must not pick up every shared installation on the way.
+        self.enforcement_enabled_mock.return_value = False
+        self._create_installation(scope="shared", display_name="Shared")
+
+        results = get_installations_for_sandbox(
+            self.team.id,
+            user_id=self.user.id,
+            task_origin="scout_suggestions",
+            allowed_gateway_server_ids=[],
+        )
+
+        assert results == []
 
     def test_built_in_agent_only_gets_its_explicitly_delegated_credential(self) -> None:
         account = self._support_agent()

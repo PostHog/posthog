@@ -105,6 +105,7 @@ export interface EmptyPlanOptions {
   scope?: SetupScope;
   /** False when custom images are unavailable to this account. */
   customImages?: boolean;
+  existingImageId?: string | null;
 }
 
 /**
@@ -116,7 +117,16 @@ export function emptyEnvironmentSetupPlan({
   repository = null,
   scope = "environment",
   customImages = true,
+  existingImageId = null,
 }: EmptyPlanOptions = {}): EnvironmentSetupPlan {
+  const seededImageId =
+    customImages && scope === "environment" ? existingImageId : null;
+  const baseImage: BaseImageChoice =
+    customImages && scope === "image"
+      ? "new"
+      : seededImageId !== null
+        ? "existing"
+        : "default";
   return {
     scope,
     target: "new",
@@ -130,8 +140,8 @@ export function emptyEnvironmentSetupPlan({
     includeDefaultDomains: true,
     envVars: [],
     customImages,
-    baseImage: customImages && scope === "image" ? "new" : "default",
-    existingImageId: null,
+    baseImage,
+    existingImageId: seededImageId,
     imageName: repository === null ? "" : imagePresetName(repository),
     imageNameEdited: false,
     excludedToolIds: IMAGE_PRESET_TOOLS.filter(
@@ -181,7 +191,7 @@ export function planFromEnvironment(
 }
 
 /** The environment name suggested for a repository, e.g. `posthog cloud runs`. */
-export function environmentNameFor(repository: string): string {
+function environmentNameFor(repository: string): string {
   const repoName = repository.split("/").pop() ?? repository;
   return `${repoName} cloud runs`;
 }
@@ -238,7 +248,7 @@ export function planTools(plan: EnvironmentSetupPlan): ImagePresetTool[] {
   );
 }
 
-export function planSetupCommands(plan: EnvironmentSetupPlan): string[] {
+function planSetupCommands(plan: EnvironmentSetupPlan): string[] {
   return plan.setupLines
     .map((line) => line.value)
     .filter((command) => command.trim() !== "");
@@ -346,6 +356,19 @@ const BLOCKED_ENV_VAR_KEYS: ReadonlySet<string> = new Set([
   "RUBYOPT",
 ]);
 
+/**
+ * Whether the sandbox manages this key itself. It strips these from a user's set
+ * before a session starts, and the API refuses a set that names one.
+ */
+function isManagedEnvVarKey(key: string): boolean {
+  const trimmed = key.trim();
+  return (
+    RESERVED_ENV_VAR_KEYS.has(trimmed) ||
+    BLOCKED_ENV_VAR_KEYS.has(trimmed) ||
+    BLOCKED_ENV_VAR_PREFIXES.some((prefix) => trimmed.startsWith(prefix))
+  );
+}
+
 /** Why one row cannot be sent, or null when it is fine. */
 export function envVarError(
   row: EnvVarRow,
@@ -397,6 +420,30 @@ export function parseEnvVarText(
     rows.push({ key, value });
   }
   return rows;
+}
+
+export interface PastedEnvVars {
+  entries: { key: string; value: string }[];
+  /** Names the sandbox manages, which are left out rather than added. */
+  skipped: string[];
+}
+
+/**
+ * A pasted .env split into what the environment can hold and what it cannot. A
+ * real .env usually carries a few keys the sandbox manages, and adding them as
+ * rows blocks the whole paste over variables the sandbox would drop anyway.
+ */
+export function splitPastedEnvVars(text: string): PastedEnvVars {
+  const entries: { key: string; value: string }[] = [];
+  const skipped: string[] = [];
+  for (const entry of parseEnvVarText(text)) {
+    if (isManagedEnvVarKey(entry.key)) {
+      skipped.push(entry.key);
+    } else {
+      entries.push(entry);
+    }
+  }
+  return { entries, skipped };
 }
 
 /** The rows that carry a variable, ignoring blank ones left behind. */

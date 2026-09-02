@@ -4,22 +4,17 @@ import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { config } from "dotenv";
-import * as yaml from "yaml";
 
-// Anchor to apps/code so the relative paths below (and dotenv, and the pnpm binary lookup)
+// Anchor to apps/code so the relative paths below (and the pnpm binary lookup)
 // resolve the same way no matter which directory the script is invoked from.
 process.chdir(path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."));
 
-config();
-
-const POSTHOG_API_HOST = process.env.VITE_POSTHOG_API_HOST;
-if (!POSTHOG_API_HOST) {
-  throw new Error("VITE_POSTHOG_API_HOST environment variable is required");
-}
-
-const SCHEMA_URL = `${POSTHOG_API_HOST}/api/schema/`;
-const TEMP_SCHEMA_PATH = "temp-openapi.yaml";
+const REPO_ROOT = path.resolve(process.cwd(), "../../../..");
+// The schema `hogli build:openapi-schema` writes, which every other generator in the repo
+// reads. Reading it here rather than fetching a running instance keeps this client pinned to
+// the checkout, so a stale regeneration is a diff rather than a silent mismatch.
+const OPENAPI_PATH = path.resolve(REPO_ROOT, "frontend/tmp/openapi.json");
+const TEMP_SCHEMA_PATH = "temp-openapi.json";
 const OUTPUT_PATH = "../../packages/api-client/src/generated.ts";
 
 const INCLUDED_ENDPOINT_PREFIXES = [
@@ -29,28 +24,27 @@ const INCLUDED_ENDPOINT_PREFIXES = [
   "/api/projects/",
 ];
 
-async function fetchSchema() {
-  console.log("Fetching OpenAPI schema from PostHog API...");
+function readSchema() {
+  console.log(`Reading OpenAPI schema from ${OPENAPI_PATH}...`);
+
+  if (!fs.existsSync(OPENAPI_PATH)) {
+    console.error(
+      `OpenAPI schema not found at ${OPENAPI_PATH}. Run \`hogli build:openapi-schema\` first.`,
+    );
+    return false;
+  }
 
   try {
-    const response = await fetch(SCHEMA_URL);
-    if (!response.ok) {
-      throw new Error(
-        `Failed to fetch schema: ${response.status} ${response.statusText}`,
-      );
-    }
-
-    const schemaText = await response.text();
-    const schema = yaml.parse(schemaText);
+    const schema = JSON.parse(fs.readFileSync(OPENAPI_PATH, "utf-8"));
 
     filterEndpoints(schema);
 
-    fs.writeFileSync(TEMP_SCHEMA_PATH, yaml.stringify(schema), "utf-8");
+    fs.writeFileSync(TEMP_SCHEMA_PATH, JSON.stringify(schema), "utf-8");
     console.log(`✓ Schema saved to ${TEMP_SCHEMA_PATH}`);
 
     return true;
   } catch (error) {
-    console.error("Error fetching schema:", error);
+    console.error("Error reading schema:", error);
     return false;
   }
 }
@@ -99,8 +93,8 @@ function cleanup() {
 async function main() {
   console.log("Starting OpenAPI client update...\n");
 
-  const schemaFetched = await fetchSchema();
-  if (!schemaFetched) {
+  const schemaRead = readSchema();
+  if (!schemaRead) {
     process.exit(1);
   }
 

@@ -9,6 +9,7 @@ from langchain_core.messages import (
 from parameterized import parameterized
 
 from ee.hogai.utils.conversation_summarizer import AnthropicConversationSummarizer
+from ee.hogai.utils.conversation_summarizer.prompts import SUMMARIZATION_INSTRUCTION_PROMPT
 
 
 class TestAnthropicConversationSummarizer(BaseTest):
@@ -175,3 +176,34 @@ class TestAnthropicConversationSummarizer(BaseTest):
         result = self.summarizer._construct_messages([])
         # Should return prompt template with just system and user prompts
         self.assertEqual(len(result.messages), 2)
+
+    def test_only_cache_breakpoint_is_the_fixed_prefix(self):
+        messages = self.summarizer._construct_messages(
+            [
+                LangchainHumanMessage(content=[{"type": "text", "text": "Hello"}]),
+                LangchainAIMessage(content=[{"type": "text", "text": "Hi", "cache_control": {"type": "ephemeral"}}]),
+            ]
+        ).format_messages()
+
+        cached = [
+            (message, block)
+            for message in messages
+            for block in (message.content if isinstance(message.content, list) else [])
+            if isinstance(block, dict) and "cache_control" in block
+        ]
+        self.assertEqual(len(cached), 1)
+        cached_message, cached_block = cached[0]
+        self.assertIs(cached_message, messages[0])
+        self.assertIn(SUMMARIZATION_INSTRUCTION_PROMPT, cached_block["text"])
+        self.assertEqual(cached_block["cache_control"], {"type": "ephemeral", "ttl": "1h"})
+
+    @parameterized.expand(
+        [
+            ("conversation_ends_with_assistant_message", LangchainAIMessage(content="Done")),
+            ("conversation_ends_with_human_message", LangchainHumanMessage(content="Thanks")),
+        ]
+    )
+    def test_request_ends_on_a_user_turn(self, name, last_message):
+        messages = self.summarizer._construct_messages([last_message]).format_messages()
+
+        self.assertIsInstance(messages[-1], LangchainHumanMessage)

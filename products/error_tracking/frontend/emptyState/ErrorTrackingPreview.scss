@@ -1,0 +1,389 @@
+@import '../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.ErrorPreview {
+    --error-preview-accent: var(--empty-state-accent, var(--color-primary-500));
+
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+
+    // Hidden crash state. A direct child of .ErrorPreview so `:checked ~` reaches all cards.
+    &__checkbox {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__app,
+    &__panel,
+    &__trace {
+        overflow: hidden;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    // Before/after pairs are stacked on one grid cell and crossfaded, so throwing the
+    // bug never changes any element's size (no layout shift).
+    &__swap {
+        display: grid;
+    }
+
+    &__swap > * {
+        grid-area: 1 / 1;
+        min-width: 0;
+    }
+
+    &__when-after {
+        @include preview-swap-hidden;
+    }
+
+    &__when-before {
+        @include preview-swap-visible;
+    }
+
+    &__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__title {
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    &__listening {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    // Mini checkout app
+
+    &__chrome {
+        display: flex;
+        gap: 0.375rem;
+        align-items: center;
+        padding: 0.4375rem 0.75rem;
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__url {
+        margin-left: 0.375rem;
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        color: var(--color-text-secondary);
+    }
+
+    &__screen {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        padding: 0.75rem;
+    }
+
+    &__order {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.5rem 0.625rem;
+        font-size: 0.75rem;
+        background: var(--color-bg-fill-tertiary);
+        border-radius: var(--radius);
+    }
+
+    &__order-name {
+        font-weight: 500;
+    }
+
+    &__order-price {
+        font-variant-numeric: tabular-nums;
+        color: var(--color-text-secondary);
+    }
+
+    &__toast-slot {
+        min-height: 1.5rem;
+    }
+
+    &__toast-spacer {
+        min-height: 1.5rem;
+    }
+
+    &__toast {
+        align-self: center;
+        padding: 0.25rem 0.5rem;
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        color: var(--color-text-error);
+        background: var(--danger-highlight);
+        border: 1px solid color-mix(in oklab, var(--danger) 35%, transparent);
+        border-radius: var(--radius);
+    }
+
+    &__cta {
+        display: block;
+        padding: 0.4375rem 0.75rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--color-bg-surface-primary);
+        text-align: center;
+        cursor: pointer;
+        user-select: none;
+        background: var(--error-preview-accent);
+        border-radius: var(--radius);
+        transition: filter 150ms ease;
+    }
+
+    &__cta:hover {
+        filter: brightness(1.05);
+    }
+
+    &__hint {
+        font-size: 0.625rem;
+        color: var(--color-text-tertiary);
+        text-align: center;
+    }
+
+    // Issues panel
+
+    &__rows {
+        display: flex;
+        flex-direction: column;
+        padding: 0.25rem 0.5rem;
+    }
+
+    &__row {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto auto;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.375rem 0.5rem;
+        border-radius: var(--radius);
+    }
+
+    &__dot {
+        width: 7px;
+        height: 7px;
+        background: var(--danger);
+        border-radius: 50%;
+    }
+
+    &__dot--resolved {
+        background: var(--color-bg-fill-tertiary);
+    }
+
+    &__issue {
+        overflow: hidden;
+        font-family: var(--font-mono);
+        font-size: 0.6875rem;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__issue--resolved {
+        color: var(--color-text-tertiary);
+        text-decoration: line-through;
+    }
+
+    &__fresh {
+        padding: 0 0.3125rem;
+        font-size: 0.5625rem;
+        font-weight: 600;
+        white-space: nowrap;
+        background: color-mix(in oklab, var(--error-preview-accent) 12%, var(--color-bg-surface-primary));
+        border-radius: 999px;
+
+        @include preview-accent-text(var(--error-preview-accent));
+    }
+
+    &__count {
+        font-size: 0.6875rem;
+        font-weight: 600;
+        font-variant-numeric: tabular-nums;
+        color: var(--color-text-secondary);
+        text-align: right;
+    }
+
+    &__count--bumped {
+        @include preview-accent-text(var(--error-preview-accent));
+    }
+
+    // Exceptions stat + sparkline, inside the issues panel
+
+    &__spark {
+        padding: 0.5rem 0.75rem 0.625rem;
+        border-top: 1px solid var(--color-border-primary);
+    }
+
+    &__spark-value {
+        font-size: 1.25rem;
+    }
+
+    &__spark-area {
+        fill: color-mix(in oklab, var(--error-preview-accent) 13%, transparent);
+        stroke: none;
+    }
+
+    &__spark-line {
+        fill: none;
+        stroke: color-mix(in oklab, var(--error-preview-accent) 32%, transparent);
+        stroke-width: 2;
+    }
+
+    // The moving bit: a short bright segment cycling along the line.
+    &__spark-trace {
+        fill: none;
+        stroke: var(--error-preview-accent);
+        stroke-dasharray: 16 84;
+        stroke-linecap: round;
+        stroke-width: 2;
+        animation: ErrorPreview__trace 3.2s linear infinite;
+    }
+
+    // Stack trace card
+
+    &__frames {
+        padding: 0.5rem 0.75rem 0.625rem;
+    }
+
+    &__skeleton {
+        display: flex;
+        flex-direction: column;
+        gap: 0.4375rem;
+        justify-content: center;
+    }
+
+    &__skeleton-line {
+        height: 0.5rem;
+        background: var(--color-skeleton-dark);
+        border-radius: 999px;
+        animation: ErrorPreview__shimmer 1.8s ease-in-out infinite;
+    }
+
+    &__skeleton-line:nth-child(2) {
+        width: 82%;
+        animation-delay: 200ms;
+    }
+
+    &__skeleton-line:nth-child(3) {
+        width: 64%;
+        animation-delay: 400ms;
+    }
+
+    &__frame-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.1875rem;
+    }
+
+    &__frame {
+        display: flex;
+        gap: 0.5rem;
+        align-items: baseline;
+        padding: 0.1875rem 0.375rem;
+        font-family: var(--font-mono);
+        font-size: 0.625rem;
+        border-radius: var(--radius);
+    }
+
+    &__frame--app {
+        background: color-mix(in oklab, var(--error-preview-accent) 10%, transparent);
+    }
+
+    &__fn {
+        font-weight: 600;
+    }
+
+    &__loc {
+        overflow: hidden;
+        color: var(--color-text-tertiary);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    &__frame-tag {
+        margin-left: auto;
+        font-size: 0.5625rem;
+        font-weight: 600;
+        white-space: nowrap;
+
+        @include preview-accent-text(var(--error-preview-accent));
+    }
+
+    @include preview-chrome-dot;
+    @include preview-sparkline;
+}
+
+// Thrown state (user clicked "Place order")
+
+.ErrorPreview__checkbox:checked ~ * .ErrorPreview__when-after {
+    @include preview-swap-visible;
+}
+
+.ErrorPreview__checkbox:checked ~ * .ErrorPreview__when-before {
+    @include preview-swap-hidden;
+}
+
+.ErrorPreview__checkbox:checked ~ .ErrorPreview__app .ErrorPreview__cta {
+    color: var(--color-text-error);
+    background: var(--danger-highlight);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--danger) 35%, transparent);
+}
+
+.ErrorPreview__checkbox:checked ~ .ErrorPreview__panel .ErrorPreview__row--hero {
+    background: color-mix(in oklab, var(--error-preview-accent) 8%, transparent);
+}
+
+// The checkbox stays keyboard-focusable while visually hidden, so the button it labels
+// needs a visible focus indicator (WCAG 2.4.7).
+.ErrorPreview__checkbox:focus-visible ~ .ErrorPreview__app .ErrorPreview__cta {
+    outline: 2px solid var(--error-preview-accent);
+    outline-offset: 1px;
+}
+
+// Nudge attention at the order button until it's clicked.
+.ErrorPreview:not(.ErrorPreview--static) .ErrorPreview__checkbox:not(:checked) ~ .ErrorPreview__app .ErrorPreview__cta {
+    animation: ErrorPreview__nudge 2.4s ease-in-out infinite;
+}
+
+@keyframes ErrorPreview__nudge {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 color-mix(in oklab, var(--error-preview-accent) 45%, transparent);
+    }
+
+    50% {
+        box-shadow: 0 0 0 4px color-mix(in oklab, var(--error-preview-accent) 20%, transparent);
+    }
+}
+
+// pathLength is normalized to 100, so the dash offset loops cleanly regardless of length.
+@keyframes ErrorPreview__trace {
+    to {
+        stroke-dashoffset: -100;
+    }
+}
+
+@keyframes ErrorPreview__shimmer {
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.45;
+    }
+}
+
+// Storybook snapshots and reduced motion drop all ambient motion; clicking the
+// order button still flips the state (transitions only).
+@include preview-motion-guards('ErrorPreview');

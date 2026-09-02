@@ -1,6 +1,7 @@
 import { parseJSON } from '~/common/utils/json-parse'
 import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
 
+import { ImageFetchBlockReason, isImageFetchBlockReason } from './block-reason'
 import { canonicalizeUrl } from './politeness-key'
 
 export const MAX_HOPS = 10
@@ -21,7 +22,7 @@ export type StoredRepublishReason =
     | 'pass_deadline'
     | 'origin_map_full'
     | 'registrable_domain_map_full'
-export type RepublishReason = StoredRepublishReason | 'low_origin_diversity'
+export type RepublishReason = StoredRepublishReason
 
 export interface FetchCandidate {
     originalRef: string
@@ -35,7 +36,8 @@ export interface FetchCandidate {
     fetchCount: number
     republishCount: number
     lastRepublishReason: StoredRepublishReason | null
-    lowOriginDiversityDeferred?: boolean
+    lastBlockReason?: ImageFetchBlockReason
+    sourcePartitions?: readonly number[]
 }
 
 export interface FrontierRecord {
@@ -51,7 +53,7 @@ export interface FrontierRecord {
             | 'fetchCount'
             | 'republishCount'
             | 'lastRepublishReason'
-            | 'lowOriginDiversityDeferred'
+            | 'lastBlockReason'
         >
     >
 }
@@ -200,6 +202,7 @@ function parseJob(
         fetchCount,
         republishCount,
         lastRepublishReason,
+        lastBlockReason,
         lowOriginDiversityDeferred,
     } = job
     if (
@@ -212,6 +215,7 @@ function parseJob(
         !isNonNegativeSafeInteger(fetchCount) ||
         !isNonNegativeSafeInteger(republishCount) ||
         !isStoredRepublishReason(lastRepublishReason) ||
+        (lastBlockReason !== undefined && !isImageFetchBlockReason(lastBlockReason)) ||
         (lowOriginDiversityDeferred !== undefined && typeof lowOriginDiversityDeferred !== 'boolean')
     ) {
         return { ok: false, reason: 'bad_url' }
@@ -241,7 +245,7 @@ function parseJob(
             fetchCount,
             republishCount,
             lastRepublishReason,
-            lowOriginDiversityDeferred: lowOriginDiversityDeferred === true ? true : undefined,
+            lastBlockReason,
         },
     }
 }
@@ -258,7 +262,7 @@ export function serializeFrontierRecord(candidates: FetchCandidate[]): Buffer {
             fetchCount: candidate.fetchCount,
             republishCount: candidate.republishCount,
             lastRepublishReason: candidate.lastRepublishReason,
-            lowOriginDiversityDeferred: candidate.lowOriginDiversityDeferred === true ? true : undefined,
+            lastBlockReason: candidate.lastBlockReason,
         })),
     }
     return Buffer.from(JSON.stringify(record))

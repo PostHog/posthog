@@ -1179,19 +1179,32 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
     def test_usage_report_replay(self) -> None:
         _setup_replay_data(self.team.pk, include_mobile_replay=False)
 
+        # `$snapshot_source` reaches ClickHouse unvalidated, so anything that is not mobile has to
+        # land on the web meter. An equality on 'web' here would bill this session under neither.
+        timestamp = now() - relativedelta(hours=12)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="unrecognized-snapshot-source",
+            distinct_id=str(uuid4()),
+            first_timestamp=timestamp,
+            last_timestamp=timestamp + timedelta(seconds=1),
+            snapshot_source="not-a-real-source",
+            size=10,
+        )
+
         period = get_previous_day()
 
         all_reports = _get_all_usage_data_as_team_rows(period.start, period.end)
         report = _get_team_report(all_reports, self.team)
 
-        assert report.recording_count_in_period == 5
+        assert report.recording_count_in_period == 6
         assert report.mobile_recording_count_in_period == 0
         assert report.zero_duration_recording_count_in_period == 0
 
         org_reports: dict[str, OrgReport] = {}
         _add_team_report_to_org_reports(org_reports, self.team, report, period.start)
 
-        assert org_reports[str(self.organization.id)].recording_count_in_period == 5
+        assert org_reports[str(self.organization.id)].recording_count_in_period == 6
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 0
         assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 0
 
@@ -1228,13 +1241,14 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         # but we do split them out of the daily usage since that field is used
         assert report.recording_count_in_period == 5
         assert report.mobile_recording_count_in_period == 1
-        assert report.mobile_billable_recording_count_in_period == 0
+        # Reports no library at all, and still bills: the client decides what to send here.
+        assert report.mobile_billable_recording_count_in_period == 1
         org_reports: dict[str, OrgReport] = {}
         _add_team_report_to_org_reports(org_reports, self.team, report, period.start)
 
         assert org_reports[str(self.organization.id)].recording_count_in_period == 5
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 1
-        assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 0
+        assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 1
 
     @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
     def test_usage_report_replay_with_billable_mobile(self) -> None:
@@ -1276,17 +1290,49 @@ class TestReplayUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyT
         all_reports = _get_all_usage_data_as_team_rows(period.start, period.end)
         report = _get_team_report(all_reports, self.team)
 
-        # Regular mobile recordings (non-billable) + billable ones
         assert report.recording_count_in_period == 5  # web recordings
-        assert report.mobile_recording_count_in_period == 4  # 1 non-billable + 2 billable + 1 from _setup_replay_data
-        assert report.mobile_billable_recording_count_in_period == 2  # iOS and Android recordings
+        assert report.mobile_recording_count_in_period == 4
+        # All four bill, the one naming a library we do not ship included: `$lib` is whatever the
+        # caller sent, so letting it decide leaves a session no meter charges for.
+        assert report.mobile_billable_recording_count_in_period == 4
 
         org_reports: dict[str, OrgReport] = {}
         _add_team_report_to_org_reports(org_reports, self.team, report, period.start)
 
         assert org_reports[str(self.organization.id)].recording_count_in_period == 5
         assert org_reports[str(self.organization.id)].mobile_recording_count_in_period == 4
-        assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 2
+        assert org_reports[str(self.organization.id)].mobile_billable_recording_count_in_period == 4
+
+    @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
+    def test_usage_report_replay_bills_every_recording_exactly_once(self) -> None:
+        # `$snapshot_source` and `$lib` arrive from the client and are never validated, so the two
+        # billed meters have to partition every recording between them. A combination that matched
+        # neither would be a recording anyone could ask for and not be charged for.
+        crafted = [
+            ("plain-web", "web", "web"),
+            ("mobile-shipped-sdk", "mobile", "posthog-ios"),
+            ("mobile-unshipped-sdk", "mobile", "posthog-unity"),
+            ("mobile-invented-sdk", "mobile", "not-a-real-sdk"),
+            ("invented-source", "not-a-real-source", "web"),
+        ]
+        timestamp = now() - relativedelta(hours=12)
+        for session_id, snapshot_source, snapshot_library in crafted:
+            produce_replay_summary(
+                team_id=self.team.pk,
+                session_id=session_id,
+                distinct_id=str(uuid4()),
+                first_timestamp=timestamp,
+                last_timestamp=timestamp + timedelta(seconds=1),
+                snapshot_source=snapshot_source,
+                snapshot_library=snapshot_library,
+                size=10,
+            )
+
+        period = get_previous_day()
+        report = _get_team_report(_get_all_usage_data_as_team_rows(period.start, period.end), self.team)
+
+        billed = report.recording_count_in_period + report.mobile_billable_recording_count_in_period
+        assert billed == len(crafted)
 
     @also_test_with_materialized_columns(event_properties=["$lib", "$exception_values"], verify_no_jsonextract=False)
     def test_usage_report_replay_excludes_deleted_recordings(self) -> None:
@@ -3263,6 +3309,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
                     "logs_bytes_in_period": 1_500_000_000,
                     "logs_records_in_period": 1000,
                     "logs_mb_in_period": 1500,
+                    "logs_and_traces_mb_in_period": 1500,
                     "logs_retention_14d_mb_in_period": 500,
                     "logs_retention_30d_mb_in_period": 1000,
                     "logs_retention_90d_mb_in_period": 0,
@@ -3280,6 +3327,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
                     "logs_bytes_in_period": 2_500_000_000,
                     "logs_records_in_period": 2000,
                     "logs_mb_in_period": 2500,
+                    "logs_and_traces_mb_in_period": 2500,
                     "logs_retention_14d_mb_in_period": 0,
                     "logs_retention_30d_mb_in_period": 0,
                     "logs_retention_90d_mb_in_period": 2500,
@@ -3300,6 +3348,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
                     "logs_bytes_in_period": 1_200_000,
                     "logs_records_in_period": 5,
                     "logs_mb_in_period": 1,
+                    "logs_and_traces_mb_in_period": 1,
                     "logs_retention_14d_mb_in_period": 0,
                     "logs_retention_30d_mb_in_period": 0,
                     "logs_retention_90d_mb_in_period": 0,
@@ -3419,23 +3468,32 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
 
     @parameterized.expand(
         [
-            # MB is floored to whole decimal MB like logs_mb_in_period.
+            # Per-signal MB is floored to whole decimal MB, and the billable combined metric is
+            # floored once off the summed bytes: 77_000_000 + 2_500_000 -> 79 MB.
             (
                 "with_usage",
                 {"bytes_ingested": 2_500_000, "records_ingested": 40},
+                77_000_000,
                 {
                     "apm_tracing_bytes_in_period": 2_500_000,
                     "apm_tracing_spans_in_period": 40,
                     "apm_tracing_mb_in_period": 2,
+                    "logs_mb_in_period": 77,
+                    "logs_and_traces_mb_in_period": 79,
                 },
             ),
+            # Flooring once off the summed bytes, rather than adding the floored per-signal figures,
+            # keeps the remainders both signals drop: 77_600_000 + 999_999 -> 78 MB, not 77 + 0.
             (
-                "sub_mb_floors_to_zero",
+                "sub_mb_remainders_add_up",
                 {"bytes_ingested": 999_999, "records_ingested": 5},
+                77_600_000,
                 {
                     "apm_tracing_bytes_in_period": 999_999,
                     "apm_tracing_spans_in_period": 5,
                     "apm_tracing_mb_in_period": 0,
+                    "logs_mb_in_period": 77,
+                    "logs_and_traces_mb_in_period": 78,
                 },
             ),
         ]
@@ -3446,6 +3504,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         self,
         _name: str,
         metrics: dict[str, int],
+        logs_bytes: int,
         expected: dict[str, int],
         billing_task_mock: MagicMock,
         posthog_capture_mock: MagicMock,
@@ -3464,7 +3523,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             team_id=self.org_1_team_1.id,
             app_source="logs",
             metric_name="bytes_ingested",
-            count=77_000_000,
+            count=logs_bytes,
         )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
@@ -3474,7 +3533,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
         )
 
-        # Only org_1_team_1 has traces usage, so the org-level rollup equals that single team's values.
+        # Only org_1_team_1 has logs or traces usage, so the org-level rollup equals that team's values.
         team_1_report = org_1_report["teams"][str(self.org_1_team_1.id)]
         for field, value in expected.items():
             assert org_1_report[field] == value, field
@@ -6585,8 +6644,8 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             "a later generation does not replenish the per-trace allowance",
         )
 
-    def test_conversations_events_excluded_from_billable_count(self) -> None:
-        """Test that Conversations widget events are excluded from billable event counts."""
+    def test_events_owned_by_other_products_excluded_from_billable_count(self) -> None:
+        """Test that Conversations widget and prompt management events are excluded from billable event counts."""
         from posthog.tasks.usage_report import get_teams_with_billable_event_count_in_period
 
         billable_result_before = get_teams_with_billable_event_count_in_period(self.begin, self.end)
@@ -6600,6 +6659,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             "$conversations_restore_link_requested",
             "$conversations_widget_state_changed",
             "$conversations_back_to_tickets",
+            "$llm_prompt_fetched",
         ):
             _create_event(
                 event=event_name,

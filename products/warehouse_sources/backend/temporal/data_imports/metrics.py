@@ -48,11 +48,29 @@ def get_data_import_finished_metric(source_type: str | None, status: str) -> Met
     )
 
 
+def get_fast_returned_run_metric(source_type: str | None) -> MetricCounter:
+    # Separate from `data_import_finished` (which still counts these as completed) so the
+    # rollout can be read as a share of runs without double-counting them there.
+    return (
+        workflow.metric_meter()
+        .with_additional_attributes({"source_type": source_type or "unknown"})
+        .create_counter("data_import_fast_returned", "Runs completed on a negative source probe, without extracting.")
+    )
+
+
 def get_v3_lock_skipped_metric() -> MetricCounter:
     # A skipped run leaves no job row and no schema-status change; without this
     # counter a schema can silently miss every scheduled slot for days.
     return workflow.metric_meter().create_counter(
         "data_import_v3_lock_skipped", "Scheduled v3 runs skipped because the pipeline lock was not acquired."
+    )
+
+
+def get_version_check_skipped_metric() -> MetricCounter:
+    # Same visibility gap as the lock metric: the skip leaves no job row, so a persistently
+    # failing version check silently costs a schema every scheduled slot.
+    return workflow.metric_meter().create_counter(
+        "data_import_version_check_skipped", "Scheduled runs skipped because the pipeline version check failed."
     )
 
 

@@ -5,7 +5,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { parseCommaSeparatedSlackTargetDisplayLabels } from 'lib/utils/slackChannelValue'
 
-import { TargetTypeEnumApi, type SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
+import { SubscriptionTargetEnumApi, type SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 function parseEmailRecipients(targetValue: string): string[] {
     return targetValue
@@ -69,12 +69,12 @@ function DestinationListCell({ parts, copyDescription }: { parts: string[]; copy
 }
 
 export function SubscriptionDestinationCell({ sub }: { sub: SubscriptionApi }): JSX.Element {
-    if (sub.target_type === TargetTypeEnumApi.Email) {
+    if (sub.target_type === SubscriptionTargetEnumApi.Email) {
         const emails = parseEmailRecipients(sub.target_value)
         return <DestinationListCell parts={emails} copyDescription="email recipient" />
     }
 
-    if (sub.target_type === TargetTypeEnumApi.Slack) {
+    if (sub.target_type === SubscriptionTargetEnumApi.Slack) {
         const parts = parseCommaSeparatedSlackTargetDisplayLabels(sub.target_value)
         return <DestinationListCell parts={parts} copyDescription="Slack destination" />
     }
@@ -96,10 +96,10 @@ export function SubscriptionDeliveryDestinationCell({
     targetValue: string
 }): JSX.Element {
     const kind = targetType.toLowerCase()
-    if (kind === TargetTypeEnumApi.Email) {
+    if (kind === SubscriptionTargetEnumApi.Email) {
         return <DestinationListCell parts={parseEmailRecipients(targetValue)} copyDescription="email recipient" />
     }
-    if (kind === TargetTypeEnumApi.Slack) {
+    if (kind === SubscriptionTargetEnumApi.Slack) {
         return (
             <DestinationListCell
                 parts={parseCommaSeparatedSlackTargetDisplayLabels(targetValue)}
