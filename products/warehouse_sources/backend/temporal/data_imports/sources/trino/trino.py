@@ -21,10 +21,11 @@ TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR = (
 TRINO_AUTHENTICATION_ERROR = "Trino rejected the credentials. Check the username and authentication details."
 TRINO_CATALOG_NOT_FOUND_ERROR = "Trino could not find that catalog. Check the catalog name and the user's permissions."
 TRINO_ACCESS_DENIED_ERROR = (
-    "Trino did not allow this user to read the catalog. Ask your Trino administrator for read access, then try again."
+    "Trino did not allow this user to read the requested data. "
+    "Ask your Trino administrator for read access, then try again."
 )
 TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR = (
-    "Trino's access control service did not answer, so PostHog could not read the catalog. "
+    "Trino's access control service did not answer, so Trino could not authorize the request. "
     "Try again, or ask your Trino administrator to check that service."
 )
 TRINO_TLS_CERTIFICATE_ERROR = (
