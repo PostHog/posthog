@@ -12,17 +12,6 @@ import structlog
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3 import (
-    batch_consumer as batch_consumer_module,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
-    OwnershipLostError,
-    _is_admin_shutdown_error,
-    _is_connect_timeout_error,
-    _is_dns_resolution_transient_error,
-    _is_server_not_ready_error,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.health import HealthState
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue import (
     consumer as consumer_module,
 )
@@ -33,13 +22,22 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _group_by_key,
     _update_job_status_to_failed,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+from products.warehouse_sources_queue.backend.core import batch_consumer as batch_consumer_module
+from products.warehouse_sources_queue.backend.core.batch_consumer import (
+    OwnershipLostError,
+    _is_admin_shutdown_error,
+    _is_connect_timeout_error,
+    _is_dns_resolution_transient_error,
+    _is_server_not_ready_error,
+)
+from products.warehouse_sources_queue.backend.core.health import HealthState
+from products.warehouse_sources_queue.backend.core.jobs_db import (
     FRESHNESS_WINDOW_SECONDS,
     FailedRunRef,
     PendingBatch,
     StrandedRunRef,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
+from products.warehouse_sources_queue.backend.core.metrics import (
     CLAIMABLE_BATCHES,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     RUNS_RECONCILED_TOTAL,
@@ -1376,7 +1374,7 @@ class TestPollBackoff:
         # unbounded delays.
         consumer = _make_consumer(poll_interval_seconds=2.0)
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer.random.uniform",
+            "products.warehouse_sources_queue.backend.core.batch_consumer.random.uniform",
             return_value=0.0,
         ):
             consumer._consecutive_poll_failures = 1
@@ -1396,7 +1394,7 @@ class TestPollBackoff:
         consumer = _make_consumer(poll_interval_seconds=2.0)
         consumer._consecutive_poll_failures = 1
         with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer.random.uniform",
+            "products.warehouse_sources_queue.backend.core.batch_consumer.random.uniform",
             return_value=1.5,
         ):
             assert consumer._poll_retry_delay() == 3.5  # 2.0 backoff + 1.5 jitter

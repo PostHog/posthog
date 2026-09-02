@@ -32,12 +32,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.activities imp
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import CDC_SEQ_COLUMN, CDC_SEQ_PROVENANCE
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory, cdc_error_info
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    BatchQueue,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.position import PgLSN
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
+from products.warehouse_sources_queue.backend.core.jobs_db import BatchQueue
 
 
 def _make_event(

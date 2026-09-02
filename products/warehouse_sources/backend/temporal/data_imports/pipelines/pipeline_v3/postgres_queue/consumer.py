@@ -28,7 +28,10 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
+    release_v3_pipeline_lock,
+)
+from products.warehouse_sources_queue.backend.core.batch_consumer import (
     MAX_ATTEMPTS,
     POLL_INTERVAL_SECONDS,
     RECONCILE_GRACE_SECONDS,
@@ -42,7 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     ProcessBatchFn,
     _group_by_key,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+from products.warehouse_sources_queue.backend.core.jobs_db import (
     _UNSET,
     FRESHNESS_WINDOW_SECONDS,
     TAKEOVER_STALE_THRESHOLD_SECONDS,
@@ -50,15 +53,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     PendingBatch,
     _Unset,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
+from products.warehouse_sources_queue.backend.core.metrics import (
     CLAIMABLE_BATCHES,
     OLDEST_UNCLAIMED_BATCH_SECONDS,
     RUNS_RECONCILED_TOTAL,
     RUNS_TERMINALIZED_STALE_TOTAL,
     observe_queue_query,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
-    release_v3_pipeline_lock,
 )
 from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 

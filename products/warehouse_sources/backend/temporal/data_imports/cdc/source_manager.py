@@ -34,9 +34,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import read_load_position
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    BatchQueue,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.batching import (
     DEFAULT_BATCH_BYTE_LIMIT,
     DEFAULT_BATCH_ROW_LIMIT,
@@ -44,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bat
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.db import db_read_with_retry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources_queue.backend.sdk import BatchQueue
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema

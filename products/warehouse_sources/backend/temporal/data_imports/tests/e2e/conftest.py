@@ -37,16 +37,13 @@ from products.warehouse_sources.backend.facade.models import ExternalDataJob, ge
 from products.warehouse_sources.backend.models.external_table_definitions import external_tables
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import ExternalDataJobWorkflow
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    BATCH_TABLE,
-    STATUS_TABLE,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.test_jobs_db import (
-    _ensure_tables,
-    _get_test_database_url,
-)
 from products.warehouse_sources.backend.temporal.data_imports.post_import_job import PostImportWorkflow
 from products.warehouse_sources.backend.temporal.data_imports.settings import ACTIVITIES
+from products.warehouse_sources_queue.backend.core.jobs_db import BATCH_TABLE, STATUS_TABLE
+from products.warehouse_sources_queue.backend.testing import (
+    ensure_queue_tables as _ensure_tables,
+    get_test_database_url as _get_test_database_url,
+)
 
 BUCKET_NAME = "test-pipeline"
 SESSION = aioboto3.Session()

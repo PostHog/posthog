@@ -65,9 +65,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.par
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
     validate_schema_and_update_table,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
-    OwnershipLostError,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import (
     is_batch_already_processed,
     mark_batch_as_processed,
@@ -91,6 +88,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import finish_row_tracking
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import workload_reporting
+from products.warehouse_sources_queue.backend.core.batch_consumer import OwnershipLostError
 
 logger = structlog.get_logger(__name__)
 

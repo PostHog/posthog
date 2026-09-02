@@ -20,9 +20,7 @@ from asgiref.sync import sync_to_async
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     process_message,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    PendingBatch,
-)
+from products.warehouse_sources_queue.backend.core.jobs_db import PendingBatch
 
 
 async def process_batch(batch: PendingBatch, verify_ownership: Callable[[], None] | None = None) -> None:

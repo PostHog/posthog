@@ -26,9 +26,6 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     LOCK_TAKEOVER_LATEST_ERROR,
     TERMINAL_JOB_STATUSES,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    BatchQueue,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     acquire_v3_pipeline_lock,
     get_v3_pipeline_lock_holder,
@@ -39,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     is_pipeline_v3_enabled,
 )
+from products.warehouse_sources_queue.backend.sdk import BatchQueue
 
 LOGGER = get_logger(__name__)
 

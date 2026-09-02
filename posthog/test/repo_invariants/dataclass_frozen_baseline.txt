@@ -224,7 +224,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/cdc/workflows.py
 1 products/warehouse_sources/backend/temporal/data_imports/pipelines/core/delta/memory_governor.py
 1 products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_sync.py
-1 products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/batch_consumer.py
 1 products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/load/retry_tracker.py
 1 products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/messages.py
 1 products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline_v3/s3/common.py

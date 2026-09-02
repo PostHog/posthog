@@ -16,13 +16,8 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    PendingBatch,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
-    DELTA_CONSUMER_METRICS,
-    ConsumerMetrics,
-)
+from products.warehouse_sources_queue.backend.core.jobs_db import PendingBatch
+from products.warehouse_sources_queue.backend.core.metrics import DELTA_CONSUMER_METRICS, ConsumerMetrics
 
 logger = structlog.get_logger(__name__)
 
@@ -123,7 +118,7 @@ class PermanentBatchApplyError(Exception):
     permanent error only delays the terminal state and burns sink throughput."""
 
 
-@dataclass
+@dataclass(frozen=False)  # mutable: tests reach into `consumer._config` to tweak knobs mid-run
 class BatchConsumerConfig:
     """Tuning knobs for the batch consumer."""
 

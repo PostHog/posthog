@@ -35,10 +35,8 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager
     consolidated_resource_name,
     serves_buffered_lane,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    BatchQueue,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.common import strip_s3_protocol
+from products.warehouse_sources_queue.backend.sdk import BatchQueue
 
 logger = structlog.get_logger(__name__)
 
