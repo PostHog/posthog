@@ -35,6 +35,7 @@ declare global {
         JS_POSTHOG_SELF_CAPTURE?: boolean
         JS_POSTHOG_IDENTITY_DISTINCT_ID?: string
         JS_POSTHOG_IDENTITY_HASH?: string
+        JS_POSTHOG_IDENTITY_CLAIMS?: Record<string, { value: string; hash: string; expires_at: number }>
         JS_CAPTURE_TIME_TO_SEE_DATA?: boolean
         posthog?: posthog
         ESBUILD_LOAD_SCRIPT: (name) => void
