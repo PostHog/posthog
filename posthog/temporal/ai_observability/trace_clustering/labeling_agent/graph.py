@@ -5,10 +5,15 @@ from typing import Any
 
 import structlog
 from langchain_core.messages import HumanMessage
+from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
 from posthog.llm.gateway_client import team_distinct_id
-from posthog.temporal.ai_observability.clustering_agent import fill_missing_labels, prepare_labeling_agent_run
+from posthog.temporal.ai_observability.clustering_agent import (
+    LabelingAgentError,
+    fill_missing_labels,
+    prepare_labeling_agent_run,
+)
 from posthog.temporal.ai_observability.llm_endpoint import build_langchain_callbacks
 from posthog.temporal.ai_observability.trace_clustering.labeling_agent.prompts import CLUSTER_LABELING_SYSTEM_PROMPT
 from posthog.temporal.ai_observability.trace_clustering.labeling_agent.state import (
@@ -61,7 +66,7 @@ def run_labeling_agent(
         **({"clustering_job_id": clustering_job_id} if clustering_job_id else {}),
     }
 
-    def make_agent(llm):
+    def make_agent(llm: ChatOpenAI) -> Any:
         return create_react_agent(
             model=llm,
             tools=LABELING_TOOLS,
@@ -114,6 +119,17 @@ def run_labeling_agent(
         labels = result.get("current_labels", {})
         return _apply_fallbacks(labels, cluster_data)
 
+    except LabelingAgentError as e:
+        cause = e.__cause__ or e
+        logger.exception(
+            "cluster_labeling_agent_error",
+            error=str(cause),
+            error_type=type(cause).__name__,
+            team_id=team_id,
+            partial_labels=len(e.partial_labels),
+        )
+        # Keep what the failed attempts labeled; defaults fill the rest.
+        return _apply_fallbacks(e.partial_labels, cluster_data)
     except Exception as e:
         logger.exception(
             "cluster_labeling_agent_error",

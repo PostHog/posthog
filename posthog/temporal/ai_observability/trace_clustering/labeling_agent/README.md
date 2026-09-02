@@ -118,8 +118,10 @@ From `constants.py`:
 The agent runs through `prepare_labeling_agent_run` in `clustering_agent`: allowlisted models
 (`FLEX_CAPABLE_MODELS`) call OpenAI on the flex service tier (half-price tokens, 120s per-call
 timeout, no SDK retries), a flex-recoverable failure reruns the whole agent once on the standard
-tier (240s per-call cap, one SDK retry), and a run where both tiers fail hands back the last
-attempt's partial labels. `LLMA_LABELING_FLEX_ENABLED=false` on the worker turns flex off without
+tier (same 120s per-call timeout, one SDK retry), and a run where both tiers fail raises
+`LabelingAgentError` carrying the fullest label set the attempts produced, which the callers
+keep before filling defaults. Standard-tier calls outside the rerun (kill switch, non-allowlisted
+model) are capped at 240s with one SDK retry. `LLMA_LABELING_FLEX_ENABLED=false` on the worker turns flex off without
 a deploy.
 
 ## Usage

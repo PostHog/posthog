@@ -76,6 +76,20 @@ def get_labeling_llm(
     )
 
 
+class LabelingAgentError(Exception):
+    """The labeling agent failed on every tier it tried.
+
+    Carries the fullest label set the attempts produced, so the caller can keep that
+    paid-for work instead of shipping all-default labels. The original failure is the
+    exception's cause.
+    """
+
+    # Values are ClusterLabel in the real agents; the runner treats the state generically.
+    def __init__(self, message: str, *, partial_labels: dict[int, Any]) -> None:
+        super().__init__(message)
+        self.partial_labels = partial_labels
+
+
 def _is_flex_recoverable(error: APIError) -> bool:
     """Whether a failed flex agent run should rerun on the standard tier.
 
@@ -111,9 +125,9 @@ def prepare_labeling_agent_run(
     fails. The labeling callers turn any exception into default cluster labels, so without
     the rerun a flex refusal degrades label quality silently. Each attempt gets a deep copy
     of the state: the labeling tools write labels into it in place, and the rerun must not
-    start from the failed flex attempt's partial progress. When both attempts fail, the
-    runner hands back the last attempt's partial labels instead of raising: the tools
-    already wrote them into the state, and discarding them would throw away paid-for work.
+    start from the failed flex attempt's partial progress. When every attempt fails, the
+    runner raises `LabelingAgentError` carrying the fullest label set the attempts wrote,
+    so callers can log the failure and still keep the paid-for labels.
     """
     flex_llm = get_labeling_llm(
         model,
@@ -124,16 +138,24 @@ def prepare_labeling_agent_run(
         distinct_id=distinct_id,
     )
 
+    team_id = properties.get("team_id")
+
     def run(initial_state: dict[str, Any], config: dict[str, Any]) -> dict[str, Any]:
-        state = copy.deepcopy(initial_state)
+        attempt_states = [copy.deepcopy(initial_state)]
         fell_back = False
         try:
             try:
-                result = make_agent(flex_llm).invoke(state, config)
+                result = make_agent(flex_llm).invoke(attempt_states[0], config)
             except APIError as flex_error:
                 if flex_llm.service_tier != "flex" or not _is_flex_recoverable(flex_error):
                     raise
-                logger.info("labeling_flex_fell_back", error_type=type(flex_error).__name__, model=model)
+                logger.info(
+                    "labeling_flex_fell_back",
+                    error_type=type(flex_error).__name__,
+                    status_code=getattr(flex_error, "status_code", None),
+                    model=model,
+                    team_id=team_id,
+                )
                 fell_back = True
                 standard_llm = get_labeling_llm(
                     model,
@@ -144,17 +166,19 @@ def prepare_labeling_agent_run(
                     properties=properties,
                     distinct_id=distinct_id,
                 )
-                state = copy.deepcopy(initial_state)
-                result = make_agent(standard_llm).invoke(state, config)
-        except Exception:
-            partial_labels = dict(state.get("current_labels") or {})
-            logger.exception(
-                "labeling_agent_failed",
-                fell_back=fell_back,
-                partial_labels=len(partial_labels),
-                model=model,
+                attempt_states.append(copy.deepcopy(initial_state))
+                result = make_agent(standard_llm).invoke(attempt_states[1], config)
+        except Exception as error:
+            # The fullest set either attempt wrote: a rerun that died early must not shadow
+            # the labels the flex attempt already paid for.
+            partial_labels = max(
+                (dict(state.get("current_labels") or {}) for state in attempt_states),
+                key=len,
             )
-            return {"messages": [], "current_labels": partial_labels}
+            raise LabelingAgentError(
+                f"Labeling agent failed on every tier ({type(error).__name__})",
+                partial_labels=partial_labels,
+            ) from error
         # The tier the last response reports actually served, so production logs answer whether
         # the gateway forwards service_tier and how often flex refuses.
         logger.info(
@@ -162,6 +186,7 @@ def prepare_labeling_agent_run(
             service_tier=_served_tier(result),
             fell_back=fell_back,
             model=model,
+            team_id=team_id,
         )
         return result
 
@@ -207,4 +232,10 @@ def fill_missing_labels(
     return result
 
 
-__all__ = ["FLEX_CAPABLE_MODELS", "fill_missing_labels", "get_labeling_llm", "prepare_labeling_agent_run"]
+__all__ = [
+    "FLEX_CAPABLE_MODELS",
+    "LabelingAgentError",
+    "fill_missing_labels",
+    "get_labeling_llm",
+    "prepare_labeling_agent_run",
+]

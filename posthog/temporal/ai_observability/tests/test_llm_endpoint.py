@@ -290,11 +290,11 @@ class TestPrepareLabelingAgentRun:
             return run(initial_state if initial_state is not None else {"messages": []}, {"recursion_limit": 5})
 
     @pytest.mark.parametrize(
-        "flex_error",
-        [_rate_limit_error(), _connection_error(), _gateway_ceiling_error(), _flex_408_error()],
+        "make_error",
+        [_rate_limit_error, _connection_error, _gateway_ceiling_error, _flex_408_error],
         ids=["rate_limit", "connection", "gateway_504", "flex_408"],
     )
-    def test_flex_failure_reruns_the_agent_on_the_standard_tier(self, flex_error):
+    def test_flex_failure_reruns_the_agent_on_the_standard_tier(self, make_error):
         tiers_used = []
 
         def make_agent(llm):
@@ -303,7 +303,7 @@ class TestPrepareLabelingAgentRun:
             class Agent:
                 def invoke(self, state, config):
                     if llm.service_tier == "flex":
-                        raise flex_error
+                        raise make_error()
                     return {"messages": [], "current_labels": {1: "label"}}
 
             return Agent()
@@ -313,8 +313,11 @@ class TestPrepareLabelingAgentRun:
         assert tiers_used == ["flex", None]
         assert result["current_labels"] == {1: "label"}
 
-    def test_configuration_errors_do_not_rerun_on_the_standard_tier(self):
-        # A 400 fails identically on both tiers; a rerun would double the cost of a broken setup.
+    def test_configuration_errors_do_not_rerun_and_still_fail_the_run(self):
+        # A 400 fails identically on both tiers; a rerun would double the cost of a broken
+        # setup, and swallowing it would log a successful run for all-default labels.
+        from posthog.temporal.ai_observability.clustering_agent import LabelingAgentError
+
         tiers_used = []
 
         def make_agent(llm):
@@ -326,14 +329,17 @@ class TestPrepareLabelingAgentRun:
 
             return Agent()
 
-        result = self._invoke(make_agent)
+        with pytest.raises(LabelingAgentError) as exc_info:
+            self._invoke(make_agent)
 
         assert tiers_used == ["flex"]
-        assert result["current_labels"] == {}
+        assert exc_info.value.partial_labels == {}
 
-    def test_failed_runs_hand_back_the_last_attempts_partial_labels(self):
-        # The tools write labels into the state as they go; a run where both tiers fail must
-        # surface that paid-for progress instead of shipping all-default labels.
+    def test_failed_runs_raise_with_the_fullest_partial_label_set(self):
+        # The tools write labels into the state as they go; when both tiers fail, the error
+        # must carry the fullest set either attempt produced, not just the last attempt's.
+        from posthog.temporal.ai_observability.clustering_agent import LabelingAgentError
+
         def make_agent(llm):
             class Agent:
                 def invoke(self, state, config):
@@ -345,9 +351,10 @@ class TestPrepareLabelingAgentRun:
 
             return Agent()
 
-        result = self._invoke(make_agent, initial_state={"messages": [], "current_labels": {}})
+        with pytest.raises(LabelingAgentError) as exc_info:
+            self._invoke(make_agent, initial_state={"messages": [], "current_labels": {}})
 
-        assert result["current_labels"] == {3: "standard label"}
+        assert exc_info.value.partial_labels == {1: "flex label", 2: "flex label"}
 
     def test_flex_success_runs_once(self):
         tiers_used = []

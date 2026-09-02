@@ -146,7 +146,7 @@ The workflow uses **three separate activities** with independent timeouts and re
 - Ensures labels differentiate clusters from each other
 - Allowlisted models run on OpenAI's flex service tier (half-price tokens); a failed flex run reruns once on the standard tier, and a run where both tiers fail hands back its partial labels
 - `LLMA_LABELING_FLEX_ENABLED=false` (worker env) turns flex off without a deploy
-- 10 minute activity timeout for the full agent run; individual LLM calls are capped at 120s on flex and 240s on standard so no single call can starve the budget
+- 10 minute activity timeout for the full agent run; individual LLM calls are capped at 120s on flex and on the rerun, and at 240s on the standard tier (kill switch or non-allowlisted model), so no single call can starve the budget
 - See `labeling_agent/README.md` for detailed agent architecture
 
 **Activity 3 (Emit)** - Database write:
