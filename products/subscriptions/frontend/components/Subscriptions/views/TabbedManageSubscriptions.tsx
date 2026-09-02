@@ -157,7 +157,7 @@ export function TabbedManageSubscriptions({
                     description={`Send an up-to-date snapshot of this ${
                         isInsightContext ? 'insight' : 'dashboard'
                     } to Slack or email on a schedule.`}
-                    actionLabel="Create subscription"
+                    actionLabel="Add subscription"
                     actionType="primary"
                     prominence="featured"
                     onAction={() => onSelect('new')}
@@ -217,7 +217,9 @@ export function TabbedManageSubscriptions({
                     data-attr="manage-subscriptions-tabs"
                     rightSlotClassName="bg-transparent"
                     rightSlot={
-                        activeTab === 'resource' ? (
+                        // The empty resource tab already shows a featured "Add subscription" card, so
+                        // the header button appears only once the list has subscriptions.
+                        activeTab === 'resource' && subscriptions.length > 0 ? (
                             <LemonButton type="primary" onClick={() => onSelect('new')} data-attr="add-subscription">
                                 Add subscription
                             </LemonButton>
