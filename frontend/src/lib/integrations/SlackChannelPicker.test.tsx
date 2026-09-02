@@ -288,6 +288,27 @@ describe('SlackChannelPicker', () => {
         expect(await screen.findByText('No channel selected. Pick one from the list.')).toBeInTheDocument()
     })
 
+    it('selects the channel when someone pastes its id', async () => {
+        // Pasting an id is already an unambiguous choice, and the option it matches is labelled by
+        // name, so leaving it unselected asks the user to recognize a channel they only have an id for.
+        const onChange = jest.fn()
+        const { container } = render(
+            <Provider>
+                <SlackChannelPicker integration={INTEGRATION} onChange={onChange} />
+            </Provider>
+        )
+
+        const input = container.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')!
+        await userEvent.click(input)
+        // Only reachable through the by-id lookup: the bulk endpoint never returns this channel.
+        await userEvent.paste(OFF_PAGE_CHANNEL.id)
+
+        await waitFor(() => expect(onChange).toHaveBeenCalledWith(`${OFF_PAGE_CHANNEL.id}|#off-page-channel`), {
+            timeout: 3000,
+        })
+        expect(screen.queryByText('No channel selected. Pick one from the list.')).toBeNull()
+    })
+
     it('drops the reported search when the caller swaps the workspace', async () => {
         // Some callers swap the integration without unmounting, so an error raised against the old
         // workspace would otherwise sit over a picker now listing a different workspace's channels.

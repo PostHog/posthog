@@ -306,6 +306,9 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     // clicks away is left with an empty input and no idea why. Track that case to show it back.
     const hasUnselectedSearchRef = useRef(false)
     const [blurredWithoutSelection, setBlurredWithoutSelection] = useState(false)
+    // A pasted channel id is already an unambiguous choice, so hold it until the lookup resolves and
+    // then pick it. Nobody should have to recognize their channel by id in the list.
+    const [pastedChannelId, setPastedChannelId] = useState<string | null>(null)
 
     const channelRefreshButtonDisabledReason = getChannelRefreshButtonDisabledReason()
     // 1s tick while the cooldown is active so the countdown updates; otherwise idle the rerender (60s, picker is short-lived).
@@ -358,7 +361,24 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         hasUnselectedSearchRef.current = false
         setBlurredWithoutSelection(false)
         setLocalValue(null)
+        setPastedChannelId(null)
     }, [integration.id])
+
+    useEffect(() => {
+        if (!pastedChannelId) {
+            return
+        }
+        const channel = slackChannels.find((x: SlackChannelType) => x.id === pastedChannelId)
+        if (!channel) {
+            return
+        }
+        setPastedChannelId(null)
+        hasUnselectedSearchRef.current = false
+        setBlurredWithoutSelection(false)
+        if (value?.split('|')[0] !== channel.id) {
+            onChange?.(`${channel.id}|#${channel.name}`)
+        }
+    }, [pastedChannelId, slackChannels, value, onChange])
 
     // Read-only pickers still need a direct lookup because the saved channel may not be on the first page.
     useEffect(() => {
@@ -412,7 +432,9 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                         const idCandidate = val.trim().toUpperCase()
                         if (SLACK_CHANNEL_ID_PATTERN.test(idCandidate)) {
                             loadSlackChannelById(idCandidate)
+                            setPastedChannelId(idCandidate)
                         } else if (val !== modifiedValue) {
+                            setPastedChannelId(null)
                             // LemonInputSelect auto-fills the input with the selected option's key on
                             // focus (see LemonInputSelect._onFocus). Don't treat that auto-fill as a
                             // search — the composite "id|#name" matches no channel server-side and
