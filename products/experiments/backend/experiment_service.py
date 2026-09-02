@@ -558,6 +558,21 @@ class ExperimentService:
             raise ValidationError("End date must be after start date")
 
     @staticmethod
+    def validate_name_and_description(name: str, description: str | None) -> None:
+        """Reject a name or description longer than the model column allows.
+
+        Django enforces CharField max_length only in forms and serializers, so a direct
+        Experiment.objects.create would fail with a raw Postgres truncation error instead.
+        """
+        name_max = Experiment._meta.get_field("name").max_length
+        if name and name_max and len(name) > name_max:
+            raise ValidationError(f"Experiment name must be at most {name_max} characters")
+
+        description_max = Experiment._meta.get_field("description").max_length
+        if description and description_max and len(description) > description_max:
+            raise ValidationError(f"Experiment description must be at most {description_max} characters")
+
+    @staticmethod
     def _validate_excluded_variant_keys(
         excluded_variants: list[str], variant_keys: Iterable[str], baseline_key: str
     ) -> None:
@@ -1284,6 +1299,7 @@ class ExperimentService:
         seen_metric_uuids: set[str] = self._collect_saved_metric_uuids(saved_metrics_ids)
         metrics = self._assign_uuids_to_metrics(metrics, seen=seen_metric_uuids)
         metrics_secondary = self._assign_uuids_to_metrics(metrics_secondary, seen=seen_metric_uuids)
+        self.validate_name_and_description(name, description)
         self.validate_running_time_calculation(running_time_calculation)
         self.validate_excluded_variants(excluded_variants)
         running_time_calculation = running_time_calculation or {}
