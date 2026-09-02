@@ -32,9 +32,14 @@ class AEOPrompt(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDT
         MANUAL = "manual", "Manual"
 
     # related_name="+" on both core relations: nothing outside this product may
-    # traverse into AEO prompts from a Team or User.
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    # traverse into AEO prompts from a Team or User. db_constraint=False keeps the
+    # migration off the locks on posthog_team and posthog_user: creating an FK
+    # constraint blocks writes on tables read on nearly every request, so the
+    # relations are enforced in the ORM instead.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
 
     prompt = models.TextField(help_text="The question to ask the answer engines, as a user would phrase it.")
     prompt_hash = models.CharField(
