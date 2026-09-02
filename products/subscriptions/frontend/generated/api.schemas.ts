@@ -12,9 +12,10 @@
  * * `dashboard` - Dashboard
  * * `ai_prompt` - AI prompt
  */
-export type ResourceTypeEnumApi = (typeof ResourceTypeEnumApi)[keyof typeof ResourceTypeEnumApi]
+export type SubscriptionResourceTypeEnumApi =
+    (typeof SubscriptionResourceTypeEnumApi)[keyof typeof SubscriptionResourceTypeEnumApi]
 
-export const ResourceTypeEnumApi = {
+export const SubscriptionResourceTypeEnumApi = {
     Insight: 'insight',
     Dashboard: 'dashboard',
     AiPrompt: 'ai_prompt',
@@ -25,9 +26,10 @@ export const ResourceTypeEnumApi = {
  * * `last_n_days` - Last N days
  * * `days_ago_range` - Between X and Y days ago
  */
-export type AIWindowConfigModeEnumApi = (typeof AIWindowConfigModeEnumApi)[keyof typeof AIWindowConfigModeEnumApi]
+export type SubscriptionAIWindowModeEnumApi =
+    (typeof SubscriptionAIWindowModeEnumApi)[keyof typeof SubscriptionAIWindowModeEnumApi]
 
-export const AIWindowConfigModeEnumApi = {
+export const SubscriptionAIWindowModeEnumApi = {
     SinceLastSent: 'since_last_sent',
     LastNDays: 'last_n_days',
     DaysAgoRange: 'days_ago_range',
@@ -42,7 +44,7 @@ export interface AIWindowConfigApi {
      * * `since_last_sent` - Since last report
      * * `last_n_days` - Last N days
      * * `days_ago_range` - Between X and Y days ago */
-    mode?: AIWindowConfigModeEnumApi
+    mode?: SubscriptionAIWindowModeEnumApi
     /**
      * Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365.
      * @minimum 1
@@ -67,12 +69,14 @@ export interface AIPromptConfigApi {
 /**
  * * `email` - Email
  * * `slack` - Slack
+ * * `teams` - Microsoft Teams
  */
-export type TargetTypeEnumApi = (typeof TargetTypeEnumApi)[keyof typeof TargetTypeEnumApi]
+export type SubscriptionTargetEnumApi = (typeof SubscriptionTargetEnumApi)[keyof typeof SubscriptionTargetEnumApi]
 
-export const TargetTypeEnumApi = {
+export const SubscriptionTargetEnumApi = {
     Email: 'email',
     Slack: 'slack',
+    Teams: 'teams',
 } as const
 
 /**
@@ -187,7 +191,7 @@ export interface SubscriptionApi {
      * * `insight` - Insight
      * * `dashboard` - Dashboard
      * * `ai_prompt` - AI prompt */
-    readonly resource_type: ResourceTypeEnumApi
+    readonly resource_type: SubscriptionResourceTypeEnumApi
     /**
      * Dashboard ID to subscribe to (mutually exclusive with insight on create).
      * @nullable
@@ -211,12 +215,13 @@ export interface SubscriptionApi {
     prompt?: string | null
     /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
     ai_prompt_config?: AIPromptConfigApi
-    /** Delivery channel: email or slack.
+    /** Delivery channel: email, slack, or teams.
      *
      * * `email` - Email
-     * * `slack` - Slack */
-    target_type: TargetTypeEnumApi
-    /** Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack. */
+     * * `slack` - Slack
+     * * `teams` - Microsoft Teams */
+    target_type: SubscriptionTargetEnumApi
+    /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it. */
     target_value: string
     /** How often to deliver: daily, weekly, monthly, or yearly.
      *
@@ -250,7 +255,7 @@ export interface SubscriptionApi {
      * @nullable
      */
     count?: number | null
-    /** When to start delivering (ISO 8601 datetime). */
+    /** When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute. */
     start_date: string
     /**
      * When to stop delivering (ISO 8601 datetime). Null for indefinite.
@@ -337,7 +342,7 @@ export interface PatchedSubscriptionApi {
      * * `insight` - Insight
      * * `dashboard` - Dashboard
      * * `ai_prompt` - AI prompt */
-    readonly resource_type?: ResourceTypeEnumApi
+    readonly resource_type?: SubscriptionResourceTypeEnumApi
     /**
      * Dashboard ID to subscribe to (mutually exclusive with insight on create).
      * @nullable
@@ -361,12 +366,13 @@ export interface PatchedSubscriptionApi {
     prompt?: string | null
     /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
     ai_prompt_config?: AIPromptConfigApi
-    /** Delivery channel: email or slack.
+    /** Delivery channel: email, slack, or teams.
      *
      * * `email` - Email
-     * * `slack` - Slack */
-    target_type?: TargetTypeEnumApi
-    /** Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack. */
+     * * `slack` - Slack
+     * * `teams` - Microsoft Teams */
+    target_type?: SubscriptionTargetEnumApi
+    /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it. */
     target_value?: string
     /** How often to deliver: daily, weekly, monthly, or yearly.
      *
@@ -400,7 +406,7 @@ export interface PatchedSubscriptionApi {
      * @nullable
      */
     count?: number | null
-    /** When to start delivering (ISO 8601 datetime). */
+    /** When to start delivering (ISO 8601 datetime). The date anchors the recurrence and may be in the past. Deliveries run on half-hour cycles at :00 and :30. Other minute values are accepted for backward compatibility, but delivery happens during the next cycle instead of at that exact minute. */
     start_date?: string
     /**
      * When to stop delivering (ISO 8601 datetime). Null for indefinite.
@@ -506,9 +512,9 @@ export interface SubscriptionDeliveryApi {
      * @nullable
      */
     readonly scheduled_at: string | null
-    /** Channel snapshot at send time (email or slack). */
+    /** Channel snapshot at send time: email, slack, or teams. */
     readonly target_type: string
-    /** Destination snapshot at send time (emails, channel id, URL). */
+    /** Destination snapshot at send time: the email list, the Slack channel id, or the host of the Microsoft Teams webhook. The webhook URL itself is never returned. */
     readonly target_value: string
     /**
      * ExportedAsset ids generated for this send.
@@ -615,7 +621,7 @@ export type SubscriptionsListParams = {
      */
     search?: string
     /**
-     * Filter by delivery channel (email or Slack).
+     * Filter by delivery channel: email, Slack, or Microsoft Teams.
      */
     target_type?: SubscriptionsListTargetType
 }
@@ -634,6 +640,7 @@ export type SubscriptionsListTargetType = (typeof SubscriptionsListTargetType)[k
 export const SubscriptionsListTargetType = {
     Email: 'email',
     Slack: 'slack',
+    Teams: 'teams',
 } as const
 
 export type SubscriptionsDeliveriesListParams = {

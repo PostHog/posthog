@@ -543,7 +543,11 @@ class ProjectBackwardCompatSerializer(
     available_setup_task_ids = serializers.SerializerMethodField()  # Compat with TeamSerializer
     managed_viewsets = serializers.SerializerMethodField()  # Compat with TeamSerializer
     events_retention_enforced = serializers.SerializerMethodField(
-        help_text="Whether events data retention is currently enforced for this team (cohort/flag gated)."
+        help_text=(
+            "Whether events data retention is currently enforced for this team (cohort/flag gated). Read-only: "
+            "neither you nor PostHog support can turn enforcement off, and the retention window itself only "
+            "changes with your plan. Background and discussion: https://github.com/PostHog/posthog/issues/17031"
+        )
     )  # Compat with TeamSerializer
     # These are @property attrs on Team, not Django model fields — declare explicitly so drf-spectacular can resolve them
     default_modifiers = serializers.DictField(read_only=True)  # Compat with TeamSerializer
@@ -832,7 +836,10 @@ class ProjectBackwardCompatSerializer(
             "event_retention_months": {
                 "help_text": (
                     "The team's events data retention window in months (plan-derived, synced from billing). When "
-                    "retention enforcement is active for the team, queries do not return events older than this many months."
+                    "retention enforcement is active for the team, queries do not return events older than this many "
+                    "months. Read-only: this value follows your plan's data retention entitlement, so neither you nor "
+                    "PostHog support can change it unless your organization is on the enterprise plan. Background and "
+                    "discussion: https://github.com/PostHog/posthog/issues/17031"
                 )
             },
             "data_attributes": {

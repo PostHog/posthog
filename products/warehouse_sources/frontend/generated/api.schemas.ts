@@ -8,6 +8,107 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `PostHogWarehouse` - PostHog warehouse
+ * * `Redshift` - Redshift
+ * * `Snowflake` - Snowflake
+ * * `BigQuery` - BigQuery
+ * * `Postgres` - Postgres
+ * * `Databricks` - Databricks
+ * * `AzureBlob` - Azure Blob
+ * * `S3` - S3
+ */
+export type ExternalDataDestinationTypeEnumApi =
+    (typeof ExternalDataDestinationTypeEnumApi)[keyof typeof ExternalDataDestinationTypeEnumApi]
+
+export const ExternalDataDestinationTypeEnumApi = {
+    PostHogWarehouse: 'PostHogWarehouse',
+    Redshift: 'Redshift',
+    Snowflake: 'Snowflake',
+    BigQuery: 'BigQuery',
+    Postgres: 'Postgres',
+    Databricks: 'Databricks',
+    AzureBlob: 'AzureBlob',
+    S3: 'S3',
+} as const
+
+export interface ExternalDataDestinationApi {
+    readonly id: string
+    /** Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.
+     *
+     * * `PostHogWarehouse` - PostHog warehouse
+     * * `Redshift` - Redshift
+     * * `Snowflake` - Snowflake
+     * * `BigQuery` - BigQuery
+     * * `Postgres` - Postgres
+     * * `Databricks` - Databricks
+     * * `AzureBlob` - Azure Blob
+     * * `S3` - S3 */
+    type: ExternalDataDestinationTypeEnumApi
+    /**
+     * Human-readable name shown when picking destinations for a source or table.
+     * @maxLength 400
+     */
+    name: string
+    /** Settings for this destination: target database, schema or dataset, bucket and prefix, file format. Credentials are not stored here. They live on the linked integration. */
+    config?: unknown
+    /**
+     * Integration holding this destination's credentials. Required for every type except the PostHog warehouse.
+     * @nullable
+     */
+    integration?: number | null
+    /** Whether this is the managed PostHog warehouse destination. */
+    readonly is_posthog_warehouse: boolean
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedExternalDataDestinationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ExternalDataDestinationApi[]
+}
+
+export interface PatchedExternalDataDestinationApi {
+    readonly id?: string
+    /** Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.
+     *
+     * * `PostHogWarehouse` - PostHog warehouse
+     * * `Redshift` - Redshift
+     * * `Snowflake` - Snowflake
+     * * `BigQuery` - BigQuery
+     * * `Postgres` - Postgres
+     * * `Databricks` - Databricks
+     * * `AzureBlob` - Azure Blob
+     * * `S3` - S3 */
+    type?: ExternalDataDestinationTypeEnumApi
+    /**
+     * Human-readable name shown when picking destinations for a source or table.
+     * @maxLength 400
+     */
+    name?: string
+    /** Settings for this destination: target database, schema or dataset, bucket and prefix, file format. Credentials are not stored here. They live on the linked integration. */
+    config?: unknown
+    /**
+     * Integration holding this destination's credentials. Required for every type except the PostHog warehouse.
+     * @nullable
+     */
+    integration?: number | null
+    /** Whether this is the managed PostHog warehouse destination. */
+    readonly is_posthog_warehouse?: boolean
+    readonly created_at?: string
+    /** @nullable */
+    readonly created_by?: number | null
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+/**
  * * `full_refresh` - full_refresh
  * * `incremental` - incremental
  * * `append` - append
@@ -15,9 +116,10 @@
  * * `cdc` - cdc
  * * `xmin` - xmin
  */
-export type SyncTypeEnumApi = (typeof SyncTypeEnumApi)[keyof typeof SyncTypeEnumApi]
+export type ExternalDataSchemaSyncTypeEnumApi =
+    (typeof ExternalDataSchemaSyncTypeEnumApi)[keyof typeof ExternalDataSchemaSyncTypeEnumApi]
 
-export const SyncTypeEnumApi = {
+export const ExternalDataSchemaSyncTypeEnumApi = {
     FullRefresh: 'full_refresh',
     Incremental: 'incremental',
     Append: 'append',
@@ -166,7 +268,7 @@ export interface ExternalDataSchemaApi {
      * * `webhook` - webhook
      * * `cdc` - cdc
      * * `xmin` - xmin */
-    sync_type?: SyncTypeEnumApi | null
+    sync_type?: ExternalDataSchemaSyncTypeEnumApi | null
     /**
      * Column name used to track sync progress.
      * @nullable
@@ -329,7 +431,7 @@ export interface PatchedExternalDataSchemaApi {
      * * `webhook` - webhook
      * * `cdc` - cdc
      * * `xmin` - xmin */
-    sync_type?: SyncTypeEnumApi | null
+    sync_type?: ExternalDataSchemaSyncTypeEnumApi | null
     /**
      * Column name used to track sync progress.
      * @nullable
@@ -418,16 +520,39 @@ export interface PatchedExternalDataSchemaApi {
 }
 
 /**
+ * Response shape for a table's destination override.
+ */
+export interface SchemaDestinationsApi {
+    /**
+     * The table's own destinations, or null when it follows its source.
+     * @nullable
+     */
+    destination_ids: string[] | null
+    /** Whether this table follows its source rather than having its own destinations. */
+    inherits_from_source: boolean
+    /** Where the table actually syncs, after inheritance is resolved. */
+    effective_destination_ids?: string[]
+}
+
+export interface PatchedDestinationLinkApi {
+    /**
+     * Destinations to sync to. On a table, null clears the override so the table follows its source again.
+     * @nullable
+     */
+    destination_ids?: string[] | null
+}
+
+/**
  * * `web` - web
  * * `api` - api
  * * `mcp` - mcp
  * * `wizard` - wizard
  * * `self_driving` - self_driving
  */
-export type ExternalDataSourceSerializersCreatedViaEnumApi =
-    (typeof ExternalDataSourceSerializersCreatedViaEnumApi)[keyof typeof ExternalDataSourceSerializersCreatedViaEnumApi]
+export type ExternalDataSourceCreatedViaEnumApi =
+    (typeof ExternalDataSourceCreatedViaEnumApi)[keyof typeof ExternalDataSourceCreatedViaEnumApi]
 
-export const ExternalDataSourceSerializersCreatedViaEnumApi = {
+export const ExternalDataSourceCreatedViaEnumApi = {
     Web: 'web',
     Api: 'api',
     Mcp: 'mcp',
@@ -3097,9 +3222,10 @@ export const ExternalDataSourceTypeEnumApi = {
  * * `warehouse` - warehouse
  * * `direct` - direct
  */
-export type AccessMethodEnumApi = (typeof AccessMethodEnumApi)[keyof typeof AccessMethodEnumApi]
+export type ExternalDataSourceAccessMethodEnumApi =
+    (typeof ExternalDataSourceAccessMethodEnumApi)[keyof typeof ExternalDataSourceAccessMethodEnumApi]
 
-export const AccessMethodEnumApi = {
+export const ExternalDataSourceAccessMethodEnumApi = {
     Warehouse: 'warehouse',
     Direct: 'direct',
 } as const
@@ -3149,7 +3275,7 @@ export interface ExternalDataSourceSerializersApi {
      * * `mcp` - mcp
      * * `wizard` - wizard
      * * `self_driving` - self_driving */
-    created_via?: ExternalDataSourceSerializersCreatedViaEnumApi | null
+    created_via?: ExternalDataSourceCreatedViaEnumApi | null
     readonly status: string
     client_secret: string
     account_id: string
@@ -3166,7 +3292,7 @@ export interface ExternalDataSourceSerializersApi {
      * @nullable
      */
     description?: string | null
-    readonly access_method: AccessMethodEnumApi
+    readonly access_method: ExternalDataSourceAccessMethodEnumApi
     /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
     /** Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources. */
@@ -4586,7 +4712,7 @@ export interface ExternalDataSourceCreateApi {
      *
      * * `warehouse` - warehouse
      * * `direct` - direct */
-    access_method?: AccessMethodEnumApi
+    access_method?: ExternalDataSourceAccessMethodEnumApi
     /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` and `self_driving` cannot be set directly — they are derived server-side for wizard- and PostHog Desktop-driven MCP calls. Defaults to `api`.
      *
      * * `web` - web
@@ -4595,6 +4721,8 @@ export interface ExternalDataSourceCreateApi {
     created_via?: ExternalDataSourceCreateCreatedViaEnumApi
     /** Whether a synced source should also be live-queryable via direct connection. Defaults to false; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
+    /** Destinations every table on this source writes to. Set here rather than afterwards, so the opening sync already carries them. Omit to write to the PostHog warehouse only. */
+    destination_ids?: string[]
 }
 
 export interface ExternalDataSourceCreateResponseApi {
@@ -4619,7 +4747,7 @@ export interface PatchedExternalDataSourceSerializersApi {
      * * `mcp` - mcp
      * * `wizard` - wizard
      * * `self_driving` - self_driving */
-    created_via?: ExternalDataSourceSerializersCreatedViaEnumApi | null
+    created_via?: ExternalDataSourceCreatedViaEnumApi | null
     readonly status?: string
     client_secret?: string
     account_id?: string
@@ -4636,7 +4764,7 @@ export interface PatchedExternalDataSourceSerializersApi {
      * @nullable
      */
     description?: string | null
-    readonly access_method?: AccessMethodEnumApi
+    readonly access_method?: ExternalDataSourceAccessMethodEnumApi
     /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
     /** Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources. */
@@ -4702,7 +4830,7 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      * * `webhook` - webhook
      * * `cdc` - cdc
      * * `xmin` - xmin */
-    sync_type?: SyncTypeEnumApi | null
+    sync_type?: ExternalDataSchemaSyncTypeEnumApi | null
     /**
      * Incremental cursor field for incremental or append syncs.
      * @nullable
@@ -4751,6 +4879,14 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
 export interface PatchedExternalDataSourceBulkUpdateSchemasApi {
     /** Schema updates to apply in a single batch. */
     schemas?: ExternalDataSourceBulkUpdateSchemaApi[]
+}
+
+/**
+ * Response shape for a source's destination set.
+ */
+export interface SourceDestinationsApi {
+    /** Destinations every table on this source syncs to. */
+    destination_ids: string[]
 }
 
 /**
@@ -6125,7 +6261,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      *
      * * `warehouse` - warehouse
      * * `direct` - direct */
-    readonly access_method: AccessMethodEnumApi
+    readonly access_method: ExternalDataSourceAccessMethodEnumApi
     /** Whether HogQL queries compile for this connection. When false, only raw SQL (sendRawQuery) works. */
     readonly supports_hogql: boolean
     /** Whether this option is the built-in PostHog managed warehouse connection. */
@@ -13031,6 +13167,17 @@ export interface PaginatedWarehouseColumnStatisticsListApi {
     /** @nullable */
     previous?: string | null
     results: WarehouseColumnStatisticsApi[]
+}
+
+export type ExternalDataDestinationsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type ExternalDataSchemasListParams = {

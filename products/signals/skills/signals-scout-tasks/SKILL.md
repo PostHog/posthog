@@ -75,8 +75,8 @@ It encodes the exclusions below.
 
 ## The exclusion that matters most
 
-**Always exclude `origin_product = 'signals_scout'`.**
-Those rows are the scout fleet's own run containers, not project work: they carry no repository and a single creator, and on an active project they can be the _largest_ origin by volume.
+**Always exclude `origin_product` in (`signals_scout`, `scout_suggestions`).**
+Those rows are the scout fleet's own run containers, the second being the scans that pre-compute a project's suggested scouts, not project work: they carry no repository and a single creator, and on an active project they can be the _largest_ origin by volume.
 They are not filtered out for you — the `internal` flag does not cover them.
 A run that forgets this exclusion is mostly measuring the scout fleet, and the demand lens would be reading the inbox's own output back as if it were user demand.
 
@@ -84,7 +84,7 @@ A run that forgets this exclusion is mostly measuring the scout fleet, and the d
 
 Close out on **runs, not task creation**.
 A project that creates no new tasks can still be running old ones daily, and those runs are exactly what lens A exists to watch — closing out on a task-creation count would skip today's failures entirely.
-So: if a 14-day count of non-`signals_scout` _runs_ is ~0, this project isn't using Tasks.
+So: if a 14-day count of _runs_ outside those two origins is ~0, this project isn't using Tasks.
 Write one scratchpad entry and stop:
 
 - key `not-in-use:tasks` — _"checked {timestamp}, no non-scout task runs in 14d"_
@@ -113,14 +113,14 @@ Both read the same tables and ask different questions.
 
 | Lens                    | Cadence                                        | Origins                                                      | Unit     | Question                        |
 | ----------------------- | ---------------------------------------------- | ------------------------------------------------------------ | -------- | ------------------------------- |
-| **A — delivery health** | every run                                      | non-internal, all except `signals_scout`                     | the run  | does agent work actually land?  |
+| **A — delivery health** | every run                                      | non-internal, all except the fleet's own origins             | the run  | does agent work actually land?  |
 | **B — demand**          | when `pattern:tasks:last-demand-pass` > 7d old | human only: `user_created`, `slack`, `posthog_ai`, `hogdesk` | the task | what do people keep asking for? |
 
 `onboarding` is deliberately absent: those tasks are generated server-side with a fixed title and a templated prompt, and only _attributed_ to the user who onboarded.
 Several of them clear the distinct-creator repetition test on their own and would manufacture a demand theme out of product-generated work.
 
 Lens B's origin filter is load-bearing, not tidiness.
-Machine origins (`signal_report`, `review_hog`, `loops`, `automation`, and the excluded `signals_scout`) are work the platform generated for itself.
+Machine origins (`signal_report`, `review_hog`, `loops`, `automation`, and the excluded `signals_scout` and `scout_suggestions`) are work the platform generated for itself.
 Counting them as demand manufactures a trend out of the inbox's own throughput.
 Read them in lens A, where "did it land" is exactly the right question for them, and never in lens B.
 
@@ -228,7 +228,7 @@ Author / edit / remember / skip, against the four-states classifier:
 
 ## Disqualifiers (skip these)
 
-- **The scout fleet's own rows** — `origin_product = 'signals_scout'`, always excluded, both lenses.
+- **The scout fleet's own rows** — `origin_product` in (`signals_scout`, `scout_suggestions`), always excluded, both lenses.
 - **Low absolute volume** — below this project's floor, a rate is noise.
   A handful of runs failing proves nothing.
 - **Retry storms read as systemic** — always compute runs ÷ distinct tasks before believing a big number.
