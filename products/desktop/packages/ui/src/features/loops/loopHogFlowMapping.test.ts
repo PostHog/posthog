@@ -124,7 +124,7 @@ describe("loopHogFlowMapping", () => {
       { from: "create_task", to: "exit", type: "continue" },
     ]);
     expect(schedule).toMatchObject({
-      rrule: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;BYHOUR=9;BYMINUTE=0;BYSECOND=0",
+      rrule: "FREQ=WEEKLY;INTERVAL=1;BYDAY=MO,TU,WE,TH,FR",
       timezone: "Europe/Lisbon",
     });
   });
@@ -319,8 +319,7 @@ describe("loopHogFlowMapping", () => {
     [
       "a schedule rule the form cannot express",
       (flow: LoopHogFlowSource) => {
-        must(flow.schedules)[0].rrule =
-          "FREQ=DAILY;INTERVAL=2;BYHOUR=9;BYMINUTE=0";
+        must(flow.schedules)[0].rrule = "FREQ=DAILY;INTERVAL=2";
       },
     ],
   ])(

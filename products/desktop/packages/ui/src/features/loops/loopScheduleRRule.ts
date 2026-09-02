@@ -1,9 +1,21 @@
 import type { HogFlowScheduleWrite } from "@posthog/api-client/hogFlowLoops";
 import type { LoopSchemas } from "@posthog/api-client/loops";
+import { nextRecurringRun } from "@posthog/ui/primitives/nextRecurringRun";
 import { parseCronSchedule } from "./loopCron";
+
+/**
+ * Loop schedule <-> workflow schedule row, in the shape the workflow editor
+ * writes: the RRULE carries frequency, interval and weekdays only, and the
+ * time of day lives in `starts_at`. The scheduler expands the rule from
+ * `starts_at` in the schedule's timezone, and the editor reads the clock time
+ * back from it, so a rule that carries its own BYHOUR would show one time in
+ * the editor and fire at another.
+ */
 
 const WEEKDAY_CODES = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"] as const;
 const WORKWEEK = "MO,TU,WE,TH,FR";
+/** Same string the workflow editor writes for a one-time schedule. */
+const ONE_TIME_RRULE = "FREQ=DAILY;COUNT=1";
 
 /** Anything beyond these keys means a person edited the rule outside the loop
  * form, and the four presets can no longer describe it. */
@@ -12,22 +24,64 @@ const KNOWN_RRULE_KEYS = new Set([
   "INTERVAL",
   "COUNT",
   "BYDAY",
-  "BYHOUR",
-  "BYMINUTE",
-  "BYSECOND",
+  "WKST",
 ]);
 
-function timeParts(time: string): { hour: number; minute: number } {
-  const [hour, minute] = time.split(":").map(Number);
-  return { hour, minute };
+interface WallClock {
+  /** "HH:MM", 24-hour. */
+  time: string;
+  /** "0" (Sunday) to "6" (Saturday), matching cron and the loop picker. */
+  weekday: string;
 }
 
-function timedRule(freq: string, time: string, byDay?: string): string {
-  const { hour, minute } = timeParts(time);
-  const parts = [`FREQ=${freq}`];
-  if (byDay) parts.push(`BYDAY=${byDay}`);
-  parts.push(`BYHOUR=${hour}`, `BYMINUTE=${minute}`, "BYSECOND=0");
-  return parts.join(";");
+const WEEKDAY_BY_SHORT_NAME: Record<string, string> = {
+  Sun: "0",
+  Mon: "1",
+  Tue: "2",
+  Wed: "3",
+  Thu: "4",
+  Fri: "5",
+  Sat: "6",
+};
+
+/** The clock time and weekday of an instant in a timezone, or null when the
+ * instant or the timezone cannot be read. */
+function wallClock(instant: string, timezone: string): WallClock | null {
+  const date = new Date(instant);
+  if (Number.isNaN(date.getTime())) return null;
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      hourCycle: "h23",
+      hour: "2-digit",
+      minute: "2-digit",
+      weekday: "short",
+    }).formatToParts(date);
+  } catch {
+    return null;
+  }
+  const read = (type: string) =>
+    parts.find((part) => part.type === type)?.value;
+  const hour = read("hour");
+  const minute = read("minute");
+  const weekday = WEEKDAY_BY_SHORT_NAME[read("weekday") ?? ""];
+  if (!hour || !minute || !weekday) return null;
+  // Some engines render midnight as "24" under h23.
+  return { time: `${hour === "24" ? "00" : hour}:${minute}`, weekday };
+}
+
+function presetRRule(frequency: string, weekday: string): string {
+  switch (frequency) {
+    case "hourly":
+      return "FREQ=HOURLY;INTERVAL=1";
+    case "daily":
+      return "FREQ=DAILY;INTERVAL=1";
+    case "weekdays":
+      return `FREQ=WEEKLY;INTERVAL=1;BYDAY=${WORKWEEK}`;
+    default:
+      return `FREQ=WEEKLY;INTERVAL=1;BYDAY=${WEEKDAY_CODES[Number(weekday)]}`;
+  }
 }
 
 /**
@@ -35,9 +89,8 @@ function timedRule(freq: string, time: string, byDay?: string): string {
  * a cron the frequency picker cannot express, so a caller never sends a rule
  * that silently drops part of the cadence.
  *
- * Presets anchor `starts_at` at `now`: the rule carries the clock time itself
- * (BYHOUR/BYMINUTE), so the anchor only bounds the first occurrence. A one-off
- * anchors at `run_at` with COUNT=1, so the single occurrence is the anchor.
+ * `starts_at` is the next occurrence at the chosen time in the schedule's
+ * timezone, so the row reads the same in the workflow editor as in the loop.
  */
 export function scheduleConfigToHogFlowSchedule(
   config: LoopSchemas.LoopScheduleTriggerConfig,
@@ -45,37 +98,17 @@ export function scheduleConfigToHogFlowSchedule(
 ): HogFlowScheduleWrite | null {
   const timezone = config.timezone ?? "UTC";
   if (config.run_at) {
-    return { rrule: "FREQ=DAILY;COUNT=1", starts_at: config.run_at, timezone };
+    return { rrule: ONE_TIME_RRULE, starts_at: config.run_at, timezone };
   }
   const schedule = parseCronSchedule(config.cron_expression);
   if (!schedule) return null;
-  const starts_at = now.toISOString();
-  switch (schedule.frequency) {
-    case "hourly":
-      return {
-        rrule: "FREQ=HOURLY;BYMINUTE=0;BYSECOND=0",
-        starts_at,
-        timezone,
-      };
-    case "daily":
-      return { rrule: timedRule("DAILY", schedule.time), starts_at, timezone };
-    case "weekdays":
-      return {
-        rrule: timedRule("WEEKLY", schedule.time, WORKWEEK),
-        starts_at,
-        timezone,
-      };
-    case "weekly":
-      return {
-        rrule: timedRule(
-          "WEEKLY",
-          schedule.time,
-          WEEKDAY_CODES[Number(schedule.weekday)],
-        ),
-        starts_at,
-        timezone,
-      };
-  }
+  const startsAt = nextRecurringRun(schedule, timezone, now);
+  if (!startsAt) return null;
+  return {
+    rrule: presetRRule(schedule.frequency, schedule.weekday),
+    starts_at: startsAt.toISOString(),
+    timezone,
+  };
 }
 
 function parseRRule(rrule: string): Map<string, string> | null {
@@ -89,20 +122,11 @@ function parseRRule(rrule: string): Map<string, string> | null {
   return parts;
 }
 
-function cronTime(parts: Map<string, string>): string | null {
-  const hour = Number(parts.get("BYHOUR"));
-  const minute = Number(parts.get("BYMINUTE") ?? "0");
-  if (!parts.has("BYHOUR") || !Number.isInteger(hour) || hour > 23) {
-    return null;
-  }
-  if (!Number.isInteger(minute) || minute > 59) return null;
-  return `${minute} ${hour}`;
-}
-
 /**
  * Reads a workflow schedule row back into the loop form's schedule config.
- * Returns null when the rule is not one the form wrote, which marks the loop as
- * edited outside the form rather than guessing at a nearby preset.
+ * Returns null when the rule is not one the form (or the workflow editor's
+ * matching controls) would write, which marks the loop as edited outside the
+ * form rather than guessing at a nearby preset.
  */
 export function hogFlowScheduleToScheduleConfig(schedule: {
   rrule: string;
@@ -115,60 +139,68 @@ export function hogFlowScheduleToScheduleConfig(schedule: {
     if (!KNOWN_RRULE_KEYS.has(key)) return null;
   }
   if ((parts.get("INTERVAL") ?? "1") !== "1") return null;
-  if ((parts.get("BYSECOND") ?? "0") !== "0") return null;
   const timezone = schedule.timezone ?? "UTC";
   const freq = parts.get("FREQ");
+  const byDay = parts.get("BYDAY");
 
   if (parts.has("COUNT")) {
-    if (parts.get("COUNT") !== "1" || freq !== "DAILY") return null;
-    if (parts.has("BYHOUR") || parts.has("BYDAY")) return null;
+    if (parts.get("COUNT") !== "1" || freq !== "DAILY" || byDay) return null;
     return { run_at: schedule.starts_at, timezone };
   }
 
+  const clock = wallClock(schedule.starts_at, timezone);
+  if (!clock) return null;
+  const [hour, minute] = clock.time.split(":").map(Number);
+  const cronTime = `${minute} ${hour}`;
+
   if (freq === "HOURLY") {
-    if ((parts.get("BYMINUTE") ?? "0") !== "0" || parts.has("BYHOUR")) {
-      return null;
-    }
+    // The picker's hourly preset is on the hour; an anchor at :30 would fire
+    // at :30 and cannot be shown as "hourly".
+    if (byDay || minute !== 0) return null;
     return { cron_expression: "0 * * * *", timezone };
   }
-
-  const time = cronTime(parts);
-  if (!time) return null;
-
   if (freq === "DAILY") {
-    if (parts.has("BYDAY")) return null;
-    return { cron_expression: `${time} * * *`, timezone };
+    if (byDay) return null;
+    return { cron_expression: `${cronTime} * * *`, timezone };
   }
-
   if (freq === "WEEKLY") {
-    const byDay = parts.get("BYDAY");
     if (byDay === WORKWEEK) {
-      return { cron_expression: `${time} * * 1-5`, timezone };
+      return { cron_expression: `${cronTime} * * 1-5`, timezone };
+    }
+    // No BYDAY means the weekday of starts_at, which is how the editor
+    // stores a weekly schedule before a day pill is picked.
+    if (!byDay) {
+      return { cron_expression: `${cronTime} * * ${clock.weekday}`, timezone };
     }
     const weekday = WEEKDAY_CODES.indexOf(
       byDay as (typeof WEEKDAY_CODES)[number],
     );
     if (weekday === -1) return null;
-    return { cron_expression: `${time} * * ${weekday}`, timezone };
+    return { cron_expression: `${cronTime} * * ${weekday}`, timezone };
   }
-
   return null;
 }
 
 /**
  * Whether an existing schedule row already expresses the desired cadence. A
- * preset ignores `starts_at`, because rewriting the anchor makes the scheduler
- * recompute `next_run_at` and can skip an occurrence that was about to fire.
+ * preset compares the clock time `starts_at` encodes rather than the instant,
+ * because rewriting the anchor makes the scheduler recompute `next_run_at`
+ * and can skip an occurrence that was about to fire.
  */
 export function hogFlowScheduleMatches(
   existing: { rrule: string; starts_at: string; timezone?: string | null },
   desired: HogFlowScheduleWrite,
 ): boolean {
   if (existing.rrule !== desired.rrule) return false;
-  if ((existing.timezone ?? "UTC") !== desired.timezone) return false;
-  if (!desired.rrule.includes("COUNT=1")) return true;
-  return (
-    new Date(existing.starts_at).getTime() ===
-    new Date(desired.starts_at).getTime()
-  );
+  const timezone = existing.timezone ?? "UTC";
+  if (timezone !== desired.timezone) return false;
+  if (desired.rrule === ONE_TIME_RRULE) {
+    return (
+      new Date(existing.starts_at).getTime() ===
+      new Date(desired.starts_at).getTime()
+    );
+  }
+  const before = wallClock(existing.starts_at, timezone);
+  const after = wallClock(desired.starts_at, timezone);
+  return !!before && !!after && before.time === after.time;
 }
