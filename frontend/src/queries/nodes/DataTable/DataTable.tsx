@@ -1099,16 +1099,9 @@ export function DataTable({
                                                 query={query}
                                                 queryId={responseErrorObject?.queryId ?? queryId}
                                                 titleStatus={responseErrorObject?.status}
-                                                // A cancel is the user's own action: no apology or bug-report guidance
-                                                excludeDetail={queryCancelled}
+                                                cancelled={queryCancelled}
                                                 onRetry={() => loadData('force_blocking')}
-                                                title={
-                                                    queryCancelled
-                                                        ? 'The query was cancelled'
-                                                        : response && 'error' in response
-                                                          ? response.error
-                                                          : responseError
-                                                }
+                                                title={response && 'error' in response ? response.error : responseError}
                                             />
                                         ) : (
                                             <InsightErrorState

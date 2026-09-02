@@ -360,13 +360,8 @@ export const Table = (props: TableProps): JSX.Element => {
                         <InsightErrorState
                             query={props.query}
                             excludeDetail
-                            title={
-                                queryCancelled
-                                    ? 'The query was cancelled'
-                                    : response && 'error' in response
-                                      ? (response as any).error
-                                      : responseError
-                            }
+                            cancelled={queryCancelled}
+                            title={response && 'error' in response ? (response as any).error : responseError}
                         />
                     ) : (
                         <InsightEmptyState

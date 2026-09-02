@@ -1099,11 +1099,7 @@ const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warn
 }
 
 const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: any): JSX.Element | null => {
-    const error = queryCancelled
-        ? 'The query was cancelled'
-        : response && 'error' in response && !!response.error
-          ? response.error
-          : responseError
+    const error = response && 'error' in response && !!response.error ? response.error : responseError
 
     return (
         <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-auto')}>
@@ -1111,6 +1107,7 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
                 <InsightErrorState
                     query={sourceQuery}
                     excludeDetail
+                    cancelled={queryCancelled}
                     title={
                         <pre className="text-xs bg-danger-highlight p-2 rounded overflow-auto max-h-40 max-w-[80%] mx-auto text-left whitespace-pre-wrap break-words">
                             {error}
