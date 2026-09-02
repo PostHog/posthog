@@ -1,7 +1,6 @@
-import { ConnectError } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
 
-import { grpcErrorType } from '~/common/personhog/metrics'
+import { errorClassLabel } from '~/common/personhog/metrics'
 import {
     personhogStoreShadowCompareFailedCounter,
     personhogStoreShadowComparedCounter,
@@ -118,15 +117,6 @@ class ShadowVerbTimeoutError extends Error {
     }
 }
 
-/** A bounded label: gRPC faults carry their status code, everything else its class name. */
-function errorClass(error: unknown): string {
-    if (error instanceof ConnectError) {
-        return grpcErrorType(error)
-    }
-    const name = error instanceof Error ? error.constructor?.name : undefined
-    return typeof name === 'string' && name.length > 0 && name.length <= 64 ? name : 'unknown'
-}
-
 /**
  * Routes person-store verbs between the backends: personhog mode sends
  * every verb to the personhog store; shadow runs Postgres as the
@@ -169,7 +159,7 @@ export class RoutingPersonsStore implements PersonsStore {
         } catch (error) {
             // Labelled by class as well as verb: the failures a rollout
             // must tell apart read identically under one number.
-            personhogStoreShadowErrorsCounter.labels({ verb, error: errorClass(error) }).inc()
+            personhogStoreShadowErrorsCounter.labels({ verb, error: errorClassLabel(error) }).inc()
             logger.warn('personhog shadow verb failed', { verb, error: String(error) })
         } finally {
             clearTimeout(timer)
@@ -519,7 +509,7 @@ export class RoutingPersonsStore implements PersonsStore {
         try {
             this.personhog.abandonBatch(batchId)
         } catch (error) {
-            personhogStoreShadowErrorsCounter.labels({ verb: 'releaseBatch', error: errorClass(error) }).inc()
+            personhogStoreShadowErrorsCounter.labels({ verb: 'releaseBatch', error: errorClassLabel(error) }).inc()
             logger.warn('personhog shadow release failed', { batchId, error: String(error) })
         }
     }

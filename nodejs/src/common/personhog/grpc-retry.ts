@@ -32,12 +32,6 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Attempts a call makes under the default retry policy; exported so
- * derived deadlines multiply by the number the loop actually runs.
- */
-export const GRPC_DEFAULT_ATTEMPTS = 3
-
-/**
  * Retry a function with exponential backoff on transient gRPC errors.
  * Non-transient errors are thrown immediately.
  *
@@ -50,7 +44,7 @@ export async function withRetry<T>(
     fn: () => Promise<T>,
     client: string,
     method: string,
-    maxRetries: number = GRPC_DEFAULT_ATTEMPTS - 1,
+    maxRetries: number = 2,
     initialDelayMs: number = 50
 ): Promise<T> {
     let lastError: unknown

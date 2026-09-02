@@ -96,6 +96,13 @@ function getFoldableAnonDistinctId(item: MergeFoldScanItem): string | null {
 }
 
 /**
+ * The most sources one folded request may carry, matching the identity
+ * service's max_batch_size default; a run past a smaller server cap is
+ * refused there and degrades to the sequential fallback.
+ */
+const MAX_FOLD_SOURCES = 250
+
+/**
  * Build the group chunk step that decides, per value, whether the event folds
  * or processes immediately. The step is always wired; whether it plans
  * anything is its own decision, gated on the enabled flag and the team
@@ -107,12 +114,6 @@ function getFoldableAnonDistinctId(item: MergeFoldScanItem): string | null {
  * with the distinct anon ids as pairs (first event wins the pair's eventUuid;
  * self-merges are excluded). Every other value gets the `immediate` decision.
  */
-/**
- * The most sources one folded request may carry, matching the saga's
- * MAX_MERGE_BATCH_SIZE; a larger value is refused server-side.
- */
-const MAX_FOLD_SOURCES = 250
-
 export function createMergeFoldPlanningStep<T extends MergeFoldScanItem>(
     options: MergeFoldOptions
 ): ChunkProcessingStep<T, T & WithMergeFoldDecision> {
