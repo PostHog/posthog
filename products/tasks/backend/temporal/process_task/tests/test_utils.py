@@ -452,6 +452,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
             task_origin=None,
             task_agent_key=None,
             credential_owner_id=None,
+            allowed_installation_ids=None,
             allowed_gateway_server_ids=None,
         )
         assert configs == [
@@ -477,28 +478,21 @@ class TestFetchUserMcpServerConfigs(TestCase):
 
         assert configs[0].description == "Manage Linear issues, projects, and workflows."
 
+    @parameterized.expand([("selection", ["keep"]), ("empty_selection", [])])
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)
-    def test_allowlist_restricts_mounted_connectors(self, mock_facade, mock_api_url) -> None:
-        # A loop run snapshots the connectors its owner selected. Without enforcement the sandbox
-        # mounts every shared team connector; the allowlist must keep only the selected ones.
+    def test_installation_allowlist_is_forwarded_to_the_facade(
+        self, _name: str, allowed: list[str], mock_facade, mock_api_url
+    ) -> None:
+        # A loop run snapshots the connectors its owner selected. The facade applies the list on
+        # the member path (and only there), so this layer must hand it over untouched, an empty
+        # selection included.
         mock_api_url.return_value = self.API_BASE
-        mock_facade.return_value = [
-            self._make_installation(id="keep", name="Kept"),
-            self._make_installation(id="drop", name="Dropped"),
-        ]
+        mock_facade.return_value = []
 
-        configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, allowed_installation_ids=["keep"])
+        get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, allowed_installation_ids=allowed)
 
-        assert [config.name for config in configs] == ["Kept"]
-
-    @patch(MOCK_API_URL)
-    @patch(MOCK_FACADE)
-    def test_empty_allowlist_mounts_nothing(self, mock_facade, mock_api_url) -> None:
-        mock_api_url.return_value = self.API_BASE
-        mock_facade.return_value = [self._make_installation()]
-
-        assert get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, allowed_installation_ids=[]) == []
+        assert mock_facade.call_args.kwargs["allowed_installation_ids"] == allowed
 
     @parameterized.expand(
         [
@@ -572,6 +566,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
             task_origin="support_reply",
             task_agent_key="support",
             credential_owner_id=self.CREDENTIAL_OWNER_ID,
+            allowed_installation_ids=None,
             allowed_gateway_server_ids=["server-1"],
         )
         assert configs == [
@@ -603,6 +598,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
             task_origin=None,
             task_agent_key=None,
             credential_owner_id=None,
+            allowed_installation_ids=None,
             allowed_gateway_server_ids=None,
         )
 
