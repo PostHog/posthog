@@ -7,17 +7,14 @@
 name: MCP Container Image CD
 
 on:
+    # No paths filter on master. GitHub derives the push diff from its own record of
+    # how master advanced, and that record sometimes omits an update, which makes the
+    # diff empty and skips the build for code that is on master. The changes job below
+    # decides from repository state instead, so a dropped push event costs one commit
+    # of latency rather than an unbuilt image.
     push:
         branches:
             - master
-        paths:
-            - 'services/mcp/**'
-            - '.github/workflows/cd-mcp-image.yml'
-            # Bundled into the MCP image at build time (copy-instructions.ts `shared/` copy +
-            # shared parser sources) — without these paths an edit there never rebuilds the
-            # image and the bundle goes stale.
-            - 'products/ai_observability/backend/prompts/parser_recipe_examples.yaml'
-            - 'packages/llm-normalizer/**'
     # paths mirror the push trigger; the build-mcp-image label only forces a
     # build on PRs touching these paths, use workflow_dispatch otherwise.
     pull_request:
@@ -29,12 +26,65 @@ on:
             - 'packages/llm-normalizer/**'
     workflow_dispatch:
 
+# Master pushes group per SHA so two of them never cancel each other's deploy dispatch.
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+    changes:
+        name: Check build paths against the last build
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            actions: read
+        outputs:
+            build: ${{ steps.check.outputs.result }}
+        steps:
+            - name: Compare against the last successful master build
+              id: check
+              uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea # v7.0.1
+              with:
+                  result-encoding: string
+                  # Keep BUILD_PATHS in sync with the pull_request paths filter below.
+                  script: |
+                      if (context.eventName !== 'push') return 'true';
+                      const BUILD_PATHS = [
+                        'services/mcp/',
+                        '.github/workflows/cd-mcp-image.yml',
+                        'products/ai_observability/backend/prompts/parser_recipe_examples.yaml',
+                        'packages/llm-normalizer/',
+                      ];
+                      const { data: runs } = await github.rest.actions.listWorkflowRuns({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        workflow_id: 'cd-mcp-image.yml',
+                        branch: 'master',
+                        event: 'push',
+                        status: 'success',
+                        per_page: 1,
+                      });
+                      const base = runs.workflow_runs[0]?.head_sha;
+                      if (!base) return 'true';
+                      if (base === context.sha) return 'false';
+                      const { data: cmp } = await github.rest.repos.compareCommitsWithBasehead({
+                        owner: context.repo.owner,
+                        repo: context.repo.repo,
+                        basehead: `${base}...${context.sha}`,
+                      });
+                      // compareCommits caps files at 300, so a wider window cannot be ruled out.
+                      if (cmp.status === 'diverged' || !cmp.files || cmp.files.length >= 300) return 'true';
+                      const changed = cmp.files.some((f) => BUILD_PATHS.some((p) => f.filename.startsWith(p)));
+                      core.info(`base=${base} commits=${cmp.total_commits} files=${cmp.files.length} build=${changed}`);
+                      return String(changed);
+
     build:
         name: Build and push container image
+        needs: changes
         if: |
             github.repository_owner == 'PostHog' && (
-                github.event_name == 'push' ||
+                (github.event_name == 'push' && needs.changes.outputs.build == 'true') ||
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-mcp-image')
             )
