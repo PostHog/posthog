@@ -102,7 +102,7 @@ function ConnectView({
                 <RequestAccessSection definition={definition} />
             ) : (
                 // onClickCapture fires before the connect button triggers its OAuth redirect
-                <div onClickCapture={onConnectClick}>
+                <div className="w-full" onClickCapture={onConnectClick}>
                     <SettingsSection next={urls.integration(definition.slug)} centered />
                 </div>
             )}
