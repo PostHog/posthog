@@ -1,15 +1,16 @@
 import json
 from collections import Counter
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 
 from django.db.models import IntegerField, Sum, Value
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Coalesce, TruncDay
 
 import structlog
 from dateutil.relativedelta import relativedelta
 
+from posthog.dataclasses import frozen
 from posthog.date_util import start_of_month
 from posthog.models.organization import Organization
 from posthog.settings.utils import get_from_env
@@ -89,11 +90,16 @@ class QuotaState:
 
     # None means no limit applies: an org billing synced with no spend limit, or a scanner with no cap set.
     credit_limit: int | None
+    # `credits_settled + credits_reserved`; kept as a field because gates read only this one number.
     credits_used: int
     period_start: datetime
     period_end: datetime
     # Display-only: the slice of `credit_limit` that never bills; see FREE_TIER_MONTHLY_CREDITS.
     free_monthly_credits: int = FREE_TIER_MONTHLY_CREDITS
+    # Posted to the receipt ledger; deletes cannot refund it.
+    credits_settled: int = 0
+    # Held by in-flight observations and running prompt evaluations; released without a receipt on failure.
+    credits_reserved: int = 0
 
     @property
     def remaining(self) -> int | None:
@@ -170,15 +176,33 @@ def _as_utc(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
 
 
+def _roll_period_forward(start: datetime, end: datetime, now: datetime) -> BillingPeriod:
+    """Advance a stale synced period along its own cadence until it contains `now`."""
+    whole_months = (end.year - start.year) * 12 + end.month - start.month
+    # Anniversary plans keep their day of month, so a whole-month period rolls by calendar months.
+    if whole_months > 0 and start + relativedelta(months=whole_months) == end:
+        while now >= end:
+            start, end = end, end + relativedelta(months=whole_months)
+        return BillingPeriod(start=start, end=end)
+    length = end - start
+    elapsed = (now - start) // length
+    start = start + elapsed * length
+    return BillingPeriod(start=start, end=start + length)
+
+
 def _current_period_bounds(organization: Organization | None, now: datetime) -> BillingPeriod:
-    """The org's active billing period when synced and current, else the calendar month containing `now`."""
+    """The org's synced billing period rolled forward to contain `now`; the calendar month when unsynced.
+
+    A billing sync that lags past the period's end must not snap the window to calendar months, or an
+    anniversary-plan org would see its spend counted against a period boundary billing never uses.
+    """
     billing_period = organization.current_billing_period if organization else None
     if billing_period:
         start = _as_utc(billing_period.start)
         end = _as_utc(billing_period.end)
-        # Gate before constructing so a malformed synced period falls back to the calendar month
-        if start <= now < end:
-            return BillingPeriod(start=start, end=end)
+        # A malformed or not-yet-started period cannot be rolled, so it falls back to the calendar month.
+        if start < end and start <= now:
+            return _roll_period_forward(start, end, now)
     return _current_month_bounds(now)
 
 
@@ -366,8 +390,13 @@ def _sum_enabled_scanner_estimated_credits(organization_id: UUID, exclude_scanne
     if exclude_scanner_id is not None:
         scanners = scanners.exclude(pk=exclude_scanner_id)
     # Credit weighting happens in Python: the per-model price table lives in code, and orgs have few scanners.
-    rows = scanners.values_list("model", "estimated_monthly_observations")
-    return sum(observation_credits_for_model(model) * (estimate or 0) for model, estimate in rows)
+    rows = scanners.values_list("model", "estimated_monthly_observations", "credit_limit")
+    total = 0
+    for model, estimate, credit_limit in rows:
+        projected = observation_credits_for_model(model) * (estimate or 0)
+        # A capped scanner stops at its limit, so its estimate cannot project past it.
+        total += projected if credit_limit is None else min(projected, credit_limit)
+    return total
 
 
 def _sum_active_backfill_remaining_credits(organization_id: UUID) -> int:
@@ -400,7 +429,12 @@ def _billing_synced_limit(organization: Organization | None) -> tuple[bool, int 
     if limit is None:
         return True, None
     if isinstance(limit, (int, float)) and not isinstance(limit, bool):
-        return True, int(limit)
+        if limit < 0:
+            # A negative limit would read as permanently over; clamp to a hard block instead.
+            logger.warning(
+                "replay_vision.negative_billing_limit", organization_id=str(organization.id), limit=repr(limit)
+            )
+        return True, max(0, int(limit))
     # A malformed limit must fail toward the env cap, never toward uncapped.
     logger.warning("replay_vision.malformed_billing_limit", organization_id=str(organization.id), limit=repr(limit))
     return False, None
@@ -447,7 +481,7 @@ def quota_state(organization_id: UUID) -> QuotaState:
     )
     in_flight = sum(observation_credits_for_model(model or "") * count for model, count in in_flight_models.items())
     # Prompt tests have no observation rows. Their unsettled sessions are committed spend too.
-    usage = consumed + in_flight + in_flight_evaluation_credits(organization_id)
+    reserved = in_flight + in_flight_evaluation_credits(organization_id)
     synced, credit_limit = _billing_synced_limit(organization)
     if not synced:
         credit_limit = MONTHLY_CREDIT_QUOTA
@@ -458,9 +492,11 @@ def quota_state(organization_id: UUID) -> QuotaState:
         credit_limit = override if credit_limit is None else min(credit_limit, override)
     return QuotaState(
         credit_limit=credit_limit,
-        credits_used=usage,
+        credits_used=consumed + reserved,
         period_start=period.start,
         period_end=period.end,
+        credits_settled=consumed,
+        credits_reserved=reserved,
     )
 
 
@@ -477,7 +513,53 @@ def compute_quota_snapshot(organization_id: UUID) -> QuotaSnapshot:
         period_start=state.period_start,
         period_end=state.period_end,
         free_monthly_credits=state.free_monthly_credits,
+        credits_settled=state.credits_settled,
+        credits_reserved=state.credits_reserved,
         projected_monthly_credits=projection.total,
         scanners_monthly_credits=projection.scanners_monthly_credits,
         backfills_committed_credits=projection.backfills_committed_credits,
     )
+
+
+@frozen
+class DailySpend:
+    date: date
+    credits: int
+
+
+@frozen
+class DailySpendSeries:
+    """Settled credits per UTC day from the period start through today, zero-filled and in order."""
+
+    period_start: datetime
+    period_end: datetime
+    days: tuple[DailySpend, ...]
+
+
+def daily_spend_series(organization_id: UUID) -> DailySpendSeries:
+    now = datetime.now(UTC)
+    organization = Organization.objects.filter(pk=organization_id).only("usage").first()
+    # Same `now` as the window so the series can never straddle a period boundary.
+    period = _current_period_bounds(organization, now)
+    rows = (
+        ReplayObservationUsage.objects.filter(
+            organization_id=organization_id,
+            observation_created_at__gte=period.start,
+            observation_created_at__lt=period.end,
+        )
+        .annotate(day=TruncDay("observation_created_at", tzinfo=UTC))
+        .values("day")
+        .annotate(total=Coalesce(Sum("credits"), Value(0), output_field=IntegerField()))
+        .order_by()
+        .values_list("day", "total")
+    )
+    credits_by_day = {day.date(): total for day, total in rows}
+    first_day = period.start.date()
+    day_count = (now.date() - first_day).days + 1
+    days = tuple(
+        DailySpend(
+            date=first_day + timedelta(days=offset), credits=credits_by_day.get(first_day + timedelta(days=offset), 0)
+        )
+        for offset in range(day_count)
+    )
+    return DailySpendSeries(period_start=period.start, period_end=period.end, days=days)

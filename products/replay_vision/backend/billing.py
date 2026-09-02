@@ -22,10 +22,7 @@ logger = structlog.get_logger(__name__)
 
 CREDITS_PER_DOLLAR = 100  # 1 credit = $0.01, matching ai_credits
 
-# Google's list prices, tracked from GEMINI_PRICING_URL (standard tier, prompts <= 200k tokens).
-GEMINI_PRICING_URL = "https://ai.google.dev/gemini-api/docs/pricing"
-
-
+# Google's list prices, tracked from https://ai.google.dev/gemini-api/docs/pricing (standard tier, prompts <= 200k tokens).
 GeminiTier = Literal["flash lite", "flash", "pro"]
 
 
