@@ -16,6 +16,7 @@ from posthog.scopes import (
     OAUTH_SCOPES_HIDDEN,
     OIDC_SCOPES,
     PRIVILEGED_SCOPES,
+    PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION,
     UNPRIVILEGED_SCOPES,
     clamp_scopes_to_ceiling,
     downgrade_scopes_to_read_only,
@@ -102,7 +103,9 @@ class TestScopeSets(BaseTest):
     def test_unprivileged_scopes_excludes_internal_scope(self, scope: str) -> None:
         self.assertNotIn(scope, UNPRIVILEGED_SCOPES)
 
-    @parameterized.expand([("insight:read",), ("dashboard:write",), ("query:read",)])
+    @parameterized.expand(
+        [("insight:read",), ("dashboard:write",), ("query:read",), ("customer_task:read",), ("customer_task:write",)]
+    )
     def test_unprivileged_scopes_covers_known_public_scope(self, scope: str) -> None:
         # Spot-check: a generic OAuth client should be able to request these.
         self.assertIn(scope, UNPRIVILEGED_SCOPES)
@@ -134,6 +137,10 @@ class TestScopeSets(BaseTest):
         for oidc in OIDC_SCOPES:
             self.assertIn(oidc, supported)
         self.assertEqual(supported - set(OIDC_SCOPES), UNPRIVILEGED_SCOPES)
+
+    def test_customer_task_scopes_are_not_available_to_project_secret_api_keys(self) -> None:
+        self.assertNotIn(("customer_task", "read"), PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)
+        self.assertNotIn(("customer_task", "write"), PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)
 
     def test_all_scope_objects_fit_in_oauthapplication_scopes_charfield(self) -> None:
         # OAuthApplication.scopes is ArrayField(CharField(max_length=100)), matching

@@ -556,11 +556,19 @@ class TestResourceAccessControlsSecurityValidation(BaseAccessControlTest):
         )
         assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
 
-    def test_resource_access_controls_allowed_on_project_viewset(self):
+    @parameterized.expand(
+        [
+            ("dashboard_editor", "dashboard", "editor"),
+            ("customer_task_viewer", "customer_task", "viewer"),
+            ("customer_task_editor", "customer_task", "editor"),
+            ("customer_task_manager", "customer_task", "manager"),
+        ]
+    )
+    def test_resource_access_controls_allowed_on_project_viewset(self, _name, resource, access_level):
         self._org_membership(OrganizationMembership.Level.ADMIN)
         res = self.client.put(
             "/api/projects/@current/resource_access_controls",
-            {"resource": "dashboard", "access_level": "editor"},
+            {"resource": resource, "access_level": access_level},
         )
         assert res.status_code == status.HTTP_200_OK, res.json()
 

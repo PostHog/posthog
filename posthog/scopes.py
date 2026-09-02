@@ -33,6 +33,7 @@ APIScopeObject = Literal[
     "comment",
     "conversation",
     "customer_analytics",
+    "customer_task",
     "customer_journey",
     "customer_profile_config",
     "data_catalog",

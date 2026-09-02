@@ -43,6 +43,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'conversation:write',
     'customer_analytics:read',
     'customer_analytics:write',
+    'customer_task:read',
+    'customer_task:write',
     'customer_journey:read',
     'customer_journey:write',
     'customer_profile_config:read',
