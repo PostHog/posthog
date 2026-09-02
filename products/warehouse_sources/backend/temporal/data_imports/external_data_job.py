@@ -56,6 +56,9 @@ from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     get_v3_lock_skipped_metric,
     get_version_check_skipped_metric,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
+    DECIMAL_OVERFLOW_FRAGMENT,
+)
 from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
     PostImportWorkflow,
     PostImportWorkflowInputs,
@@ -150,10 +153,10 @@ Any_Source_Errors: dict[str, str | None] = {
     ),
     # The decimal case of the entry below, and it has to stay above it: the first matching key wins,
     # and the general message promises that a reset adopts the new type. That is wrong when the source
-    # column is declared wider than we can store, because the reset recreates the column at the same
-    # clamped type and fails again. The raw message names the column, its stored type and both
-    # remedies, so keep it rather than replacing it with a generic one.
-    "has decimal values that no longer fit its stored type": None,
+    # column is wider than Delta stores as a number, because the reset re-creates the column as text.
+    # The raw message names the column, its stored type and the right remedy for each case, so keep it
+    # rather than replacing it with a generic one.
+    DECIMAL_OVERFLOW_FRAGMENT: None,
     # Raised by the pipeline when a column's incoming values no longer fit the stored Delta column
     # type — the source column was widened (e.g. Postgres `integer` → `bigint`) or now carries larger
     # decimals than the stored type can hold. delta-rs can't widen a column in place, so every retry
