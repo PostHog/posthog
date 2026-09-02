@@ -1,6 +1,7 @@
 import { IconDatabase, IconPlug, IconRevert, IconServer, IconX } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { openInAppSupport } from 'lib/components/Support/openInAppSupport'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { urls } from 'scenes/urls'
 
@@ -80,11 +81,8 @@ function getErrorLabelForMaterializedView(error: string | null): JSX.Element | n
 
     return (
         <span>
-            Please{' '}
-            <Link to="https://posthog.com/docs/support-options" target="_blank">
-                contact support
-            </Link>{' '}
-            for help resolving this issue.
+            Please <Link onClick={() => openInAppSupport('pipeline-status-issue')}>contact support</Link> for help
+            resolving this issue.
         </span>
     )
 }
