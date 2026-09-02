@@ -11,6 +11,8 @@ Four quadrants, honestly named (SPEC §4):
   cannot decide this — deploys ship pre-built images, so a deploy routinely
   succeeds *after* a merge it does not contain. The field name says merge-to-deploy,
   not the full commit-to-deploy DORA definition (pre-merge time is measured elsewhere).
+  ``open_to_deploy_seconds`` — open to first successful deploy over the same
+  population — is the full-span headline the Health tile shows.
 - Change failure: ``failed_deployment_share`` — deployments with a failure/error
   status over deployments that reached any outcome. A proxy: no incident link, so
   a deploy that succeeded but broke production is invisible.
@@ -219,6 +221,8 @@ _LEAD_TIME_HEADLINE_SELECT = f"""
         lead.deployed_prev,
         lead.median_cur,
         lead.median_prev,
+        lead.otd_median_cur,
+        lead.otd_median_prev,
         attributed.attributed_cur,
         merged.merged_cur
     FROM (
@@ -226,7 +230,9 @@ _LEAD_TIME_HEADLINE_SELECT = f"""
             countIf(__CUR_DEPLOYED__) AS deployed_cur,
             countIf(__PREV_DEPLOYED__) AS deployed_prev,
             quantileIf(0.5)(lead_seconds, __CUR_DEPLOYED__) AS median_cur,
-            quantileIf(0.5)(lead_seconds, __PREV_DEPLOYED__) AS median_prev
+            quantileIf(0.5)(lead_seconds, __PREV_DEPLOYED__) AS median_prev,
+            quantileIf(0.5)(open_to_deploy_seconds, __CUR_DEPLOYED__) AS otd_median_cur,
+            quantileIf(0.5)(open_to_deploy_seconds, __PREV_DEPLOYED__) AS otd_median_prev
         FROM ({_LEAD_TIME_INNER})
     ) AS lead
     CROSS JOIN (
@@ -379,6 +385,8 @@ def _empty_overview(
         deployments_per_day_prev=None,
         median_merge_to_deploy_seconds=None,
         median_merge_to_deploy_seconds_prev=None,
+        median_open_to_deploy_seconds=None,
+        median_open_to_deploy_seconds_prev=None,
         deployed_pr_count=0,
         deployed_pr_count_prev=0,
         failed_deployment_count=0,
@@ -479,6 +487,8 @@ class _LeadTime:
     deployed_count_prev: int
     median_seconds: float | None
     median_seconds_prev: float | None
+    open_to_deploy_median_seconds: float | None
+    open_to_deploy_median_seconds_prev: float | None
     # PRs merged in the window (the locked recipe), and how many of those a deploy attributed.
     merged_count: int
     attributed_count: int
@@ -496,6 +506,8 @@ _EMPTY_LEAD_TIME = _LeadTime(
     deployed_count_prev=0,
     median_seconds=None,
     median_seconds_prev=None,
+    open_to_deploy_median_seconds=None,
+    open_to_deploy_median_seconds_prev=None,
     merged_count=0,
     attributed_count=0,
     series=[],
@@ -528,9 +540,16 @@ def _query_lead_time(scan: _DoraScan, *, github_team: str | None, members_source
         .replace("__TEAM_FILTER__", team_filter)
     )
     headline = scan.run(headline_sql, query_type="engineering_analytics.dora_lead_time")
-    deployed_cur, deployed_prev, median_cur, median_prev, attributed_cur, merged_cur = (
-        headline.results[0] if headline.results else (0, 0, None, None, 0, 0)
-    )
+    (
+        deployed_cur,
+        deployed_prev,
+        median_cur,
+        median_prev,
+        otd_median_cur,
+        otd_median_prev,
+        attributed_cur,
+        merged_cur,
+    ) = headline.results[0] if headline.results else (0, 0, None, None, None, None, 0, 0)
 
     series_sql = f"WITH {attribution_ctes} " + (
         _LEAD_TIME_SERIES_SELECT.replace("__BUCKET_FN__", bucket_expr(scan.granularity, "deployed_at")).replace(
@@ -546,6 +565,8 @@ def _query_lead_time(scan: _DoraScan, *, github_team: str | None, members_source
         deployed_count_prev=int(deployed_prev or 0),
         median_seconds=opt_float(median_cur),
         median_seconds_prev=opt_float(median_prev),
+        open_to_deploy_median_seconds=opt_float(otd_median_cur),
+        open_to_deploy_median_seconds_prev=opt_float(otd_median_prev),
         merged_count=int(merged_cur or 0),
         attributed_count=int(attributed_cur or 0),
         series=[
@@ -637,6 +658,8 @@ def query_dora_overview(
         deployments_per_day_prev=outcomes.deployment_count_prev / window_days,
         median_merge_to_deploy_seconds=lead.median_seconds,
         median_merge_to_deploy_seconds_prev=lead.median_seconds_prev,
+        median_open_to_deploy_seconds=lead.open_to_deploy_median_seconds,
+        median_open_to_deploy_seconds_prev=lead.open_to_deploy_median_seconds_prev,
         deployed_pr_count=lead.deployed_count,
         deployed_pr_count_prev=lead.deployed_count_prev,
         failed_deployment_count=outcomes.failed_count,
