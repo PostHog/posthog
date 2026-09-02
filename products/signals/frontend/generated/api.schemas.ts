@@ -124,9 +124,10 @@ export const SignalReportRefundReasonEnumApi = {
  * * `excluded` - Excluded
  * * `credited` - Credited
  */
-export type BillingPathEnumApi = (typeof BillingPathEnumApi)[keyof typeof BillingPathEnumApi]
+export type SignalReportRefundBillingPathEnumApi =
+    (typeof SignalReportRefundBillingPathEnumApi)[keyof typeof SignalReportRefundBillingPathEnumApi]
 
-export const BillingPathEnumApi = {
+export const SignalReportRefundBillingPathEnumApi = {
     Excluded: 'excluded',
     Credited: 'credited',
 } as const
@@ -146,7 +147,7 @@ export interface SignalReportRefundApi {
      *
      * * `excluded` - Excluded
      * * `credited` - Credited */
-    readonly billing_path: BillingPathEnumApi
+    readonly billing_path: SignalReportRefundBillingPathEnumApi
     /** Signals credits refunded (flat per-PR charge snapshot; 1 credit = $0.01). */
     readonly credits: number
     /** The refunded implementation PR's GitHub URL, snapshotted at refund time. */
@@ -180,9 +181,10 @@ export const RefundIneligibilityReasonEnumApi = {
  * * `posthog_onboarding` - PostHog onboarding
  * * `posthog_system` - PostHog system
  */
-export type BillingExemptReasonEnumApi = (typeof BillingExemptReasonEnumApi)[keyof typeof BillingExemptReasonEnumApi]
+export type SignalReportBillingExemptReasonEnumApi =
+    (typeof SignalReportBillingExemptReasonEnumApi)[keyof typeof SignalReportBillingExemptReasonEnumApi]
 
-export const BillingExemptReasonEnumApi = {
+export const SignalReportBillingExemptReasonEnumApi = {
     PosthogHealthCheck: 'posthog_health_check',
     PosthogOnboarding: 'posthog_onboarding',
     PosthogSystem: 'posthog_system',
@@ -254,7 +256,7 @@ export interface SignalReportApi {
      * * `posthog_health_check` - PostHog health check
      * * `posthog_onboarding` - PostHog onboarding
      * * `posthog_system` - PostHog system */
-    readonly billing_exempt_reason: BillingExemptReasonEnumApi | null
+    readonly billing_exempt_reason: SignalReportBillingExemptReasonEnumApi | null
     /**
      * The space (task channel) this report is assigned to, or null when unassigned. The general view lists every report regardless of this value.
      * @nullable
@@ -600,7 +602,7 @@ export interface SignalReportRefundResponseApi {
      *
      * * `excluded` - Excluded
      * * `credited` - Credited */
-    readonly billing_path: BillingPathEnumApi
+    readonly billing_path: SignalReportRefundBillingPathEnumApi
     /** Signals credits refunded (flat per-PR charge snapshot; 1 credit = $0.01). */
     readonly credits: number
     /** The refunded implementation PR's GitHub URL, snapshotted at refund time. */
@@ -1639,10 +1641,10 @@ export interface SignalReportStateRequestApi {
  * * `code_review` - Code Review
  * * `related_to` - Related To
  */
-export type SignalReportArtefactTypeEnumApi =
-    (typeof SignalReportArtefactTypeEnumApi)[keyof typeof SignalReportArtefactTypeEnumApi]
+export type SignalReportArtefactArtefactTypeEnumApi =
+    (typeof SignalReportArtefactArtefactTypeEnumApi)[keyof typeof SignalReportArtefactArtefactTypeEnumApi]
 
-export const SignalReportArtefactTypeEnumApi = {
+export const SignalReportArtefactArtefactTypeEnumApi = {
     VideoSegment: 'video_segment',
     SafetyJudgment: 'safety_judgment',
     ActionabilityJudgment: 'actionability_judgment',
@@ -1674,7 +1676,7 @@ export type SignalReportArtefactApiContent = { [key: string]: unknown } | unknow
 
 export interface SignalReportArtefactApi {
     readonly id: string
-    readonly type: SignalReportArtefactTypeEnumApi
+    readonly type: SignalReportArtefactArtefactTypeEnumApi
     readonly content: SignalReportArtefactApiContent
     readonly created_at: string
     /** @nullable */
@@ -1898,10 +1900,10 @@ export interface SignalScoutOutputDestinationsApi {
  * * `trusted` - Trusted domains only
  * * `full` - Full
  */
-export type ScoutConfigNetworkAccessEnumApi =
-    (typeof ScoutConfigNetworkAccessEnumApi)[keyof typeof ScoutConfigNetworkAccessEnumApi]
+export type SignalScoutConfigNetworkAccessEnumApi =
+    (typeof SignalScoutConfigNetworkAccessEnumApi)[keyof typeof SignalScoutConfigNetworkAccessEnumApi]
 
-export const ScoutConfigNetworkAccessEnumApi = {
+export const SignalScoutConfigNetworkAccessEnumApi = {
     Trusted: 'trusted',
     Full: 'full',
 } as const
@@ -1932,7 +1934,7 @@ export interface SignalScoutConfigOptionsApi {
      *
      * * `trusted` - Trusted domains only
      * * `full` - Full */
-    network_access?: ScoutConfigNetworkAccessEnumApi
+    network_access?: SignalScoutConfigNetworkAccessEnumApi
     /** Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false. */
     auto_pause_exempt?: boolean
     /**
@@ -2069,9 +2071,10 @@ export interface UserBasicApi {
  * * `paused_by_system` - Paused by system
  * * `paused_by_user` - Paused by user
  */
-export type ScoutConfigStatusEnumApi = (typeof ScoutConfigStatusEnumApi)[keyof typeof ScoutConfigStatusEnumApi]
+export type SignalScoutConfigStatusEnumApi =
+    (typeof SignalScoutConfigStatusEnumApi)[keyof typeof SignalScoutConfigStatusEnumApi]
 
-export const ScoutConfigStatusEnumApi = {
+export const SignalScoutConfigStatusEnumApi = {
     Active: 'active',
     PendingPause: 'pending_pause',
     PausedBySystem: 'paused_by_system',
@@ -2083,10 +2086,10 @@ export const ScoutConfigStatusEnumApi = {
  * * `ignored` - Ignored
  * * `repeated_failures` - Repeated failures
  */
-export type ScoutConfigPauseReasonEnumApi =
-    (typeof ScoutConfigPauseReasonEnumApi)[keyof typeof ScoutConfigPauseReasonEnumApi]
+export type SignalScoutConfigPauseReasonEnumApi =
+    (typeof SignalScoutConfigPauseReasonEnumApi)[keyof typeof SignalScoutConfigPauseReasonEnumApi]
 
-export const ScoutConfigPauseReasonEnumApi = {
+export const SignalScoutConfigPauseReasonEnumApi = {
     NoOutput: 'no_output',
     Ignored: 'ignored',
     RepeatedFailures: 'repeated_failures',
@@ -2122,13 +2125,13 @@ export interface SignalScoutConfigApi {
      * * `pending_pause` - Pending pause
      * * `paused_by_system` - Paused by system
      * * `paused_by_user` - Paused by user */
-    readonly status: ScoutConfigStatusEnumApi
+    readonly status: SignalScoutConfigStatusEnumApi
     /** Why the system paused (or warned) this scout: `no_output` (it emitted nothing over the evaluation window), `ignored` (no person engaged with its reports — no view, rating, note, dismissal, or resolution), or `repeated_failures` (consecutive failed runs). Null unless `status` is `pending_pause` or `paused_by_system`.
      *
      * * `no_output` - No output
      * * `ignored` - Ignored
      * * `repeated_failures` - Repeated failures */
-    readonly pause_reason: ScoutConfigPauseReasonEnumApi | null
+    readonly pause_reason: SignalScoutConfigPauseReasonEnumApi | null
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
     readonly emit: boolean
     /**
@@ -2153,7 +2156,7 @@ export interface SignalScoutConfigApi {
      *
      * * `trusted` - Trusted domains only
      * * `full` - Full */
-    readonly network_access: ScoutConfigNetworkAccessEnumApi
+    readonly network_access: SignalScoutConfigNetworkAccessEnumApi
     /**
      * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
      * @nullable
@@ -2256,7 +2259,7 @@ export interface SignalScoutConfigCreateApi {
      *
      * * `trusted` - Trusted domains only
      * * `full` - Full */
-    network_access?: ScoutConfigNetworkAccessEnumApi
+    network_access?: SignalScoutConfigNetworkAccessEnumApi
     /** Exempt this scout from the inactivity pause, which otherwise switches off a scout that goes a fortnight without surfacing anything anyone engages with. Set it on watchdog scouts whose value is staying quiet. Defaults to false. */
     auto_pause_exempt?: boolean
     /**
@@ -2330,7 +2333,7 @@ export interface PatchedSignalScoutConfigUpdateApi {
      *
      * * `trusted` - Trusted domains only
      * * `full` - Full */
-    network_access?: ScoutConfigNetworkAccessEnumApi
+    network_access?: SignalScoutConfigNetworkAccessEnumApi
     /**
      * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
      * @maxLength 200
@@ -3586,7 +3589,7 @@ export interface EmitReportRequestApi {
     /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart, so a wrong `false` opens a duplicate PR. Tracked separately. */
     already_addressed?: boolean
     /**
-     * Optional repo for autostart (opening a draft PR): `owner/repo` targets that repo, the `NO_REPO` sentinel opts out (report lands without a PR), and omitting it triggers free-form selection across the team's repos — the slow path on a many-repo team, so pass `owner/repo` when you know it.
+     * Optional repo for opening a draft PR, by autostart or by a person from the inbox. Pass `owner/repo` whenever you can say where a fix would land. Omit the field when you can't, which triggers free-form selection across the team's repos (the slow path on a many-repo team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo.
      * @nullable
      */
     repository?: string | null
@@ -3911,10 +3914,10 @@ export interface ForgetResponseApi {
  * * `failed` - Failed
  * * `empty` - Empty
  */
-export type ScoutSuggestionSetStatusEnumApi =
-    (typeof ScoutSuggestionSetStatusEnumApi)[keyof typeof ScoutSuggestionSetStatusEnumApi]
+export type SignalScoutSuggestionSetStatusEnumApi =
+    (typeof SignalScoutSuggestionSetStatusEnumApi)[keyof typeof SignalScoutSuggestionSetStatusEnumApi]
 
-export const ScoutSuggestionSetStatusEnumApi = {
+export const SignalScoutSuggestionSetStatusEnumApi = {
     Fresh: 'fresh',
     Stale: 'stale',
     Failed: 'failed',
@@ -3986,7 +3989,7 @@ export interface ScoutSuggestionSetApi {
      * * `stale` - Stale
      * * `failed` - Failed
      * * `empty` - Empty */
-    status: ScoutSuggestionSetStatusEnumApi
+    status: SignalScoutSuggestionSetStatusEnumApi
     /**
      * When the current batch was generated; null before the first run.
      * @nullable
@@ -4243,6 +4246,14 @@ export type SignalsProcessingListParams = {
 
 export type SignalsReportsListParams = {
     /**
+     * Comma-separated actionability judgments to include. Valid values: immediately_actionable, requires_human_input, not_actionable. Reports without a judgment are excluded.
+     */
+    actionability?: string
+    /**
+     * Filter by whether the latest actionability judgment says the issue is already being handled. False also includes older reports where that judgment did not record a value.
+     */
+    already_addressed?: boolean
+    /**
      * Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.
      */
     channel_id?: string
@@ -4275,6 +4286,10 @@ export type SignalsReportsListParams = {
      */
     priority?: string
     /**
+     * Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate.
+     */
+    scope?: string
+    /**
      * Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.
      */
     scout?: string
@@ -4286,6 +4301,10 @@ export type SignalsReportsListParams = {
      * Case-insensitive substring match against report title and summary.
      */
     search?: string
+    /**
+     * Inbox sort preset: priority, last_updated, newest, or oldest. Ignored when ordering is supplied.
+     */
+    sort?: string
     /**
      * Comma-separated list of source record ids. Reports are kept if at least one of their contributing signals came from one of these records — e.g. pass a support ticket's UUID to see what the inbox already found for that ticket. Requires exactly one source_product, since a source id is only unique within its product.
      */
@@ -4306,6 +4325,18 @@ export type SignalsReportsListParams = {
      * Only reports associated with this task (via the report's task associations).
      */
     task_id?: string
+    /**
+     * PostHog user UUID used when scope=teammate.
+     */
+    teammate_uuid?: string
+    /**
+     * When true and priority is omitted, include priorities at or above the requesting user's personal PR-generation threshold, falling back to the project threshold.
+     */
+    use_priority_preference?: boolean
+    /**
+     * Apply an inbox view: actionable, needs_input, monitoring, resolved, dismissed, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters.
+     */
+    view?: string
 }
 
 export type SignalsReportArtefactsListParams = {

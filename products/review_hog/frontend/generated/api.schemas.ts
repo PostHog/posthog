@@ -511,9 +511,10 @@ export interface ReviewTriggerErrorApi {
  * * `should_fix` - Should Fix
  * * `must_fix` - Must Fix
  */
-export type UrgencyThresholdEnumApi = (typeof UrgencyThresholdEnumApi)[keyof typeof UrgencyThresholdEnumApi]
+export type ReviewUserSettingsUrgencyThresholdEnumApi =
+    (typeof ReviewUserSettingsUrgencyThresholdEnumApi)[keyof typeof ReviewUserSettingsUrgencyThresholdEnumApi]
 
-export const UrgencyThresholdEnumApi = {
+export const ReviewUserSettingsUrgencyThresholdEnumApi = {
     Consider: 'consider',
     ShouldFix: 'should_fix',
     MustFix: 'must_fix',
@@ -533,7 +534,7 @@ export interface ReviewUserSettingsApi {
      * * `consider` - Consider
      * * `should_fix` - Should Fix
      * * `must_fix` - Must Fix */
-    urgency_threshold?: UrgencyThresholdEnumApi
+    urgency_threshold?: ReviewUserSettingsUrgencyThresholdEnumApi
     /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog teams while the product is in alpha). */
     readonly can_trigger_reviews: boolean
     /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */
@@ -554,7 +555,7 @@ export interface PatchedReviewUserSettingsApi {
      * * `consider` - Consider
      * * `should_fix` - Should Fix
      * * `must_fix` - Must Fix */
-    urgency_threshold?: UrgencyThresholdEnumApi
+    urgency_threshold?: ReviewUserSettingsUrgencyThresholdEnumApi
     /** Whether reviews can be started from this project's Code review page (the UI trigger is limited to the designated ReviewHog teams while the product is in alpha). */
     readonly can_trigger_reviews?: boolean
     /** Whether this project has at least one synced, enabled Stamphog repository. When false, the stamphog_review_inbox_prs toggle has nothing to act on and the UI renders it disabled with a pointer to connect the Stamphog GitHub App. */

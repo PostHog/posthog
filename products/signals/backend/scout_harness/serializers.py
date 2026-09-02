@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from django.db import models
 from django.utils import timezone
 
 import structlog
@@ -1164,10 +1165,11 @@ class EmitReportRequestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Optional repo for autostart (opening a draft PR): `owner/repo` targets that repo, the "
-            "`NO_REPO` sentinel opts out (report lands without a PR), and omitting it triggers free-form "
-            "selection across the team's repos — the slow path on a many-repo team, so pass `owner/repo` "
-            "when you know it."
+            "Optional repo for opening a draft PR, by autostart or by a person from the inbox. Pass "
+            "`owner/repo` whenever you can say where a fix would land. Omit the field when you can't, "
+            "which triggers free-form selection across the team's repos (the slow path on a many-repo "
+            "team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control "
+            "could change, since a skill body, a config file, or a doc still lives in a repo."
         ),
     )
     priority = serializers.ChoiceField(
@@ -2372,6 +2374,11 @@ def _normalize_mcp_gateway_server_ids(value: list[UUID]) -> list[str]:
     return [str(server_id) for server_id in value]
 
 
+class ScoutOrigin(models.TextChoices):
+    CANONICAL = "canonical", "canonical"
+    CUSTOM = "custom", "custom"
+
+
 class SignalScoutConfigSerializer(serializers.ModelSerializer):
     """Read shape for a per-(team, skill) scout config.
 
@@ -2545,7 +2552,7 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         info = (self.context.get("skill_info") or {}).get(obj.skill_name)
         return info.description if info else ""
 
-    @extend_schema_field(serializers.ChoiceField(choices=["canonical", "custom"]))
+    @extend_schema_field(serializers.ChoiceField(choices=ScoutOrigin.choices))
     def get_scout_origin(self, obj: SignalScoutConfig) -> str:
         # Same single-query `skill_info` map as `get_description`. Falls back to `custom` when
         # the skill row is absent — a config with no skill row isn't a canonical scout.

@@ -55,6 +55,20 @@ def strip_null_bytes(value: Any) -> Any:
     return value
 
 
+def error_detail_results(recipient_results: list[RecipientResult]) -> list[dict[str, Any]]:
+    details: list[dict[str, Any]] = [
+        {
+            "recipient": result.recipient,
+            "status": result.status,
+            **({"error": result.error} if result.error else {}),
+        }
+        for result in recipient_results[:_MAX_ERROR_DETAIL_RESULTS]
+    ]
+    if len(recipient_results) > _MAX_ERROR_DETAIL_RESULTS:
+        details.append({"truncated_count": len(recipient_results) - _MAX_ERROR_DETAIL_RESULTS})
+    return details
+
+
 async def auto_disable_and_return(
     subscription: Subscription,
     reason: DisableReason,
@@ -64,7 +78,7 @@ async def auto_disable_and_return(
     and auto-disable the subscription. Shared by the insight/dashboard and AI delivery paths."""
     recipient_results.append(
         RecipientResult(
-            recipient=subscription.target_value,
+            recipient=subscription.recipient_label,
             status="failed",
             error={"message": reason.description, "type": reason.key},
             human_readable_error=reason.description,
@@ -145,16 +159,7 @@ async def deliver_email(
         # non-retryable — retrying then could never succeed.
         # Bound the error details: a huge recipient list with a domain-wide bounce would
         # otherwise exceed Temporal's gRPC payload cap and wedge the workflow mid-failure.
-        details: list[dict[str, Any]] = [
-            {
-                "recipient": result.recipient,
-                "status": result.status,
-                **({"error": result.error} if result.error else {}),
-            }
-            for result in recipient_results[:_MAX_ERROR_DETAIL_RESULTS]
-        ]
-        if len(recipient_results) > _MAX_ERROR_DETAIL_RESULTS:
-            details.append({"truncated_count": len(recipient_results) - _MAX_ERROR_DETAIL_RESULTS})
+        details = error_detail_results(recipient_results)
         permanent = [err for _, err in failures if isinstance(err, EmailDeliveryError)]
         if permanent and len(permanent) == len(failures):
             raise ApplicationError(
@@ -227,7 +232,7 @@ async def deliver_slack(
 
     if result.is_complete_success:
         await LOGGER.ainfo("deliver_subscription.slack_sent", subscription_id=subscription.id)
-        recipient_results.append(RecipientResult(recipient=subscription.target_value, status="success", error=None))
+        recipient_results.append(RecipientResult(recipient=subscription.recipient_label, status="success", error=None))
     elif result.is_partial_failure:
         await LOGGER.awarning(
             "deliver_subscription.slack_partial_failure",
@@ -239,7 +244,7 @@ async def deliver_slack(
         partial_message = f"{failed_count} thread message{'s' if failed_count != 1 else ''} failed"
         recipient_results.append(
             RecipientResult(
-                recipient=subscription.target_value,
+                recipient=subscription.recipient_label,
                 status="partial",
                 error={"message": partial_message, "type": "partial_thread_failure"},
                 human_readable_error=partial_message,

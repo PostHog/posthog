@@ -1,5 +1,12 @@
 import type { SessionConfigOption } from "@agentclientprotocol/sdk";
-import type { AgentAdapter } from "@posthog/ui/features/settings/settingsStore";
+import {
+  subscriptionModelAccess,
+  type WorkspaceModeForAccess,
+} from "@posthog/ui/features/settings/adapterSubscription";
+import {
+  type AgentAdapter,
+  useSettingsStore,
+} from "@posthog/ui/features/settings/settingsStore";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { type ReactElement, useState } from "react";
 import { within } from "storybook/test";
@@ -101,17 +108,41 @@ function contextWindowOption(): SessionConfigOption {
   } as unknown as SessionConfigOption;
 }
 
-function Harness(): ReactElement {
-  const [adapter, setAdapter] = useState<AgentAdapter>("claude");
+function Harness({
+  workspaceMode,
+  subscriptionOn = false,
+  billingAdapter = "claude",
+}: {
+  workspaceMode?: WorkspaceModeForAccess;
+  /** Provider picked in the Billing menu; true reveals the logged-out login note. */
+  subscriptionOn?: boolean;
+  /** Adapter whose Billing submenu is shown. */
+  billingAdapter?: AgentAdapter;
+}): ReactElement {
+  const [, setAdapter] = useState<AgentAdapter>("claude");
   const [model, setModel] = useState("claude-opus-5");
   const [effort, setEffort] = useState("medium");
+
+  // The submenu reads the real useAdapterSubscription hook, which reads the
+  // settings store; the modelAccess prop below only gates the model list.
+  const store = useSettingsStore.getState();
+  store.setClaudeModelAccess(
+    billingAdapter === "claude" && subscriptionOn
+      ? "own-subscription"
+      : "posthog-gateway",
+  );
+  store.setCodexModelAccess(
+    billingAdapter === "codex" && subscriptionOn
+      ? "own-subscription"
+      : "posthog-gateway",
+  );
 
   return (
     <div className="flex h-[520px] items-end p-2">
       <ReasoningLevelSelector
         thoughtOption={effortOption(effort)}
         modelOption={groupedModelOption(model)}
-        adapter={adapter}
+        adapter={billingAdapter}
         contextWindowOption={contextWindowOption()}
         onChange={setEffort}
         onModelChange={setModel}
@@ -121,6 +152,27 @@ function Harness(): ReactElement {
           setModel(nextModel);
         }}
         onConfigOptionChange={() => {}}
+        showBillingMenu={workspaceMode !== undefined}
+        workspaceMode={workspaceMode}
+        // Storybook never resolves the subscription status query, so the
+        // provider counts as not logged in; the store write above picks the
+        // billing shown in the submenu.
+        modelAccess={
+          workspaceMode === undefined
+            ? undefined
+            : subscriptionModelAccess(
+                {
+                  flagEnabled: true,
+                  subscriptionOn,
+                  status: undefined,
+                  loggedIn: false,
+                  loginState: "unknown",
+                  needsConnection: subscriptionOn,
+                  setSubscriptionOn: () => {},
+                },
+                workspaceMode,
+              )
+        }
       />
     </div>
   );
@@ -147,5 +199,96 @@ export const GroupedModelSubmenu: Story = {
     );
     await userEvent.hover(await body.findByText("Model"));
     await body.findByText("GPT-5.6 Sol");
+  },
+};
+
+async function openBillingSubmenu(
+  canvas: ReturnType<typeof within>,
+  canvasElement: HTMLElement,
+  userEvent: {
+    click: (el: HTMLElement) => Promise<void>;
+    hover: (el: HTMLElement) => Promise<void>;
+  },
+): Promise<void> {
+  const body = within(canvasElement.ownerDocument.body);
+  await userEvent.click(
+    canvas.getByRole("button", { name: /Model and reasoning/ }),
+  );
+  // An off-ladder combo opens straight on the Advanced view, with no toggle.
+  const advanced = body.queryByRole("button", { name: "Advanced" });
+  if (advanced) {
+    await userEvent.click(advanced);
+  }
+  await userEvent.click(await body.findByRole("menuitem", { name: /Billing/ }));
+}
+
+function BillingHarnessLocal(): ReactElement {
+  return <Harness workspaceMode="local" />;
+}
+
+function BillingHarnessCloud(): ReactElement {
+  return <Harness workspaceMode="cloud" />;
+}
+
+function BillingHarnessLoginPrompt(): ReactElement {
+  return <Harness workspaceMode="local" subscriptionOn />;
+}
+
+export const LocalBilling: StoryObj<typeof BillingHarnessLocal> = {
+  render: () => <BillingHarnessLocal />,
+  play: async ({ canvas, canvasElement, userEvent }): Promise<void> => {
+    await openBillingSubmenu(canvas, canvasElement, userEvent);
+    const body = within(canvasElement.ownerDocument.body);
+    await body.findByRole("menuitemradio", { name: "PostHog" });
+    await body.findByRole("menuitemradio", { name: "Anthropic" });
+  },
+};
+
+export const LoginPromptBilling: StoryObj<typeof BillingHarnessLoginPrompt> = {
+  render: () => <BillingHarnessLoginPrompt />,
+  play: async ({ canvas, canvasElement, userEvent }): Promise<void> => {
+    await openBillingSubmenu(canvas, canvasElement, userEvent);
+    const body = within(canvasElement.ownerDocument.body);
+    await body.findByRole("button", { name: "Log in to Claude Code" });
+    await body.findByText(
+      (_, element) =>
+        element?.textContent ===
+        "Log in to Claude Code to use Anthropic billing.",
+    );
+  },
+};
+
+function BillingHarnessCodexLoginPrompt(): ReactElement {
+  return (
+    <Harness workspaceMode="local" subscriptionOn billingAdapter="codex" />
+  );
+}
+
+export const LoginPromptBillingCodex: StoryObj<
+  typeof BillingHarnessCodexLoginPrompt
+> = {
+  render: () => <BillingHarnessCodexLoginPrompt />,
+  play: async ({ canvas, canvasElement, userEvent }): Promise<void> => {
+    await openBillingSubmenu(canvas, canvasElement, userEvent);
+    const body = within(canvasElement.ownerDocument.body);
+    await body.findByRole("menuitemradio", { name: "OpenAI" });
+    await body.findByRole("button", { name: "Connect ChatGPT" });
+    await body.findByText(
+      (_, element) =>
+        element?.textContent === "Connect ChatGPT to use OpenAI billing.",
+    );
+  },
+};
+
+export const CloudBilling: StoryObj<typeof BillingHarnessCloud> = {
+  render: () => <BillingHarnessCloud />,
+  play: async ({ canvas, canvasElement, userEvent }): Promise<void> => {
+    await openBillingSubmenu(canvas, canvasElement, userEvent);
+    const body = within(canvasElement.ownerDocument.body);
+    const provider = await body.findByRole("menuitemradio", {
+      name: "Anthropic",
+    });
+    await userEvent.hover(provider);
+    await body.findByText(/Anthropic billing only works/);
   },
 };
