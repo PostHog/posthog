@@ -78,6 +78,17 @@ _MONGO_CONNECT_FAILED_MESSAGE = (
     "Could not connect to your MongoDB database. Check your connection string and credentials, then try again."
 )
 
+# MongoDB error code 211 (KeyNotFound): the cluster's internal keystore has no HMAC key valid for
+# the requested timestamp. This is a cluster-side key management problem (e.g. key rotation
+# removed keys the importer needed). Retrying reads the same cursor against the same cluster and
+# always fails with the same error, so it is non-retryable.
+_MONGO_KEY_NOT_FOUND_MESSAGE = (
+    "PostHog couldn't sync this MongoDB collection because your cluster reported a key management "
+    "error (MongoDB code 211: KeyNotFound). Your cluster's keystore does not have a valid HMAC key "
+    "for the time range being queried. Check your MongoDB cluster's key management configuration "
+    "and ensure all replica set members are healthy, then try again."
+)
+
 # Connection succeeded but nothing importable came back. This is usually a wrong-database or
 # permission problem rather than a genuinely empty database: a connection string ending in /admin
 # or /test lands on an empty system database, and a user without read access sees no collections.
@@ -167,6 +178,12 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             # differently (a bare AutoReconnect / NetworkTimeout with no topology description) and
             # stays retryable.
             "Topology Description:": _MONGO_UNREACHABLE_MESSAGE,
+            # MongoDB OperationFailure code 211 (KeyNotFound): the cluster's HMAC keystore has no
+            # valid key for the cursor's timestamp. pymongo formats the full server error response
+            # as part of the exception message; the leading phrase before the variable parts
+            # (timestamp, key id) is stable and unambiguous. Retrying the same cursor against the
+            # same cluster always fails with the same error.
+            "No keys found for HMAC": _MONGO_KEY_NOT_FOUND_MESSAGE,
         }
 
     def get_retryable_errors(self) -> set[str]:
