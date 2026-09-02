@@ -28,6 +28,7 @@ import type {
     HogFlowTemplateApi,
     HogFlowTemplatesListParams,
     HogFlowTemplatesLogsRetrieveParams,
+    HogFlowUpdateApi,
     HogFlowsAssetContentRetrieveParams,
     HogFlowsAssetsRetrieveParams,
     HogFlowsInvocationResultsCountRetrieveParams,
@@ -51,10 +52,10 @@ import type {
     PaginatedHogFlowRevisionBasicListApi,
     PaginatedHogFlowTemplateListApi,
     PatchedHogFlowActionEmailUpdateApi,
-    PatchedHogFlowApi,
     PatchedHogFlowGraphUpdateApi,
     PatchedHogFlowScheduleApi,
     PatchedHogFlowTemplateApi,
+    PatchedHogFlowUpdateApi,
     TeamEmailReputationResponseApi,
     WorkflowStatsRowApi,
 } from './api.schemas'
@@ -298,14 +299,14 @@ export const getHogFlowsUpdateUrl = (projectId: string, id: string) => {
 export const hogFlowsUpdate = async (
     projectId: string,
     id: string,
-    hogFlowApi: NonReadonly<HogFlowApi>,
+    hogFlowUpdateApi: NonReadonly<HogFlowUpdateApi>,
     options?: RequestInit
-): Promise<HogFlowApi> => {
-    return apiMutator<HogFlowApi>(getHogFlowsUpdateUrl(projectId, id), {
+): Promise<HogFlowUpdateApi> => {
+    return apiMutator<HogFlowUpdateApi>(getHogFlowsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(hogFlowApi),
+        body: JSON.stringify(hogFlowUpdateApi),
     })
 }
 
@@ -316,14 +317,14 @@ export const getHogFlowsPartialUpdateUrl = (projectId: string, id: string) => {
 export const hogFlowsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedHogFlowApi?: NonReadonly<PatchedHogFlowApi>,
+    patchedHogFlowUpdateApi?: NonReadonly<PatchedHogFlowUpdateApi>,
     options?: RequestInit
-): Promise<HogFlowApi> => {
-    return apiMutator<HogFlowApi>(getHogFlowsPartialUpdateUrl(projectId, id), {
+): Promise<HogFlowUpdateApi> => {
+    return apiMutator<HogFlowUpdateApi>(getHogFlowsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedHogFlowApi),
+        body: JSON.stringify(patchedHogFlowUpdateApi),
     })
 }
 

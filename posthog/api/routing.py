@@ -516,8 +516,12 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
 
     @cached_property
     def organization(self) -> Organization:
+        if self._is_team_view:
+            return self.team.organization
         try:
-            return Organization.objects.get(id=self.organization_id)
+            return Organization.objects.get(
+                id=self.project.organization_id if self._is_project_view else self.organization_id
+            )
         except (Organization.DoesNotExist, ValueError):
             raise NotFound(detail="Organization not found.")
 

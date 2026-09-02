@@ -106,7 +106,6 @@ export function SuggestedReviewerAvatarStack({
     fireAction("remove_suggested_reviewer");
     updateReviewers(
       {
-        artefactId: reviewerArtefact.id,
         content: toSuggestedReviewerWriteContent(nextReviewers),
         optimisticReviewers: nextReviewers,
       },

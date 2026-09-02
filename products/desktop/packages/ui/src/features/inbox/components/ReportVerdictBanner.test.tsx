@@ -14,6 +14,7 @@ const {
   setQueryData,
   useDiscussReport,
   useReportTasks,
+  openResolveDialog,
 } = vi.hoisted(() => ({
   createPrReport: vi.fn(),
   discussReport: vi.fn(),
@@ -23,6 +24,7 @@ const {
   setQueryData: vi.fn(),
   useDiscussReport: vi.fn(),
   useReportTasks: vi.fn(),
+  openResolveDialog: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-query", async (importOriginal) => {
@@ -63,6 +65,14 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxReportDismissAction", () => ({
   useInboxReportDismissAction: () => ({
     dialog: null,
     openDialog: vi.fn(),
+  }),
+}));
+
+vi.mock("@posthog/ui/features/inbox/hooks/useInboxReportResolveAction", () => ({
+  useInboxReportResolveAction: () => ({
+    dialog: null,
+    isPending: false,
+    openDialog: openResolveDialog,
   }),
 }));
 
@@ -147,6 +157,7 @@ describe("ReportVerdictBanner", () => {
     invalidateQueries.mockReset();
     openExternalUrl.mockReset();
     openTask.mockReset();
+    openResolveDialog.mockReset();
     setQueryData.mockReset();
     onDiscussionCreated = undefined;
     useDiscussReport.mockImplementation(
@@ -155,6 +166,23 @@ describe("ReportVerdictBanner", () => {
         return { discussReport, isDiscussing: false };
       },
     );
+  });
+
+  it("offers resolve in triage from both the button and shortcut", async () => {
+    const user = userEvent.setup();
+    render(
+      <ReportVerdictBanner
+        report={report}
+        variant="triage-actions"
+        resolveHotkey="r"
+      />,
+    );
+
+    await user.click(screen.getByText("Resolve"));
+    await user.keyboard("r");
+
+    expect(openResolveDialog).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("Dismiss")).toBeInTheDocument();
   });
 
   it("starts a discussion with optional direction and hides the actions after creation", async () => {

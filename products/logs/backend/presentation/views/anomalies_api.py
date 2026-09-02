@@ -3,6 +3,7 @@ import datetime as dt
 from typing import Any
 
 from django.core.cache import cache
+from django.db import models
 
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, status, viewsets
@@ -30,8 +31,24 @@ from products.logs.backend.series_bands import (
 SCAN_CACHE_TTL_SECONDS = 60
 SERIES_BANDS_CACHE_TTL_SECONDS = 60
 
-_STAGE_CHOICES = ["insufficient", "cold_start", "developing", "mature"]
-_VERDICT_CHOICES = ["spike", "drop", "silence"]
+
+class LogsAnomalyBaselineStage(models.TextChoices):
+    INSUFFICIENT = "insufficient", "insufficient"
+    COLD_START = "cold_start", "cold_start"
+    DEVELOPING = "developing", "developing"
+    MATURE = "mature", "mature"
+
+
+_STAGE_CHOICES = list(LogsAnomalyBaselineStage.values)
+
+
+class LogsAnomalyVerdict(models.TextChoices):
+    SPIKE = "spike", "spike"
+    DROP = "drop", "drop"
+    SILENCE = "silence", "silence"
+
+
+_VERDICT_CHOICES = list(LogsAnomalyVerdict.values)
 _TIER_CHOICES = ["a", "b", "c", "d"]
 _CONSTRAINT_CHOICES = ["team_retention", "byte_budget"]
 

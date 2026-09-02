@@ -44,6 +44,16 @@ jobs:
                   shellcheck .github/scripts/prepare-product-junit-for-trunk.sh .github/scripts/prepare-product-junit-for-trunk.test.sh
                   bash .github/scripts/prepare-product-junit-for-trunk.test.sh
 
+            - name: Check commit-time warning scripts
+              run: |
+                  # An open PR that has not rebased onto this commit does not carry these
+                  # scripts, so the step skips rather than failing before its own tests run.
+                  [ -f .github/scripts/check-commit-warnings.test.sh ] || exit 0
+                  shellcheck .github/scripts/check-claude-hooks.sh \
+                      .github/scripts/check-quill-agents-md.sh \
+                      .github/scripts/check-commit-warnings.test.sh
+                  .github/scripts/check-commit-warnings.test.sh
+
             # Runs here, not in a path-gated ci-* job, so AGENTS/CLAUDE changes
             # anywhere in the repo are validated on every PR.
             - name: Check AGENTS.md / CLAUDE.md symlinks

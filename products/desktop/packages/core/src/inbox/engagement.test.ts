@@ -27,12 +27,16 @@ function fakeReport(overrides: Partial<SignalReport> = {}): SignalReport {
   };
 }
 
+const DEFAULT_REPORT_STATE_FILTER = ["review_and_merge", "needs_decision"];
+
 const NO_FILTERS = {
   surface: "desktop" as const,
   sourceProductFilter: [],
   priorityFilter: [],
   searchQuery: "",
   scope: "for-you" as const,
+  reportStateFilter: DEFAULT_REPORT_STATE_FILTER,
+  defaultReportStateFilter: DEFAULT_REPORT_STATE_FILTER,
 };
 
 describe("buildBulkActionEvents", () => {
@@ -114,7 +118,8 @@ describe("buildInboxViewedProperties", () => {
     expect(props.pulls_tab_count).toBe(38);
     expect(props.reports_tab_count).toBe(62);
     expect(props.is_empty).toBe(false);
-    expect(props.status_filter_count).toBe(0);
+    // Desktop now reports the report-state filter count (the two default buckets).
+    expect(props.status_filter_count).toBe(2);
   });
 
   it("breaks visible reports down by priority and actionability", () => {
@@ -179,6 +184,17 @@ describe("buildInboxViewedProperties", () => {
     });
 
     expect(props.has_active_filters).toBe(true);
+  });
+
+  it("flags has_active_filters and counts a non-default report-state filter", () => {
+    const props = buildInboxViewedProperties({
+      visibleReports: [fakeReport()],
+      totalCount: 1,
+      filters: { ...NO_FILTERS, reportStateFilter: ["dismissed"] },
+    });
+
+    expect(props.has_active_filters).toBe(true);
+    expect(props.status_filter_count).toBe(1);
   });
 
   it("does not flag has_active_filters for a whitespace-only search", () => {
