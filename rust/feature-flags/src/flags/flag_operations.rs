@@ -1435,6 +1435,54 @@ mod tests {
     }
 
     #[test]
+    fn test_has_hash_dependent_variants_all_zero() {
+        // No variant is ever selected, so the hash decides nothing. The old rule called this
+        // hash dependent because nothing sat at 100.
+        let mut flag = mock!(FeatureFlag);
+        flag.filters.multivariate = Some(MultivariateFlagOptions {
+            variants: vec![
+                MultivariateFlagVariant {
+                    key: "control".to_string(),
+                    name: Some("Control".to_string()),
+                    rollout_percentage: 0.0,
+                },
+                MultivariateFlagVariant {
+                    key: "test".to_string(),
+                    name: Some("Test".to_string()),
+                    rollout_percentage: 0.0,
+                },
+            ],
+        });
+        assert!(!flag.has_hash_dependent_variants());
+    }
+
+    #[test]
+    fn test_has_hash_dependent_variants_100_percent_in_the_middle() {
+        // The third variant is unreachable, but the first two still split on the hash.
+        let mut flag = mock!(FeatureFlag);
+        flag.filters.multivariate = Some(MultivariateFlagOptions {
+            variants: vec![
+                MultivariateFlagVariant {
+                    key: "a".to_string(),
+                    name: Some("A".to_string()),
+                    rollout_percentage: 30.0,
+                },
+                MultivariateFlagVariant {
+                    key: "b".to_string(),
+                    name: Some("B".to_string()),
+                    rollout_percentage: 100.0,
+                },
+                MultivariateFlagVariant {
+                    key: "c".to_string(),
+                    name: Some("C".to_string()),
+                    rollout_percentage: 50.0,
+                },
+            ],
+        });
+        assert!(flag.has_hash_dependent_variants());
+    }
+
+    #[test]
     fn test_needs_hash_key_override_partial_before_100_percent() {
         let mut flag = mock!(FeatureFlag);
         flag.ensure_experience_continuity = Some(true);
