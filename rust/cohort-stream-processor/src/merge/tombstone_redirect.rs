@@ -129,8 +129,31 @@ pub async fn resolve_offloaded(
     else {
         return Ok(Resolution::NotMerged);
     };
+    walk_from(
+        handle,
+        partition_id,
+        team_id,
+        person,
+        first,
+        partition_count,
+        lane,
+    )
+    .await
+}
 
-    let origin = person;
+/// Follow a chain from its already-read first hop. Shared by the single and batched resolvers, so
+/// a batched read's decoded hop is never re-read: the walk starts from its target and checks that
+/// target's partition before touching the store again.
+async fn walk_from(
+    handle: &StoreHandle,
+    partition_id: u16,
+    team_id: TeamId,
+    origin: Uuid,
+    first: Tombstone,
+    partition_count: u32,
+    lane: ReadLane,
+) -> Result<Resolution, StoreError> {
+    let team = team_id.0 as u64;
     let mut current = first.new_person;
 
     for _hop in 0..MAX_TOMBSTONE_HOPS {
@@ -197,12 +220,16 @@ fn decode_tombstone(partition_id: u16, person: Uuid, bytes: &[u8]) -> Option<Tom
 }
 
 /// Resolve many `(team, person)` keys at once, reading every chain's first hop in one batched
-/// `multi_get`.
+/// `multi_get` and walking the rest from there.
 ///
 /// `persons` must be distinct; a repeat costs a redundant read and resolves to the same verdict.
 /// Only a chain whose first hop lands back on this partition needs its later hops walked one at a
 /// time, and that requires a merge to have happened, so a backfill batch normally pays exactly one
 /// read for the whole run.
+///
+/// A short `multi_get` yields a map missing those keys. The caller must treat a missing key as a
+/// failure, never as `NotMerged`: applying a seed to a person that may have merged away is durable
+/// state nothing downstream can retract.
 pub async fn resolve_batch_offloaded(
     handle: &StoreHandle,
     partition_id: u16,
@@ -227,19 +254,17 @@ pub async fn resolve_batch_offloaded(
             .and_then(|bytes| decode_tombstone(partition_id, person, bytes));
         let resolution = match first {
             None => Resolution::NotMerged,
-            Some(tombstone)
-                if partition_of(team_id, &tombstone.new_person, partition_count) as u16
-                    != partition_id =>
-            {
-                Resolution::CrossPartition {
-                    target_person: tombstone.new_person,
-                    origin: person,
-                }
-            }
-            // The chain continues here, so the remaining hops need their own reads.
-            Some(_) => {
-                resolve_offloaded(handle, partition_id, team_id, person, partition_count, lane)
-                    .await?
+            Some(first) => {
+                walk_from(
+                    handle,
+                    partition_id,
+                    team_id,
+                    person,
+                    first,
+                    partition_count,
+                    lane,
+                )
+                .await?
             }
         };
         resolved.insert((team_id, person), resolution);
@@ -274,7 +299,7 @@ mod tests {
 
     use crate::merge::transfer::Tombstone;
     use crate::partitions::partitioner::COHORT_PARTITION_COUNT;
-    use crate::store::StoreConfig;
+    use crate::store::{OffloadConfig, OffloadMode, StoreConfig};
 
     const TEAM: TeamId = TeamId(7);
 
@@ -430,6 +455,66 @@ mod tests {
             resolve(&store, part, TEAM, p_old, COHORT_PARTITION_COUNT).unwrap(),
             Resolution::Inline { origin, .. } if origin == p_old,
         ));
+    }
+
+    /// The batched read decodes only the first hop, so the rest of a chain is walked from that
+    /// hop. A walk that stopped there would resolve a two-hop chain to its middle person, and a
+    /// walk that restarted from the origin would pass every test while paying the first read twice.
+    #[tokio::test]
+    async fn a_batched_first_hop_still_walks_the_rest_of_the_chain() {
+        let (_dir, store) = temp_store();
+        let handle = StoreHandle::new(
+            store.clone(),
+            OffloadConfig {
+                mode: OffloadMode::All,
+                event_read_permits: 16,
+                maintenance_permits: 6,
+            },
+        );
+        let p_old = Uuid::from_u128(0xA11CE);
+        let part = partition(p_old);
+        let mut on_part = (1u128..)
+            .map(Uuid::from_u128)
+            .filter(|p| partition(*p) == part && *p != p_old);
+        let (p_mid, p_final, p_unmerged, p_leaving) = (
+            on_part.next().unwrap(),
+            on_part.next().unwrap(),
+            on_part.next().unwrap(),
+            on_part.next().unwrap(),
+        );
+        let p_far = person_not_on(part);
+        write_tombstone(&store, part, p_old, p_mid);
+        write_tombstone(&store, part, p_mid, p_final);
+        write_tombstone(&store, part, p_leaving, p_far);
+
+        let resolved = resolve_batch_offloaded(
+            &handle,
+            part,
+            &[(TEAM, p_old), (TEAM, p_unmerged), (TEAM, p_leaving)],
+            COHORT_PARTITION_COUNT,
+            ReadLane::Maintenance,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(resolved.len(), 3, "one verdict per key asked");
+        assert_eq!(
+            resolved[&(TEAM, p_old)],
+            Resolution::Inline {
+                final_person: p_final,
+                origin: p_old,
+            },
+            "the chain converges past the batched hop and the origin stays the first person",
+        );
+        assert_eq!(resolved[&(TEAM, p_unmerged)], Resolution::NotMerged);
+        assert_eq!(
+            resolved[&(TEAM, p_leaving)],
+            Resolution::CrossPartition {
+                target_person: p_far,
+                origin: p_leaving,
+            },
+            "a first hop that leaves the partition is a hand-off, not a walk",
+        );
     }
 
     #[test]
