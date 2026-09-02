@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 import { Counter } from 'prom-client'
 
+import { TRANSPORT_MAX_RETRIES } from '~/common/personhog/grpc-retry'
 import { SEMANTIC_REFUSAL_METADATA_KEY, SEMANTIC_REFUSAL_OP_ID_REUSED } from '~/common/personhog/identity'
 import { errorClassLabel } from '~/common/personhog/metrics'
 import { PersonHogPersonWriteRepository } from '~/common/personhog/personhog-person-write-repository'
@@ -65,7 +66,7 @@ export const personhogStoreUnsupportedFieldCounter = new Counter({
 
 export const personhogStoreMergeCallFailedCounter = new Counter({
     name: 'personhog_store_merge_call_failed_total',
-    help: 'Merge calls that failed with no verdict, failing the batch to redeliver, by error class',
+    help: 'Merge calls that failed with no verdict, retried and then given up, by error class',
     labelNames: ['error'],
 })
 
@@ -82,12 +83,15 @@ export interface PersonhogPersonsStoreOptions {
     updateAllProperties: boolean
     /** The saga's per-source move guard for SYNC mode, which carries no limit of its own. */
     syncMergeMoveLimit: number
+    /** The injected repository's per-request timeout; the flush's lane wait derives from it. */
+    requestTimeoutMs: number
 }
 
 const DEFAULT_OPTIONS: PersonhogPersonsStoreOptions = {
     maxConcurrentUpdates: 10,
     updateAllProperties: false,
     syncMergeMoveLimit: 10_000,
+    requestTimeoutMs: 3_000,
 }
 
 const CALLER_TAG = 'ingestion/personhog-store'
@@ -114,8 +118,6 @@ export class PersonhogUnsupportedFieldError extends Error {
 /** Redirect re-entries one write pass spends chasing a merge chain before failing to redelivery. */
 const REDIRECT_MAX_ATTEMPTS = 3
 
-/** Rounds a flush waits on in-flight writers before failing rather than acking over unwritten ops. */
-const FLUSH_MAX_WAIT_ROUNDS = 3
 const FLUSH_WAIT_ROUND_MS = 1_000
 
 /** A redirect failure that already incremented its own flush outcome. */
@@ -202,6 +204,8 @@ export class PersonhogPersonsStore implements PersonsStore {
 
     /** Serializes flush passes; see flush(). */
     private flushChain: Promise<void> = Promise.resolve()
+    /** Total lane wait per flush, derived in the constructor from the transport retry budget. */
+    private flushWaitBudgetMs: number
 
     constructor(
         private repository: PersonHogPersonWriteRepository,
@@ -220,6 +224,15 @@ export class PersonhogPersonsStore implements PersonsStore {
                 `PERSONHOG_STORE_MAX_CONCURRENT_UPDATES must be an integer >= 1, got ${this.options.maxConcurrentUpdates}`
             )
         }
+        if (!Number.isInteger(this.options.requestTimeoutMs) || this.options.requestTimeoutMs < 1) {
+            throw new Error(`PERSONHOG_TIMEOUT_MS must be an integer >= 1, got ${this.options.requestTimeoutMs}`)
+        }
+        // A flush waits out a claimed lane rather than failing past it. The
+        // wait outlasts one write's full transport retry budget, derived
+        // rather than chosen so the two cannot drift apart; a holder writing
+        // a deeper lane can still exhaust it, and that flush fails to
+        // redelivery instead of acking over unwritten ops.
+        this.flushWaitBudgetMs = (TRANSPORT_MAX_RETRIES + 1) * this.options.requestTimeoutMs + FLUSH_WAIT_ROUND_MS
     }
 
     forBatch(batchId: number): PersonsStoreForBatch {
@@ -307,7 +320,9 @@ export class PersonhogPersonsStore implements PersonsStore {
             return
         }
         this.resolutions.delete(distinctKey)
-        if (personKey !== null) {
+        // A dirty lane keeps its documents; the Postgres cache defers this
+        // eviction too.
+        if (personKey !== null && !this.entries.get(personKey)?.segments.length) {
             this.projections.delete(personKey)
             this.personCheckCache.delete(personKey)
         }
@@ -382,7 +397,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 this.setDistinctIdToPersonId(distinctKey, null)
                 this.trackBatchEntry(batchId, distinctKey)
             }
-            return existing != null ? (this.getCachedPerson(teamId, distinctId, 'check') ?? null) : null
+            return existing != null ? (this.getCachedPerson(teamId, distinctId, options.grade) ?? null) : null
         }
         const personKey = `${teamId}:${fetched.id}`
         // A fill-only response can be arbitrarily late: it must not move a
@@ -511,8 +526,9 @@ export class PersonhogPersonsStore implements PersonsStore {
         if (ops.denied && ops.isIdentified === undefined && ops.lastSeenAtMs === undefined) {
             return [person, []]
         }
+        const generation = this.generationOf(person.team_id)
         const target = await this.personNow(person, distinctId, batchId)
-        return this.foldEventOps(target, ops, distinctId, batchId)
+        return this.foldEventOps(target, ops, distinctId, batchId, generation)
     }
 
     /** The person this id belongs to now: a merge may have destroyed the caller's copy. */
@@ -535,7 +551,8 @@ export class PersonhogPersonsStore implements PersonsStore {
         person: InternalPerson,
         ops: EventOps,
         distinctId: string,
-        batchId: number
+        batchId: number,
+        generation: number
     ): [InternalPerson, PersonMessage[]] {
         // The caller's view, matching what Postgres would apply; the
         // leader's application at flush is the authoritative one.
@@ -566,18 +583,22 @@ export class PersonhogPersonsStore implements PersonsStore {
                 existing.segments[last] = folded
             }
         }
-        // Replaces the projection outright: the fold composed over the
-        // freshest view personNow answered.
-        this.projections.set(personKey, this.snapshot(projected))
-        this.setDistinctIdToPersonId(`${person.team_id}:${distinctId}`, personKey)
-        this.trackBatchEntry(batchId, `${person.team_id}:${distinctId}`)
+        // Replaces the projection outright. A purge during personNow's read
+        // outdates the view; the install declines and the next touch
+        // re-resolves, while the lane keeps the ops.
+        if (generation === this.generationOf(person.team_id)) {
+            this.projections.set(personKey, this.snapshot(projected))
+            this.setDistinctIdToPersonId(`${person.team_id}:${distinctId}`, personKey)
+            this.trackBatchEntry(batchId, `${person.team_id}:${distinctId}`)
+        }
         return [this.snapshot(projected), []]
     }
 
     /**
      * Runs the identity service's merge saga. Any verdict purges local
      * state for the merge's persons rather than repairing it; a call with
-     * no verdict purges the same set and fails the batch.
+     * no verdict purges the same set and throws for the caller's bounded
+     * retries.
      */
     async mergePersons(request: MergePersonsRequest, _batchId: number): Promise<MergePersonsResult> {
         const { teamId } = request
@@ -585,6 +606,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         const opId = mergeOpIdFromRequest(
             teamId,
             request.eventUuid,
+            request.targetDistinctId,
             request.sources.map((source) => source.distinctId),
             moveLimit
         )
@@ -621,8 +643,12 @@ export class PersonhogPersonsStore implements PersonsStore {
             )
         } catch (error) {
             // The saga may have run without answering; Postgres purges on
-            // any merge throw too.
-            this.purgeAfterMerge(teamId, namedIds, affected, 'merge_no_verdict')
+            // any merge throw too. Settled refusals get their own reason.
+            const refused =
+                error instanceof ConnectError &&
+                (error.code === Code.InvalidArgument ||
+                    error.metadata.get(SEMANTIC_REFUSAL_METADATA_KEY) === SEMANTIC_REFUSAL_OP_ID_REUSED)
+            this.purgeAfterMerge(teamId, namedIds, affected, refused ? 'merge_refused' : 'merge_no_verdict')
             // A verdict: redelivery meets the same validation forever, so
             // it propagates raw rather than wedging the partition.
             if (error instanceof ConnectError && error.code === Code.InvalidArgument) {
@@ -630,8 +656,9 @@ export class PersonhogPersonsStore implements PersonsStore {
                 throw error
             }
             // Deterministic and pre-durable, so raw. Keyed on the slug: a
-            // refusal from a later saga step is a parked op only redelivery
-            // resumes, so it must fail the batch below instead.
+            // refusal from a later saga step is a parked op, so it takes the
+            // no-verdict path below, whose retries attach and resume it; if
+            // they give up, the lifecycle sweeper settles it.
             if (
                 error instanceof ConnectError &&
                 error.metadata.get(SEMANTIC_REFUSAL_METADATA_KEY) === SEMANTIC_REFUSAL_OP_ID_REUSED
@@ -668,8 +695,10 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
         this.purgeAfterMerge(teamId, namedIds, purgedPersons, 'merge_verdict')
         // A fold that skipped or failed to settle any source aborts to the
-        // sequential path, where each event gets its own durability decision.
-        if (request.sources.length > 1) {
+        // sequential path, where each event gets its own durability
+        // decision. The trigger id marks a fold request, so a single-pair
+        // fold aborts the same way instead of dodging every guard.
+        if (request.sources.length > 1 || request.triggerSourceDistinctId !== undefined) {
             const overLimit = result.results.some((source) => source.outcome === 'skipped_move_limit')
             const conflicted = result.results.some(
                 (source) => source.outcome === 'skipped_conflict' || source.settled === false
@@ -775,7 +804,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                     teamId
                 )
             }
-            // The typed wrapper makes the merge service fail the batch.
+            // The typed wrapper reaches the merge service's bounded retries.
             throw new PersonMergeCallFailedError(
                 `personhog pre-merge write failed: ${error instanceof Error ? error.message : String(error)}`,
                 error
@@ -966,7 +995,7 @@ export class PersonhogPersonsStore implements PersonsStore {
                 // feed, so a flush publishes nothing.
                 return []
             }
-            if (round >= FLUSH_MAX_WAIT_ROUNDS) {
+            if (round * FLUSH_WAIT_ROUND_MS >= this.flushWaitBudgetMs) {
                 personhogStoreFlushCounter.inc({ outcome: 'parked_exhausted' })
                 throw new Error(
                     `flush cannot complete: ${pass.deferrals} lanes deferred behind writes that did not settle`
@@ -980,12 +1009,12 @@ export class PersonhogPersonsStore implements PersonsStore {
                 .filter((settled): settled is Promise<void> => settled !== undefined)
             let timer: NodeJS.Timeout | undefined
             try {
-                await Promise.race([
-                    Promise.allSettled(settles),
-                    new Promise<void>((resolve) => {
-                        timer = setTimeout(resolve, FLUSH_WAIT_ROUND_MS)
-                    }),
-                ])
+                // A redirect-owned deferral has no settle; the round still
+                // waits out the timer rather than racing an empty set.
+                const roundTimer = new Promise<void>((resolve) => {
+                    timer = setTimeout(resolve, FLUSH_WAIT_ROUND_MS)
+                })
+                await (settles.length > 0 ? Promise.race([Promise.allSettled(settles), roundTimer]) : roundTimer)
             } finally {
                 clearTimeout(timer)
             }
@@ -1029,12 +1058,15 @@ export class PersonhogPersonsStore implements PersonsStore {
                 personhogStoreShadowShedCounter.inc(entry.segments.length)
                 entry.segments.length = 0
                 this.entries.delete(personKey)
+                this.clearPersonCacheForPersonId(personKey, 'lane_retired')
             }
             return
         }
         // Identity-guarded: a stale finalizer must not retire a recreated entry.
         if (!this.entryHeldByAnyBatch(personKey) && this.entries.get(personKey) === entry) {
             this.entries.delete(personKey)
+            // Evictions defer the document drop to a dirty lane; it lands here.
+            this.clearPersonCacheForPersonId(personKey, 'lane_retired')
         }
     }
 
@@ -1083,19 +1115,21 @@ export class PersonhogPersonsStore implements PersonsStore {
                         progress.remaining -= 1
                         continue
                     }
-                    if (!(error instanceof CountedRedirectError)) {
-                        personhogStoreFlushCounter.inc({ outcome: 'error' })
-                        personhogStoreFlushErrorCounter.inc({ error: errorClassLabel(error) })
-                    }
                     if (error instanceof PersonhogFencedError) {
-                        // Expected coordination: the holder settles and
-                        // redelivery flows.
+                        // Expected coordination, so it stays off the error
+                        // series an alert would page on: the holder settles
+                        // and redelivery flows.
+                        personhogStoreFlushCounter.inc({ outcome: 'fenced' })
                         logger.warn('flush bounced on a lifecycle fence; the batch redelivers', {
                             teamId: entry.teamId,
                             personId: entry.personId,
                             fencingOpId: error.fencingOpId,
                         })
                     } else {
+                        if (!(error instanceof CountedRedirectError)) {
+                            personhogStoreFlushCounter.inc({ outcome: 'error' })
+                            personhogStoreFlushErrorCounter.inc({ error: errorClassLabel(error) })
+                        }
                         logger.error('Failed to flush folded update to personhog', {
                             teamId: entry.teamId,
                             personId: entry.personId,

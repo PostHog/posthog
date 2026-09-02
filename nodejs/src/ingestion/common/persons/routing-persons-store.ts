@@ -447,6 +447,19 @@ export class RoutingPersonsStore implements PersonsStore {
         const left = authoritative as MergePersonsResult
         const right = shadow as MergePersonsResult
         personhogStoreShadowComparedCounter.labels({ verb: 'mergePersons' }).inc()
+        // An aborted fold carries no verdicts, so the disposition itself is
+        // what the backends can disagree on: one record when only one side
+        // aborted, nothing when both did.
+        if (left.foldAborted || right.foldAborted) {
+            const onlyOneAborted = (left.foldAborted === undefined) !== (right.foldAborted === undefined)
+            if (onlyOneAborted) {
+                this.recordDivergence('mergePersons', 'fold_disposition', {
+                    authoritative: left.foldAborted ?? 'executed',
+                    shadow: right.foldAborted ?? 'executed',
+                })
+            }
+            return
+        }
         if ((left.survivor?.uuid ?? null) !== (right.survivor?.uuid ?? null)) {
             this.recordDivergence('mergePersons', 'survivor', {
                 authoritative: left.survivor?.uuid ?? null,
@@ -462,6 +475,11 @@ export class RoutingPersonsStore implements PersonsStore {
                     shadow: other ?? null,
                 })
             }
+            shadowOutcomes.delete(source.sourceDistinctId)
+        }
+        // A verdict for a source Postgres never reported is a divergence too.
+        for (const [, outcome] of shadowOutcomes) {
+            this.recordDivergence('mergePersons', 'outcome', { authoritative: null, shadow: outcome })
         }
     }
 

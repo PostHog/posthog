@@ -56,7 +56,7 @@ export const mergeResponseMismatchCounter = new Counter({
 
 export const mergeUnsettledCounter = new Counter({
     name: 'person_merge_unsettled_total',
-    help: 'Merges answered with an unsettled verdict, failing the batch so redelivery re-runs them',
+    help: 'Merges still unsettled after every in-process retry, dropped with the race warning.',
 })
 
 export const mergeSettledFailureCounter = new Counter({
@@ -162,16 +162,12 @@ export class PersonMergeService {
                 })
                 return mergeSuccess(undefined, warningAck, true)
             }
-            if (
-                e instanceof PersonMergeResponseMismatchError ||
-                e instanceof PersonMergeCallFailedError ||
-                e instanceof PersonMergeUnsettledError
-            ) {
-                // No verdict, or one a retry can change: acking would lose
-                // the merge, so the batch fails and redelivery replays it
-                // idempotently.
+            if (e instanceof PersonMergeResponseMismatchError) {
+                // A malformed answer is a bug detector; fail the batch.
                 throw e
             }
+            // PersonMergeCallFailedError falls through: bounded retries ran,
+            // so it takes the same give-up the Postgres path has always had.
             mergeFinalFailuresCounter
                 .labels({
                     backend: this.context.personStore.backend,
@@ -200,6 +196,28 @@ export class PersonMergeService {
                         ),
                         targetPersonDistinctId: this.context.distinctId,
                         outcome: 'refused',
+                    },
+                    pipelineStep: 'person-merge',
+                }).then(() => undefined)
+                return mergeSuccess(undefined, warningAck, true)
+            } else if (e instanceof PersonMergeCallFailedError) {
+                // Bounded retries ran; give up as Postgres does, but warned.
+                logger.warn('🤔', 'merge call failed through every retry; given up with a warning', {
+                    team_id: this.context.team.id,
+                    distinctId: this.context.distinctId,
+                    event_name: this.context.event.event,
+                    error: String(e),
+                })
+                const warningAck = emitIngestionWarning(this.context.outputs, this.context.team.id, {
+                    type: 'merge_settled_failure',
+                    details: {
+                        distinctId: this.context.distinctId,
+                        eventUuid: this.context.event.uuid,
+                        sourcePersonDistinctId: String(
+                            this.context.eventProperties['$anon_distinct_id'] ?? this.context.eventProperties['alias']
+                        ),
+                        targetPersonDistinctId: this.context.distinctId,
+                        outcome: 'call_failed',
                     },
                     pipelineStep: 'person-merge',
                 }).then(() => undefined)
@@ -268,15 +286,49 @@ export class PersonMergeService {
         // surface as throws and each re-entry runs against fresh state. A
         // raw ConnectError is a deterministic refusal the store
         // deliberately unwrapped; retrying re-runs the same comparison.
-        const result = await promiseRetry(
-            () => this.context.personStore.mergePersons(request),
-            'merge_distinct_ids',
-            undefined,
-            undefined,
-            undefined,
-            [ConnectError]
-        )
-        return this.mapSingleSourceResult(result, otherPersonDistinctId, mergeIntoDistinctId)
+        // Mapping inside the retry lets an unsettled verdict re-present the
+        // same op id, which the saga's conflict discard was built for.
+        try {
+            return await promiseRetry(
+                async () =>
+                    this.mapSingleSourceResult(
+                        await this.context.personStore.mergePersons(request),
+                        otherPersonDistinctId,
+                        mergeIntoDistinctId
+                    ),
+                'merge_distinct_ids',
+                undefined,
+                undefined,
+                undefined,
+                [ConnectError, PersonMergeResponseMismatchError]
+            )
+        } catch (error) {
+            if (!(error instanceof PersonMergeUnsettledError)) {
+                throw error
+            }
+            // Retries exhausted without a settled answer: dropped with the
+            // race warning, as Postgres drops a persistent conflict. The
+            // drop also counts on the claim-drop series, so the drop rate
+            // reads whole across both backends.
+            mergeUnsettledCounter.inc()
+            mergeClaimDroppedCounter.labels({ call: this.context.event.event }).inc()
+            const warningAck = emitIngestionWarning(this.context.outputs, teamId, {
+                type: 'merge_race_condition',
+                details: {
+                    sourcePersonDistinctId: otherPersonDistinctId,
+                    targetPersonDistinctId: mergeIntoDistinctId,
+                    distinctId: mergeIntoDistinctId,
+                    eventUuid: this.context.event.uuid,
+                },
+                pipelineStep: 'person-merge',
+                alwaysSend: true,
+            }).then(() => undefined)
+            logger.warn('🤔', 'merge unsettled through every retry; dropped with the race warning', {
+                team_id: teamId,
+                distinct_id: mergeIntoDistinctId,
+            })
+            return mergeSuccess(undefined, warningAck, true)
+        }
     }
 
     /**
@@ -355,13 +407,9 @@ export class PersonMergeService {
                 // batch instead of being absorbed by the fallback.
                 throw error
             }
-            if (error instanceof PersonMergeCallFailedError) {
-                // No verdict arrived, so the saga may still be running with
-                // fences the sequential fallback would meet under different
-                // op ids and drop. Failing the batch lets redelivery replay
-                // the same fold idempotently.
-                throw error
-            }
+            // A no-verdict call falls back too: a fence the saga still
+            // holds drops sequential merges with race warnings until the
+            // sweeper settles it.
             // Any other failure falls back to the sequential path: the current
             // event re-runs its own merge (a no-op if the fold partially
             // landed), and later events process individually with full retries.
@@ -375,14 +423,32 @@ export class PersonMergeService {
             return null
         }
         if (result.foldAborted) {
+            // Abandon before the await, so a rejected ack cannot leave the
+            // plan re-attempting folds.
+            this.abandonFold(plan, result.foldAborted)
             // An abort can still carry an ack (a bootstrap committed before
             // the fold); awaiting keeps the event from acking ahead of its
             // own writes.
             if (result.kafkaAck) {
                 await result.kafkaAck
             }
-            this.abandonFold(plan, result.foldAborted)
             return null
+        }
+        // Every requested source must carry a verdict; a response missing
+        // one is malformed, not an answer.
+        for (const source of request.sources) {
+            if (!result.results.some((r) => r.sourceDistinctId === source.distinctId)) {
+                mergeResponseMismatchCounter.labels({ call: this.context.event.event }).inc()
+                logger.error('fold response carried no verdict for a requested source; failing the batch', {
+                    team_id: this.context.team.id,
+                    event_uuid: this.context.event.uuid,
+                    source_distinct_id: source.distinctId,
+                    target_distinct_id: request.targetDistinctId,
+                })
+                throw new PersonMergeResponseMismatchError(
+                    `merge response for team ${this.context.team.id} carried no verdict for a folded source`
+                )
+            }
         }
         if (!result.survivor) {
             const reason = result.results[0]?.outcome === 'skipped_move_limit' ? 'limit' : 'error'
@@ -464,11 +530,10 @@ export class PersonMergeService {
         }
         if (sourceResult.settled === false) {
             // The backend states a retry under the same op id can change
-            // this answer (claim contention whose record is discarded), so
-            // the batch fails and redelivery re-runs the merge fresh.
-            mergeUnsettledCounter.inc()
+            // this answer (claim contention whose record is discarded); the
+            // caller retries in place and counts one drop on exhaustion.
             throw new PersonMergeUnsettledError(
-                `merge verdict for team ${this.context.team.id} is unsettled; failing the batch to retry`
+                `merge verdict for team ${this.context.team.id} is unsettled; a retry under the same op id may settle it`
             )
         }
         const outcome = sourceResult.outcome
@@ -520,9 +585,11 @@ export class PersonMergeService {
                     true
                 )
             }
+            case 'skipped_conflict':
             case 'skipped_race': {
-                // A concurrent merge kept winning the persons through every
-                // retry; the merge drops and the target stays the survivor.
+                // A rival operation kept the persons through every retry;
+                // the merge drops with pg's race warning.
+                mergeClaimDroppedCounter.labels({ call: this.context.event.event }).inc()
                 const warningAck = emitIngestionWarning(this.context.outputs, this.context.team.id, {
                     type: 'merge_race_condition',
                     details: {
@@ -563,15 +630,13 @@ export class PersonMergeService {
             case 'error':
             case 'unknown':
             default: {
-                // A verdict, not a transient fault: the merge backend records it
-                // against the op id and replays it for the retention window, so
-                // neither this event's retry nor its redelivery can reach a
-                // different answer, and failing the batch would stall the
-                // partition instead of healing. The merge is lost; the event's
-                // property updates still apply, and the customer's next
-                // $identify carries a fresh op id that can succeed. Acked, but
-                // never silently.
-                mergeSettledFailureCounter.inc()
+                // A settled verdict no retry can change: acked with the
+                // warning, never silently; a fresh op id can succeed later.
+                // 'unknown' may in fact have merged, so it skips the loss
+                // counter.
+                if (outcome !== 'unknown') {
+                    mergeSettledFailureCounter.inc()
+                }
                 const warningAck = emitIngestionWarning(this.context.outputs, this.context.team.id, {
                     type: 'merge_settled_failure',
                     details: {
@@ -587,11 +652,17 @@ export class PersonMergeService {
                     },
                     pipelineStep: 'person-merge',
                 })
-                logger.warn('🤔', 'merge settled without merging; the pair stays unmerged', {
-                    team_id: this.context.team.id,
-                    outcome,
-                    event_uuid: this.context.event.uuid,
-                })
+                logger.warn(
+                    '🤔',
+                    outcome === 'unknown'
+                        ? 'merge settled on a verdict this build cannot name; whether it merged is unknown'
+                        : 'merge settled without merging; the pair stays unmerged',
+                    {
+                        team_id: this.context.team.id,
+                        outcome,
+                        event_uuid: this.context.event.uuid,
+                    }
+                )
                 return mergeSuccess(
                     undefined,
                     Promise.all([kafkaAck, warningAck]).then(() => undefined),
@@ -660,34 +731,6 @@ export class PersonMergeService {
                             alwaysSend: true,
                         })
                     )
-                    break
-                case 'skipped_move_limit':
-                    // Only the saga answers this inside an executed fold; the
-                    // Postgres merge aborts the whole fold instead. The
-                    // source's event acks without its merge (and without the
-                    // ASYNC redirect the sequential path would give it), so
-                    // the warning is what keeps the loss identifiable.
-                    mergeMoveLimitDroppedCounter.labels({ path: 'fold' }).inc()
-                    warningAcks.push(
-                        emitIngestionWarning(this.context.outputs, this.context.team.id, {
-                            type: 'merge_move_limit_exceeded',
-                            details: {
-                                sourcePersonDistinctId: sourceResult.sourceDistinctId,
-                                targetPersonDistinctId: request.targetDistinctId,
-                                distinctId: request.targetDistinctId,
-                                eventUuid,
-                                otherPersonId: sourceResult.sourcePersonUuid,
-                                eventDropped: false,
-                            },
-                            pipelineStep: 'person-merge',
-                        })
-                    )
-                    logger.warn('🤔', 'fold skipped an over-limit source; its merge is dropped', {
-                        team_id: this.context.team.id,
-                        source_distinct_id: sourceResult.sourceDistinctId,
-                        target_distinct_id: request.targetDistinctId,
-                        event_uuid: eventUuid,
-                    })
                     break
                 case 'error':
                     // The op is terminal, so redelivery cannot change the

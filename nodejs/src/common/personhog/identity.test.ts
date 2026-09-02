@@ -8,8 +8,13 @@ import {
 } from '~/common/generated/personhog/personhog/identity/v1/identity_pb'
 
 import { PersonhogIdentityOperations } from './identity'
+import { createIdentityClients } from './identity-clients'
 
 describe('PersonhogIdentityOperations', () => {
+    it('refuses a merge timeout that would kill every merge client-side', () => {
+        expect(() => createIdentityClients({} as never, { mergeTimeoutMs: 0 })).toThrow('PERSONHOG_MERGE_TIMEOUT_MS')
+    })
+
     function makeOps(handlers: {
         getPersonsByDistinctIds?: jest.Mock
         getDistinctIdsForPersons?: jest.Mock

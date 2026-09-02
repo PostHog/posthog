@@ -57,7 +57,9 @@ jest.setTimeout(60000)
 const ROUTER_ADDR = process.env.PERSONHOG_E2E_ROUTER_ADDR ?? '127.0.0.1:50054'
 const IDENTITY_ADDR = process.env.PERSONHOG_E2E_IDENTITY_ADDR ?? '127.0.0.1:50055'
 // Where the personhog services keep their validation tables; the writer
-// applies the leader's changelog here.
+// applies the leader's changelog here. The compose services default to
+// the `posthog` database, so a compose-launched stack needs
+// POSTHOG_PERSONS_DB_NAME=posthog_persons exported (hogli sets it).
 const PERSONS_DATABASE_URL =
     process.env.PERSONHOG_E2E_PERSONS_DATABASE_URL ?? 'postgres://posthog:posthog@localhost:5432/posthog_persons'
 
@@ -207,12 +209,14 @@ describe('personhog shadow parity (e2e)', () => {
         uuid: string
         properties: Record<string, unknown>
         is_identified: boolean
+        created_at: string
     }
 
     const mainRowByDistinctId = async (distinctId: string): Promise<DurableRow | null> => {
         const { rows } = await hub.postgres.query<DurableRow>(
             PostgresUse.PERSONS_WRITE,
-            `SELECT p.uuid, p.properties, p.is_identified
+            `SELECT p.uuid, p.properties, p.is_identified,
+                    (extract(epoch from p.created_at) * 1000)::bigint::text AS created_at
                FROM posthog_persondistinctid d
                JOIN posthog_person p ON p.id = d.person_id
               WHERE d.team_id = $1 AND d.distinct_id = $2`,
@@ -224,7 +228,8 @@ describe('personhog shadow parity (e2e)', () => {
 
     const tmpRowByDistinctId = async (distinctId: string): Promise<DurableRow | null> => {
         const { rows } = await personsDb.query<DurableRow>(
-            `SELECT p.uuid, p.properties, p.is_identified
+            `SELECT p.uuid, p.properties, p.is_identified,
+                    (extract(epoch from p.created_at) * 1000)::bigint::text AS created_at
                FROM personhog_persondistinctid_tmp d
                JOIN personhog_person_tmp p ON p.id = d.person_id AND p.team_id = d.team_id
               WHERE d.team_id = $1 AND d.distinct_id = $2
@@ -253,6 +258,7 @@ describe('personhog shadow parity (e2e)', () => {
                 tmp !== null &&
                 tmp.uuid === main!.uuid &&
                 tmp.is_identified === main!.is_identified &&
+                tmp.created_at === main!.created_at &&
                 isDeepStrictEqual(tmp.properties, main!.properties)
             ) {
                 break
@@ -265,6 +271,7 @@ describe('personhog shadow parity (e2e)', () => {
         expect(tmp).not.toBeNull()
         expect(tmp!.uuid).toBe(main!.uuid)
         expect(tmp!.is_identified).toBe(main!.is_identified)
+        expect(tmp!.created_at).toBe(main!.created_at)
         expect(tmp!.properties).toEqual(main!.properties)
     }
 

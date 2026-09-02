@@ -198,6 +198,59 @@ describe('RoutingPersonsStore', () => {
             expect(divergences()).toContainEqual({ verb: 'mergePersons', field: 'outcome' })
         })
 
+        it('a verdict only the shadow produced records an outcome divergence', async () => {
+            const stores = makeStores()
+            stores.pg.mergePersons.mockResolvedValue({
+                survivor: person(1, '1'),
+                results: [{ sourceDistinctId: 'anon-1', outcome: 'merged' }],
+            })
+            stores.personhogMock.mergePersons.mockResolvedValue({
+                survivor: person(1, '1'),
+                results: [
+                    { sourceDistinctId: 'anon-1', outcome: 'merged' },
+                    { sourceDistinctId: 'anon-2', outcome: 'merged' },
+                ],
+            })
+            const store = makeStore(stores, 'shadow')
+
+            await store.mergePersons({} as never, 0)
+
+            expect(divergences()).toContainEqual({ verb: 'mergePersons', field: 'outcome' })
+        })
+
+        it('a fold only one backend aborted records the disposition, without per-source noise', async () => {
+            const stores = makeStores()
+            stores.pg.mergePersons.mockResolvedValue({
+                survivor: person(1, '1'),
+                results: [{ sourceDistinctId: 'anon-1', outcome: 'merged' }],
+            })
+            stores.personhogMock.mergePersons.mockResolvedValue({
+                survivor: null,
+                results: [],
+                foldAborted: 'conflict',
+            })
+            const store = makeStore(stores, 'shadow')
+
+            await store.mergePersons({} as never, 0)
+
+            expect(divergences()).toEqual([{ verb: 'mergePersons', field: 'fold_disposition' }])
+        })
+
+        it('a fold both backends aborted records nothing', async () => {
+            const stores = makeStores()
+            stores.pg.mergePersons.mockResolvedValue({ survivor: null, results: [], foldAborted: 'limit' })
+            stores.personhogMock.mergePersons.mockResolvedValue({
+                survivor: null,
+                results: [],
+                foldAborted: 'conflict',
+            })
+            const store = makeStore(stores, 'shadow')
+
+            await store.mergePersons({} as never, 0)
+
+            expect(divergences()).toEqual([])
+        })
+
         it('tells shadow failures apart by class, not just by verb', async () => {
             class PersonhogFenceTimeoutError extends Error {}
             const stores = makeStores()

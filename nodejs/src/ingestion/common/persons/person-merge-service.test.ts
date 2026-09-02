@@ -4,6 +4,7 @@ import { DateTime } from 'luxon'
 import { PersonClaimedByLifecycleOpError } from '~/common/persons/repositories/person-repository'
 import { parseJSON } from '~/common/utils/json-parse'
 import { defaultRetryConfig } from '~/common/utils/retries'
+import { IngestionWarningLimiter } from '~/common/utils/token-bucket'
 import { ingestionWarningCounter } from '~/ingestion/common/ingestion-warnings'
 import { PluginEvent } from '~/plugin-scaffold'
 import { InternalPerson, Team } from '~/types'
@@ -14,13 +15,14 @@ import {
     PersonMergeService,
     mergeClaimDroppedCounter,
     mergeFoldFallbackCounter,
+    mergeResponseMismatchCounter,
     mergeSettledFailureCounter,
+    mergeUnsettledCounter,
 } from './person-merge-service'
 import {
     PersonMergeCallFailedError,
     PersonMergeLimitExceededError,
     PersonMergeResponseMismatchError,
-    PersonMergeUnsettledError,
     SourcePersonHasDistinctIdsError,
     SourcePersonNotFoundError,
     TargetPersonNotFoundError,
@@ -92,6 +94,9 @@ describe('PersonMergeService store-owned merges', () => {
 
     beforeEach(() => {
         defaultRetryConfig.RETRY_INTERVAL_DEFAULT = 0
+        // The warning limiter is module-global; a leftover bucket would let
+        // one test's emission suppress another's.
+        IngestionWarningLimiter.storage.buckets.clear()
         store = {
             mergePersons: jest.fn().mockResolvedValue(result('merged')),
             fetchForUpdate: jest.fn().mockResolvedValue(null),
@@ -181,17 +186,22 @@ describe('PersonMergeService store-owned merges', () => {
         expect(store.mergePersons.mock.calls[0][0].allowIdentifiedSources).toBe(true)
     })
 
-    it('a merge call failure fails the batch instead of acking through the generic catch', async () => {
-        // The store wraps verdictless failures in the typed error; the
-        // backend-agnostic catch must rethrow it — an ack here loses the
-        // merge whenever the saga did not commit. The Postgres path never
-        // produces this type, so its handling is untouched.
+    it('a merge call failure retries, then acks with the settled-failure warning', async () => {
         store.mergePersons.mockRejectedValue(
             new PersonMergeCallFailedError('personhog merge call failed with no verdict', new Error('transport'))
         )
         const service = makeService()
 
-        await expect(service.handleIdentifyOrAlias()).rejects.toThrow(PersonMergeCallFailedError)
+        const result = await service.handleIdentifyOrAlias()
+        expect(result.success).toBe(true)
+        expect(store.mergePersons.mock.calls.length).toBeGreaterThan(1)
+        // Postgres gives this loss up silently; the warning is the one
+        // deliberate step above parity, so the customer can see it.
+        const warned = outputs.queueMessages.mock.calls
+            .flat(3)
+            .filter((entry: any) => entry?.value)
+            .map((entry: any) => parseJSON(Buffer.from(entry.value).toString()).type)
+        expect(warned).toContain('merge_settled_failure')
     })
 
     it('a deterministic raw refusal acks once with a warning instead of wedging the batch', async () => {
@@ -237,17 +247,40 @@ describe('PersonMergeService store-owned merges', () => {
         expect(warned).toContain('cannot_merge_with_illegal_distinct_id')
     })
 
-    it('an unsettled verdict fails the batch without a client retry', async () => {
-        // The backend states a retry under the same op id can change the
-        // answer, so the merge is neither acked nor dropped: the batch
-        // fails and redelivery re-runs it fresh.
-        store.mergePersons.mockResolvedValue({
-            survivor: null,
-            results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict' as const, settled: false }],
+    it('an unsettled verdict retries under one request and drops with the race warning', async () => {
+        // A retry may change the answer, so it happens in-process under
+        // the same op id; exhaustion drops the merge the way Postgres
+        // drops a persistent conflict.
+        // Snapshots taken per call, so a request mutated or rebuilt between
+        // attempts cannot compare equal to itself.
+        const seenRequests: unknown[] = []
+        store.mergePersons.mockImplementation((request: unknown) => {
+            seenRequests.push(structuredClone(request))
+            return Promise.resolve({
+                survivor: null,
+                results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict' as const, settled: false }],
+            })
         })
+        mergeUnsettledCounter.reset()
+        mergeClaimDroppedCounter.reset()
         const service = makeService()
-        await expect(service.merge('anon-1', 'd1', 1, timestamp)).rejects.toBeInstanceOf(PersonMergeUnsettledError)
-        expect(store.mergePersons).toHaveBeenCalledTimes(1)
+        const result = await service.merge('anon-1', 'd1', 1, timestamp)
+        expect(result.success).toBe(true)
+        expect(seenRequests.length).toBeGreaterThan(1)
+        // Every attempt re-presented an identical request, which the op id
+        // derives from.
+        for (const seen of seenRequests) {
+            expect(seen).toEqual(seenRequests[0])
+        }
+        // One drop, not one count per attempt, and it reads on the same
+        // drop-rate series the other race drops feed.
+        expect(await counterTotal(mergeUnsettledCounter)).toBe(1)
+        expect(await counterTotal(mergeClaimDroppedCounter)).toBe(1)
+        const warned = outputs.queueMessages.mock.calls
+            .flat(3)
+            .filter((entry: any) => entry?.value)
+            .map((entry: any) => parseJSON(Buffer.from(entry.value).toString()).type)
+        expect(warned).toContain('merge_race_condition')
     })
 
     it('a settled verdict this build cannot name acks as a settled loss', async () => {
@@ -255,11 +288,36 @@ describe('PersonMergeService store-owned merges', () => {
         // picks the warning. A newer backend's verdict therefore acks
         // instead of wedging the partition or routing to the DLQ.
         store.mergePersons.mockResolvedValue(result('unknown'))
+        mergeSettledFailureCounter.reset()
         const service = makeService()
 
         const mergeResult = await service.merge('anon-1', 'd1', 1, timestamp)
 
         expect(mergeResult.success).toBe(true)
+        // 'unknown' may in fact have merged, so it stays off the loss counter.
+        expect((await mergeSettledFailureCounter.get()).values[0]?.value ?? 0).toBe(0)
+    })
+
+    it('a settled conflict drops with the race warning, as Postgres drops one', async () => {
+        store.mergePersons.mockResolvedValue({
+            survivor: null,
+            results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict' as const, settled: true }],
+        })
+        mergeClaimDroppedCounter.reset()
+        const service = makeService()
+
+        const mergeResult = await service.merge('anon-1', 'd1', 1, timestamp)
+
+        expect(mergeResult.success).toBe(true)
+        expect(store.mergePersons).toHaveBeenCalledTimes(1)
+        const warned = outputs.queueMessages.mock.calls
+            .flat(3)
+            .filter((entry: any) => entry?.value)
+            .map((entry: any) => parseJSON(Buffer.from(entry.value).toString()).type)
+        expect(warned).toContain('merge_race_condition')
+        expect(warned).not.toContain('merge_settled_failure')
+        // The drop counts on the same series the fold path feeds.
+        expect(await counterTotal(mergeClaimDroppedCounter)).toBe(1)
     })
 
     it('an over-limit source returns the limit error result for the merge-mode policy', async () => {
@@ -370,27 +428,6 @@ describe('PersonMergeService store-owned merges', () => {
             expect(warned).toContain(warningType)
         })
 
-        it('warns on an over-limit source the fold skipped', async () => {
-            store.mergePersons.mockResolvedValue({
-                survivor,
-                results: [
-                    { sourceDistinctId: 'anon-1', outcome: 'merged' },
-                    { sourceDistinctId: 'anon-2', outcome: 'skipped_move_limit' },
-                ],
-            })
-            const service = makeService('$identify', makePlan())
-
-            await service.handleIdentifyOrAlias()
-
-            // The source's own event later reads the executed plan and acks, so
-            // without this the lost merge leaves no customer-visible trace.
-            const warned = outputs.queueMessages.mock.calls
-                .flat(3)
-                .filter((entry: any) => entry?.value)
-                .map((entry: any) => parseJSON(Buffer.from(entry.value).toString()).type)
-            expect(warned).toContain('merge_move_limit_exceeded')
-        })
-
         it('a source the fold settled as failed leaves a customer-visible trace', async () => {
             // The op is terminal and the source's own event later acks, so
             // dropping this arm would make the lost merge silent. Asserted
@@ -462,6 +499,26 @@ describe('PersonMergeService store-owned merges', () => {
             expect(order).toEqual(['delivered', 'fallback'])
         })
 
+        it('a rejected bootstrap ack still abandons the aborted fold', async () => {
+            store.mergePersons
+                .mockImplementationOnce(() =>
+                    Promise.resolve({
+                        survivor: null,
+                        results: [],
+                        foldAborted: 'conflict',
+                        kafkaAck: Promise.reject(new Error('produce failed')),
+                    })
+                )
+                .mockResolvedValue(result('merged'))
+            const plan = makePlan()
+            const service = makeService('$identify', plan)
+
+            // The rejection reaches the generic catch; the plan must not be
+            // left re-attempting folds for every later event.
+            await expect(service.handleIdentifyOrAlias()).resolves.toMatchObject({ success: true })
+            expect(plan.status).toBe('abandoned')
+        })
+
         it('a verdict this build cannot name abandons the fold rather than acking the run', async () => {
             store.mergePersons
                 .mockResolvedValueOnce({
@@ -513,16 +570,27 @@ describe('PersonMergeService store-owned merges', () => {
             expect(mergeResult.success && mergeResult.person).toBe(survivor)
         })
 
-        it('a fold whose call returned no verdict fails rather than falling back', async () => {
-            // The saga may have sealed sources and still be running. Falling
-            // back would re-merge under different op ids that meet its live
-            // fences; failing lets redelivery replay the same fold.
+        it('a fold response missing a verdict for a source fails the batch', async () => {
+            store.mergePersons.mockResolvedValue({ survivor, results: [] })
+            mergeResponseMismatchCounter.reset()
+            const plan = makePlan()
+            const service = makeService('$identify', plan)
+
+            await expect(service.handleIdentifyOrAlias()).rejects.toThrow(PersonMergeResponseMismatchError)
+            // The stall this causes must be attributable on the mismatch series.
+            expect(await counterTotal(mergeResponseMismatchCounter)).toBe(1)
+        })
+
+        it('a fold whose call returned no verdict falls back to sequential merges', async () => {
+            // A fence the saga still holds drops the sequential re-merges
+            // with race warnings until the sweeper settles it.
             store.mergePersons.mockRejectedValue(new PersonMergeCallFailedError('no verdict', new Error('transport')))
             const plan = makePlan()
             const service = makeService('$identify', plan)
 
-            await expect(service.handleIdentifyOrAlias()).rejects.toThrow(PersonMergeCallFailedError)
-            expect(store.mergePersons).toHaveBeenCalledTimes(1)
+            const result = await service.handleIdentifyOrAlias()
+            expect(result.success).toBe(true)
+            expect(plan.status).toBe('abandoned')
         })
 
         it('a mismatched merge response fails the batch instead of acking', async () => {

@@ -13,7 +13,9 @@ import { mergeOpIdFromRequest } from './person-uuid'
 import {
     PersonhogPersonsStore,
     PersonhogUnsupportedFieldError,
+    personhogStoreCachePurgeCounter,
     personhogStoreFlushCounter,
+    personhogStoreFlushErrorCounter,
     personhogStoreMergeDrainCounter,
     personhogStoreShadowShedCounter,
 } from './personhog-persons-store'
@@ -115,6 +117,14 @@ describe('PersonhogPersonsStore', () => {
         // inside BigInt() at merge time. Both lose merges deployment-wide.
         expect(() => new PersonhogPersonsStore(repository, { syncMergeMoveLimit })).toThrow(
             'PERSONHOG_SYNC_MERGE_MOVE_LIMIT must be an integer >= 1'
+        )
+    })
+
+    it.each([0, -1, 1.5])('refuses a request timeout of %p at construction', (requestTimeoutMs) => {
+        // The flush's lane wait budget derives from it; a bad value would
+        // make every flush give up instantly or never.
+        expect(() => new PersonhogPersonsStore(repository, { requestTimeoutMs })).toThrow(
+            'PERSONHOG_TIMEOUT_MS must be an integer >= 1'
         )
     })
 
@@ -384,8 +394,8 @@ describe('PersonhogPersonsStore', () => {
                 survivor: survivor(),
                 results: [{ sourceDistinctId: 'anon-1', outcome: 'merged', sourcePersonId: '9' }],
             })
-            // Every merge that returns a survivor pays a leader refresh for
-            // it; in this world the leader holds the folded document.
+            // Serves the fetch paths; in this world the leader holds the
+            // folded document.
             repository.fetchPersonById.mockImplementation(((_teamId: number, personId: string) =>
                 Promise.resolve(personId === '7' ? survivor() : { ...person, id: personId })) as never)
         })
@@ -523,7 +533,7 @@ describe('PersonhogPersonsStore', () => {
                     moveLimit: 10_000,
                     eventSet: { plan: 'pro' },
                     eventSetOnce: {},
-                    opId: mergeOpIdFromRequest(1, 'event-uuid', ['anon-1'], 10_000),
+                    opId: mergeOpIdFromRequest(1, 'event-uuid', 'd1', ['anon-1'], 10_000),
                 }),
                 expect.any(String)
             )
@@ -767,6 +777,89 @@ describe('PersonhogPersonsStore', () => {
             allowIdentifiedSources: false,
             mergeMode: createDefaultSyncMergeMode(),
             createdAtMs: 3_600_000,
+        })
+
+        it('a single-pair fold request still aborts on a refused verdict', async () => {
+            const bound = store.forBatch(0)
+            repository.mergePersons = jest.fn().mockResolvedValue({
+                survivor: { ...person, id: '7' },
+                results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_refused' }],
+            } as never)
+
+            const result = await bound.mergePersons({ ...mergeReq(['anon-1']), triggerSourceDistinctId: 'anon-1' })
+
+            expect(result.foldAborted).toBe('refused')
+        })
+
+        it('a fold racing a purge declines its cache install and keeps the ops', async () => {
+            const bound = store.forBatch(0)
+            ;(store as any).setDistinctIdToPersonId('1:d1', '1:9')
+            // The standing edge sends the update fetch to the leader read;
+            // holding it open is the window the purge lands in.
+            let release!: (value: unknown) => void
+            repository.fetchPersonById.mockReturnValueOnce(
+                new Promise((resolve) => {
+                    release = resolve
+                }) as never
+            )
+
+            const applying = bound.applyEventOps(person, ops({ $set: { folded: 'yes' } }), 'd1')
+            ;(store as any).bumpGeneration(1)
+            release({ ...person, id: '9' })
+            await applying
+
+            expect((store as any).projections.get('1:7')?.properties?.folded).toBeUndefined()
+            expect((store as any).projections.get('1:9')?.properties?.folded).toBeUndefined()
+            expect((store as any).entries.get('1:7')?.segments).toHaveLength(1)
+        })
+
+        it('releasing one batch keeps a dirty person document for the others', async () => {
+            const a = store.forBatch(1)
+            const b = store.forBatch(2)
+            // Both ids resolve to person 7, so releasing A's edge would
+            // evict the person B still holds dirty.
+            repository.resolvePersonsByDistinctIds.mockResolvedValueOnce([
+                { teamId: 1, distinctId: 'd1', person: { ...person } },
+            ] as never)
+            await a.fetchForChecking(1, 'd1')
+            await b.applyEventOps(person, ops({ $set: { pending: 'yes' } }), 'd2')
+            expect((store as any).resolutions.get('1:d1')).toBe('1:7')
+
+            store.releaseBatch(1)
+
+            expect((store as any).projections.get('1:7')).toBeDefined()
+        })
+
+        it('retiring a written lane drops the documents its dirtiness kept alive', async () => {
+            const a = store.forBatch(1)
+            const b = store.forBatch(2)
+            repository.resolvePersonsByDistinctIds.mockResolvedValueOnce([
+                { teamId: 1, distinctId: 'd1', person: { ...person } },
+            ] as never)
+            await a.fetchForChecking(1, 'd1')
+            await b.applyEventOps(person, ops({ $set: { pending: 'yes' } }), 'd2')
+            store.releaseBatch(1)
+            store.releaseBatch(2)
+            // Both holders left, but the dirty lane deferred the eviction.
+            expect((store as any).projections.get('1:7')).toBeDefined()
+
+            await b.flush()
+
+            expect((store as any).entries.get('1:7')).toBeUndefined()
+            expect((store as any).projections.get('1:7')).toBeUndefined()
+            expect((store as any).personCheckCache.get('1:7')).toBeUndefined()
+        })
+
+        it('a flush over a redirect-owned lane waits its rounds instead of failing instantly', async () => {
+            const bound = store.forBatch(0)
+            await bound.applyEventOps(person, ops({ $set: { late: 'yes' } }), 'd1')
+            const entry = (store as any).entries.get('1:7')
+            entry.inFlight = true
+            setTimeout(() => {
+                entry.inFlight = false
+            }, 100)
+
+            await expect(bound.flush()).resolves.toBeDefined()
         })
 
         it('an aborted row recorded in the error vocabulary still aborts the fold', async () => {
@@ -1620,7 +1713,7 @@ describe('PersonhogPersonsStore', () => {
             // The lane goes unwritten: the leader fence naming this merge's
             // own saga is the one refusal the pre-merge write proceeds past.
             repository.updatePersonProperties.mockRejectedValueOnce(
-                new PersonhogFencedError('fenced', '9', mergeOpIdFromRequest(1, 'event-uuid', ['anon-1'], 10_000))
+                new PersonhogFencedError('fenced', '9', mergeOpIdFromRequest(1, 'event-uuid', 'd1', ['anon-1'], 10_000))
             )
             repository.mergePersons = jest.fn().mockResolvedValue({
                 survivor: { ...person, id: '7' },
@@ -1661,7 +1754,7 @@ describe('PersonhogPersonsStore', () => {
             await bound.applyEventOps({ ...person, id: '9' }, ops({ $set: { plan: 'stale' } }), 'anon-1')
 
             repository.updatePersonProperties.mockRejectedValueOnce(
-                new PersonhogFencedError('fenced', '9', mergeOpIdFromRequest(1, 'event-uuid', ['anon-1'], 10_000))
+                new PersonhogFencedError('fenced', '9', mergeOpIdFromRequest(1, 'event-uuid', 'd1', ['anon-1'], 10_000))
             )
             repository.mergePersons = jest.fn().mockResolvedValue({
                 survivor: { ...person, id: '7' },
@@ -1686,7 +1779,7 @@ describe('PersonhogPersonsStore', () => {
             // Same bounce as above, so the lane is still buffered when the
             // call goes out and its fate is what this pins.
             repository.updatePersonProperties.mockRejectedValueOnce(
-                new PersonhogFencedError('fenced', '9', mergeOpIdFromRequest(1, 'event-uuid', ['anon-1'], 10_000))
+                new PersonhogFencedError('fenced', '9', mergeOpIdFromRequest(1, 'event-uuid', 'd1', ['anon-1'], 10_000))
             )
             repository.mergePersons = jest.fn().mockRejectedValue(new Error('no verdict'))
 
@@ -1831,6 +1924,23 @@ describe('PersonhogPersonsStore', () => {
     })
 
     describe('convergence closures', () => {
+        it('a fence bounce counts as coordination, not on the flush error series', async () => {
+            personhogStoreFlushCounter.reset()
+            personhogStoreFlushErrorCounter.reset()
+            const bound = store.forBatch(0)
+            await bound.applyEventOps(person, ops({ $set: { mine: 'kept' } }), 'd1')
+            repository.updatePersonProperties.mockRejectedValue(
+                new PersonhogFencedError('PERSON_MERGING', '7', 'op-1') as never
+            )
+
+            await expect(bound.flush()).rejects.toThrow(PersonhogFencedError)
+
+            const outcomes = (await personhogStoreFlushCounter.get()).values
+            expect(outcomes.find((entry) => entry.labels.outcome === 'fenced')?.value).toBe(1)
+            expect(outcomes.find((entry) => entry.labels.outcome === 'error')?.value ?? 0).toBe(0)
+            expect(await counterTotal(personhogStoreFlushErrorCounter)).toBe(0)
+        })
+
         const mergeReq = (sources = ['anon-1']) => ({
             teamId: 1,
             targetDistinctId: 'd1',
@@ -1840,6 +1950,29 @@ describe('PersonhogPersonsStore', () => {
             allowIdentifiedSources: false,
             mergeMode: createDefaultSyncMergeMode(),
             createdAtMs: 3_600_000,
+        })
+
+        it.each([
+            [
+                'a settled refusal',
+                new ConnectError(
+                    'op_id was already used for a different request',
+                    Code.FailedPrecondition,
+                    new Headers({ 'x-semantic-refusal': 'op_id_reused' })
+                ),
+                'merge_refused',
+            ],
+            ['a no-verdict call failure', new Error('transport closed'), 'merge_no_verdict'],
+        ])('purging on %s counts under its own reason', async (_label, error, reason) => {
+            personhogStoreCachePurgeCounter.reset()
+            const bound = store.forBatch(0)
+            await bound.applyEventOps(person, ops({ $set: { plan: 'pro' } }), 'd1')
+            repository.mergePersons = jest.fn().mockRejectedValue(error as never)
+
+            await expect(bound.mergePersons(mergeReq())).rejects.toThrow()
+
+            const reasons = (await personhogStoreCachePurgeCounter.get()).values
+            expect(reasons.find((entry) => entry.labels.reason === reason)?.value ?? 0).toBeGreaterThan(0)
         })
 
         it('a merge writes the lanes it fences before its request goes out', async () => {
@@ -1977,23 +2110,18 @@ describe('PersonhogPersonsStore', () => {
     })
 
     describe('round-3 regressions', () => {
-        it('a caller mutating a fetched absent-person fallback cannot corrupt the cache', async () => {
+        it('an update fetch never answers from the check cache on a stale absence', async () => {
             const bound = store.forBatch(0)
-            // The absent-person fallback was the one fetch branch that
-            // returned the shared cached object, so a caller mutating its
-            // answer corrupted the cache.
             repository.resolvePersonsByDistinctIds.mockResolvedValueOnce([
                 { teamId: 1, distinctId: 'd2', person: { ...person, id: '8', properties: { plan: 'free' } } },
             ] as never)
             await bound.fetchForChecking(1, 'd2')
-            repository.resolvePersonsByDistinctIds.mockResolvedValueOnce([] as never)
-            const fallback = await bound.fetchForUpdate(1, 'd2')
-            expect(fallback).not.toBeNull()
-            if (fallback) {
-                fallback.properties.stamped = 'by-caller'
-            }
-
-            expect((store as any).personCheckCache.get('1:8')?.properties.stamped).toBeUndefined()
+            // The standing edge routes the update fetch to the leader read,
+            // which answers that the person is gone.
+            repository.fetchPersonById.mockResolvedValueOnce(null as never)
+            // The lagging check document must not become the update answer;
+            // null routes the caller to the healing path.
+            expect(await bound.fetchForUpdate(1, 'd2')).toBeNull()
         })
 
         it('derives a valid op uuid from any event uuid string', async () => {
@@ -2698,7 +2826,7 @@ describe('PersonhogPersonsStore', () => {
             mergeMode: createDefaultSyncMergeMode(),
             createdAtMs: 3_600_000,
         })
-        const sagaOpId = (): string => mergeOpIdFromRequest(1, 'event-uuid', ['anon-1'], 10_000)
+        const sagaOpId = (): string => mergeOpIdFromRequest(1, 'event-uuid', 'd1', ['anon-1'], 10_000)
         // A function, not a value: `person` is assigned in beforeEach, so a
         // literal here would capture undefined and hand back a survivor with
         // no id.
