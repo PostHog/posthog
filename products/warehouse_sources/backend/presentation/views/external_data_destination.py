@@ -1,8 +1,9 @@
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 from django.db import transaction
 from django.db.models import Q
 
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -14,7 +15,11 @@ from posthog.models.integration import Integration
 from posthog.permissions import is_service_auth
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
-from products.warehouse_sources.backend.facade.models import ExternalDataDestination, ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import (
+    ExternalDataDestination,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 
 # Which Integration kind holds the credentials for each destination type. A type absent from
 # this map needs no integration; the PostHog warehouse is the only such type today.
@@ -29,6 +34,27 @@ DESTINATION_INTEGRATION_KINDS: dict[str, tuple[str, ...]] = {
 # Types a user may create. The PostHog warehouse row is created by the sync itself the first
 # time a schema resolves to it, and every team has exactly one, so it is not user-managed.
 USER_CREATABLE_TYPES = frozenset(DESTINATION_INTEGRATION_KINDS)
+
+
+class SyncedSourceSerializer(serializers.Serializer):
+    """One source that writes to a destination. Shape only — never used to deserialize."""
+
+    id = serializers.UUIDField(help_text="The source's id.")
+    name = serializers.CharField(help_text="How the source is labelled in the UI, prefix included.")
+    source_type = serializers.CharField(help_text="Which connector this is, e.g. Stripe or Postgres.")
+    via_table_override = serializers.BooleanField(
+        help_text="True when only some of the source's tables reach this destination, through their own override."
+    )
+
+
+def _source_summary(source: ExternalDataSource, *, via_table_override: bool = False) -> dict[str, Any]:
+    # Prefix is part of how a person recognizes a source, since one connector can be added twice.
+    return {
+        "id": str(source.id),
+        "name": f"{source.prefix or ''}{source.source_type}".strip(),
+        "source_type": source.source_type,
+        "via_table_override": via_table_override,
+    }
 
 
 class ExternalDataDestinationSerializer(serializers.ModelSerializer):
@@ -55,6 +81,50 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
     is_posthog_warehouse = serializers.BooleanField(
         read_only=True, help_text="Whether this is the managed PostHog warehouse destination."
     )
+    synced_sources = serializers.SerializerMethodField(
+        help_text=(
+            "Sources whose tables sync to this destination, so you can see what a change or a "
+            "deletion would affect. Includes sources that reach it through a single table's "
+            "override, and — for the PostHog warehouse — sources that write there by default "
+            "because nothing else was configured."
+        )
+    )
+
+    @extend_schema_field(SyncedSourceSerializer(many=True))
+    def get_synced_sources(self, destination: ExternalDataDestination) -> list[dict[str, Any]]:
+        # Reads only prefetched relations plus lists built once per request, so a project with
+        # many destinations still costs a fixed number of queries.
+        #
+        # `accessible_source_ids` is None for service auth (nothing to restrict) and otherwise the
+        # set of sources the requesting user may see — the same check the source list endpoint
+        # itself enforces. Without it, a source with an explicit `none` grant would still leak its
+        # id/name/type here just because it shares a destination with a source the user can see.
+        accessible_source_ids = self.context.get("accessible_source_ids")
+
+        def _visible(source_id: Any) -> bool:
+            return accessible_source_ids is None or str(source_id) in accessible_source_ids
+
+        by_id: dict[str, dict[str, Any]] = {}
+        for link in destination.source_links.all():
+            if link.enabled and not link.source.deleted and _visible(link.source_id):
+                by_id[str(link.source_id)] = _source_summary(link.source)
+        for link in destination.schema_links.all():
+            if (
+                link.enabled
+                and not link.schema.deleted
+                and not link.schema.source.deleted
+                and _visible(link.schema.source_id)
+            ):
+                by_id.setdefault(
+                    str(link.schema.source_id), _source_summary(link.schema.source, via_table_override=True)
+                )
+
+        if destination.is_posthog_warehouse:
+            for source in self.context.get("unconfigured_sources", []):
+                if _visible(source.id):
+                    by_id.setdefault(str(source.id), _source_summary(source))
+
+        return sorted(by_id.values(), key=lambda entry: entry["name"])
 
     class Meta:
         model = ExternalDataDestination
@@ -68,8 +138,9 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
             "created_at",
             "created_by",
             "updated_at",
+            "synced_sources",
         ]
-        read_only_fields = ["id", "is_posthog_warehouse", "created_at", "created_by", "updated_at"]
+        read_only_fields = ["id", "is_posthog_warehouse", "created_at", "created_by", "updated_at", "synced_sources"]
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         destination_type = attrs.get("type", getattr(self.instance, "type", None))
@@ -165,7 +236,42 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     ordering = "name"
 
     def safely_get_queryset(self, queryset: Any) -> Any:
-        return queryset.filter(team_id=self.team_id).order_by(self.ordering)
+        # Prefetched so `synced_sources` reads relations already in memory: two extra queries for
+        # the whole page rather than two per destination.
+        return (
+            queryset.filter(team_id=self.team_id)
+            .prefetch_related("source_links__source", "schema_links__schema__source")
+            .order_by(self.ordering)
+        )
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        context = super().get_serializer_context()
+        # A source with no links of its own writes to the PostHog warehouse. Resolved once per
+        # request rather than per destination, and only when the warehouse can appear in the
+        # response at all.
+        context["unconfigured_sources"] = self._unconfigured_sources()
+        context["accessible_source_ids"] = self._accessible_source_ids()
+        return context
+
+    def _accessible_source_ids(self) -> Optional[set[str]]:
+        # None means "don't restrict": service auth acts on behalf of the system, not a project
+        # member, so there is no per-source grant to check.
+        if is_service_auth(self.request):
+            return None
+        accessible = self.user_access_control.filter_queryset_by_access_level(
+            ExternalDataSource.objects.filter(team_id=self.team_id).exclude(deleted=True),
+            resource="external_data_source",
+        )
+        return {str(source_id) for source_id in accessible.values_list("id", flat=True)}
+
+    def _unconfigured_sources(self) -> list[ExternalDataSource]:
+        return list(
+            ExternalDataSource.objects.filter(team_id=self.team_id)
+            .exclude(deleted=True)
+            .exclude(destination_links__enabled=True)
+            .exclude(schemas__destination_links__enabled=True)
+            .distinct()
+        )
 
     def _assert_can_mutate(self, instance: ExternalDataDestination) -> None:
         """Per-table gate for changing or deleting a shared destination.
