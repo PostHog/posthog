@@ -51745,7 +51745,7 @@ export namespace Schemas {
       /** What this sandbox shape costs per hour in USD while it is alive, at this region's rates. Charged on the sandbox's lifetime, not on how much of it a cell uses. Resizing through the kernel config endpoint restarts a live kernel, so this tracks the running sandbox. */
       hourly_price: number;
       /**
-         * Compute preset the configured shape matches, or null when it was tuned by hand. Describes the configured shape, not necessarily the one a running kernel started with.
+         * Compute preset for the shape hourly_price describes: the running sandbox while a kernel is live, otherwise the configured shape. Null when that shape was tuned by hand and matches no preset.
          * @nullable
          */
       preset_key?: string | null;

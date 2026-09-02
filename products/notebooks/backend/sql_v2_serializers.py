@@ -483,8 +483,8 @@ class NotebookKernelStatusResponseSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text=(
-            "Compute preset the configured shape matches, or null when it was tuned by hand. Describes the "
-            "configured shape, not necessarily the one a running kernel started with."
+            "Compute preset for the shape hourly_price describes: the running sandbox while a kernel is "
+            "live, otherwise the configured shape. Null when that shape was tuned by hand and matches no preset."
         ),
     )
 
