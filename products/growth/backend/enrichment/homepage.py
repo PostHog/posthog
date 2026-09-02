@@ -69,7 +69,7 @@ def homepage_input_fields(organization_id: Any, domain: str | None) -> dict[str,
     """Homepage-derived input fields for one org, cached across every label for CACHE_TTL.
 
     `domain` is the same signup domain a label already sends the LLM (see
-    enrichment/labels.py's signup_domain_for_organization) — never a second, independently
+    enrichment/labels.py's signup_domain_for_organization), not a second, independently
     resolved domain, so a label opting into homepage content still prompts about one company.
 
     Only a successful scrape is cached: a transient Firecrawl outage or an exhausted egress
