@@ -4,8 +4,10 @@
 // hoggie library, rendered via its PNG exports — see `pngHoggie` in lib/brand/hoggies.
 // Do NOT add new usages of anything exported here; reach for a `@posthog/brand` hoggie
 // instead.
-// Everything left below is still rendered somewhere, and we'll slowly remove all of
-// them as the remaining usages are migrated over. Tracked by:
+// Everything left below is still rendered somewhere, and stays only because
+// `@posthog/brand` has no equivalent art for it yet. Each hog moves to the brand
+// library once there is good art to replace it with, so the end state of this file is
+// no local hedgehogs at all. The art requests are tracked by:
 //   - https://github.com/PostHog/marketing/issues/154
 //   - https://github.com/PostHog/marketing/issues/145
 //   - https://github.com/PostHog/marketing/issues/146
