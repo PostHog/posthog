@@ -22,6 +22,69 @@ A successful first release should make these promises:
 
 The first release does not need to replace a complete BI platform. It should describe its scope honestly, probably as a single-table visual query builder until joins and semantic metadata exist.
 
+## User jobs and initial scope
+
+A feature checklist is not enough to establish a useful Builder. The release should be evaluated against complete user jobs that start before query construction and continue after a result renders.
+
+### Answer a new question
+
+A user should be able to start from a product concept or data source, find relevant fields, construct a query, inspect the result, and refine the question without restarting.
+
+- [ ] Entry points preserve the table, event, person, cohort, or other context that led to Builder.
+- [ ] Schema search helps the user distinguish similar fields.
+- [ ] Query history and undo make experimentation safe.
+- [ ] A result exposes an obvious next analytical action.
+
+### Create a reusable artifact
+
+A useful exploration should become a saved query, insight, dashboard item, or notebook input without rebuilding the logic.
+
+- [ ] Builder state survives every supported save path.
+- [ ] The destination shows which parts remain editable in Builder.
+- [ ] Parameters replace hard-coded values when an artifact needs viewer input.
+- [ ] The artifact has a stable owner, URL, and permission model.
+
+### Investigate a result
+
+A surprising value should lead to more detail through filtering, drilling, row inspection, or a deeper analysis surface.
+
+- [ ] Tables and charts expose contextual follow-up actions.
+- [ ] Follow-up actions preserve the parent query and selected value.
+- [ ] Users can inspect the generated filter before running it.
+- [ ] Users can continue complex investigations in a notebook.
+
+### Enable safe self-service
+
+People who understand the business question but not the physical schema should be able to use curated definitions without changing their meaning.
+
+- [ ] Curated fields and measures appear before raw implementation details.
+- [ ] Official definitions remain distinguishable from exploratory calculations.
+- [ ] Permissions apply consistently from discovery through drill-down.
+- [ ] The interface reveals enough generated SQL for technical review.
+
+### Collaborate and distribute
+
+Recurring analysis should support review, sharing, refresh, and delivery rather than ending as one person's browser state.
+
+- [ ] Reviewers can understand the query without reproducing the session.
+- [ ] Concurrent edits cannot silently overwrite work.
+- [ ] Consumers can subscribe to or embed an appropriate published artifact.
+- [ ] Ownership and revision history identify the current source of truth.
+
+### Initial audience assumptions
+
+The first release should optimize for product teams that need answers beyond a predefined insight but do not want to begin with SQL. It should also give SQL-fluent reviewers a transparent escape hatch.
+
+The initial release should not claim to provide:
+
+- A complete enterprise semantic-modeling environment.
+- A spreadsheet replacement for planning and scenario modeling.
+- A general-purpose application builder with writeback.
+- A presentation canvas for arbitrary narrative layouts.
+- A replacement for Python or multi-step notebook analysis.
+
+Those remain useful future hypotheses. They should not delay a coherent, durable query-building workflow.
+
 ## Release levels
 
 ### Limited beta
@@ -50,6 +113,8 @@ A public beta should support exploratory work without forcing users into SQL for
 - [ ] Add query preview and estimated result shape.
 - [ ] Add undo and redo for Builder edits.
 - [ ] Add first-run guidance and contextual examples.
+- [ ] Add product-native starting points and notebook continuation.
+- [ ] Make result tables useful for follow-up exploration.
 - [ ] Measure successful query construction, not only mode selection.
 
 ### General availability
@@ -60,6 +125,8 @@ General availability should mean saved work is durable, shareable, governed, and
 - [ ] Support reusable dimensions and measures.
 - [ ] Support drill-down and viewing underlying rows.
 - [ ] Support parameters suitable for dashboards and shared reports.
+- [ ] Support promotion from exploratory work to an official artifact.
+- [ ] Define refresh, subscription, and embedding behavior.
 - [ ] Define compatibility and migration behavior for Builder schema changes.
 - [ ] Meet accessibility, performance, reliability, and observability targets.
 - [ ] Publish user documentation and troubleshooting guidance.
@@ -160,11 +227,36 @@ General availability should mean saved work is durable, shareable, governed, and
 - [ ] Connection errors distinguish unsupported syntax from ordinary query failure.
 - [ ] Documentation names the supported connection types.
 
+### Make query-engine behavior legible
+
+**User expectation:** The interface explains which engine will run the query and how that choice affects syntax, types, and available operations.
+
+**Current gap:** A connection selector does not fully communicate the behavioral differences between PostHog data, warehouse tables, DuckDB-backed queries, and raw external execution.
+
+**Patch direction:**
+
+- Display the active engine near source selection and query execution.
+- Link each engine to its supported operations and known limitations.
+- Translate engine-specific failures into the responsible Builder control where possible.
+- Preserve native types through metadata, generation, execution, and visualization.
+- Test dates, decimals, arrays, structs, nullable values, and source-specific identifiers.
+- Keep the engine visible when a query continues into a notebook or saved artifact.
+- Avoid presenting internal execution choices unless they change user-visible behavior.
+
+**Acceptance criteria:**
+
+- [ ] A user can identify the engine before running a query.
+- [ ] Unsupported types fail during configuration instead of after SQL generation.
+- [ ] An engine error explains whether the query, source, or Builder operation needs to change.
+- [ ] Moving the query into another analysis surface preserves its engine requirements.
+
 ### Validate chart and result compatibility
 
 **User expectation:** Selecting a visualization should guide the query toward a result that the chart can render.
 
 **Current gap:** The same generic Rows, Columns, Values, and Filters shelves appear for every visualization. The interface does not describe required dimensions, measures, cardinality, or data types.
+
+Chart count should not be the release target. A smaller set of charts with complete filtering, interaction, drill, formatting, and accessibility is more useful than broad but shallow parity.
 
 **Patch direction:**
 
@@ -174,6 +266,8 @@ General availability should mean saved work is durable, shareable, governed, and
 - Suggest a compatible visualization from the current result shape.
 - Preserve compatible fields when the visualization changes.
 - Explain which fields will be dropped before clearing them.
+- Define the analytical job served by every supported visualization.
+- Prioritize table, trend, comparison, composition, distribution, and summary workflows before specialized chart variants.
 
 **Acceptance criteria:**
 
@@ -181,6 +275,7 @@ General availability should mean saved work is durable, shareable, governed, and
 - [ ] Invalid configurations show an inline explanation.
 - [ ] Changing charts does not silently discard compatible configuration.
 - [ ] A table remains a safe fallback for any valid tabular result.
+- [ ] Every generally available chart supports the common interaction and accessibility contract.
 
 ## P1: make query construction discoverable
 
@@ -456,6 +551,103 @@ General availability should mean saved work is durable, shareable, governed, and
 - [ ] Missing required values produce a clear empty state.
 - [ ] Shared URLs do not expose sensitive parameter values unexpectedly.
 
+## P1: connect Builder to the analysis workflow
+
+### Start from product-native context
+
+**User expectation:** Starting from a product question should retain the event, person, cohort, experiment, feature flag, or replay context that prompted it.
+
+**Current gap:** A generic table-first Builder makes PostHog data feel like an arbitrary warehouse schema and asks the user to reconstruct relationships the product already understands.
+
+**Patch direction:**
+
+- Add **Explore in Builder** actions to appropriate product-data surfaces.
+- Preselect the relevant source, fields, and safe filters from the originating context.
+- Offer product-oriented starting points such as behavior over time, conversion breakdowns, and affected-user inspection.
+- Preserve a link back to the source insight, experiment, flag, or replay search.
+- Suggest known PostHog relationships before generic physical joins.
+- Use the same definitions as existing product analytics when representing the same metric.
+- Make differences from an existing insight definition explicit.
+
+**Acceptance criteria:**
+
+- [ ] A contextual entry point opens a valid, inspectable Builder configuration.
+- [ ] Generated queries reproduce the meaning shown at the source surface.
+- [ ] Users can remove inherited context without hidden constraints remaining.
+- [ ] Returning to the source surface preserves its original state.
+- [ ] Product-native suggestions respect the same permissions as direct navigation.
+
+### Continue into a notebook
+
+**User expectation:** A visual query can become one step in a deeper analysis without copying SQL, results, or context manually.
+
+**Current gap:** Builder can produce a result, but the handoff does not yet define how editable configuration, generated SQL, parameters, engine requirements, and result references should travel together.
+
+**Patch direction:**
+
+- Make **Continue in a notebook** a first-class action after a successful run.
+- Create a notebook node that references the saved query or carries a durable Builder definition.
+- Preserve source, connection, parameters, visualization, and result context.
+- Let notebook authors reopen the originating Builder configuration.
+- Avoid embedding large result payloads when a query reference is sufficient.
+- Define whether notebook edits update, fork, or detach from the original artifact.
+- Support a clear return path from the notebook to the Builder artifact.
+
+**Acceptance criteria:**
+
+- [ ] Continuation requires no manual SQL copy.
+- [ ] The notebook reruns the same query under the same engine and permissions.
+- [ ] Builder edits made from a notebook follow an explicit update or fork action.
+- [ ] Parameters remain bound after continuation.
+- [ ] The handoff does not duplicate unbounded query results in client state.
+
+### Make result tables interactive
+
+**User expectation:** A result table is an exploration surface, not only a static rendering of the last query.
+
+**Current gap:** Follow-up filtering, sorting, record inspection, and column operations are weaker than the corresponding construction controls.
+
+**Patch direction:**
+
+- Add a cell or column value as a visible Builder filter.
+- Add or change sorting from a column header.
+- Open a record detail view when a stable entity identifier exists.
+- Copy a cell, row, column name, or filtered-link value predictably.
+- Pin, resize, reorder, and format columns without changing query semantics unnecessarily.
+- Distinguish presentation-only table state from query-changing state.
+- Offer underlying rows for aggregate results when permissions and cost allow it.
+- Preserve table interaction when saving or continuing into another artifact where appropriate.
+
+**Acceptance criteria:**
+
+- [ ] A table filter always appears in the Builder configuration.
+- [ ] Presentation-only changes do not trigger a query rerun.
+- [ ] Query-changing actions remain undoable.
+- [ ] Record inspection has a safe fallback when no stable identifier exists.
+- [ ] Large results retain virtualization and cancellation behavior.
+
+### Make the next useful action obvious
+
+**User expectation:** Each stage offers a natural next step instead of leaving the user to navigate between disconnected tools.
+
+**Current gap:** Source selection, Builder, SQL, results, notebooks, insights, and dashboards expose overlapping actions without a single coherent progression.
+
+**Patch direction:**
+
+- Define the primary action for empty, configured, successful, failed, and saved states.
+- Keep secondary destinations available without giving them equal visual weight.
+- Preserve context across Builder, SQL, notebook, insight, and dashboard transitions.
+- Avoid creating duplicate artifacts when the user intends to update the current one.
+- Explain whether each action saves, copies, converts, or only navigates.
+- Test the flow from an initial question through a rerunnable shared result.
+
+**Acceptance criteria:**
+
+- [ ] Every state has one identifiable primary action.
+- [ ] Destination actions state whether they mutate or create an artifact.
+- [ ] Back navigation never depends on browser history to restore unsaved analysis.
+- [ ] A first-time user can reach a saved result without understanding PostHog artifact types first.
+
 ## P1: editing confidence
 
 ### Add undo, redo, and recovery
@@ -522,6 +714,53 @@ General availability should mean saved work is durable, shareable, governed, and
 - [ ] Concurrent edits cannot silently overwrite newer work.
 - [ ] Revision history identifies configuration and generated-SQL changes.
 
+### Support review and edit awareness
+
+**User expectation:** Teammates can discuss, review, and safely change recurring analysis without coordinating in a separate tool.
+
+**Current gap:** Ownership and revision history do not provide comments, edit presence, field-level discussion, or a deliberate review state.
+
+**Patch direction:**
+
+- Show when another authorized user is actively editing the artifact.
+- Prevent silent last-write-wins behavior.
+- Allow comments on the artifact and, where stable, on a Builder control or result.
+- Preserve comment anchors through compatible configuration changes.
+- Provide a reviewable diff for query meaning, not only serialized JSON.
+- Notify owners without exposing query contents through unsafe channels.
+- Define lightweight review without making exploratory work bureaucratic.
+
+**Acceptance criteria:**
+
+- [ ] Concurrent writers receive a conflict or merge path before save.
+- [ ] A reviewer can identify changes to sources, filters, measures, and joins.
+- [ ] Comments retain author, timestamp, resolution state, and permission checks.
+- [ ] Exploratory work remains editable without mandatory approval.
+
+### Promote exploratory work to trusted content
+
+**User expectation:** Consumers can distinguish a personal exploration from a reviewed definition used for recurring decisions.
+
+**Current gap:** A saved artifact can be reusable without communicating whether its logic is official, reviewed, deprecated, or experimental.
+
+**Patch direction:**
+
+- Define a small lifecycle such as exploratory, reviewed, official, and deprecated.
+- Require ownership and a durable Builder or SQL definition before promotion.
+- Record the reviewer and revision that received trusted status.
+- Display trust state in search, dashboards, notebooks, and the Builder.
+- Warn when a trusted artifact depends on exploratory or deprecated definitions.
+- Revoke or request renewed review after meaningfully changing query logic.
+- Keep trust labels separate from access permissions.
+
+**Acceptance criteria:**
+
+- [ ] Every trust state has clear requirements and consequences.
+- [ ] Promotion attaches to an immutable artifact revision.
+- [ ] Editing trusted logic cannot retain its status silently.
+- [ ] Search can prefer trusted content without hiding exploratory work.
+- [ ] Users can inspect why an artifact is considered trusted.
+
 ### Keep generated SQL trustworthy
 
 **User expectation:** SQL generated by a visual tool remains inspectable and explains the result.
@@ -536,6 +775,9 @@ General availability should mean saved work is durable, shareable, governed, and
 - Include stable aliases that reflect visible field names.
 - Expose which Builder control produced a selected SQL fragment where practical.
 - Avoid hidden transformations that cannot be represented in the Builder.
+- Keep source-aware autocomplete, schema navigation, and engine documentation available after detaching.
+- Map execution errors to the generated or edited SQL range and the originating Builder control when possible.
+- Preserve query history with enough origin metadata to recover the Builder version.
 
 **Acceptance criteria:**
 
@@ -543,6 +785,8 @@ General availability should mean saved work is durable, shareable, governed, and
 - [ ] Editing SQL requires an explicit detach action.
 - [ ] Returning to Builder never treats detached SQL as Builder-authored.
 - [ ] The generated SQL can be copied without changing editor state.
+- [ ] A detached query retains its connection and receives source-aware SQL assistance.
+- [ ] Query history distinguishes generated SQL from manually edited SQL.
 
 ### Honor permissions throughout discovery
 
@@ -564,6 +808,100 @@ General availability should mean saved work is durable, shareable, governed, and
 - [ ] Preview and value suggestions use the same authorization boundary as execution.
 - [ ] A revoked field produces a safe, actionable saved-query state.
 - [ ] Builder does not create a second query authorization path.
+
+### Deliver recurring results
+
+**User expectation:** A recurring analysis can refresh and reach its audience without someone reopening the Builder manually.
+
+**Current gap:** Saving the query does not by itself define scheduling, freshness, subscriptions, alerts, embedding, or failure ownership.
+
+**Patch direction:**
+
+- Separate query definition from delivery configuration.
+- Reuse existing dashboard, subscription, alert, export, and embedding primitives where possible.
+- Show last success, freshness, next run, and failure state on recurring artifacts.
+- Let recipients understand the applied parameters and result timestamp.
+- Route delivery failures to an owner without including sensitive query results.
+- Keep embeds read-only unless an explicit parameter contract allows interaction.
+- Define whether a changed Builder revision requires delivery review.
+
+**Acceptance criteria:**
+
+- [ ] A recurring artifact has an accountable owner.
+- [ ] Every delivered result includes its data freshness and active parameters.
+- [ ] Delivery failure does not present stale data as current.
+- [ ] Embedded artifacts enforce the same data permissions or an explicit sharing policy.
+- [ ] Query edits and delivery edits have separate audit history.
+
+### Keep operational actions out of the initial promise
+
+**User expectation:** A button that changes data or triggers a workflow has stronger safety guarantees than a query control.
+
+**Current gap:** Interactive BI products can blur filtering, input, writeback, and operational actions even though those operations have different authorization and recovery needs.
+
+**Patch direction:**
+
+- Treat writeback and external actions as a later, separately reviewed capability.
+- Require explicit action schemas, authorization, confirmation, and audit logging.
+- Never infer write access from permission to run a query.
+- Separate scenario inputs from writes to source data.
+- Make retry and partial-failure behavior visible.
+
+**Acceptance criteria:**
+
+- [ ] The initial Builder release cannot mutate source data.
+- [ ] Future actions use a dedicated permission boundary.
+- [ ] Every mutation identifies its target and expected effect before confirmation.
+- [ ] A failed multi-step action cannot appear fully successful.
+
+## P2: make AI useful inside the workflow
+
+### Ground assistance in visible definitions
+
+**User expectation:** AI suggestions use available schema, semantic definitions, product context, and permissions instead of guessing from field names alone.
+
+**Current gap:** A one-shot generated answer can look complete while remaining detached from trusted measures, saved artifacts, and the controls needed to verify it.
+
+**Patch direction:**
+
+- Give assistance the same authorized schema and semantic context shown in Builder.
+- Prefer trusted definitions when several fields appear to represent the same concept.
+- Explain the selected source, fields, filters, and aggregation before execution.
+- Apply suggestions as a reviewable Builder configuration change.
+- Keep generated changes undoable.
+- Let users inspect generated SQL and cited definitions.
+- Ask for clarification when a business term maps to several plausible concepts.
+- Turn useful answers into durable Builder, notebook, insight, or dashboard artifacts.
+
+**Acceptance criteria:**
+
+- [ ] AI cannot select fields hidden from the current user.
+- [ ] Every proposed query is editable before or after execution.
+- [ ] Trusted definitions are identifiable in the proposal.
+- [ ] Applying a proposal creates one undoable Builder action.
+- [ ] An answer can become a saved artifact without regenerating it from chat text.
+
+### Help with errors and next steps
+
+**User expectation:** Assistance explains a failure or suggests a useful refinement while preserving control over the analysis.
+
+**Current gap:** Generic error repair and open-ended chat can lose the exact Builder state, engine constraints, or result selection that prompted the question.
+
+**Patch direction:**
+
+- Attach help to the current Builder configuration and structured error.
+- Propose the smallest valid configuration change that addresses the failure.
+- Explain unsupported engine capabilities without inventing syntax.
+- Suggest follow-up filters, breakdowns, drills, or notebook continuation from the current result.
+- Preview the effect before applying destructive changes.
+- Avoid sending result rows or sensitive filter values unless the existing policy permits it.
+
+**Acceptance criteria:**
+
+- [ ] Error assistance references the responsible control.
+- [ ] A rejected suggestion leaves configuration unchanged.
+- [ ] Suggested next steps retain the current query context.
+- [ ] Assistance records product telemetry without query contents or result values.
 
 ## P2: accessibility and layout
 
@@ -713,6 +1051,8 @@ Mode selection alone does not demonstrate that Builder solves a useful problem. 
 - [ ] A result changed after an intentional configuration edit.
 - [ ] The query or insight was saved.
 - [ ] The saved artifact reopened in Builder.
+- [ ] The result continued into a notebook or another appropriate artifact.
+- [ ] A result interaction produced a successful follow-up query.
 - [ ] The artifact ran again on a later day.
 - [ ] The artifact was viewed or duplicated by another authorized user.
 
@@ -723,6 +1063,9 @@ Mode selection alone does not demonstrate that Builder solves a useful problem. 
 - [ ] Record unsupported-source and unsupported-chart encounters.
 - [ ] Record mode-switch cancellation and recovery usage.
 - [ ] Record abandoned configurations without capturing query contents.
+- [ ] Record continuation destinations and whether their first run succeeds.
+- [ ] Record drill and table interactions that lead to a successful query.
+- [ ] Record engine-specific unsupported operations without source identifiers.
 - [ ] Monitor editor crashes and blank-editor recovery.
 
 ### Research questions
@@ -736,6 +1079,13 @@ Mode selection alone does not demonstrate that Builder solves a useful problem. 
 - [ ] Do users trust generated SQL and calculated results?
 - [ ] Is a single-table builder valuable without joins?
 - [ ] Should Builder live in the SQL editor or start from a table or chart workflow?
+- [ ] Which product-native entry points produce useful saved work?
+- [ ] When do users continue into a notebook instead of saving an insight?
+- [ ] Which result-table interactions answer the next question fastest?
+- [ ] Can users explain which engine ran their query and why that matters?
+- [ ] What evidence makes users trust a reusable definition?
+- [ ] Which recurring results need subscriptions, alerts, or embedding?
+- [ ] Does AI assistance reduce time to a verified artifact rather than only time to a first query?
 
 Research notes and telemetry examples must not include customer data in this public repository.
 
@@ -801,6 +1151,39 @@ Research notes and telemetry examples must not include customer data in this pub
 - [ ] Raw-query connections confirm that Builder remains unavailable.
 - [ ] Capability changes degrade gracefully for saved artifacts.
 
+### Workflow continuity
+
+- [ ] Open Builder from a supported product-data context.
+- [ ] Remove or change inherited context without hidden filters remaining.
+- [ ] Continue a successful result into a notebook.
+- [ ] Reopen the originating Builder artifact from the notebook.
+- [ ] Save the same exploration as an insight and dashboard item.
+- [ ] Add a filter and sort through result-table interactions.
+- [ ] Drill from an aggregate result to permitted underlying rows.
+- [ ] Return to the parent result without reconstructing the query.
+- [ ] Preserve engine, connection, parameter, and permission requirements across transitions.
+
+### Trust and collaboration
+
+- [ ] Save concurrent edits from two browser sessions.
+- [ ] Review a meaningful diff of filters, measures, joins, and sources.
+- [ ] Promote an eligible revision from exploratory to trusted.
+- [ ] Change trusted logic and require renewed review.
+- [ ] Deprecate a definition used by existing Builder artifacts.
+- [ ] Resolve a comment attached to a stable Builder control.
+- [ ] Remove access while another user has the artifact open.
+
+### Delivery and assistance
+
+- [ ] Schedule a recurring result with visible freshness.
+- [ ] Deliver a parameterized result without exposing hidden values.
+- [ ] Fail a recurring query and notify its owner safely.
+- [ ] Render an embed under its intended sharing policy.
+- [ ] Generate a Builder proposal from authorized semantic context.
+- [ ] Reject, apply, and undo an assisted configuration change.
+- [ ] Repair an engine-specific error without changing query meaning unexpectedly.
+- [ ] Save an assisted answer as a durable artifact.
+
 ## Reference patterns
 
 These products are references for interaction patterns, not requirements to reproduce every feature:
@@ -818,10 +1201,13 @@ These products are references for interaction patterns, not requirements to repr
 1. Land editor lifecycle safety and durable Builder persistence.
 2. Define mode-conversion semantics and retain recovery snapshots.
 3. Publish the source and visualization capability matrix.
-4. Add a searchable field picker and chart-aware field wells.
-5. Complete common filters, calculations, and multiple sorting.
-6. Add preview, drill-down, and underlying-row exploration.
-7. Choose joins, curated semantic models, or a deliberate combination.
-8. Add reusable measures, parameters, governance, and revision behavior.
-9. Validate accessibility, performance, and artifact compatibility.
-10. Expand the flag only when task-completion and return-use evidence support it.
+4. Make engine behavior and unsupported operations clear.
+5. Add a searchable field picker and chart-aware field wells.
+6. Complete common filters, calculations, and multiple sorting.
+7. Add product-native starting points and a durable notebook handoff.
+8. Add interactive tables, preview, drill-down, and underlying-row exploration.
+9. Choose joins, curated semantic models, or a deliberate combination.
+10. Add reusable measures, parameters, governance, and revision behavior.
+11. Add collaboration, delivery, and semantic-grounded assistance after the artifact contract is stable.
+12. Validate accessibility, performance, workflow continuity, and artifact compatibility.
+13. Expand the flag only when verified artifacts and return use demonstrate value.
