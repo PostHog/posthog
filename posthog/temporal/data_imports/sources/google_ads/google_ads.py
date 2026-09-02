@@ -335,7 +335,7 @@ def google_ads_source(
             if isinstance(last_value, dt.datetime) or isinstance(last_value, dt.date):
                 last_value = f"'{last_value.isoformat()}'"
 
-            query += f" WHERE {incremental_field} >= {last_value}"
+            query += f" WHERE {incremental_field} > {last_value}"
 
             if incremental_field_type == IncrementalFieldType.Date:
                 # Dates require an upper bound too, so we pick something very in the future.
