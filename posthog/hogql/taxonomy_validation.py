@@ -25,18 +25,15 @@ logger = getLogger(__name__)
 FixContext = Literal["string", "property"]
 
 # How many similar names one suggestion lookup reads. Postgres ranks candidates by trigram
-# similarity, so the best match is in the first rows, and difflib then picks the suggestion from this
-# bounded set instead of from every name in the project.
+# similarity, so the best match is in the first rows and difflib does not need every name.
 SUGGESTION_CANDIDATE_LIMIT = 20
 
 # The `name` column of both definition models is `CharField(max_length=400)`.
 MAX_SUGGESTION_INPUT_LENGTH = 400
 
-# How many unknown names in one query get a suggestion. Each suggestion costs two more queries, the
-# `$`-prefixed existence check and the trigram lookup, and the trigram lookup is the expensive one on
-# a large project. A caller controls how many unknown names one query carries, so the fan-out needs a
-# bound that does not grow with the input. A real typo appears once or twice, so the names past this
-# cap still warn, only without "Did you mean".
+# How many unknown names in one query get a suggestion. Each suggestion costs two more queries, and a
+# caller controls how many unknown names one query carries, so the fan-out needs a bound that does
+# not grow with the input. Names past this cap still warn, only without "Did you mean".
 MAX_SUGGESTION_LOOKUPS = 5
 
 # Property names that are legitimately dynamic — they encode an id/key after the prefix, so they will
@@ -128,7 +125,11 @@ def validate_taxonomy_references(
         if visitor.event_literals:
             warnings.extend(
                 _warnings_for_unknown_references(
-                    "Event", visitor.event_literals, _project_scoped(EventDefinition.objects.all(), team)
+                    "Event",
+                    visitor.event_literals,
+                    EventDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
+                        effective_project_id=team.project_id
+                    ),
                 )
             )
 
@@ -141,7 +142,9 @@ def validate_taxonomy_references(
                     _warnings_for_unknown_references(
                         "Property",
                         property_references,
-                        _project_scoped(PropertyDefinition.objects.filter(type=PropertyDefinition.Type.EVENT), team),
+                        PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr()).filter(
+                            effective_project_id=team.project_id, type=PropertyDefinition.Type.EVENT
+                        ),
                     )
                 )
     except DatabaseError:
@@ -182,26 +185,6 @@ def _string_literals_from_array(node: ast.Expr) -> list[TaxonomyReference]:
     return references
 
 
-def _project_scoped(taxonomy: QuerySet, team: Team) -> QuerySet:
-    """Scope a definition queryset to the team's project through the indexed scope expression.
-
-    Definitions are project-scoped, so a team-scoped lookup reads a narrower row set than the
-    definitions API the taxonomic filter lists from. Validation then calls a name unknown that the
-    filter offers.
-
-    For property definitions the team scope also reaches no index that leads to `name`. The widest
-    index leading with `team_id` is `index_property_def_query`, where `name` sits behind
-    `coalesce(group_type_index, -1)` and `query_usage_30_day`. Postgres therefore intersects a
-    bitmap over every definition the team has of that type with the shared trigram index on `name`.
-    Event definitions have `posthog_eventdef_team_name_idx` on `(team_id, name)`, so that lookup
-    already seeked one name and the project scope only corrects the row set it reads.
-
-    `effective_project_id_expr()` is the leading expression of `event_definition_proj_uniq` and
-    `posthog_propdef_proj_uniq`, so scope and `name` are then seeked together in one index.
-    """
-    return taxonomy.alias(effective_project_id=effective_project_id_expr()).filter(effective_project_id=team.project_id)
-
-
 def _warnings_for_unknown_references(
     kind: str, references: list[TaxonomyReference], taxonomy: QuerySet
 ) -> list[HogQLNotice]:
@@ -213,15 +196,15 @@ def _warnings_for_unknown_references(
         references_by_name.setdefault(reference.name, reference)
     referenced_names = list(references_by_name.keys())
 
-    # Hot path: one index seek over only the referenced names (usually 1-5). A query whose names are
-    # all valid ends here, so it never reaches the suggestion lookup below.
+    # Hot path: an indexed `name__in` existence check over only the referenced names (usually 1–5).
+    # When every name is valid we never load more.
     found_names = set(taxonomy.filter(name__in=referenced_names).values_list("name", flat=True))
     unknown_names = [name for name in referenced_names if name not in found_names]
     if not unknown_names:
         return []
 
-    # A project with no definitions at all must not warn on every name, so an empty taxonomy stays an
-    # early return. Only ask when nothing was found, because a hit above already proves rows exist.
+    # A project with no definitions yet must not warn on every name. Only ask when nothing was
+    # found, because a hit above already proves the taxonomy has rows.
     if not found_names and not taxonomy.exists():
         return []
 
@@ -268,14 +251,9 @@ def _similar_names(taxonomy: QuerySet, name: str) -> list[str]:
     """Read the names most similar to `name`, ranked and capped by Postgres.
 
     `name__trigram_similar` is the pg_trgm `%` operator, which the GIN trigram indexes
-    `index_event_definition_name` and `index_property_definition_name` answer directly. Ranking and
-    the row cap run in Postgres, so Python receives at most `SUGGESTION_CANDIDATE_LIMIT` names
-    instead of every name in the project. `name` breaks ties so equally similar candidates come back
-    in a stable order.
-
-    Postgres still intersects the trigram match with the project scope, so a project with millions
-    of definitions pays for a bitmap over the whole scope on every lookup. This call is bounded by
-    what it returns, not by what it reads.
+    `index_event_definition_name` and `index_property_definition_name` answer directly. Postgres
+    still intersects that match with the project scope, so this call is bounded by what it returns,
+    not by what it reads.
 
     A name longer than the `name` column can never equal a definition, and pg_trgm cost grows with
     the input, so an oversized literal gets no suggestion rather than a wasted comparison.
@@ -292,9 +270,8 @@ def _similar_names(taxonomy: QuerySet, name: str) -> list[str]:
 
 
 def _closest_name(name: str, candidates: list[str]) -> str | None:
-    # pg_trgm selects the candidates at the server's `pg_trgm.similarity_threshold` (0.3 by
-    # default), which is loose enough to return names a reader would not accept as a typo. difflib
-    # makes the final call at a stricter cutoff, so a suggestion is only offered when the two
-    # measures agree.
+    # pg_trgm selects candidates at the server's `pg_trgm.similarity_threshold` (0.3 by default),
+    # which is loose enough to return names a reader would not accept as a typo. difflib makes the
+    # final call at a stricter cutoff, so a suggestion needs both measures to agree.
     matches = get_close_matches(name, candidates, n=1, cutoff=0.6)
     return matches[0] if matches else None

@@ -724,17 +724,11 @@ class PropertyDefinitionViewSet(
                 QueryContext(
                     project_id=self.project_id,
                     table=(
-                        # A LEFT JOIN from the base table, not a FULL OUTER JOIN between the two.
                         # `ee_enterprisepropertydefinition` is a multi-table-inheritance child whose
                         # primary key references `posthog_propertydefinition`, so it holds no row
-                        # without a parent and both joins select the same rows. Both also plan the
-                        # same way, because `as_sql` always filters on `type`, which is strict on
-                        # the base table and lets `reduce_outer_joins` reduce the full join and push
-                        # the project predicate into `posthog_pro_project_3583d2_idx`. The left join
-                        # states that directly instead of resting on a filter the query builder
-                        # happens to always add: `coalesce(project_id, team_id)` proves neither
-                        # column non-null, so a full join without a strict predicate on the base
-                        # table scans the whole tenant-shared table.
+                        # without a parent and a left join selects the same rows as a full join. The
+                        # left join keeps the project scope seekable on its own, rather than resting
+                        # on `as_sql` always adding a predicate that is strict on the base table.
                         # The base table has to stay on the left, because the enterprise columns are
                         # the nullable side of this relationship, never the other way round.
                         "posthog_propertydefinition LEFT JOIN ee_enterprisepropertydefinition ON posthog_propertydefinition.id=ee_enterprisepropertydefinition.propertydefinition_ptr_id"

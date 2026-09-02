@@ -801,10 +801,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         )
 
     def test_list_joins_the_enterprise_table_with_a_left_join(self) -> None:
-        # A FULL OUTER JOIN stops the planner from pushing the project predicate below the join, so
-        # the scope filter runs over the whole tenant-shared table instead of seeking
-        # `posthog_propdef_proj_uniq`. The base table also has to stay on the left, because reversing
-        # the operands makes the base columns the nullable side of the join.
+        # A FULL OUTER JOIN only keeps the project scope seekable while some other predicate in the
+        # query is strict on the base table. The base table also has to stay on the left, because
+        # reversing the operands makes the base columns the nullable side of the join.
         PropertyDefinition.objects.create(team=self.team, name="join_shape_prop", property_type="String")
 
         with CaptureQueriesContext(connection) as captured:

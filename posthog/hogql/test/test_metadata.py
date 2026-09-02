@@ -294,9 +294,9 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand([("event",), ("property",)])
     def test_metadata_scopes_taxonomy_to_the_project(self, kind: str) -> None:
-        # Definitions carry the project they were ingested for, and the taxonomic filter lists them
-        # per project. A team-scoped lookup here reports a name as unknown that the filter offers,
-        # for every definition ingested through a sibling environment of the same project.
+        # Definitions are project-scoped, and so is the taxonomic filter that lists them. A
+        # team-scoped lookup here reports a name as unknown that the filter offers, for every
+        # definition ingested through a sibling environment of the same project.
         sibling = Team.objects.create(
             organization=self.organization, project_id=self.team.project_id, name="sibling environment"
         )
@@ -412,7 +412,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
 
         with patch(
-            "posthog.hogql.taxonomy_validation._project_scoped",
+            "posthog.hogql.taxonomy_validation.EventDefinition.objects.alias",
             side_effect=DatabaseError("boom"),
         ):
             metadata = self._select("SELECT count() FROM events WHERE event = 'purchase'")
@@ -422,11 +422,15 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([w for w in metadata.warnings if "project taxonomy" in w.message], [])
 
     def test_metadata_does_not_query_taxonomy_without_taxonomy_references(self):
-        with patch("posthog.hogql.taxonomy_validation._project_scoped") as project_scoped:
+        with (
+            patch("posthog.hogql.taxonomy_validation.EventDefinition.objects.alias") as event_alias,
+            patch("posthog.hogql.taxonomy_validation.PropertyDefinition.objects.alias") as property_alias,
+        ):
             metadata = self._select("SELECT count() FROM events")
 
         self.assertTrue(metadata.isValid)
-        project_scoped.assert_not_called()
+        event_alias.assert_not_called()
+        property_alias.assert_not_called()
 
     def test_metadata_does_not_warn_for_event_column_outside_events_table(self):
         EventDefinition.objects.create(team=self.team, name="paid_bill")
