@@ -328,6 +328,7 @@ export interface dashboardLogicValues {
     hasUrlFilters: boolean
     hasVariables: boolean
     highlightedInsightId: any
+    highlightedTileId: number | null
     initialVariablesLoaded: boolean
     insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]
     intermittentFilters: DashboardFilter
@@ -1128,6 +1129,7 @@ export interface dashboardLogicMeta {
         isRefreshingQueued: (refreshStatus: Record<string, RefreshStatus>) => (id: string) => boolean
         isRefreshing: (refreshStatus: Record<string, RefreshStatus>) => (id: string) => boolean
         highlightedInsightId: (searchParams: Record<string, any>) => any
+        highlightedTileId: (searchParams: Record<string, any>) => number | null
         sortedDates: (insightTiles: DashboardTile<QueryBasedInsightModel<Node<Record<string, any>>>>[]) => Dayjs[]
         oldestRefreshed: (sortedDates: Dayjs[], pageVisibility: boolean) => Dayjs | null
         effectiveLastRefresh: (lastDashboardRefresh: Dayjs | null, oldestRefreshed: Dayjs | null) => Dayjs | null
@@ -2897,6 +2899,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         highlightedInsightId: [
             () => [router.selectors.searchParams],
             (searchParams: Record<string, any>) => searchParams.highlightInsightId,
+        ],
+        highlightedTileId: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, unknown>): number | null => {
+                const value = searchParams.highlightTileId
+                return typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : null
+            },
         ],
         sortedDates: [
             (s) => [s.insightTiles],

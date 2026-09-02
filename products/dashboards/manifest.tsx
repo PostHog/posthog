@@ -10,8 +10,11 @@ export const manifest: ProductManifest = {
     name: 'Dashboards',
     urls: {
         dashboards: (): string => '/dashboard',
-        dashboard: (id: string | number, highlightInsightId?: string): string =>
-            combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
+        dashboard: (id: string | number, highlightInsightId?: string, highlightTileId?: string | number): string =>
+            combineUrl(`/dashboard/${id}`, {
+                ...(highlightInsightId ? { highlightInsightId } : {}),
+                ...(highlightTileId ? { highlightTileId } : {}),
+            }).url,
         dashboardTile: (id: string | number, tileId: string | number): string =>
             `${urls.dashboard(id)}/tiles/${tileId}`,
         dashboardSharing: (id: string | number): string => `/dashboard/${id}/sharing`,
