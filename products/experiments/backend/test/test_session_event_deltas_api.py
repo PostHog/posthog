@@ -682,7 +682,8 @@ class TestExperimentSessionEventDeltas(ClickhouseTestMixin, APILicensedTest):
         # `$feature_flag_called` is "session-linked" and the exposure fallback never engages. A
         # check at that scope would call this experiment healthy and leave it on the wait state;
         # only asking per experiment gets it right, which is the whole point of the extra probe.
-        self._session(variants=["control"], flag_key="other-flag")
+        # Unrecorded, because only the taxonomy row it leaves behind matters here.
+        self._session(variants=["control"], flag_key="other-flag", recorded=False)
         flush_persons_and_events()
 
         data = self._post_deltas(experiment).json()
