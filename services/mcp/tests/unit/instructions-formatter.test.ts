@@ -359,7 +359,8 @@ describe('InstructionsFormatter', () => {
             const rendered = render(formatter, fullCtx)
             const metricRoutingPosition = rendered.indexOf('#### Metric discovery (semantic layer)')
             expect(metricRoutingPosition).toBeGreaterThanOrEqual(0)
-            expect(rendered).toContain('system.information_schema.metrics')
+            expect(rendered).toContain('metric-list')
+            expect(rendered).toContain('metric-describe')
             expect(rendered).toContain('data-catalog-metric-run')
             for (const genericGuidance of mustPrecede) {
                 expect(metricRoutingPosition).toBeLessThan(rendered.indexOf(genericGuidance))

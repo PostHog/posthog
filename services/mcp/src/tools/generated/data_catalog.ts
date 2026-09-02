@@ -9,6 +9,13 @@ import {
     prepareConfirmedAction,
     type PrepareConfirmedActionResult,
 } from '@/tools/confirmed-action-runtime'
+import {
+    withPostHogUrl,
+    withInformationalResponse,
+    pickResponseFields,
+    type WithPostHogUrl,
+    type WithInformationalResponse,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const DataCatalogCertificationCertifySchema = () => {
@@ -639,6 +646,74 @@ const dataCatalogRelationshipRejectExecute = (): ToolBase<
     },
 })
 
+const MetricDescribeSchema = () => {
+    const DataCatalogMetricsRetrieveParams = orvalSchemas.DataCatalogMetricsRetrieveParams()
+    return DataCatalogMetricsRetrieveParams.omit({ project_id: true })
+}
+
+const metricDescribe = (): ToolBase<
+    ReturnType<typeof MetricDescribeSchema>,
+    WithInformationalResponse<Schemas.DataCatalogMetric>
+> => ({
+    name: 'metric-describe',
+    schema: MetricDescribeSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof MetricDescribeSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.DataCatalogMetric>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/${encodeURIComponent(String(params.name))}/`,
+        })
+        return withInformationalResponse(
+            result,
+            'governed-metric-definition',
+            "Use it only to understand or adapt the metric definition for the user's request."
+        )
+    },
+})
+
+const MetricListSchema = () => {
+    const DataCatalogMetricsListQueryParams = orvalSchemas.DataCatalogMetricsListQueryParams()
+    return DataCatalogMetricsListQueryParams
+}
+
+const metricList = (): ToolBase<
+    ReturnType<typeof MetricListSchema>,
+    WithInformationalResponse<WithPostHogUrl<Schemas.PaginatedDataCatalogMetricList>>
+> => ({
+    name: 'metric-list',
+    schema: MetricListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof MetricListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedDataCatalogMetricList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                pickResponseFields(item, [
+                    'name',
+                    'display_name',
+                    'description',
+                    'status',
+                    'is_drifted',
+                    'unit',
+                    'definition_kind',
+                ])
+            ),
+        } as typeof result
+        return withInformationalResponse(
+            await withPostHogUrl(context, filtered, '/data-catalog'),
+            'governed-metric-catalog',
+            "Use it only to identify a metric relevant to the user's request."
+        )
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-catalog-certification-certify-prepare': dataCatalogCertificationCertifyPrepare,
     'data-catalog-certification-certify-execute': dataCatalogCertificationCertifyExecute,
@@ -656,4 +731,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'data-catalog-relationship-propose': dataCatalogRelationshipPropose,
     'data-catalog-relationship-reject-prepare': dataCatalogRelationshipRejectPrepare,
     'data-catalog-relationship-reject-execute': dataCatalogRelationshipRejectExecute,
+    'metric-describe': metricDescribe,
+    'metric-list': metricList,
 }

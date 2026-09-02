@@ -236,7 +236,7 @@ def test_metrics_catalog_before_data_discovery(
 
 
 def test_metric_list_counts_as_a_catalog_lookup() -> None:
-    calls = [
+    calls: list[tuple[str, dict[str, Any], str]] = [
         ("metric-list", {"offset": 0, "limit": 100}, "completed"),
         ("execute-sql", {"query": "SELECT * FROM paid_bills LIMIT 1"}, "completed"),
     ]

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 12 enabled ops
+ * PostHog API - MCP 13 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -60,6 +60,22 @@ export const DataCatalogCertificationsDeprecateCreateParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+/**
+ * CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/).
+ */
+export const DataCatalogMetricsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const DataCatalogMetricsListQueryParams = () => zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
 /**
@@ -136,6 +152,18 @@ export const DataCatalogMetricsCreateBody = () => zod.object({
         .nullish()
         .describe("AI author's confidence in the proposal, 0-1."),
     reasoning: zod.string().optional().describe("AI author's reasoning, surfaced as review context."),
+})
+
+/**
+ * CRUD for catalog metrics, addressed by their ``name`` (e.g. /metrics/mrr/).
+ */
+export const DataCatalogMetricsRetrieveParams = () => zod.object({
+    name: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
 })
 
 /**
@@ -283,38 +311,6 @@ export const DataCatalogMetricsRunCreateBody = () => zod
         query_id: zod.string().optional().describe('Client-supplied id to correlate or cancel the run.'),
     })
     .describe('Optional run-time overrides. The whole body may be omitted; a metric runs by its URL name.')
-
-/**
- * Search governed business and telemetry metrics before querying data.
- */
-export const DataCatalogMetricsSearchListParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const dataCatalogMetricsSearchListQueryNameMax = 128
-
-export const dataCatalogMetricsSearchListQueryQueryMax = 200
-
-export const DataCatalogMetricsSearchListQueryParams = /* @__PURE__ */ zod.object({
-    name: zod
-        .string()
-        .min(1)
-        .max(dataCatalogMetricsSearchListQueryNameMax)
-        .optional()
-        .describe('Exact metric name to retrieve instead of performing a text search.'),
-    query: zod
-        .string()
-        .min(1)
-        .max(dataCatalogMetricsSearchListQueryQueryMax)
-        .optional()
-        .describe(
-            "Text to match against a metric's name, display name, or description. Literal matches return first; when none exist, typo-tolerant trigram matches return instead. This does not match synonyms."
-        ),
-})
 
 /**
  * Reviewed join facts. Accepting one promotes it to a real DataWarehouseJoin; rejections persist.
