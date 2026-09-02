@@ -290,8 +290,7 @@ export interface notebookKernelInfoLogicMeta {
         selectedHourlyPrice: (
             computeOptions: NotebookComputeOptionsResponseApi | null,
             selectedCpu: number | null,
-            selectedMemory: number | null,
-            kernelInfo: NotebookKernelInfo | null
+            selectedMemory: number | null
         ) => number | null
         computeBlockedReason: (
             isModalKernel: boolean,
@@ -569,12 +568,11 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
         ],
         /** Price of the shape the user currently has selected, whether they picked it or tuned it. */
         selectedHourlyPrice: [
-            (s) => [s.computeOptions, s.selectedCpu, s.selectedMemory, s.kernelInfo],
+            (s) => [s.computeOptions, s.selectedCpu, s.selectedMemory],
             (
                 computeOptions: NotebookComputeOptionsResponseApi | null,
                 selectedCpu: number | null,
-                selectedMemory: number | null,
-                kernelInfo: NotebookKernelInfo | null
+                selectedMemory: number | null
             ) => {
                 if (selectedCpu == null || selectedMemory == null) {
                     return null
@@ -585,15 +583,12 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
                         selectedMemory * computeOptions.memory_rate_per_gb_hour
                     )
                 }
-                // Without the rates a tuned shape cannot be priced, but the status endpoint
-                // already quoted the shape the notebook has. Keep that while the user has not
-                // moved it, rather than blanking a price we do know.
-                const shapeUnchanged =
-                    kernelInfo?.cpu_cores != null &&
-                    kernelInfo.memory_gb != null &&
-                    Math.abs(kernelInfo.cpu_cores - selectedCpu) < 1e-6 &&
-                    Math.abs(kernelInfo.memory_gb - selectedMemory) < 1e-6
-                return shapeUnchanged ? (kernelInfo?.hourly_price ?? null) : null
+                // No fallback to kernelInfo.hourly_price: that prices the sandbox currently
+                // running, while cpu_cores and memory_gb describe the configured shape the
+                // sliders show. The two differ between a resize and the restart that applies it,
+                // so reusing it here would print a price for a shape that is not on screen.
+                // Without the rates the panel shows no price and blocks configuration instead.
+                return null
             },
         ],
         /**
