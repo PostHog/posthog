@@ -91,13 +91,13 @@ def test_codec_rejects_short_keys_when_not_debug_or_test():
 
     settings = EncryptionSettings()
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"TEMPORAL_SECRET_KEY.*hex:.*base64:.*base64-urlsafe:"):
         _ = EncryptionCodec.from_settings(settings)
 
     settings.TEMPORAL_FALLBACK_SECRET_KEYS = [b"b"]
     settings.TEMPORAL_SECRET_KEY = b"a" * 32
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r"TEMPORAL_FALLBACK_SECRET_KEYS\[0\]"):
         _ = EncryptionCodec.from_settings(settings)
 
     settings.DEBUG = True
@@ -119,6 +119,15 @@ class TestEncryptionSettings:
 def codec() -> EncryptionCodec:
     codec = EncryptionCodec.from_settings(TestEncryptionSettings())
     return codec
+
+
+def test_codec_constructs_without_fallback_keys():
+    key = _prepare_key(_load_as_bytes(b"a" * 32))
+
+    codec = EncryptionCodec(key)
+
+    payload = b"very-secret"
+    assert codec.decrypt(codec.encrypt(payload)) == payload
 
 
 def test_encrypt_decrypt_round_trip(codec: EncryptionCodec):
