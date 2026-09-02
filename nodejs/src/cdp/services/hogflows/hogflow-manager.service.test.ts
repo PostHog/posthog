@@ -25,7 +25,7 @@ describe('HogFlowManager', () => {
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase()
-        manager = new HogFlowManagerService(hub.postgres, hub.pubSub)
+        manager = new HogFlowManagerService(hub.postgres, hub.pubSub, hub.encryptedFields)
 
         const team = await getTeam(hub.postgres, 2)
 
@@ -179,6 +179,175 @@ describe('HogFlowManager', () => {
             const result = await manager.getHogFlowIdsForTeams([teamId1])
             expect(result[teamId1]).toHaveLength(1)
             expect(result[teamId1]).not.toContain(hogFlows[0].id)
+        })
+    })
+
+    describe('encrypted inputs', () => {
+        it('decrypts and merges secret inputs into the matching action before execution', async () => {
+            const flow = await insertHogFlow(
+                hub.postgres,
+                new FixtureHogFlowBuilder()
+                    .withName('Flow with secret webhook')
+                    .withTeamId(teamId1)
+                    .withStatus('active')
+                    .withWorkflow({
+                        actions: {
+                            trigger: { type: 'trigger', config: { type: 'event', filters: {} } },
+                            send_webhook: {
+                                type: 'function',
+                                config: {
+                                    template_id: 'template-webhook',
+                                    inputs: { url: { value: 'https://example.com' } },
+                                },
+                            },
+                            exit: { type: 'exit', config: {} },
+                        },
+                        edges: [
+                            { from: 'trigger', to: 'send_webhook', type: 'continue' },
+                            { from: 'send_webhook', to: 'exit', type: 'continue' },
+                        ],
+                    })
+                    .build()
+            )
+
+            // The API stores secret inputs Fernet-encrypted, stripped out of the plaintext `actions`.
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET encrypted_inputs = $2 WHERE id = $1`,
+                [
+                    flow.id,
+                    hub.encryptedFields.encrypt(
+                        JSON.stringify({ send_webhook: { api_key: { value: 'super-secret-key' } } })
+                    ),
+                ],
+                'testKey'
+            )
+            manager['onHogFlowsReloaded'](teamId1, [flow.id])
+
+            const loaded = await manager.getHogFlow(flow.id)
+            const action = loaded?.actions.find((a) => a.id === 'send_webhook')
+            expect(action).not.toBeUndefined()
+
+            // Secret folded back in alongside the untouched plaintext input, keyed by action id.
+            expect((action!.config as { inputs: Record<string, unknown> }).inputs).toEqual({
+                url: { value: 'https://example.com' },
+                api_key: { value: 'super-secret-key' },
+            })
+            // The ciphertext blob never rides along on the in-memory flow.
+            expect(loaded).not.toHaveProperty('encrypted_inputs')
+        })
+
+        it('re-merges a webhook trigger secret into hogFlow.trigger, not just the trigger action', async () => {
+            const flow = await insertHogFlow(
+                hub.postgres,
+                new FixtureHogFlowBuilder()
+                    .withName('Webhook-triggered flow')
+                    .withTeamId(teamId1)
+                    .withStatus('active')
+                    .withWorkflow({
+                        actions: {
+                            trigger: {
+                                type: 'trigger',
+                                config: { type: 'webhook', template_id: 'template-source-webhook', inputs: {} },
+                            },
+                            exit: { type: 'exit', config: {} },
+                        },
+                        edges: [{ from: 'trigger', to: 'exit', type: 'continue' }],
+                    })
+                    .build()
+            )
+
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET encrypted_inputs = $2 WHERE id = $1`,
+                [
+                    flow.id,
+                    hub.encryptedFields.encrypt(
+                        JSON.stringify({ trigger: { auth_header: { value: 'Bearer secret' } } })
+                    ),
+                ],
+                'testKey'
+            )
+            manager['onHogFlowsReloaded'](teamId1, [flow.id])
+
+            const loaded = await manager.getHogFlow(flow.id)
+            // The source-webhook consumer builds its function from hogFlow.trigger, so the secret must
+            // land there too or a webhook trigger would run without its configured auth header.
+            expect((loaded!.trigger as { inputs: Record<string, unknown> }).inputs).toEqual({
+                auth_header: { value: 'Bearer secret' },
+            })
+        })
+
+        it('lets the encrypted value take precedence over plaintext left in actions', async () => {
+            const flow = await insertHogFlow(
+                hub.postgres,
+                new FixtureHogFlowBuilder()
+                    .withName('Flow with plaintext and encrypted secret')
+                    .withTeamId(teamId1)
+                    .withStatus('active')
+                    .withWorkflow({
+                        actions: {
+                            trigger: { type: 'trigger', config: { type: 'event', filters: {} } },
+                            // A row not yet re-saved since encryption shipped: the secret still sits in plaintext here...
+                            send_webhook: {
+                                type: 'function',
+                                config: {
+                                    template_id: 'template-webhook',
+                                    inputs: { api_key: { value: 'stale-plaintext' } },
+                                },
+                            },
+                            exit: { type: 'exit', config: {} },
+                        },
+                        edges: [
+                            { from: 'trigger', to: 'send_webhook', type: 'continue' },
+                            { from: 'send_webhook', to: 'exit', type: 'continue' },
+                        ],
+                    })
+                    .build()
+            )
+
+            // ...and also in the encrypted column with the current value.
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET encrypted_inputs = $2 WHERE id = $1`,
+                [
+                    flow.id,
+                    hub.encryptedFields.encrypt(JSON.stringify({ send_webhook: { api_key: { value: 'current' } } })),
+                ],
+                'testKey'
+            )
+            manager['onHogFlowsReloaded'](teamId1, [flow.id])
+
+            const loaded = await manager.getHogFlow(flow.id)
+            const action = loaded?.actions.find((a) => a.id === 'send_webhook')
+            expect((action!.config as { inputs: Record<string, unknown> }).inputs).toEqual({
+                api_key: { value: 'current' },
+            })
+        })
+
+        it('keeps the flow (fail-open) when encrypted_inputs cannot be decrypted', async () => {
+            const flow = await insertHogFlow(
+                hub.postgres,
+                new FixtureHogFlowBuilder()
+                    .withName('Undecryptable flow')
+                    .withTeamId(teamId1)
+                    .withStatus('active')
+                    .build()
+            )
+
+            // Not valid Fernet ciphertext (e.g. key skew / corruption): decrypt throws internally.
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET encrypted_inputs = $2 WHERE id = $1`,
+                [flow.id, 'not-a-valid-fernet-token'],
+                'testKey'
+            )
+            manager['onHogFlowsReloaded'](teamId1, [flow.id])
+
+            // The whole flow load must not throw - the flow is returned, just without its secrets.
+            const loaded = await manager.getHogFlow(flow.id)
+            expect(loaded).not.toBeNull()
+            expect(loaded).not.toHaveProperty('encrypted_inputs')
         })
     })
 })

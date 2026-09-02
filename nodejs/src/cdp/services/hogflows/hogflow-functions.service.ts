@@ -51,6 +51,38 @@ export class HogFlowFunctionsService {
         return hogFunction
     }
 
+    // Collect the decrypted secret input values across a flow's function actions, so a test
+    // invocation with mocked async functions can redact them from the fetch args it echoes into logs
+    // (otherwise a workflow editor could read a stored credential they were never shown).
+    async getSensitiveValues(hogFlow: HogFlow): Promise<string[]> {
+        const functionActionTypes: FunctionActionType[] = ['function', 'function_email', 'function_sms']
+        const values: string[] = []
+        for (const action of hogFlow.actions ?? []) {
+            if (!functionActionTypes.includes(action.type as FunctionActionType)) {
+                continue
+            }
+            const config = (action as Action).config
+            const template = await this.hogFunctionTemplateManager.getHogFunctionTemplate(config.template_id)
+            for (const schema of template?.inputs_schema ?? []) {
+                if (!schema.secret) {
+                    continue
+                }
+                const value = config.inputs?.[schema.key]?.value
+                if (typeof value === 'string') {
+                    values.push(value)
+                } else if (value && typeof value === 'object') {
+                    // e.g. a headers dict {Authorization: "Bearer <key>"} - mask each string leaf
+                    Object.values(value).forEach((leaf) => {
+                        if (typeof leaf === 'string') {
+                            values.push(leaf)
+                        }
+                    })
+                }
+            }
+        }
+        return values
+    }
+
     async buildHogFunctionInvocation(
         invocation: CyclotronJobInvocationHogFlow,
         hogFunction: HogFunctionType,
