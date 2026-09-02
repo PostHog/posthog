@@ -4,7 +4,11 @@ use anyhow::{anyhow, Result};
 use tracing::info;
 
 use crate::{
-    api::{self, releases::ReleaseBuilder, symbol_sets::SymbolSetUpload},
+    api::{
+        self,
+        releases::ReleaseBuilder,
+        symbol_sets::{dedup_uploads_by_chunk_id, SymbolSetUpload},
+    },
     dsym::{find_dsym_bundles, DsymFile},
     sourcemaps::args::{pack_version, ReleaseArgs, UploadConflictArgs},
     utils::{git::get_git_info, xcode::PlistInfo},
@@ -185,7 +189,7 @@ pub fn upload(args: &Args) -> Result<()> {
     };
 
     // Process each dSYM
-    let mut uploads: Vec<SymbolSetUpload> = Vec::new();
+    let mut dsym_files: Vec<DsymFile> = Vec::new();
 
     for dsym_path in dsym_paths {
         info!("Processing dSYM: {}", dsym_path.display());
@@ -193,20 +197,15 @@ pub fn upload(args: &Args) -> Result<()> {
         match DsymFile::new(&dsym_path, *include_source) {
             Ok(mut dsym_file) => {
                 dsym_file.release_id = chunk_release_id.clone();
-                info!(
-                    "  UUIDs: {} ({})",
-                    dsym_file.uuids().join(", "),
-                    dsym_file.uuids().len()
-                );
-                info!("  Total size: {} bytes", dsym_file.total_size());
-
-                uploads.extend(dsym_file.into_uploads());
+                dsym_files.push(dsym_file);
             }
             Err(e) => {
                 tracing::warn!("Failed to process dSYM {}: {}", dsym_path.display(), e);
             }
         }
     }
+
+    let uploads = collect_uploads(dsym_files);
 
     if uploads.is_empty() {
         info!("No dSYMs to upload");
@@ -228,4 +227,40 @@ pub fn upload(args: &Args) -> Result<()> {
     info!("dSYM upload complete");
 
     Ok(())
+}
+
+/// Collect the per-UUID uploads from every dSYM bundle, then drop duplicate chunk_ids.
+/// Two bundles in one archive can carry the same dSYM UUID, and bulk start rejects a batch
+/// with a repeated chunk_id.
+fn collect_uploads(dsym_files: Vec<DsymFile>) -> Vec<SymbolSetUpload> {
+    let mut uploads: Vec<SymbolSetUpload> = Vec::new();
+    for dsym_file in dsym_files {
+        info!(
+            "  UUIDs: {} ({})",
+            dsym_file.uuids().join(", "),
+            dsym_file.uuids().len()
+        );
+        info!("  Total size: {} bytes", dsym_file.total_size());
+        uploads.extend(dsym_file.into_uploads());
+    }
+    dedup_uploads_by_chunk_id(uploads)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn collect_uploads_dedupes_shared_uuid_across_bundles() {
+        let uuid = "77C2F55F-C959-487A-9601-6A715A9BB5DE";
+        let bundles = vec![
+            DsymFile::from_uuid_for_test(uuid, b"first".to_vec()),
+            DsymFile::from_uuid_for_test(uuid, b"second".to_vec()),
+        ];
+
+        let uploads = collect_uploads(bundles);
+
+        assert_eq!(uploads.len(), 1);
+        assert_eq!(uploads[0].chunk_id, uuid);
+    }
 }
