@@ -115,11 +115,11 @@ export interface workflowProposalsLogicActions {
         payload?: any
     }
     rejectProposal: (proposalId: string) => {
-        proposalId: string;
-    };
+        proposalId: string
+    }
     removeResolvedProposal: (proposalId: string) => {
-        proposalId: string;
-    };
+        proposalId: string
+    }
     setLastSeenVersion: (version: number | null) => {
         version: number | null
     }
