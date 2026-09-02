@@ -354,6 +354,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             self._team,
             experiment_id=self._query.experiment_exposure.experiment_id,
             variant=self._query.experiment_exposure.variant,
+            in_session=bool(self._query.experiment_exposure.in_session),
         )
         if self._experiment_exposure_linkage.population_filters_test_accounts:
             # The exposure population already applies the team's test-account filters on the
@@ -708,6 +709,26 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             test_account_remaining = _strip_person_and_event_and_cohort_properties(self._test_account_filters)
             if test_account_remaining:
                 exprs.append(property_to_expr(test_account_remaining, team=self._team, scope="replay"))
+
+        # The in-session narrowing composes with the exposure join rather than replacing it: the
+        # join still decides who counts as exposed and bounds sessions to first exposure, this
+        # predicate additionally requires the exposure evidence inside the session. GLOBAL for
+        # the same reason as the join: the subquery scans events over the whole experiment
+        # window, and without it every shard would re-evaluate that scan independently.
+        if self._query.experiment_exposure is not None and self._query.experiment_exposure.in_session:
+            # Deferred: the experiments facade package imports posthog.api on init, which
+            # circles back into this module through the replay-deletion temporal activities.
+            from products.experiments.backend.facade.replay import exposed_session_ids_select  # noqa: PLC0415
+
+            self._resolve_experiment_exposure()
+            assert self._experiment_exposure_linkage is not None
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GlobalIn,
+                    left=ast.Field(chain=["s", "session_id"]),
+                    right=exposed_session_ids_select(self._experiment_exposure_linkage),
+                )
+            )
 
         return ast.And(exprs=exprs)
 

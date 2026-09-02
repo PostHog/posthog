@@ -20,6 +20,11 @@ The work splits in two, because recordings queries build their AST separately fr
   is runner work, so callers must invoke it from their run path, never while building an AST.
 - :func:`exposed_distinct_ids_select` is pure AST construction from a resolved linkage.
 
+Queries can additionally narrow the population's sessions to the ones carrying in-session
+exposure evidence (:func:`exposed_session_ids_select`). What counts as evidence comes from the
+shared session-exposure resolution, so this surface, the session buckets, and the watch shelf
+all mean the same thing by "exposed in this session".
+
 The exposure scan window is deliberately the full experiment window, unbounded. Narrowing it
 would change who counts as exposed relative to the analysis. The expensive cases are handled
 instead: precomputing teams read the preaggregated table (converging in TTL-capped chunks for
@@ -67,6 +72,7 @@ from products.experiments.backend.hogql_queries.experiment_query_runner import (
 from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key, has_activation_config
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.session_exposure import SessionExposure, resolve_session_exposure
 
 logger = structlog.get_logger(__name__)
 
@@ -76,6 +82,11 @@ EXPOSURES_STILL_COMPUTING_MESSAGE = (
 COHORT_NOT_CALCULATED_MESSAGE = (
     "This experiment's exposure criteria reference a cohort that hasn't finished calculating. "
     "Try again when the cohort is ready."
+)
+IN_SESSION_EXPOSURE_UNMATCHABLE_MESSAGE = (
+    "This experiment's exposure event has only ever been captured server-side, where there is no "
+    "session to record, so no session can contain it. Remove the in-session narrowing to see "
+    "exposed participants' sessions."
 )
 # Sized an order of magnitude above the peak observed on the largest precompute-enabled team
 # (#83514), so it fires only for a scan far outside anything measured, and below the cluster's
@@ -141,16 +152,26 @@ class ExperimentExposureLinkage:
     # population is already test-filtered at the person level. Queries that restrict their rows
     # to this population can skip re-applying the same filters to their own rows.
     population_filters_test_accounts: bool = False
+    # Resolved only when the query narrows to in-session exposure evidence; None otherwise.
+    # Carries which event and property the evidence reads and whether the stamped-property
+    # fallback applies, resolved through the shared session-exposure seam so this surface
+    # can't disagree with the session buckets and the watch shelf on what "exposed in this
+    # session" means.
+    session_exposure: SessionExposure | None = None
 
 
-def resolve_exposure_linkage(team: Team, *, experiment_id: int, variant: str | None) -> ExperimentExposureLinkage:
+def resolve_exposure_linkage(
+    team: Team, *, experiment_id: int, variant: str | None, in_session: bool = False
+) -> ExperimentExposureLinkage:
     """Validate the experiment and resolve how its exposed population will be read.
 
     Raises ValidationError for experiments the linkage can't answer for: unknown or draft
     experiments, group-aggregated ones (whose exposed entities are groups rather than
     persons and so never match a recording's distinct id), unknown variants, and
     experiments whose exposures can be resolved neither from the preaggregated table nor
-    with a live scan the team can afford.
+    with a live scan the team can afford. An `in_session` request is refused when the
+    exposure event was never captured with a session id and nothing stands in for it
+    (custom criteria get no stand-in), because every session would then read as unexposed.
     """
     try:
         experiment = Experiment.objects.get(id=experiment_id, team=team, deleted=False)
@@ -181,6 +202,13 @@ def resolve_exposure_linkage(team: Team, *, experiment_id: int, variant: str | N
         requested_variants = [variant]
     else:
         requested_variants = variant_keys
+
+    session_exposure: SessionExposure | None = None
+    if in_session:
+        # A Postgres EventProperty read, so it stays out of the common no-narrowing path.
+        session_exposure = resolve_session_exposure(team, experiment, event_names=frozenset())
+        if session_exposure.is_unmatchable:
+            raise ValidationError(IN_SESSION_EXPOSURE_UNMATCHABLE_MESSAGE)
 
     exposure_params = get_exposure_config_params_for_builder(experiment.exposure_criteria, team, experiment.start_date)
     date_range_query = QueryDateRange(
@@ -213,6 +241,7 @@ def resolve_exposure_linkage(team: Team, *, experiment_id: int, variant: str | N
         preaggregation_job_ids=read.preaggregation_job_ids,
         live_scan_max_memory_bytes=read.live_scan_max_memory_bytes,
         population_filters_test_accounts=exposure_params.filter_test_accounts,
+        session_exposure=session_exposure,
     )
 
 
@@ -360,4 +389,42 @@ def exposed_distinct_ids_select(linkage: ExperimentExposureLinkage) -> ast.Selec
     # exposure source twice. MATERIALIZED computes it once and reuses the result, which keeps the
     # live path to a single events scan and holds only the exposed rows in memory.
     query.ctes = {"exposures": ast.CTE(name="exposures", expr=exposure_select, cte_type="subquery", materialized=True)}
+    return query
+
+
+def exposed_session_ids_select(linkage: ExperimentExposureLinkage) -> ast.SelectQuery:
+    """Distinct ids of sessions carrying in-session exposure evidence, for narrowing the
+    person-scoped population to the sessions where the exposure can be watched happening.
+
+    Pure AST construction; the linkage must have been resolved with ``in_session=True``.
+
+    The evidence condition comes from the shared session-exposure resolution, including the
+    stamped ``$feature/<flag_key>`` fallback when the exposure event was never captured with a
+    session id. This narrowing composes with the exposure join rather than replacing it: the
+    join still decides who counts as exposed (and bounds sessions to first exposure), so
+    deliberately no test-account filtering here, where it could only re-hide sessions of
+    persons the analysis counts. The scan prunes by event name except on the fallback path,
+    which reads the stamped property off every event in the window, the same read the session
+    buckets run; the window stays the experiment's, matching the population scan.
+
+    Always a live events scan, whatever path the population resolves through: the
+    preaggregated exposures table carries no session ids.
+    """
+    assert linkage.session_exposure is not None
+    query = parse_select(
+        """
+        SELECT DISTINCT `$session_id` AS session_id
+        FROM events
+        WHERE timestamp >= {date_from}
+            AND timestamp <= {date_to}
+            AND `$session_id` != ''
+            AND {evidence}
+        """,
+        placeholders={
+            "date_from": linkage.context.date_range_query.date_from_as_hogql(),
+            "date_to": linkage.context.date_range_query.date_to_as_hogql(),
+            "evidence": linkage.session_exposure.condition(linkage.requested_variants),
+        },
+    )
+    assert isinstance(query, ast.SelectQuery)
     return query

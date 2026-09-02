@@ -139,6 +139,8 @@ export interface ExperimentRecordingsTabContext {
 export interface ExperimentRecordingsFilterContext {
     variant: string | null
     /** Kept as a string rather than the tab's union so telemetry doesn't import from the scene. */
+    exposure_scope: string
+    /** Kept as a string rather than the tab's union so telemetry doesn't import from the scene. */
     metric_filter_mode: string
     selected_metric_count: number
     /** True when the list is a server-computed session set rather than client-side event filters. */

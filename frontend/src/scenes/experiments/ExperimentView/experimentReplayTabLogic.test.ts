@@ -165,7 +165,8 @@ describe('experimentReplayTabLogic', () => {
         })
     })
 
-    it('pins the person-scoped exposure filter to the run window', () => {
+    it('pins the person-scoped exposure filter to the run window', async () => {
+        await expectLogic(logic).toFinishAllListeners()
         const { recordingsFilters } = logic.values
 
         // RecordingsQuery defaults to "-3d", which would silently hide older exposed sessions,
@@ -175,7 +176,7 @@ describe('experimentReplayTabLogic', () => {
         expect(recordingsFilters.filter_test_accounts).toBe(true)
         // All facet: the population is the server-resolved exposure filter, and nothing
         // event-shaped stands in for it in the filter tree.
-        expect(recordingsFilters.experiment_exposure).toEqual({ experiment_id: 42 })
+        expect(recordingsFilters.experiment_exposure).toEqual({ experiment_id: 42, in_session: true })
         expect(recordingsFilters.filter_group).toEqual(EMPTY_FILTER_GROUP)
     })
 
@@ -224,11 +225,61 @@ describe('experimentReplayTabLogic', () => {
     it('narrows the filter to the selected variant, keeping the run window', async () => {
         await expectLogic(logic, () => {
             logic.actions.setSelectedVariantKey('test')
-        }).toMatchValues({ selectedVariantKey: 'test' })
+        }).toFinishAllListeners()
 
         const { recordingsFilters } = logic.values
         expect(recordingsFilters.date_from).toBe('2026-01-01T00:00:00Z')
-        expect(recordingsFilters.experiment_exposure).toEqual({ experiment_id: 42, variant: 'test' })
+        expect(recordingsFilters.experiment_exposure).toEqual({ experiment_id: 42, variant: 'test', in_session: true })
+    })
+
+    it('defaults to in-session exposure and widens when the scope is set to all sessions', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 42, in_session: true })
+
+        logic.actions.setExposureScope('all_exposed')
+        expect(logic.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 42 })
+    })
+
+    it('holds the in-session narrowing out of the query until the linkability check lands', async () => {
+        // Sent before linkability is known, in_session can hit the backend refusal for a custom
+        // exposure event that turns out unlinkable; exposure-only is the correct superset until then.
+        let resolveSeenTogether!: (map: Record<string, boolean>) => void
+        seenTogetherSpy.mockReturnValue(new Promise((resolve) => (resolveSeenTogether = resolve)))
+        const pending = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 51 } as Experiment })
+        pending.mount()
+
+        expect(pending.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 51 })
+
+        resolveSeenTogether(ALL_LINKABLE)
+        await expectLogic(pending).toFinishAllListeners()
+        expect(pending.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 51, in_session: true })
+        pending.unmount()
+    })
+
+    it('forces all sessions when a custom exposure event can never be session-linked', async () => {
+        seenTogetherSpy.mockResolvedValue({ ...ALL_LINKABLE, backend_exposure: false })
+        const customExposure = experimentReplayTabLogic({
+            experiment: {
+                ...EXPERIMENT,
+                id: 52,
+                exposure_criteria: {
+                    exposure_config: {
+                        kind: 'ExperimentEventExposureConfig',
+                        event: 'backend_exposure',
+                        properties: [],
+                    },
+                },
+            } as unknown as Experiment,
+        })
+        customExposure.mount()
+        await expectLogic(customExposure).toFinishAllListeners()
+
+        // The backend refuses in_session for these (a custom event has no stamped-property
+        // stand-in), so sending it would turn the default view into an error banner.
+        expect(customExposure.values.exposureInSessionUnavailableReason).not.toBeNull()
+        expect(customExposure.values.effectiveExposureScope).toBe('all_exposed')
+        expect(customExposure.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 52 })
+        customExposure.unmount()
     })
 
     it('keeps the person-scoped filter when the exposure event is server-side', async () => {
@@ -241,7 +292,12 @@ describe('experimentReplayTabLogic', () => {
         serverSide.mount()
 
         await expectLogic(serverSide).toFinishAllListeners()
-        expect(serverSide.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 43 })
+        // in_session stays on: for the default exposure event the backend answers it over the
+        // stamped $feature/<key> property, so only a custom exposure event forces it off.
+        expect(serverSide.values.recordingsFilters.experiment_exposure).toEqual({
+            experiment_id: 43,
+            in_session: true,
+        })
         expect(serverSide.values.recordingsFilters.filter_group).toEqual(EMPTY_FILTER_GROUP)
         serverSide.unmount()
     })
@@ -900,6 +956,7 @@ describe('experimentReplayTabLogic', () => {
 
     it.each([
         ['the variant facet moves', (): void => logic.actions.setSelectedVariantKey('control')],
+        ['the exposure scope moves', (): void => logic.actions.setExposureScope('all_exposed')],
         ['a metric is picked', (): void => logic.actions.setMetricSelected('metric-purchase', true)],
         ['the shelf is closed', (): void => logic.actions.toggleBehaviorComparison()],
     ])('drops the selected card when %s', async (_name: string, moveFacet: () => void) => {

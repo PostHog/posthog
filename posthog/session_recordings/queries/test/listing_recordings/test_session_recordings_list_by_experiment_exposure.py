@@ -17,7 +17,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.hogql_queries.paginators import HogQLCursorPaginator
-from posthog.models import User
+from posthog.models import EventProperty, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -439,6 +439,119 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
             {"experiment_exposure": {"experiment_id": experiment.id}},
             ["session-after-custom"],
         )
+
+    def test_in_session_narrows_to_sessions_containing_the_exposure_event(self) -> None:
+        experiment = self._create_experiment()
+        # Marks the exposure event as session-linkable, so the narrowing reads the event itself
+        # rather than the stamped-property fallback.
+        EventProperty.objects.create(team=self.team, event="$feature_flag_called", property="$session_id")
+        create_person(team=self.team, distinct_ids=["exposed-user"])
+        exposure_time = BASE_TIME + timedelta(hours=2)
+        self._create_exposure_event(
+            "exposed-user", exposure_time, "test", properties={"$session_id": "session-with-exposure"}
+        )
+        flush_persons_and_events()
+
+        self._produce_recording(
+            "exposed-user", "session-with-exposure", exposure_time, exposure_time + timedelta(minutes=10)
+        )
+        self._produce_recording(
+            "exposed-user",
+            "session-without-exposure",
+            exposure_time + timedelta(hours=1),
+            exposure_time + timedelta(hours=1, minutes=10),
+        )
+
+        self._assert_query_matches_session_ids(
+            {"experiment_exposure": {"experiment_id": experiment.id}},
+            ["session-with-exposure", "session-without-exposure"],
+        )
+        self._assert_query_matches_session_ids(
+            {"experiment_exposure": {"experiment_id": experiment.id, "in_session": True}},
+            ["session-with-exposure"],
+        )
+
+    def test_in_session_evidence_is_narrowed_to_the_requested_variant(self) -> None:
+        experiment = self._create_experiment(exposure_criteria={"multiple_variant_handling": "first_seen"})
+        EventProperty.objects.create(team=self.team, event="$feature_flag_called", property="$session_id")
+        create_person(team=self.team, distinct_ids=["rebucketed-user"])
+        exposure_time = BASE_TIME + timedelta(hours=2)
+        self._create_exposure_event(
+            "rebucketed-user", exposure_time, "test", properties={"$session_id": "session-test-evidence"}
+        )
+        # The same person later reads the flag as control; first-seen handling keeps them
+        # attributed to test, so only the evidence narrowing can tell the two sessions apart.
+        self._create_exposure_event(
+            "rebucketed-user",
+            exposure_time + timedelta(hours=1),
+            "control",
+            properties={"$session_id": "session-control-evidence"},
+        )
+        flush_persons_and_events()
+
+        self._produce_recording(
+            "rebucketed-user", "session-test-evidence", exposure_time, exposure_time + timedelta(minutes=10)
+        )
+        self._produce_recording(
+            "rebucketed-user",
+            "session-control-evidence",
+            exposure_time + timedelta(hours=1),
+            exposure_time + timedelta(hours=1, minutes=10),
+        )
+
+        self._assert_query_matches_session_ids(
+            {"experiment_exposure": {"experiment_id": experiment.id, "variant": "test", "in_session": True}},
+            ["session-test-evidence"],
+        )
+
+    def test_in_session_reads_the_stamped_flag_property_when_the_exposure_event_was_never_session_linked(self) -> None:
+        experiment = self._create_experiment()
+        create_person(team=self.team, distinct_ids=["backend-exposed-user"])
+        exposure_time = BASE_TIME + timedelta(hours=2)
+        # Server-fired exposure: no $session_id on the event, and no EventProperty row marks the
+        # exposure event as ever carrying one, so the stamped flag property stands in as evidence.
+        self._create_exposure_event("backend-exposed-user", exposure_time, "test")
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="backend-exposed-user",
+            timestamp=exposure_time + timedelta(minutes=5),
+            properties={"$session_id": "session-with-stamp", "$feature/recordings-linkage-flag": "test"},
+        )
+        flush_persons_and_events()
+
+        self._produce_recording(
+            "backend-exposed-user", "session-with-stamp", exposure_time, exposure_time + timedelta(minutes=10)
+        )
+        self._produce_recording(
+            "backend-exposed-user",
+            "session-without-stamp",
+            exposure_time + timedelta(hours=1),
+            exposure_time + timedelta(hours=1, minutes=10),
+        )
+
+        self._assert_query_matches_session_ids(
+            {"experiment_exposure": {"experiment_id": experiment.id, "in_session": True}},
+            ["session-with-stamp"],
+        )
+
+    def test_in_session_with_a_never_session_linked_custom_exposure_refuses(self) -> None:
+        experiment = self._create_experiment(
+            exposure_criteria={
+                "exposure_config": {
+                    "kind": "ExperimentEventExposureConfig",
+                    "event": "backend_exposure",
+                    "properties": [],
+                }
+            }
+        )
+
+        with self.assertRaises(ValidationError):
+            filter_recordings_by(
+                team=self.team,
+                recordings_filter={"experiment_exposure": {"experiment_id": experiment.id, "in_session": True}},
+                user=self.user,
+            )
 
     @parameterized.expand(
         [
