@@ -315,6 +315,7 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         icon_domain="slack.com",
         docs_url="https://docs.slack.dev/ai/slack-mcp-server/",
         oauth_credentials_source="slack_app",
+        disabled=True,
         # Private-channel, DM, email, and write scopes require separate security approval.
         oauth_scope_allowlist=(
             "channels:read",
