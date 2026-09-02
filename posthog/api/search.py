@@ -38,6 +38,14 @@ class EntityConfig(TypedDict, total=False):
     filters: dict[str, Any]
 
 
+FEATURE_FLAG_SEARCH_CONFIG: EntityConfig = {
+    "klass": FeatureFlag,
+    "search_fields": {"key": "A", "name": "C"},
+    "extra_fields": ["key", "name"],
+    "filters": {"archived": False},
+}
+
+
 ENTITY_MAP: dict[str, EntityConfig] = {
     "insight": {
         "klass": Insight,
@@ -54,14 +62,7 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "search_fields": {"name": "A", "description": "C"},
         "extra_fields": ["name", "description"],
     },
-    "feature_flag": {
-        "klass": FeatureFlag,
-        "search_fields": {"key": "A", "name": "C"},
-        "extra_fields": ["key", "name"],
-        # Match the flag list, which hides archived flags by default. Deleted flags are already
-        # excluded by FeatureFlag.objects.
-        "filters": {"archived": False},
-    },
+    "feature_flag": FEATURE_FLAG_SEARCH_CONFIG,
     "notebook": {
         "klass": Notebook,
         "search_fields": {"title": "A", "text_content": "C"},

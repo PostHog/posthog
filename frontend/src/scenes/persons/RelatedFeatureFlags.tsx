@@ -159,7 +159,7 @@ export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Prop
             <div className="flex justify-between mb-4 gap-2 flex-wrap">
                 <LemonInput
                     type="search"
-                    placeholder="Search flags on this page"
+                    placeholder="Search feature flags"
                     onChange={setSearchTerm}
                     value={searchTerm}
                 />

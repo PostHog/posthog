@@ -616,7 +616,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             (s) => [s.filters],
             (filters: FeatureFlagsFilters): boolean =>
                 Boolean(
-                    filters.search ||
+                    filters.search?.trim() ||
                     filters.active ||
                     filters.archived ||
                     filters.type ||

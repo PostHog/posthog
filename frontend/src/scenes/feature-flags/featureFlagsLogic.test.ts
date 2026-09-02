@@ -301,9 +301,12 @@ describe('the feature flags logic', () => {
             expect(logic.values.shouldShowEmptyState).toBe(true)
         })
 
-        it('is false when only a sort order is set', async () => {
+        it.each<[string, Partial<FeatureFlagsFilters>]>([
+            ['a sort order', { order: '-created_at' }],
+            ['whitespace-only search', { search: '   ' }],
+        ])('is false when only %s is set', async (_, filters) => {
             await expectLogic(logic, () => {
-                logic.actions.setFeatureFlagsFilters({ order: '-created_at' })
+                logic.actions.setFeatureFlagsFilters(filters)
             }).toFinishAllListeners()
 
             expect(logic.values.hasActiveFilters).toBe(false)

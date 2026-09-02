@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from posthog.schema import ArtifactContentType, InsightVizNode
 
 from posthog.api.search import (
+    FEATURE_FLAG_SEARCH_CONFIG,
     LIMIT as SEARCH_LIMIT,
     EntityConfig,
     search_entities as search_entities_fts,
@@ -88,12 +89,7 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "extra_fields": ["name", "description"],
         "filters": {"deleted": False},
     },
-    "feature_flag": {
-        "klass": FeatureFlag,
-        "search_fields": {"key": "A", "name": "C"},
-        "extra_fields": ["key", "name"],
-        "filters": {"deleted": False, "archived": False},
-    },
+    "feature_flag": FEATURE_FLAG_SEARCH_CONFIG,
     "action": {
         "klass": Action,
         "search_fields": {"name": "A", "description": "C"},
