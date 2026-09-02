@@ -3607,6 +3607,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The product tours that have been activated for this user.",
             "type": "String",
         },
+        "$fbc": {
+            "label": "Facebook click ID (fbc)",
+            "description": "The Facebook click ID in the format Meta's Conversions API expects, built when PostHog saw the fbclid so it carries the time of the ad click. Equivalent to the `_fbc` cookie the Meta pixel sets.",
+            "examples": ["fb.1.1735689600000.IwAR2xY9zAbCdEf"],
+            "type": "String",
+        },
     },
     "session_properties": {
         "$session_duration": {
