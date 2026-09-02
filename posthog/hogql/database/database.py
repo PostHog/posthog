@@ -1421,6 +1421,7 @@ class Database(BaseModel):
             is_managed_viewset_enabled=False,
             is_hogql_warehouse_access_control_enabled=False,
             is_data_quality_enabled=False,
+            is_billing_usage_records_enabled=False,
             bypass_warehouse_access_control=False,
             direct_connection_metadata=None,
             user_access_control=None,
