@@ -192,6 +192,16 @@ class TestExternalSurveys(APIBaseTest):
         assert "Cache-Control" in response
         assert "Vary" in response
 
+    def test_uses_memory_persistence_in_opaque_origin_sandbox(self) -> None:
+        survey = self.create_external_survey()
+
+        response = self.client.get(f"/external_surveys/{survey.id}/")
+
+        assert response.status_code == 200
+        content = response.content.decode()
+        assert "persistence: 'memory'" in content
+        assert "persistence: 'sessionStorage'" not in content
+
     @parameterized.expand(
         [
             ("invalid_id", "not-a-uuid", 400),

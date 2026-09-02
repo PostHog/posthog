@@ -534,36 +534,68 @@ class TestSurvey(APIBaseTest):
             ]
         ]
 
-    def test_sdk_payload_sanitizes_stored_appearance_html(self) -> None:
+    def test_sdk_payload_sanitizes_stored_survey_html(self) -> None:
         survey = Survey.objects.create(
             team=self.team,
             name="Survey with formatted intro",
             type="popover",
             start_date=datetime(2026, 1, 1, tzinfo=UTC),
-            questions=[{"type": "open", "id": "q1", "question": "How are you?"}],
+            questions=[
+                {
+                    "type": "link",
+                    "id": "q1",
+                    "question": '<strong>How are you?</strong><img src="invalid" onerror="void 0">',
+                    "description": '<strong>Details</strong><img src="invalid" onerror="void 0">',
+                    "descriptionContentType": "html",
+                    "link": "javascript:alert(1)",
+                    "translations": {
+                        "es": {"description": '<strong>Detalles</strong><img src="invalid" onerror="void 0">'}
+                    },
+                }
+            ],
             appearance={"introScreenDescription": '<strong>Welcome</strong><img src="invalid" onerror="void 0">'},
+            translations={
+                "es": {"thankYouMessageDescription": '<strong>Gracias</strong><img src="invalid" onerror="void 0">'}
+            },
         )
 
         payload = get_surveys_response(self.team)
         serialized_survey = next(item for item in payload["surveys"] if str(item["id"]) == str(survey.id))
 
         assert "<strong>Welcome</strong>" in serialized_survey["appearance"]["introScreenDescription"]
-        assert "onerror" not in serialized_survey["appearance"]["introScreenDescription"]
+        assert "<strong>Details</strong>" in serialized_survey["questions"][0]["description"]
+        assert "link" not in serialized_survey["questions"][0]
+        assert "<strong>Detalles</strong>" in serialized_survey["questions"][0]["translations"]["es"]["description"]
+        assert "<strong>Gracias</strong>" in serialized_survey["translations"]["es"]["thankYouMessageDescription"]
+        assert "onerror" not in json.dumps(serialized_survey)
 
-    def test_detail_payload_sanitizes_stored_appearance_html(self) -> None:
+    def test_detail_payload_sanitizes_stored_survey_html(self) -> None:
         survey = Survey.objects.create(
             team=self.team,
             name="Survey with stored appearance text",
             type="popover",
-            questions=[],
+            questions=[
+                {
+                    "type": "open",
+                    "id": "q1",
+                    "question": "How are you?",
+                    "description": '<strong>Details</strong><img src="invalid" onerror="void 0">',
+                    "descriptionContentType": "html",
+                }
+            ],
             appearance={"introScreenDescription": '<strong>Welcome</strong><img src="invalid" onerror="void 0">'},
+            translations={
+                "es": {"thankYouMessageDescription": '<strong>Gracias</strong><img src="invalid" onerror="void 0">'}
+            },
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/surveys/{survey.id}/")
 
         assert response.status_code == status.HTTP_200_OK
         assert "<strong>Welcome</strong>" in response.json()["appearance"]["introScreenDescription"]
-        assert "onerror" not in response.json()["appearance"]["introScreenDescription"]
+        assert "<strong>Details</strong>" in response.json()["questions"][0]["description"]
+        assert "<strong>Gracias</strong>" in response.json()["translations"]["es"]["thankYouMessageDescription"]
+        assert "onerror" not in json.dumps(response.json())
 
     def test_sdk_payload_strips_non_runtime_question_fields(self) -> None:
         self.team.survey_config = {"appearance": {"backgroundColor": "black"}}

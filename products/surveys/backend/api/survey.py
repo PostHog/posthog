@@ -121,6 +121,21 @@ SURVEY_APPEARANCE_HTML_FIELDS = (
     "introScreenDescription",
     "introScreenButtonText",
 )
+SURVEY_QUESTION_HTML_FIELDS = (
+    "question",
+    "description",
+    "buttonText",
+    "lowerBoundLabel",
+    "upperBoundLabel",
+)
+SURVEY_TRANSLATION_HTML_FIELDS = (
+    "name",
+    "description",
+    "thankYouMessageHeader",
+    "thankYouMessageDescription",
+    "thankYouMessageCloseButtonText",
+    *SURVEY_QUESTION_HTML_FIELDS,
+)
 
 
 def _normalize_language_code(raw: str) -> str:
@@ -135,6 +150,69 @@ def sanitize_survey_appearance(appearance: dict[str, Any]) -> dict[str, Any]:
         if isinstance(field_value, str) and nh3.is_html(field_value):
             sanitized_appearance[field] = nh3_clean_with_allow_list(field_value)
     return sanitized_appearance
+
+
+def _sanitize_survey_html(value: str) -> str:
+    return nh3_clean_with_allow_list(value) if nh3.is_html(value) else value
+
+
+def _sanitize_survey_link(link: str) -> str | None:
+    parsed_url = urlparse(link)
+    if parsed_url.scheme == "https" and parsed_url.netloc:
+        return _sanitize_survey_html(link)
+    if parsed_url.scheme == "mailto" and re.match(EMAIL_REGEX, link):
+        return _sanitize_survey_html(link)
+    return None
+
+
+def sanitize_survey_translations(translations: dict[str, Any]) -> dict[str, Any]:
+    sanitized_translations = dict(translations)
+    for language, translation in translations.items():
+        if not isinstance(translation, dict):
+            continue
+        sanitized_translation = dict(translation)
+        for field in SURVEY_TRANSLATION_HTML_FIELDS:
+            value = sanitized_translation.get(field)
+            if isinstance(value, str):
+                sanitized_translation[field] = _sanitize_survey_html(value)
+        choices = sanitized_translation.get("choices")
+        if isinstance(choices, list):
+            sanitized_translation["choices"] = [
+                _sanitize_survey_html(choice) if isinstance(choice, str) else choice for choice in choices
+            ]
+        if "link" in sanitized_translation:
+            link = sanitized_translation["link"]
+            sanitized_link = _sanitize_survey_link(link) if isinstance(link, str) else None
+            if sanitized_link is None:
+                sanitized_translation.pop("link")
+            else:
+                sanitized_translation["link"] = sanitized_link
+        sanitized_translations[language] = sanitized_translation
+    return sanitized_translations
+
+
+def sanitize_survey_question(question: dict[str, Any]) -> dict[str, Any]:
+    sanitized_question = dict(question)
+    for field in SURVEY_QUESTION_HTML_FIELDS:
+        value = sanitized_question.get(field)
+        if isinstance(value, str):
+            sanitized_question[field] = _sanitize_survey_html(value)
+    choices = sanitized_question.get("choices")
+    if isinstance(choices, list):
+        sanitized_question["choices"] = [
+            _sanitize_survey_html(choice) if isinstance(choice, str) else choice for choice in choices
+        ]
+    if "link" in sanitized_question:
+        link = sanitized_question["link"]
+        sanitized_link = _sanitize_survey_link(link) if isinstance(link, str) else None
+        if sanitized_link is None:
+            sanitized_question.pop("link")
+        else:
+            sanitized_question["link"] = sanitized_link
+    translations = sanitized_question.get("translations")
+    if isinstance(translations, dict):
+        sanitized_question["translations"] = sanitize_survey_translations(translations)
+    return sanitized_question
 
 
 # Keep this in sync with SurveyAPISerializer's public runtime contract.
@@ -897,6 +975,14 @@ class SurveySerializer(SearchMatchTypeSerializerMixin, UserAccessControlSerializ
         appearance = data.get("appearance")
         if isinstance(appearance, dict):
             data["appearance"] = sanitize_survey_appearance(appearance)
+        questions = data.get("questions")
+        if isinstance(questions, list):
+            data["questions"] = [
+                sanitize_survey_question(question) if isinstance(question, dict) else question for question in questions
+            ]
+        translations = data.get("translations")
+        if isinstance(translations, dict):
+            data["translations"] = sanitize_survey_translations(translations)
         return data
 
 
@@ -3396,7 +3482,7 @@ def get_survey_api_translations(
             continue
 
         safe_translation = {
-            field: value
+            field: _sanitize_survey_html(value)
             for field, value in translation.items()
             if field in SURVEY_API_TRANSLATION_FIELDS and isinstance(value, str)
         }
@@ -3481,7 +3567,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
                     next_question["translations"] = filtered
                 else:
                     next_question.pop("translations", None)
-            cleaned.append(next_question)
+            cleaned.append(sanitize_survey_question(next_question))
         return cleaned
 
     def to_representation(self, instance: Survey) -> dict[str, Any]:
