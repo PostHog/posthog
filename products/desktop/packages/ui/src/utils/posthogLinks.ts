@@ -80,6 +80,17 @@ export function skillUrl(
   );
 }
 
+/** The browser-accessible URL for a Self-driving report. */
+export function inboxReportUrl(
+  reportId: string,
+  overrides?: LinkOverrides,
+): string | null {
+  return withProjectId(
+    (pid) => `/project/${pid}/inbox/${encodeURIComponent(reportId)}`,
+    overrides,
+  );
+}
+
 /**
  * The shareable https link for a canvas (a dashboard inside a channel):
  * `<instance>/code/canvas/<channelId>/<dashboardId>`. Opening it in a browser

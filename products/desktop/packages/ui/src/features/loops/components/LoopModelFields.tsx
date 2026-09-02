@@ -1,11 +1,5 @@
 import type { LoopSchemas } from "@posthog/api-client/loops";
-import {
-  GLM_MODEL_FLAG,
-  GLM53_FLASH_MODEL_FLAG,
-  GLM53_MODEL_FLAG,
-  KIMI_MODEL_FLAG,
-} from "@posthog/shared";
-import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useModelRolloutFlags } from "@posthog/ui/features/sessions/useModelRolloutFlags";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
 import { Flex } from "@radix-ui/themes";
 import { useMemo } from "react";
@@ -59,32 +53,22 @@ export function LoopModelFields({
   onReasoningEffortChange,
   disabled,
 }: LoopModelFieldsProps) {
-  const glmEnabled = useFeatureFlag(GLM_MODEL_FLAG);
-  const glm53Enabled = useFeatureFlag(GLM53_MODEL_FLAG);
-  const glm53FlashEnabled = useFeatureFlag(GLM53_FLASH_MODEL_FLAG);
-  const kimiEnabled = useFeatureFlag(KIMI_MODEL_FLAG);
+  const modelFlags = useModelRolloutFlags();
   const configOptions = useLoopModelConfigOptions(adapter);
 
   const modelOptions = useMemo(
     () => [
       { value: DEFAULT_MODEL_VALUE, label: "Default (recommended)" },
       ...loopModelOptions(adapter, configOptions, {
-        glmEnabled,
-        glm53Enabled,
-        glm53FlashEnabled,
-        kimiEnabled,
+        glmEnabled: modelFlags.glm,
+        glm53Enabled: modelFlags.glm53,
+        glm53FlashEnabled: modelFlags.glm53Flash,
+        kimiEnabled: modelFlags.kimi,
+        deepseekEnabled: modelFlags.deepseek,
         pinnedModel: model,
       }),
     ],
-    [
-      adapter,
-      configOptions,
-      glmEnabled,
-      glm53Enabled,
-      glm53FlashEnabled,
-      kimiEnabled,
-      model,
-    ],
+    [adapter, configOptions, modelFlags, model],
   );
 
   const reasoningOptions = useMemo(

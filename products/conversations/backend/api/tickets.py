@@ -35,7 +35,7 @@ from rest_framework.response import Response
 
 from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin, set_tags_on_object
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -223,6 +223,13 @@ class ComposeTicketSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="TipTap rich content JSON for formatted messages.",
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        default=list,
+        max_length=100,
+        help_text="Tags to apply to the new ticket, e.g. to mark its source. Each is normalized (lowercased, trimmed). Up to 100.",
     )
 
     def validate_message(self, value: str) -> str:
@@ -1700,6 +1707,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
                 rich_content=data.get("rich_content"),
                 item_context={"author_type": "human", "is_private": False},
             )
+
+            if data.get("tags"):
+                set_tags_on_object(data["tags"], ticket)
 
         try:
             report_user_action(

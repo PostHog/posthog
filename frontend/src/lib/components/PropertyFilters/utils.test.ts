@@ -155,6 +155,27 @@ describe('formatPropertyLabel() for behavioral filters', () => {
     })
 })
 
+describe('formatPropertyLabel() for account date filters', () => {
+    it.each([
+        ['-14d', 'created_at > 14 days ago'],
+        [['-14d'], 'created_at > 14 days ago'],
+        ['14d', 'created_at > 14 days from now'],
+        ['+1w', 'created_at > 1 week from now'],
+    ])('formats %s as %s', (value, expected) => {
+        expect(
+            formatPropertyLabel(
+                {
+                    key: 'created_at',
+                    value,
+                    type: PropertyFilterType.Account,
+                    operator: PropertyOperator.IsDateAfter,
+                } as unknown as AnyPropertyFilter,
+                {}
+            ).trim()
+        ).toBe(expected)
+    })
+})
+
 describe('propertyFilterTypeToTaxonomicFilterType()', () => {
     const baseFilter: AnyPropertyFilter = {
         type: PropertyFilterType.Event,

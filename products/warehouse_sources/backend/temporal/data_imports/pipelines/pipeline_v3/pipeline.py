@@ -218,6 +218,9 @@ class PipelineV3(Generic[ResumableData]):
             is_first_ever_sync=is_first_ever_sync,
             workflow_id=current_workflow_id(),
             workflow_run_id=current_workflow_run_id(),
+            # Snapshotted on the job when the run started. Empty for every run before
+            # destinations, and every run of a team the flag is off for.
+            destination_ids=list(self._job.destination_ids or []),
         )
 
         self._resumable_source_manager = resumable_source_manager

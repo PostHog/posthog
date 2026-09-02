@@ -1613,7 +1613,7 @@ export const MODE_DEFINITIONS: Record<
         description:
             'Works with your customer accounts — assign owners, review notes and usage, and dig into account data.',
         icon: iconForType('cohort'),
-        scenes: new Set([Scene.CustomerAnalytics]),
+        scenes: new Set([Scene.CustomerAnalytics, Scene.CustomerAnalyticsAccount]),
         flag: 'CUSTOMER_ANALYTICS_CSP',
     },
 }

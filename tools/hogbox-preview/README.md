@@ -47,7 +47,9 @@ print(url)  # https://pen-….boxes.hogland.prod-us.posthog.dev/  (stable across
    under the longer bring-up instead of serializing before it.
 4. **Delta-migrate** — only the PR's _unapplied_ migrations on top of the seeded
    DB (`--reset-db` if the PR's migrations are incompatible with the baseline).
-5. **Serve + report** — the box is HTTP-exposed; the URL is posted to the PR.
+5. **Sync HogFunction templates** - start the CDP service and load destination
+   templates into the restored database before the preview becomes available.
+6. **Serve + report** — the box is HTTP-exposed; the URL is posted to the PR.
 
 Driven entirely by the **`posthog-hogland` Python SDK** over hogplane's HTTP API
 — **keyless** (GitHub OIDC → hogplane token over the tailnet), no `hogland` CLI
@@ -80,15 +82,20 @@ builds a preview when **all** hold:
   hogland token in scope),
 - the author is a **human** (bots — `user.type == 'Bot'`, `…[bot]`, and the usual
   suspects like dependabot/renovate — are skipped),
-- the PR is **ready** (not draft; flipping draft→ready builds it),
 - it does **not** carry the **`no-preview`** opt-out label, and
 - it either carries the **`hogbox-preview`** label (manual opt-in, works for **any**
-  paths) **or** its diff touches the frontend (`frontend/**`,
-  `products/*/frontend/**`, `common/esbuilder/**`).
+  paths and on a **draft**) **or** it is **ready** (not draft) and its diff touches
+  the frontend (`frontend/**`, `products/*/frontend/**`, `common/esbuilder/**`).
+
+A draft only previews through the label, so drafts still cost nothing by default.
+Label a draft and it builds right away, then rebuilds on every push like any other
+preview; flipping that draft to ready skips the rebuild, because the box is already
+serving that commit. An unlabeled draft builds on the draft→ready flip as before.
 
 Two labels, two escape hatches: **`hogbox-preview`** forces a preview on a PR that
-wouldn't auto-qualify (e.g. a backend-only change you want to click through);
-**`no-preview`** suppresses one on a PR that would (and tears down a live one).
+wouldn't auto-qualify (a backend-only change you want to click through, or work
+you're still self-reviewing in draft); **`no-preview`** suppresses one on a PR that
+would (and tears down a live one).
 
 Why a `decide` job and not an `on.pull_request.paths` filter: a path filter would
 kill the label-only path for backend PRs, so the trigger stays broad and

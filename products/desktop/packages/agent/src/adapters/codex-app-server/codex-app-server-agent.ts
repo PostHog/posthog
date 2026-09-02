@@ -114,6 +114,48 @@ const POLICY_ERROR_MESSAGE =
 const GENERIC_FATAL_ERROR_MESSAGE =
   "The agent stopped before completing this request. Please try again.";
 
+type ApprovalRequestDetail = {
+  itemId?: string;
+  command?: string;
+  changes?: AppServerItem["changes"];
+  availableDecisions?: unknown[];
+  reason?: string | null;
+  grantRoot?: string | null;
+  networkApprovalContext?: unknown;
+  additionalPermissions?: unknown;
+  proposedNetworkPolicyAmendments?: unknown[] | null;
+};
+
+export function shouldAutoAcceptLocalApproval(input: {
+  environment?: "local" | "cloud";
+  mode: string;
+  sandboxPolicy?: CodexSandboxPolicy;
+  method: string;
+  detail: ApprovalRequestDetail;
+  hasMcpToolCall: boolean;
+}): boolean {
+  if (
+    input.environment !== "local" ||
+    input.mode !== "auto" ||
+    input.sandboxPolicy?.type !== "workspaceWrite" ||
+    input.hasMcpToolCall ||
+    input.detail.reason
+  ) {
+    return false;
+  }
+  if (input.method === APP_SERVER_REQUESTS.FILE_CHANGE_APPROVAL) {
+    return !input.detail.grantRoot;
+  }
+  if (input.method !== APP_SERVER_REQUESTS.COMMAND_APPROVAL) {
+    return false;
+  }
+  return (
+    input.detail.networkApprovalContext == null &&
+    input.detail.additionalPermissions == null &&
+    !input.detail.proposedNetworkPolicyAmendments?.length
+  );
+}
+
 type AppServerSessionMeta = {
   // The host sends either a plain string or the Claude-style `{ append }` form.
   systemPrompt?: string | { append?: string };
@@ -2212,12 +2254,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       return { decision: "decline" };
     }
     const isFileChange = method === APP_SERVER_REQUESTS.FILE_CHANGE_APPROVAL;
-    const detail = params as {
-      itemId?: string;
-      command?: string;
-      changes?: AppServerItem["changes"];
-      availableDecisions?: unknown[];
-    };
+    const detail = params as ApprovalRequestDetail;
     // codex lists the decisions valid for this prompt. An "approve and remember"
     // decision is echoed back verbatim: either the string "acceptForSession" or the
     // acceptWithExecpolicyAmendment object carrying the proposed allowlist amendment.
@@ -2247,6 +2284,18 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     // Codex has no MCP-specific approval; a known MCP call surfaces the real server/tool/args
     // so the host renders the proper MCP permission (incl. PostHog `exec` unwrapping).
     const mcp = this.mcp.byItemId(detail.itemId);
+    if (
+      shouldAutoAcceptLocalApproval({
+        environment: this.environment,
+        mode: this.config.mode,
+        sandboxPolicy: this.sandboxPolicyForTurn(),
+        method,
+        detail,
+        hasMcpToolCall: Boolean(mcp),
+      })
+    ) {
+      return { decision: "accept" };
+    }
     if (mcp && this.shouldAutoAcceptMcpToolCall(mcp)) {
       return { decision: "accept" };
     }

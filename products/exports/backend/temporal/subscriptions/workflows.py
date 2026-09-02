@@ -48,6 +48,7 @@ from products.exports.backend.temporal.subscriptions.activities import (
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import generate_ai_subscription_report
 from products.exports.backend.temporal.subscriptions.retry_policy import (
+    SUBSCRIPTION_DELIVER_ATTEMPT_TIMEOUT,
     SUBSCRIPTION_DELIVER_RETRY_POLICY,
     SUBSCRIPTION_RECORD_LIFECYCLE_RETRY_POLICY,
     SUBSCRIPTION_VALIDATE_RETRY_POLICY,
@@ -507,7 +508,7 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
                     summary_skipped_over_budget=summary_skipped_over_budget,
                     delivery_id=delivery_id,
                 ),
-                start_to_close_timeout=dt.timedelta(minutes=5),
+                start_to_close_timeout=SUBSCRIPTION_DELIVER_ATTEMPT_TIMEOUT,
                 retry_policy=SUBSCRIPTION_DELIVER_RETRY_POLICY,
             )
 
@@ -743,7 +744,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                     invite_message=inputs.invite_message,
                     delivery_id=delivery_id,
                 ),
-                start_to_close_timeout=dt.timedelta(minutes=5),
+                start_to_close_timeout=SUBSCRIPTION_DELIVER_ATTEMPT_TIMEOUT,
                 retry_policy=SUBSCRIPTION_DELIVER_RETRY_POLICY,
             )
             delivery_recipient_results = _to_recipient_dicts(deliver_result.recipient_results)

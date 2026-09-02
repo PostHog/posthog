@@ -93,6 +93,38 @@ describe('dataNodeLogic', () => {
             .toMatchValues({ responseLoading: false, response: partial({ results: results3 }) })
     })
 
+    it('force refreshes account table results when filters change', async () => {
+        const assignedQuery = {
+            kind: NodeKind.AccountsTableQuery,
+            columns: [],
+            filters: [{ kind: 'assigned' as const }],
+        }
+        mockedQuery.mockResolvedValue({ results: [] })
+        logic = dataNodeLogic({ key: testUniqueKey, query: assignedQuery })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
+
+        const unassignedQuery = {
+            kind: NodeKind.AccountsTableQuery,
+            columns: [],
+            filters: [{ kind: 'unassigned' as const }],
+        }
+        mockedQuery.mockClear()
+        dataNodeLogic({ key: testUniqueKey, query: unassignedQuery })
+
+        expect(performQuery).toHaveBeenCalledWith(
+            unassignedQuery,
+            expect.anything(),
+            'force_blocking',
+            expect.any(String),
+            expect.any(Function),
+            undefined,
+            undefined,
+            false,
+            undefined
+        )
+    })
+
     it('can load new data if EventsQuery sorted by timestamp', async () => {
         const results = [
             [

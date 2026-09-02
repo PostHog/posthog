@@ -259,6 +259,13 @@
             ],
             "label": "AI cost model source (LLM)"
         },
+        "$ai_cost_passthrough": {
+            "description": "Set this to keep the reported total cost and skip PostHog's token-based estimate. Use it when the provider reports an authoritative cost, such as an LLM gateway. The input and output cost split is left unset.",
+            "examples": [
+                true
+            ],
+            "label": "AI cost passthrough (LLM)"
+        },
         "$ai_error": {
             "description": "The error message from a failed AI event.",
             "examples": [
@@ -2333,6 +2340,17 @@
             "description": "The response the MCP server returned. Large strings and sensitive keys are redacted before capture.",
             "label": "MCP response"
         },
+        "$mcp_scope_preset": {
+            "description": "Which kind of caller minted the token behind an MCP request, worked out from its scope set. 'scout' is a Signals scout run, 'research' is a read-only report-research run, 'implementation' is a write-capable implementation run, 'sandbox' is any other server-minted run (a task started from the desktop app or the pipeline before the scratchpad scopes tell research and implementation apart), and 'user' is a person's own token. Stamped on every event by PostHog's own MCP server. Use it to split scratchpad and notes usage by caller, for example to measure scout scratchpad adoption apart from ordinary users.",
+            "examples": [
+                "scout",
+                "research",
+                "implementation",
+                "sandbox",
+                "user"
+            ],
+            "label": "MCP scope preset"
+        },
         "$mcp_server_name": {
             "description": "The advertised name of the MCP server that handled the request.",
             "examples": [
@@ -2405,6 +2423,15 @@
                 "streamable-http"
             ],
             "label": "MCP transport"
+        },
+        "$mcp_vendor_client": {
+            "description": "Vendor client header the MCP client sent on the transport (x-anthropic-client), captured raw. The strongest harness signal: clientInfo.name can't tell one vendor surface from another, but this header can.",
+            "examples": [
+                "ClaudeCode",
+                "ClaudeAI",
+                "Cowork"
+            ],
+            "label": "MCP vendor client"
         },
         "$mcp_version": {
             "description": "Server-resolved MCP version. May differ from the version the client reported because of the mcp-version-2 feature flag.",
@@ -3285,12 +3312,12 @@
             "used_for_debug": true
         },
         "$set": {
-            "description": "Person properties to be set. Sent as `$set`.",
+            "description": "Person properties to be set. Sent as `$set`. You can't filter or break down by this. Use the person property it sets instead.",
             "ignored_in_assistant": true,
             "label": "Set person properties"
         },
         "$set_once": {
-            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`.",
+            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`. You can't filter or break down by this. Use the person property it sets instead.",
             "ignored_in_assistant": true,
             "label": "Set person properties once"
         },
@@ -3721,12 +3748,12 @@
             "label": "MCP transport (unprefixed)"
         },
         "mcp_vendor_client": {
-            "description": "Vendor/client identity derived from the request context for the MCP call (e.g. the coding agent or app behind the request).",
+            "description": "Older unprefixed variant of $mcp_vendor_client, stamped only by PostHog's hosted MCP server. Coalesce both keys when querying vendor identity directly; the harness resolution in MCP analytics already does.",
             "examples": [
                 "ClaudeCode",
                 "ClaudeAI"
             ],
-            "label": "MCP vendor client"
+            "label": "MCP vendor client (legacy)"
         },
         "mcp_version": {
             "description": "Older unprefixed variant of $mcp_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_version for new dashboards.",
@@ -3902,7 +3929,7 @@
             "label": "AI feedback (LLM)"
         },
         "$ai_generation": {
-            "description": "A call to an LLM model. Contains the input prompt, output, model used and costs.",
+            "description": "A call to an LLM model. The events table has the model used and costs, but not the input prompt or output. To read those, query the input, output, and output_choices columns of the posthog.ai_events table in HogQL. That content is only available within its retention window.",
             "label": "AI generation (LLM)",
             "primary_property": "$ai_model"
         },
@@ -3994,17 +4021,41 @@
             "ignored_in_assistant": true,
             "label": "Element viewed"
         },
+        "$error_tracking_issue_assigned": {
+            "description": "Fires when an error tracking issue is assigned to a user or role.",
+            "label": "Error tracking issue assigned"
+        },
         "$error_tracking_issue_created": {
             "description": "Fires when a new error tracking issue is created from an incoming exception.",
             "label": "Error tracking issue created"
+        },
+        "$error_tracking_issue_merged": {
+            "description": "Fires when error tracking issues are merged into another issue.",
+            "label": "Error tracking issue merged"
         },
         "$error_tracking_issue_reopened": {
             "description": "Fires when a previously resolved error tracking issue is seen again and reopened.",
             "label": "Error tracking issue reopened"
         },
+        "$error_tracking_issue_resolved": {
+            "description": "Fires when an error tracking issue is marked as resolved.",
+            "label": "Error tracking issue resolved"
+        },
         "$error_tracking_issue_spiking": {
             "description": "Fires when an error tracking issue's volume spikes above its expected rate.",
             "label": "Error tracking issue spiking"
+        },
+        "$error_tracking_issue_split": {
+            "description": "Fires when fingerprints are split out of an error tracking issue into new issues.",
+            "label": "Error tracking issue split"
+        },
+        "$error_tracking_issue_suppressed": {
+            "description": "Fires when an error tracking issue is marked as suppressed.",
+            "label": "Error tracking issue suppressed"
+        },
+        "$error_tracking_issue_unassigned": {
+            "description": "Fires when an error tracking issue's assignee is removed.",
+            "label": "Error tracking issue unassigned"
         },
         "$exception": {
             "description": "An unexpected error or unhandled exception in your application.",
@@ -4554,6 +4605,17 @@
             "description": "The response the MCP server returned. Large strings and sensitive keys are redacted before capture.",
             "label": "MCP response"
         },
+        "$mcp_scope_preset": {
+            "description": "Which kind of caller minted the token behind an MCP request, worked out from its scope set. 'scout' is a Signals scout run, 'research' is a read-only report-research run, 'implementation' is a write-capable implementation run, 'sandbox' is any other server-minted run (a task started from the desktop app or the pipeline before the scratchpad scopes tell research and implementation apart), and 'user' is a person's own token. Stamped on every event by PostHog's own MCP server. Use it to split scratchpad and notes usage by caller, for example to measure scout scratchpad adoption apart from ordinary users.",
+            "examples": [
+                "scout",
+                "research",
+                "implementation",
+                "sandbox",
+                "user"
+            ],
+            "label": "MCP scope preset"
+        },
         "$mcp_server_name": {
             "description": "The advertised name of the MCP server that handled the request.",
             "examples": [
@@ -4626,6 +4688,15 @@
                 "streamable-http"
             ],
             "label": "MCP transport"
+        },
+        "$mcp_vendor_client": {
+            "description": "Vendor client header the MCP client sent on the transport (x-anthropic-client), captured raw. The strongest harness signal: clientInfo.name can't tell one vendor surface from another, but this header can.",
+            "examples": [
+                "ClaudeCode",
+                "ClaudeAI",
+                "Cowork"
+            ],
+            "label": "MCP vendor client"
         },
         "$mcp_version": {
             "description": "Server-resolved MCP version. May differ from the version the client reported because of the mcp-version-2 feature flag.",
@@ -4849,6 +4920,13 @@
                 "passthrough"
             ],
             "label": "AI cost model source (LLM)"
+        },
+        "$ai_cost_passthrough": {
+            "description": "Set this to keep the reported total cost and skip PostHog's token-based estimate. Use it when the provider reports an authoritative cost, such as an LLM gateway. The input and output cost split is left unset.",
+            "examples": [
+                true
+            ],
+            "label": "AI cost passthrough (LLM)"
         },
         "$ai_error": {
             "description": "The error message from a failed AI event.",
@@ -6187,6 +6265,14 @@
             ],
             "label": "External click URL"
         },
+        "$fbc": {
+            "description": "The Facebook click ID in the format Meta's Conversions API expects, built when PostHog saw the fbclid so it carries the time of the ad click. Equivalent to the `_fbc` cookie the Meta pixel sets.",
+            "examples": [
+                "fb.1.1735689600000.IwAR2xY9zAbCdEf"
+            ],
+            "label": "Facebook click ID (fbc)",
+            "type": "String"
+        },
         "$feature_flag": {
             "description": "The feature flag that was called.\n\nWarning! This only works in combination with the $feature_flag_called event. If you want to filter other events, try \"Active feature flags\".",
             "examples": [
@@ -7341,6 +7427,17 @@
             "description": "The response the MCP server returned. Large strings and sensitive keys are redacted before capture.",
             "label": "MCP response"
         },
+        "$mcp_scope_preset": {
+            "description": "Which kind of caller minted the token behind an MCP request, worked out from its scope set. 'scout' is a Signals scout run, 'research' is a read-only report-research run, 'implementation' is a write-capable implementation run, 'sandbox' is any other server-minted run (a task started from the desktop app or the pipeline before the scratchpad scopes tell research and implementation apart), and 'user' is a person's own token. Stamped on every event by PostHog's own MCP server. Use it to split scratchpad and notes usage by caller, for example to measure scout scratchpad adoption apart from ordinary users.",
+            "examples": [
+                "scout",
+                "research",
+                "implementation",
+                "sandbox",
+                "user"
+            ],
+            "label": "MCP scope preset"
+        },
         "$mcp_server_name": {
             "description": "The advertised name of the MCP server that handled the request.",
             "examples": [
@@ -7413,6 +7510,15 @@
                 "streamable-http"
             ],
             "label": "MCP transport"
+        },
+        "$mcp_vendor_client": {
+            "description": "Vendor client header the MCP client sent on the transport (x-anthropic-client), captured raw. The strongest harness signal: clientInfo.name can't tell one vendor surface from another, but this header can.",
+            "examples": [
+                "ClaudeCode",
+                "ClaudeAI",
+                "Cowork"
+            ],
+            "label": "MCP vendor client"
         },
         "$mcp_version": {
             "description": "Server-resolved MCP version. May differ from the version the client reported because of the mcp-version-2 feature flag.",
@@ -8294,12 +8400,12 @@
             "used_for_debug": true
         },
         "$set": {
-            "description": "Person properties to be set. Sent as `$set`.",
+            "description": "Person properties to be set. Sent as `$set`. You can't filter or break down by this. Use the person property it sets instead.",
             "ignored_in_assistant": true,
             "label": "Set person properties"
         },
         "$set_once": {
-            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`.",
+            "description": "Person properties to be set if not set already (i.e. first-touch). Sent as `$set_once`. You can't filter or break down by this. Use the person property it sets instead.",
             "ignored_in_assistant": true,
             "label": "Set person properties once"
         },
@@ -8724,12 +8830,12 @@
             "label": "MCP transport (unprefixed)"
         },
         "mcp_vendor_client": {
-            "description": "Vendor/client identity derived from the request context for the MCP call (e.g. the coding agent or app behind the request).",
+            "description": "Older unprefixed variant of $mcp_vendor_client, stamped only by PostHog's hosted MCP server. Coalesce both keys when querying vendor identity directly; the harness resolution in MCP analytics already does.",
             "examples": [
                 "ClaudeCode",
                 "ClaudeAI"
             ],
-            "label": "MCP vendor client"
+            "label": "MCP vendor client (legacy)"
         },
         "mcp_version": {
             "description": "Older unprefixed variant of $mcp_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_version for new dashboards.",

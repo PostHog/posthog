@@ -12,12 +12,7 @@ from parameterized import parameterized
 from products.stamphog.backend.facade.enums import AudienceReason, ReviewMode, ReviewTrigger
 from products.stamphog.backend.logic.approval_retention import approved_diff_unchanged
 from products.stamphog.backend.logic.audiences import resolve_audiences
-from products.stamphog.backend.logic.digest import (
-    GRAZE_CHANGED_FILES,
-    DigestPRSummary,
-    DigestSummary,
-    _build_selection_prompt,
-)
+from products.stamphog.backend.logic.digest import DigestPRSummary, DigestSummary, _build_selection_prompt
 from products.stamphog.backend.logic.digest_config import RepoDigestConfig, load_repo_digest_config
 from products.stamphog.backend.logic.github_client import (
     MAX_COMPARE_DIFF_BYTES,
@@ -662,13 +657,15 @@ class GeneratedOwnershipTests(SimpleTestCase):
     @parameterized.expand(
         [
             ("every_file_was_generated", 1, 1, []),
-            ("a_real_file_alongside_a_generated_one", 2, 1, [("team-replay", AudienceReason.OWNED)]),
+            # The regression: one generated file next to one real one read as a two-file stake,
+            # which is over the graze threshold, so the sweep passed for ownership.
+            ("a_real_file_alongside_a_generated_one", 2, 1, [("team-replay", AudienceReason.OWNED, 1)]),
             # The count is exact, so this holds however far past the engine's path sample it goes.
             ("more_generated_files_than_the_sample_carries", 40, 40, []),
-            ("a_run_recorded_before_the_engine_counted_them", 1, None, [("team-replay", AudienceReason.OWNED)]),
+            ("a_run_recorded_before_the_engine_counted_them", 1, None, [("team-replay", AudienceReason.OWNED, 1)]),
         ]
     )
-    def test_a_team_owning_only_generated_files_is_not_an_audience(
+    def test_generated_files_are_not_a_teams_stake_in_a_merge(
         self, _name: str, count: int, generated: int | None, expected: list
     ) -> None:
         # `hogli build:openapi` rewrites a product's generated API types whenever any shared
@@ -685,7 +682,7 @@ class GeneratedOwnershipTests(SimpleTestCase):
             ownership["team_generated_file_counts"] = {"@PostHog/team-replay": generated}
         with patch("products.stamphog.backend.logic.audiences.load_repo_digest_config", return_value=None):
             audiences = resolve_audiences(repo_config, {"classification": {"ownership": ownership}})
-        assert [(a.key, a.reason) for a in audiences] == expected
+        assert [(a.key, a.reason, a.owned_file_count) for a in audiences] == expected
 
 
 class OwnedFilePromptTests(SimpleTestCase):
@@ -726,40 +723,6 @@ class OwnedFilePromptTests(SimpleTestCase):
             for a in resolved
         ]
         assert "your_files index=0 count=5 of 5" in _build_selection_prompt([pr], audiences)
-
-    @parameterized.expand(
-        [
-            ("one_file_of_a_sweep_is_flagged", 1, GRAZE_CHANGED_FILES, True),
-            ("one_file_of_a_small_change_is_not", 1, GRAZE_CHANGED_FILES - 1, False),
-            ("owning_several_files_is_not_a_graze", 2, GRAZE_CHANGED_FILES, False),
-        ]
-    )
-    def test_a_swept_team_is_flagged_to_the_model(
-        self, _name: str, owned_count: int, changed_files: int, flagged: bool
-    ) -> None:
-        # A repo-wide config change owned one line in ten products and reached every one of their
-        # channels. The count was already in the prompt and the model kept the PR anyway, so the
-        # graze is named outright rather than left to be inferred from two numbers.
-        repo_config = StamphogRepoConfig(repository="PostHog/posthog", installation_id="1")
-        pr = PullRequest(
-            repo_config=repo_config,
-            team_id=7,
-            pr_number=1,
-            title="Ship it",
-            pr_url="https://github.com/o/r/pull/1",
-            author_login="dev",
-            changed_files=changed_files,
-            body_excerpt="",
-        )
-        audiences = [
-            PullRequestAudience(
-                audience_key="team-replay",
-                reason=AudienceReason.OWNED,
-                owned_files=[f"a{i}.py" for i in range(owned_count)],
-                owned_file_count=owned_count,
-            )
-        ]
-        assert ("grazed index=0" in _build_selection_prompt([pr], audiences)) is flagged
 
     def test_contributor_text_cannot_speak_to_the_summarizer(self) -> None:
         # Two doors into this prompt, both shut. The author's body never reaches it, and the title

@@ -35,6 +35,33 @@ class TestMCPInsightSerializer(SimpleTestCase):
         assert box_plot["xAxisColumn"] is None
         assert box_plot["seriesColumn"] is None
 
+    def test_assistant_schema_accepts_sql_box_plots(self) -> None:
+        query = schema.AssistantDataVisualizationNode.model_validate(
+            {
+                "kind": "DataVisualizationNode",
+                "source": {"kind": "HogQLQuery", "query": "select 1"},
+                "display": "BoxPlot",
+                "chartSettings": {
+                    "boxPlot": {
+                        "xAxisColumn": "bucket",
+                        "seriesColumn": "series",
+                        "minColumn": "min",
+                        "p25Column": "p25",
+                        "medianColumn": "median",
+                        "meanColumn": "mean",
+                        "p75Column": "p75",
+                        "maxColumn": "max",
+                        "excludeOutliers": True,
+                    }
+                },
+            }
+        )
+
+        assert query.display == schema.AssistantDataVisualizationDisplayType.BOX_PLOT
+        assert query.chartSettings is not None
+        assert query.chartSettings.boxPlot is not None
+        assert query.chartSettings.boxPlot.medianColumn == "median"
+
 
 class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatchingTest):
     maxDiff = None

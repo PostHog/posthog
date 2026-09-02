@@ -78,6 +78,7 @@ class PostHogPreviewStack:
     # Default: run the ready-made published image and mount PR source over it.
     # Pass image=None to fall back to the build-from-checkout escape hatch.
     IMAGE = "ghcr.io/posthog/posthog:master"
+    CDP_IMAGE = "ghcr.io/posthog/posthog-node:master"
     REPO_DIR = "/home/hog/posthog"
     COMPOSE = "docker-compose.dev-full.yml"
     OVERRIDE = "docker-compose.preview.yml"
@@ -98,6 +99,7 @@ class PostHogPreviewStack:
     DEPS = [
         "db",
         "redis7",
+        "valkey",
         "clickhouse",
         "zookeeper",
         "kafka",
@@ -166,11 +168,13 @@ class PostHogPreviewStack:
             self.build_app()  # native path: build the checkout (PR code)
         if self.reset_db:
             self.reset_database()
-        # Migrate (and seed) BEFORE web serves: web can't be restarted to pick up
-        # a PR's delta migrations (the Unit-listener gotcha), so the schema must
-        # be ready before the serving container boots.
+        # Prepare the database and service-backed templates BEFORE web serves:
+        # web can't be restarted to pick up a PR's delta migrations (the
+        # Unit-listener gotcha), so all setup must finish before it boots.
         self.up_deps()
         self.migrate()
+        self.start_cdp_service()
+        self.sync_hog_function_templates()
         if self.seed_demo_data:
             # Best-effort: a transient build/model issue shouldn't sink an
             # otherwise-good preview — it just opens empty.
@@ -339,6 +343,20 @@ class PostHogPreviewStack:
             # inert no-op on an image that predates it.
             "      - USE_LOCAL_SETUP=1",
         ]
+        lines += [
+            "  plugins:",
+            f"    image: {self.CDP_IMAGE}",
+            # The checkout mount from dev-full masks the compiled code in the published image.
+            "    volumes: !override []",
+            "    environment:",
+            "      - CYCLOTRON_NODE_DATABASE_URL=postgres://posthog:posthog@db:5432/cyclotron_node",
+            "      - CDP_REDIS_HOST=redis7",
+            "      - CDP_VALKEY_HOST=valkey",
+            "      - CDP_VALKEY_PORT=6379",
+            "      - ENCRYPTION_SALT_KEYS=00beef0000beef0000beef0000beef00",
+            "      - PERSONHOG_ADDR=personhog-router:50052",
+            "      - PERSONHOG_ENABLED=true",
+        ]
         # Mirror the bake script's personhog service definitions (hogland
         # scripts/posthog-preview-setup.sh): dev-full.yml carries NO personhog
         # services (dev runs them via hogli), so define them here the way HOBBY
@@ -471,18 +489,21 @@ class PostHogPreviewStack:
         self.backend.run_long(self._compose(f"build {services}"), name="build", timeout=2700)
 
     def pull_image(self, *, attempts: int = 3) -> None:
-        # The default path: fetch the ready-made image. Fast/no-op if a golden
-        # already baked it in; otherwise pulls. ghcr pulls flake (TLS
-        # handshake timeouts mid-layer); retry — docker resumes from pulled
-        # layers, so a retry is cheap.
-        last: Exception | None = None
-        for _ in range(attempts):
-            try:
-                self.backend.run_long(f"docker pull {self.image}", name="pull", timeout=1800)
-                return
-            except RuntimeError as e:
-                last = e
-        raise RuntimeError(f"docker pull {self.image} failed after {attempts} attempts: {last}")
+        # The default path: fetch the ready-made images. Fast/no-op if a golden
+        # already baked them in; otherwise pulls. ghcr pulls flake (TLS
+        # handshake timeouts mid-layer); retry because docker resumes from
+        # pulled layers, so a retry is cheap.
+        assert self.image is not None
+        for image in (self.image, self.CDP_IMAGE):
+            last: Exception | None = None
+            for _ in range(attempts):
+                try:
+                    self.backend.run_long(f"docker pull {image}", name="pull", timeout=1800)
+                    break
+                except RuntimeError as e:
+                    last = e
+            else:
+                raise RuntimeError(f"docker pull {image} failed after {attempts} attempts: {last}")
 
     def reset_database(self) -> None:
         # Drop the snapshot's pre-migrated DB so migrate() rebuilds it fresh and
@@ -574,6 +595,25 @@ class PostHogPreviewStack:
             timeout=600,
         )
         timing.stage("migrate done")
+
+    def start_cdp_service(self) -> None:
+        timing.stage("start CDP service")
+        ready_probe = self._compose("exec -T plugins curl -fsS http://localhost:6738/_ready")
+        script = (
+            f"set -e; {self._compose('up -d --no-build plugins')}; "
+            "ready=0; for _ in $(seq 1 60); do "
+            f"{ready_probe} >/dev/null 2>&1 && {{ ready=1; break; }}; sleep 4; done; "
+            '[ "$ready" = 1 ] || { echo "CDP service never became ready" >&2; exit 1; }'
+        )
+        self.backend.run_long(script, name="up-cdp", timeout=900)
+
+    def sync_hog_function_templates(self) -> None:
+        timing.stage("sync HogFunction templates")
+        self.backend.run_long(
+            self._compose("run --rm -T web python manage.py sync_hog_function_templates"),
+            name="sync-templates",
+            timeout=900,
+        )
 
     def generate_demo_data(self) -> None:
         # Same command hobby-ci uses (bin/hobby-ci.py). Seeds a demo org + the
@@ -675,6 +715,7 @@ probe() {{ # name method path [json]
 probe login GET /login || exit 1
 probe api_login POST /api/login/ '{{"email":"{_DEMO_EMAIL}","password":"{_DEMO_PASSWORD}"}}' || exit 1
 probe projects GET /api/projects/@current/ || exit 1
+probe template GET /api/projects/@current/hog_function_templates/template-slack/ || exit 1
 probe hogql POST /api/environments/@current/query/ '{{"query":{{"kind":"HogQLQuery","query":"select 1"}}}}' || exit 1
 echo "DEEP_HEALTH_OK"
 """

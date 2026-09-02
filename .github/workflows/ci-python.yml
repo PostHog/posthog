@@ -24,6 +24,7 @@ jobs:
         # Set job outputs to values from filter step
         outputs:
             python: ${{ steps.filter.outputs.python || 'true' }}
+            complexity_files: ${{ steps.filter.outputs.complexity_files }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -47,7 +48,14 @@ jobs:
               if: github.event_name != 'push' # Run all tests on master push
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  list-files: 'escape'
                   filters: |
+                      # Consumed as a file list (complexity_files) by the changed-file
+                      # complexity check — the PR files API, not a hand-rolled git diff.
+                      complexity:
+                          - 'posthog/**/*.py'
+                          - 'ee/**/*.py'
+                          - 'products/**/*.py'
                       python:
                         # ruff/mypy/ty run repo-wide (`.`) in code-quality, so any Python
                         # file anywhere must trigger this workflow — otherwise an unformatted
@@ -66,12 +74,17 @@ jobs:
                         - 'frontend/src/queries/schema.json'
                         # Products changes need to trigger Python CI to validate the json usage is still valid
                         - 'frontend/src/products.json'
+                        # A hand-edit to the generated taxonomy JSON must reach the drift check
+                        - 'frontend/src/taxonomy/core-filter-definitions-by-group.json'
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'
                         - 'tools/owners/**'
                         - 'hogli.yaml'
                         - 'bin/**'
+                        # Django templates live outside posthog/ for products, and the
+                        # code-quality job formats them with djlint
+                        - 'products/**/backend/templates/**'
                         # Dev tools with dedicated pytest steps below
                         - 'tools/pr-approval-agent/**'
                         - 'products/stamphog/packages/pr-approval-agent/**'
@@ -183,6 +196,45 @@ jobs:
               run: |
                   npm run schema:build:python && git diff --exit-code
 
+            # Calls the generator directly because this job installs neither pnpm nor
+            # node_modules. Keep the step after "Install Python dependencies": importing
+            # posthog.taxonomy.taxonomy pulls in Django via posthog/__init__.py, so the
+            # generator needs the full synced dependency set, not just stdlib.
+            - name: Check if the taxonomy JSON is up to date
+              shell: bash
+              run: |
+                  python3 bin/build-taxonomy-json.py --check
+
+            # Warn-only while the pre-existing violation backlog settles: findings annotate
+            # the diff and land in the shared CI report comment, never a job failure.
+            # Scoped to the PR's own diff because C901 stays off repo-wide. Skip on
+            # unrebased branches: the lint:complexity command may not be registered yet.
+            - name: Check cyclomatic complexity of changed files
+              if: github.event_name == 'pull_request' && needs.changes.outputs.complexity_files != ''
+              shell: bash
+              env:
+                  # Space-separated, from paths-filter (list-files: escape) — the PR
+                  # files API, so no git-diff plumbing to drift from what the PR changed.
+                  CHANGED_FILES: ${{ needs.changes.outputs.complexity_files }}
+              run: |
+                  if [ ! -f tools/hogli-commands/hogli_commands/complexity_lint.py ]; then
+                      echo "hogli lint:complexity not present on this branch yet — skipping (rebase to pick it up)"
+                      exit 0
+                  fi
+                  # xargs re-parses the escape format, keeping escaped paths whole.
+                  printf '%s' "$CHANGED_FILES" | xargs -r ./bin/hogli lint:complexity --report complexity-findings-python.json
+
+            - name: Post CI report — complexity
+              if: always() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/')
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f .github/scripts/post-complexity-section.mjs ] && [ -f complexity-findings-python.json ]; then
+                      node .github/scripts/post-complexity-section.mjs python complexity-findings-python.json
+                  else
+                      echo "Skipping the complexity report section: script or findings not on this branch"
+                  fi
+
             - parallel:
                   - name: Check for syntax errors, import sort, and code style violations
                     shell: bash
@@ -191,6 +243,14 @@ jobs:
                   - name: Check formatting
                     shell: bash
                     run: ruff format --check --diff .
+
+                  - name: Check Django template formatting
+                    shell: bash
+                    run: ./bin/hogli format:html:check
+
+                  - name: Lint Django templates
+                    shell: bash
+                    run: ./bin/hogli lint:html
 
                   - name: Check hogli manifest completeness
                     shell: bash
@@ -253,12 +313,6 @@ jobs:
               with:
                   name: junit-results-dependency-detection
                   path: junit-dependency-detection.xml
-
-            # - name: Check if "taxonomy.json/taxonomy.tsx" is up to date
-            #   if: needs.changes.outputs.python == 'true'
-            #   shell: bash
-            #   run: |
-            #       npm run taxonomy:build:json && git diff --exit-code
 
     # Collate job - single required status check for branch protection.
     # The code-quality job skips when no Python changes, but this job always

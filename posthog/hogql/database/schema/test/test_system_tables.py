@@ -1095,6 +1095,36 @@ class TestSystemTablesCanvasDeletedExclusionIsolation(NonAtomicBaseTest):
         assert str(deleted_canvas.pk) not in ids
 
 
+class TestSystemTablesActivityLogsCanvasIdCoercion(NonAtomicBaseTest):
+    """The Canvas visibility rule compares `item_id` against canvas ids, which are UUIDs."""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_numeric_item_id_readable_while_canvases_exist(self):
+        # One canvas is enough to make the rule's id set non-empty and UUID-typed. `item_id` is a
+        # String holding whatever object the row is about, and most of those ids are numeric, so
+        # ClickHouse coerced every row's item_id to UUID and the whole table failed to read.
+        with team_scope(self.team.pk):
+            channel = Channel.objects.create(team=self.team, name="activity-log-canvas-channel")
+            Canvas.objects.create(team=self.team, channel=channel, name="live")
+        ActivityLog.objects.create(
+            team_id=self.team.pk,
+            organization_id=self.organization.id,
+            activity="created",
+            scope="Insight",
+            item_id="11510926",
+            detail={},
+        )
+
+        response = execute_hogql_query(
+            "SELECT item_id FROM system.activity_logs WHERE item_id = '11510926'",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert [row[0] for row in response.results] == ["11510926"]
+
+
 class TestSystemTablesTaskInternalExclusion(BaseTest):
     """Verify the tasks system table excludes internal tasks (signals pipeline, etc.)
     mirroring the REST API's default filter."""

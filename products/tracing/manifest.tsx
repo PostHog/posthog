@@ -17,6 +17,7 @@ export const manifest: ProductManifest = {
             activityScope: 'Tracing',
             description: 'Monitor and analyze distributed traces to understand service performance and debug issues.',
             iconType: 'tracing',
+            docsHref: 'https://posthog.com/docs/distributed-tracing',
         },
         TracingOperation: {
             name: 'Operation',

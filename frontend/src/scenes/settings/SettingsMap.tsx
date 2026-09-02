@@ -39,6 +39,8 @@ import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/Sessions
 import { OrganizationMCPAccess } from 'scenes/settings/organization/OrganizationMCPAccess'
 import { urls } from 'scenes/urls'
 
+import { ConfigScopeEnumApi } from '~/generated/core/api.schemas'
+import { AccessResolutionPreview } from '~/layout/navigation-3000/sidepanel/panels/access_control/ResolutionPreview/AccessResolutionPreview'
 import {
     DefaultRoleSelector,
     RolesAccessControls,
@@ -147,6 +149,7 @@ import { AIHipaaDisclaimer, getExternalAIProvidersTooltipTitle } from './organiz
 import { ApprovalPolicies } from './organization/Approvals/ApprovalPolicies'
 import { ChangeRequestsList } from './organization/Approvals/ChangeRequestsList'
 import { CIMDVerificationTokens } from './organization/CIMDVerificationTokens'
+import { IdentityProviderFeatureSection } from './organization/IdentityProviderConfig/IdentityProviderFeatureSection'
 import { Invites } from './organization/Invites'
 import { Members } from './organization/Members'
 import { NotificationGovernanceSetting } from './organization/NotificationGovernanceSetting'
@@ -177,6 +180,7 @@ import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { PersonalGitHubIntegrations, PersonalSlackIntegrations } from './user/PersonalIntegrations'
+import { ProfilePictureSettings } from './user/ProfilePictureSettings'
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { Reminders } from './user/Reminders'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
@@ -1788,7 +1792,7 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'organization',
         id: 'organization-authentication',
-        title: 'Authentication domains & SSO',
+        title: 'Authentication',
         settings: [
             {
                 id: 'authentication-domains',
@@ -1802,6 +1806,35 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Domain enforcement',
                 component: <EnforceVerifiedDomains />,
                 keywords: ['sso', 'verified domain', 'restrict', 'membership', 'invites'],
+            },
+            {
+                id: 'saml-configuration',
+                title: 'SAML single sign-on',
+                description:
+                    'Authenticate members through your identity provider using Security Assertion Markup Language (SAML).',
+                docsUrl: 'https://posthog.com/docs/data/sso#setting-up-saml',
+                component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Saml} />,
+                flag: 'SSO_SETTINGS_REDESIGN',
+                keywords: ['sso', 'saml', 'single sign-on', 'identity provider'],
+            },
+            {
+                id: 'scim-configuration',
+                title: 'SCIM provisioning',
+                description:
+                    'Provision and deprovision organization members through your identity provider using System for Cross-domain Identity Management (SCIM).',
+                docsUrl: 'https://posthog.com/docs/data/sso#setting-up-scim',
+                component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Scim} />,
+                flag: 'SSO_SETTINGS_REDESIGN',
+                keywords: ['scim', 'provisioning', 'identity provider'],
+            },
+            {
+                id: 'xaa-configuration',
+                title: 'XAA authentication',
+                description: 'Automate API and MCP access to PostHog with Cross App Access (XAA).',
+                docsUrl: 'https://posthog.com/docs/settings/id-jag',
+                component: <IdentityProviderFeatureSection configScope={ConfigScopeEnumApi.Xaa} />,
+                flag: ['SSO_SETTINGS_REDESIGN', 'XAA_AUTHENTICATION'],
+                keywords: ['xaa', 'id-jag', 'identity provider', 'token exchange'],
             },
         ],
     },
@@ -1935,6 +1968,25 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'organization',
+        id: 'organization-access-resolution',
+        title: 'Access resolution preview',
+        flag: 'ACCESS_CONTROL_RESOLUTION_PREVIEW',
+        // Temporary migration surface: reachable only from the access control
+        // settings banner, never from the settings navigation or search
+        hideFromNavigation: true,
+        settings: [
+            {
+                id: 'organization-access-resolution-preview',
+                title: 'Access resolution preview',
+                description:
+                    'PostHog is changing how access levels combine: the most specific rule will decide, instead of the highest one. Review what will be different for your organization before the change takes effect.',
+                component: <AccessResolutionPreview />,
+                keywords: ['access control', 'resolution', 'rbac', 'permission', 'override'],
+            },
+        ],
+    },
+    {
+        level: 'organization',
         id: 'organization-security',
         title: 'Security',
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -1994,6 +2046,12 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'user-profile',
         title: 'Profile',
         settings: [
+            {
+                id: 'profile-picture',
+                title: 'Profile picture',
+                component: <ProfilePictureSettings />,
+                keywords: ['avatar', 'gravatar', 'photo', 'picture', 'image', 'profile'],
+            },
             {
                 id: 'details',
                 title: 'Details',

@@ -16,7 +16,7 @@ from posthog.schema import (
 from posthog.hogql.constants import MAX_SELECT_RETENTION_LIMIT
 from posthog.hogql.test.utils import pretty_print_in_tests
 
-from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
+from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models.team import WeekStartDay
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_person

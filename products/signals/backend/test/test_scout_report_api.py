@@ -433,6 +433,113 @@ class TestScoutReportAPI(APIBaseTest):
         autostart.assert_awaited_once()
         assert repository_at_autostart == ["acme/gadgets"]
 
+    def test_content_edit_queues_slack_delivery_before_the_autostart_side_effect(self) -> None:
+        # A prior delivery of the same report may still be building its Slack message; it reads the
+        # report's latest-delivery marker to decide whether to yield to this edit. The edit claims
+        # that marker when it queues its own delivery, so the queue call must run before the slow
+        # post-commit side effects (repository inference, autostart). Otherwise the prior delivery can
+        # read the freshly committed edit, still find no marker, and post the edited report a second
+        # time — the same content this edit's own delivery then posts again.
+        run = _make_run(self.team)
+        # Emit before the destination is set, so only the edit below queues a delivery.
+        with _safe_judge(), patch(EMBED_PATH), patch(CONNECTED_REPOS_PATH, return_value=_CONNECTED_REPOS):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        config = run.scout_config
+        assert config is not None
+        config.output_destinations = {"slack": {"integration_id": 17, "channel": "CSCOUTS|#scout-findings"}}
+        config.save(update_fields=["output_destinations"])
+
+        queued_output_ids: list[str] = []
+        queued_before_autostart: list[bool] = []
+
+        def _record_queue(**kwargs) -> None:
+            queued_output_ids.append(kwargs["output_id"])
+
+        async def _record_autostart(**kwargs) -> None:
+            queued_before_autostart.append(bool(queued_output_ids))
+
+        with (
+            patch(CONNECTED_REPOS_PATH, return_value=_CONNECTED_REPOS),
+            patch(
+                "products.signals.backend.scout_harness.tools.report.queue_configured_scout_slack_delivery",
+                side_effect=_record_queue,
+            ),
+            patch(AUTOSTART_PATH, new=AsyncMock(side_effect=_record_autostart)),
+        ):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": created["report_id"],
+                    "summary": "Rewritten summary",
+                    "suggested_reviewers": [{"github_login": "octocat"}],
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        # The reviewer change ran autostart, and the delivery was already queued by the time it did.
+        assert queued_output_ids == [created["report_id"]]
+        assert queued_before_autostart == [True]
+
+    def test_content_edit_survives_a_slack_status_read_failure(self) -> None:
+        # The status read that gates the Slack delivery runs after the edit has committed. A transient
+        # failure there must not fail the call or skip the side effects below it (autostart, the tally):
+        # only the delivery enqueue is best-effort. Degrade to skipping the enqueue and carry on.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(CONNECTED_REPOS_PATH, return_value=_CONNECTED_REPOS):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        with (
+            patch(CONNECTED_REPOS_PATH, return_value=_CONNECTED_REPOS),
+            patch(
+                "products.signals.backend.scout_harness.tools.report.get_scout_report_status",
+                side_effect=RuntimeError("db unavailable"),
+            ),
+            patch("products.signals.backend.scout_harness.tools.report.queue_configured_scout_slack_delivery") as queue,
+            patch(AUTOSTART_PATH, new=AsyncMock()) as autostart,
+        ):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={
+                    "report_id": report_id,
+                    "summary": "Rewritten summary",
+                    "suggested_reviewers": [{"github_login": "octocat"}],
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        # The read failed, so the delivery is skipped, but autostart and the run tally still ran.
+        queue.assert_not_called()
+        autostart.assert_awaited_once()
+        run.refresh_from_db()
+        assert run.edited_report_ids == [report_id]
+
+    def test_content_edit_survives_an_inferred_repository_refresh_failure(self) -> None:
+        # Repository inference runs after the Slack delivery is already enqueued. If it raises, failing
+        # the already-committed, already-enqueued edit would return an error the agent retries — and a
+        # retry can enqueue a second full delivery. The refresh is best-effort: swallow, keep the edit
+        # successful, and let the tally still run.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(CONNECTED_REPOS_PATH, return_value=_CONNECTED_REPOS):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        with (
+            patch(
+                "products.signals.backend.scout_harness.tools.report._refresh_inferred_repository",
+                side_effect=RuntimeError("repo cache unavailable"),
+            ),
+            patch("products.signals.backend.scout_harness.tools.report.queue_configured_scout_slack_delivery") as queue,
+        ):
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": report_id, "summary": "Rewritten summary"},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        # The delivery was accepted before the refresh raised, and the tally still recorded the edit.
+        queue.assert_called_once()
+        run.refresh_from_db()
+        assert run.edited_report_ids == [report_id]
+
     def test_emit_report_writes_autostart_artefacts(self) -> None:
         # The autostart inputs the scout supplies become the same artefacts a pipeline report carries,
         # which is what `maybe_autostart_from_report_artefacts` reads to open a draft PR. Repo is normalized.

@@ -126,6 +126,7 @@ describe("SessionService.clearSessionError retry config", () => {
       model: "claude-fable-5",
       adapter: "codex",
       codexModelAccess: "own-subscription",
+      claudeModelAccess: "own-subscription",
       executionMode: "auto",
       reasoningLevel: "high",
       contextWindow: "1m",
@@ -148,7 +149,7 @@ describe("SessionService.clearSessionError retry config", () => {
       undefined,
       "1m",
       true,
-      "own-subscription",
+      { codex: "own-subscription", claude: "own-subscription" },
     );
   });
 

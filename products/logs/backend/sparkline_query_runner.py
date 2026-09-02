@@ -8,7 +8,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
-from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
+from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models.filters.mixins.utils import cached_property
 
 from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQueryRunner

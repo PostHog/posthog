@@ -1,10 +1,7 @@
 {% extends "email/base.html" %}
-
 {% block section %}
-<p>
-    As requested, we've deleted <strong>{{ project_name }}</strong> and all its data.
-</p>
-<p>
-    This can't be undone, but hey, if you ever want to start fresh, we'll be here.
-</p>
+    <p>
+        As requested, we've deleted <strong>{{ project_name }}</strong> and all its data.
+    </p>
+    <p>This can't be undone, but hey, if you ever want to start fresh, we'll be here.</p>
 {% endblock %} {% block heading %}Project deleted{% endblock %}
