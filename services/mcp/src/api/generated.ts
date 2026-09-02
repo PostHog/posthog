@@ -67494,6 +67494,21 @@ export namespace Schemas {
       readonly events_retention_enforced?: boolean;
     }
 
+    export interface PatchedTeamTracingConfig {
+      /**
+         * Span or resource attribute keys whose values should match a person's distinct_id — a span links to a person when any of these attributes holds one of their distinct IDs. Defaults to ['posthogDistinctId'], the key the posthog-js / posthog-react-native SDKs attach to the OTel signals they emit. Add keys only if your pipeline emits the person identifier under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      tracing_distinct_id_attribute_keys?: string[];
+      /**
+         * Ordered list of span or resource attribute keys whose values hold the PostHog session ID. Detection checks keys in order, then falls back to common session ID attribute conventions; the first key with a value wins. Defaults to ['sessionId'], the key the posthog-js / posthog-react-native SDKs attach to the OTel signals they emit. Add keys only if your pipeline emits the session ID under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      tracing_session_id_attribute_keys?: string[];
+    }
+
     /**
      * Payload for updating a private note on a ticket.
      */
@@ -85568,6 +85583,21 @@ export namespace Schemas {
       owner_team: string;
       /** False when the GitHub source has no team_members snapshot synced: the trend then has no honest team attribution and `points` is empty. */
       has_membership_data: boolean;
+    }
+
+    export interface TeamTracingConfig {
+      /**
+         * Span or resource attribute keys whose values should match a person's distinct_id — a span links to a person when any of these attributes holds one of their distinct IDs. Defaults to ['posthogDistinctId'], the key the posthog-js / posthog-react-native SDKs attach to the OTel signals they emit. Add keys only if your pipeline emits the person identifier under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      tracing_distinct_id_attribute_keys: string[];
+      /**
+         * Ordered list of span or resource attribute keys whose values hold the PostHog session ID. Detection checks keys in order, then falls back to common session ID attribute conventions; the first key with a value wins. Defaults to ['sessionId'], the key the posthog-js / posthog-react-native SDKs attach to the OTel signals they emit. Add keys only if your pipeline emits the session ID under different attributes.
+         * @maxItems 10
+         * @items.maxLength 200
+         */
+      tracing_session_id_attribute_keys: string[];
     }
 
     /**

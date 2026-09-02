@@ -143,6 +143,8 @@ import {
     TeamVariables,
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
+import { TracingDistinctIdAttributeKeys } from './environment/TracingDistinctIdAttributeKeys'
+import { TracingSessionIdAttributeKeys } from './environment/TracingSessionIdAttributeKeys'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
 import { AIHipaaDisclaimer, getExternalAIProvidersTooltipTitle } from './organization/aiConsentCopy'
@@ -1286,6 +1288,47 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/surveys/creating-surveys#customizing-the-look-and-feel',
                 component: <SurveyDefaultAppearance />,
                 keywords: ['appearance', 'style', 'theme', 'customization', 'popup'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-tracing',
+        title: 'Tracing',
+        group: 'Products',
+        flag: ['TRACING', 'TRACING_SESSION_PERSON_LINKS'],
+        settings: [
+            {
+                id: 'tracing-distinct-id-attribute-keys',
+                title: 'Link to person',
+                description: (
+                    <>
+                        The span attributes PostHog reads to identify which person a trace belongs to. A span is linked
+                        when any of these attributes holds one of the person&apos;s distinct IDs. Defaults to{' '}
+                        <code>posthogDistinctId</code>. Add keys only if your pipeline emits the person identifier under
+                        different attributes.
+                    </>
+                ),
+                searchDescription:
+                    "The span attributes PostHog reads to identify which person a trace belongs to. A span is linked when any of these attributes holds one of the person's distinct IDs. Defaults to posthogDistinctId. Add keys only if your pipeline emits the person identifier under different attributes.",
+                component: <TracingDistinctIdAttributeKeys />,
+                keywords: ['trace', 'span', 'person', 'distinct', 'attribute', 'pivot', 'profile', 'link'],
+            },
+            {
+                id: 'tracing-session-id-attribute-keys',
+                title: 'Link to session',
+                description: (
+                    <>
+                        The span attributes PostHog reads to identify which session a trace belongs to, checked in order
+                        with the first match winning, followed by other common session ID attributes. Defaults to{' '}
+                        <code>sessionId</code>. Add keys only if your pipeline emits the session ID under different
+                        attributes.
+                    </>
+                ),
+                searchDescription:
+                    'The span attributes PostHog reads to identify which session a trace belongs to, checked in order with the first match winning, followed by other common session ID attributes. Defaults to sessionId. Add keys only if your pipeline emits the session ID under different attributes.',
+                component: <TracingSessionIdAttributeKeys />,
+                keywords: ['trace', 'span', 'session', 'replay', 'attribute', 'link'],
             },
         ],
     },
