@@ -11,7 +11,7 @@ from ee.hogai.chat_agent.sql.prompts import HOGQL_QUERY_WRITING_RULES
 
 logger = structlog.get_logger(__name__)
 
-HOGQL_SUBSCRIPTION_ADDITIONAL_QUERY_RULES = """Additional scheduled-report query-writing rules:
+HOGQL_QUERYING_SKILL_LEARNINGS = """Portable query-writing learnings from the querying-posthog-data skill:
 - `properties` and `person.properties` are JSON string columns, not Maps. To enumerate keys, use
   `JSONExtractKeys(properties)` rather than `mapKeys`, `mapValues`, or `mapContains`.
 - Wrap boolean properties in `toBool(...)`, preserving their namespace. Do not compare them with `1`,
@@ -35,13 +35,22 @@ HOGQL_SUBSCRIPTION_ADDITIONAL_QUERY_RULES = """Additional scheduled-report query
 - Prefilter and, where possible, preaggregate a subquery used for correlation or joining so its right
   side remains small. For supported enrichment joins, use `LEFT ANY JOIN` when one match is enough."""
 
-HOGQL_SUBSCRIPTION_QUERY_WRITING_RULES = "\n\n".join(
+HOGQL_AI_SUBSCRIPTION_RULES = """Scheduled-report query-writing rules:
+- Only produce HogQL SELECT statements. Never produce DDL or INSERT, UPDATE, or DELETE statements.
+- Keep the report's runtime-owned analysis window intact. The task prompt defines whether to insert
+  reusable window tokens or preserve the failed query's existing tokens or literal bounds.
+- Use only tables, fields, events, and properties present in the supplied project context.
+- Keep results cheap and bounded. Prefer aggregation over raw rows, avoid wildcards on large tables,
+  and cap results with LIMIT 50."""
+
+HOGQL_AI_SUBSCRIPTION_QUERY_WRITING_RULES = "\n\n".join(
     (
         "The ChatAgent HogQL syntax and relationship rules below are authoritative. Later instructions "
         "may specialize the report window, output shape, or cost limits; otherwise, if they conflict, "
         "follow the ChatAgent rules.",
         HOGQL_QUERY_WRITING_RULES,
-        HOGQL_SUBSCRIPTION_ADDITIONAL_QUERY_RULES,
+        HOGQL_QUERYING_SKILL_LEARNINGS,
+        HOGQL_AI_SUBSCRIPTION_RULES,
     )
 )
 
@@ -97,7 +106,7 @@ def render_prompt(template: str, substitutions: dict[str, str]) -> str:
 
 
 def prepend_hogql_query_writing_rules(prompt: str) -> str:
-    return f"{HOGQL_SUBSCRIPTION_QUERY_WRITING_RULES}\n\n{prompt}"
+    return f"{HOGQL_AI_SUBSCRIPTION_QUERY_WRITING_RULES}\n\n{prompt}"
 
 
 EVENT_SELECTION_PROMPT = """
@@ -142,7 +151,6 @@ two queries. The rule of thumb: one query per distinct metric/breakdown the prom
 those that are genuinely the same query shape.
 
 Output rules:
-- Only emit HogQL SELECT statements; never DDL or INSERT/UPDATE/DELETE.
 - Prefer the `events` table. Filter by `event` against the project's known event names when relevant.
   When context lists "Events matching your request", prefer those exact event names — they were
   selected for this prompt. For an event's properties, use only the names listed under its
@@ -160,7 +168,6 @@ Output rules:
   `{{window_start}}` — see the growth reference pattern below. Boundary tokens `{{window_start}}` /
   `{{window_end}}` substitute to bare `toDateTime('…')` literals where a pattern needs a single bound.
 - Each step's `description` must briefly explain *why* that query is relevant to the prompt.
-- Keep queries cheap: prefer aggregation over raw selects; cap with LIMIT 50; avoid wildcards on large tables.
 - Format each query for readability: each clause (SELECT, FROM, WHERE, GROUP BY, ORDER BY, LIMIT) on
   its own line, one selected column per line. Queries are shown to users verbatim.
 
@@ -427,8 +434,6 @@ rewrite MUST follow the same HogQL syntax constraints used by the planner:
   `{{compare_date_range}}`, `{{window_start}}`, `{{window_end}}`) or literal `toDateTime('…')` bounds
   verbatim — those are the report's fixed analysis window. Do NOT introduce `now()` /
   `now() - INTERVAL …` / `today()`, and do NOT resolve a placeholder into dates yourself.
-- Keep it cheap: LIMIT 50.
-
 Return ONLY a `fixed_hogql` field containing the rewritten query. Do not include explanations,
 comments, or backticks. If the original query is unfixable, return a simpler query that addresses
 the step intent as best you can.
