@@ -33,6 +33,7 @@ class CatalogEntry:
     category: str  # one of CATEGORY_CHOICES on the model
     icon_domain: str  # the vendor's brand domain, rendered via the logo.dev proxy
     docs_url: str = ""
+    disabled: bool = False
 
 
 MCP_SERVER_CATALOG: list[CatalogEntry] = [
@@ -308,6 +309,7 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         auth_type="oauth",
         category="productivity",
         icon_domain="slack.com",
+        disabled=True,
     ),
     CatalogEntry(
         name="Sourcegraph",

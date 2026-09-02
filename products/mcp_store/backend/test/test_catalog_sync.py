@@ -177,6 +177,33 @@ class TestSyncMCPCatalog(TestCase):
         assert counts.created == 1
         assert MCPServerTemplate.objects.get(url=_entry().url).is_active is False
 
+    def test_disabled_entry_stays_inactive_without_probing(self):
+        with patch("products.mcp_store.backend.catalog_sync.probe_mcp_server") as probe_mock:
+            counts = sync_mcp_catalog(entries=[_entry(disabled=True)])
+
+        probe_mock.assert_not_called()
+        assert counts.created == 1
+        assert MCPServerTemplate.objects.get(url=_entry().url).is_active is False
+
+    def test_disabled_entry_deactivates_existing_template(self):
+        template = MCPServerTemplate.objects.create(
+            name="Linear",
+            url=_entry().url,
+            description="Manage Linear issues.",
+            auth_type="oauth",
+            category="dev",
+            icon_domain="linear.app",
+            is_active=True,
+        )
+
+        with patch("products.mcp_store.backend.catalog_sync.probe_mcp_server") as probe_mock:
+            counts = sync_mcp_catalog(entries=[_entry(disabled=True)])
+
+        probe_mock.assert_not_called()
+        template.refresh_from_db()
+        assert counts.updated == 1
+        assert template.is_active is False
+
     def test_warns_on_active_row_missing_from_catalog(self):
         # A catalog url edit orphans the old active row silently — the sync warning is the
         # only thing that surfaces it, so a refactor dropping it must fail here.

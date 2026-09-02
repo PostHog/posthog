@@ -11,9 +11,8 @@ Semantics, chosen so the sync can run unattended at every app startup:
 - The sync never touches operational state: ``is_active`` after creation,
   ``oauth_credentials`` (operator-provisioned shared client creds), or ``oauth_metadata``
   once set. Rows absent from the catalog (admin-added or removed entries) are left alone.
-  One fail-closed exception: an ``auth_type`` flip on an active row deactivates it, since
-  the row was vetted and activated under the old auth model — an operator re-vets and
-  reactivates in admin.
+  Two fail-closed exceptions deactivate active rows: an ``auth_type`` flip, or a catalog
+  entry marked ``disabled``. An operator must re-vet and reactivate either row in admin.
 - **Activation gate**: a newly created entry is probed live (``probe.probe_mcp_server``)
   and born active only when the probe passes for the auth model the catalog declares —
   DCR OAuth servers must complete a real client registration and serve an authorization
@@ -80,7 +79,7 @@ def _create_template(entry: CatalogEntry, skip_probe: bool, counts: SyncCounts) 
         is_active=False,
     )
     counts.created += 1
-    if skip_probe:
+    if skip_probe or entry.disabled:
         return
 
     probe = probe_mcp_server(entry.url)
@@ -110,12 +109,13 @@ def _create_template(entry: CatalogEntry, skip_probe: bool, counts: SyncCounts) 
 
 def _update_template(template: MCPServerTemplate, entry: CatalogEntry, counts: SyncCounts) -> None:
     changed = [f for f in _CONTENT_FIELDS if getattr(template, f) != getattr(entry, f)]
-    if not changed:
-        counts.unchanged += 1
-        return
     for f in changed:
         setattr(template, f, getattr(entry, f))
-    if "auth_type" in changed and template.is_active:
+    if entry.disabled and template.is_active:
+        template.is_active = False
+        changed.append("is_active")
+        logger.warning("mcp_catalog_sync.deactivated_disabled_entry", url=entry.url)
+    elif "auth_type" in changed and template.is_active:
         # The row was vetted and activated under the old auth model — e.g. an
         # oauth→api_key flip would route new installs through the API-key branch
         # with no key provisioned. Fail closed; an operator re-vets and reactivates.
@@ -126,6 +126,9 @@ def _update_template(template: MCPServerTemplate, entry: CatalogEntry, counts: S
             url=entry.url,
             auth_type=entry.auth_type,
         )
+    if not changed:
+        counts.unchanged += 1
+        return
     template.save(update_fields=[*changed, "updated_at"])
     counts.updated += 1
 

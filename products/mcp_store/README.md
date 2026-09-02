@@ -68,8 +68,9 @@ The catalog is **code**: `backend/catalog.py` holds one `CatalogEntry` per serve
 At app startup, every environment queues `sync_mcp_server_templates` (see `backend/tasks/tasks.py`, queued from `backend/apps.py`), which upserts entries into `MCPServerTemplate` rows:
 
 - Rows are keyed on `url`. New entries are created; existing rows get **content fields** updated (name, description, auth_type, category, icon_domain, docs_url). The catalog owns content — edit it in code, not admin.
-- **Operational state is never touched by the sync**: `is_active` after creation, `oauth_credentials`, and `oauth_metadata` once set belong to the row and to operators. Rows absent from the catalog (e.g. admin-added) are left alone.
+- **Operational state stays operator-owned**: the sync preserves `is_active`, `oauth_credentials`, and `oauth_metadata` after creation unless an auth change or suspension must fail closed. Rows absent from the catalog remain untouched.
 - **Activation gate**: a newly created entry is probed live (`backend/probe.py` — MCP initialize handshake, OAuth metadata discovery, a real DCR registration, authorization-endpoint liveness). It is born active only when the probe passes for the auth model the catalog declares. Servers that need shared OAuth credentials (no DCR) are born inactive until an operator provisions them.
+- **Temporary suspension**: `disabled=True` keeps a catalog entry inactive and deactivates an existing row on the next sync. Removing it does not reactivate the row; an operator must re-vet it first.
 - Probes run **only on creation** — a DCR probe mints a real client on the provider, so re-probing every sync would leak registrations.
 
 To add a server, follow the `adding-mcp-store-servers` skill (`.agents/skills/adding-mcp-store-servers/`).
