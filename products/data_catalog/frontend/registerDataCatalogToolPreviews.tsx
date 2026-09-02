@@ -147,7 +147,13 @@ export function relationshipPreview(
         fields.push({ label: 'Confidence', value: `${Math.round(proposal.confidence * 100)}%` })
     }
     if (proposal.reasoning) {
-        fields.push({ label: 'Reason', value: proposal.reasoning })
+        fields.push({ label: 'Proposal reason', value: proposal.reasoning })
+    }
+    // A reject call persists this note permanently, so the approver has to read it before confirming.
+    // It is distinct from `proposal.reasoning` (why the join was proposed), hence the separate label.
+    const rejectionReason = decision === 'rejected' ? stringArg(input, 'rejection_reason') : null
+    if (rejectionReason) {
+        fields.push({ label: 'Rejection reason', value: rejectionReason })
     }
     return (
         <CatalogPreviewCard

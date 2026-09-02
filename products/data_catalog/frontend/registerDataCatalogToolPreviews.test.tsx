@@ -102,12 +102,23 @@ describe('data catalog approval previews', () => {
         expect(screen.getByText(/no longer matches its source insight/)).toBeInTheDocument()
     })
 
-    it('names both sides of the join a relationship decision settles', () => {
-        render(<>{relationshipPreview({ id: 'proposal-1' }, [buildProposal()], 'rejected')}</>)
+    it('names both sides of the join and the rejection reason a relationship decision settles', () => {
+        // The reject call persists rejection_reason forever, so the card must surface the note the
+        // approver is about to commit rather than hiding it behind the suppressed raw payload.
+        render(
+            <>
+                {relationshipPreview(
+                    { id: 'proposal-1', rejection_reason: 'Keys collide on null person ids.' },
+                    [buildProposal()],
+                    'rejected'
+                )}
+            </>
+        )
         expect(screen.getByText('events.person_id → persons.id')).toBeInTheDocument()
         expect(screen.getByText('proposed → rejected')).toBeInTheDocument()
         expect(screen.getByText('events.person')).toBeInTheDocument()
         expect(screen.getByText('90%')).toBeInTheDocument()
+        expect(screen.getByText('Keys collide on null person ids.')).toBeInTheDocument()
     })
 })
 
