@@ -99085,14 +99085,9 @@ export namespace Schemas {
     };
 
     export type TagsListParams = {
-    /**
-     * Number of results to return per page.
-     */
     limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
     offset?: number;
+    search?: string;
     };
 
     export type TaskActivityListParams = {
