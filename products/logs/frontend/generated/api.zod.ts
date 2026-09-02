@@ -1950,12 +1950,12 @@ export const LogsViewsCreateBody = /* @__PURE__ */ zod.object({
                         'Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server.'
                     ),
                 type: zod
-                    .enum(['timestamp', 'level', 'source', 'trace_id', 'span_id', 'message', 'custom'])
+                    .enum(['timestamp', 'level', 'source', 'trace_id', 'span_id', 'pattern', 'message', 'custom'])
                     .describe(
-                        '\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `message` - message\n\* `custom` - custom'
+                        '\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `pattern` - pattern\n\* `message` - message\n\* `custom` - custom'
                     )
                     .describe(
-                        'Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.\n\n\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `message` - message\n\* `custom` - custom'
+                        'Column type. Most built-in types resolve client-side from log row fields; `pattern` and `custom` columns are computed server-side, the latter from `expression`.\n\n\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `pattern` - pattern\n\* `message` - message\n\* `custom` - custom'
                     ),
                 name: zod
                     .string()
@@ -2007,12 +2007,12 @@ export const LogsViewsUpdateBody = /* @__PURE__ */ zod.object({
                         'Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server.'
                     ),
                 type: zod
-                    .enum(['timestamp', 'level', 'source', 'trace_id', 'span_id', 'message', 'custom'])
+                    .enum(['timestamp', 'level', 'source', 'trace_id', 'span_id', 'pattern', 'message', 'custom'])
                     .describe(
-                        '\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `message` - message\n\* `custom` - custom'
+                        '\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `pattern` - pattern\n\* `message` - message\n\* `custom` - custom'
                     )
                     .describe(
-                        'Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.\n\n\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `message` - message\n\* `custom` - custom'
+                        'Column type. Most built-in types resolve client-side from log row fields; `pattern` and `custom` columns are computed server-side, the latter from `expression`.\n\n\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `pattern` - pattern\n\* `message` - message\n\* `custom` - custom'
                     ),
                 name: zod
                     .string()
@@ -2064,12 +2064,12 @@ export const LogsViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         'Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server.'
                     ),
                 type: zod
-                    .enum(['timestamp', 'level', 'source', 'trace_id', 'span_id', 'message', 'custom'])
+                    .enum(['timestamp', 'level', 'source', 'trace_id', 'span_id', 'pattern', 'message', 'custom'])
                     .describe(
-                        '\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `message` - message\n\* `custom` - custom'
+                        '\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `pattern` - pattern\n\* `message` - message\n\* `custom` - custom'
                     )
                     .describe(
-                        'Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.\n\n\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `message` - message\n\* `custom` - custom'
+                        'Column type. Most built-in types resolve client-side from log row fields; `pattern` and `custom` columns are computed server-side, the latter from `expression`.\n\n\* `timestamp` - timestamp\n\* `level` - level\n\* `source` - source\n\* `trace_id` - trace_id\n\* `span_id` - span_id\n\* `pattern` - pattern\n\* `message` - message\n\* `custom` - custom'
                     ),
                 name: zod
                     .string()
