@@ -215,6 +215,17 @@ describe('vercel-ai middleware', () => {
             expect(event.properties!['$ai_stop_reason']).toBe('length')
         })
 
+        it('ignores an oversized stop reason and falls through to the next source', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'ai.response.finishReason': 'x'.repeat(129),
+                'gen_ai.response.finish_reasons': ['stop'],
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_stop_reason']).toBe('stop')
+        })
+
         it('normalizes AI SDK v7 detailed usage without relying on global cache semantics', () => {
             const event = createEvent('$ai_generation', {
                 'ai.operationId': 'ai.streamText.doStream',
