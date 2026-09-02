@@ -38,6 +38,7 @@ from posthog.models.team.team import Team
 from posthog.test.persons import create_group_type_mapping, create_person
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
 from ee.clickhouse.views.groups import _decode_groups_cursor, _encode_groups_cursor
@@ -1501,6 +1502,30 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             {"group_type_index": 0},
         )
         self.assertEqual(response.status_code, 400)
+
+    def test_create_detail_dashboard_recreates_after_referenced_dashboard_deleted(self):
+        group_type = create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+
+        dashboard = create_group_type_mapping_detail_dashboard(group_type, self.user)
+        update_group_type_mapping_fields(group_type, fields={"detail_dashboard_id": dashboard.id}, caller_tag="test")
+
+        # Stale reference: the dashboard was deleted but the best-effort mapping cleanup never cleared the id.
+        dashboard.deleted = True
+        dashboard.save()
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/groups_types/create_detail_dashboard",
+            {"group_type_index": 0},
+        )
+        self.assertEqual(response.status_code, 200)
+
+        group_type_mapping = get_group_type_mapping_instance(project_id=self.team.project_id, group_type_index=0)
+        new_dashboard_id = group_type_mapping.detail_dashboard_id
+        assert new_dashboard_id is not None
+        self.assertNotEqual(new_dashboard_id, dashboard.id)
+        self.assertTrue(Dashboard.objects.filter(id=new_dashboard_id, team_id=self.team.id).exists())
 
     def test_create_detail_dashboard_not_found(self):
         response = self.client.put(

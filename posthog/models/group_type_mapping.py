@@ -407,10 +407,13 @@ def _reconfirm_emptied_projects_against_primary(
     suspect_ids = list(suspects.keys())
 
     try:
-        client = require_personhog_client()
         confirmed = personhog_call(
             "get_group_types_for_projects_reconfirm",
-            lambda: _fetch_group_types_for_projects_via_personhog(client, suspect_ids, consistency="strong"),
+            # require_personhog_client() must run inside personhog_call so a missing client
+            # (RuntimeError) is wrapped as DatabaseError and recovered like any fetch failure.
+            lambda: _fetch_group_types_for_projects_via_personhog(
+                require_personhog_client(), suspect_ids, consistency="strong"
+            ),
             caller_tag=f"group_type_mapping/{caller_tag or 'get_group_types_for_projects'}/reconfirm",
             reraise_as=DatabaseError,
         )
@@ -670,9 +673,10 @@ def update_group_type_mapping_fields(
     """
     from posthog.personhog_client.proto import UpdateGroupTypeMappingRequest
 
-    client = require_personhog_client()
-
     def _fn() -> None:
+        # require_personhog_client() must run inside personhog_call so a missing client
+        # (RuntimeError) is wrapped as DatabaseError and recovered like any fetch failure.
+        client = require_personhog_client()
         update_mask: list[str] = list(fields.keys())
         kwargs: dict[str, Any] = {
             "project_id": instance.project_id,
@@ -705,15 +709,20 @@ def delete_group_type_mapping(instance: GroupTypeMapping, *, caller_tag: str | N
     """Delete a GroupTypeMapping via personhog."""
     from posthog.personhog_client.proto import DeleteGroupTypeMappingRequest
 
-    client = require_personhog_client()
-    personhog_call(
-        "delete_group_type_mapping",
-        lambda: client.delete_group_type_mapping(
+    def _fn() -> None:
+        # require_personhog_client() must run inside personhog_call so a missing client
+        # (RuntimeError) is wrapped as DatabaseError and recovered like any fetch failure.
+        client = require_personhog_client()
+        client.delete_group_type_mapping(
             DeleteGroupTypeMappingRequest(
                 project_id=instance.project_id,
                 group_type_index=instance.group_type_index,
             )
-        ),
+        )
+
+    personhog_call(
+        "delete_group_type_mapping",
+        _fn,
         caller_tag=f"group_type_mapping/{caller_tag or 'delete_group_type_mapping'}",
         reraise_as=DatabaseError,
     )
@@ -728,9 +737,10 @@ def clear_dashboard_from_group_type_mapping(
     """
     from posthog.personhog_client.proto import GetGroupTypeMappingByDashboardIdRequest, UpdateGroupTypeMappingRequest
 
-    client = require_personhog_client()
-
     def _fn() -> None:
+        # require_personhog_client() must run inside personhog_call so a missing client
+        # (RuntimeError) is wrapped as DatabaseError and recovered like any fetch failure.
+        client = require_personhog_client()
         resp = client.get_group_type_mapping_by_dashboard_id(
             GetGroupTypeMappingByDashboardIdRequest(team_id=team_id, dashboard_id=dashboard_id)
         )
@@ -744,9 +754,19 @@ def clear_dashboard_from_group_type_mapping(
             )
             invalidate_group_types_cache(resp.mapping.project_id)
 
-    personhog_call(
-        "clear_dashboard_from_group_type_mapping",
-        _fn,
-        caller_tag=f"group_type_mapping/{caller_tag or 'clear_dashboard_from_group_type_mapping'}",
-        reraise_as=DatabaseError,
-    )
+    try:
+        personhog_call(
+            "clear_dashboard_from_group_type_mapping",
+            _fn,
+            caller_tag=f"group_type_mapping/{caller_tag or 'clear_dashboard_from_group_type_mapping'}",
+            reraise_as=DatabaseError,
+        )
+    except DatabaseError:
+        # Best-effort cleanup: an unavailable or unconfigured personhog client must not fail
+        # the dashboard delete. A stale group-type dashboard reference is harmless.
+        logger.warning(
+            "clear_dashboard_from_group_type_mapping_failed",
+            team_id=team_id,
+            dashboard_id=dashboard_id,
+            exc_info=True,
+        )
