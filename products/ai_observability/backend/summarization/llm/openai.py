@@ -4,7 +4,7 @@ when configured, else the Python LLM gateway."""
 from typing import Any, Literal
 
 import structlog
-from openai import APIConnectionError, InternalServerError, Omit, RateLimitError, omit
+from openai import APIConnectionError, APIError, APIStatusError, InternalServerError, Omit, OpenAI, RateLimitError, omit
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from rest_framework import exceptions
 
@@ -26,6 +26,21 @@ def _is_gpt5_model(model: OpenAIModel) -> bool:
 # model (the pro tiers are excluded, for example), so a new gpt-5 entry in OpenAIModel must not
 # inherit the flex tier until someone checks the pricing page and adds it here.
 FLEX_CAPABLE_MODELS: frozenset[OpenAIModel] = frozenset({OpenAIModel.GPT_5_NANO, OpenAIModel.GPT_5_MINI})
+
+
+def _is_flex_recoverable(error: APIError) -> bool:
+    """Whether a failed flex attempt should retry on the standard tier.
+
+    Recoverable: a capacity refusal (429), a connection reset or client timeout
+    (APIConnectionError covers its APITimeoutError subclass), any 5xx (the ai-gateway answers
+    504 at its buffered-response ceiling), and 408, which OpenAI's flex docs use for a
+    server-side flex timeout and the SDK raises as the bare APIStatusError. Anything else
+    (400 bad request, auth errors) is a configuration problem the standard tier shares, so it
+    propagates instead of masking itself behind a fallback.
+    """
+    if isinstance(error, RateLimitError | APIConnectionError | InternalServerError):
+        return True
+    return isinstance(error, APIStatusError) and error.status_code == 408
 
 
 # Strict json_schema keeps the model's output parseable by SummarizationResponse without a
@@ -70,8 +85,8 @@ def summarize_with_openai(
     # request entirely, where None would send an explicit null.
     reasoning_effort: Literal["minimal"] | Omit = "minimal" if _is_gpt5_model(model) else omit
 
-    def _create(service_tier: Literal["flex"] | Omit, timeout: float) -> ChatCompletion:
-        return client.chat.completions.create(
+    def _create(request_client: OpenAI, service_tier: Literal["flex"] | Omit, timeout: float) -> ChatCompletion:
+        return request_client.chat.completions.create(
             model=str(model),
             messages=messages,
             user=resolved_distinct_id,
@@ -85,12 +100,18 @@ def summarize_with_openai(
         if flex and model in FLEX_CAPABLE_MODELS:
             fell_back = False
             try:
-                response = _create("flex", SUMMARIZATION_FLEX_TIMEOUT)
-            except (RateLimitError, APIConnectionError, InternalServerError) as flex_error:
-                # Flex runs on spare provider capacity, so the call can be refused (429), stall
-                # past the client deadline or be reset by an intermediary (APIConnectionError,
-                # which covers its APITimeoutError subclass), or die at the gateway's response
-                # ceiling (5xx). Retry once at the standard tier so the window gets its summary.
+                # max_retries=0: the SDK would otherwise retry the recoverable statuses (408,
+                # 429, 5xx) up to twice against the same starved tier, each attempt getting the
+                # full timeout, and 3 x 180s stacked with the standard attempts below reaches the
+                # summarize activity's 900s start_to_close, cutting the fallback mid-flight.
+                # Failing over immediately bounds the worst case at 180s + 3 x 120s = 540s.
+                response = _create(client.with_options(max_retries=0), "flex", SUMMARIZATION_FLEX_TIMEOUT)
+            except APIError as flex_error:
+                # Flex runs on spare provider capacity, so the attempt can fail in several
+                # documented ways; _is_flex_recoverable names them. Retry once at the standard
+                # tier so the window gets its summary.
+                if not _is_flex_recoverable(flex_error):
+                    raise
                 logger.info(
                     "summarization_flex_fell_back",
                     error_type=type(flex_error).__name__,
@@ -98,7 +119,7 @@ def summarize_with_openai(
                     team_id=team_id,
                 )
                 fell_back = True
-                response = _create(omit, SUMMARIZATION_TIMEOUT)
+                response = _create(client, omit, SUMMARIZATION_TIMEOUT)
             # The response reports the tier that actually served, so production logs answer the
             # two open rollout questions on day one: does the gateway forward service_tier, and
             # how often does flex refuse.
@@ -110,7 +131,7 @@ def summarize_with_openai(
                 team_id=team_id,
             )
         else:
-            response = _create(omit, SUMMARIZATION_TIMEOUT)
+            response = _create(client, omit, SUMMARIZATION_TIMEOUT)
 
         content = response.choices[0].message.content
         if not content:
