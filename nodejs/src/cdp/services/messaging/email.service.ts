@@ -120,6 +120,17 @@ export function extractEmailsFromAddressList(value: string | undefined): string[
         .filter((addr) => addr.length > 0)
 }
 
+// Deliberately stricter than RFC 5322: exactly one @, a dotted domain, and none of the
+// characters that would let a templated value smuggle a second address or break out of the
+// RFC-822 `"Name" <email>` framing (whitespace, quotes, angle brackets, list separators).
+const FROM_OVERRIDE_EMAIL_REGEX = /^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$/
+
+// The display name is embedded as `"${name}" <email>`, so strip the characters that would
+// terminate the quoted phrase or start the address part, plus control characters.
+function sanitizeFromName(name: string): string {
+    return name.replace(/[\x00-\x1F\x7F"<>\\]/g, '').trim()
+}
+
 export function parseAddressList(value?: string): string[] | undefined {
     if (!value || !value.trim()) {
         return undefined
@@ -217,7 +228,7 @@ export class EmailService {
                 )
             }
 
-            const from = this.resolveFromSender(integration)
+            const from = this.resolveFromSender(integration, params.from)
 
             // Single choke point for the suppression check — every send path lands here regardless
             // of whether the invocation came from a workflow action or an email destination hog
@@ -465,7 +476,10 @@ export class EmailService {
         return this.sesConfig.sesTrackedConfigurationSet
     }
 
-    private resolveFromSender(integration: IntegrationType): { email: string; name: string } {
+    private resolveFromSender(
+        integration: IntegrationType,
+        from: CyclotronInvocationQueueParametersEmailType['from']
+    ): { email: string; name: string } {
         if (!integration.config.verified) {
             throw new Error('The selected email integration domain is not verified')
         }
@@ -474,7 +488,44 @@ export class EmailService {
             throw new Error('The selected email integration is not configured correctly')
         }
 
-        return { email: integration.config.email, name: integration.config.name }
+        // Overrides arrive already rendered by the templating engine, so a template that
+        // resolved to nothing means "no override" and the integration's stored sender applies.
+        const overrideName = from.name ? sanitizeFromName(from.name) : ''
+
+        return {
+            email: this.resolveFromEmailAddress(integration, from.email?.trim()),
+            name: overrideName || integration.config.name,
+        }
+    }
+
+    private resolveFromEmailAddress(integration: IntegrationType, overrideEmail: string | undefined): string {
+        if (!overrideEmail) {
+            return integration.config.email
+        }
+
+        if (!FROM_OVERRIDE_EMAIL_REGEX.test(overrideEmail)) {
+            throw new Error(
+                `The custom sender address "${overrideEmail}" is not a valid email address. Fix the From address in the workflow's email step so it resolves to a single valid address.`
+            )
+        }
+
+        // Verification is domain-level (the DNS records cover the whole domain), so any address
+        // on the integration's domain is exactly as verified as the integration's own address.
+        // Anything off-domain must fail: allowing it would let a workflow send as a domain the
+        // team never proved ownership of.
+        const integrationDomain: string = (
+            integration.config.domain ??
+            integration.config.email.split('@')[1] ??
+            ''
+        ).toLowerCase()
+        const overrideDomain = overrideEmail.split('@')[1].toLowerCase()
+        if (!integrationDomain || overrideDomain !== integrationDomain) {
+            throw new Error(
+                `The custom sender address "${overrideEmail}" is not on the verified domain "${integrationDomain}" of the selected sender. Use an address on that domain, or select a different sender in the workflow's email step.`
+            )
+        }
+
+        return overrideEmail
     }
 
     // Send email to local maildev instance for testing (DEBUG=1 only)

@@ -164,7 +164,13 @@ const validateInput = (input: CyclotronJobInputType, inputSchema: CyclotronJobIn
                       : undefined,
             text: value.text ? getTemplatingError(value.text) : undefined,
             subject: !value.subject ? 'Subject is required' : getTemplatingError(value.subject),
-            from: !value.from ? 'From is required' : getTemplatingError(value.from),
+            // `native_email` stores `from` as { integrationId, email?, name? } where the optional
+            // keys are templated sender overrides; the legacy `email` type stores a template string.
+            from: !value.from
+                ? 'From is required'
+                : typeof value.from === 'string'
+                  ? getTemplatingError(value.from)
+                  : (getTemplatingError(value.from.email) ?? getTemplatingError(value.from.name)),
             to: !toEmail ? 'To is required' : getTemplatingError(toEmail),
         }
 

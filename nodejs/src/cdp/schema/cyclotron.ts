@@ -131,6 +131,10 @@ export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     replyTo: z.string().optional(),
     from: z.object({
         integrationId: z.number(),
+        // Templated per-invocation sender overrides. EmailService requires the rendered
+        // address to be on the integration's verified domain before it reaches the provider.
+        email: z.string().optional(),
+        name: z.string().optional(),
     }),
     cc: z.string().optional(),
     bcc: z.string().optional(),

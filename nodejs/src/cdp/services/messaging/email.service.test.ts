@@ -251,6 +251,65 @@ describe('EmailService', () => {
                 expect(result.error).toBeUndefined()
             })
         })
+        describe('from overrides', () => {
+            it.each<[string, { email?: string; name?: string }, string, string]>([
+                [
+                    'address on the verified domain',
+                    { email: 'community@posthog.com' },
+                    '"Test User" <community@posthog.com>',
+                    'community@posthog.com',
+                ],
+                [
+                    'address with different domain casing',
+                    { email: 'community@POSTHOG.com' },
+                    '"Test User" <community@POSTHOG.com>',
+                    'community@POSTHOG.com',
+                ],
+                ['name only', { name: 'Community Team' }, '"Community Team" <test@posthog.com>', 'test@posthog.com'],
+                [
+                    'name and address',
+                    { email: 'community@posthog.com', name: 'Community Team' },
+                    '"Community Team" <community@posthog.com>',
+                    'community@posthog.com',
+                ],
+                [
+                    'empty overrides fall back to the integration sender',
+                    { email: '', name: '' },
+                    '"Test User" <test@posthog.com>',
+                    'test@posthog.com',
+                ],
+                [
+                    'name with header-breaking characters is sanitized',
+                    { name: '"Evil" <fake@evil.com>,\r\n Bcc:' },
+                    '"Evil fake@evil.com, Bcc:" <test@posthog.com>',
+                    'test@posthog.com',
+                ],
+            ])('applies the %s', async (_desc, fromOverride, expectedFrom, expectedFeedback) => {
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1, ...fromOverride },
+                })
+                const result = await service.executeSendEmail(invocation)
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.FromEmailAddress).toBe(expectedFrom)
+                expect(sentCommand.input.FeedbackForwardingEmailAddress).toBe(expectedFeedback)
+            })
+
+            it.each([
+                ['an address on an unverified domain', 'someone@evil.com'],
+                ['an address on a subdomain of the verified domain', 'someone@sub.posthog.com'],
+                ['a list of addresses', 'a@posthog.com, b@posthog.com'],
+                ['an RFC-822 formatted address', '"Name" <a@posthog.com>'],
+                ['a value that is not an email address', 'not-an-email'],
+            ])('rejects %s without calling SES', async (_desc, email) => {
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1, email },
+                })
+                const result = await service.executeSendEmail(invocation)
+                expect(result.error).toContain(`"${email}"`)
+                expect(sendEmailSpy).not.toHaveBeenCalled()
+            })
+        })
         describe('email sending', () => {
             it('should send an email', async () => {
                 const result = await service.executeSendEmail(invocation)
