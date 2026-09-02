@@ -351,6 +351,15 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         }
     }, [logic, loadAllSlackChannels, disabled])
 
+    useEffect(() => {
+        // A caller can swap the integration (switching Slack workspace) without unmounting this
+        // picker, so state from the old workspace's search must not leak into the new one.
+        hasActiveSearchRef.current = false
+        hasUnselectedSearchRef.current = false
+        setBlurredWithoutSelection(false)
+        setLocalValue(null)
+    }, [integration.id])
+
     // Read-only pickers still need a direct lookup because the saved channel may not be on the first page.
     useEffect(() => {
         if (value) {
@@ -449,7 +458,9 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
             />
 
             {showUnselectedSearchError ? (
-                <p className="mt-1 mb-0 text-xs text-danger">No channel selected. Pick one from the list.</p>
+                <p className="mt-1 mb-0 text-xs text-danger" role="alert">
+                    No channel selected. Pick one from the list.
+                </p>
             ) : null}
 
             {slackIntegrationInactiveMessage ? (
