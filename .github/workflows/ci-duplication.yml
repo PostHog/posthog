@@ -39,12 +39,14 @@ jobs:
               with:
                   node-version-file: .nvmrc
             - name: Lint for new duplication
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref || 'master' }}
               run: |
                   if [ ! -f bin/lint_duplication.py ]; then
                       echo "bin/lint_duplication.py not present on this branch; skipping"
                       exit 0
                   fi
-                  python3 bin/lint_duplication.py --base "origin/${{ github.event.pull_request.base.ref || 'master' }}" --report-dir .
+                  python3 bin/lint_duplication.py --base "origin/$BASE_REF" --report-dir .
             # always() so findings still reach the comment when the lint step fails.
             # Skipped on trunk-merge/** branches: merge-queue draft PRs are ephemeral and
             # unread, and each section write spends shared GITHUB_TOKEN budget.
