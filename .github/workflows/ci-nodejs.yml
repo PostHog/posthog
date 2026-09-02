@@ -625,9 +625,15 @@ jobs:
                     # related set first and shards that, so the shards stay disjoint.
                     # --passWithNoTests because a shard can legitimately receive nothing once
                     # the set is narrowed; the serial script does not set it itself.
+                    #
+                    # No `--` before the appended flags. pnpm forwards the separator itself into
+                    # the script's argv, and jest reads everything after a `--` as a test path
+                    # pattern, so the flags arrive as patterns that match nothing. The serial lane
+                    # then exits 1 on "No tests found", and the parallel lane exits 0 because its
+                    # script already carries --passWithNoTests, reporting green over an empty run.
                     if [ "$TEST_MODE" = "selective" ]; then
                       # shellcheck disable=SC2086
-                      cd nodejs && pnpm run test:${{ matrix.lane }} -- --passWithNoTests --findRelatedTests $TEST_FILES
+                      cd nodejs && pnpm run test:${{ matrix.lane }} --passWithNoTests --findRelatedTests $TEST_FILES
                     else
                       cd nodejs && pnpm run test:${{ matrix.lane }}
                     fi
