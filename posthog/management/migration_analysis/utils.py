@@ -173,7 +173,11 @@ def check_drop_properly_staged(
     # posthog_namedquery -> NamedQuery
     # llm_analytics_evaluation (app=llm_analytics) -> Evaluation
     app_label = getattr(migration, "app_label", None)
-    model_name = _model_name_for_table(app_label, table_name) or _extract_model_name_from_table(table_name, app_label)
+    model_name = (
+        _model_name_for_table(app_label, table_name)
+        or _model_name_from_history(app_label, table_name, loader)
+        or _extract_model_name_from_table(table_name, app_label)
+    )
     if not model_name:
         return False
 
@@ -213,7 +217,7 @@ def _model_name_for_table(app_label: Optional[str], table_name: str) -> Optional
     """Resolve the model whose db_table matches via the app registry. Handles custom db_table
     names the string heuristic can't (e.g. legacy llm_analytics_* tables owned by the
     ai_observability app). Returns None for models no longer in the registry (deleted models);
-    callers fall back to the string heuristic."""
+    callers fall back to the migration history."""
     if not app_label:
         return None
     try:
@@ -224,6 +228,38 @@ def _model_name_for_table(app_label: Optional[str], table_name: str) -> Optional
         if model._meta.db_table == table_name:
             return model.__name__
     return None
+
+
+def _model_name_from_history(app_label: Optional[str], table_name: str, loader: Any) -> Optional[str]:
+    """Resolve the model that created a table from the app's migration history.
+
+    The registry lookup only sees live models, so a model that was deleted, or one that moved to
+    a new db_table, leaves its old table unresolvable there. The CreateModel that first declared
+    the table still records the mapping.
+    """
+    if not app_label or not loader or not hasattr(loader, "disk_migrations"):
+        return None
+
+    for key, historical_migration in loader.disk_migrations.items():
+        if key[0] != app_label:
+            continue
+        for op in _create_model_operations(getattr(historical_migration, "operations", [])):
+            name = getattr(op, "name", "")
+            created_table = (getattr(op, "options", None) or {}).get("db_table") or f"{app_label}_{name.lower()}"
+            if created_table == table_name:
+                return name
+    return None
+
+
+def _create_model_operations(operations: Any) -> list[Any]:
+    """Collect CreateModel operations, including those staged inside SeparateDatabaseAndState."""
+    found = []
+    for op in operations:
+        if op.__class__.__name__ == "SeparateDatabaseAndState":
+            found.extend(_create_model_operations(getattr(op, "state_operations", [])))
+        elif op.__class__.__name__ == "CreateModel":
+            found.append(op)
+    return found
 
 
 def _extract_model_name_from_table(table_name: str, app_label: Optional[str] = None) -> Optional[str]:

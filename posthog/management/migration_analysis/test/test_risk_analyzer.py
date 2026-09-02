@@ -799,6 +799,59 @@ class TestDropTableValidation:
         assert migration_risk.level == RiskLevel.NEEDS_REVIEW
         assert migration_risk.max_score == 2
 
+    def test_drop_table_resolves_deleted_model_with_custom_db_table(self):
+        """
+        Valid pattern: the dropped table has a custom db_table, so its name does not match
+        <app_label>_<model> and the model is gone from the registry. The migration history
+        still records which model created the table.
+        """
+        create_op = create_mock_operation(
+            migrations.CreateModel,
+            name="Dataset",
+            options={"db_table": "llm_analytics_dataset"},
+        )
+        create_migration = MagicMock()
+        create_migration.app_label = "ai_observability"
+        create_migration.name = "0001_adopt"
+        create_migration.operations = [create_op]
+        create_migration.dependencies = []
+
+        delete_model_op = create_mock_operation(migrations.DeleteModel, name="Dataset")
+        separate_op = create_mock_operation(
+            migrations.SeparateDatabaseAndState,
+            state_operations=[delete_model_op],
+            database_operations=[],
+        )
+        state_removal_migration = MagicMock()
+        state_removal_migration.app_label = "ai_observability"
+        state_removal_migration.name = "0032_dataset_versioning"
+        state_removal_migration.operations = [separate_op]
+        state_removal_migration.dependencies = [("ai_observability", "0001_adopt")]
+
+        drop_migration = MagicMock()
+        drop_migration.app_label = "ai_observability"
+        drop_migration.name = "0033_drop_legacy_dataset"
+        drop_migration.dependencies = [("ai_observability", "0032_dataset_versioning")]
+        drop_migration.operations = [
+            create_mock_operation(migrations.RunSQL, sql="DROP TABLE IF EXISTS llm_analytics_dataset;")
+        ]
+
+        mock_loader = MagicMock()
+        mock_loader.disk_migrations = {
+            ("ai_observability", "0001_adopt"): create_migration,
+            ("ai_observability", "0032_dataset_versioning"): state_removal_migration,
+            ("ai_observability", "0033_drop_legacy_dataset"): drop_migration,
+        }
+
+        migration_risk = self.analyzer.analyze_migration_with_context(
+            drop_migration,
+            "products/ai_observability/backend/migrations/0033_drop_legacy_dataset.py",
+            mock_loader,
+        )
+
+        assert migration_risk.level == RiskLevel.NEEDS_REVIEW
+        assert migration_risk.max_score == 2
+
     def test_drop_table_with_gap_between_state_removal_and_drop(self):
         """
         Valid pattern: State removal several migrations before drop.
