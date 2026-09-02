@@ -2784,6 +2784,43 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs["auth_method"]["stripe_secret_key"] == "sk_test_123"
 
+    @parameterized.expand(
+        [
+            # The settings form resubmits the connection config even when someone only flips an
+            # unrelated setting, so an unreachable source must not fail that save.
+            ("unchanged_config", {}, 200, False),
+            # A submitted credential change still has to be probed before it's stored.
+            (
+                "changed_credential",
+                {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_456"}},
+                400,
+                True,
+            ),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(False, "Could not reach your source."),
+    )
+    def test_patch_external_data_source_probes_connection_only_when_config_changed(
+        self, _name, job_input_overrides, expected_status, expect_probe, mock_validate
+    ):
+        source = self._create_external_data_source()
+        get_data = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}").json()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {**get_data["job_inputs"], **job_input_overrides},
+                "auto_sync_new_schemas": True,
+            },
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert mock_validate.called is expect_probe
+        source.refresh_from_db()
+        assert source.auto_sync_new_schemas is (expected_status == 200)
+
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.SnowflakeSource.validate_credentials",
         return_value=(True, None),
@@ -6031,7 +6068,8 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs["password"] == "db_password"  # Main DB password preserved
         assert source.job_inputs["ssh_tunnel"]["auth"]["password"] == "ssh_secret_password"  # SSH password preserved
-        mock_validate_credentials.assert_called_once()
+        # Saving without changes leaves the connection untouched, so it isn't probed
+        mock_validate_credentials.assert_not_called()
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
@@ -7051,7 +7089,8 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == 200, response.json()
         source.refresh_from_db()
         assert source.job_inputs["api_key"] == "existing_token"
-        mock_validate_credentials.assert_called_once()
+        # The domain and the preserved token match what's stored, so the connection isn't probed
+        mock_validate_credentials.assert_not_called()
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
