@@ -16,6 +16,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { ProductIntentContext } from 'lib/utils/product-intents'
+import { useState } from 'react'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
@@ -125,6 +126,18 @@ export function PersonScene(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
+    const [eventsQuery, setEventsQuery] = useState({
+        kind: NodeKind.DataTableNode,
+        full: true,
+        hiddenColumns: ['person'],
+        source: {
+            kind: NodeKind.EventsQuery,
+            select: defaultDataTableColumns(NodeKind.EventsQuery),
+            personId: person?.id,
+            after: '-24h',
+        },
+    })
+
     if (personError) {
         throw new Error(personError)
     }
@@ -214,21 +227,7 @@ export function PersonScene(): JSX.Element | null {
                     {
                         key: PersonsTabType.EVENTS,
                         label: <span data-attr="persons-events-tab">Events</span>,
-                        content: (
-                            <Query
-                                query={{
-                                    kind: NodeKind.DataTableNode,
-                                    full: true,
-                                    hiddenColumns: ['person'],
-                                    source: {
-                                        kind: NodeKind.EventsQuery,
-                                        select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                        personId: person.id,
-                                        after: '-24h',
-                                    },
-                                }}
-                            />
-                        ),
+                        content: <Query query={eventsQuery} setQuery={setEventsQuery} />,
                     },
                     {
                         key: PersonsTabType.SESSION_RECORDINGS,
