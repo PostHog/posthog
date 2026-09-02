@@ -13,7 +13,6 @@ import {
   EmptyHeader,
   EmptyTitle,
   Spinner,
-  Text,
 } from "@posthog/quill";
 import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
 import { useNavigate } from "@tanstack/react-router";
@@ -212,15 +211,6 @@ export function SpaceDocView({
         </AlertDialogContent>
       </AlertDialog>
 
-      {connection === "offline" ? (
-        <Text
-          size="sm"
-          className="border-(--gray-5) border-t px-4 py-1 text-(--amber-11)"
-        >
-          Not connected. Your writing is kept here and sent when the connection
-          comes back.
-        </Text>
-      ) : null}
     </div>
   );
 }

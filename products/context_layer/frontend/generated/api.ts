@@ -42,6 +42,25 @@ export const contextLayerChannelPagesRetrieve = async (
     })
 }
 
+export const getContextLayerChannelPagesCreateUrl = (organizationId: string, channelId: string) => {
+    return `/api/organizations/${organizationId}/context_layer/channel-pages/${channelId}/`
+}
+
+/**
+ * Idempotent: a space that already has a page keeps it.
+ * @summary Create a space's wiki page
+ */
+export const contextLayerChannelPagesCreate = async (
+    organizationId: string,
+    channelId: string,
+    options?: RequestInit
+): Promise<ChannelWikiPageApi> => {
+    return apiMutator<ChannelWikiPageApi>(getContextLayerChannelPagesCreateUrl(organizationId, channelId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getContextLayerCommitsCreateUrl = (organizationId: string) => {
     return `/api/organizations/${organizationId}/context_layer/commits/`
 }

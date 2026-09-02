@@ -20,7 +20,7 @@ import { DecideDialog, type Decision } from "./DocWatchCard";
 
 type Watch = DocSchemas.DocWatch;
 
-const SPARK = { width: 72, height: 18 };
+const SPARK = { width: 48, height: 14 };
 
 const STOP_LABEL: Record<DocSchemas.WatchStopReason, string> = {
   section_removed: "the words left the page",
@@ -184,26 +184,14 @@ function NumberLine({ evidence }: { evidence: DocSchemas.WatchEvidence }) {
     .filter((value): value is number => typeof value === "number");
   return (
     <div className="doc-ledger-number" data-moved={evidence.moved}>
-      <div className="doc-ledger-number-line">
-        <span className="doc-ledger-figure">
-          {formatNumber(evidence.value)}
-        </span>
-        {points.length > 1 ? (
-          <Spark points={points} size={SPARK} className="doc-ledger-spark" />
-        ) : null}
-        <span className="doc-ledger-change">
-          {[
-            change(evidence),
-            evidence.baseline !== null && evidence.value !== evidence.baseline
-              ? `from ${formatNumber(evidence.baseline)}`
-              : "",
-            plural(Math.max(points.length, 1), "check"),
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-        </span>
-      </div>
-      <div className="doc-ledger-muted">{evidence.label || "evidence"}</div>
+      <span className="doc-ledger-number-name">
+        {evidence.label || "evidence"}
+      </span>
+      {points.length > 2 ? (
+        <Spark points={points} size={SPARK} className="doc-ledger-spark" />
+      ) : null}
+      <span className="doc-ledger-figure">{formatNumber(evidence.value)}</span>
+      <span className="doc-ledger-change">{change(evidence)}</span>
     </div>
   );
 }
@@ -361,7 +349,7 @@ export function DocWatchDossier({
                 ) : null}
                 {brief.evidence.length > 0 ? (
                   <Row label="Numbers">
-                    <div className="flex flex-col gap-3">
+                    <div className="flex flex-col gap-1.5">
                       {brief.evidence.map((evidence) => (
                         <NumberLine
                           key={`${evidence.label}:${evidence.query}`}
@@ -372,18 +360,12 @@ export function DocWatchDossier({
                   </Row>
                 ) : null}
                 {brief.signals.length > 0 ? (
-                  <Row
-                    label={
-                      <>
-                        Scout
-                        <br />
-                        follows
-                      </>
-                    }
-                  >
-                    <div className="flex flex-col gap-1">
+                  <Row label="Signals">
+                    <div className="doc-ledger-chips">
                       {brief.signals.map((signal) => (
-                        <div key={signal}>{signal}</div>
+                        <span key={signal} className="doc-ledger-chip">
+                          {signal.replace(/\.$/, "")}
+                        </span>
                       ))}
                     </div>
                     {watch.scout_error ? (
@@ -443,14 +425,14 @@ export function DocWatchDossier({
                   {brief ? (
                     <>
                       <Button
-                        variant="default"
+                        variant="outline"
                         disabled={busy}
                         onClick={() => setDeciding("refuted")}
                       >
                         Refute
                       </Button>
                       <Button
-                        variant="default"
+                        variant="outline"
                         disabled={busy}
                         onClick={() => setDeciding("confirmed")}
                       >
@@ -461,7 +443,7 @@ export function DocWatchDossier({
                 </>
               ) : (
                 <Button
-                  variant="default"
+                  variant="outline"
                   disabled={busy}
                   onClick={() => onAction({ action: "resume" })}
                 >

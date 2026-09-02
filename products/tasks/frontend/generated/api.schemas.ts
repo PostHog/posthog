@@ -999,7 +999,8 @@ export const ActivityKindEnumApi = {
  */
 export interface TaskActivityDTOApi {
     id: string
-    task_id: string
+    /** @nullable */
+    task_id: string | null
     task_title: string
     /** @nullable */
     channel_id: string | null
@@ -1053,8 +1054,11 @@ export interface TaskActivityPageDTOApi {
 }
 
 export interface TaskActivityReadMarkerApi {
-    /** Task whose displayed activity should be marked read. */
-    task_id: string
+    /**
+     * Task whose displayed activity should be marked read. Null for a comment on something that is not a task.
+     * @nullable
+     */
+    task_id?: string | null
     /**
      * Comment activity row to mark read. Omit for collapsed task activity.
      * @nullable
@@ -4729,6 +4733,11 @@ export interface WarmTaskRequestApi {
      * @items.maxLength 255
      */
     repositories?: string[]
+    /** Agent protocol and harness the warm Run boots on. A submit only reuses a warm Run booted on the same runtime, because the harness starts with the sandbox and cannot change later.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    runtime?: RuntimeEnumApi | null
     /**
      * Primary key of the team's GitHub integration. Required when a repository is selected (it is what the sandbox clones with). Accepted without a repository too: the warm Run then boots with that integration's GitHub credentials, matching a repo-less create that carries it.
      * @nullable

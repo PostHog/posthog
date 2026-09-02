@@ -604,32 +604,45 @@
   color: var(--gray-12);
 }
 
-/* A number: the figure, its line, and its change, then its label under. */
-.doc-ledger-number-line {
+/* A number as one line: its name, then the figure and its change on the right. */
+.doc-ledger-number {
   display: flex;
   align-items: center;
   gap: 10px;
 }
 
-.doc-ledger-figure {
-  font-variant-numeric: tabular-nums;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  color: var(--gray-12);
+.doc-ledger-number-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .doc-ledger-spark {
+  flex-shrink: 0;
   display: block;
-  width: 72px;
-  height: 18px;
+  width: 48px;
+  height: 14px;
   stroke: var(--gray-8);
   overflow: visible;
 }
 
-.doc-ledger-change {
+.doc-ledger-figure {
+  flex-shrink: 0;
+  min-width: 4.5rem;
+  text-align: right;
   font-variant-numeric: tabular-nums;
-  color: var(--gray-10);
+  font-weight: 600;
+  color: var(--gray-12);
+}
+
+.doc-ledger-change {
+  flex-shrink: 0;
+  min-width: 4.5rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--gray-9);
 }
 
 .doc-ledger-number[data-moved="true"] .doc-ledger-spark {
@@ -638,6 +651,24 @@
 
 .doc-ledger-number[data-moved="true"] .doc-ledger-change {
   color: var(--amber-11);
+}
+
+/* The signals the scout follows, as quiet chips. */
+.doc-ledger-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.doc-ledger-chip {
+  max-width: 100%;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--gray-3);
+  font-size: 11.5px;
+  line-height: 18px;
+  color: var(--gray-11);
 }
 
 .doc-ledger-footer {

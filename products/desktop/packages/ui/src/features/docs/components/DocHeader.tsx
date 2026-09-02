@@ -102,7 +102,11 @@ export function DocHeader({
           ) : null}
           {CONNECTION_LABELS[connection]}
         </TooltipTrigger>
-        <TooltipContent>Version {version}</TooltipContent>
+        <TooltipContent>
+          {connection === "offline"
+            ? "Not connected. Your writing is kept here and sent when the connection comes back."
+            : `Version ${version}`}
+        </TooltipContent>
       </Tooltip>
 
       {peers.length > 0 ? (

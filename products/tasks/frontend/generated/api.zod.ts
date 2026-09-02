@@ -875,7 +875,12 @@ export const TaskActivityMarkReadCreateBody = /* @__PURE__ */ zod
         activities: zod
             .array(
                 zod.object({
-                    task_id: zod.uuid().describe('Task whose displayed activity should be marked read.'),
+                    task_id: zod
+                        .uuid()
+                        .nullish()
+                        .describe(
+                            'Task whose displayed activity should be marked read. Null for a comment on something that is not a task.'
+                        ),
                     activity_id: zod
                         .uuid()
                         .nullish()
@@ -3433,6 +3438,12 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
             .max(tasksWarmCreateBodyRepositoriesMax)
             .optional()
             .describe('GitHub repositories to clone into the warm sandbox, each in `organization\/repo` format.'),
+        runtime: zod
+            .union([zod.enum(['acp', 'pi']).describe('\* `acp` - ACP\n\* `pi` - Pi'), zod.null()])
+            .optional()
+            .describe(
+                'Agent protocol and harness the warm Run boots on. A submit only reuses a warm Run booted on the same runtime, because the harness starts with the sandbox and cannot change later.\n\n\* `acp` - ACP\n\* `pi` - Pi'
+            ),
         github_integration: zod
             .number()
             .nullish()
