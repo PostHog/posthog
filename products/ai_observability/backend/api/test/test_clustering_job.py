@@ -3,9 +3,12 @@ import uuid
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
+from products.ai_observability.backend.api.clustering_job import ClusteringJobSerializer
 from products.ai_observability.backend.models.clustering_job import ClusteringJob
 
 
@@ -295,6 +298,14 @@ class TestClusteringJobViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("not found or deleted", str(response.json()))
 
+    def test_create_rejects_malformed_event_filters(self):
+        response = self.client.post(
+            self._url(),
+            {"name": "Malformed", "analysis_level": "trace", "event_filters": {"key": "$ai_model"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_partial_update_rejects_missing_cohort_filter(self):
         job = self._create_job(name="Will be broken")
         response = self.client.patch(
@@ -305,6 +316,22 @@ class TestClusteringJobViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         job.refresh_from_db()
         self.assertEqual(job.event_filters, [])
+
+
+class TestClusteringJobSerializerValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("mapping", {"key": "$ai_model"}),
+            ("list_of_strings", ["$ai_model"]),
+            ("bare_string", "$ai_model"),
+            ("number", 1),
+            ("boolean", True),
+        ]
+    )
+    def test_rejects_event_filters_that_are_not_a_list_of_objects(self, _name, value) -> None:
+        serializer = ClusteringJobSerializer(data={"event_filters": value}, partial=True)
+        assert not serializer.is_valid()
+        assert "event_filters" in serializer.errors
 
 
 class TestDefaultClusteringJobsOnTeamCreate(APIBaseTest):
