@@ -51,7 +51,10 @@ from posthog.hogql.transforms.property_types import PropertySwapper, build_prope
 from posthog.hogql.visitor import Visitor, clone_expr
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.property import PropertyName, TableColumn
-from posthog.models.surveys.util import get_survey_response_clickhouse_query
+from posthog.models.surveys.util import (
+    filter_survey_sent_events_by_unique_submission,
+    get_survey_response_clickhouse_query,
+)
 from posthog.models.team import Team
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
@@ -1155,6 +1158,12 @@ class _Printer(Visitor):
                         return get_survey_response_clickhouse_query(
                             int(question_index_obj.value), question_id, is_multiple_choice
                         )
+
+                    elif node.name == "uniqueSurveySubmissionsFilter":
+                        survey_id = node_args[0]
+                        if not isinstance(survey_id, ast.Constant):
+                            raise QueryError("uniqueSurveySubmissionsFilter first argument must be a constant")
+                        return filter_survey_sent_events_by_unique_submission(survey_id.value)
 
                 if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
                     args: list[str] = []

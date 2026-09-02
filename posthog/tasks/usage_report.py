@@ -792,9 +792,34 @@ def get_teams_with_survey_responses_count_in_period(
 ) -> list[tuple[int, int]]:
     results = sync_execute(
         """
-        SELECT team_id, COUNT() as count
+        SELECT
+            team_id,
+            COUNT() as count
         FROM events
-        WHERE event = 'survey sent' AND timestamp between %(begin)s AND %(end)s
+        WHERE
+            event = 'survey sent'
+            AND timestamp between %(begin)s AND %(end)s
+            AND uuid IN ( -- Filter using the unique submission logic
+                (
+                    -- Select events without a submission ID (older format) within the period
+                    SELECT uuid
+                    FROM events
+                    WHERE event = 'survey sent'
+                      AND timestamp between %(begin)s AND %(end)s
+                      AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') = ''
+                )
+                UNION ALL
+                (
+                    -- Select the latest event for each submission ID within the period
+                    SELECT argMax(uuid, timestamp)
+                    FROM events
+                    WHERE event = 'survey sent'
+                      AND timestamp between %(begin)s AND %(end)s
+                      AND COALESCE(JSONExtractString(properties, '$survey_submission_id'), '') != ''
+                    -- Group by team and submission ID to find the latest event per submission per team
+                    GROUP BY team_id, JSONExtractString(properties, '$survey_id'), JSONExtractString(properties, '$survey_submission_id')
+                )
+            )
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},

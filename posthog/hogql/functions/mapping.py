@@ -1260,7 +1260,12 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         using_positional_arguments=True,
     ),
     # survey functions
-    "getSurveyResponse": HogQLFunctionMeta("getSurveyResponse", 1, 3),
+    "getSurveyResponse": HogQLFunctionMeta(
+        "getSurveyResponse", 1, 3, signatures=[((IntegerType(), StringType(), BooleanType()), StringType())]
+    ),
+    "uniqueSurveySubmissionsFilter": HogQLFunctionMeta(
+        "uniqueSurveySubmissionsFilter", 1, 1, signatures=[((StringType(),), StringType())]
+    ),
 }
 
 # Permitted HogQL aggregations
@@ -1569,7 +1574,7 @@ FIRST_ARG_DATETIME_FUNCTIONS = (
     "hopEnd",
 )
 
-SURVEY_FUNCTIONS = {"getSurveyResponse"}
+SURVEY_FUNCTIONS = {"getSurveyResponse", "uniqueSurveySubmissionsFilter"}
 
 
 def _find_function(name: str, functions: dict[str, HogQLFunctionMeta]) -> Optional[HogQLFunctionMeta]:

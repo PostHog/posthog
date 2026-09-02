@@ -1141,6 +1141,18 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Survey iteration start date",
             "description": "The start date for the current iteration of the survey.",
         },
+        "$survey_submission_id": {
+            "description": "The unique identifier for the survey submission. Relevant for partial submissions, as they submit multiple 'survey sent' events. This is what allows us to count them as a single submission.",
+            "label": "Survey submission ID",
+        },
+        "$survey_completed": {
+            "description": "If a survey was fully completed (all questions answered), this will be true.",
+            "label": "Survey completed",
+        },
+        "$survey_partially_completed": {
+            "description": "If a survey was partially completed (some questions answered) on dismissal, this will be true.",
+            "label": "Survey partially completed",
+        },
         "$device": {
             "label": "Device",
             "description": "The mobile device that was used.",
