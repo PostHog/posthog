@@ -132,6 +132,18 @@ class PropertyDefinition(UUIDTModel):
                 fields=["name"],
                 opclasses=["gin_trgm_ops"],
             ),  # To speed up DB-based fuzzy searching
+            # `is_feature_flag=true` lists filter on `name LIKE '$feature/%'`. Without this index the
+            # planner answers that prefix from the trigram GIN above, which is not scoped by project and
+            # visits every `$feature/` row across all teams. The condition must stay identical to the
+            # filter in `QueryContext.with_feature_flags`, or the planner cannot prove the index applies.
+            models.Index(
+                Coalesce(F("project_id"), F("team_id")),
+                F("type"),
+                Coalesce(F("group_type_index"), -1),
+                F("name"),
+                condition=models.Q(name__startswith="$feature/"),
+                name="index_propdef_feature_flag",
+            ),
         ]
         constraints = [
             models.CheckConstraint(
