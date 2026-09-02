@@ -90,6 +90,7 @@ from products.review_hog.backend.temporal.types import (
     ReviewPRWorkflowInputs,
     resolve_pr_workflow_id,
 )
+from products.tasks.backend.facade.agents import TruncatedAgentOutputError
 
 # Timeouts: sandbox turns can legitimately run long (a heavy validation chunk measured 34m — one
 # opus verdict per issue), so 60m start-to-close; the 5m heartbeat still catches dead sandboxes
@@ -112,6 +113,9 @@ _ONESHOT_RETRY = RetryPolicy(
     initial_interval=timedelta(seconds=30),
     backoff_coefficient=2.0,
     maximum_interval=timedelta(minutes=4),
+    # A reply cut off mid-object comes from the output limit, so every further attempt spends
+    # another sandbox run on the same wall.
+    non_retryable_error_types=[TruncatedAgentOutputError.__name__],
 )
 
 
