@@ -1,4 +1,5 @@
 import { File, Folder, Warning } from "@phosphor-icons/react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@posthog/quill";
 import { unescapeXmlAttr } from "@posthog/shared";
 import { Text } from "@radix-ui/themes";
 import type { ReactNode } from "react";
@@ -54,10 +55,12 @@ export function MentionChip({
   icon,
   label,
   onClick,
+  tooltip,
 }: {
   icon: ReactNode;
   label: string;
   onClick?: () => void;
+  tooltip?: string;
 }) {
   const style = { margin: "0 2px" };
 
@@ -68,23 +71,33 @@ export function MentionChip({
     </>
   );
 
-  if (onClick) {
-    return (
-      <button
-        type="button"
-        className={`${chipClass} cursor-pointer border-none text-[13px]`}
-        onClick={onClick}
-        style={style}
-      >
-        {content}
-      </button>
-    );
-  }
-
-  return (
-    <span className={`${chipClass} text-[13px]`} style={style}>
+  const chip = onClick ? (
+    <button
+      type="button"
+      className={`${chipClass} cursor-pointer border-none text-[13px]`}
+      onClick={onClick}
+      style={style}
+    >
+      {content}
+    </button>
+  ) : (
+    <span
+      className={`${chipClass} text-[13px]`}
+      style={style}
+      // A span takes no focus of its own, so a keyboard reader would never
+      // reach the tooltip that carries the chip's only explanation.
+      tabIndex={tooltip ? 0 : undefined}
+    >
       {content}
     </span>
+  );
+
+  if (!tooltip) return chip;
+  return (
+    <Tooltip>
+      <TooltipTrigger render={chip} />
+      <TooltipContent className="max-w-64">{tooltip}</TooltipContent>
+    </Tooltip>
   );
 }
 
