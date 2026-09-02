@@ -397,6 +397,53 @@ function looksLikeUnwrappedPayload(
     return wrapped.error.issues.every((issue) => issue.path.length > 1 && String(issue.path[0]) === key)
 }
 
+/**
+ * Finds the key the caller *did* send when a required parameter is reported
+ * missing — `{scanner_id}` where `{id}` was wanted. A non-strict object schema
+ * strips the undeclared key silently, so the caller is told only that `id` is
+ * missing, with no mention of the key it actually sent. An agent working from a
+ * name it believes in has nothing to correct and retries the same call.
+ *
+ * A candidate must be undeclared anywhere in the schema (a declared key is the
+ * caller using a real field, not a misnomer), must read as a qualified form of
+ * the missing name (`scanner_id`, `scannerId` -> `id`), and must be a value the
+ * missing parameter would accept. Ambiguity disqualifies: two candidates mean we
+ * cannot say which was meant, so we say nothing rather than guess.
+ *
+ * Returns the key name only, never its value — the message is returned to the
+ * caller and recorded as the analytics error message.
+ */
+function findMisnamedKey(
+    issuePath: ReadonlyArray<PropertyKey>,
+    input: unknown,
+    schema: ZodObjectAny | undefined
+): string | undefined {
+    if (!schema || issuePath.length !== 1) {
+        return undefined
+    }
+    if (typeof input !== 'object' || input === null || Array.isArray(input)) {
+        return undefined
+    }
+    const missing = String(issuePath[0])
+    const declared = declaredPropertyNames(schema)
+    const normalized = (name: string): string => name.toLowerCase().replace(/[^a-z0-9]/g, '')
+    const target = normalized(missing)
+
+    const candidates = Object.keys(input).filter((key) => {
+        if (declared.has(key)) {
+            return false
+        }
+        const candidate = normalized(key)
+        // `scanner_id` qualifies `id`; a bare `id` would have been declared.
+        if (candidate === target || !candidate.endsWith(target)) {
+            return false
+        }
+        return schema.safeParse({ ...input, [missing]: (input as Record<string, unknown>)[key] }).success
+    })
+
+    return candidates.length === 1 ? candidates[0] : undefined
+}
+
 /** Turns a Zod validation failure into a short, field-named message the model
  *  can act on. Without it, a missing/`undefined` path segment slips through to
  *  the HTTP layer and the API returns a generic 404 that reads as "entity does
@@ -420,6 +467,10 @@ export function formatInputValidationError(
             if ('input' in issue && issue.input === undefined) {
                 if (looksLikeUnwrappedPayload(issue.path, input, schema)) {
                     return `missing required parameter: ${path}; the fields you sent belong inside it, so resend them as {"${path}": {...}}`
+                }
+                const misnamed = findMisnamedKey(issue.path, input, schema)
+                if (misnamed) {
+                    return `missing required parameter: ${path}; you sent "${misnamed}" instead, so resend that value as "${path}"`
                 }
                 return `missing required parameter: ${path}`
             }

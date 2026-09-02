@@ -1637,6 +1637,60 @@ describe('exec tool', () => {
                 )
             })
 
+            describe('a required id sent under a qualified name', () => {
+                const SOME_UUID = '00000000-0000-4000-8000-000000000000'
+
+                const formatFor = (toolName: string, input: unknown): string => {
+                    const tool = GENERATED_TOOL_MAP[toolName]!()
+                    const result = tool.schema.safeParse(input, { reportInput: true })
+                    expect(result.success).toBe(false)
+                    return formatInputValidationError(toolName, result.error!, input, tool.schema)
+                }
+
+                it.each([
+                    ['vision-scanners-get', 'scanner_id'],
+                    ['vision-observations-retrieve', 'observation_id'],
+                ])('names the key the caller sent to %s instead of id', (toolName, sentKey) => {
+                    const message = formatFor(toolName, { [sentKey]: SOME_UUID })
+
+                    expect(message).toContain(`you sent "${sentKey}" instead`)
+                    expect(message).toContain('resend that value as "id"')
+                })
+
+                it('does not name a value the caller sent', () => {
+                    expect(formatFor('vision-scanners-get', { scanner_id: SOME_UUID })).not.toContain(SOME_UUID)
+                })
+
+                it('stays quiet when the key the caller sent is a real field of the tool', () => {
+                    // `vision-scanners-observations-get` declares `scanner_id`, so a
+                    // caller sending only that made a different mistake: it omitted
+                    // the observation id rather than misnaming it.
+                    const message = formatFor('vision-scanners-observations-get', { scanner_id: SOME_UUID })
+
+                    expect(message).toBe(
+                        'Invalid input for "vision-scanners-observations-get": missing required parameter: id'
+                    )
+                })
+
+                it('stays quiet when two keys could equally have meant the missing one', () => {
+                    const message = formatFor('vision-scanners-get', {
+                        scanner_id: SOME_UUID,
+                        observation_id: SOME_UUID,
+                    })
+
+                    expect(message).not.toContain('you sent')
+                })
+
+                it.each([
+                    ['nothing at all', {}],
+                    ['only unrelated keys', { limit: 10 }],
+                ])('keeps the bare message for a caller that sent %s', (_label, input) => {
+                    expect(formatFor('vision-scanners-get', input)).toBe(
+                        'Invalid input for "vision-scanners-get": missing required parameter: id'
+                    )
+                })
+            })
+
             it('fires for the real generated query-logs tool, not just a stand-in schema', () => {
                 // Guards the assumption behind this whole branch: that the shipped
                 // tool really does wrap its payload in one required `query` object.

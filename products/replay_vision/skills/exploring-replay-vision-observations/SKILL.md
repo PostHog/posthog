@@ -63,9 +63,12 @@ Pick the axis that matches the question:
 - **Has something already summarized this?** → if the scanner has scout digests attached, read their inbox
   reports instead of re-deriving the pattern (`inbox-reports-list`, filtered to the scout named after the
   scanner).
-- **The full detail of one finding** → `vision-scanners-observations-get` or `vision-observations-retrieve` —
-  returns the frozen `scanner_snapshot` (config at run time) and the complete `scanner_result`, including any
-  event citations that link the finding back to specific events in the recording.
+- **The full detail of one finding** → `vision-scanners-observations-get` (`scanner_id` + `id`) or
+  `vision-observations-retrieve` (`id`) — returns the frozen `scanner_snapshot` (config at run time) and the
+  complete `scanner_result`, including any event citations that link the finding back to specific events in the
+  recording. Both need the *observation* id, which only the list tools return. If all you have is a session id
+  or a `$recording_observed` row, call `vision-observations-list` (`session_id`) first and take the `id` off the
+  matching row.
 
 Triage `status` so you don't mistake a non-result for "nothing wrong":
 
