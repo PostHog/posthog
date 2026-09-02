@@ -53,15 +53,6 @@ tools:
             destructive: false
             idempotent: true
         enrich_url: '{id}'
-        param_overrides:
-            id:
-                aliases:
-                    - session_id
-                    - recording_id
-                    - session_recording_id
-                    - sessionId
-                    - recordingId
-                    - sessionRecordingId
         title: Get session recording
         description: >
             Get a specific session recording by ID. Returns full recording metadata including duration, interaction
@@ -77,6 +68,15 @@ tools:
             with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and
             `$sdk_debug_recording_script_not_loaded` from the events table (filter by `$session_id` for a specific
             session, or sample recent events for project-wide issues).
+        param_overrides:
+            id:
+                aliases:
+                    - session_id
+                    - recording_id
+                    - session_recording_id
+                    - sessionId
+                    - recordingId
+                    - sessionRecordingId
         ui_app: session-recording
         response:
             exclude:
