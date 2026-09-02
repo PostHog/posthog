@@ -570,7 +570,7 @@ describe('cohortEditLogic', () => {
                 expected: false,
             },
         ])('checkIsPendingCalculation — $name', ({ cohort, retryState, expected }) => {
-            expect(checkIsPendingCalculation({ ...mockCohort, ...cohort } as any, retryState)).toBe(expected)
+            expect(checkIsPendingCalculation({ ...mockCohort, ...cohort }, retryState)).toBe(expected)
         })
 
         // The pure-function cases above build `retryState` by hand, so none of them exercise the
