@@ -1442,7 +1442,7 @@ export type ClickhouseQueryProgress = {
     rows_read: integer
     estimated_rows_total: integer
     time_elapsed: integer
-    active_cpu_time: integer
+    memory_usage: integer
 }
 
 export type QueryStatus = {
