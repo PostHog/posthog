@@ -436,8 +436,8 @@ export interface metricsViewerLogicMeta {
         attributeEndpointFilters: (dateFrom: string | null, dateTo: string | null) => Record<string, string>
         chartSeries: (queryResults: _MetricSeriesApi[]) => MetricsChartSeries[]
         hasResults: (queryResults: _MetricSeriesApi[]) => boolean
-        anomalyBadge: (anomalyReport: _MetricAnomalyReportApi | null) => MetricsAnomalyBadge | null
         anomalyTopMovers: (anomalyReport: _MetricAnomalyReportApi | null) => MetricTopMoverRow[]
+        anomalyBadge: (anomalyReport: _MetricAnomalyReportApi | null) => MetricsAnomalyBadge | null
     }
 }
 
