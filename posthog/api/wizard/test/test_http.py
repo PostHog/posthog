@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from decimal import Decimal
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -670,6 +671,15 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
     MINTED = {"token": "phe_test_token", "expires_at": "2026-08-22T00:00:00Z", "cap_usd": "50"}
 
+    def setUp(self):
+        super().setUp()
+        # Keeps the SDK off the network; a test sets a payload to opt in.
+        payload_patch = patch(
+            "posthog.llm.wizard_gateway_token.posthoganalytics.get_feature_flag_payload", return_value=None
+        )
+        self.mock_limit_payload = payload_patch.start()
+        self.addCleanup(payload_patch.stop)
+
     def tearDown(self):
         super().tearDown()
         cache.clear()  # Clears out all DRF throttle data
@@ -708,6 +718,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
             "obo": str(self.team.organization_id),
             "user": str(self.user.distinct_id),
             "product": "wizard:integration",
+            "cap_usd": None,
         }
 
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
@@ -771,6 +782,71 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
             self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
         )
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    @override_settings(DEBUG=False)
+    @patch.object(SetupWizardGatewayTokenRateThrottle, "get_cache_key", return_value="refund-test-key")
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_limit_override_raises_the_daily_ceiling(
+        self, mock_authentication, mock_flag, mock_authorized, mock_mint, mock_key
+    ):
+        self._mock_oauth(mock_authentication)
+        self.mock_limit_payload.return_value = {"mints_per_day": 7}
+
+        for _ in range(7):
+            ok = self.client.post(
+                self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+            )
+            assert ok.status_code == status.HTTP_201_CREATED, ok.content
+        refused = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+        )
+
+        assert refused.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert mock_mint.call_count == 7
+
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_limit_override_cap_reaches_the_mint(self, mock_authentication, mock_flag, mock_authorized, mock_mint):
+        self._mock_oauth(mock_authentication)
+        self.mock_limit_payload.return_value = json.dumps({"cap_usd": "30"})
+
+        response = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert mock_mint.call_args.kwargs["cap_usd"] == Decimal("30.000000")
+        self.mock_limit_payload.assert_called_once_with(
+            "wizard-gateway-limit-override",
+            str(self.user.distinct_id),
+            person_properties={
+                "email": self.user.email,
+                "organization_id": str(self.team.organization_id),
+                "team_id": str(self.team.id),
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_a_flag_outage_keeps_the_default_limits(self, mock_authentication, mock_flag, mock_authorized, mock_mint):
+        self._mock_oauth(mock_authentication)
+        self.mock_limit_payload.side_effect = RuntimeError("flags unavailable")
+
+        response = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert mock_mint.call_args.kwargs["cap_usd"] is None
 
     def _reserved_counter_value(self, key="refund-test-key"):
         """The live value of the reservation counter for a pinned cache key."""
