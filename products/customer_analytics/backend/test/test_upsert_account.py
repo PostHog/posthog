@@ -88,6 +88,9 @@ class TestUpsertAccountTool(BaseTest):
     @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_update_relationships_assigns_hands_off_and_ends(self):
+        await sync_to_async(OrganizationMembership.objects.filter(user=self.user).update)(
+            level=OrganizationMembership.Level.ADMIN
+        )
         await self._create_definition("CSM")
         successor = await sync_to_async(self._create_user)("successor@posthog.com")
         account = await sync_to_async(Account.objects.unscoped().create)(team=self.team, name="Acme")

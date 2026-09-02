@@ -894,7 +894,8 @@ class CustomPropertyDefinitionViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "account"
-    permission_classes = [TeamMemberLightManagementPermission]
+    access_control_unrestricted_read = True
+    permission_classes = [_AccountDestructiveActionPermission, TeamMemberLightManagementPermission]
     # ``values`` is a custom read action; without listing it here it carries no required scope and
     # rejects token auth outright ("does not support personal API key access") before the group gate runs.
     scope_object_read_actions = ["list", "retrieve", "values"]
@@ -1075,6 +1076,8 @@ class AccountRelationshipDefinitionViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "account"
+    access_control_unrestricted_read = True
+    permission_classes = [_AccountDestructiveActionPermission]
     serializer_class = AccountRelationshipDefinitionSerializer
     queryset = None  # data is reached through the facade; declared for router/schema only
 
@@ -1533,6 +1536,8 @@ class AccountViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "account"
+    access_control_unrestricted_read = True
+    permission_classes = [_AccountDestructiveActionPermission]
     serializer_class = AccountSerializer
     queryset = None
     bulk_update_tags = None  # Mixin action assumes integer PKs; Account uses UUIDs.

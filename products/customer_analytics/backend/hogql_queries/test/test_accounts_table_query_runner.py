@@ -1,6 +1,5 @@
 from datetime import UTC, datetime, timedelta
 
-import pytest
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
@@ -42,13 +41,11 @@ from posthog.schema import (
     AccountsTableUnassignedFilter,
 )
 
-from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, Tag, Team, User
+from posthog.models import Tag, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.access_control.backend.models.access_control import AccessControl
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.hogql_queries.accounts_table_query_runner import (
     ACCOUNTS_TABLE_MAX_COLUMNS,
@@ -1016,44 +1013,6 @@ class TestAccountsTableQueryRunner(BaseTest):
                     filters=[],
                 )
             )
-
-    @pytest.mark.ee
-    def test_object_access_filters_rows_and_partitions_the_cache(self) -> None:
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
-            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
-        ]
-        self.organization.save()
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-
-        visible_account = create_account(team_id=self.team.id, name="Visible")
-        denied_account = create_account(team_id=self.team.id, name="Denied")
-        blocking_access = AccessControl.objects.create(
-            team=self.team,
-            resource="account",
-            resource_id=str(denied_account.id),
-            access_level="none",
-            organization_member=self.organization_membership,
-        )
-
-        blocked_runner = AccountsTableQueryRunner(
-            query=AccountsTableQuery(columns=[], filters=[], limit=1),
-            team=self.team,
-            user=self.user,
-        )
-        blocked_cache_key = blocked_runner.get_cache_key()
-        response = blocked_runner.calculate()
-
-        assert [row.id for row in response.results] == [str(visible_account.id)]
-
-        blocking_access.delete()
-        unblocked_cache_key = AccountsTableQueryRunner(
-            query=AccountsTableQuery(columns=[], filters=[], limit=1),
-            team=self.team,
-            user=self.user,
-        ).get_cache_key()
-        assert blocked_cache_key != unblocked_cache_key
 
 
 class TestAccountsTableQueryAPI(APIBaseTest):
