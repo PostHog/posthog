@@ -23,8 +23,8 @@ def _candidate(source: str, dotted: str = "posthog.api.consumer") -> crossings._
     return crossings._Candidate(Path(f"{dotted.replace('.', '/')}.py"), dotted, imports, b"get_model" in encoded)
 
 
-def _drives_across_modules(tmp_path: Path, sources: dict[str, str], entry: str) -> dict[tuple[str, str], int]:
-    """Run `kind_drives` over `entry` with the other sources on disk as importable modules."""
+def _write_modules(tmp_path: Path, sources: dict[str, str]) -> list[crossings._Candidate]:
+    """Lay `sources` out on disk as importable modules, with their imports read."""
     candidates = []
     for dotted, source in sources.items():
         path = tmp_path / f"{dotted.replace('.', '/')}.py"
@@ -33,6 +33,12 @@ def _drives_across_modules(tmp_path: Path, sources: dict[str, str], entry: str) 
         path.write_bytes(encoded)
         package = dotted.rsplit(".", 1)[0]
         candidates.append(crossings._Candidate(path, dotted, crossings._read_imports(encoded, package), False))
+    return candidates
+
+
+def _drives_across_modules(tmp_path: Path, sources: dict[str, str], entry: str) -> dict[tuple[str, str], int]:
+    """Run `kind_drives` over `entry` with the other sources on disk as importable modules."""
+    candidates = _write_modules(tmp_path, sources)
     calls = crossings._CallGraph(candidates)
     tree = ast.parse((tmp_path / f"{entry.replace('.', '/')}.py").read_bytes())
     names = crossings._kind_names(next(c.imports for c in candidates if c.dotted == entry), KINDS)
@@ -513,6 +519,57 @@ class TestGarageDrives:
             "app.test_thing",
         )
         assert drives == {("product_analytics", "PathsQuery"): 1}
+
+    def test_a_sibling_tests_patch_does_not_hide_this_tests_run(self, tmp_path: Path) -> None:
+        """A patch reaches the test that declares it, not the whole class."""
+        drives = _drives_across_modules(
+            tmp_path,
+            {
+                "app.helpers": """
+                    from posthog.api.services.query import process_query_dict
+
+                    def run_it(team, query):
+                        return process_query_dict(team, query)
+                """,
+                "app.test_thing": """
+                    from unittest.mock import patch
+
+                    from app.helpers import run_it
+
+                    class TestPaths:
+                        @patch("app.helpers.process_query_dict")
+                        def test_mocked(self, mock_run, team):
+                            run_it(team, {"kind": "PathsQuery"})
+
+                        def test_real(self, team):
+                            run_it(team, {"kind": "PathsQuery"})
+                """,
+            },
+            "app.test_thing",
+        )
+        assert drives == {("product_analytics", "PathsQuery"): 1}
+
+    def test_a_local_call_is_not_answered_by_the_outward_lookup(self, tmp_path: Path) -> None:
+        """The two resolution modes search different targets, so one cannot cache for the other.
+
+        Reached in a real scan when a test module both is scanned and is imported from."""
+        calls = crossings._CallGraph(
+            _write_modules(
+                tmp_path,
+                {
+                    "app.thing": """
+                        from posthog.api.services.query import process_query_dict
+
+                        def helper(team, query):
+                            return process_query_dict(team, query)
+                    """
+                },
+            )
+        )
+
+        # Nothing binds `helper` through an import, so the outward-only lookup finds no target.
+        assert calls.executes("app.thing", "helper") is False
+        assert calls.executes("app.thing", "helper", local=True) is True
 
     def test_a_patched_seam_is_not_a_run(self, tmp_path: Path) -> None:
         """Following the chain faithfully still has to notice the test replaced its end."""

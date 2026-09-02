@@ -994,19 +994,35 @@ def _enclosing(node: ast.AST, parents: dict[int, ast.AST]) -> tuple[_Function | 
 _PATCH_CALLS: frozenset[str] = frozenset({"patch", "object"})
 
 
-def _patched_names(scope: ast.AST) -> set[str]:
+def _patched_names(scope: ast.AST, skip: frozenset[int] = frozenset()) -> set[str]:
     """The names `scope` replaces with a mock, decorator and context manager alike.
 
     A test that patches the seam a helper would have reached does not execute a query through it,
-    however faithfully the call chain reads. Without this the scan counts the mock."""
+    however faithfully the call chain reads. Without this the scan counts the mock.
+
+    `skip` prunes subtrees whose patches do not reach the code being judged."""
     patched: set[str] = set()
-    for node in ast.walk(scope):
-        if not isinstance(node, ast.Call) or _callee_name(node) not in _PATCH_CALLS:
-            continue
-        for argument in node.args:
-            if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
-                patched.add(argument.value.rsplit(".", 1)[-1])
+    pending: list[ast.AST] = [scope]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, ast.Call) and _callee_name(node) in _PATCH_CALLS:
+            for argument in node.args:
+                if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                    patched.add(argument.value.rsplit(".", 1)[-1])
+        pending.extend(child for child in ast.iter_child_nodes(node) if id(child) not in skip)
     return patched
+
+
+def _sibling_tests(scope: ast.AST, function: _Function) -> frozenset[int]:
+    """The other test functions of `scope`, whose patches apply to themselves alone.
+
+    A `setUp` patcher and a class decorator reach every method, so those stay readable. A patch
+    inside a sibling test does not, and reading it would suppress a call this test really makes."""
+    return frozenset(
+        id(node)
+        for node in ast.iter_child_nodes(scope)
+        if isinstance(node, _Function) and node is not function and node.name.startswith("test")
+    )
 
 
 def _executes_directly(scope: ast.AST, dispatchers: frozenset[str]) -> bool:
@@ -1099,7 +1115,7 @@ class _Executions:
                     outward.add(name)
         if self._calls is None:
             return False
-        patched = frozenset(_patched_names(function) | _patched_names(scope))
+        patched = frozenset(_patched_names(function) | _patched_names(scope, _sibling_tests(scope, function)))
         return any(self._calls.executes(self._module, name, patched) for name in sorted(outward - patched))
 
 
@@ -1154,7 +1170,7 @@ class _CallGraph:
         self._paths = {candidate.dotted: candidate.path for candidate in candidates}
         self._imports = {candidate.dotted: candidate.imports for candidate in candidates}
         self._defs_cache: dict[str, _ModuleDefs | None] = {}
-        self._memo: dict[tuple[str, str, frozenset[str]], bool] = {}
+        self._memo: dict[tuple[str, str, frozenset[str], bool], bool] = {}
 
     def _defs(self, module: str) -> _ModuleDefs | None:
         if module not in self._defs_cache:
@@ -1209,7 +1225,9 @@ class _CallGraph:
         nothing."""
         if name in patched or depth >= _MAX_CALL_DEPTH or module not in self._paths:
             return False
-        key = (module, name, patched)
+        # `local` belongs in the key: it widens the search to the module's own definitions, so the
+        # two modes can answer differently for one name.
+        key = (module, name, patched, local)
         if key in self._memo:
             return self._memo[key]
         # A recursive chain answers "no" while it is still being walked, so a cycle terminates.
