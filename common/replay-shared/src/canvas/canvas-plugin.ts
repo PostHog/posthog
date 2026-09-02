@@ -59,6 +59,16 @@ export type CanvasPluginErrorHandler = (error: unknown) => void
 
 const noOpErrorHandler: CanvasPluginErrorHandler = () => {}
 
+// The reconstructed <img> lives in the top-level document, so it inherits only
+// presentational attributes from the recorded canvas. Skip inline event handlers
+// (every handler is named `on<event>`, so this covers the whole class) and the
+// URL-loading attributes — the plugin points `src` at the rendered canvas blob
+// itself, so a copied `src`/`srcset` would only fetch an attacker-controlled URL.
+function isCopyableAttribute(name: string): boolean {
+    const lowered = name.toLowerCase()
+    return !lowered.startsWith('on') && lowered !== 'src' && lowered !== 'srcset'
+}
+
 export const CanvasReplayerPlugin = (
     events: eventWithTime[],
     onError: CanvasPluginErrorHandler = noOpErrorHandler
@@ -68,8 +78,58 @@ export const CanvasReplayerPlugin = (
     const imageMap = new Map<eventWithTime | string, HTMLImageElement>()
     const canvasEventMap = new Map<eventWithTime | string, canvasMutationParam>()
     const pruneQueue: eventWithTime[] = []
+    const attributeObservers = new Map<number, MutationObserver>()
+    const presentationStyles = new Map<number, Record<string, string>>()
     let nextPreloadIndex: number | null = null
     let destroyed = false
+
+    // The styles the plugin itself puts on the <img> to make it stand in for the canvas.
+    // Re-applied after a copied `style` attribute overwrites them.
+    const applyPresentationStyles = (id: number): void => {
+        const img = containers.get(id)
+        const styles = presentationStyles.get(id)
+        if (img && styles) {
+            Object.assign(img.style, styles)
+        }
+    }
+
+    const copyAttribute = (id: number, canvas: HTMLCanvasElement, img: HTMLImageElement, name: string): void => {
+        if (!isCopyableAttribute(name)) {
+            return
+        }
+        const value = canvas.getAttribute(name)
+        if (value === null) {
+            img.removeAttribute(name)
+        } else {
+            img.setAttribute(name, value)
+        }
+        if (name.toLowerCase() === 'style') {
+            applyPresentationStyles(id)
+        }
+    }
+
+    const copyAttributes = (id: number, canvas: HTMLCanvasElement, img: HTMLImageElement): void => {
+        for (const { name } of Array.from(canvas.attributes)) {
+            copyAttribute(id, canvas, img, name)
+        }
+    }
+
+    // The recorded canvas stays in the replayer's mirror and keeps receiving attribute
+    // mutations after the <img> has replaced it in the document, so mirror them across.
+    // Without this, a canvas that the page hides while it paints (react-pdf does this)
+    // is never revealed on playback: the reveal lands on the replaced canvas.
+    const trackAttributes = (id: number, canvas: HTMLCanvasElement, img: HTMLImageElement): void => {
+        attributeObservers.get(id)?.disconnect()
+        const observer = new MutationObserver((records) => {
+            for (const record of records) {
+                if (record.attributeName) {
+                    copyAttribute(id, canvas, img, record.attributeName)
+                }
+            }
+        })
+        observer.observe(canvas, { attributes: true })
+        attributeObservers.set(id, observer)
+    }
 
     const canvasMutationEvents = events.filter(isCanvasMutation)
 
@@ -284,10 +344,12 @@ export const CanvasReplayerPlugin = (
                     img.addEventListener(
                         'load',
                         () => {
-                            img.style.width = finalWidthStyle
-                            img.style.height = finalHeightStyle
-                            img.style.display = computedStyle.display || 'block'
-                            img.style.objectFit = 'fill'
+                            const styles: Record<string, string> = {
+                                width: finalWidthStyle,
+                                height: finalHeightStyle,
+                                display: computedStyle.display || 'block',
+                                objectFit: 'fill',
+                            }
 
                             const layoutStyles = [
                                 'margin',
@@ -303,9 +365,12 @@ export const CanvasReplayerPlugin = (
                             layoutStyles.forEach((prop) => {
                                 const value = computedStyle.getPropertyValue(prop)
                                 if (value && value !== 'auto' && value !== 'normal') {
-                                    img.style.setProperty(prop, value)
+                                    styles[prop] = value
                                 }
                             })
+
+                            presentationStyles.set(data.id, styles)
+                            applyPresentationStyles(data.id)
 
                             const parent = originalCanvas.parentNode
                             if (parent) {
@@ -366,22 +431,10 @@ export const CanvasReplayerPlugin = (
                 const el = containers.get(id) || document.createElement('img')
                 const canvasElement = node as HTMLCanvasElement
 
-                for (let i = 0; i < canvasElement.attributes.length; i++) {
-                    const attr = canvasElement.attributes[i]
-                    const name = attr.name.toLowerCase()
-                    // The reconstructed <img> lives in the top-level document, so it inherits only
-                    // presentational attributes from the recorded canvas. Skip inline event handlers
-                    // (every handler is named `on<event>`, so this covers the whole class) and the
-                    // URL-loading attributes — the plugin points `src` at the rendered canvas blob
-                    // itself, so a copied `src`/`srcset` would only fetch an attacker-controlled URL.
-                    if (name.startsWith('on') || name === 'src' || name === 'srcset') {
-                        continue
-                    }
-                    el.setAttribute(attr.name, attr.value)
-                }
-
                 containers.set(id, el)
                 canvases.set(id, canvasElement)
+                copyAttributes(id, canvasElement, el)
+                trackAttributes(id, canvasElement, el)
             }
         },
 
@@ -410,6 +463,12 @@ export const CanvasReplayerPlugin = (
                 controller.abort()
             }
             controllerById.clear()
+
+            for (const observer of attributeObservers.values()) {
+                observer.disconnect()
+            }
+            attributeObservers.clear()
+            presentationStyles.clear()
 
             for (const [id] of objectUrlsById) {
                 revokeAllForIdExcept(id)

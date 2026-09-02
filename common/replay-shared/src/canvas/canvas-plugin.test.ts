@@ -394,6 +394,111 @@ describe('CanvasReplayerPlugin', () => {
         )
     })
 
+    describe('attribute mutations after the image replaces the canvas', () => {
+        // The outer beforeEach hands out an <img> whose `style` is a plain object, which cannot
+        // hold real declarations. These cases need a live element to read styles back from.
+        const useRealImage = (): HTMLImageElement => {
+            const createElement = document.createElement as jest.Mock
+            createElement.mockRestore()
+            const image = document.createElement('img')
+            const original = document.createElement.bind(document)
+            jest.spyOn(document, 'createElement').mockImplementation((tagName) =>
+                tagName === 'img' ? image : original(tagName)
+            )
+            return image
+        }
+
+        const paintFrame = async (id: number, canvas: HTMLCanvasElement, image: HTMLImageElement): Promise<void> => {
+            ;(window.getComputedStyle as jest.Mock).mockReturnValue({
+                width: '200px',
+                height: '100px',
+                display: 'block',
+                getPropertyValue: jest.fn(() => ''),
+            })
+            canvas.toBlob = jest.fn((callback) => callback?.(new Blob(['frame'], { type: 'image/webp' })))
+
+            const event: eventWithTime = {
+                type: EventType.IncrementalSnapshot,
+                data: {
+                    source: IncrementalSource.CanvasMutation,
+                    id,
+                    type: 0,
+                    commands: [{ property: 'clearRect', args: [0, 0, 200, 100] }],
+                },
+                timestamp: 1000,
+            }
+            const replayer = { getMirror: () => ({ getNode: () => canvas }) }
+
+            const plugin = CanvasReplayerPlugin([event])
+            plugin.onBuild?.(canvas, { id, replayer } as any)
+            plugin.handler!(event, false, { replayer } as any)
+            await new Promise((resolve) => setTimeout(resolve, 10))
+            image.dispatchEvent(new Event('load'))
+        }
+
+        // A library that hides a canvas while it paints (react-pdf does) leaves the image
+        // hidden forever, because the reveal lands on the canvas the image replaced.
+        it('reveals the image when a later style mutation clears visibility', async () => {
+            const image = useRealImage()
+            const canvas = document.createElement('canvas')
+            canvas.setAttribute('style', 'visibility: hidden')
+            const parent = document.createElement('div')
+            parent.appendChild(canvas)
+            document.body.appendChild(parent)
+
+            await paintFrame(1, canvas, image)
+
+            expect(parent.firstChild).toBe(image)
+            expect(image.style.visibility).toBe('hidden')
+
+            canvas.style.removeProperty('visibility')
+            await Promise.resolve()
+
+            expect(image.style.visibility).toBe('')
+            // the sizing the plugin measured for the image survives the re-sync
+            expect(image.style.width).toBe('200px')
+            expect(image.style.height).toBe('100px')
+        })
+
+        it('mirrors class changes onto the image', async () => {
+            const image = useRealImage()
+            const canvas = document.createElement('canvas')
+            canvas.setAttribute('class', 'painting')
+            const parent = document.createElement('div')
+            parent.appendChild(canvas)
+            document.body.appendChild(parent)
+
+            await paintFrame(2, canvas, image)
+            expect(image.getAttribute('class')).toBe('painting')
+
+            canvas.setAttribute('class', 'painted')
+            await Promise.resolve()
+            expect(image.getAttribute('class')).toBe('painted')
+
+            canvas.removeAttribute('class')
+            await Promise.resolve()
+            expect(image.hasAttribute('class')).toBe(false)
+        })
+
+        it.each(['onclick', 'src', 'srcset'])('does not mirror a later %s mutation', async (attribute) => {
+            const image = useRealImage()
+            const canvas = document.createElement('canvas')
+            const parent = document.createElement('div')
+            parent.appendChild(canvas)
+            document.body.appendChild(parent)
+
+            await paintFrame(3, canvas, image)
+            const painted = image.getAttribute('src')
+
+            canvas.setAttribute(attribute, 'https://attacker.example/x')
+            await Promise.resolve()
+
+            expect(image.hasAttribute('onclick')).toBe(false)
+            expect(image.getAttribute('src')).toBe(painted)
+            expect(image.hasAttribute('srcset')).toBe(false)
+        })
+    })
+
     describe('target canvas sizing from snapshot mutations', () => {
         const makeCanvasEvent = (
             id: number,
