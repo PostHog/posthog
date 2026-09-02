@@ -1317,6 +1317,37 @@ class TestMultiTurnSessionRetry:
 
         assert captured_skip_lines == [5, 99]
 
+    @pytest.mark.asyncio
+    async def test_short_terminal_drain_does_not_rewind_offsets(self):
+        """Regression: a terminal drain reports a raw line count from a fresh S3 read, which
+        eventual consistency can return shorter than the poll already saw. That count must not
+        rewind log_lines_seen below the turn-start cursor, which would re-read the previous turn
+        and return its message as this turn's answer."""
+        session = self._make_session()
+        session.log_lines_seen = 40
+        session.printed_lines = 20
+        agent_response = json.dumps({"value": "ok"})
+
+        captured_skip_lines: list[int] = []
+
+        async def fake_poll(task_run, *, skip_lines=0, printed_lines=0, **kwargs):
+            captured_skip_lines.append(skip_lines)
+            if len(captured_skip_lines) == 1:
+                # Terminal drain read fewer lines than the turn-start cursor.
+                raise EmptyAgentTurnError("terminal", total_lines=12, printed_lines=7, run_terminal=True)
+            return TurnPollResult(last_message=agent_response, full_log=None, total_lines=50, printed_lines=25)
+
+        with patch(
+            "products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.poll_for_turn",
+            new=fake_poll,
+        ):
+            await session.send_followup("x", _Resp, label="priority")
+
+        # The terminal retry re-polls from the turn-start cursor, never below it.
+        assert captured_skip_lines == [40, 40]
+        # run_terminal re-polls without signaling a follow-up to the closed workflow.
+        assert session._workflow_handle.signal.await_count == 1  # type: ignore[union-attr]
+
 
 @pytest.mark.django_db(transaction=True)
 class TestMultiTurnSessionStartBranch:

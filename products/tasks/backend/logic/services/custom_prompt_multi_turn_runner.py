@@ -326,8 +326,11 @@ class MultiTurnSession:
             return turn.last_message
         # Catch empty turns, raise everything else
         except EmptyAgentTurnError as e:
-            # Advance log offsets to read from the current tail instead of re-reading the empty-turn lines
-            self.log_lines_seen = e.total_lines
+            # Advance offsets to read from the current tail, not the empty-turn lines. Clamp against a
+            # rewind: the terminal drain reports a raw line count from a fresh S3 read, which eventual
+            # consistency can return shorter than the poll already saw. A cursor below the turn-start
+            # boundary would re-read the previous turn and return its message as this turn's answer.
+            self.log_lines_seen = max(self.log_lines_seen, e.total_lines)
             self.printed_lines = e.printed_lines
             self._last_turn_run_terminal = e.run_terminal
             logger.exception(
