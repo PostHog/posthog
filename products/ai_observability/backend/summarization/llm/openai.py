@@ -22,6 +22,12 @@ def _is_gpt5_model(model: OpenAIModel) -> bool:
     return str(model).startswith("gpt-5")
 
 
+# Deliberately an allowlist rather than the family prefix: OpenAI decides flex eligibility per
+# model (the pro tiers are excluded, for example), so a new gpt-5 entry in OpenAIModel must not
+# inherit the flex tier until someone checks the pricing page and adds it here.
+FLEX_CAPABLE_MODELS: frozenset[OpenAIModel] = frozenset({OpenAIModel.GPT_5_NANO, OpenAIModel.GPT_5_MINI})
+
+
 # Strict json_schema keeps the model's output parseable by SummarizationResponse without a
 # repair step.
 SUMMARIZATION_RESPONSE_FORMAT: Any = cast(
@@ -61,8 +67,10 @@ def summarize_with_openai(
 
     extra: dict[str, Any] = {}
     if _is_gpt5_model(model):
-        # gpt-5 models spend hidden reasoning tokens that bill as output. Minimal effort
-        # removes them without changing the visible summary volume.
+        # gpt-5 models spend hidden reasoning tokens that bill as output. Minimal effort removes
+        # them without changing the visible summary volume. Family-wide on purpose, unlike the
+        # flex allowlist: every gpt-5 reasoning model wants minimal effort for this task, and a
+        # new one silently paying reasoning tokens is the costlier default mistake.
         extra["reasoning_effort"] = "minimal"
 
     def _create(service_tier: Literal["flex"] | None, timeout: float) -> ChatCompletion:
@@ -78,8 +86,7 @@ def summarize_with_openai(
         )
 
     try:
-        # Only gpt-5 family models accept service_tier="flex"; gpt-4.1 rejects the field.
-        if flex and _is_gpt5_model(model):
+        if flex and model in FLEX_CAPABLE_MODELS:
             try:
                 response = _create("flex", SUMMARIZATION_FLEX_TIMEOUT)
             except (RateLimitError, APIConnectionError, InternalServerError):
