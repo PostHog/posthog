@@ -8,6 +8,8 @@ import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
 import { AvailableFeature, GroupType, GroupTypeIndex, OrganizationType } from '~/types'
 
+import { encodeSlackFilters } from '../../registry/triggers/slackTriggerFilters'
+import { createExampleEventForTrigger } from '../../testEventFactory'
 import {
     createGlobalsFromResponse,
     groupSelectColumns,
@@ -143,6 +145,117 @@ describe('hogFlowEditorTestLogic', () => {
         it('defaults groups to an empty object', () => {
             const globals = createGlobalsFromResponse(event, undefined, 1, 'wf')
             expect(globals.groups).toEqual({})
+        })
+    })
+
+    describe('createExampleEventForTrigger', () => {
+        it('builds a slack message example for Slack-connected triggers, seeded from the channel filter', () => {
+            const properties = encodeSlackFilters({
+                channel: 'C0ALERTS|#alerts',
+                posterMode: 'anyone',
+                posterIds: [],
+                topLevelOnly: false,
+                additional: [],
+            })
+
+            const globals = createExampleEventForTrigger(
+                {
+                    type: 'internal-event',
+                    filters: {
+                        source: 'internal-events',
+                        events: [{ id: '$slack_message_received', type: 'events' }],
+                        properties,
+                    },
+                },
+                1,
+                'wf'
+            )
+
+            expect(globals.event.event).toEqual('$slack_message_received')
+            expect(globals.event.properties.channel).toEqual('C0ALERTS')
+            // Slack-triggered runs are person-less, so the example must not invent one
+            expect(globals.person).toBeUndefined()
+            // The flat property bag the webhook emitter produces, which trigger filters read
+            expect(globals.event.properties).toMatchObject({
+                channel_type: 'channel',
+                subtype: null,
+                thread_ts: null,
+                is_thread_reply: false,
+                is_ext_shared_channel: false,
+            })
+            expect(Object.keys(globals.event.properties)).toEqual(
+                expect.arrayContaining([
+                    'integration_id',
+                    'slack_team_id',
+                    'user',
+                    'bot_id',
+                    'app_id',
+                    'text',
+                    'ts',
+                    'slack_event',
+                ])
+            )
+        })
+
+        it('falls back to a default channel when the trigger has no channel filter', () => {
+            const globals = createExampleEventForTrigger(
+                {
+                    type: 'internal-event',
+                    filters: { source: 'internal-events', events: [{ id: '$slack_message_received', type: 'events' }] },
+                },
+                1,
+                'wf'
+            )
+
+            expect(globals.event.event).toEqual('$slack_message_received')
+            expect(typeof globals.event.properties.channel).toEqual('string')
+        })
+
+        // Each native poster mode compiles to a different property filter (slackTriggerFilters.ts).
+        // A sample seeding only channel satisfies 'anyone' by accident and rejects every other mode.
+        it.each([
+            ['people', [] as string[], (props: Record<string, any>) => expect(props.bot_id).toBeNull()],
+            ['apps', [] as string[], (props: Record<string, any>) => expect(props.bot_id).not.toBeNull()],
+            [
+                'specific_people',
+                ['U0999999999'],
+                (props: Record<string, any>) => expect(props.user).toEqual('U0999999999'),
+            ],
+            [
+                'specific_apps',
+                ['A0999999999'],
+                (props: Record<string, any>) => expect(props.app_id).toEqual('A0999999999'),
+            ],
+        ])('seeds a sample that satisfies the %s poster filter', (posterMode, posterIds, assertion) => {
+            const properties = encodeSlackFilters({
+                channel: 'C0ALERTS',
+                posterMode: posterMode as any,
+                posterIds,
+                topLevelOnly: false,
+                additional: [],
+            })
+
+            const globals = createExampleEventForTrigger(
+                {
+                    type: 'internal-event',
+                    filters: {
+                        source: 'internal-events',
+                        events: [{ id: '$slack_message_received', type: 'events' }],
+                        properties,
+                    },
+                },
+                1,
+                'wf'
+            )
+
+            assertion(globals.event.properties)
+        })
+
+        it('returns the standard example event for event triggers', () => {
+            const globals = createExampleEventForTrigger({ type: 'event', filters: {} }, 1, 'wf')
+
+            expect(globals.event.event).toEqual('$pageview')
+            expect(globals.person).not.toBeUndefined()
         })
     })
 

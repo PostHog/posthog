@@ -1,18 +1,27 @@
+import os
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.test import SimpleTestCase
 
+import requests
 from parameterized import parameterized
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.replay_vision.backend.management.commands.migrate_vision_actions import rrule_to_cron
+from products.replay_vision.backend.management.commands.migrate_vision_actions import (
+    ALERTS_FLAG_KEY,
+    SCOUTS_FLAG_KEY,
+    _FlagsApiTargeting,
+    rrule_to_cron,
+)
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import ActionMode, TriggerType, VisionAction
 from products.replay_vision.backend.models.vision_alert import VisionAlertConfiguration, VisionAlertKind
+from products.replay_vision.backend.scout_digest_body import compose_digest_scout_body
 
 _CMD = "products.replay_vision.backend.management.commands.migrate_vision_actions"
 
@@ -169,13 +178,31 @@ class TestMigrateVisionActions(APIBaseTest):
         kwargs = create_scout.call_args.kwargs
         assert kwargs["name"].startswith("signals-scout-weekly-checkout-roundup-")
         assert kwargs["source_id"] == str(self.scanner.id)
+        assert str(self.scanner.id) in kwargs["body"]
         assert "Focus on payment failures." in kwargs["body"]
-        assert "verdict in ['fail']" in kwargs["body"]
+        assert "the verdict is one of `fail`" in kwargs["body"]
+        assert "fall back to the last 7 days" in kwargs["body"]
+        assert "Read at most" not in kwargs["body"]
         assert kwargs["config_options"]["run_cron_schedule"] == "0 9 * * 1"
         assert kwargs["config_options"]["output_destinations"]["slack"]["channel_id"] == "C123"
         action.refresh_from_db()
         assert action.enabled is False
         assert action.synthesis_config["migrated_to"] == kwargs["name"]
+
+    def test_digest_without_prompt_guide_gets_the_plain_template(self) -> None:
+        self._make_action(
+            name="Plain digest",
+            mode=ActionMode.GROUP_SUMMARY,
+            is_scanner_digest=False,
+            selection={},
+            synthesis_config={},
+        )
+        with patch("products.signals.backend.facade.api.create_scout_for_source") as create_scout:
+            self._run()
+        body = create_scout.call_args.kwargs["body"]
+        assert "What the digest's author asked for" not in body
+        assert "This digest covers only part of what the scanner sees" not in body
+        assert body == compose_digest_scout_body(str(self.scanner.id))
 
     def test_deliveryless_default_is_retired_not_migrated(self) -> None:
         action = self._make_action(
@@ -260,3 +287,152 @@ class TestMigrateVisionActions(APIBaseTest):
         for key in ("replay-vision-alerts",):
             flag = FeatureFlag.objects.get(team=self.team, key=key)
             assert flag.filters["groups"][0]["properties"][0]["value"] == []
+
+    def test_flag_mode_arguments_are_validated(self) -> None:
+        with self.assertRaises(CommandError):
+            call_command("migrate_vision_actions")
+        with self.assertRaises(CommandError):
+            call_command(
+                "migrate_vision_actions",
+                "--flag-team-id",
+                "2",
+                "--flags-api-host",
+                "https://example.com",
+                "--flags-api-project",
+                "2",
+            )
+        with self.assertRaises(CommandError):
+            call_command("migrate_vision_actions", "--flags-api-project", "2")
+        with patch.dict(os.environ), self.assertRaises(CommandError):
+            os.environ.pop("POSTHOG_FLAGS_API_KEY", None)
+            call_command(
+                "migrate_vision_actions", "--flags-api-host", "https://example.com", "--flags-api-project", "2"
+            )
+        with patch.dict(os.environ, {"POSTHOG_FLAGS_API_KEY": "phx_test"}), self.assertRaises(CommandError):
+            call_command("migrate_vision_actions", "--flags-api-host", "http://example.com", "--flags-api-project", "2")
+
+    def _api_session(self) -> MagicMock:
+        flags = {
+            ALERTS_FLAG_KEY: {
+                "id": 5,
+                "key": ALERTS_FLAG_KEY,
+                "filters": {"groups": [{"properties": [{"key": "$group_key", "value": []}]}]},
+            },
+            SCOUTS_FLAG_KEY: {
+                "id": 6,
+                "key": SCOUTS_FLAG_KEY,
+                "filters": {"groups": [{"properties": [{"key": "$group_key", "value": []}]}]},
+            },
+        }
+
+        def get(url: str, params: dict | None = None, timeout: int | None = None) -> MagicMock:
+            assert "/api/projects/2/feature_flags" in url
+            response = MagicMock()
+            if params is not None:
+                response.json.return_value = {"results": [flags[params["key"]]]}
+            else:
+                flag_id = int(url.rstrip("/").rsplit("/", 1)[-1])
+                response.json.return_value = next(f for f in flags.values() if f["id"] == flag_id)
+            return response
+
+        session = MagicMock()
+        session.get.side_effect = get
+        return session
+
+    def test_flags_api_mode_widens_remote_flags(self) -> None:
+        action = self._make_action(alert_config={"frequency": "every_match"}, selection={})
+        session = self._api_session()
+        with (
+            patch(f"{_CMD}.requests.Session", return_value=session),
+            patch(f"{_CMD}.Command._create_destinations"),
+            patch.dict(os.environ, {"POSTHOG_FLAGS_API_KEY": "phx_test"}),
+        ):
+            call_command(
+                "migrate_vision_actions",
+                "--execute",
+                "--flags-api-host",
+                "https://example.com",
+                "--flags-api-project",
+                "2",
+            )
+        session.headers.__setitem__.assert_any_call("Authorization", "Bearer phx_test")
+        assert session.patch.call_count == 2
+        patched_urls = {call.args[0] for call in session.patch.call_args_list}
+        assert patched_urls == {
+            "https://example.com/api/projects/2/feature_flags/5/",
+            "https://example.com/api/projects/2/feature_flags/6/",
+        }
+        for call in session.patch.call_args_list:
+            values = call.kwargs["json"]["filters"]["groups"][0]["properties"][0]["value"]
+            assert str(action.team.organization_id) in values
+
+    def test_flags_api_dry_run_preflights_but_never_patches(self) -> None:
+        self._make_action(alert_config={"frequency": "every_match"}, selection={})
+        session = self._api_session()
+        with (
+            patch(f"{_CMD}.requests.Session", return_value=session),
+            patch.dict(os.environ, {"POSTHOG_FLAGS_API_KEY": "phx_test"}),
+        ):
+            call_command(
+                "migrate_vision_actions", "--flags-api-host", "https://example.com", "--flags-api-project", "2"
+            )
+        assert session.get.call_count == 2
+        session.patch.assert_not_called()
+
+
+class TestComposeDigestScoutBody(SimpleTestCase):
+    def test_legacy_narrowing_shapes(self) -> None:
+        capped = compose_digest_scout_body("sid", max_observations=25)
+        assert "Read at most 25 matching observations" in capped
+        assert "Read at most" not in compose_digest_scout_body("sid", max_observations=100)
+
+        bare = compose_digest_scout_body("sid", selection={"verdict": "fail"})
+        assert "the verdict is one of `fail`" in bare
+        assert bare == compose_digest_scout_body("sid", selection={"verdict": ["fail"]})
+
+        malformed = compose_digest_scout_body("sid", selection={"window_days": "7"}, prompt_guide=None)
+        assert "fall back to the last 24 hours" in malformed
+
+
+class TestFlagsApiTargeting(SimpleTestCase):
+    def _client_with(self, flag: dict) -> tuple[_FlagsApiTargeting, MagicMock]:
+        session = MagicMock()
+        session.get.return_value.json.return_value = {"results": [flag], **flag}
+        with patch(f"{_CMD}.requests.Session", return_value=session):
+            client = _FlagsApiTargeting("https://example.com/", 2, "phx_test")
+        client.preflight((flag["key"],))
+        return client, session
+
+    def test_preflight_rejects_missing_flag(self) -> None:
+        session = MagicMock()
+        session.get.return_value.json.return_value = {"results": []}
+        with patch(f"{_CMD}.requests.Session", return_value=session):
+            client = _FlagsApiTargeting("https://example.com", 2, "phx_test")
+        with self.assertRaises(CommandError):
+            client.preflight(("missing",))
+
+    def test_add_group_is_idempotent_and_fails_closed(self) -> None:
+        flag = {
+            "id": 5,
+            "key": "k",
+            "filters": {"groups": [{"properties": [{"key": "$group_key", "value": ["org-a"]}]}]},
+        }
+        client, session = self._client_with(flag)
+        assert client.add_group("k", "org-a") is None
+        session.patch.assert_not_called()
+        assert client.add_group("k", "org-b") is None
+        session.patch.assert_called_once()
+
+        unwidenable = {"id": 6, "key": "k", "filters": {"groups": []}}
+        client2, _ = self._client_with(unwidenable)
+        assert client2.add_group("k", "org-a") == "no organization targeting to widen"
+
+    def test_request_failure_fails_closed(self) -> None:
+        flag = {"id": 5, "key": "k", "filters": {"groups": [{"properties": [{"key": "$group_key", "value": []}]}]}}
+        client, session = self._client_with(flag)
+        session.patch.side_effect = requests.ConnectionError("boom")
+        problem = client.add_group("k", "org-a")
+        assert problem is not None and "API request failed" in problem
+        session.patch.side_effect = None
+        session.patch.return_value = MagicMock()
+        assert client.add_group("k", "org-b") is None

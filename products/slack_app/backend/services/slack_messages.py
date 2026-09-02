@@ -473,17 +473,23 @@ UNFURL_OPT_OUT_PARAM = "unfurl"
 
 @dataclass(frozen=True)
 class RunFooter:
-    """What a reply can say about the run behind it.
+    """What a reply knows about the run behind it.
 
     Constant for the life of a handler, so it is supplied once at construction rather
     than threaded through every posting method. An empty instance is the "say nothing"
     case, which is what every caller outside the footer rollout gets.
+
+    ``run_id`` and ``task_id`` are what the run *is* rather than what the footer says
+    about it: the thumbs under an answer report against them, and they ride here because
+    a reply that can describe its run is exactly a reply that has one to rate.
     """
 
     task_url: str | None = None
     desktop_url: str | None = None
     model: str | None = None
     reasoning_effort: str | None = None
+    run_id: str | None = None
+    task_id: str | None = None
 
     def has_content(self) -> bool:
         """Whether this would render as anything.
@@ -491,6 +497,7 @@ class RunFooter:
         A caller checks it to skip the flag lookups behind a footer that can't appear.
         Spelled out rather than given as ``__bool__`` so that ``footer or RunFooter()``
         keeps meaning "None-coalesce" and cannot silently discard a partial instance.
+        The ids are not part of the answer — they say nothing on their own.
         """
         return any((self.task_url, self.desktop_url, self.model))
 
@@ -518,6 +525,8 @@ def load_run_footer(run_id: str | UUID | None) -> RunFooter:
             return RunFooter()
         state = parse_run_state(run.state)
         return RunFooter(
+            run_id=str(run.id),
+            task_id=str(run.task_id),
             task_url=_task_url(run.team_id, run.task_id, run.id),
             # The web bridge page, not the raw `posthog-code://` scheme: it redirects into the
             # desktop app when installed and offers a download when not, so a reader without
@@ -590,6 +599,42 @@ def fork_menu_element(integration_id: int) -> dict[str, Any]:
             {
                 "text": {"type": "plain_text", "text": "Fork to DM", "emoji": True},
                 "value": json.dumps({"integration_id": integration_id}),
+            }
+        ],
+    }
+
+
+TURN_FEEDBACK_ACTION_ID = "slack_app_turn_feedback"
+
+
+def turn_feedback_block(integration_id: int, run_id: str) -> dict[str, Any]:
+    """The thumbs a reader rates one agent answer with.
+
+    Slack's own feedback element rather than a pair of buttons: it renders as the two
+    small icons a reader already knows from other AI apps. Whether Slack marks the
+    clicked thumb afterwards is its own business and is not documented either way; we
+    store no rating and never rewrite the reply to show one.
+
+    Both buttons carry the same run plus their own sentiment, because Slack sends back
+    only the button that was clicked. The integration rides along so the cross-region
+    interactivity router can tell whose click this is, the same way the fork menu's
+    option value does. The task is not carried: it is read back from the run row.
+    """
+    target = {"integration_id": integration_id, "run_id": run_id}
+    return {
+        "type": "context_actions",
+        "elements": [
+            {
+                "type": "feedback_buttons",
+                "action_id": TURN_FEEDBACK_ACTION_ID,
+                "positive_button": {
+                    "text": {"type": "plain_text", "text": "Good response"},
+                    "value": json.dumps({**target, "sentiment": "positive"}),
+                },
+                "negative_button": {
+                    "text": {"type": "plain_text", "text": "Bad response"},
+                    "value": json.dumps({**target, "sentiment": "negative"}),
+                },
             }
         ],
     }

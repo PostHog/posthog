@@ -803,6 +803,8 @@ describe('EmailService', () => {
                 expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_paused'])
                 expect(invocation.state.vmState?.stack).toEqual([{ success: false }])
                 expect(result.logs.map((l) => l.message).join(' ')).toContain('Spam complaints reached 2%')
+                // Flags the skip so the flow-level billing gate charges nothing for a send that never sent.
+                expect(result.skipped).toBe(true)
             })
 
             it('blocks editor test sends while the workflow is paused without recording metrics', async () => {

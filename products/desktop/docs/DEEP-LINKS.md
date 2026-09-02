@@ -100,6 +100,10 @@ An **https** bridge also exists for links sent outside the app (e.g. comment Sla
 
 Open Self-driving, or a specific report inside it.
 
+The report "Copy link" action shares the browser-accessible web URL
+(`<instance>/project/<projectId>/inbox/<reportId>`), not this app-only scheme.
+The web report can still hand off to Desktop where appropriate.
+
 | Segment | Required | Description |
 |---|---|---|
 | `<reportId>` | No | Inbox report ID. Omit to open the inbox itself. |
