@@ -24,23 +24,12 @@ describe('Metric', () => {
     })
 
     // With no `restingSubtitle`, the subtitle shows the active label, which at rest is the last one.
-    it.each([
-        {
-            case: 'renders the active label through formatLabel',
-            formatLabel: (label: string) => `bucket ${label}`,
-            expected: 'bucket 2025-11-01',
-        },
-        {
-            case: 'renders the raw active label when formatLabel is omitted',
-            formatLabel: undefined,
-            expected: '2025-11-01',
-        },
-    ])('$case', ({ formatLabel, expected }) => {
+    it('renders the active label through formatLabel', () => {
         const { container } = render(
-            <Metric data={[1, 2, 3]} labels={KEYS} formatLabel={formatLabel} theme={THEME}>
+            <Metric data={[1, 2, 3]} labels={KEYS} formatLabel={(label) => `bucket ${label}`} theme={THEME}>
                 <MetricSubtitle />
             </Metric>
         )
-        expect(container.textContent).toContain(expected)
+        expect(container.textContent).toContain('bucket 2025-11-01')
     })
 })

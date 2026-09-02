@@ -11,9 +11,7 @@ import {
     MetricValue,
 } from '@posthog/quill-components/metric'
 
-import { dayjs } from 'lib/dayjs'
 import { hexToRGBA } from 'lib/utils/colors'
-import { DATE_FORMAT_WITHOUT_YEAR, formatDate } from 'lib/utils/datetime'
 import {
     defaultAggregationAxisFormatForDisplay,
     formatAggregationAxisValue,
@@ -29,6 +27,7 @@ import { insightLogic } from '../../insightLogic'
 import {
     computeMetricSummary,
     computeMetricSummaryChange,
+    formatMetricLabel,
     getMetricChangeTooltip,
     METRIC_COLOR_BY_DIRECTION_DEFAULT,
     METRIC_DEFAULT_DECREASE_COLOR,
@@ -44,13 +43,6 @@ const makeChangeColor = (hex: string): { background: string; foreground: string 
     background: hexToRGBA(hex, 0.1),
     foreground: hex,
 })
-
-// Render a bucket key the app's way, without the year ("June 16" rather than "16-Jun-2026"). A result
-// with no `days` falls back to backend `labels`, so text that is not a date passes through unchanged.
-const formatMetricLabel = (label: string): string => {
-    const parsed = dayjs(label)
-    return parsed.isValid() ? formatDate(parsed, DATE_FORMAT_WITHOUT_YEAR) : label
-}
 
 export function MetricCard({ inCardView }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
