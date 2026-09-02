@@ -73,16 +73,21 @@ const ACTION_CAPABLE_STATUSES: readonly SignalReportStatus[] = [
     SignalReportStatus.PENDING_INPUT,
 ]
 
-/** Whether Ask AI hands this report's status the action-capable framing rather than answer-only.
- * The Ask AI copy keys off this too, so the UI never invites an action the wrapper would refuse. */
-export function isActionCapableReportStatus(status: SignalReportStatus): boolean {
-    return ACTION_CAPABLE_STATUSES.includes(status)
+/** Whether Ask AI hands this report the action-capable framing rather than answer-only.
+ * The Ask AI copy and suggestion rows key off this too, so the UI never invites an action the
+ * wrapper would refuse. Beyond the status allowlist, an already-addressed report answers only:
+ * a fix is already in flight, so acting on its recommendations would duplicate that work (the
+ * same reason autostart and Create PR eligibility exclude it). */
+export function isActionCapableReport(report: SignalReport): boolean {
+    return ACTION_CAPABLE_STATUSES.includes(report.status) && report.already_addressed !== true
 }
 
-export function buildDiscussReportPrompt(report: SignalReport, reportUrl: string, question: string): string {
+export function buildDiscussReportPrompt(report: SignalReport | null, reportUrl: string, question: string): string {
     // The task is already linked to the report, but including the URL lets the agent open and read
     // the full report itself. The user's message follows after a blank line for clear separation.
-    if (!isActionCapableReportStatus(report.status)) {
+    // `null` means the caller could not confirm the report's current state (the kickoff refetch
+    // failed), which fails closed to answering.
+    if (report === null || !isActionCapableReport(report)) {
         return `Answer this question about the PostHog Inbox report at ${reportUrl}:\n\n${question.trim()}`
     }
     // Framed as question-or-action because a report's suggested prompts include next-step requests
@@ -278,11 +283,21 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 actions.discussReportFailure()
                 return
             }
+            // The popover renders from a snapshot that can go stale between load and submit (the
+            // report resolves, fails, or gets suppressed meanwhile), so the action-vs-answer framing
+            // is derived from the report's current server-side state. A failed refetch fails closed:
+            // `null` pins the run to answering.
+            let currentReport: SignalReport | null = null
+            try {
+                currentReport = await api.signalReports.get(report.id)
+            } catch {
+                currentReport = null
+            }
             try {
                 await createReportTask(
                     report,
                     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
-                    buildDiscussReportPrompt(report, reportUrl, question),
+                    buildDiscussReportPrompt(currentReport, reportUrl, question),
                     'Ask AI about report',
                     DISCUSS_RUNTIME
                 )

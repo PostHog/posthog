@@ -34,4 +34,16 @@ describe('buildDiscussReportPrompt', () => {
         expect(prompt).toContain('Answer this question')
         expect(prompt).not.toContain('carry the action out')
     })
+
+    it.each([
+        // A fix is already in flight, so acting on the recommendations would duplicate it — the same
+        // reason autostart and Create PR eligibility exclude already-addressed reports.
+        ['an already-addressed report', makeReport({ status: SignalReportStatus.READY, already_addressed: true })],
+        // null = the kickoff refetch could not confirm the report's current state; fail closed.
+        ['an unconfirmed report state', null],
+    ])('pins the agent to answering for %s', (_name, report) => {
+        const prompt = buildDiscussReportPrompt(report, url, 'Carry out the recommendation')
+        expect(prompt).toContain('Answer this question')
+        expect(prompt).not.toContain('carry the action out')
+    })
 })

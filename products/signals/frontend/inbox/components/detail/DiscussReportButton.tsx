@@ -8,7 +8,7 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 
 import { InboxQuestionSource, captureInboxReportAction, discussQuestionProperties } from '../../inboxAnalytics'
-import { inboxTaskKickoffLogic, isActionCapableReportStatus } from '../../inboxTaskKickoffLogic'
+import { inboxTaskKickoffLogic, isActionCapableReport } from '../../inboxTaskKickoffLogic'
 import { SignalReport } from '../../types'
 
 // How much of a suggestion a draft has to keep, at one end or the other, to still count as an edit
@@ -39,9 +39,10 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
     const [filledFrom, setFilledFrom] = useState<string | null>(null)
 
     // Suggestions can be action requests, and the kickoff wrapper only carries actions out on
-    // action-capable statuses — on any other status a stored suggestion would invite an action the
+    // action-capable reports — on any other report a stored suggestion would invite an action the
     // run then merely answers, so none are offered.
-    const suggestions = isActionCapableReportStatus(report.status) ? (report.suggested_prompts ?? []) : []
+    const actionCapable = isActionCapableReport(report)
+    const suggestions = actionCapable ? (report.suggested_prompts ?? []) : []
 
     const questionSource = (trimmed: string): InboxQuestionSource => {
         if (filledFrom === null) {
@@ -131,8 +132,8 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
                             suggestions.length > 0
                                 ? 'Pick a suggestion above, or write your own'
                                 : // Only invite actions where the kickoff wrapper will actually carry
-                                  // them out — on other statuses the agent is pinned to answering.
-                                  isActionCapableReportStatus(report.status)
+                                  // them out — on other reports the agent is pinned to answering.
+                                  actionCapable
                                   ? 'Ask a question, or tell AI what to do next'
                                   : 'Ask a question about this report'
                         }
