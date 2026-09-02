@@ -1324,15 +1324,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # A running sandbox keeps the shape it started with, so price that rather than the
         # notebook's configuration. They differ between a resize and the restart that applies it.
         is_live = status in (KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING)
-        priced_cpu_cores = (
-            runtime.provisioned_cpu_cores
-            if runtime and is_live and runtime.provisioned_cpu_cores is not None
-            else cpu_cores
-        )
-        priced_memory_gb = (
-            runtime.provisioned_memory_gb
-            if runtime and is_live and runtime.provisioned_memory_gb is not None
-            else sandbox_config.memory_gb
+        priced_cpu_cores, priced_memory_gb = self._priced_shape(
+            runtime if is_live else None, cpu_cores, sandbox_config.memory_gb
         )
         payload = {
             "backend": backend,
@@ -1435,18 +1428,44 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                 # the runtime's own shape while one is alive, so a failed restart no longer makes
                 # the panel quote a sandbox nobody is on.
 
+        # Price the same thing status prices, so the field does not mean the running sandbox on
+        # one endpoint and the configuration on the other. After a restart this is the new
+        # sandbox; after a failed one it is the old sandbox still serving the notebook.
+        priced_runtime = (
+            KernelRuntime.objects.filter(
+                team_id=self.team_id,
+                notebook_short_id=notebook.short_id,
+                user=config_user if isinstance(config_user, User) else None,
+                status__in=(KernelRuntime.Status.RUNNING, KernelRuntime.Status.STARTING),
+            )
+            .order_by("-last_used_at")
+            .first()
+        )
+        priced_cpu_cores, priced_memory_gb = self._priced_shape(
+            priced_runtime, configured.cpu_cores, configured.memory_gb
+        )
         config_payload = {
             "cpu_cores": notebook.kernel_cpu_cores,
             "memory_gb": notebook.kernel_memory_gb,
             "idle_timeout_seconds": notebook.kernel_idle_timeout_seconds,
             "restarted": restarted,
             "restart_required": kernel_is_live and not restarted,
-            "hourly_price": get_compute_rates().hourly_price(
-                cpu_cores=configured.cpu_cores, memory_gb=configured.memory_gb
-            ),
-            "preset_key": self._preset_key_for(configured.cpu_cores, configured.memory_gb),
+            "hourly_price": get_compute_rates().hourly_price(cpu_cores=priced_cpu_cores, memory_gb=priced_memory_gb),
+            "preset_key": self._preset_key_for(priced_cpu_cores, priced_memory_gb),
         }
         return Response(NotebookKernelConfigResponseSerializer(config_payload).data)
+
+    def _priced_shape(
+        self, runtime: KernelRuntime | None, fallback_cpu_cores: float, fallback_memory_gb: float
+    ) -> tuple[float, float]:
+        """The shape hourly_price describes: what a live sandbox runs, else what the next one gets.
+
+        Both kernel endpoints price through this so the field means one thing. A runtime from
+        before the shape was recorded reads as unknown and falls back.
+        """
+        if runtime and runtime.provisioned_cpu_cores is not None and runtime.provisioned_memory_gb is not None:
+            return runtime.provisioned_cpu_cores, runtime.provisioned_memory_gb
+        return fallback_cpu_cores, fallback_memory_gb
 
     def _sandbox_is_running(self, notebook: Notebook, user: Any, runtime: KernelRuntime) -> bool:
         """Whether the runtime row still has a sandbox behind it, the check kernel_status makes."""

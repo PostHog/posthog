@@ -244,6 +244,9 @@ class TestComputeOptionsEndpoint(APIBaseTest):
         payload = response.json()
         assert payload["restarted"] is False
         assert payload["restart_required"] is True
+        # This response prices the same thing status does: the sandbox still serving the notebook,
+        # not the size that failed to apply.
+        assert payload["hourly_price"] == get_compute_rates().hourly_price(cpu_cores=1, memory_gb=2)
 
         # The requested size is kept: it is what the next sandbox gets.
         notebook.refresh_from_db()
