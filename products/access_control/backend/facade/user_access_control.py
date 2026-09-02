@@ -117,11 +117,8 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     # the frontend mapping in sceneTypes.ts: Scene.MarketingAnalytics ->
     # AccessControlResourceType.WebAnalytics).
     "marketing_analytics": "web_analytics",
-    # Vision actions are a second data model of the Replay Vision product (the
-    # scanner's "and then…" automations) — configured via the same single
-    # replay_scanner rule rather than a separate resource.
-    "vision_action": "replay_scanner",
-    # Vision alerts follow the same rule: configured via the scanner's access level.
+    # Vision alerts are configured via the scanner's access level rather than a
+    # separate resource.
     "vision_alert": "replay_scanner",
 }
 
@@ -342,8 +339,6 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "customer_journey"
     if name in ("replayscanner", "replayobservation"):
         return "replay_scanner"
-    if name in ("visionaction", "visionactionrun"):
-        return "vision_action"
     if name in ("visionalertconfiguration", "visionalertevent"):
         return "vision_alert"
 

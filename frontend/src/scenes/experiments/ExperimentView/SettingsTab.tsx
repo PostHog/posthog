@@ -10,12 +10,12 @@ import { urls } from 'scenes/urls'
 import { ExperimentStatsMethod, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { DEFAULT_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
+import { CupedModal } from 'products/experiments/frontend/modals/CupedModal/CupedModal'
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { getBaselineVariantKey } from '../utils'
 import { getCupedSelection, resolveCupedEnabled, resolveCupedLookbackDays } from './cuped'
-import { CupedModal } from './CupedModal'
 import { resolveSequentialEnabled } from './sequential'
 import { StatsMethodModal } from './StatsMethodModal'
 
