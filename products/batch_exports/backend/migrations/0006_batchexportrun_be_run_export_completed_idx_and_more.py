@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
         SafeAddIndexConcurrently(
             model_name="batchexportrun",
             index=models.Index(
-                condition=models.Q(("records_completed__isnull", False)),
+                condition=models.Q(("batch_export__isnull", False), ("records_completed__isnull", False)),
                 fields=["batch_export", "status", "-data_interval_end"],
                 name="be_run_export_completed_idx",
             ),
@@ -22,7 +22,7 @@ class Migration(migrations.Migration):
         SafeAddIndexConcurrently(
             model_name="batchexportrun",
             index=models.Index(
-                condition=models.Q(("records_completed__isnull", False)),
+                condition=models.Q(("batch_export_on_demand__isnull", False), ("records_completed__isnull", False)),
                 fields=["batch_export_on_demand", "status", "-data_interval_end"],
                 name="be_run_ondemand_completed_idx",
             ),
