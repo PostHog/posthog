@@ -192,11 +192,14 @@ class _ObjectUpload:
             await self._upload_part(bytes(self._buffer))
             self._buffer.clear()
 
-        await self._client.complete_multipart_upload(
-            Bucket=self._bucket,
-            Key=self._key,
-            UploadId=self._upload_id,
-            MultipartUpload={"Parts": self._parts},
+        await _retry_on_request_timeout(
+            0,
+            lambda: self._client.complete_multipart_upload(
+                Bucket=self._bucket,
+                Key=self._key,
+                UploadId=self._upload_id,
+                MultipartUpload={"Parts": self._parts},
+            ),
         )
 
     async def abort(self) -> None:
