@@ -4,6 +4,7 @@
         "backend:contract-check": {
             "inputs": [
                 "backend/facade/**",
+                "backend/hogql_queries/**",
                 "backend/presentation/**",
                 "backend/routes.py",
                 "backend/models/**",
