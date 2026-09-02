@@ -4,6 +4,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
+from temporalio.testing import ActivityEnvironment
 
 from products.tasks.backend.logic.stream.redis_stream import (
     TASK_RUN_STREAM_WATCHED_TIMEOUT,
@@ -96,7 +97,9 @@ class TestSendFollowupToSandbox(BaseTest):
             data={"result": {"stopReason": "max_tokens"}},
         )
 
-        send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-123", message="hello"))
+        ActivityEnvironment().run(
+            send_followup_to_sandbox, SendFollowupToSandboxInput(run_id="run-123", message="hello")
+        )
 
         event = mock_publish.call_args.args[1]
         self.assertEqual(event["notification"]["params"]["stopReason"], "max_tokens")
@@ -139,13 +142,14 @@ class TestSendFollowupToSandbox(BaseTest):
                 return_value=None,
             ),
         ):
-            send_followup_to_sandbox(
+            ActivityEnvironment().run(
+                send_followup_to_sandbox,
                 SendFollowupToSandboxInput(
                     run_id="run-123",
                     message="change direction",
                     actor_user_id=42,
                     steer=True,
-                )
+                ),
             )
 
         mock_refresh_sandbox_mcp.assert_not_called()

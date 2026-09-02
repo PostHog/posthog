@@ -1,6 +1,4 @@
 import time
-import threading
-import contextvars
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, NoReturn
@@ -12,6 +10,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
 from posthog.models.user_integration import ReauthorizationRequired, UserIntegration
+from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.utils import close_db_connections
 from posthog.temporal.oauth import PosthogMcpScopes
 
@@ -94,7 +93,9 @@ DENIAL_BRAKE_CONSUMED_REQUEST_ID_KEY = "followup_denial_brake_request_id"
 # attempt, detected via heartbeat timeout) and for delivery-unknown failures.
 # Application failures that write an error sentinel raise non-retryable.
 SEND_FOLLOWUP_MAX_ATTEMPTS = 3
-SEND_FOLLOWUP_HEARTBEAT_INTERVAL_SECONDS = 15
+# `HeartbeaterSync` divides the activity's heartbeat timeout by this factor, so 4 against the
+# 1-minute timeout both callers set gives a 15-second interval.
+SEND_FOLLOWUP_HEARTBEAT_FACTOR = 4
 STEER_DECLINED_OUTCOME = "steer_declined"
 STEER_DECLINE_REASON_UNREPORTED = "unreported"
 STEER_DECLINE_REASON_ACTOR_MISMATCH = "actor_mismatch"
@@ -130,23 +131,8 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> str | None:
     so a worker restart is detected within the heartbeat timeout instead of
     the 35-minute start_to_close.
     """
-    stop_heartbeat = threading.Event()
-    heartbeat_ctx = contextvars.copy_context()
-
-    def _heartbeat_loop() -> None:
-        while not stop_heartbeat.wait(SEND_FOLLOWUP_HEARTBEAT_INTERVAL_SECONDS):
-            try:
-                activity.heartbeat()
-            except Exception:
-                return
-
-    heartbeat_thread = threading.Thread(target=lambda: heartbeat_ctx.run(_heartbeat_loop), daemon=True)
-    heartbeat_thread.start()
-    try:
+    with HeartbeaterSync(factor=SEND_FOLLOWUP_HEARTBEAT_FACTOR, logger=logger):
         return _deliver_followup(input)
-    finally:
-        stop_heartbeat.set()
-        heartbeat_thread.join(timeout=2)
 
 
 def _current_attempt() -> int:
