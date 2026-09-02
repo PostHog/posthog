@@ -15,6 +15,7 @@ from . import contracts
 AlertValidationError = _alerts.AlertValidationError
 
 NATIVE_ALERTS_FLAG = _alerts.NATIVE_ALERTS_FLAG
+MAX_THROTTLE_SECONDS = _alerts.MAX_THROTTLE_SECONDS
 native_alerts_enabled = _alerts.native_alerts_enabled
 
 # Presentation code reads choice values from here so it never imports Django models.
