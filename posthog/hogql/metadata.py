@@ -124,6 +124,17 @@ def get_hogql_metadata(
                 hogql_ast = parse_select(query.query)
                 finder = find_placeholders(hogql_ast)
                 if finder.has_filters:
+                    if database is None:
+                        # Built here (cached) and shared with the printer via the context, so the
+                        # filters replacement doesn't add an uncached build of its own.
+                        database = Database.create_for(
+                            team=team,
+                            user=user,
+                            modifiers=query_modifiers,
+                            use_cached_sources=True,
+                            trigger="metadata",
+                        )
+                        context.database = database
                     hogql_ast = replace_filters(hogql_ast, query.filters, team, database=database)
                 if query.variables or finder.placeholder_fields or finder.placeholder_expressions:
                     hogql_ast = replace_variables(

@@ -13,6 +13,7 @@ from parameterized import parameterized
 from posthog.schema import (
     HogLanguage,
     HogQLAutocomplete,
+    HogQLFilters,
     HogQLMetadata,
     HogQLMetadataResponse,
     HogQLQuery,
@@ -106,6 +107,32 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                     kind="HogQLMetadata",
                     language=HogLanguage.HOG_QL,
                     query="select event from events",
+                    response=None,
+                ),
+                team=self.team,
+                user=self.user,
+            )
+
+        assert response.isValid
+        assert not any("datawarehouse" in query["sql"].lower() for query in ctx.captured_queries)
+
+    def test_filtered_metadata_reuses_sources_fetched_by_autocomplete(self):
+        autocomplete = HogQLAutocomplete(
+            kind="HogQLAutocomplete",
+            query="select ",
+            language=HogLanguage.HOG_QL,
+            startPosition=7,
+            endPosition=7,
+        )
+        process_query_model(self.team, autocomplete, user=self.user)
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = get_hogql_metadata(
+                query=HogQLMetadata(
+                    kind="HogQLMetadata",
+                    language=HogLanguage.HOG_QL,
+                    query="select event from events where {filters}",
+                    filters=HogQLFilters(),
                     response=None,
                 ),
                 team=self.team,

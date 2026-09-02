@@ -2,7 +2,9 @@ import io
 import json
 import time
 import pickle
+import threading
 import dataclasses
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -60,7 +62,13 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
-from posthog.hogql.database.sources_cache import SOURCES_CACHE_TTL_SECONDS
+from posthog.hogql.database.sources_cache import (
+    SOURCES_CACHE_MAX_ENTRY_WEIGHT,
+    SOURCES_CACHE_TTL_SECONDS,
+    SourcesCacheKey,
+    clear_sources_cache,
+    get_or_fetch_sources,
+)
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
@@ -1130,23 +1138,29 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         cold = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
-        with self.assertNumQueries(0):
+        with CaptureQueriesContext(connection) as ctx:
             warm = Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
 
+        # The warm build only recomputes the per-request access-control decision; it never
+        # refetches the catalog.
+        assert not self._ran_source_fetch_queries(ctx)
         cold_serialized = cold.serialize(HogQLContext(team_id=self.team.pk, database=cold))
         warm_serialized = warm.serialize(HogQLContext(team_id=self.team.pk, database=warm))
         assert warm_serialized.keys() == cold_serialized.keys()
         assert warm.has_table("cached_table")
         assert warm.has_table("cached_view")
 
-    def test_cached_sources_not_shared_across_users(self):
+    def test_cached_sources_shared_across_users_with_fresh_access_control(self):
         other_user = self._create_user("other-user@posthog.com")
         Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
 
         with CaptureQueriesContext(connection) as ctx:
             Database.create_for(team=self.team, user=other_user, use_cached_sources=True)
 
-        assert self._ran_source_fetch_queries(ctx)
+        assert not self._ran_source_fetch_queries(ctx)
+        # The catalog is shared, but the second user's access-control decision is computed
+        # fresh rather than reused from the user who warmed the cache.
+        assert any("organizationmembership" in query["sql"].lower() for query in ctx.captured_queries)
 
     def test_sources_not_cached_by_default(self):
         Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
@@ -4258,3 +4272,70 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             database = Database.create_for(team=self.team, user=self.user)
 
         assert ("system.activity_logs" in database.get_system_table_names()) is expected_visible
+
+
+class TestSourcesCacheConcurrency(TestCase):
+    def setUp(self):
+        clear_sources_cache()
+
+    def tearDown(self):
+        clear_sources_cache()
+
+    @staticmethod
+    def _stub_sources(row_count: int = 0) -> Any:
+        return SimpleNamespace(
+            group_types=[],
+            saved_queries=[],
+            endpoint_saved_queries=[],
+            revenue_views=[],
+            warehouse_tables=[object()] * row_count,
+            data_warehouse_joins=[],
+            data_warehouse_expressions=[],
+            event_modifier_saved_queries={},
+            virtual_schemas=[],
+        )
+
+    def test_concurrent_misses_for_one_key_fetch_once(self):
+        key = SourcesCacheKey(
+            team_id=1, connection_id=None, modifiers_fingerprint="fp", bypass_warehouse_access_control=False
+        )
+        stub = self._stub_sources()
+        fetch_count = 0
+        fetch_entered = threading.Event()
+        fetch_release = threading.Event()
+
+        def fetch() -> Any:
+            nonlocal fetch_count
+            fetch_count += 1
+            fetch_entered.set()
+            assert fetch_release.wait(timeout=5)
+            return stub
+
+        results: list[Any] = []
+        threads = [threading.Thread(target=lambda: results.append(get_or_fetch_sources(key, fetch))) for _ in range(2)]
+        for thread in threads:
+            thread.start()
+        assert fetch_entered.wait(timeout=5)
+        fetch_release.set()
+        for thread in threads:
+            thread.join(timeout=5)
+
+        assert fetch_count == 1
+        assert results == [stub, stub]
+
+    def test_oversized_sources_are_returned_but_not_cached(self):
+        key = SourcesCacheKey(
+            team_id=1, connection_id=None, modifiers_fingerprint="fp", bypass_warehouse_access_control=False
+        )
+        fetch_count = 0
+
+        def fetch() -> Any:
+            nonlocal fetch_count
+            fetch_count += 1
+            return self._stub_sources(row_count=SOURCES_CACHE_MAX_ENTRY_WEIGHT + 1)
+
+        first = get_or_fetch_sources(key, fetch)
+        second = get_or_fetch_sources(key, fetch)
+
+        assert fetch_count == 2
+        assert first is not None and second is not None

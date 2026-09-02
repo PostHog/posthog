@@ -259,20 +259,27 @@ class HogQLDatabaseSources:
     virtual_schemas: list[ExternalDataSchema] = dataclasses.field(default_factory=list)
 
     def copy_for_request(
-        self, team: Team, user: Optional[User | SyntheticUser | SharedLinkUser]
+        self,
+        team: Team,
+        user: Optional[User | SyntheticUser | SharedLinkUser],
+        *,
+        user_access_control: Optional[UserAccessControl],
+        denied_system_table_names: set[str],
     ) -> HogQLDatabaseSources:
-        """A copy safe to hand out from the sources cache: the request's own team/user, a private
-        modifiers copy, and fresh top-level containers so an in-place mutation downstream cannot
-        leak into other requests. The contained ORM rows stay shared — the build reads them only."""
+        """A copy safe to hand out from the sources cache: the request's own team, user, and
+        freshly computed access-control decision, a private modifiers copy, and fresh top-level
+        containers so an in-place mutation downstream cannot leak into other requests. The
+        contained ORM rows stay shared — the build reads them only."""
         return dataclasses.replace(
             self,
             team=team,
             user=user,
+            user_access_control=user_access_control,
+            denied_system_table_names=denied_system_table_names,
             modifiers=self.modifiers.model_copy(deep=True),
             direct_connection_metadata=(
                 dict(self.direct_connection_metadata) if self.direct_connection_metadata is not None else None
             ),
-            denied_system_table_names=set(self.denied_system_table_names),
             group_types=list(self.group_types),
             saved_queries=list(self.saved_queries),
             endpoint_saved_queries=list(self.endpoint_saved_queries),
@@ -1444,7 +1451,16 @@ class Database(BaseModel):
         if cache_key is None:
             sources = fetch_fresh()
         else:
-            sources = get_or_fetch_sources(cache_key, fetch_fresh).copy_for_request(cast("Team", team), user)
+            cached_sources = get_or_fetch_sources(cache_key, fetch_fresh)
+            # Entries are shared across users; the access-control decision is recomputed per
+            # request so a permission change applies immediately, never after the TTL.
+            fresh_access_control, fresh_denied = _compute_system_table_access_decision(cast("Team", team), user)
+            sources = cached_sources.copy_for_request(
+                cast("Team", team),
+                user,
+                user_access_control=fresh_access_control,
+                denied_system_table_names=fresh_denied,
+            )
 
         with HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="build_from_sources").time():
             return Database._build_from_sources(
@@ -1463,9 +1479,10 @@ class Database(BaseModel):
     ) -> SourcesCacheKey | None:
         """The cache key for this build, or None when the build must fetch fresh sources.
 
-        Only real users (or no user) hit the cache: SyntheticUser/SharedLinkUser carry
-        request-specific access semantics a user_id key can't represent. A preloaded
-        user_access_control is likewise per-request state, so it also bypasses.
+        The key is team-scoped: entries hold only team-level catalog rows, and the per-user
+        access-control decision is recomputed on every handout. Only real users (or no user)
+        hit the cache: SyntheticUser/SharedLinkUser carry request-specific access semantics.
+        A preloaded user_access_control is likewise per-request state, so it also bypasses.
         """
         from posthog.models.user import User  # noqa: PLC0415 — keeps the Django ORM off this module's import path
 
@@ -1476,7 +1493,6 @@ class Database(BaseModel):
         normalized_modifiers = create_default_modifiers_for_team(team, modifiers)
         return SourcesCacheKey(
             team_id=team.pk,
-            user_id=user.pk if user is not None else None,
             connection_id=connection_id,
             modifiers_fingerprint=modifiers_fingerprint(normalized_modifiers),
             bypass_warehouse_access_control=bypass_warehouse_access_control,
