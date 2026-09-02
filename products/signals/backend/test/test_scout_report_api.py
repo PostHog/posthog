@@ -362,7 +362,7 @@ class TestScoutReportAPI(APIBaseTest):
         other_team = Team.objects.create(organization=other_org, name="other")
         other_report = SignalReport.objects.create(team=other_team, status=SignalReport.Status.READY, title="theirs")
         run = _make_run(self.team)
-        with _safe_judge():
+        with _safe_judge() as judge_mock:
             response = self.client.post(
                 self._edit_url(str(run.id)),
                 data={"report_id": str(other_report.id), "title": "hijacked"},
@@ -370,6 +370,8 @@ class TestScoutReportAPI(APIBaseTest):
             )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert SignalReport.objects.get(id=other_report.id).title == "theirs"
+        # The gate rejects a foreign report before the judge, so a bad id never spends an LLM call.
+        judge_mock.assert_not_awaited()
 
     def test_unsafe_edit_is_rejected_and_report_keeps_its_content(self) -> None:
         # `emit_report` judges everything it authors; before the edit path got the same judge, an

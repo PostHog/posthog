@@ -1326,7 +1326,7 @@ def _do_edit_report(
     the sync path, via `database_sync_to_async` in the async path. Reviewer resolution does a DB read
     and the autostart re-eval bridges an async hand-off via `async_to_sync`, both safe on this sync
     thread."""
-    _assert_edit_gates(team, run)
+    _assert_edit_gates(team, run, report_id)
 
     attribution = _attribution_for(_resolve_task_id(run))
     # Resolve reviewers *before* any write. Resolution (user_uuid → login) is the only step that can
@@ -1351,9 +1351,10 @@ def _do_edit_report(
         # the report writes so cancellation and authorship have a defined order: if cancellation wins,
         # this edit sees the terminal status and fails; if this edit wins, cancellation waits for it.
         locked_run = (
-            SignalScoutRun.all_teams.select_related("task_run")
+            SignalScoutRun.objects.for_team(team.id)
+            .select_related("task_run")
             .select_for_update(of=("task_run",))
-            .filter(pk=run.pk, team_id=team.id)
+            .filter(pk=run.pk)
             .first()
         )
         if locked_run is None or locked_run.task_run.status != tasks_facade.TaskRunStatus.IN_PROGRESS:
@@ -1534,21 +1535,33 @@ def _do_edit_report(
     return result
 
 
-def _assert_edit_gates(team: Team, run: SignalScoutRun) -> None:
+def _assert_edit_gates(team: Team, run: SignalScoutRun, report_id: str) -> None:
     """The emit preflight gates, applied to an edit. Shared by the entrypoints (which must gate
     before spending the safety-judge LLM call) and `_do_edit_report` (so a future caller that skips
     the entrypoints still fails closed)."""
     preflight = _preflight_emit_gates(team, run)
     if preflight is not None:
         raise InvalidScoutReportError(f"edit_report blocked by preflight gate: {preflight}")
-    task_is_in_progress = SignalScoutRun.all_teams.filter(
-        pk=run.pk,
-        team_id=team.id,
-        task_run_id=run.task_run_id,
-        task_run__status=tasks_facade.TaskRunStatus.IN_PROGRESS,
-    ).exists()
+    task_is_in_progress = (
+        SignalScoutRun.objects.for_team(team.id)
+        .filter(
+            pk=run.pk,
+            task_run_id=run.task_run_id,
+            task_run__status=tasks_facade.TaskRunStatus.IN_PROGRESS,
+        )
+        .exists()
+    )
     if not task_is_in_progress:
         raise InvalidScoutReportError("edit_report blocked because the task run is not in progress")
+    # A malformed or foreign report_id must fail here, before the judge LLM call — a hallucinating
+    # or retrying scout would otherwise pay full judge latency per bad id only to 400 at the write.
+    # Cost gate only: the write path re-resolves the report team-scoped under its own transaction.
+    try:
+        uuid.UUID(str(report_id))
+    except (ValueError, AttributeError, TypeError):
+        raise InvalidScoutReportError(f"report_id is not a valid UUID: {report_id!r}")
+    if not SignalReport.objects.filter(team_id=team.id, id=report_id).exists():
+        raise InvalidScoutReportError(f"report {report_id} not found for team {team.id}")
 
 
 def _raise_if_unsafe_edit(safety: SafetyJudgment) -> None:
@@ -1609,7 +1622,7 @@ async def edit_report(
     built_charts = _build_edit_charts(charts)
     built_prompts = _build_edit_suggested_prompts(suggested_prompts)
     # Gates before the judge, mirroring emit: a disabled or dry-run scout must not spend an LLM call.
-    await database_sync_to_async(_assert_edit_gates, thread_sensitive=False)(team, run)
+    await database_sync_to_async(_assert_edit_gates, thread_sensitive=False)(team, run, report_id)
     _raise_if_unsafe_edit(
         await judge_edited_report_content(
             team_id=team.id,
@@ -1663,7 +1676,7 @@ def edit_report_sync(
     built_charts = _build_edit_charts(charts)
     built_prompts = _build_edit_suggested_prompts(suggested_prompts)
     # Gates before the judge, mirroring emit: a disabled or dry-run scout must not spend an LLM call.
-    _assert_edit_gates(team, run)
+    _assert_edit_gates(team, run, report_id)
     _raise_if_unsafe_edit(
         async_to_sync(judge_edited_report_content)(
             team_id=team.id,
