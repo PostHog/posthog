@@ -75,8 +75,18 @@ export const flagTriggerLogic = kea<flagTriggerLogicType>([
         featureFlag: {
             loadFeatureFlag: async () => {
                 if (values.linkedFeatureFlagId) {
-                    const retrievedFlag = await api.featureFlags.get(values.linkedFeatureFlagId)
-                    return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
+                    try {
+                        const retrievedFlag = await api.featureFlags.get(values.linkedFeatureFlagId)
+                        return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
+                    } catch (e: any) {
+                        // The linked flag was deleted. Degrade to no flag so the settings page still
+                        // renders and the user can clear the stale reference, instead of throwing an
+                        // unhandled error on mount. Re-throw anything that is not a missing flag.
+                        if (e.status === 404) {
+                            return null
+                        }
+                        throw e
+                    }
                 }
                 return null
             },

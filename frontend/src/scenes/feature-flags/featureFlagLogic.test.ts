@@ -280,6 +280,90 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('deleted or unreachable feature flag', () => {
+        // A deleted flag 404s on the flag, its status, and its dependents. The scene renders
+        // NotFound from featureFlagMissing, so none of those may add a redundant error toast. A
+        // genuine failure (500) must still toast and reach error tracking.
+        it.each([
+            { httpStatus: 404, expectToast: false },
+            { httpStatus: 500, expectToast: true },
+        ])('http $httpStatus keeps toast shown = $expectToast', async ({ httpStatus, expectToast }) => {
+            logic.unmount()
+            silenceKeaLoadersErrors()
+            const id = 777
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${id}/`]: () => [
+                        httpStatus,
+                        { detail: 'nope' },
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${id}/status`]: () => [
+                        httpStatus,
+                        { detail: 'nope' },
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${id}/dependent_flags/`]: () => [
+                        httpStatus,
+                        { detail: 'nope' },
+                    ],
+                },
+            })
+
+            logic = featureFlagLogic({ id })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadFeatureFlag']).toFinishAllListeners()
+
+            expect(logic.values.featureFlagMissing).toBe(true)
+            if (expectToast) {
+                expect(lemonToast.error).toHaveBeenCalled()
+            } else {
+                expect(lemonToast.error).not.toHaveBeenCalled()
+            }
+            resumeKeaLoadersErrors()
+        })
+
+        // List-navigated flags paint from the cache and reconcile via refreshFeatureFlag, which
+        // never calls loadFeatureFlag. A flag deleted since the list loaded must still reach the
+        // not-found scene here, or it lingers with stale data and no signal at all.
+        it('shows the not-found scene when the cached background refresh 404s', async () => {
+            logic.unmount()
+            silenceKeaLoadersErrors()
+
+            useMocks({
+                get: {
+                    '/api/projects/:projectId/feature_flags/': () => [200, { results: [MOCK_FEATURE_FLAG], count: 1 }],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                        404,
+                        { detail: 'nope' },
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/status`]: () => [
+                        404,
+                        { detail: 'nope' },
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/dependent_flags/`]:
+                        () => [404, { detail: 'nope' }],
+                },
+            })
+
+            featureFlagsLogic.mount()
+            featureFlagsLogic.actions.loadFeatureFlags()
+            await expectLogic(featureFlagsLogic).toFinishAllListeners()
+
+            logic = featureFlagLogic({ id: MOCK_FEATURE_FLAG.id })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions(['setFeatureFlag', 'refreshFeatureFlag', 'refreshFeatureFlagSuccess'])
+                .toFinishAllListeners()
+
+            expect(logic.values.featureFlagMissing).toBe(true)
+            expect(lemonToast.error).not.toHaveBeenCalled()
+
+            featureFlagsLogic.unmount()
+            resumeKeaLoadersErrors()
+        })
+    })
+
     describe('saveFeatureFlag error handling', () => {
         it('shows the friendly permission toast on a save-time 403', async () => {
             useMocks({

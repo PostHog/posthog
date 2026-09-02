@@ -2824,6 +2824,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         } else {
                             actions.setFeatureFlagMissing()
                         }
+                        // The scene renders AccessDenied or NotFound from the state set above, so a
+                        // deleted flag (404) or an access-denied flag needs no error toast. Keep the
+                        // placeholder value and stop, instead of re-throwing into a redundant toast.
+                        // Re-throw any other failure so it still toasts and reaches error tracking.
+                        if (e.status === 404 || isAccessDeniedError(e)) {
+                            return values.featureFlag
+                        }
                         throw e
                     }
                 }
@@ -3059,8 +3066,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     try {
                         const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
                         return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
-                    } catch {
-                        // Swallow errors — this is a silent background reconciliation, so a
+                    } catch (e: any) {
+                        // The flag was deleted since the list cache painted it. Show the not-found
+                        // scene instead of leaving stale data on screen — the scene renders NotFound
+                        // from this state, so no toast is needed on the cached navigation path.
+                        if (e.status === 404) {
+                            actions.setFeatureFlagMissing()
+                            return null
+                        }
+                        // Swallow other errors — this is a silent background reconciliation, so a
                         // transient failure shouldn't surface a toast or get reported.
                         return null
                     }
@@ -3249,10 +3263,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         flagStatus: [
             null as FeatureFlagStatusResponse | null,
             {
-                loadFeatureFlagStatus: () => {
+                loadFeatureFlagStatus: async () => {
                     const { currentProjectId } = values
                     if (currentProjectId && props.id && props.id !== 'new' && props.id !== 'link') {
-                        return api.featureFlags.getStatus(currentProjectId, props.id)
+                        try {
+                            return await api.featureFlags.getStatus(currentProjectId, props.id)
+                        } catch (e: any) {
+                            // A deleted flag has no status. The scene already shows NotFound, so
+                            // degrade to no status instead of a redundant toast. Re-throw other errors.
+                            if (e.status === 404) {
+                                return null
+                            }
+                            throw e
+                        }
                     }
                     return null
                 },
@@ -3272,9 +3295,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 loadDependentFlags: async () => {
                     const { currentProjectId } = values
                     if (currentProjectId && props.id && props.id !== 'new' && props.id !== 'link') {
-                        return await api.get(
-                            `api/projects/${currentProjectId}/feature_flags/${props.id}/dependent_flags/`
-                        )
+                        try {
+                            return await api.get(
+                                `api/projects/${currentProjectId}/feature_flags/${props.id}/dependent_flags/`
+                            )
+                        } catch (e: any) {
+                            // A deleted flag has no dependents. The scene already shows NotFound, so
+                            // degrade to none instead of a redundant toast. Re-throw other errors.
+                            if (e.status === 404) {
+                                return []
+                            }
+                            throw e
+                        }
                     }
                     return []
                 },
