@@ -604,6 +604,9 @@ class EndpointExecutionService(PydanticModelMixin):
             error_label = type(e).__name__
             raise
         finally:
+            # A run that fails is still a use of the endpoint. Stale-materialization
+            # cleanup must not read a heavy version that times out on every call as idle.
+            self._track_last_executed(endpoint, version_obj)
             if execution_status is not None:
                 _duration = time.monotonic() - _start_time
                 ENDPOINT_EXECUTION_DURATION_SECONDS.labels(
@@ -641,7 +644,6 @@ class EndpointExecutionService(PydanticModelMixin):
                 version=version_obj.version,
             ),
         )
-        self._track_last_executed(endpoint, version_obj)
 
         self._maybe_shadow_ducklake(
             endpoint,
