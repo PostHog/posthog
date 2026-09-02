@@ -37,7 +37,7 @@ from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE
 from posthog.models.event.util import format_clickhouse_timestamp
 
-from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
+from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2, _clickhouse_status
 from products.error_tracking.backend.sql import INSERT_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE
 
 logger = structlog.get_logger(__name__)
@@ -199,7 +199,7 @@ class Command(BaseCommand):
             "issue_id": str(issue.id),
             "issue_name": issue.name,
             "issue_description": issue.description,
-            "issue_status": issue.status,
+            "issue_status": _clickhouse_status(issue.status),
             "issue_severity": issue.severity,
             "assigned_user_id": assigned_user_id,
             "assigned_role_id": assigned_role_id,

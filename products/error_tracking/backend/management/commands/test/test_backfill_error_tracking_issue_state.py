@@ -3,6 +3,8 @@ from datetime import UTC
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import Team
 
@@ -249,3 +251,19 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(rows), 2)
         self.assertEqual(rows[0]["issue_status"], "active")
         self.assertEqual(rows[1]["issue_status"], "resolved")
+
+    @parameterized.expand(
+        [
+            (ErrorTrackingIssue.Status.ARCHIVED,),
+            (ErrorTrackingIssue.Status.PENDING_RELEASE,),
+        ]
+    )
+    def test_backfill_folds_deprecated_status_to_resolved(self, deprecated_status):
+        issue = ErrorTrackingIssue.objects.create(team=self.team, name="LegacyError", status=deprecated_status)
+        ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint="fp_legacy")
+
+        self._run_backfill(team_id=self.team.pk)
+
+        rows = self._get_rows(self.team.pk)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["issue_status"], "resolved")
