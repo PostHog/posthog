@@ -143,9 +143,11 @@ const isSecureUrl = (value: string): boolean => {
 export interface identityProviderConfigLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     receivedFeatureFlags: boolean // featureFlagLogic
+    identityProviderConfigs: IdentityProviderConfigApi[] | null // identityProviderConfigsLogic
     currentOrganizationId: string // organizationLogic
     breadcrumbs: Breadcrumb[]
     configScope: ConfigScopeEnumApi | null
+    hasSamlDomainScopeConflict: boolean
     identityProviderConfig: IdentityProviderConfigApi | null
     identityProviderConfigForm: IdentityProviderConfigForm
     identityProviderConfigFormAllErrors: Record<string, any>
@@ -156,7 +158,6 @@ export interface identityProviderConfigLogicValues {
     identityProviderConfigFormTouched: boolean
     identityProviderConfigFormTouches: Record<string, boolean>
     identityProviderConfigFormValidationErrors: DeepPartialMap<IdentityProviderConfigForm, ValidationErrorType>
-    hasSamlDomainScopeConflict: boolean
     identityProviderConfigLoadFailed: boolean
     identityProviderConfigLoaded: boolean
     identityProviderConfigLoading: boolean
@@ -274,6 +275,13 @@ export interface identityProviderConfigLogicMeta {
         configScope: (configScope: ConfigScopeEnumApi | null) => ConfigScopeEnumApi | null
         isRedesignEnabled: (featureFlags: FeatureFlagsSet, arg: any) => boolean
         isConfigScopeValid: (identityProviderConfig: IdentityProviderConfigApi | null, arg: any) => boolean
+        hasSamlDomainScopeConflict: (
+            identityProviderConfig: IdentityProviderConfigApi | null,
+            identityProviderConfigForm: IdentityProviderConfigForm,
+            identityProviderConfigs: IdentityProviderConfigApi[] | null,
+            organizationDomains: OrganizationDomainApi[] | null,
+            arg: any
+        ) => boolean
         breadcrumbs: (configScope: ConfigScopeEnumApi | null) => Breadcrumb[]
     }
 }
@@ -300,6 +308,8 @@ export const identityProviderConfigLogic = kea<identityProviderConfigLogicType>(
         values: [
             organizationLogic,
             ['currentOrganizationId'],
+            identityProviderConfigsLogic,
+            ['identityProviderConfigs'],
             featureFlagLogic,
             ['featureFlags', 'receivedFeatureFlags'],
         ],
@@ -458,7 +468,7 @@ export const identityProviderConfigLogic = kea<identityProviderConfigLogicType>(
             (selectors) => [
                 selectors.identityProviderConfig,
                 selectors.identityProviderConfigForm,
-                identityProviderConfigsLogic.selectors.identityProviderConfigs,
+                selectors.identityProviderConfigs,
                 selectors.organizationDomains,
                 (_, props) => props.configScope,
             ],

@@ -85,6 +85,7 @@ describe('identityProviderConfigLogic', () => {
 
         expect(logic.values.organizationDomains).toHaveLength(101)
         expect(logic.values.organizationDomains?.[100]).toEqual(secondPageDomain)
+        expect(logic.values.hasSamlDomainScopeConflict).toBe(false)
         expect(requestedOffsets).toEqual(['0', '100'])
 
         logic.unmount()
