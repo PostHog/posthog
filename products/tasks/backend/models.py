@@ -477,10 +477,23 @@ class Task(DeletedMetaFields, models.Model):
         managed = True
         indexes = [
             models.Index(fields=["signal_report"], name="posthog_task_signal_report_idx"),
-            models.Index(fields=["archived"], name="posthog_task_archived_idx"),
+            # The default task list pins `team`, `deleted`, `internal` and `archived` before it
+            # sorts, so the partial indexes below avoid scanning deleted rows and put both boolean
+            # filters ahead of the sort keys. The broad indexes remain for callers that leave
+            # either boolean unconstrained while still needing the results in timestamp order.
+            models.Index(
+                fields=["team", "internal", "archived", "-created_at", "-id"],
+                condition=models.Q(deleted=False),
+                name="posthog_task_team_live_crt_idx",
+            ),
             models.Index(fields=["team", "-created_at", "-id"], name="posthog_task_team_created_idx"),
             models.Index(fields=["team", "created_by", "-created_at", "-id"], name="posthog_task_team_creator_idx"),
             models.Index(fields=["channel", "-created_at"], name="posthog_task_channel_feed_idx"),
+            models.Index(
+                fields=["team", "internal", "archived", "-last_activity_at", "-id"],
+                condition=models.Q(deleted=False),
+                name="posthog_task_team_live_act_idx",
+            ),
             models.Index(fields=["team", "-last_activity_at", "-id"], name="posthog_task_team_activity_idx"),
             models.Index(fields=["channel", "-last_activity_at"], name="posthog_task_chan_activity_idx"),
             models.Index(fields=["loop"], name="posthog_task_loop_idx"),
