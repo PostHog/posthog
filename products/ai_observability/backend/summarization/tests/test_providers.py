@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import httpx
-from openai import RateLimitError
+from openai import APIConnectionError, RateLimitError
 from rest_framework import exceptions
 
 from products.ai_observability.backend.summarization.constants import SUMMARIZATION_FLEX_TIMEOUT, SUMMARIZATION_TIMEOUT
@@ -16,6 +16,12 @@ from products.ai_observability.backend.summarization.models import OpenAIModel, 
 def _rate_limit_error() -> RateLimitError:
     request = httpx.Request("POST", "https://example.com/v1/chat/completions")
     return RateLimitError("rate limited", response=httpx.Response(429, request=request), body=None)
+
+
+def _connection_error() -> APIConnectionError:
+    # A proxy or LB resetting a long-parked flex request surfaces as the bare parent class,
+    # not APITimeoutError, so the fallback must catch APIConnectionError itself.
+    return APIConnectionError(request=httpx.Request("POST", "https://example.com/v1/chat/completions"))
 
 
 @pytest.fixture
@@ -205,7 +211,8 @@ class TestSummarizeWithOpenAI:
             assert call_kwargs.get("reasoning_effort") == expected_effort
             assert call_kwargs["timeout"] == expected_timeout
 
-    def test_flex_rate_limit_falls_back_to_standard_tier(self, valid_response_json):
+    @pytest.mark.parametrize("flex_error", [_rate_limit_error(), _connection_error()])
+    def test_flex_failure_falls_back_to_standard_tier(self, valid_response_json, flex_error):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = valid_response_json
@@ -213,7 +220,7 @@ class TestSummarizeWithOpenAI:
         with patch("products.ai_observability.backend.summarization.llm.openai.build_openai_client") as mock_get_client:
             mock_client = MagicMock()
             mock_get_client.return_value = mock_client
-            mock_client.chat.completions.create.side_effect = [_rate_limit_error(), mock_response]
+            mock_client.chat.completions.create.side_effect = [flex_error, mock_response]
 
             result = summarize_with_openai(
                 text_repr="L1: Test",

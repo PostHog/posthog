@@ -4,7 +4,7 @@ when configured, else the Python LLM gateway."""
 from typing import Any, Literal, cast
 
 import structlog
-from openai import APITimeoutError, InternalServerError, RateLimitError
+from openai import APIConnectionError, InternalServerError, RateLimitError
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from rest_framework import exceptions
 
@@ -82,10 +82,11 @@ def summarize_with_openai(
         if flex and _is_gpt5_model(model):
             try:
                 response = _create("flex", SUMMARIZATION_FLEX_TIMEOUT)
-            except (RateLimitError, APITimeoutError, InternalServerError):
+            except (RateLimitError, APIConnectionError, InternalServerError):
                 # Flex runs on spare provider capacity, so the call can be refused (429), stall
-                # past the client deadline, or die at the gateway's response ceiling (5xx).
-                # Retry once at the standard tier so the batch window still gets its summary.
+                # past the client deadline or be reset by an intermediary (APIConnectionError,
+                # which covers its APITimeoutError subclass), or die at the gateway's response
+                # ceiling (5xx). Retry once at the standard tier so the window gets its summary.
                 response = _create(None, SUMMARIZATION_TIMEOUT)
         else:
             response = _create(None, SUMMARIZATION_TIMEOUT)
