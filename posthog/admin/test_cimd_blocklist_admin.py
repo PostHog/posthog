@@ -1,5 +1,4 @@
 from posthog.test.base import BaseTest
-from unittest.mock import patch
 
 from django.contrib.admin import AdminSite
 from django.core.cache import cache
@@ -8,7 +7,7 @@ from django.test import RequestFactory
 from parameterized import parameterized
 
 from posthog.admin.admins.cimd_blocklist_admin import CIMDBlocklistEntryAdmin
-from posthog.api.oauth.cimd import block_cimd_url, is_cimd_url_blocked
+from posthog.api.oauth.cimd import _blocked_key, block_cimd_url, is_cimd_url_blocked
 from posthog.models.oauth import CIMDBlocklistEntry
 
 BLOCKED_URL = "https://partner.example.com/.well-known/oauth-client.json"
@@ -25,7 +24,7 @@ class TestCIMDBlocklistEntryAdmin(BaseTest):
         request.user = self.user
         return request
 
-    @parameterized.expand([("action",), ("delete_model",), ("delete_queryset",)])
+    @parameterized.expand([("delete_model",), ("delete_queryset",)])
     def test_removing_an_entry_also_clears_the_cached_block(self, removal_path):
         block_cimd_url(BLOCKED_URL)
         assert is_cimd_url_blocked(BLOCKED_URL) is True
@@ -33,10 +32,7 @@ class TestCIMDBlocklistEntryAdmin(BaseTest):
         queryset = CIMDBlocklistEntry.objects.filter(pk=entry.pk)
         request = self._request()
 
-        if removal_path == "action":
-            with patch.object(self.admin, "message_user"):
-                self.admin.unblock(request=request, queryset=queryset)
-        elif removal_path == "delete_model":
+        if removal_path == "delete_model":
             self.admin.delete_model(request, entry)
         else:
             self.admin.delete_queryset(request, queryset)
@@ -53,3 +49,20 @@ class TestCIMDBlocklistEntryAdmin(BaseTest):
 
         assert is_cimd_url_blocked(BLOCKED_URL) is True
         assert CIMDBlocklistEntry.objects.filter(cimd_url=BLOCKED_URL).count() == 1
+        entry = CIMDBlocklistEntry.objects.get(cimd_url=BLOCKED_URL)
+        assert entry.created_by == self.user
+
+    @parameterized.expand(
+        [
+            ("uncached", None, "not cached (warms to blocked)"),
+            ("blocked", True, "blocked"),
+            ("stale_allowed", False, "STALE: cached as allowed"),
+        ]
+    )
+    def test_cache_state_reports_the_cached_verdict_without_warming_it(self, _name, cached, expected):
+        entry = CIMDBlocklistEntry.objects.create(cimd_url=BLOCKED_URL)
+        if cached is not None:
+            cache.set(_blocked_key(BLOCKED_URL), cached, timeout=60)
+
+        assert self.admin.cache_state(entry) == expected
+        assert cache.get(_blocked_key(BLOCKED_URL)) == cached

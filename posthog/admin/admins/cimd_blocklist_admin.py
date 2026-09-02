@@ -14,7 +14,7 @@ the URL blocked, and a row added by hand never takes effect.
 
 from typing import cast
 
-from django.contrib import admin, messages
+from django.contrib import admin
 from django.db.models import QuerySet
 from django.forms import ModelForm
 from django.http import HttpRequest
@@ -24,13 +24,27 @@ from posthog.models import User
 from posthog.models.oauth import CIMDBlocklistEntry
 
 
+class CIMDBlocklistEntryForm(ModelForm):
+    class Meta:
+        model = CIMDBlocklistEntry
+        fields = "__all__"
+        help_texts = {
+            "cimd_url": (
+                "Paste the exact client_id from the OAuth application row. Matching is byte for byte, "
+                "so a different host case, a trailing slash or an explicit :443 never matches. "
+                "Deleting an entry unblocks the URL: the next authorize request fetches the metadata "
+                "document again and recreates the application."
+            )
+        }
+
+
 @admin.register(CIMDBlocklistEntry)
 class CIMDBlocklistEntryAdmin(admin.ModelAdmin):
+    form = CIMDBlocklistEntryForm
     list_display = ("cimd_url", "reason", "cache_state", "created_at", "created_by")
     list_display_links = ("cimd_url",)
     search_fields = ("cimd_url", "reason")
     ordering = ("-created_at",)
-    actions = ("unblock",)
 
     def get_readonly_fields(self, request: HttpRequest, obj: CIMDBlocklistEntry | None = None) -> tuple[str, ...]:
         # cimd_url derives the Redis key, so changing it on an existing entry would strand the
@@ -48,7 +62,7 @@ class CIMDBlocklistEntryAdmin(admin.ModelAdmin):
         return "blocked" if state else "STALE: cached as allowed"
 
     def save_model(self, request: HttpRequest, obj: CIMDBlocklistEntry, form: ModelForm, change: bool) -> None:
-        if not change and obj.created_by_id is None:
+        if not change:
             # The admin site requires a logged-in staff user, so request.user is never anonymous.
             obj.created_by = cast(User, request.user)
         super().save_model(request, obj, form, change)
@@ -63,15 +77,3 @@ class CIMDBlocklistEntryAdmin(admin.ModelAdmin):
     def delete_queryset(self, request: HttpRequest, queryset: QuerySet[CIMDBlocklistEntry]) -> None:
         for url in list(queryset.values_list("cimd_url", flat=True)):
             unblock_cimd_url(url)
-
-    @admin.action(description="Unblock selected URLs")
-    def unblock(self, request: HttpRequest, queryset: QuerySet[CIMDBlocklistEntry]) -> None:
-        urls = list(queryset.values_list("cimd_url", flat=True))
-        for url in urls:
-            unblock_cimd_url(url)
-        self.message_user(
-            request,
-            f"Unblocked {len(urls)} URL(s). The next authorize request for each one fetches the "
-            "metadata document again and recreates the application.",
-            level=messages.SUCCESS,
-        )
