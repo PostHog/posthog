@@ -192,12 +192,14 @@ class _ObjectUpload:
             await self._upload_part(bytes(self._buffer))
             self._buffer.clear()
 
+        upload_id = self._upload_id
+        assert upload_id is not None
         await _retry_on_request_timeout(
             0,
             lambda: self._client.complete_multipart_upload(
                 Bucket=self._bucket,
                 Key=self._key,
-                UploadId=self._upload_id,
+                UploadId=upload_id,
                 MultipartUpload={"Parts": self._parts},
             ),
         )
