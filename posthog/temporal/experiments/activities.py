@@ -86,6 +86,7 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
                 get_experiment_stats_method(experiment),
                 experiment.exposure_criteria,
                 only_count_matured_users=experiment.only_count_matured_users,
+                excluded_variants=experiment.excluded_variants or [],
             )
 
             experiment_metrics.append(
@@ -215,9 +216,9 @@ def _calculate_experiment_regular_metric_sync(
         ExperimentMetricResultModel.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
-            fingerprint=fingerprint,
             query_to=query_to_utc,
             defaults={
+                "fingerprint": fingerprint,
                 "query_from": query_from_utc,
                 "status": ExperimentMetricResultModel.Status.COMPLETED,
                 "result": result_dict,
@@ -246,9 +247,9 @@ def _calculate_experiment_regular_metric_sync(
         ExperimentMetricResultModel.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
-            fingerprint=fingerprint,
             query_to=query_to_utc,
             defaults={
+                "fingerprint": fingerprint,
                 "query_from": query_from_utc,
                 "status": ExperimentMetricResultModel.Status.FAILED,
                 "result": None,
@@ -289,9 +290,9 @@ def _calculate_experiment_regular_metric_sync(
         ExperimentMetricResultModel.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
-            fingerprint=fingerprint,
             query_to=query_to_utc,
             defaults={
+                "fingerprint": fingerprint,
                 "query_from": query_from_utc,
                 "status": ExperimentMetricResultModel.Status.FAILED,
                 "result": None,
@@ -377,6 +378,7 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
                 get_experiment_stats_method(experiment),
                 experiment.exposure_criteria,
                 only_count_matured_users=experiment.only_count_matured_users,
+                excluded_variants=experiment.excluded_variants or [],
             )
 
             experiment_metrics.append(
@@ -520,9 +522,9 @@ def _calculate_experiment_saved_metric_sync(
         ExperimentMetricResultModel.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
-            fingerprint=fingerprint,
             query_to=query_to_utc,
             defaults={
+                "fingerprint": fingerprint,
                 "query_from": query_from_utc,
                 "status": ExperimentMetricResultModel.Status.COMPLETED,
                 "result": result_dict,
@@ -551,9 +553,9 @@ def _calculate_experiment_saved_metric_sync(
         ExperimentMetricResultModel.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
-            fingerprint=fingerprint,
             query_to=query_to_utc,
             defaults={
+                "fingerprint": fingerprint,
                 "query_from": query_from_utc,
                 "status": ExperimentMetricResultModel.Status.FAILED,
                 "result": None,
@@ -594,9 +596,9 @@ def _calculate_experiment_saved_metric_sync(
         ExperimentMetricResultModel.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
-            fingerprint=fingerprint,
             query_to=query_to_utc,
             defaults={
+                "fingerprint": fingerprint,
                 "query_from": query_from_utc,
                 "status": ExperimentMetricResultModel.Status.FAILED,
                 "result": None,

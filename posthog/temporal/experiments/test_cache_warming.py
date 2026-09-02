@@ -14,7 +14,10 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.temporal.experiments.activities import (
     _calculate_experiment_regular_metric_sync,
     _calculate_experiment_saved_metric_sync,
+    _get_experiment_regular_metrics_for_hour_sync,
+    _get_experiment_saved_metrics_for_hour_sync,
 )
+from posthog.temporal.experiments.utils import DEFAULT_EXPERIMENT_RECALCULATION_HOUR
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
@@ -60,6 +63,40 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
         assert result_row.query_to == expected_query_to
 
     @freeze_time("2020-01-10T12:00:00Z")
+    def test_fingerprint_change_updates_existing_row_for_same_window(self):
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2020, 1, 1, 0, 0, 0),
+            end_date=datetime(2020, 1, 5, 0, 0, 0),
+        )
+        metric = ExperimentMeanMetric(uuid=str(uuid4()), source=EventsNode(event="purchase"))
+        metric_dict = metric.model_dump(mode="json")
+        experiment.metrics = [metric_dict]
+        experiment.save()
+
+        with (
+            patch("posthog.temporal.experiments.activities.close_old_connections"),
+            patch("posthog.temporal.experiments.activities.ExperimentQueryRunner") as mock_runner_class,
+        ):
+            mock_runner_class.return_value.run.return_value.model_dump.return_value = {"variant_results": []}
+
+            first = _calculate_experiment_regular_metric_sync.func(  # type: ignore[attr-defined]
+                experiment.id, metric_dict["uuid"], "fingerprint_a"
+            )
+            # Same experiment, metric, and window, but the metric definition changed,
+            # so the fingerprint differs. This must update the row, not insert a duplicate.
+            second = _calculate_experiment_regular_metric_sync.func(  # type: ignore[attr-defined]
+                experiment.id, metric_dict["uuid"], "fingerprint_b"
+            )
+
+        self.assertTrue(first.success, msg=first.error_message)
+        self.assertTrue(second.success, msg=second.error_message)
+        rows = ExperimentMetricResult.objects.filter(experiment=experiment, metric_uuid=metric_dict["uuid"])
+        assert rows.count() == 1
+        assert rows.get().fingerprint == "fingerprint_b"
+
+    @freeze_time("2020-01-10T12:00:00Z")
     def test_saved_metric_activity_pins_runner_to_stored_query_to(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
@@ -98,6 +135,42 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
         assert mock_runner_class.call_args.kwargs["as_of"] == expected_query_to
         result_row = ExperimentMetricResult.objects.get(experiment=experiment, metric_uuid=metric_dict["uuid"])
         assert result_row.query_to == expected_query_to
+
+    @freeze_time("2020-01-10T12:00:00Z")
+    def test_discovery_fingerprint_includes_excluded_variants(self):
+        # Discovery must produce the same fingerprint the API serializes and the chart queries with.
+        # Dropping excluded_variants here writes rows the timeseries read path can never select, so
+        # points silently vanish for any experiment that excludes a variant.
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag, start_date=datetime(2020, 1, 1, 0, 0, 0))
+        experiment.excluded_variants = ["control"]
+        metric = ExperimentMeanMetric(uuid=str(uuid4()), source=EventsNode(event="purchase"))
+        metric_dict = metric.model_dump(mode="json")
+        experiment.metrics = [metric_dict]
+        experiment.save()
+
+        saved_metric = ExperimentSavedMetric.objects.create(
+            name="test saved metric", team=self.team, query=metric_dict, created_by=self.user
+        )
+        ExperimentToSavedMetric.objects.create(
+            experiment=experiment, saved_metric=saved_metric, metadata={"type": "primary"}
+        )
+
+        expected_fingerprint = compute_metric_fingerprint(
+            metric_dict,
+            experiment.start_date,
+            get_experiment_stats_method(experiment),
+            experiment.exposure_criteria,
+            only_count_matured_users=experiment.only_count_matured_users,
+            excluded_variants=["control"],
+        )
+
+        with patch("posthog.temporal.experiments.activities.close_old_connections"):
+            regular = _get_experiment_regular_metrics_for_hour_sync.func(DEFAULT_EXPERIMENT_RECALCULATION_HOUR)  # type: ignore[attr-defined]
+            saved = _get_experiment_saved_metrics_for_hour_sync.func(DEFAULT_EXPERIMENT_RECALCULATION_HOUR)  # type: ignore[attr-defined]
+
+        assert [m.fingerprint for m in regular if m.experiment_id == experiment.id] == [expected_fingerprint]
+        assert [m.fingerprint for m in saved if m.experiment_id == experiment.id] == [expected_fingerprint]
 
     @freeze_time("2020-01-10T12:00:00Z")
     def test_temporal_activity_warms_query_cache(self):
