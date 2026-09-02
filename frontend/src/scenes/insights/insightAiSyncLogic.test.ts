@@ -192,6 +192,58 @@ describe('insightAiSyncLogic', () => {
         expect(logic.values).toMatchObject({ hasPendingAiConflict: false, isApplyingAiChanges: false })
     })
 
+    it('keeps edits made after a save when the older AI reload settles', () => {
+        insightSceneLogic.actions.setInsightMetadataLocal({ name: 'Draft name' })
+        logic.actions.agentToolCompleted('insight-update', { id: 42 })
+        logic.actions.useAiChanges()
+
+        const savedQuery = { kind: NodeKind.HogQLQuery, query: 'select 2' } as any
+        insightSceneLogic.actions.saveInsightSuccess()
+        insightSceneLogic.actions.setInsight(
+            { ...insightLogicProps.cachedInsight, name: 'Saved name', query: savedQuery } as any,
+            { fromPersistentApi: true, overrideQuery: true }
+        )
+
+        const postSaveQuery = { kind: NodeKind.HogQLQuery, query: 'select 3' } as any
+        insightSceneLogic.actions.setInsightMetadataLocal({ name: 'Post-save name' })
+        insightData.actions.setQuery(postSaveQuery)
+
+        insightSceneLogic.actions.loadInsightSuccess({
+            ...insightLogicProps.cachedInsight,
+            name: 'AI name',
+            query: { kind: NodeKind.HogQLQuery, query: 'select 1' },
+        } as any)
+
+        expect(insightSceneLogic.values.insight.name).toBe('Post-save name')
+        expect(insightSceneLogic.values.savedInsight.name).toBe('Saved name')
+        expect(insightData.values.query).toEqual(postSaveQuery)
+        expect(logic.values).toMatchObject({ hasPendingAiConflict: false, isApplyingAiChanges: false })
+        expect(insightSceneLogic.values.insightChanged).toBe(true)
+        expect(insightData.values.queryChanged).toBe(true)
+    })
+
+    it('starts a second matching AI reload without restoring an earlier save', () => {
+        insightSceneLogic.actions.setInsightMetadataLocal({ name: 'Draft name' })
+        logic.actions.agentToolCompleted('insight-update', { id: 42 })
+        logic.actions.useAiChanges()
+
+        insightSceneLogic.actions.saveInsightSuccess()
+        insightSceneLogic.actions.setInsight({ ...insightLogicProps.cachedInsight, name: 'Saved name' } as any, {
+            fromPersistentApi: true,
+            overrideQuery: true,
+        })
+
+        logic.actions.agentToolCompleted('insight-update', { id: 42 })
+        insightSceneLogic.actions.loadInsightSuccess({
+            ...insightLogicProps.cachedInsight,
+            name: 'Second AI name',
+        } as any)
+
+        expect(insightSceneLogic.values.insight.name).toBe('Second AI name')
+        expect(insightSceneLogic.values.savedInsight.name).toBe('Second AI name')
+        expect(logic.values).toMatchObject({ hasPendingAiConflict: false, isApplyingAiChanges: false })
+    })
+
     it('ignores another insight', () => {
         expectLogic().clearHistory()
 

@@ -51,6 +51,13 @@ const sameId = (left: unknown, right: unknown): boolean => {
 
 const INSIGHT_ID_ALIASES = ['id', 'insightId', 'insight_id', 'short_id', 'shortId'] as const
 
+const clearAiReloadCache = (cache: Record<string, any>): void => {
+    cache.aiReloadMetadataUpdate = undefined
+    cache.aiReloadQuery = undefined
+    cache.aiReloadSavedInsight = undefined
+    cache.aiReloadWasSupersededBySave = false
+}
+
 /**
  * Mirrors the backend's primary-key-first lookup without allowing a numeric short ID to target a
  * different insight in the client. A numeric value can therefore only name this insight by its ID;
@@ -247,7 +254,14 @@ export interface insightAiSyncLogicActions {
         innerInput: Record<string, unknown> | null
         toolName: string
     }
-    completeAiChangesReload: (preserveLocalChanges: boolean) => {
+    clearAiReloadEdits: () => {
+        value: true
+    }
+    completeAiChangesReload: (
+        preserveLocalChanges: boolean,
+        keepConflict: boolean
+    ) => {
+        keepConflict: boolean
         preserveLocalChanges: boolean
     }
     failAiChangesReload: () => {
@@ -260,9 +274,6 @@ export interface insightAiSyncLogicActions {
         value: true
     }
     setPendingAiConflict: () => {
-        value: true
-    }
-    supersedeAiChangesReload: () => {
         value: true
     }
     useAiChanges: () => {
@@ -315,10 +326,13 @@ export const insightAiSyncLogic: LogicWrapper<insightAiSyncLogicType> = kea<insi
         setPendingAiConflict: true,
         keepMyChanges: true,
         useAiChanges: true,
-        completeAiChangesReload: (preserveLocalChanges: boolean) => ({ preserveLocalChanges }),
+        completeAiChangesReload: (preserveLocalChanges: boolean, keepConflict: boolean) => ({
+            preserveLocalChanges,
+            keepConflict,
+        }),
         failAiChangesReload: true,
         recordAiReloadEdit: true,
-        supersedeAiChangesReload: true,
+        clearAiReloadEdits: true,
     }),
     reducers({
         hasPendingAiConflict: [
@@ -326,7 +340,8 @@ export const insightAiSyncLogic: LogicWrapper<insightAiSyncLogicType> = kea<insi
             {
                 setPendingAiConflict: () => true,
                 keepMyChanges: () => false,
-                completeAiChangesReload: (_, { preserveLocalChanges }) => preserveLocalChanges,
+                completeAiChangesReload: (_, { preserveLocalChanges, keepConflict }) =>
+                    keepConflict && preserveLocalChanges,
                 saveInsightSuccess: () => false,
             },
         ],
@@ -336,7 +351,6 @@ export const insightAiSyncLogic: LogicWrapper<insightAiSyncLogicType> = kea<insi
                 useAiChanges: () => true,
                 completeAiChangesReload: () => false,
                 failAiChangesReload: () => false,
-                supersedeAiChangesReload: () => false,
             },
         ],
         aiReloadHasLocalEdits: [
@@ -346,14 +360,13 @@ export const insightAiSyncLogic: LogicWrapper<insightAiSyncLogicType> = kea<insi
                 recordAiReloadEdit: () => true,
                 completeAiChangesReload: () => false,
                 failAiChangesReload: () => false,
-                supersedeAiChangesReload: () => false,
+                clearAiReloadEdits: () => false,
             },
         ],
     }),
     listeners(({ actions, cache, props, values }) => ({
         useAiChanges: () => {
-            cache.aiReloadMetadataUpdate = undefined
-            cache.aiReloadQuery = undefined
+            clearAiReloadCache(cache)
             if (values.insight.short_id) {
                 actions.loadInsight(
                     values.insight.short_id,
@@ -384,7 +397,8 @@ export const insightAiSyncLogic: LogicWrapper<insightAiSyncLogicType> = kea<insi
             cache.aiReloadWasSupersededBySave = true
             cache.aiReloadMetadataUpdate = undefined
             cache.aiReloadQuery = undefined
-            actions.supersedeAiChangesReload()
+            cache.aiReloadSavedInsight = undefined
+            actions.clearAiReloadEdits()
         },
         setInsight: ({ insight, options }) => {
             if (cache.aiReloadWasSupersededBySave && options.fromPersistentApi) {
@@ -394,9 +408,17 @@ export const insightAiSyncLogic: LogicWrapper<insightAiSyncLogicType> = kea<insi
         loadInsightSuccess: () => {
             if (cache.aiReloadSavedInsight) {
                 const savedInsight = cache.aiReloadSavedInsight
-                cache.aiReloadSavedInsight = undefined
-                cache.aiReloadWasSupersededBySave = false
+                const metadataUpdate = cache.aiReloadMetadataUpdate
+                const query = cache.aiReloadQuery
                 actions.setInsight(savedInsight, { fromPersistentApi: true, overrideQuery: true })
+                if (metadataUpdate) {
+                    actions.setInsightMetadataLocal(metadataUpdate)
+                }
+                if (query !== undefined) {
+                    actions.setQuery(query)
+                }
+                clearAiReloadCache(cache)
+                actions.completeAiChangesReload(metadataUpdate !== undefined || query !== undefined, false)
                 return
             }
             if (!values.isApplyingAiChanges) {
@@ -412,18 +434,14 @@ export const insightAiSyncLogic: LogicWrapper<insightAiSyncLogicType> = kea<insi
                     actions.setQuery(cache.aiReloadQuery)
                 }
             }
-            cache.aiReloadMetadataUpdate = undefined
-            cache.aiReloadQuery = undefined
-            actions.completeAiChangesReload(preserveLocalChanges)
+            clearAiReloadCache(cache)
+            actions.completeAiChangesReload(preserveLocalChanges, true)
         },
         loadInsightFailure: () => {
-            cache.aiReloadSavedInsight = undefined
-            cache.aiReloadWasSupersededBySave = false
+            clearAiReloadCache(cache)
             if (!values.isApplyingAiChanges) {
                 return
             }
-            cache.aiReloadMetadataUpdate = undefined
-            cache.aiReloadQuery = undefined
             actions.failAiChangesReload()
         },
         agentToolCompleted: ({ toolName, innerInput }) => {
