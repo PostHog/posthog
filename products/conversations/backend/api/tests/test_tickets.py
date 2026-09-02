@@ -15,6 +15,7 @@ from posthog.test.base import (
 from unittest.mock import patch
 
 from django.db import transaction
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -34,13 +35,36 @@ from posthog.test.persons import create_person
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role
 from products.conversations.backend.api.ticket_filters import query_params_to_view_filters
-from products.conversations.backend.api.tickets import TicketReplyRequestSerializer
+from products.conversations.backend.api.tickets import ComposeTicketSerializer, TicketReplyRequestSerializer
 from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, TicketAssignment, TicketView
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import PERSON_EMAIL_LOOKUP_QUERY, _get_persons_by_email
 from products.conversations.backend.reply_dedupe import REPLY_IN_PROGRESS_ERROR_TYPE, ReplyFingerprint, reserve
 
 from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
+
+
+class TestComposeTicketSerializer(SimpleTestCase):
+    def _payload(self, **overrides):
+        data = {
+            "recipient_email": "someone@example.com",
+            "email_config_id": "00000000-0000-0000-0000-000000000000",
+            "message": "Hello!",
+        }
+        data.update(overrides)
+        return data
+
+    def test_rejects_more_than_100_tags(self):
+        # The compose write applies each tag inside the ticket-creation transaction, which
+        # holds a team-row lock. An unbounded list would fan out that work under the lock, so
+        # the field is capped at 100 before any DB work starts.
+        serializer = ComposeTicketSerializer(data=self._payload(tags=[f"t{i}" for i in range(101)]))
+        assert not serializer.is_valid()
+        assert set(serializer.errors) == {"tags"}
+
+    def test_accepts_up_to_100_tags(self):
+        serializer = ComposeTicketSerializer(data=self._payload(tags=[f"t{i}" for i in range(100)]))
+        assert serializer.is_valid(), serializer.errors
 
 
 # Patch on_commit to execute immediately in tests
@@ -1989,6 +2013,23 @@ class TestComposeTicketAPI(APIBaseTest):
         )
         assert search.status_code == status.HTTP_200_OK
         assert [t["id"] for t in search.json()["results"]] == [str(ticket.id)]
+
+    def test_compose_applies_tags_to_the_new_ticket(self, mock_on_commit):
+        # Tags let support filter composed tickets by source (e.g. roadmap pitches). If compose
+        # drops the field, the ticket lands untagged and that filtering breaks.
+        response = self._compose(
+            {
+                "recipient_email": "pitch@test.com",
+                "email_config_id": str(self.email_config.id),
+                "message": "Great idea, we logged it.",
+                "tags": ["roadmap_pitch"],
+            }
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        detail = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{response.json()['id']}/")
+        assert detail.status_code == status.HTTP_200_OK
+        assert detail.json()["tags"] == ["roadmap_pitch"]
 
 
 class TestTicketPersonalAPIKeyScopes(APIBaseTest):

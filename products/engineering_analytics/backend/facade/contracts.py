@@ -628,14 +628,17 @@ class FlakyTestList:
 # expires a quarantine, so this deadline is the product's own accountability bar.
 TRUNK_QUARANTINE_TTL_DAYS = 15
 
+# The first-class team every unattributed test aggregates under, on every surface here.
+UNOWNED_TEAM = "unowned"
+
 
 @dataclass(frozen=True)
 class TrunkQuarantinedTest:
     """One test Trunk currently quarantines, aged against ``TRUNK_QUARANTINE_TTL_DAYS``.
 
-    Rows come from the synced TrunkIo ``QuarantinedTests`` warehouse table. Ownership rides the
-    per-test CI spans (the emitter stamps ``test.owner_team``); a quarantined test with no
-    in-retention span aggregates under ``'unowned'``.
+    Rows come from the synced TrunkIo ``QuarantinedTests`` warehouse table. Ownership is the
+    repository's own, resolved from ``owners.yaml`` / ``product.yaml`` for the test's file: a test
+    the repository does not place, or whose path no team claims, aggregates under ``'unowned'``.
     """
 
     # Runner label derived from Trunk's uploader-specific 'parent' field: 'pytest', 'jest',
@@ -644,6 +647,7 @@ class TrunkQuarantinedTest:
     runner: str
     # Runner-native test id reconstructed from Trunk's (file, classname, name) key.
     nodeid: str
+    # Repo-relative path of the test's file, empty when neither the repository nor Trunk places it.
     file: str
     owner_team: str
     # Trunk's health verdict on the test, e.g. 'FLAKY' or 'BROKEN'.
@@ -674,6 +678,9 @@ class TrunkQuarantineDebt:
     no TrunkIo source has the QuarantinedTests endpoint synced — that is not an error."""
 
     available: bool
+    # False when the repository's ownership files could not be read, which leaves every test
+    # 'unowned'. A board that says so beats one that reads as "nobody owns this debt".
+    owners_resolved: bool
     ttl_days: int
     # The 'owner/name' repository the debt was read for; test file paths are relative to it.
     repository: str
