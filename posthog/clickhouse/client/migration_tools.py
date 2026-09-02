@@ -37,6 +37,7 @@ def run_sql_with_exceptions(
     node_roles: list[NodeRole] | NodeRole | None = None,
     sharded: Optional[bool] = None,
     is_alter_on_replicated_table: Optional[bool] = None,
+    require_hosts: bool = False,
 ):
     """
     Executes a SQL query on each node separately with specific options, handling distributed execution and node roles.
@@ -57,6 +58,8 @@ def run_sql_with_exceptions(
     is_alter_on_replicated_table: bool, optional (default is False)
         Specifies whether the query is an ALTER statement executed on replicated tables.
         This will run on just one host per shard or one host for the whole cluster if there is no sharding.
+    require_hosts: bool, optional (default is False)
+        Raises when none of the requested node roles exist in the migration topology.
 
     Returns:
     migrations.RunPython
@@ -106,7 +109,7 @@ def run_sql_with_exceptions(
             logger.info("       Running ALTER on replicated table on just one host")
             return cluster.any_host_by_roles(query, node_roles=node_roles_list).result()
         else:
-            return cluster.map_hosts_by_roles(query, node_roles=node_roles_list).result()
+            return cluster.map_hosts_by_roles(query, node_roles=node_roles_list, require_hosts=require_hosts).result()
 
     operation = migrations.RunPython(lambda _: run_migration())
 
@@ -119,5 +122,6 @@ def run_sql_with_exceptions(
     operation._effective_node_roles = node_roles_list
     operation._sharded = sharded
     operation._is_alter_on_replicated_table = is_alter_on_replicated_table
+    operation._require_hosts = require_hosts
 
     return operation

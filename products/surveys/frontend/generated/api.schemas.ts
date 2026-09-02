@@ -13,9 +13,9 @@
  * * `external_survey` - external survey
  * * `api` - api
  */
-export type SurveyTypeApi = (typeof SurveyTypeApi)[keyof typeof SurveyTypeApi]
+export type SurveyTypeEnumApi = (typeof SurveyTypeEnumApi)[keyof typeof SurveyTypeEnumApi]
 
-export const SurveyTypeApi = {
+export const SurveyTypeEnumApi = {
     Popover: 'popover',
     Widget: 'widget',
     ExternalSurvey: 'external_survey',
@@ -141,10 +141,10 @@ export interface UserBasicApi {
  * * `week` - week
  * * `month` - month
  */
-export type ResponseSamplingIntervalTypeEnumApi =
-    (typeof ResponseSamplingIntervalTypeEnumApi)[keyof typeof ResponseSamplingIntervalTypeEnumApi]
+export type SurveySamplingIntervalTypeEnumApi =
+    (typeof SurveySamplingIntervalTypeEnumApi)[keyof typeof SurveySamplingIntervalTypeEnumApi]
 
-export const ResponseSamplingIntervalTypeEnumApi = {
+export const SurveySamplingIntervalTypeEnumApi = {
     Day: 'day',
     Week: 'week',
     Month: 'month',
@@ -172,7 +172,7 @@ export interface SurveyApi {
     /** @maxLength 400 */
     name: string
     description?: string
-    type: SurveyTypeApi
+    type: SurveyTypeEnumApi
     /** @nullable */
     schedule?: string | null
     readonly linked_flag: MinimalFeatureFlagApi
@@ -336,7 +336,7 @@ export interface SurveyApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | null
+    response_sampling_interval_type?: SurveySamplingIntervalTypeEnumApi | BlankEnumApi | null
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -384,9 +384,9 @@ export interface PaginatedSurveyListApi {
  * * `recurring` - recurring
  * * `always` - always
  */
-export type ScheduleEnumApi = (typeof ScheduleEnumApi)[keyof typeof ScheduleEnumApi]
+export type SurveyScheduleEnumApi = (typeof SurveyScheduleEnumApi)[keyof typeof SurveyScheduleEnumApi]
 
-export const ScheduleEnumApi = {
+export const SurveyScheduleEnumApi = {
     Once: 'once',
     Recurring: 'recurring',
     Always: 'always',
@@ -1264,13 +1264,13 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
      * * `widget` - widget
      * * `external_survey` - external survey
      * * `api` - api */
-    type: SurveyTypeApi
+    type: SurveyTypeEnumApi
     /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
      *
      * * `once` - once
      * * `recurring` - recurring
      * * `always` - always */
-    schedule?: ScheduleEnumApi | null
+    schedule?: SurveyScheduleEnumApi | null
     readonly linked_flag: MinimalFeatureFlagApi
     /**
      * The feature flag linked to this survey.
@@ -1455,7 +1455,7 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | null
+    response_sampling_interval_type?: SurveySamplingIntervalTypeEnumApi | BlankEnumApi | null
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -1491,7 +1491,7 @@ export interface SurveySerializerCreateUpdateOnlyApi {
     /** @maxLength 400 */
     name: string
     description?: string
-    type: SurveyTypeApi
+    type: SurveyTypeEnumApi
     /** @nullable */
     schedule?: string | null
     readonly linked_flag: MinimalFeatureFlagApi
@@ -1657,7 +1657,7 @@ export interface SurveySerializerCreateUpdateOnlyApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | null
+    response_sampling_interval_type?: SurveySamplingIntervalTypeEnumApi | BlankEnumApi | null
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -1701,13 +1701,13 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
      * * `widget` - widget
      * * `external_survey` - external survey
      * * `api` - api */
-    type?: SurveyTypeApi
+    type?: SurveyTypeEnumApi
     /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
      *
      * * `once` - once
      * * `recurring` - recurring
      * * `always` - always */
-    schedule?: ScheduleEnumApi | null
+    schedule?: SurveyScheduleEnumApi | null
     readonly linked_flag?: MinimalFeatureFlagApi
     /**
      * The feature flag linked to this survey.
@@ -1892,7 +1892,7 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
     current_iteration_start_date?: string | null
     /** @nullable */
     response_sampling_start_date?: string | null
-    response_sampling_interval_type?: ResponseSamplingIntervalTypeEnumApi | BlankEnumApi | null
+    response_sampling_interval_type?: SurveySamplingIntervalTypeEnumApi | BlankEnumApi | null
     /**
      * @minimum 0
      * @maximum 2147483647

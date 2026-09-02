@@ -39,6 +39,7 @@ import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/Sessions
 import { OrganizationMCPAccess } from 'scenes/settings/organization/OrganizationMCPAccess'
 import { urls } from 'scenes/urls'
 
+import { AccessResolutionPreview } from '~/layout/navigation-3000/sidepanel/panels/access_control/ResolutionPreview/AccessResolutionPreview'
 import {
     DefaultRoleSelector,
     RolesAccessControls,
@@ -177,6 +178,7 @@ import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { PersonalGitHubIntegrations, PersonalSlackIntegrations } from './user/PersonalIntegrations'
+import { ProfilePictureSettings } from './user/ProfilePictureSettings'
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { Reminders } from './user/Reminders'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
@@ -898,7 +900,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Generate metrics from your logs at ingestion time. Metrics are computed before drop rules, so you can drop noisy logs and keep the trend.',
                 component: <LogsMetricRulesSection />,
-                flag: LogsFeatureFlagKeys.metricRules,
+                flag: 'METRICS',
                 keywords: ['metric', 'metrics', 'log-based', 'generate', 'count', 'aggregate', 'logs to metrics'],
             },
             {
@@ -1935,6 +1937,25 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'organization',
+        id: 'organization-access-resolution',
+        title: 'Access resolution preview',
+        flag: 'ACCESS_CONTROL_RESOLUTION_PREVIEW',
+        // Temporary migration surface: reachable only from the access control
+        // settings banner, never from the settings navigation or search
+        hideFromNavigation: true,
+        settings: [
+            {
+                id: 'organization-access-resolution-preview',
+                title: 'Access resolution preview',
+                description:
+                    'PostHog is changing how access levels combine: the most specific rule will decide, instead of the highest one. Review what will be different for your organization before the change takes effect.',
+                component: <AccessResolutionPreview />,
+                keywords: ['access control', 'resolution', 'rbac', 'permission', 'override'],
+            },
+        ],
+    },
+    {
+        level: 'organization',
         id: 'organization-security',
         title: 'Security',
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -1994,6 +2015,12 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'user-profile',
         title: 'Profile',
         settings: [
+            {
+                id: 'profile-picture',
+                title: 'Profile picture',
+                component: <ProfilePictureSettings />,
+                keywords: ['avatar', 'gravatar', 'photo', 'picture', 'image', 'profile'],
+            },
             {
                 id: 'details',
                 title: 'Details',
@@ -2237,7 +2264,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Bind your Slack identity to this PostHog account so @PostHog mentions route to you even when your Slack email and PostHog email differ.',
                 component: <PersonalSlackIntegrations />,
                 keywords: ['slack', 'integration', 'identity', 'link', 'mention', 'personal'],
-                flag: 'SLACK_APP_OAUTH',
             },
             {
                 id: 'personal-integrations-posthog',

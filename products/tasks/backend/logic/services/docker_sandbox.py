@@ -883,6 +883,7 @@ class DockerSandbox(SandboxBase):
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         rtk_enabled: bool = True,
+        benjamin_enabled: bool = False,
         peer_messaging: bool = False,
         posthog_exec_permission_regex: str | None = None,
     ) -> str:
@@ -906,6 +907,7 @@ class DockerSandbox(SandboxBase):
             event_ingest_url=event_ingest_url,
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             rtk_enabled=rtk_enabled,
+            benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
@@ -1000,6 +1002,7 @@ class DockerSandbox(SandboxBase):
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
+        benjamin_enabled: bool = False,
         peer_messaging: bool = False,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
@@ -1078,6 +1081,7 @@ class DockerSandbox(SandboxBase):
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
             rtk_enabled=rtk_enabled,
+            benjamin_enabled=benjamin_enabled,
             peer_messaging=peer_messaging,
             posthog_exec_permission_regex=exec_permission_regex,
         )
@@ -1134,6 +1138,7 @@ class DockerSandbox(SandboxBase):
                 event_ingest_keep_stream_open=event_ingest_keep_stream_open,
                 repo_ready_file=repo_ready_file,
                 rtk_enabled=rtk_enabled,
+                benjamin_enabled=benjamin_enabled,
                 peer_messaging=peer_messaging,
                 posthog_exec_permission_regex=exec_permission_regex,
             )

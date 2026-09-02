@@ -307,6 +307,17 @@ class TestSentryTransport:
         )
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
+    def test_validate_credentials_rejects_non_latin1_auth_token(self, mock_session) -> None:
+        # A token with a character outside latin-1 can't be encoded into the Authorization header;
+        # the guard must reject it before any request is dispatched.
+        valid, error = validate_credentials(auth_token="secret-’token", organization_slug="acme")
+
+        assert not valid
+        assert error is not None
+        assert error.startswith("Invalid Sentry auth token")
+        mock_session.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
     def test_validate_credentials_401_tells_user_to_reconnect(self, mock_session) -> None:
         mock_session.return_value.get.return_value = _response(None, status_code=401)
 
@@ -424,6 +435,14 @@ class TestSentrySourceValidation:
         )
 
         assert any(pattern in error_msg for pattern in SentrySource().get_retryable_errors())
+
+    def test_retryable_errors_match_exhausted_rate_limit_retries(self) -> None:
+        # tenacity retries 429s (reading X-Sentry-Rate-Limit-Reset); once exhausted, raise_for_status
+        # raises HTTPError with the status line "429 Client Error: Too Many Requests for url: ...".
+        # This does NOT contain "Max retries exceeded", so it must be matched separately.
+        error_msg = "429 Client Error: Too Many Requests for url: https://sentry.io/api/0/organizations/acme/trace-items/attributes/?dataset=logs"
+
+        assert error_message_matches(error_msg, SentrySource().get_retryable_errors())
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.rest_api_resource")
     def test_sentry_source_builds_response(self, mock_rest_api_resource) -> None:
@@ -817,6 +836,35 @@ class TestSentrySourceValidation:
 
         with pytest.raises(HTTPError):
             list(cast(Any, resp.items()))
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry._request_with_retry")
+    def test_issue_tag_values_skips_issue_on_persistent_tags_server_error(self, mock_request) -> None:
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/issues/"):
+                return _response([{"id": "100"}, {"id": "200"}])
+            if url.endswith("/organizations/acme/issues/100/tags/"):
+                # Sentry persistently 503s for this issue's tags endpoint.
+                return _response(None, status_code=503)
+            if url.endswith("/organizations/acme/issues/200/tags/"):
+                return _response([{"key": "browser"}])
+            if url.endswith("/organizations/acme/issues/200/tags/browser/values/"):
+                return _response([{"value": "Chrome"}])
+            return _response([])
+
+        mock_request.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+        )
+
+        # The 503 on issue 100's tags endpoint is skipped; issue 200 still yields its values.
+        rows = list(cast(Any, resp.items()))
+        assert rows == [{"value": "Chrome", "issue_id": "200", "tag_key": "browser"}]
 
 
 class TestSentrySourceResumable:

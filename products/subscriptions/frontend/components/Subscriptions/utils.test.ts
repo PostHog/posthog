@@ -1,15 +1,28 @@
 import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
+import { IntegrationType, SubscriptionType } from '~/types'
+
+import { SubscriptionTargetEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import {
     canNudgeToSubscribe,
+    coerceDeliveryConfigForScope,
     formatSubscriptionSchedule,
     getAiSubscriptionGate,
     getNextDeliveryDate,
     getSubscriptionAdvancedSettings,
+    integrationHasFilesWrite,
     selectedDaysToDayPickerLabel,
     shouldShowDayPicker,
+    targetTypeOptions,
     toggleSelectedDay,
 } from './utils'
+
+describe('targetTypeOptions', () => {
+    it('offers every destination the API accepts', () => {
+        // A destination the backend accepts but the select never offers is unreachable in the UI.
+        expect(targetTypeOptions.map(({ value }) => value)).toEqual(Object.values(SubscriptionTargetEnumApi))
+    })
+})
 
 describe('day picker values', () => {
     it.each([
@@ -64,6 +77,48 @@ describe('getSubscriptionAdvancedSettings', () => {
                 send_test_now: false,
             })
         ).toEqual(['Automatic AI summary', 'Custom AI summary context', 'No test delivery'])
+    })
+})
+
+describe('Slack gallery delivery config', () => {
+    const slackIntegration = (id: number, scope: string): IntegrationType =>
+        ({ id, kind: 'slack', config: { scope } }) as IntegrationType
+    const subscription = (args: Partial<SubscriptionType>): SubscriptionType =>
+        ({
+            target_type: 'slack',
+            integration_id: 7,
+            delivery_config: { post_all_insights_in_main_message: true },
+            ...args,
+        }) as SubscriptionType
+
+    it.each([
+        ['granted', slackIntegration(7, 'chat:write,files:write,channels:read'), true],
+        ['missing', slackIntegration(7, 'chat:write,channels:read'), false],
+        ['substring only', slackIntegration(7, 'files:write:advanced'), false],
+        ['missing integration', undefined, false],
+    ] as const)('detects files:write when it is %s', (_label, integration, expected) => {
+        expect(integrationHasFilesWrite(integration)).toBe(expected)
+    })
+
+    it.each<[string, SubscriptionType, IntegrationType[] | null | undefined, boolean]>([
+        ['removes the flag when files:write is missing', subscription({}), [slackIntegration(7, 'chat:write')], false],
+        ['keeps the flag when files:write is granted', subscription({}), [slackIntegration(7, 'files:write')], true],
+        [
+            'removes the flag for a non-Slack target',
+            subscription({ target_type: 'email' }),
+            [slackIntegration(7, 'files:write')],
+            false,
+        ],
+        ['removes the flag when the loaded integration is missing', subscription({}), [], false],
+        ['preserves the flag while integrations are unresolved', subscription({}), null, true],
+    ])('%s', (_label, value, integrations, expected) => {
+        expect(coerceDeliveryConfigForScope(value, integrations)?.post_all_insights_in_main_message).toBe(expected)
+    })
+
+    it('returns an already-disabled config unchanged', () => {
+        const config = { post_all_insights_in_main_message: false }
+        const value = subscription({ delivery_config: config })
+        expect(coerceDeliveryConfigForScope(value, [])).toBe(config)
     })
 })
 

@@ -330,9 +330,8 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         type: zod.enum(['Redshift']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of an aws-redshift-kind Integration providing connection credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of an aws-redshift-kind Integration providing connection credentials. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -1028,9 +1027,8 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                         type: zod.enum(['Redshift']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of an aws-redshift-kind Integration providing connection credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of an aws-redshift-kind Integration providing connection credentials. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -1481,9 +1479,8 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         type: zod.enum(['Redshift']),
                         integration_id: zod
                             .number()
-                            .optional()
                             .describe(
-                                'ID of an aws-redshift-kind Integration providing connection credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                                'ID of an aws-redshift-kind Integration providing connection credentials. Use the integrations-list MCP tool to find one.'
                             ),
                         config: zod
                             .object({
@@ -3591,3 +3588,20 @@ export const FileDownloadBatchExportsCancelCreateBody = /* @__PURE__ */ zod
         data_interval_end: zod.iso.datetime({ offset: true }).optional().describe('End of the data interval to export'),
     })
     .describe('Request shape for a FileDownload batch export on demand.')
+
+/**
+ * Count the rows a HogQL batch export would produce if started now.
+ */
+export const FileDownloadBatchExportsCountRowsCreateBody = /* @__PURE__ */ zod
+    .object({
+        model: zod
+            .enum(['hogql'])
+            .describe('\* `hogql` - hogql')
+            .describe("Model to count rows for. Only 'hogql' is supported.\n\n\* `hogql` - hogql"),
+        hogql_query: zod
+            .string()
+            .describe(
+                'HogQL SELECT query whose results are exported. This model is in closed beta and is enabled per team; when it is not enabled, the request fails with a permission error that names HogQL batch exports. Contact PostHog support to request access. Placeholders are not currently supported, and every column in the SELECT clause must be a field or have an alias. It is recommended to limit the query with a WHERE clause, for example bounding timestamp on the events table, both to avoid exporting more rows than expected and because user queries run under stricter resource limits than the other models.'
+            ),
+    })
+    .describe('Request shape for counting the rows a file download batch export would produce.')

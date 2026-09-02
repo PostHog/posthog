@@ -8,6 +8,7 @@ import datetime as dt
 from dataclasses import asdict
 from typing import cast
 
+from django.db import models
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema
@@ -51,13 +52,26 @@ from products.metrics.backend.facade.enums import AttributeScope, FilterOp, Metr
 __all__ = ["MetricsViewSet"]
 
 
+class MetricAttributeScope(models.TextChoices):
+    RESOURCE = "resource", "resource"
+    ATTRIBUTE = "attribute", "attribute"
+    AUTO = "auto", "auto"
+
+
+class Op(models.TextChoices):
+    EQ = "eq", "eq"
+    NEQ = "neq", "neq"
+    REGEX = "regex", "regex"
+    NOT_REGEX = "not_regex", "not_regex"
+
+
 class _MetricFilterSerializer(serializers.Serializer):
     key = serializers.CharField(
         max_length=255,
         help_text="Attribute name to filter on, without any type-tag suffix (e.g. 'k8s.pod.name', 'env').",
     )
     op = serializers.ChoiceField(
-        choices=["eq", "neq", "regex", "not_regex"],
+        choices=Op.choices,
         default="eq",
         help_text="Comparison operator. 'regex'/'not_regex' use RE2 syntax. Negative operators also match rows that lack the key entirely, mirroring Prometheus negative matchers.",
     )
@@ -67,7 +81,7 @@ class _MetricFilterSerializer(serializers.Serializer):
         help_text="Value to compare against. For regex operators this is the pattern.",
     )
     scope = serializers.ChoiceField(
-        choices=["resource", "attribute", "auto"],
+        choices=MetricAttributeScope.choices,
         default="auto",
         help_text="Where the attribute lives: 'resource' = per-target resource attributes (k8s.pod.name, service.version), 'attribute' = per-datapoint attributes (http.method, path), 'auto' = resource first with per-datapoint fallback. Use 'auto' unless you know the exact scope.",
     )
@@ -79,7 +93,7 @@ class _MetricGroupBySerializer(serializers.Serializer):
         help_text="Attribute name to split series by (e.g. 'k8s.pod.name', 'env').",
     )
     scope = serializers.ChoiceField(
-        choices=["resource", "attribute", "auto"],
+        choices=MetricAttributeScope.choices,
         default="auto",
         help_text="Where the attribute lives; same semantics as filter scope. Use 'auto' unless you know the exact scope.",
     )
@@ -126,6 +140,17 @@ class _MetricClauseSerializer(serializers.Serializer):
     )
 
 
+class MetricQueryInterval(models.TextChoices):
+    SECOND = "second", "second"
+    MINUTE = "minute", "minute"
+    MINUTE_5 = "minute_5", "minute_5"
+    MINUTE_15 = "minute_15", "minute_15"
+    HOUR = "hour", "hour"
+    HOUR_6 = "hour_6", "hour_6"
+    DAY = "day", "day"
+    WEEK = "week", "week"
+
+
 class _MetricQueryBodySerializer(serializers.Serializer):
     metricName = serializers.CharField(
         max_length=255,
@@ -163,7 +188,7 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         help_text="Labels to split the result into separate series by. Series share one time grid and are capped at the 100 largest.",
     )
     interval = serializers.ChoiceField(
-        choices=["second", "minute", "minute_5", "minute_15", "hour", "hour_6", "day", "week"],
+        choices=MetricQueryInterval.choices,
         required=False,
         allow_null=True,
         help_text="Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).",
@@ -332,6 +357,12 @@ class _MetricAnomalyDimensionSerializer(serializers.Serializer):
     )
 
 
+class MetricAnomalyDirection(models.TextChoices):
+    UP = "up", "up"
+    DOWN = "down", "down"
+    FLAT = "flat", "flat"
+
+
 class _MetricAnomalyReportSerializer(serializers.Serializer):
     metric_name = serializers.CharField(help_text="Metric that was characterized.")
     aggregation = serializers.CharField(help_text="Aggregation used (auto-picked when not specified).")
@@ -348,7 +379,7 @@ class _MetricAnomalyReportSerializer(serializers.Serializer):
         help_text="anomaly_mean / baseline_mean. A zero baseline yields anomaly_mean itself."
     )
     direction = serializers.ChoiceField(
-        choices=["up", "down", "flat"], help_text="Which way the metric moved versus the baseline."
+        choices=MetricAnomalyDirection.choices, help_text="Which way the metric moved versus the baseline."
     )
     onset_time = serializers.CharField(
         allow_null=True,
@@ -532,8 +563,14 @@ class _MetricAttributeValuesResponseSerializer(serializers.Serializer):
 
 class _MetricSamplesBodySerializer(serializers.Serializer):
     metricName = serializers.CharField(
+        required=False,
+        allow_blank=True,
         max_length=255,
-        help_text="Exact metric name to list raw emissions for (e.g. 'http.server.duration').",
+        help_text=(
+            "Exact metric name to list raw emissions for (e.g. 'http.server.duration'). "
+            "Omit to list emissions across all metric names — allowed only with traceId "
+            "(the trace->metrics pivot)."
+        ),
     )
     dateFrom = serializers.DateTimeField(
         help_text="Lower bound (inclusive) for the sample window. ISO 8601.",
@@ -547,6 +584,12 @@ class _MetricSamplesBodySerializer(serializers.Serializer):
         allow_blank=True,
         max_length=255,
         help_text="Restrict to emissions on this trace (hex trace id, as the tracing product uses) — the reverse metric->trace pivot. Omit for all traces.",
+    )
+    spanId = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=255,
+        help_text="Restrict to emissions recorded on this span (hex span id). Requires traceId, since a span id is only unique within its trace.",
     )
     metricType = serializers.ChoiceField(
         choices=[t.value for t in MetricType],
@@ -567,6 +610,13 @@ class _MetricSamplesBodySerializer(serializers.Serializer):
         max_value=1000,
         help_text="Max emissions to return, newest first. Defaults to 100, capped at 1000.",
     )
+
+    def validate(self, attrs: dict) -> dict:
+        if not attrs.get("metricName") and not attrs.get("traceId"):
+            raise serializers.ValidationError("metricName or traceId is required.")
+        if attrs.get("spanId") and not attrs.get("traceId"):
+            raise serializers.ValidationError("spanId requires traceId.")
+        return attrs
 
 
 class _MetricSamplesRequestSerializer(serializers.Serializer):
@@ -674,7 +724,7 @@ class _MetricExplainBodySerializer(serializers.Serializer):
         help_text="Start of the bucket to explain, as returned in a query result's 'time'. ISO 8601.",
     )
     interval = serializers.ChoiceField(
-        choices=["second", "minute", "minute_5", "minute_15", "hour", "hour_6", "day", "week"],
+        choices=MetricQueryInterval.choices,
         help_text="Bucket size the point was plotted at. Must match the query that produced it, or the decomposition explains a different span.",
     )
 
@@ -976,10 +1026,11 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         try:
             samples = list_metric_event_samples(
                 team=self.team,
-                metric_name=query_data["metricName"],
+                metric_name=query_data.get("metricName") or None,
                 date_from=query_data["dateFrom"],
                 date_to=query_data.get("dateTo") or timezone.now(),
                 trace_id=query_data.get("traceId") or None,
+                span_id=query_data.get("spanId") or None,
                 filters=filters,
                 metric_type=MetricType(query_data["metricType"]) if query_data.get("metricType") else None,
                 limit=query_data.get("limit") or 100,
