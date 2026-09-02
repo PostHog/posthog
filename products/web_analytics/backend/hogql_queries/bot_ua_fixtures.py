@@ -199,6 +199,11 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (compatible; PolycoreSupabaseDetector/1.0; +https://www.polycore.ai/)",
         "UnboundCompute-PublicSnapshot/1.0 (+https://unboundcompute.com/)",
         "swissAItalentBot/1.0 (+https://swissaitalent.ch/bot)",
+        # Second batch
+        "MetaInspector/5.7.0 (+https://github.com/jaimeiniesta/metainspector)",
+        "thejury-bailiff/1.0 (+https://thejury.lol/about)",
+        "ZentariBot/1.0 (+https://zentari.top/bot)",
+        "ClarityNewsBot/1.0",
     ],
     "seo_crawler": [
         "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.5359.128 Mobile Safari/537.36 (compatible; AhrefsSiteAudit/6.1; +http://ahrefs.com/robot/site-audit)",
@@ -332,6 +337,10 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "CurbCutScanner/0.2-spike (+https://github.com/devinxu0916/CurbCut) accessibility-audit-research",
         "VantageBot/0.1 (+https://github.com/morsela/webapp-monitor)",
         "NimbusBlocklistSync/1.0 (+https://nimbus.com)",
+        # Second batch
+        "Uptime-Monitor/1.0",
+        "Watchcrew/1.0 (+https://watchcrew.io/docs/allowlist)",
+        "ARF-Scanner/1.0",
     ],
     "http_client": [
         "Chrome Privacy Preserving Prefetch Proxy",
