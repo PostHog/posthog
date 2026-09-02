@@ -62,9 +62,12 @@ from posthog.rate_limit import (
     CustomSourceAIBuilderDailyThrottle,
     CustomSourceAIBuilderSustainedThrottle,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin, access_level_satisfied_for_resource
 
+from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.cdp.backend.facade.api import HogFunctionSerializer
 from products.cdp.backend.facade.models import HogFunction
 from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
@@ -100,7 +103,6 @@ from products.data_warehouse.backend.facade.api import (
     unpause_cdc_extraction_schedule,
 )
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
-from products.managed_warehouse.backend.facade import feature_flags as managed_warehouse_feature_flags
 from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_person_join
 from products.warehouse_sources.backend.facade.api import validate_source_prefix
 from products.warehouse_sources.backend.facade.models import (
@@ -111,6 +113,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     PendingSourceCredential,
     auto_enable_new_schemas,
+    latest_completed_job_prefetch,
     sync_old_schemas_with_new_schemas,
     update_sync_type_config_keys,
 )
@@ -162,6 +165,7 @@ from products.warehouse_sources.backend.facade.types import (
     ManagedWarehouseSQLMode,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+    ExternalDataSchemaListSerializer,
     ExternalDataSchemaSerializer,
     RowFiltersField,
     SimpleExternalDataSchemaSerializer,
@@ -181,6 +185,15 @@ RESERVED_SOURCE_NAME_MESSAGE = "This source name is reserved by PostHog."
 INVALID_CREDENTIALS_FALLBACK_MESSAGE = (
     "We couldn't validate those credentials. Check they're correct and have the required access, then try again."
 )
+
+
+def _source_unavailable_message(source_type: str) -> str:
+    # A source with no schema discovery is an unreleased scaffold the UI normally hides. Tell the
+    # user it isn't ready rather than exposing the internal "schema discovery" wording.
+    return (
+        f"The {source_type} source isn't available to connect yet. "
+        "Choose a different source, or contact support if you were expecting it."
+    )
 
 
 def _canonical_legacy_managed_warehouse_source(
@@ -474,6 +487,9 @@ _CDC_EXPOSED_JOB_INPUT_KEYS = {
     "cdc_lag_warning_threshold_mb",
     "cdc_lag_critical_threshold_mb",
     "cdc_consistent_point",
+    # Set by migrate_cdc_source_to_buffered, never by the API. Losing it on an unrelated PATCH
+    # would resume legacy delivery from an advanced slot and strand the unread buffer.
+    "cdc_ingest_mode",
 }
 
 
@@ -525,9 +541,12 @@ def ssh_tunnel_connection_changed(existing: Any, incoming: Any) -> bool:
     return any(_coerce(existing.get(key)) != _coerce(incoming.get(key)) for key in _SSH_TUNNEL_CONNECTION_FIELDS)
 
 
-# Nested SourceFieldSelectConfig containers (Stripe `auth_method`, Snowflake `auth_type`,
-# ServiceNow `auth_method`) keep their secrets one level down, not at the top level.
-_NESTED_AUTH_CONTAINERS = ("auth_method", "auth_type")
+# Nested containers that keep their secrets one level down, not at the top level: the
+# SourceFieldSelectConfig ones (Stripe `auth_method`, Snowflake `auth_type`, ServiceNow
+# `auth_method`) key their selected branch as `selection`; the SourceFieldSwitchGroupConfig
+# one (Billomat's `registered_app`) keys it as `enabled` instead, but the same carried-over-
+# secret check below applies either way.
+_NESTED_AUTH_CONTAINERS = ("auth_method", "auth_type", "registered_app")
 
 # Secrets the edit form can never re-supply (parsed into the individual fields on create, then
 # stripped from API reads and hidden in the edit form), so gating credential re-entry on them would
@@ -623,11 +642,18 @@ def get_postgres_source_table_location(
     )
 
 
-DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = (
-    "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, Redshift, and ClickHouse sources."
-)
+DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = "Direct query mode is currently supported only for Postgres, MySQL, Snowflake, Redshift, ClickHouse, MotherDuck, and Trino sources."
 # Engines surfaced on a direct connection's `connection_metadata.engine` (duckdb backs direct Postgres).
-DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake", "redshift", "clickhouse", "motherduck"]
+DIRECT_CONNECTION_ENGINE_CHOICES = [
+    "duckdb",
+    "postgres",
+    "mysql",
+    "snowflake",
+    "redshift",
+    "clickhouse",
+    "motherduck",
+    "trino",
+]
 
 
 def count_active_sources(team_id: int, source_type: str) -> int:
@@ -1130,8 +1156,22 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     def get_api_version_deprecation(self, instance: ExternalDataSource) -> dict[str, Any] | None:
         return api_version_deprecation_payload(instance.source_type, instance.api_version)
 
+    def _prefetched_schemas(self, instance: ExternalDataSource) -> list[ExternalDataSchema] | None:
+        prefetched = getattr(instance, "_prefetched_objects_cache", {}).get("schemas")
+        if prefetched is None:
+            return None
+        return [schema for schema in prefetched if not schema.deleted]
+
+    def _active_schemas(self, instance: ExternalDataSource) -> list[ExternalDataSchema]:
+        """Schemas that are syncing or carry an error — derived in Python from the single `schemas`
+        prefetch rather than a second DB scan of the same (potentially huge) table."""
+        prefetched = self._prefetched_schemas(instance)
+        if prefetched is not None:
+            return [schema for schema in prefetched if schema.should_sync or schema.latest_error is not None]
+        return list(instance.schemas.exclude(deleted=True).filter(Q(should_sync=True) | Q(latest_error__isnull=False)))
+
     def get_status(self, instance: ExternalDataSource) -> str:
-        active_schemas: list[ExternalDataSchema] = list(instance.active_schemas)  # type: ignore
+        active_schemas: list[ExternalDataSchema] = self._active_schemas(instance)
         # Negative statuses should ignore schemas the user has disabled — those can linger in
         # active_schemas via the latest_error prefetch but shouldn't drag the source into a failed state.
         syncing_schemas = [schema for schema in active_schemas if schema.should_sync]
@@ -1164,10 +1204,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_latest_error(self, instance: ExternalDataSource):
-        prefetched_schemas = getattr(instance, "_prefetched_objects_cache", {}).get("schemas")
+        prefetched_schemas = self._prefetched_schemas(instance)
         if prefetched_schemas is not None:
             schema_with_error = next(
-                (schema for schema in prefetched_schemas if not schema.deleted and schema.latest_error is not None),
+                (schema for schema in prefetched_schemas if schema.latest_error is not None),
                 None,
             )
         else:
@@ -1181,6 +1221,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             schemas = [schema for schema in prefetched_schemas if not schema.deleted]
         else:
             schemas = list(instance.schemas.exclude(deleted=True).order_by("name"))
+        # The source list embeds every schema of every source; large projects have tens of thousands.
+        # The list UI only reads a handful of per-schema fields, so serialize the trimmed shape there
+        # and reserve the full serializer for single-source reads.
+        if self.context.get("schemas_list_only"):
+            return ExternalDataSchemaListSerializer(schemas, many=True, read_only=True, context=self.context).data
         return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=self.context).data
 
     def update(self, instance: ExternalDataSource, validated_data: Any) -> Any:
@@ -1301,10 +1346,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # SSH tunnel is a nested config - deep-merge it so partial updates preserve existing fields
         existing_ssh_tunnel = existing_job_inputs.get("ssh_tunnel")
 
-        # Nested SourceFieldSelectConfig containers (e.g. Stripe `auth_method`, Snowflake `auth_type`) need
-        # a deep-merge that preserves sensitive fields not explicitly provided. The shallow merge above
-        # would otherwise wipe redacted credentials nested inside these containers.
-        for container_key in ("auth_method", "auth_type"):
+        # Nested containers (e.g. Stripe `auth_method`, Snowflake `auth_type`, Billomat `registered_app`)
+        # need a deep-merge that preserves sensitive fields not explicitly provided. The shallow merge
+        # above would otherwise wipe redacted credentials nested inside these containers. Same container
+        # list as the host-change gate above, so a merge here always has a matching preserved-credential check.
+        for container_key in _NESTED_AUTH_CONTAINERS:
             existing_container = existing_job_inputs.get(container_key)
             incoming_container = incoming_job_inputs.get(container_key)
             if incoming_container is not None and not isinstance(incoming_container, dict):
@@ -1505,18 +1551,16 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             schemas = list(
                 ExternalDataSchema.objects.filter(team_id=instance.team_id, source_id=updated_source.id)
                 .exclude(deleted=True)
+                # This is the update() response path, which serializes the full column shape
+                # (include_columns=True) — building columns reads table.credential.access_key per schema,
+                # so keep the credential joined here to avoid an N+1.
                 .select_related("table__credential", "table__external_data_source")
                 .order_by("name")
             )
-            active_schemas = list(
-                ExternalDataSchema.objects.filter(team_id=instance.team_id, source_id=updated_source.id)
-                .exclude(deleted=True)
-                .filter(Q(should_sync=True) | Q(latest_error__isnull=False))
-                .select_related("source", "table__credential", "table__external_data_source")
-            )
+            # `get_status`/`get_latest_error` derive the active/errored subset from this prefetch, so no
+            # separate `active_schemas` query is needed.
             updated_source_any = cast(Any, updated_source)
             updated_source_any._prefetched_objects_cache = {"schemas": schemas}
-            updated_source_any.active_schemas = active_schemas
 
         return updated_source
 
@@ -1656,6 +1700,10 @@ class SourceSetupResponseSerializer(serializers.Serializer):
 
 class ExternalDataSourceCreateResponseSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="ID of the created external data source.")
+
+
+class ExternalDataSourceErrorResponseSerializer(serializers.Serializer):
+    message = serializers.CharField(help_text="Human-readable explanation of why the source could not be created.")
 
 
 class SourceConnectLinkSerializer(serializers.Serializer):
@@ -2067,6 +2115,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # never does (it only reads name/row_count). Gate both to single-source reads.
         include_columns = self.action != "list"
         context["include_columns"] = include_columns
+        # The list serializes a trimmed per-schema shape; single-source reads serialize the full one.
+        context["schemas_list_only"] = self.action == "list"
         if include_columns:
             context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
 
@@ -2077,6 +2127,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         canonical_source = _canonical_legacy_managed_warehouse_source(queryset.filter(team_id=self.team_id))
         queryset = _hide_noncanonical_managed_warehouse_sources(queryset, canonical_source)
 
+        # `table__credential` holds EncryptedTextField key material. The list never reads it (trimmed
+        # schema shape, include_columns=False), so joining it across every schema — tens of thousands on
+        # large sources — is pure waste there and is dropped. Every other action serializes columns
+        # (include_columns=True), and building them reads `table.credential.access_key` per schema
+        # (see DataWarehouseTable.hogql_definition), so keep the join off the list path only.
+        schema_select = ["table__external_data_source"]
+        if self.action != "list":
+            schema_select.append("table__credential")
+
         return (
             queryset
             # created_by (FK) and revenue_analytics_config (reverse 1:1) are read per source during
@@ -2085,29 +2144,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # list load (up to one query, and a get_or_create write, per source).
             .select_related("created_by", "revenue_analytics_config")
             .prefetch_related(
-                Prefetch(
-                    "jobs",
-                    queryset=ExternalDataJob.objects.filter(status="Completed", team_id=self.team_id).order_by(
-                        "-created_at"
-                    )[:1],
-                    to_attr="ordered_jobs",
-                ),
+                latest_completed_job_prefetch(self.team_id, "jobs", to_attr="ordered_jobs"),
+                # The one place schemas are read during serialization. `active_schemas` used to be a
+                # second prefetch over the same rows — it's now derived in Python from this one (see
+                # `_active_schemas`), so the schema table is scanned once.
                 Prefetch(
                     "schemas",
                     queryset=ExternalDataSchema.objects.filter(team_id=self.team_id)
                     .exclude(deleted=True)
-                    .select_related("table__credential", "table__external_data_source")
+                    .select_related(*schema_select)
                     .order_by("name"),
-                ),
-                Prefetch(
-                    "schemas",
-                    queryset=ExternalDataSchema.objects.filter(team_id=self.team_id)
-                    .exclude(deleted=True)
-                    .filter(
-                        Q(should_sync=True) | Q(latest_error__isnull=False)
-                    )  # OR to include schemas with errors or marked for sync
-                    .select_related("source", "table__credential", "table__external_data_source"),
-                    to_attr="active_schemas",
                 ),
             )
             .order_by(self.ordering)
@@ -2398,6 +2444,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     payload[key] = value.strip()
         source_type_model = ExternalDataSourceType(source_type)
         source = SourceRegistry.get_source(source_type_model)
+        if not is_direct_query and not source.supports_scheduled_sync:
+            return Response(
+                ExternalDataSourceErrorResponseSerializer(
+                    {"message": f"{source_type_model.label} is available only as a direct connection."}
+                ).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         max_instances = source.max_instances_per_team
         if max_instances is not None and count_active_sources(self.team_id, source_type_model) >= max_instances:
             return Response(
@@ -2453,9 +2506,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # Roll back the row just created so a caller can't accumulate orphaned sources, and return
             # a clean 400 instead of the uncaught 500 this would otherwise raise. Mirrors `setup`.
             new_source_model.delete()
+            # nosemgrep: api-response-must-match-schema -- conventional error message, not a schema-bound payload
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Source type '{source_type}' does not support schema discovery."},
+                data={"message": _source_unavailable_message(source_type)},
             )
         except Exception as e:
             # `get_schemas` opens its own connection, so credentials validated above can still fail
@@ -2490,7 +2544,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         schema_names = [schema.name for schema in source_schemas]
         source_config_dict = source_config.to_dict()
         default_source_schema = source_config_dict.get("schema")
-        default_source_catalog = source_config_dict.get("database")
+        default_source_catalog = source_config_dict.get("database") or source_config_dict.get("catalog")
         schema_label_by_name = {s.name: s.label for s in source_schemas}
 
         # Omitting `schemas` means "sync what you found", the same defaults `setup` builds. A
@@ -3024,30 +3078,61 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # first so DB state is consistent even if the external cleanup below fails
         with transaction.atomic():
             schema_ids = [schema.id for schema in schemas]
-            table_ids = {schema.table_id for schema in schemas if schema.table_id is not None}
-            other_active_table_ids = (
-                set(
+
+            # Candidate tables: tables referenced by this source's schemas, plus any
+            # tables belonging to this source directly (companion CDC tables or tables from
+            # schemas deleted earlier).
+            candidate_table_ids = set(
+                DataWarehouseTable.objects.filter(
+                    Q(external_data_source_id=instance.id)
+                    | Q(id__in=[s.table_id for s in schemas if s.table_id is not None]),
+                    team_id=self.team_id,
+                    deleted=False,
+                ).values_list("id", flat=True)
+            )
+
+            # Lock all candidate table rows to serialize concurrent deletions across sources
+            locked_tables = (
+                {t.id: t for t in DataWarehouseTable.objects.select_for_update().filter(id__in=candidate_table_ids)}
+                if candidate_table_ids
+                else {}
+            )
+
+            # Map candidate tables to surviving active schemas outside the source being destroyed
+            surviving_schemas_by_table: dict[Any, ExternalDataSchema] = {}
+            if candidate_table_ids:
+                surviving_schemas = (
                     ExternalDataSchema.objects.filter(
-                        table_id__in=table_ids,
+                        table_id__in=candidate_table_ids,
                         deleted=False,
                     )
                     .exclude(id__in=schema_ids)
-                    .values_list("table_id", flat=True)
+                    .select_related("source")
                 )
-                if table_ids
-                else set()
-            )
+                for s in surviving_schemas:
+                    if s.table_id not in surviving_schemas_by_table:
+                        surviving_schemas_by_table[s.table_id] = s
 
-            for schema in schemas:
-                if schema.table and schema.table_id not in other_active_table_ids and not schema.table.deleted:
-                    schema.table.soft_delete()
+            shared_table_ids = set(surviving_schemas_by_table.keys())
+
+            for table_id, table in locked_tables.items():
+                if table_id in shared_table_ids:
+                    # Transfer ownership to the surviving active schema's source so
+                    # DataWarehouseTable.objects.queryable() does not exclude it when
+                    # this source is marked deleted=True.
+                    surviving_schema = surviving_schemas_by_table[table_id]
+                    if table.external_data_source_id == instance.id:
+                        table.external_data_source_id = surviving_schema.source_id
+                        table.save(update_fields=["external_data_source_id"])
+                else:
+                    table.soft_delete()
 
             # Bulk soft-delete the schema rows in a single UPDATE. Per-row soft_delete()
             # runs a SELECT + UPDATE + activity-log write each, which does not scale to
             # sources with thousands of schemas (e.g. a Slack workspace with thousands of
             # channels).
             deleted_at = datetime.now(UTC)
-            ExternalDataSchema.objects.filter(team_id=self.team_id, id__in=[schema.id for schema in schemas]).update(
+            ExternalDataSchema.objects.filter(team_id=self.team_id, id__in=schema_ids).update(
                 deleted=True, deleted_at=deleted_at
             )
             # Mirror the bulk update onto the in-memory objects so the post-atomic
@@ -3056,14 +3141,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             for schema in schemas:
                 schema.deleted = True
                 schema.deleted_at = deleted_at
-
-            # Clean up CDC companion tables (e.g. {name}_cdc) — these are standalone
-            # DataWarehouseTable records linked to the source but not to schema.table.
-            DataWarehouseTable.objects.filter(
-                external_data_source_id=instance.id,
-                team_id=self.team_id,
-                deleted=False,
-            ).exclude(id__in=[s.table_id for s in schemas if s.table_id is not None]).update(deleted=True)
 
             instance.soft_delete()
 
@@ -3103,6 +3180,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             capture_exception(e)
 
         for schema in schemas:
+            if schema.table_id and schema.table_id in shared_table_ids:
+                continue
             try:
                 schema.delete_table()
             except Exception as e:
@@ -3369,9 +3448,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         except NotImplementedError:
             # Source doesn't implement schema discovery (e.g. an unreleased source), so there are
             # no tables to list — a caller mistake, not a server error worth capturing. Mirrors `setup`.
+            # nosemgrep: api-response-must-match-schema -- conventional error message, not a schema-bound payload
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Source type '{source_type}' does not support schema discovery."},
+                data={"message": _source_unavailable_message(source_type)},
             )
         except Exception as e:
             error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
@@ -3484,9 +3564,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         except NotImplementedError:
             # Source doesn't implement schema discovery (e.g. an unreleased source) so it can't be
             # set up via this one-shot flow — a caller mistake, not a server error worth capturing.
+            # nosemgrep: api-response-must-match-schema -- conventional error message, not a schema-bound payload
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": f"Source type '{source_type}' does not support one-shot setup."},
+                data={"message": _source_unavailable_message(source_type)},
             )
         except Exception as e:
             # Credentials validated above can still fail here — `get_schemas` opens its own
@@ -3748,7 +3829,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 eligible_schemas=eligible_schemas,
                 config=source_config,
             )
-            if hog_fn_result.error or hog_fn_result.hog_function is None:
+            if hog_fn_result.error or hog_fn_result.hog_function_id is None:
                 return failure(hog_fn_result.error)
 
             registration = create_and_register_webhook(
@@ -3765,7 +3846,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if not registration.success:
             # The external registration failed (e.g. credentials can't create webhooks), so the
             # handler would never receive events — remove it and keep the polling defaults.
-            hog_function = hog_fn_result.hog_function
+            hog_function = HogFunction.objects.get(id=hog_fn_result.hog_function_id, team_id=self.team_id)
             hog_function.deleted = True
             hog_function.enabled = False
             hog_function.save(update_fields=["deleted", "enabled"])
@@ -4846,24 +4927,22 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
             .order_by(self.ordering)
         )
-        managed_warehouse_enabled = managed_warehouse_feature_flags.is_managed_warehouse_sql_editor_enabled(self.team)
-        managed_source = None
-        if managed_warehouse_enabled:
-            managed_candidates = connection_sources.filter(ExternalDataSource.ready_managed_warehouse_q()).only(
-                "id",
-                "team_id",
-                "prefix",
-                "description",
-                "connection_metadata",
-                "source_type",
-                "access_method",
-                "direct_query_enabled",
-                "job_inputs",
-            )
-            managed_source = next(
-                (source for source in managed_candidates if source.is_dynamic_managed_warehouse),
-                None,
-            ) or next((source for source in managed_candidates if source.is_managed_warehouse_ready), None)
+        managed_candidates = connection_sources.filter(ExternalDataSource.ready_managed_warehouse_q()).only(
+            "id",
+            "team_id",
+            "prefix",
+            "description",
+            "connection_metadata",
+            "source_type",
+            "access_method",
+            "direct_query_enabled",
+            "job_inputs",
+        )
+        managed_source = next(
+            (source for source in managed_candidates if source.is_dynamic_managed_warehouse),
+            None,
+        ) or next((source for source in managed_candidates if source.is_managed_warehouse_ready), None)
+        if managed_source is not None:
             external_sources = connection_sources.exclude(prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
         else:
             canonical_source = _canonical_legacy_managed_warehouse_source(connection_sources)

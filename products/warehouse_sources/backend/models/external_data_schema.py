@@ -27,7 +27,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     PartitionFormat,
     PartitionMode,
 )
-from products.warehouse_sources.backend.types import IncrementalFieldType
+from products.warehouse_sources.backend.types import (
+    ExternalDataSchemaStatus,
+    ExternalDataSchemaSyncFrequency,
+    ExternalDataSchemaSyncType,
+    IncrementalFieldType,
+)
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -151,26 +156,10 @@ class ExternalDataSchemaQuerySet(models.QuerySet["ExternalDataSchema"]):
 
 
 class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
-    class Status(models.TextChoices):
-        RUNNING = "Running", "Running"
-        PAUSED = "Paused", "Paused"
-        FAILED = "Failed", "Failed"
-        COMPLETED = "Completed", "Completed"
-        BILLING_LIMIT_REACHED = "BillingLimitReached", "BillingLimitReached"
-        BILLING_LIMIT_TOO_LOW = "BillingLimitTooLow", "BillingLimitTooLow"
-
-    class SyncType(models.TextChoices):
-        FULL_REFRESH = "full_refresh", "full_refresh"
-        INCREMENTAL = "incremental", "incremental"
-        APPEND = "append", "append"
-        WEBHOOK = "webhook", "webhook"
-        CDC = "cdc", "cdc"
-        XMIN = "xmin", "xmin"
-
-    class SyncFrequency(models.TextChoices):
-        DAILY = "day", "Daily"
-        WEEKLY = "week", "Weekly"
-        MONTHLY = "month", "Monthly"
+    # Kept on the model so the nested names and the `choices=` below stay unchanged.
+    Status = ExternalDataSchemaStatus
+    SyncType = ExternalDataSchemaSyncType
+    SyncFrequency = ExternalDataSchemaSyncFrequency
 
     name = models.CharField(max_length=400)
     label = models.CharField(max_length=400, null=True, blank=True)
@@ -972,45 +961,76 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             self.save(skip_activity_log=True)
 
     def soft_delete(self):
+        from products.warehouse_sources.backend.models.table import DataWarehouseTable  # noqa: PLC0415
+
         with transaction.atomic():
+            table = None
+            if self.table_id is not None:
+                table = DataWarehouseTable.objects.select_for_update().filter(id=self.table_id).first()
+
             self.deleted = True
             self.deleted_at = timezone.now()
             self.save()
-            if self.table is not None and not self.table.deleted:
+
+            if table is not None and not table.deleted:
                 # Guard against shared-table states left by legacy ghost-table bugs:
                 # a DataWarehouseTable is many-to-one, so multiple ExternalDataSchema rows
                 # can point to the same table_id. Only propagate soft-deletion when this
                 # schema is the sole remaining active (non-deleted) owner of the table.
-                other_active_owner_exists = (
+                surviving_active_schema = (
                     ExternalDataSchema.objects.filter(
                         table_id=self.table_id,
                         deleted=False,
                     )
                     .exclude(pk=self.pk)
-                    .exists()
+                    .select_related("source")
+                    .first()
                 )
-                if not other_active_owner_exists:
-                    self.table.soft_delete()
-
+                if surviving_active_schema is not None:
+                    # Transfer source ownership to the surviving schema's source if needed
+                    # so that DataWarehouseTable.objects.queryable() does not exclude it
+                    if table.external_data_source_id != surviving_active_schema.source_id:
+                        table.external_data_source_id = surviving_active_schema.source_id
+                        table.save(update_fields=["external_data_source_id"])
+                else:
+                    table.soft_delete()
 
     def delete_table(self):
         # s3fs/boto3 at module scope would load at app population — only this method needs them
         from products.data_warehouse.backend.facade.api import get_s3_client  # noqa: PLC0415
 
-        if self.table is not None:
+        if self.table_id is not None:
+            # Guard against shared-table states: if another active schema shares this table,
+            # do not wipe S3 data or soft-delete the table.
+            other_active_owner_exists = (
+                ExternalDataSchema.objects.filter(
+                    table_id=self.table_id,
+                    deleted=False,
+                )
+                .exclude(pk=self.pk)
+                .exists()
+            )
+            if other_active_owner_exists:
+                self.table_id = None
+                self.last_synced_at = None
+                self.status = None
+                self.save(update_fields=["table_id", "last_synced_at", "status"])
+                self.update_sync_type_config_for_reset_pipeline()
+                return
+
             try:
                 client = get_s3_client()
                 client.delete(f"{settings.BUCKET_URL}/{self.folder_path()}", recursive=True)
             except Exception as e:
                 capture_exception(e)
 
-            if not self.table.deleted:
+            if self.table is not None and not self.table.deleted:
                 self.table.soft_delete()
 
             self.table_id = None
             self.last_synced_at = None
             self.status = None
-            self.save()
+            self.save(update_fields=["table_id", "last_synced_at", "status"])
 
             self.update_sync_type_config_for_reset_pipeline()
 
@@ -1223,6 +1243,31 @@ def update_sync_type_config_keys(
         return config
 
 
+def save_repartition_checkpoint_if_claimed(
+    schema: ExternalDataSchema, *, claim_token: str, checkpoint: dict[str, Any]
+) -> bool:
+    """Write a rewrite checkpoint only while `claim_token` still owns the schema. Returns whether it did.
+
+    Checking the claim before calling `set_repartition_rewrite` is not enough: that saves the whole
+    `sync_type_config` column from an in-memory copy, so a worker superseded between the check and the
+    save writes back its own stale `repartition_claim` and un-fences itself. Re-reading the claim under
+    the row lock, in the same transaction as the write, closes that window — the same reason
+    `update_sync_type_config_keys` exists.
+    """
+    claimed = False
+
+    def _write(config: dict[str, Any]) -> None:
+        nonlocal claimed
+        claim = config.get("repartition_claim")
+        if not (claim and claim.get("token") == claim_token):
+            return
+        config["repartition_rewrite"] = checkpoint
+        claimed = True
+
+    update_sync_type_config_keys(schema_id=schema.id, team_id=schema.team_id, mutate=_write)
+    return claimed
+
+
 def complete_schema_run(schema: ExternalDataSchema, *, last_synced_at: datetime) -> bool:
     """Mark a schema COMPLETED after a successful run, atomically with the broken-state check.
 
@@ -1285,6 +1330,29 @@ def mark_initial_sync_complete(schema_id: str | uuid.UUID, team_id: int) -> None
 
 def get_all_schemas_for_source_id(source_id: str, team_id: int):
     return list(ExternalDataSchema.objects.exclude(deleted=True).filter(team_id=team_id, source_id=source_id).all())
+
+
+@frozen
+class DirectSchemaReconciliation:
+    active_schemas: list[ExternalDataSchema]
+    stale_schemas: list[ExternalDataSchema]
+
+
+def get_schemas_for_direct_reconciliation(
+    source_id: str | uuid.UUID,
+    team_id: int,
+    current_schema_names: list[str],
+) -> DirectSchemaReconciliation:
+    candidates = list(
+        ExternalDataSchema.objects.filter(
+            models.Q(team_id=team_id, source_id=source_id),
+            models.Q(deleted=False) | models.Q(table__deleted=False),
+        ).select_related("table")
+    )
+    active = [schema for schema in candidates if schema.deleted is False]
+    current_names = set(current_schema_names)
+    stale = [schema for schema in candidates if schema.name not in current_names]
+    return DirectSchemaReconciliation(active_schemas=active, stale_schemas=stale)
 
 
 def _update_labels(old_schemas: list["ExternalDataSchema"], new_schemas: dict[str, str | None]) -> None:
@@ -1393,7 +1461,10 @@ def sync_old_schemas_with_new_schemas(
             team_id=team_id, name=schema, source_id=source_id, deleted=False
         )
         for s in schemas_to_check:
-            if s.table_id is None:
+            # Only rows nobody enabled disappear entirely. A user-enabled row survives as visibly
+            # disabled, because soft-deleting it would silently discard the user's selection (e.g.
+            # a scope-gated table the source stopped offering before its first successful sync).
+            if s.table_id is None and not s.should_sync:
                 s.soft_delete()
                 deleted_schemas.append(schema)
             else:
