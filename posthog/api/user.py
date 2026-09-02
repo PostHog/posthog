@@ -1536,8 +1536,11 @@ class UserViewSet(
             )
         },
     )
-    @action(methods=["PATCH"], detail=True)
-    def product_intro_seen(self, request, **kwargs):
+    # `required_scopes` is explicit because the viewset resolves scopes from `scope_object` plus the
+    # read/write action lists, and a custom @action is in neither — leaving it unset resolves to no
+    # scopes at all, which `APIScopePermission` refuses outright, even for a wildcard token.
+    @action(methods=["PATCH"], detail=True, required_scopes=["user:write"])
+    def product_intro_seen(self, request, **kwargs) -> Response:
         """Record that this user has seen one product intro.
 
         Separate from the `has_seen_product_intro_for` field on the main user PATCH, which requires a

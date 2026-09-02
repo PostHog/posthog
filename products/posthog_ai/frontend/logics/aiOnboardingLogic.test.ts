@@ -17,16 +17,35 @@ describe('aiOnboardingLogic', () => {
     let logic: ReturnType<typeof aiOnboardingLogic.build>
     let seedLogic: ReturnType<typeof composerSeedLogic.build>
     let seenWrites: Record<string, any>[]
+    let failNextSeenWrite: boolean
 
     beforeEach(() => {
         seenWrites = []
+        failNextSeenWrite = false
         useMocks({
             patch: {
                 '/api/users/@me/product_intro_seen': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
                     seenWrites.push(body)
+                    if (failNextSeenWrite) {
+                        failNextSeenWrite = false
+                        return [500, { detail: 'the seen write failed' }]
+                    }
                     return { [body.product_key]: body.seen }
                 },
+            },
+            get: {
+                // The reload after a write has to see it, the way the real endpoint does. Without this the
+                // persisted flag never flips and every dismissal looks like a first write.
+                '/api/users/@me/': () => [
+                    200,
+                    {
+                        ...MOCK_DEFAULT_USER,
+                        has_seen_product_intro_for: Object.fromEntries(
+                            seenWrites.map(({ product_key, seen }) => [product_key, seen])
+                        ),
+                    },
+                ],
             },
         })
     })
@@ -97,10 +116,8 @@ describe('aiOnboardingLogic', () => {
         expect(seenWrites).toEqual(expected)
     })
 
-    // The open and the dismissal both mark it seen. Dismissing while the reloaded user is still in flight
-    // leaves the persisted flag false, so without a guard the write and the full user reload behind it run
-    // twice. The two phases here are what puts the dismissal past the write's debounce, which is the only
-    // reason the same-tick case survives on its own.
+    // Both the open and the dismissal mark the takeover seen, so the persisted flag is what stops the
+    // second one from writing again and dragging another full user reload behind it.
     it('records the seen flag once across an open and a dismissal', async () => {
         mountLogic()
         userLogic.findMounted()?.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER })
@@ -134,6 +151,26 @@ describe('aiOnboardingLogic', () => {
         }).toFinishAllListeners()
 
         expect(seenWrites).toHaveLength(0)
+        // The session flag has to stay clear as well, or the real surface cannot open the takeover for the
+        // rest of the session. Guarding inside `markOnboardingSeen` would pass the check above but fail here.
+        expect(logic.values.hasSeenOnboarding).toBe(false)
+    })
+
+    // A failed write must not stop a later one from persisting the flag, or a transient error means the
+    // takeover comes back for good. An earlier guard latched before the request and never cleared.
+    it('retries the seen write on dismissal after the open-time write fails', async () => {
+        mountLogic()
+        userLogic.findMounted()?.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER })
+        failNextSeenWrite = true
+
+        await expectLogic(logic, () => {
+            logic.actions.openOnboarding()
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.actions.closeOnboarding()
+        }).toFinishAllListeners()
+
+        expect(seenWrites).toHaveLength(2)
     })
 
     // `/api/users/` rejects writes from an impersonated session, so persisting the flag can only

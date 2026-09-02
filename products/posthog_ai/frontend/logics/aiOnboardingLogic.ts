@@ -251,7 +251,7 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values }) => ({
         openOnboarding: ({ isReplay }) => {
             posthog.capture('posthog ai onboarding shown', values.reportProperties)
             if (values.currentStep) {
@@ -319,17 +319,11 @@ export const aiOnboardingLogic = kea<aiOnboardingLogicType>([
             if (values.hasSeenOnboardingPersisted) {
                 return
             }
-            // Both the open and the dismissal mark the takeover seen, so a reader who dismisses it before
-            // the open's write has round-tripped would repeat the write and the user reload behind it.
-            if (cache.seenWriteIssued) {
-                return
-            }
             // `/api/users/` rejects writes from an impersonated session (ImpersonationBlockedPathsMiddleware),
             // and the only outcome of trying is a failure toast on top of the takeover.
             if (values.user?.is_impersonated) {
                 return
             }
-            cache.seenWriteIssued = true
             actions.updateHasSeenProductIntroFor(POSTHOG_AI_ONBOARDING_SEEN_KEY)
         },
     })),
