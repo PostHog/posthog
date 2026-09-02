@@ -17,6 +17,7 @@ class LogsViewColumnType(models.TextChoices):
     SOURCE = "source", "source"
     TRACE_ID = "trace_id", "trace_id"
     SPAN_ID = "span_id", "span_id"
+    PATTERN = "pattern", "pattern"
     MESSAGE = "message", "message"
     CUSTOM = "custom", "custom"
 
@@ -27,7 +28,10 @@ class LogsViewColumnSerializer(serializers.Serializer):
     )
     type = serializers.ChoiceField(
         choices=LogsViewColumnType.choices,
-        help_text="Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.",
+        help_text=(
+            "Column type. Most built-in types resolve client-side from log row fields; `pattern` and `custom` "
+            "columns are computed server-side, the latter from `expression`."
+        ),
     )
     # Optional keys are omitted (not null) so the stored JSON round-trips the client shape exactly
     name = serializers.CharField(
