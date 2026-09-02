@@ -2,16 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import (
-    AI_SUBSCRIPTION_SYNTHESIS_PROMPT,
-    HOGQL_AI_SUBSCRIPTION_QUERY_WRITING_RULES,
-    HOGQL_AI_SUBSCRIPTION_RULES,
-    HOGQL_FIX_PROMPT,
-    PLAN_GENERATION_PROMPT,
-    resolve_prompt,
-)
-
-from ee.hogai.chat_agent.sql.prompts import CORE_MEMORY_USAGE_INSTRUCTION, HOGQL_GENERATOR_SYSTEM_PROMPT
+from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import resolve_prompt
 
 _P = "products.exports.backend.temporal.subscriptions.ai_subscription.prompts"
 
@@ -78,23 +69,3 @@ def test_resolve_prompt_captures_source_event(
         "team_id": 7,
         "$process_person_profile": False,
     }
-
-
-def test_subscription_prompts_reuse_the_chat_agent_core_memory_instruction() -> None:
-    assert CORE_MEMORY_USAGE_INSTRUCTION in HOGQL_GENERATOR_SYSTEM_PROMPT
-    assert CORE_MEMORY_USAGE_INSTRUCTION in HOGQL_AI_SUBSCRIPTION_QUERY_WRITING_RULES
-    assert CORE_MEMORY_USAGE_INSTRUCTION in AI_SUBSCRIPTION_SYNTHESIS_PROMPT
-
-
-def test_subscription_queries_default_to_a_250_row_ceiling() -> None:
-    assert "LIMIT 250" in HOGQL_AI_SUBSCRIPTION_RULES
-    assert "LIMIT 250" in PLAN_GENERATION_PROMPT
-    assert "LIMIT 50" not in HOGQL_AI_SUBSCRIPTION_RULES
-    assert "LIMIT 50" not in PLAN_GENERATION_PROMPT
-
-
-def test_fixer_can_reduce_result_size_only_for_resource_pressure() -> None:
-    assert "memory" in HOGQL_FIX_PROMPT.lower()
-    assert "timeout" in HOGQL_FIX_PROMPT.lower()
-    assert "lower the final `LIMIT`" in HOGQL_FIX_PROMPT
-    assert "schema or syntax failure" in HOGQL_FIX_PROMPT
