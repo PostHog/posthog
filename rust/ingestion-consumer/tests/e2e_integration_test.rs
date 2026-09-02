@@ -15,8 +15,9 @@ use lifecycle::{ComponentOptions, Manager};
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::config::ClientConfig;
-use rdkafka::consumer::{Consumer, StreamConsumer};
+use rdkafka::consumer::{Consumer, DefaultConsumerContext, StreamConsumer};
 use rdkafka::message::{Header, OwnedHeaders};
+use rdkafka::mocking::MockCluster;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
 use tokio::net::TcpListener;
@@ -24,6 +25,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
+use ingestion_consumer::debug_recorder::{DebugEventKind, DebugRecorder, PartitionOffset};
 use ingestion_consumer::discovery::reconcile_membership;
 use ingestion_consumer::dispatcher::Dispatcher;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
@@ -153,6 +155,10 @@ struct FakeWorker {
     /// Number of sub-batches that have reached the handler. Counted before
     /// the gate, so a test can observe a batch is in-flight even while held.
     arrived: Arc<AtomicUsize>,
+    /// distinct_ids of every sub-batch that reached the handler, recorded
+    /// before the gate, so a test holding the gate can tell which key a
+    /// worker is holding.
+    arrived_ids: Arc<Mutex<Vec<String>>>,
     /// Held by the handler for the duration of each sub-batch. A test can
     /// acquire it via `block()` to freeze a request in flight (simulating a slow
     /// worker), then drop the guard to let it complete.
@@ -186,6 +192,7 @@ impl FakeWorker {
         let reject_4xx = Arc::new(AtomicBool::new(false));
         let underreport_once = Arc::new(AtomicBool::new(false));
         let arrived = Arc::new(AtomicUsize::new(0));
+        let arrived_ids: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let gate = Arc::new(tokio::sync::Mutex::new(()));
 
         let app = Router::new().route(
@@ -231,6 +238,7 @@ impl FakeWorker {
             reject_4xx: Arc::clone(&reject_4xx),
             underreport_once: Arc::clone(&underreport_once),
             arrived: Arc::clone(&arrived),
+            arrived_ids: Arc::clone(&arrived_ids),
             gate: Arc::clone(&gate),
             delivery_log,
         };
@@ -258,6 +266,7 @@ impl FakeWorker {
             reject_4xx,
             underreport_once,
             arrived,
+            arrived_ids,
             gate,
             _task: task,
         }
@@ -275,6 +284,11 @@ impl FakeWorker {
     /// Sub-batches that have reached this worker (including any held by the gate).
     fn arrived_count(&self) -> usize {
         self.arrived.load(Ordering::SeqCst)
+    }
+
+    /// distinct_ids carried by sub-batches that reached this worker, held or not.
+    fn arrived_distinct_ids(&self) -> Vec<String> {
+        self.arrived_ids.lock().unwrap().clone()
     }
 
     /// Freeze this worker's ingest handling: sub-batches arrive but block until the
@@ -305,6 +319,7 @@ struct FakeWorkerGrpc {
     reject_4xx: Arc<AtomicBool>,
     underreport_once: Arc<AtomicBool>,
     arrived: Arc<AtomicUsize>,
+    arrived_ids: Arc<Mutex<Vec<String>>>,
     gate: Arc<tokio::sync::Mutex<()>>,
     delivery_log: Option<DeliveryLog>,
 }
@@ -329,6 +344,7 @@ impl WorkerIngestService for FakeWorkerGrpc {
         let reject_4xx = Arc::clone(&self.reject_4xx);
         let underreport_once = Arc::clone(&self.underreport_once);
         let arrived = Arc::clone(&self.arrived);
+        let arrived_ids = Arc::clone(&self.arrived_ids);
         let gate = Arc::clone(&self.gate);
         let delivery_log = self.delivery_log.clone();
 
@@ -357,6 +373,12 @@ impl WorkerIngestService for FakeWorkerGrpc {
                     continue;
                 };
                 arrived.fetch_add(1, Ordering::SeqCst);
+                arrived_ids.lock().unwrap().extend(
+                    sub_batch
+                        .messages
+                        .iter()
+                        .filter_map(|msg| msg.headers.get("distinct_id").cloned()),
+                );
                 // Block here while a test holds the gate (slow worker).
                 let _hold = gate.lock().await;
                 if !healthy.load(Ordering::Relaxed) || !ingest_ok.load(Ordering::Relaxed) {
@@ -2874,4 +2896,347 @@ async fn nacking_worker_fences_worker_stream_and_reroutes_in_order() {
     );
 
     harness.stop().await;
+}
+
+// ── Rebalance inside one collection window (mock cluster) ─────────────────
+//
+// These run against rdkafka's in-process mock cluster: no broker container,
+// real cooperative rebalances. The mock coordinator completes the first join
+// after 3s and every later round after `session.timeout.ms` minus one
+// second, so a revoke-and-return of one partition takes around 15s.
+
+/// A consumer config against the mock cluster, configured like production:
+/// cooperative-sticky assignment, no auto commit, earliest reset.
+fn mock_consumer_config(bootstrap: &str, group_id: &str) -> ClientConfig {
+    let mut config = ClientConfig::new();
+    config
+        .set("bootstrap.servers", bootstrap)
+        .set("group.id", group_id)
+        .set("auto.offset.reset", "earliest")
+        .set("enable.auto.commit", "false")
+        .set("enable.auto.offset.store", "false")
+        .set("partition.assignment.strategy", "cooperative-sticky")
+        .set("session.timeout.ms", "6000")
+        .set("socket.timeout.ms", "5000");
+    config
+}
+
+/// Start the consumer stack against a mock cluster with two frozen-capable
+/// workers, the assignment epoch wired into the rebalance context exactly as
+/// `IngestionConsumer::new` does in production, and a debug recorder so the
+/// test can watch polls dispatch and commit.
+async fn start_on_mock_cluster(
+    bootstrap: &str,
+    topic: &str,
+    batch_size: usize,
+    batch_timeout: Duration,
+) -> (Harness, Arc<DebugRecorder>, Arc<GrpcTransport>) {
+    let delivery_log: DeliveryLog = Arc::new(Mutex::new(Vec::new()));
+    let mut workers = Vec::new();
+    for _ in 0..2 {
+        workers.push(FakeWorker::start_logged(Arc::clone(&delivery_log)).await);
+    }
+    let worker_urls: Vec<String> = workers.iter().map(|w| w.url.clone()).collect();
+
+    let registry = Arc::new(WorkerRegistry::new(&worker_urls, fast_registry_config()));
+    let probe_token = CancellationToken::new();
+    Arc::clone(&registry).start_probing(probe_token.clone());
+    let dispatcher = Arc::new(Dispatcher::new(Arc::clone(&registry)));
+    let transport = Arc::new(test_transport());
+    spawn_reaper(
+        Arc::clone(&registry),
+        Arc::clone(&transport),
+        Arc::clone(&dispatcher),
+        probe_token.clone(),
+    );
+
+    let mut manager = Manager::builder("e2e-test")
+        .with_trap_signals(false)
+        .with_health_poll_interval(Duration::from_millis(100))
+        .build();
+    let handle = manager.register("consumer", ComponentOptions::new());
+    let shutdown = handle.shutdown_token();
+    let _monitor = manager.monitor_background();
+
+    let group_id = format!("e2e-{}", Uuid::new_v4());
+    let mut context = SentinelContext::detached();
+    context.set_assignment_epoch(transport.assignment_epoch());
+    let kafka_consumer: StreamConsumer<SentinelContext> =
+        mock_consumer_config(bootstrap, &group_id)
+            .create_with_context(context)
+            .expect("kafka consumer");
+    kafka_consumer.subscribe(&[topic]).expect("subscribe");
+
+    let recorder = DebugRecorder::new(1000, Duration::from_secs(300));
+    let consumer = IngestionConsumer::from_parts(
+        kafka_consumer,
+        Arc::clone(&dispatcher),
+        Arc::clone(&transport),
+        worker_urls,
+        IngestionConsumerOptions {
+            batch_size,
+            batch_size_bytes: 0,
+            batch_timeout,
+            max_in_flight_batches: 2,
+            group_id: "e2e-test".to_string(),
+            deferred_flush_timeout: Duration::from_secs(60),
+            debug_recorder: Some(Arc::clone(&recorder)),
+        },
+        handle,
+    );
+    let task = tokio::spawn(async move { consumer.process().await });
+
+    let harness = Harness {
+        workers,
+        registry,
+        dispatcher,
+        delivery_log,
+        shutdown,
+        task: Some(task),
+        _probe_token: probe_token,
+        topic: topic.to_string(),
+        group_id,
+        max_in_flight: 2,
+        deferred_flush_timeout: Duration::from_secs(60),
+    };
+    (harness, recorder, transport)
+}
+
+/// `(batch_id, messages)` of every poll dispatched so far, in order.
+fn dispatched_polls(recorder: &DebugRecorder) -> Vec<(String, usize)> {
+    recorder
+        .backlog()
+        .into_iter()
+        .filter_map(|event| match event.kind {
+            DebugEventKind::BatchDispatched {
+                batch_id, messages, ..
+            } => Some((batch_id, messages)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// `(batch_id, accepted, partitions)` of every poll committed so far, in order.
+fn committed_polls(recorder: &DebugRecorder) -> Vec<(String, u32, Vec<PartitionOffset>)> {
+    recorder
+        .backlog()
+        .into_iter()
+        .filter_map(|event| match event.kind {
+            DebugEventKind::BatchCommitted {
+                batch_id,
+                accepted,
+                partitions,
+                ..
+            } => Some((batch_id, accepted, partitions)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A partition revoked and returned to the same consumer inside one
+/// collection window.
+///
+/// `Batcher::submit` reads the assignment epoch after `collect_batch`
+/// returns, so the poll holding the pre-revoke messages is stamped with the
+/// post-assign epoch. The replay of the same offsets lands in the next poll
+/// under the same epoch. Two in-flight polls then share an epoch with
+/// overlapping offset spans, the state `apply_completion` assumes cannot
+/// exist, and it credits the replay's completion to the older poll.
+///
+/// Observed end to end: the older poll commits while one of its sub-batches
+/// is still held by a worker, and the newer poll never completes.
+#[tokio::test]
+async fn rebalance_inside_a_collection_window_commits_unaccepted_offsets() {
+    let cluster = MockCluster::new(1).expect("mock cluster");
+    let topic = format!("epoch-window-{}", Uuid::new_v4());
+    cluster.create_topic(&topic, 2, 1).expect("create topic");
+    let bootstrap = cluster.bootstrap_servers();
+
+    // The poll closes by count only, once the replay's first message arrives;
+    // the timeout is long enough to cover the whole rebalance dance.
+    let (mut harness, recorder, transport) =
+        start_on_mock_cluster(&bootstrap, &topic, 5, Duration::from_secs(120)).await;
+    let epoch = transport.assignment_epoch();
+
+    // Freeze both workers before anything is produced, so every sub-batch of
+    // the first poll is caught in flight.
+    let mut gates = [
+        Some(harness.workers[0].block().await),
+        Some(harness.workers[1].block().await),
+    ];
+
+    wait_until(Duration::from_secs(20), "first assignment", || {
+        epoch.load(Ordering::SeqCst) >= 2
+    })
+    .await;
+
+    // Two messages per partition, one key per partition: four messages, one
+    // short of the batch size, so the poll stays open.
+    let producer: FutureProducer = ClientConfig::new()
+        .set("bootstrap.servers", &bootstrap)
+        .set("message.timeout.ms", "5000")
+        .create()
+        .expect("producer");
+    for partition in 0..2 {
+        for seq in 0..2 {
+            produce(
+                &producer,
+                &topic,
+                partition,
+                "tok",
+                &format!("d{partition}"),
+                seq,
+            )
+            .await;
+        }
+    }
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert!(
+        dispatched_polls(&recorder).is_empty(),
+        "the first poll must still be open"
+    );
+
+    // A second member joins: cooperative-sticky moves one partition to it.
+    let ghost: Arc<StreamConsumer<DefaultConsumerContext>> = Arc::new(
+        mock_consumer_config(&bootstrap, &harness.group_id)
+            .create()
+            .expect("ghost consumer"),
+    );
+    ghost.subscribe(&[&topic]).expect("subscribe");
+    let ghost_stop = CancellationToken::new();
+    let ghost_task = tokio::spawn({
+        let ghost = Arc::clone(&ghost);
+        let stop = ghost_stop.clone();
+        async move {
+            loop {
+                tokio::select! {
+                    _ = stop.cancelled() => break,
+                    _ = ghost.recv() => {}
+                }
+            }
+        }
+    });
+    let mut moved: Option<i32> = None;
+    wait_until(Duration::from_secs(40), "ghost assignment", || {
+        let assigned = ghost.assignment().expect("assignment");
+        moved = assigned.elements().first().map(|e| e.partition());
+        moved.is_some()
+    })
+    .await;
+    let moved = moved.expect("moved partition");
+    let kept = 1 - moved;
+    assert!(
+        dispatched_polls(&recorder).is_empty(),
+        "the first poll must still be open after the revoke"
+    );
+
+    // The second member leaves: the partition returns and librdkafka replays
+    // it from the committed offset, which is none, so from 0. The replay's
+    // first message is the poll's fifth and closes it.
+    ghost_stop.cancel();
+    ghost_task.await.expect("ghost task");
+    tokio::task::spawn_blocking(move || drop(ghost))
+        .await
+        .expect("ghost close");
+    wait_until(Duration::from_secs(40), "first poll dispatched", || {
+        dispatched_polls(&recorder).len() == 1
+    })
+    .await;
+    let (poll_a, count_a) = dispatched_polls(&recorder)[0].clone();
+    assert_eq!(
+        count_a, 5,
+        "first poll: four originals plus the replayed offset 0"
+    );
+
+    // The rest of the replay, offset 1, opens the second poll. Four more
+    // messages on the returned partition close it at offsets 1..=5, which
+    // overlap the first poll's 0..=1 on that partition.
+    for seq in 2..6 {
+        produce(&producer, &topic, moved, "tok", &format!("d{moved}"), seq).await;
+    }
+    wait_until(Duration::from_secs(20), "second poll dispatched", || {
+        dispatched_polls(&recorder).len() == 2
+    })
+    .await;
+    let (poll_b, count_b) = dispatched_polls(&recorder)[1].clone();
+    assert_eq!(count_b, 5, "second poll: replayed offset 1 plus four new");
+
+    // The first poll's two sub-batches are held, one per worker. Find the
+    // worker holding the returned partition's key.
+    wait_until(Duration::from_secs(10), "both sub-batches held", || {
+        harness.workers.iter().all(|w| w.arrived_count() >= 1)
+    })
+    .await;
+    let moved_id = format!("d{moved}");
+    let kept_id = format!("d{kept}");
+    let moved_worker = harness
+        .workers
+        .iter()
+        .position(|w| w.arrived_distinct_ids().contains(&moved_id))
+        .expect("a worker holds the returned partition's key");
+    let kept_worker = 1 - moved_worker;
+    assert!(
+        harness.workers[kept_worker]
+            .arrived_distinct_ids()
+            .contains(&kept_id),
+        "the other worker holds the kept partition's key"
+    );
+
+    // Release only that worker. It acks the first poll's group, then the
+    // second poll's group queued behind it on the same stream. The second
+    // completion names offset 1 under the shared epoch, and the first poll
+    // is the older match.
+    gates[moved_worker].take();
+    wait_until(Duration::from_secs(20), "first poll committed", || {
+        committed_polls(&recorder)
+            .iter()
+            .any(|(id, ..)| *id == poll_a)
+    })
+    .await;
+
+    // The kept partition's worker is still frozen: nothing of it was
+    // accepted, yet the commit covers it.
+    assert_eq!(
+        harness.workers[kept_worker].count(),
+        0,
+        "kept partition was never processed"
+    );
+    let (_, accepted, partitions) = committed_polls(&recorder)
+        .into_iter()
+        .find(|(id, ..)| *id == poll_a)
+        .expect("first poll's commit");
+    let committed: Vec<(i32, i64)> = partitions.iter().map(|p| (p.partition, p.offset)).collect();
+    assert!(
+        committed.contains(&(kept, 1)),
+        "commit covers the kept partition through offset 1: {committed:?}"
+    );
+    assert!(
+        accepted > 5,
+        "the replay's acceptance was credited to the first poll: {accepted}"
+    );
+
+    // Release the other worker. Its completion belongs to the poll already
+    // committed, matches nothing, and is discarded; the second poll never
+    // completes and the consumer waits on it indefinitely.
+    gates[kept_worker].take();
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(
+        harness.workers[kept_worker].count(),
+        2,
+        "kept partition accepted only after its commit"
+    );
+    assert!(
+        !committed_polls(&recorder)
+            .iter()
+            .any(|(id, ..)| *id == poll_b),
+        "second poll must never commit"
+    );
+    assert!(
+        !harness.task.as_ref().expect("consumer task").is_finished(),
+        "consumer is still waiting on the second poll"
+    );
+
+    harness.crash_consumer();
+    harness.stop().await;
+    drop(cluster);
 }
