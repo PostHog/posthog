@@ -4712,6 +4712,7 @@ export interface PreflightStatus {
     openai_available?: boolean
     anthropic_available?: boolean
     site_url?: string
+    surveys_public_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
     /** Public base URL of the LLM gateway, for per-gateway endpoint examples. Null until configured. */

@@ -266,6 +266,8 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "buffer_conversion_seconds": settings.BUFFER_CONVERSION_SECONDS,
             "ai_gateway_url": settings.AI_GATEWAY_PUBLIC_URL or None,
         }
+        if settings.SURVEYS_PUBLIC_URL:
+            response["surveys_public_url"] = settings.SURVEYS_PUBLIC_URL
 
     return JsonResponse(response)
 

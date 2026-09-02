@@ -37,7 +37,7 @@ import { Survey, SurveyQuestion, SurveyQuestionType, SurveyType } from '~/types'
 import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
 import { SurveyPublicContentNotice } from './components/SurveyPublicContentNotice'
 import { defaultSurveyFieldValues, NewSurvey, SurveyQuestionLabel } from './constants'
-import { CopySurveyLink } from './CopySurveyLink'
+import { CopySurveyLink, getSurveyUrl } from './CopySurveyLink'
 import { HostedSurveyCanvas } from './hosted-canvas/HostedSurveyCanvas'
 import { HostedSurveySettingsPanel } from './hosted-canvas/HostedSurveySettingsPanel'
 import { surveyLogic } from './surveyLogic'
@@ -45,9 +45,7 @@ import { SurveyResponsesCollection } from './SurveyResponsesCollection'
 import { AddQuestionButton } from './wizard/AddQuestionButton'
 
 function getHostedSurveyUrl(surveyId: string): string {
-    const url = new URL(window.location.origin)
-    url.pathname = `/external_surveys/${surveyId}`
-    return url.toString()
+    return getSurveyUrl(surveyId)
 }
 
 function HostedSurveyQuestionRail({

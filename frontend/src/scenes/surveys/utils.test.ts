@@ -2,6 +2,7 @@ import { getAppContext } from 'lib/utils/getAppContext'
 import { SurveyRatingResults } from 'scenes/surveys/surveyLogic'
 
 import {
+    AppContext,
     EventPropertyFilter,
     FeatureFlagFilters,
     PropertyOperator,
@@ -18,6 +19,7 @@ import {
     SurveyWidgetType,
 } from '~/types'
 
+import { getSurveyUrl } from './CopySurveyLink'
 import {
     buildSurveyExampleInvocationGlobals,
     buildPartialResponsesFilter,
@@ -54,6 +56,20 @@ const mockedGetAppContext = getAppContext as jest.MockedFunction<typeof getAppCo
 
 afterEach(() => {
     mockedGetAppContext.mockReturnValue(undefined)
+})
+
+describe('getSurveyUrl', () => {
+    it('uses the configured dedicated survey origin', () => {
+        mockedGetAppContext.mockReturnValue({
+            preflight: { surveys_public_url: 'https://surveys.example.net' },
+        } as AppContext)
+
+        expect(getSurveyUrl('survey-id')).toBe('https://surveys.example.net/external_surveys/survey-id')
+    })
+
+    it('falls back to the current origin when no dedicated origin is configured', () => {
+        expect(getSurveyUrl('survey-id')).toBe(`${window.location.origin}/external_surveys/survey-id`)
+    })
 })
 
 describe('survey utils', () => {

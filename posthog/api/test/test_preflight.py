@@ -108,6 +108,13 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                 assert response == self.preflight_authenticated_dict()
                 assert {"Europe/Moscow": 3, "UTC": 0}.items() <= available_timezones.items()
 
+    @override_settings(SURVEYS_PUBLIC_URL="https://surveys.example.net")
+    def test_preflight_exposes_configured_survey_origin(self):
+        response = self.client.get("/_preflight/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["surveys_public_url"] == "https://surveys.example.net"
+
     @patch("posthog.storage.object_storage._client")
     def test_preflight_request_with_object_storage_available(self, patched_s3_client):
         patched_s3_client.head_bucket.return_value = True

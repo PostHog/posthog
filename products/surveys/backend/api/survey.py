@@ -10,7 +10,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models import QuerySet
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.shortcuts import render
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
@@ -76,6 +76,7 @@ from products.feature_flags.backend.api.feature_flag import (
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
+from products.surveys.backend.middleware import is_surveys_public_origin, surveys_public_url_for_request
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
 from products.surveys.backend.responses import (
     SurveyRates,
@@ -3552,6 +3553,11 @@ def public_survey_page(request, survey_id: str):
     """
     if request.method == "OPTIONS":
         return cors_response(request, HttpResponse(""))
+
+    if settings.SURVEYS_PUBLIC_URL and not is_surveys_public_origin(request):
+        redirect_response = HttpResponseRedirect(surveys_public_url_for_request(request))
+        redirect_response["Cache-Control"] = "no-store"
+        return redirect_response
 
     # Input validation
     if not UUIDT.is_valid_uuid(survey_id):
