@@ -115,7 +115,7 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
         batch_is_team_id_range = workflow.patched("weekly-digest-team-id-batches")
 
         if batch_is_team_id_range:
-            team_batches = await workflow.execute_activity(
+            id_batches = await workflow.execute_activity(
                 list_team_id_batches,
                 input.common,
                 start_to_close_timeout=timedelta(minutes=5),
@@ -125,6 +125,8 @@ class GenerateDigestDataWorkflow(PostHogWorkflow):
                 ),
                 heartbeat_timeout=timedelta(minutes=1),
             )
+
+            team_batches = [(id_batch.start, id_batch.end) for id_batch in id_batches]
         else:
             team_count = await workflow.execute_activity(
                 count_teams,

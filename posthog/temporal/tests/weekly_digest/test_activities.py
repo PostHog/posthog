@@ -166,11 +166,16 @@ def test_team_id_batches_page_the_same_teams_as_offset_paging(organization, dige
     expected = list(query_teams_for_digest().values_list("id", flat=True))
 
     paged: list[int] = []
-    for batch in _cut_team_id_batches(list(query_team_ids_for_digest()), common.batch_size):
+    for id_batch in _cut_team_id_batches(list(query_team_ids_for_digest()), common.batch_size):
         team_ids = [
             team.id
             for team in _teams_in_batch(
-                GenerateDigestDataBatchInput(batch=batch, batch_is_team_id_range=True, digest=digest, common=common)
+                GenerateDigestDataBatchInput(
+                    batch=(id_batch.start, id_batch.end),
+                    batch_is_team_id_range=True,
+                    digest=digest,
+                    common=common,
+                )
             )
         ]
         assert len(team_ids) <= common.batch_size

@@ -41,6 +41,13 @@ class GenerateDigestDataInput(BaseModel):
     common: CommonInput
 
 
+class TeamIdBatch(BaseModel):
+    """A half-open [start, end) range of team ids."""
+
+    start: int
+    end: int
+
+
 class GenerateDigestDataBatchInput(BaseModel):
     batch: tuple[int, int]
     digest: Digest

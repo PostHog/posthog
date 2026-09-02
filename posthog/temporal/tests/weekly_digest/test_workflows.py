@@ -15,6 +15,7 @@ from posthog.temporal.weekly_digest.types import (
     GenerateDigestDataInput,
     SendWeeklyDigestBatchInput,
     SendWeeklyDigestInput,
+    TeamIdBatch,
     WeeklyDigestInput,
 )
 from posthog.temporal.weekly_digest.workflows import (
@@ -126,9 +127,9 @@ async def test_generate_digest_data_workflow():
     }
 
     @activity.defn(name="list-team-id-batches")
-    async def list_team_id_batches_mocked(input) -> list[tuple[int, int]]:
+    async def list_team_id_batches_mocked(input) -> list[TeamIdBatch]:
         activity_calls["team_id_batches"] += 1
-        return [(i, i + TEST_BATCH_SIZE) for i in range(1, TEST_TEAM_COUNT + 1, TEST_BATCH_SIZE)]
+        return [TeamIdBatch(start=i, end=i + TEST_BATCH_SIZE) for i in range(1, TEST_TEAM_COUNT + 1, TEST_BATCH_SIZE)]
 
     @activity.defn(name="count-organizations")
     async def count_organizations_mocked() -> int:

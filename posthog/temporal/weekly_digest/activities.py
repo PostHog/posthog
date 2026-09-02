@@ -69,6 +69,7 @@ from posthog.temporal.weekly_digest.types import (
     SendWeeklyDigestBatchInput,
     SurveyList,
     TeamDigest,
+    TeamIdBatch,
     UsageTrendMetric,
     UsageTrends,
     UserDigestContext,
@@ -618,16 +619,19 @@ async def count_teams() -> int:
         return await query_teams_for_digest().acount()
 
 
-def _cut_team_id_batches(team_ids: list[int], batch_size: int) -> list[tuple[int, int]]:
+def _cut_team_id_batches(team_ids: list[int], batch_size: int) -> list[TeamIdBatch]:
     """Cut ordered team ids into [start, end) ranges of at most `batch_size` teams each."""
     return [
-        (team_ids[start], team_ids[start + batch_size] if start + batch_size < len(team_ids) else team_ids[-1] + 1)
+        TeamIdBatch(
+            start=team_ids[start],
+            end=team_ids[start + batch_size] if start + batch_size < len(team_ids) else team_ids[-1] + 1,
+        )
         for start in range(0, len(team_ids), batch_size)
     ]
 
 
 @activity.defn(name="list-team-id-batches")
-async def list_team_id_batches(input: CommonInput) -> list[tuple[int, int]]:
+async def list_team_id_batches(input: CommonInput) -> list[TeamIdBatch]:
     """One index scan of the team ids replaces a LIMIT/OFFSET scan per batch per generator."""
     async with Heartbeater():
         return _cut_team_id_batches(await queryset_to_list(query_team_ids_for_digest()), input.batch_size)
