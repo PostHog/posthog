@@ -233,6 +233,12 @@ describe('batchExportBackfillModalLogic', () => {
                     model: 'events',
                     expected: false,
                 },
+                {
+                    name: 'Redshift events with no properties type set',
+                    destination: destination('Redshift'),
+                    model: 'events',
+                    expected: true,
+                },
                 { name: 'S3 events', destination: destination('AwsS3'), model: 'events', expected: false },
             ]
 

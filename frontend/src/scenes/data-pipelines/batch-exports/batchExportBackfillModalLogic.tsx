@@ -97,8 +97,13 @@ export function backfillCanDuplicateRows(destination: BatchExportService, model:
         return false
     }
     // Redshift also merges events, on `uuid`, but only when properties go into a SUPER column.
-    if (destination.type === 'Redshift' && destination.config.properties_data_type !== 'varchar') {
-        mergedModels = [...mergedModels, 'events']
+    // The stored config can omit `properties_data_type`, and the backend then falls back to
+    // `varchar` and appends, so treat an absent value as `varchar` here too.
+    if (destination.type === 'Redshift') {
+        const propertiesDataType = destination.config.properties_data_type ?? 'varchar'
+        if (propertiesDataType !== 'varchar') {
+            mergedModels = [...mergedModels, 'events']
+        }
     }
     return !mergedModels.includes(model)
 }
