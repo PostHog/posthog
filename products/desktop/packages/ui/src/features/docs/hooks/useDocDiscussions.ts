@@ -4,6 +4,7 @@ import {
   replyToDiscussion,
   setDiscussionResolved,
   startDiscussion,
+  watchThread,
 } from "@posthog/api-client/docs";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -85,5 +86,22 @@ export function useDiscussionMutations(docId: string | null) {
     onSuccess: refresh,
   });
 
-  return { start, reply, setResolved, refresh };
+  const watch = useMutation({
+    mutationFn: async (input: {
+      threadId: string;
+      body: DocSchemas.WatchActionBody;
+    }): Promise<DocSchemas.DiscussionThread> => {
+      if (!docsClient || !docId) throw new Error("No doc to discuss");
+      return watchThread(
+        docsClient.client,
+        docsClient.projectId,
+        docId,
+        input.threadId,
+        input.body,
+      );
+    },
+    onSuccess: refresh,
+  });
+
+  return { start, reply, setResolved, watch, refresh };
 }

@@ -28,6 +28,13 @@ export const DiscussionAnchor = Mark.create({
         parseHTML: (element) => element.getAttribute("data-kind") ?? "text",
         renderHTML: (attributes) => ({ "data-kind": attributes.kind }),
       },
+      /** Where a watched claim stands, for the colour of its eye: holding, moved, stale, or off. */
+      watch: {
+        default: "",
+        parseHTML: (element) => element.getAttribute("data-watch") ?? "",
+        renderHTML: (attributes) =>
+          attributes.watch ? { "data-watch": attributes.watch } : {},
+      },
       resolved: {
         default: false,
         parseHTML: (element) =>

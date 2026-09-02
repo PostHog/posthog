@@ -45,6 +45,10 @@ from .serializers import (
     DocSummarySerializer,
     DocUpdateSerializer,
     SpaceHomeSerializer,
+    WatchActionSerializer,
+    WatchBriefSubmitResultSerializer,
+    WatchBriefSubmitSerializer,
+    WatchVerdictSubmitSerializer,
 )
 
 _CHANNEL_PARAM = OpenApiParameter(
@@ -98,6 +102,7 @@ class DocViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # GET and POST share one route here, so the stricter scope applies to both.
         "discussions",
         "discussion_reply",
+        "discussion_watch",
         "discussion_resolve",
         "data_points_submit",
         "context",
@@ -309,7 +314,10 @@ class DocViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 kind=data["kind"],
                 task_id=data.get("task_id") or None,
                 send_to_agent=data["send_to_agent"],
-                loop_id=data.get("loop_id") or None,
+                evidence=[
+                    contracts.WatchEvidenceInput(label=entry["label"], query=entry["query"])
+                    for entry in data.get("evidence") or []
+                ],
             )
         )
         if result is None:
@@ -395,6 +403,114 @@ class DocViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 pk,
                 thread_id=thread_id,
                 resolved=serializer.validated_data["resolved"],
+            )
+        except api.ThreadNotFoundError as err:
+            raise NotFound(str(err))
+        if thread is None:
+            raise NotFound(_DOC_NOT_FOUND)
+        return Response(DiscussionThreadSerializer(thread).data)
+
+    @extend_schema(
+        request=WatchBriefSubmitSerializer,
+        responses={
+            200: WatchBriefSubmitResultSerializer,
+            403: OpenApiResponse(description="The watch belongs to another run."),
+            404: OpenApiResponse(description="No watch with this request id."),
+        },
+        summary="Submit the brief behind a watch",
+        description=(
+            "Called by the agent a page asked to watch a hypothesis. Each evidence query is run once; on ok the page "
+            "rechecks them daily and a scout follows the signals. Submit again with the same request id to replace the brief."
+        ),
+    )
+    @action(methods=["POST"], detail=False, url_path="watches/brief", required_scopes=["task:write"])
+    def watches_brief(self, request: Request, **kwargs) -> Response:
+        task_id = _sandbox_task_id(request)
+        if task_id is None:
+            raise PermissionDenied("Only the run a page asked can submit its watch brief.")
+        serializer = WatchBriefSubmitSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        try:
+            result = api.submit_watch_brief(
+                contracts.SubmitWatchBriefInput(
+                    team_id=self.team_id,
+                    task_id=task_id,
+                    request_id=data["request_id"],
+                    claim=data["claim"],
+                    confirms=data["confirms"],
+                    refutes=data["refutes"],
+                    evidence=[
+                        contracts.WatchEvidenceInput(label=entry["label"], query=entry["query"])
+                        for entry in data["evidence"]
+                    ],
+                    signals=data["signals"],
+                ),
+                request=request,
+            )
+        except PermissionError as err:
+            raise PermissionDenied(str(err))
+        if result is None:
+            raise NotFound("No watch with this request id.")
+        return Response(WatchBriefSubmitResultSerializer(result).data)
+
+    @extend_schema(
+        request=WatchVerdictSubmitSerializer,
+        responses={
+            200: OpenApiResponse(description="The verdict was recorded."),
+            403: OpenApiResponse(description="The watch belongs to another run."),
+            404: OpenApiResponse(description="No watch with this request id."),
+        },
+        summary="Set the verdict on a watched hypothesis",
+        description=(
+            "Called by the agent that watches a hypothesis, after it looked at the data. Confirmed and refuted end the watch."
+        ),
+    )
+    @action(methods=["POST"], detail=False, url_path="watches/verdict", required_scopes=["task:write"])
+    def watches_verdict(self, request: Request, **kwargs) -> Response:
+        task_id = _sandbox_task_id(request)
+        if task_id is None:
+            raise PermissionDenied("Only a run of this watch can set its verdict.")
+        serializer = WatchVerdictSubmitSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        try:
+            recorded = api.submit_watch_verdict(
+                contracts.SubmitWatchVerdictInput(
+                    team_id=self.team_id,
+                    task_id=task_id,
+                    request_id=data["request_id"],
+                    verdict=data["verdict"],
+                    reason=data["reason"],
+                )
+            )
+        except PermissionError as err:
+            raise PermissionDenied(str(err))
+        if recorded is None:
+            raise NotFound("No watch with this request id.")
+        return Response({"ok": bool(recorded)})
+
+    @extend_schema(request=WatchActionSerializer, responses={200: DiscussionThreadSerializer})
+    @action(methods=["POST"], detail=True, url_path=r"discussions/(?P<thread_id>[^/.]+)/watch")
+    def discussion_watch(self, request: Request, pk: str, thread_id: str, **kwargs) -> Response:
+        serializer = WatchActionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        try:
+            thread = api.watch_action(
+                contracts.WatchActionInput(
+                    team_id=self.team_id,
+                    user_id=self._actor().pk,
+                    doc_id=UUID(pk),
+                    thread_id=UUID(thread_id),
+                    action=data["action"],
+                    verdict=data.get("verdict") or None,
+                    reason=data["reason"],
+                ),
+                request=request,
             )
         except api.ThreadNotFoundError as err:
             raise NotFound(str(err))

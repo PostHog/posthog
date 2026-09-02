@@ -27,18 +27,14 @@ import type { Task } from "@posthog/shared/domain-types";
 import { MentionComposer } from "@posthog/ui/features/canvas/components/MentionComposer";
 import { useOrgMembers } from "@posthog/ui/features/canvas/hooks/useOrgMembers";
 import { usePinnedAutoScroll } from "@posthog/ui/features/canvas/hooks/usePinnedAutoScroll";
-import { useLoop } from "@posthog/ui/features/loops/hooks/useLoop";
-import {
-  useRunLoop,
-  useUpdateLoop,
-} from "@posthog/ui/features/loops/hooks/useLoopMutations";
 import { useSessionConnection } from "@posthog/ui/features/sessions/hooks/useSessionConnection";
 import { useSessionViewState } from "@posthog/ui/features/sessions/hooks/useSessionViewState";
 import { usePendingPermissionsForTask } from "@posthog/ui/features/sessions/sessionStore";
 import { DocMark } from "@posthog/ui/primitives/DocMark";
 import { toast } from "@posthog/ui/primitives/toast";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useDiscussionMutations } from "../hooks/useDocDiscussions";
 import {
   agentStateOf,
   type TaskState,
@@ -47,6 +43,8 @@ import {
 } from "../hooks/useDocThread";
 import { DocPostRow, DocStreamingRow } from "./DocPostRow";
 import { DocThreadRow, threadStanding } from "./DocThreadRow";
+import { WatchHeaderActions, WatchStrip } from "./DocWatchCard";
+import { DocWatchDossier } from "./DocWatchDossier";
 
 export type ThreadsPanelView =
   | { view: "list" }
@@ -306,6 +304,29 @@ function ThreadView({
   const task = handle.task ?? listedTask;
   const taskState = agentStateOf(thread, task);
   const posts = useMemo(() => (thread ? threadPosts(thread) : []), [thread]);
+  const watchMutation = useDiscussionMutations(docId).watch;
+  const [pendingAction, setPendingAction] =
+    useState<DocSchemas.WatchActionKind | null>(null);
+  const [dossierOpen, setDossierOpen] = useState(false);
+  const threadId = thread?.id;
+  const onWatchAction = useCallback(
+    (body: DocSchemas.WatchActionBody) => {
+      if (!threadId) return;
+      setPendingAction(body.action);
+      watchMutation.mutate(
+        { threadId, body },
+        {
+          onError: (error) =>
+            toast.error("The watch did not take that", {
+              description:
+                error instanceof Error ? error.message : String(error),
+            }),
+          onSettled: () => setPendingAction(null),
+        },
+      );
+    },
+    [threadId, watchMutation],
+  );
   const { containerRef, contentRef, onScroll } = usePinnedAutoScroll();
 
   const anchorKey = thread?.anchor_key ?? pending?.anchorKey ?? "";
@@ -342,8 +363,12 @@ function ThreadView({
         <Text weight="medium" className="min-w-0 flex-1 truncate px-1">
           Thread
         </Text>
-        {thread?.loop_id ? (
-          <WatchControls loopId={thread.loop_id} />
+        {thread?.watch ? (
+          <WatchHeaderActions
+            watch={thread.watch}
+            onAction={onWatchAction}
+            pendingAction={pendingAction}
+          />
         ) : thread ? (
           <Button
             size="sm"
@@ -388,8 +413,20 @@ function ThreadView({
           ? `+ ${anchorText}`
           : anchorText || "a place in the doc"}
       </button>
-      {kind === "watch" && thread?.loop_id ? (
-        <WatchStatus loopId={thread.loop_id} />
+      {thread?.watch ? (
+        <>
+          <WatchStrip
+            watch={thread.watch}
+            onHistory={() => setDossierOpen(true)}
+          />
+          <DocWatchDossier
+            thread={thread}
+            open={dossierOpen}
+            onOpenChange={setDossierOpen}
+            onAction={onWatchAction}
+            pendingAction={pendingAction}
+          />
+        </>
       ) : null}
 
       <div
@@ -521,59 +558,4 @@ function LiveTurn({
   }
   if (taskState !== "working") return null;
   return <DocStreamingRow text={streaming ? liveText : null} />;
-}
-
-/** Stop, resume, or run now: the loop behind a watched section, from its thread. */
-function WatchControls({ loopId }: { loopId: string }) {
-  const loop = useLoop(loopId);
-  const update = useUpdateLoop(loopId);
-  const runNow = useRunLoop(loopId);
-  const enabled = loop.data?.enabled ?? true;
-  return (
-    <>
-      <Button
-        size="sm"
-        variant="default"
-        disabled={runNow.isPending}
-        onClick={() => {
-          runNow.mutate(undefined, {
-            onError: () => toast.error("The check did not start"),
-          });
-        }}
-      >
-        {runNow.isPending ? "Starting…" : "Check now"}
-      </Button>
-      <Button
-        size="sm"
-        variant="default"
-        disabled={update.isPending || loop.isLoading}
-        onClick={() => update.mutate({ enabled: !enabled })}
-      >
-        {enabled ? "Stop watching" : "Watch again"}
-      </Button>
-    </>
-  );
-}
-
-/** What the loop did last, under the quote: a failed check must not read as silence. */
-function WatchStatus({ loopId }: { loopId: string }) {
-  const loop = useLoop(loopId);
-  const data = loop.data;
-  const failed = data?.last_run_status === "failed";
-  return (
-    <Text
-      size="sm"
-      className={
-        failed ? "mx-3 mt-1.5 text-(--red-11)" : "mx-3 mt-1.5 text-(--gray-10)"
-      }
-    >
-      {!data
-        ? "Watched. The agent checks it every weekday morning and reports here."
-        : !data.enabled
-          ? "Not watched any more. Watch again to resume the checks."
-          : failed
-            ? `The last check failed${data.last_error ? `: ${data.last_error}` : ""}. Check now runs it again.`
-            : "Watched. The agent checks it every weekday morning and reports here."}
-    </Text>
-  );
 }

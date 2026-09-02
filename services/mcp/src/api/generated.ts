@@ -8910,14 +8910,22 @@ export namespace Schemas {
       deleted?: boolean | null;
     }
 
-    export type EffectiveRestrictionLevelEnum = typeof EffectiveRestrictionLevelEnum[keyof typeof EffectiveRestrictionLevelEnum];
+    /**
+     * * `21` - Everyone in the project can edit
+     * * `37` - Only those invited to this dashboard can edit
+     */
+    export type RestrictionLevelEnum = typeof RestrictionLevelEnum[keyof typeof RestrictionLevelEnum];
 
 
-    export const EffectiveRestrictionLevelEnum = {
+    export const RestrictionLevelEnum = {
       Number21: 21,
       Number37: 37,
     } as const;
 
+    /**
+     * * `21` - Can view dashboard
+     * * `37` - Can edit dashboard
+     */
     export type EffectivePrivilegeLevelEnum = typeof EffectivePrivilegeLevelEnum[keyof typeof EffectivePrivilegeLevelEnum];
 
 
@@ -9044,7 +9052,7 @@ export namespace Schemas {
       readonly last_modified_at: string;
       readonly last_modified_by: UserBasic;
       readonly is_sample: boolean;
-      readonly effective_restriction_level: EffectiveRestrictionLevelEnum;
+      readonly effective_restriction_level: RestrictionLevelEnum;
       readonly effective_privilege_level: EffectivePrivilegeLevelEnum;
       /**
          * The effective access level the user has for this object
@@ -14142,9 +14150,7 @@ export namespace Schemas {
       startup_program_label?: string | null;
       /** @nullable */
       startup_program_label_previous?: string | null;
-      /** @nullable */
       stripe_portal_url?: string | null;
-      /** @nullable */
       external_billing_provider_invoices_url?: string | null;
       /** Subscribed and available products/addons with pricing, plan, limit, usage, and entitlement metadata. */
       products?: BillingOverviewResponseProductsItem[];
@@ -20646,18 +20652,6 @@ export namespace Schemas {
     export type DashboardTilesItem = { [key: string]: unknown };
 
     /**
-     * * `21` - Everyone in the project can edit
-     * * `37` - Only those invited to this dashboard can edit
-     */
-    export type RestrictionLevelEnum = typeof RestrictionLevelEnum[keyof typeof RestrictionLevelEnum];
-
-
-    export const RestrictionLevelEnum = {
-      Number21: 21,
-      Number37: 37,
-    } as const;
-
-    /**
      * * `tight` - tight
      * * `condensed` - condensed
      * * `standard` - standard
@@ -20754,7 +20748,7 @@ export namespace Schemas {
       data_color_theme_id?: number | null;
       tags?: unknown[];
       restriction_level?: RestrictionLevelEnum;
-      readonly effective_restriction_level: EffectiveRestrictionLevelEnum;
+      readonly effective_restriction_level: RestrictionLevelEnum;
       readonly effective_privilege_level: EffectivePrivilegeLevelEnum;
       /**
          * The effective access level the user has for this object
@@ -20848,7 +20842,7 @@ export namespace Schemas {
        * * `21` - Everyone in the project can edit
        * * `37` - Only those invited to this dashboard can edit */
       readonly restriction_level: RestrictionLevelEnum;
-      readonly effective_restriction_level: EffectiveRestrictionLevelEnum;
+      readonly effective_restriction_level: RestrictionLevelEnum;
       readonly effective_privilege_level: EffectivePrivilegeLevelEnum;
       /**
          * The effective access level the user has for this object
@@ -21133,15 +21127,35 @@ export namespace Schemas {
     }
 
     /**
+     * * `number` - number
+     * * `series` - series
+     * * `table` - table
+     */
+    export type DocDataShapeEnum = typeof DocDataShapeEnum[keyof typeof DocDataShapeEnum];
+
+
+    export const DocDataShapeEnum = {
+      Number: 'number',
+      Series: 'series',
+      Table: 'table',
+    } as const;
+
+    /**
      * The query behind a data point.
      */
     export interface DataAnswer {
-      /** A HogQL SELECT that gives one row and one column. The page runs it on every read. */
+      /** A HogQL SELECT. The page runs it on every read. */
       query: string;
       /** What the data point measures, in a few words. */
       label: string;
       /** A caveat for the reader, or empty. */
       note: string;
+      /** number: one cell, shown inline. series: dates and numbers, shown as a sparkline. table: anything else, shown as a chart block.
+       *
+       * * `number` - number
+       * * `series` - series
+       * * `table` - table */
+      shape: DocDataShapeEnum;
       /**
          * The run that submitted it.
          * @nullable
@@ -21617,11 +21631,21 @@ export namespace Schemas {
     export interface DataPointSubmitResult {
       /** True when the page took the query, or took the none status. */
       ok: boolean;
+      /** How the page shows it: number (one cell), series (a sparkline), or table (a chart block).
+       *
+       * * `number` - number
+       * * `series` - series
+       * * `table` - table */
+      shape: DocDataShapeEnum | null;
       /**
-         * The single cell the query returned when it ran once, as text.
+         * The cell the page shows: the number, or the last value of a series.
          * @nullable
          */
       value: string | null;
+      /** How many rows the query returned when it ran once. */
+      rows: number;
+      /** How many columns the query returned when it ran once. */
+      columns: number;
       /**
          * Why the query was not taken. Fix the query and submit again.
          * @nullable
@@ -21663,11 +21687,7 @@ export namespace Schemas {
      */
     export interface DataQualityCheck {
       readonly id: string;
-      /**
-         * Optional identifier-safe handle, unique per project. Omit to address the check by id.
-         * @maxLength 128
-         * @pattern ^[A-Za-z][A-Za-z0-9_]*$
-         */
+      /** Optional identifier-safe handle, unique per project. Omit to address the check by id. */
       name?: string;
       /** Why this check exists and what a failure means. */
       description?: string;
@@ -21860,11 +21880,7 @@ export namespace Schemas {
      */
     export interface DataQualityOverviewCheck {
       readonly id: string;
-      /**
-         * Optional identifier-safe handle, unique per project. Omit to address the check by id.
-         * @maxLength 128
-         * @pattern ^[A-Za-z][A-Za-z0-9_]*$
-         */
+      /** Optional identifier-safe handle, unique per project. Omit to address the check by id. */
       name?: string;
       /** Why this check exists and what a failure means. */
       description?: string;
@@ -29092,6 +29108,7 @@ export namespace Schemas {
     /**
      * * `text` - text
      * * `data` - data
+     * * `watch` - watch
      */
     export type DocThreadKindEnum = typeof DocThreadKindEnum[keyof typeof DocThreadKindEnum];
 
@@ -29099,7 +29116,18 @@ export namespace Schemas {
     export const DocThreadKindEnum = {
       Text: 'text',
       Data: 'data',
+      Watch: 'watch',
     } as const;
+
+    export interface WatchEvidenceInput {
+      /**
+         * What the number counts.
+         * @maxLength 120
+         */
+      label: string;
+      /** One HogQL SELECT: one number, or a date and a number per row. */
+      query: string;
+    }
 
     /**
      * What a new thread needs.
@@ -29117,10 +29145,11 @@ export namespace Schemas {
          * @maxLength 280
          */
       anchor_text: string;
-      /** text for a phrase, data for a data point the page asked for.
+      /** text for a phrase, data for a data point the page asked for, watch for a hypothesis to keep watching.
        *
        * * `text` - text
-       * * `data` - data */
+       * * `data` - data
+       * * `watch` - watch */
       kind?: DocThreadKindEnum;
       /**
          * The agent task this thread talks to. Set by the client that started the run.
@@ -29128,6 +29157,8 @@ export namespace Schemas {
          * @nullable
          */
       task_id?: string | null;
+      /** For a watch on a number already on the page: its query. No agent and no scout are involved. */
+      evidence?: WatchEvidenceInput[];
       /** True when the post tags the agent. With a live run the text is forwarded into it. */
       send_to_agent?: boolean;
     }
@@ -29187,6 +29218,211 @@ export namespace Schemas {
     }
 
     /**
+     * * `active` - active
+     * * `paused` - paused
+     * * `stopped` - stopped
+     */
+    export type DocWatchStatusEnum = typeof DocWatchStatusEnum[keyof typeof DocWatchStatusEnum];
+
+
+    export const DocWatchStatusEnum = {
+      Active: 'active',
+      Paused: 'paused',
+      Stopped: 'stopped',
+    } as const;
+
+    /**
+     * * `section_removed` - section_removed
+     * * `page_done` - page_done
+     * * `page_deleted` - page_deleted
+     * * `handled` - handled
+     * * `person` - person
+     * * `verdict` - verdict
+     */
+    export type DocWatchStopReasonEnum = typeof DocWatchStopReasonEnum[keyof typeof DocWatchStopReasonEnum];
+
+
+    export const DocWatchStopReasonEnum = {
+      SectionRemoved: 'section_removed',
+      PageDone: 'page_done',
+      PageDeleted: 'page_deleted',
+      Handled: 'handled',
+      Person: 'person',
+      Verdict: 'verdict',
+    } as const;
+
+    /**
+     * * `pending` - pending
+     * * `holding` - holding
+     * * `moved` - moved
+     * * `confirmed` - confirmed
+     * * `refuted` - refuted
+     * * `stale` - stale
+     */
+    export type DocWatchVerdictEnum = typeof DocWatchVerdictEnum[keyof typeof DocWatchVerdictEnum];
+
+
+    export const DocWatchVerdictEnum = {
+      Pending: 'pending',
+      Holding: 'holding',
+      Moved: 'moved',
+      Confirmed: 'confirmed',
+      Refuted: 'refuted',
+      Stale: 'stale',
+    } as const;
+
+    /**
+     * * `agent` - agent
+     * * `person` - person
+     * * `page` - page
+     */
+    export type DocWatchActorEnum = typeof DocWatchActorEnum[keyof typeof DocWatchActorEnum];
+
+
+    export const DocWatchActorEnum = {
+      Agent: 'agent',
+      Person: 'person',
+      Page: 'page',
+    } as const;
+
+    export interface WatchVerdict {
+      /** pending: no brief yet. holding: the evidence stands. moved: a number left its baseline. confirmed or refuted: decided, and the watch ended. stale: the checks could not run.
+       *
+       * * `pending` - pending
+       * * `holding` - holding
+       * * `moved` - moved
+       * * `confirmed` - confirmed
+       * * `refuted` - refuted
+       * * `stale` - stale */
+      verdict: DocWatchVerdictEnum;
+      /** Why, in one line. */
+      reason: string;
+      /** agent, person, or page for a derived verdict.
+       *
+       * * `agent` - agent
+       * * `person` - person
+       * * `page` - page */
+      by: DocWatchActorEnum;
+      /**
+         * When the verdict was set.
+         * @nullable
+         */
+      at: string | null;
+    }
+
+    /**
+     * One number the claim stands on, and where it is against its baseline.
+     */
+    export interface WatchEvidence {
+      /** What the number counts. */
+      label: string;
+      /** The HogQL SELECT the page reruns. */
+      query: string;
+      /** number, or series for a trend.
+       *
+       * * `number` - number
+       * * `series` - series
+       * * `table` - table */
+      shape: DocDataShapeEnum;
+      /**
+         * The value when the brief landed.
+         * @nullable
+         */
+      baseline: number | null;
+      /**
+         * The value at the last check.
+         * @nullable
+         */
+      value: number | null;
+      /**
+         * When it was last checked.
+         * @nullable
+         */
+      checked_at: string | null;
+      /**
+         * Why the last check did not run, or null.
+         * @nullable
+         */
+      error: string | null;
+      /** [time, value] pairs, oldest first, at most sixty. */
+      history: unknown[][];
+      /** True when the value left its baseline by a fifth or more. */
+      moved: boolean;
+    }
+
+    /**
+     * What the agent compiled the claim into.
+     */
+    export interface WatchBrief {
+      /** The claim in one sentence. */
+      claim: string;
+      /** What would confirm it. */
+      confirms: string;
+      /** What would refute it. */
+      refutes: string;
+      /** The numbers the page rechecks daily. */
+      evidence: WatchEvidence[];
+      /** What the scout follows: events, flags, errors, replays. */
+      signals: string[];
+      /**
+         * When the brief landed.
+         * @nullable
+         */
+      submitted_at: string | null;
+    }
+
+    export interface WatchScout {
+      /** The scout config that follows the signals. */
+      config_id: string;
+      /** The scout's skill name. */
+      skill_name: string;
+    }
+
+    /**
+     * The watch on a thread: whether it runs, what it stands on, and where the claim stands.
+     */
+    export interface DocWatch {
+      /** active: checks and the scout run. paused: the page is done. stopped: final.
+       *
+       * * `active` - active
+       * * `paused` - paused
+       * * `stopped` - stopped */
+      status: DocWatchStatusEnum;
+      /** Why the watch stopped or paused, or null while it runs.
+       *
+       * * `section_removed` - section_removed
+       * * `page_done` - page_done
+       * * `page_deleted` - page_deleted
+       * * `handled` - handled
+       * * `person` - person
+       * * `verdict` - verdict */
+      stopped_reason: DocWatchStopReasonEnum | null;
+      /** Where the claim stands. */
+      verdict: WatchVerdict;
+      /** The brief, or null until the agent hands it in. */
+      brief: WatchBrief | null;
+      /** The scout, or null when none follows the signals. */
+      scout: WatchScout | null;
+      /**
+         * Why the scout could not start, or null.
+         * @nullable
+         */
+      scout_error: string | null;
+      /**
+         * When the evidence is checked next.
+         * @nullable
+         */
+      next_check_at: string | null;
+      /**
+         * When the evidence was last checked.
+         * @nullable
+         */
+      checked_at: string | null;
+      /** True for a watch on a number already on the page. */
+      evidence_only: boolean;
+    }
+
+    /**
      * The thread after a post, and what happened to the post if it was for the agent.
      */
     export interface DiscussionReplyResult {
@@ -29212,16 +29448,19 @@ export namespace Schemas {
       anchor_text: string;
       /** Whether the thread is marked as handled. */
       resolved: boolean;
-      /** text: started from a phrase. data: the thread behind a data point the page asked for.
+      /** text: started from a phrase. data: the thread behind a data point the page asked for. watch: a hypothesis the page keeps watching.
        *
        * * `text` - text
-       * * `data` - data */
+       * * `data` - data
+       * * `watch` - watch */
       kind: DocThreadKindEnum;
       /**
          * The agent task this thread talks to. Set by the client that started the run.
          * @nullable
          */
       task_id: string | null;
+      /** The watch, on a watch thread. */
+      watch: DocWatch | null;
       /** The query a data thread ended with, or null. */
       answer: DataAnswer | null;
       /** Posts after the first, oldest first. */
@@ -29269,16 +29508,19 @@ export namespace Schemas {
       anchor_text: string;
       /** Whether the thread is marked as handled. */
       resolved: boolean;
-      /** text: started from a phrase. data: the thread behind a data point the page asked for.
+      /** text: started from a phrase. data: the thread behind a data point the page asked for. watch: a hypothesis the page keeps watching.
        *
        * * `text` - text
-       * * `data` - data */
+       * * `data` - data
+       * * `watch` - watch */
       kind: DocThreadKindEnum;
       /**
          * The agent task this thread talks to. Set by the client that started the run.
          * @nullable
          */
       task_id: string | null;
+      /** The watch, on a watch thread. */
+      watch: DocWatch | null;
       /** The query a data thread ended with, or null. */
       answer: DataAnswer | null;
       /** Posts after the first, oldest first. */
@@ -29348,6 +29590,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `page` - page
+     * * `context` - context
+     */
+    export type DocKindEnum = typeof DocKindEnum[keyof typeof DocKindEnum];
+
+
+    export const DocKindEnum = {
+      Page: 'page',
+      Context: 'context',
+    } as const;
+
+    /**
      * A doc with its body.
      */
     export interface Doc {
@@ -29363,6 +29617,11 @@ export namespace Schemas {
        * * `active` - active
        * * `done` - done */
       status: DocStatusEnum;
+      /** page: a page the space writes. context: the one doc that is the space's context notes.
+       *
+       * * `page` - page
+       * * `context` - context */
+      kind: DocKindEnum;
       /** Order of the doc in the space's tab row, lowest first. */
       position: number;
       /** Collab version of the stored body. Increases by one for every accepted step. */
@@ -29373,6 +29632,12 @@ export namespace Schemas {
       created_at: string;
       /** When the doc was last written to. */
       updated_at: string;
+      /** The first words of the page, for a list. Empty outside the space home. */
+      excerpt: string;
+      /** Threads on the page not yet marked handled. */
+      open_thread_count: number;
+      /** Hypotheses on the page still under watch. */
+      watch_count: number;
       /**
          * The doc body as a ProseMirror document.
          * @nullable
@@ -29516,6 +29781,11 @@ export namespace Schemas {
        * * `active` - active
        * * `done` - done */
       status: DocStatusEnum;
+      /** page: a page the space writes. context: the one doc that is the space's context notes.
+       *
+       * * `page` - page
+       * * `context` - context */
+      kind: DocKindEnum;
       /** Order of the doc in the space's tab row, lowest first. */
       position: number;
       /** Collab version of the stored body. Increases by one for every accepted step. */
@@ -29526,7 +29796,31 @@ export namespace Schemas {
       created_at: string;
       /** When the doc was last written to. */
       updated_at: string;
+      /** The first words of the page, for a list. Empty outside the space home. */
+      excerpt: string;
+      /** Threads on the page not yet marked handled. */
+      open_thread_count: number;
+      /** Hypotheses on the page still under watch. */
+      watch_count: number;
     }
+
+    /**
+     * * `check` - check
+     * * `stop` - stop
+     * * `resume` - resume
+     * * `close` - close
+     * * `arm` - arm
+     */
+    export type DocWatchActionEnum = typeof DocWatchActionEnum[keyof typeof DocWatchActionEnum];
+
+
+    export const DocWatchActionEnum = {
+      Check: 'check',
+      Stop: 'stop',
+      Resume: 'resume',
+      Close: 'close',
+      Arm: 'arm',
+    } as const;
 
     export interface DocsSearchRequest {
       /** Natural-language description of what to find in the PostHog documentation. Inkeep performs hybrid (semantic + full-text) RAG, so phrase the query the way a user would ask the question. */
@@ -30131,10 +30425,7 @@ export namespace Schemas {
        * * `general-availability` - general availability
        * * `archived` - archived */
       stage: EarlyAccessFeatureStageEnum;
-      /**
-         * URL to external documentation for this feature. Shown to users in the opt-in UI.
-         * @maxLength 800
-         */
+      /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
       documentation_url?: string;
       /** Feature flag payload for this early access feature */
       readonly payload: EarlyAccessFeaturePayload;
@@ -30183,10 +30474,7 @@ export namespace Schemas {
        * * `general-availability` - general availability
        * * `archived` - archived */
       stage: EarlyAccessFeatureStageEnum;
-      /**
-         * URL to external documentation for this feature. Shown to users in the opt-in UI.
-         * @maxLength 800
-         */
+      /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
       documentation_url?: string;
       /** Arbitrary JSON metadata associated with this feature. */
       payload?: unknown;
@@ -30362,15 +30650,6 @@ export namespace Schemas {
     export const EffectEnum = {
       NeedsApproval: 'needs_approval',
       DoNotUse: 'do_not_use',
-    } as const;
-
-    export type EffectiveMembershipLevelEnum = typeof EffectiveMembershipLevelEnum[keyof typeof EffectiveMembershipLevelEnum];
-
-
-    export const EffectiveMembershipLevelEnum = {
-      Number1: 1,
-      Number8: 8,
-      Number15: 15,
     } as const;
 
     export interface Element {
@@ -31595,7 +31874,7 @@ export namespace Schemas {
 
     export interface ErrorTrackingAssignee {
       /** User ID or role UUID to filter by. */
-      id: string | number | null;
+      id: string | number;
       /** Assignee target type: user or role.
        *
        * * `user` - user
@@ -40089,10 +40368,7 @@ export namespace Schemas {
          * @maxLength 200
          */
       evidence_source: string;
-      /**
-         * Optional HTTP or HTTPS link to the source.
-         * @maxLength 2000
-         */
+      /** Optional HTTP or HTTPS link to the source. */
       source_url?: string;
       /**
          * Date the account made the request, or null when unknown.
@@ -40143,10 +40419,7 @@ export namespace Schemas {
          * @maxLength 200
          */
       evidence_source: string;
-      /**
-         * Optional HTTP or HTTPS link to the source.
-         * @maxLength 2000
-         */
+      /** Optional HTTP or HTTPS link to the source. */
       source_url?: string;
       /**
          * Date the account made the request, or null when unknown.
@@ -40184,10 +40457,7 @@ export namespace Schemas {
          * @maxLength 200
          */
       evidence_source: string;
-      /**
-         * Optional HTTP or HTTPS link to the source.
-         * @maxLength 2000
-         */
+      /** Optional HTTP or HTTPS link to the source. */
       source_url?: string;
       /**
          * Date the account made the request, or null when unknown.
@@ -42278,11 +42548,7 @@ export namespace Schemas {
          * @maxLength 2000
          */
       url: string;
-      /**
-         * URL whose heatmap data is overlaid on the screenshot (defaults to 'url').
-         * @maxLength 2000
-         * @nullable
-         */
+      /** URL whose heatmap data is overlaid on the screenshot (defaults to 'url'). */
       data_url?: string | null;
       /** Viewport widths (CSS pixels) the screenshot is rendered at. */
       readonly target_widths: readonly number[];
@@ -48047,22 +48313,14 @@ export namespace Schemas {
     }
 
     export interface LLMSkillPublishToCommunity {
-      /**
-         * Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message.
-         * @maxLength 64
-         * @pattern ^[^\u0000-\u001f\u007f]*$
-         */
+      /** Human-friendly display name for the community listing. Defaults to a title-cased skill slug. Must be a single line: it is used as the pull request title and commit message. */
       display_name?: string;
       /**
          * Tags used for filtering and discovery in the marketplace, e.g. ['web-analytics', 'triage'].
          * @items.maxLength 64
          */
       tags?: string[];
-      /**
-         * The publisher's GitHub username, used for public attribution on the listing and PR. Optional, and self-reported: it is not verified against the publisher's PostHog account.
-         * @maxLength 39
-         * @pattern ^$|^[a-zA-Z0-9](?:-?[a-zA-Z0-9]){0,38}$
-         */
+      /** The publisher's GitHub username, used for public attribution on the listing and PR. Optional, and self-reported: it is not verified against the publisher's PostHog account. */
       author_handle?: string;
     }
 
@@ -50784,7 +51042,6 @@ export namespace Schemas {
       name: string;
       /** @maxLength 2048 */
       url: string;
-      /** @maxLength 2048 */
       docs_url?: string;
       description?: string;
       auth_type?: MCPAuthTypeEnum;
@@ -51695,15 +51952,6 @@ export namespace Schemas {
       /** False turns the server off for the member; true restores it. */
       enabled: boolean;
     }
-
-    export type MembershipLevelEnum = typeof MembershipLevelEnum[keyof typeof MembershipLevelEnum];
-
-
-    export const MembershipLevelEnum = {
-      Number1: 1,
-      Number8: 8,
-      Number15: 15,
-    } as const;
 
     export type MessageContextualTools = { [key: string]: unknown };
 
@@ -53387,6 +53635,20 @@ export namespace Schemas {
     export type OrganizationMetadata = {[key: string]: string};
 
     /**
+     * * `1` - member
+     * * `8` - administrator
+     * * `15` - owner
+     */
+    export type OrganizationMembershipLevelEnum = typeof OrganizationMembershipLevelEnum[keyof typeof OrganizationMembershipLevelEnum];
+
+
+    export const OrganizationMembershipLevelEnum = {
+      Number1: 1,
+      Number8: 8,
+      Number15: 15,
+    } as const;
+
+    /**
      * * `0` - none
      * * `3` - config
      * * `6` - install
@@ -53412,7 +53674,7 @@ export namespace Schemas {
       logo_media_id?: string | null;
       readonly created_at: string;
       readonly updated_at: string;
-      readonly membership_level: MembershipLevelEnum;
+      readonly membership_level: OrganizationMembershipLevelEnum;
       readonly plugins_access_level: PluginsAccessLevelEnum;
       readonly teams: readonly OrganizationTeamsItem[];
       readonly projects: readonly OrganizationProjectsItem[];
@@ -53515,7 +53777,7 @@ export namespace Schemas {
       slug: string;
       /** @nullable */
       readonly logo_media_id: string | null;
-      readonly membership_level: MembershipLevelEnum;
+      readonly membership_level: OrganizationMembershipLevelEnum;
       members_can_use_personal_api_keys?: boolean;
       /**
          * Set this to 'No' to temporarily disable an organization.
@@ -53615,20 +53877,6 @@ export namespace Schemas {
       readonly updated_at: string;
       readonly created_by: UserBasic;
     }
-
-    /**
-     * * `1` - member
-     * * `8` - administrator
-     * * `15` - owner
-     */
-    export type OrganizationMembershipLevelEnum = typeof OrganizationMembershipLevelEnum[keyof typeof OrganizationMembershipLevelEnum];
-
-
-    export const OrganizationMembershipLevelEnum = {
-      Number1: 1,
-      Number8: 8,
-      Number15: 15,
-    } as const;
 
     export interface OrganizationInvite {
       readonly id: string;
@@ -57263,6 +57511,7 @@ export namespace Schemas {
      * * `hubspot` - HubSpot
      * * `engineering_analytics` - Engineering analytics
      * * `google_search_console` - Google Search Console
+     * * `docs` - Docs
      */
     export type SignalSourceProductEnum = typeof SignalSourceProductEnum[keyof typeof SignalSourceProductEnum];
 
@@ -57317,6 +57566,7 @@ export namespace Schemas {
       Hubspot: 'hubspot',
       EngineeringAnalytics: 'engineering_analytics',
       GoogleSearchConsole: 'google_search_console',
+      Docs: 'docs',
     } as const;
 
     /**
@@ -61536,11 +61786,7 @@ export namespace Schemas {
      */
     export interface PatchedDataQualityCheck {
       readonly id?: string;
-      /**
-         * Optional identifier-safe handle, unique per project. Omit to address the check by id.
-         * @maxLength 128
-         * @pattern ^[A-Za-z][A-Za-z0-9_]*$
-         */
+      /** Optional identifier-safe handle, unique per project. Omit to address the check by id. */
       name?: string;
       /** Why this check exists and what a failure means. */
       description?: string;
@@ -61948,10 +62194,7 @@ export namespace Schemas {
        * * `general-availability` - general availability
        * * `archived` - archived */
       stage?: EarlyAccessFeatureStageEnum;
-      /**
-         * URL to external documentation for this feature. Shown to users in the opt-in UI.
-         * @maxLength 800
-         */
+      /** URL to external documentation for this feature. Shown to users in the opt-in UI. */
       documentation_url?: string;
       /** Feature flag payload for this early access feature */
       readonly payload?: PatchedEarlyAccessFeaturePayload;
@@ -63851,7 +64094,7 @@ export namespace Schemas {
       readonly last_modified_at?: string;
       readonly last_modified_by?: UserBasic;
       readonly is_sample?: boolean;
-      readonly effective_restriction_level?: EffectiveRestrictionLevelEnum;
+      readonly effective_restriction_level?: RestrictionLevelEnum;
       readonly effective_privilege_level?: EffectivePrivilegeLevelEnum;
       /**
          * The effective access level the user has for this object
@@ -64671,7 +64914,7 @@ export namespace Schemas {
       logo_media_id?: string | null;
       readonly created_at?: string;
       readonly updated_at?: string;
-      readonly membership_level?: MembershipLevelEnum;
+      readonly membership_level?: OrganizationMembershipLevelEnum;
       readonly plugins_access_level?: PluginsAccessLevelEnum;
       readonly teams?: readonly PatchedOrganizationTeamsItem[];
       readonly projects?: readonly PatchedOrganizationProjectsItem[];
@@ -65102,7 +65345,7 @@ export namespace Schemas {
          */
       product_description?: string | null;
       readonly created_at?: string;
-      readonly effective_membership_level?: EffectiveMembershipLevelEnum;
+      readonly effective_membership_level?: OrganizationMembershipLevelEnum;
       readonly has_group_types?: boolean;
       readonly group_types?: readonly PatchedProjectBackwardCompatGroupTypesItem[];
       /** @nullable */
@@ -65939,11 +66182,7 @@ export namespace Schemas {
     }
 
     export interface PatchedProxyRecordUpdate {
-      /**
-         * HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect. The URL must use the same registrable domain as the managed proxy.
-         * @maxLength 1024
-         * @nullable
-         */
+      /** HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect. The URL must use the same registrable domain as the managed proxy. */
       root_redirect_url?: string | null;
     }
 
@@ -66304,11 +66543,7 @@ export namespace Schemas {
          * @maxLength 2000
          */
       url?: string;
-      /**
-         * URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted.
-         * @maxLength 2000
-         * @nullable
-         */
+      /** URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted. */
       data_url?: string | null;
       /**
          * Viewport widths (px, 100-3000) to render the heatmap screenshot at — one render per width. Defaults to [320, 375, 425, 768, 1024, 1440, 1920] when omitted. At most 16 widths.
@@ -68007,7 +68242,7 @@ export namespace Schemas {
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
       workflows_config?: TeamWorkflowsConfig;
-      readonly effective_membership_level?: EffectiveMembershipLevelEnum;
+      readonly effective_membership_level?: OrganizationMembershipLevelEnum;
       readonly has_group_types?: boolean;
       readonly group_types?: readonly PatchedTeamGroupTypesItem[];
       /** @nullable */
@@ -69492,7 +69727,7 @@ export namespace Schemas {
          */
       product_description?: string | null;
       readonly created_at: string;
-      readonly effective_membership_level: EffectiveMembershipLevelEnum;
+      readonly effective_membership_level: OrganizationMembershipLevelEnum;
       readonly has_group_types: boolean;
       readonly group_types: readonly ProjectBackwardCompatGroupTypesItem[];
       /** @nullable */
@@ -74994,6 +75229,7 @@ export namespace Schemas {
      * * `hubspot` - hubspot
      * * `engineering_analytics` - engineering_analytics
      * * `google_search_console` - google_search_console
+     * * `docs` - docs
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -75048,6 +75284,7 @@ export namespace Schemas {
       Hubspot: 'hubspot',
       EngineeringAnalytics: 'engineering_analytics',
       GoogleSearchConsole: 'google_search_console',
+      Docs: 'docs',
     } as const;
 
     /**
@@ -75283,7 +75520,8 @@ export namespace Schemas {
        * * `intercom` - intercom
        * * `hubspot` - hubspot
        * * `engineering_analytics` - engineering_analytics
-       * * `google_search_console` - google_search_console */
+       * * `google_search_console` - google_search_console
+       * * `docs` - docs */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
@@ -76468,8 +76706,11 @@ export namespace Schemas {
     }
 
     export interface SavedHeatmapCaptureRequest {
-      /** Single screenshot of the page, captured client-side by the toolbar (JPEG or PNG). Max 20MB. Pair with 'width'. Use 'images'/'widths' instead to save several viewport widths on one heatmap. */
-      image?: string;
+      /**
+         * Single screenshot of the page, captured client-side by the toolbar (JPEG or PNG). Max 20MB. Pair with 'width'. Use 'images'/'widths' instead to save several viewport widths on one heatmap.
+         * @nullable
+         */
+      image?: string | null;
       /**
          * Viewport width (CSS pixels) the single 'image' was captured at.
          * @minimum 100
@@ -76518,11 +76759,7 @@ export namespace Schemas {
          * @maxLength 2000
          */
       url: string;
-      /**
-         * URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted.
-         * @maxLength 2000
-         * @nullable
-         */
+      /** URL whose heatmap data is overlaid on the screenshot. Defaults to 'url' when omitted. */
       data_url?: string | null;
       /**
          * Viewport widths (px, 100-3000) to render the heatmap screenshot at — one render per width. Defaults to [320, 375, 425, 768, 1024, 1440, 1920] when omitted. At most 16 widths.
@@ -82598,11 +82835,53 @@ export namespace Schemas {
     }
 
     /**
+     * A hypothesis under watch, as the space's home lists it.
+     */
+    export interface WatchSummary {
+      /** The watch's thread. */
+      thread_id: string;
+      /** The page the section is on. */
+      doc_id: string;
+      /** Title of that page. */
+      doc_title: string;
+      /** Key of the watched section's thread. */
+      anchor_key: string;
+      /** The words under watch. */
+      anchor_text: string;
+      /** active: checks and the scout run. paused: the page is done. stopped: final.
+       *
+       * * `active` - active
+       * * `paused` - paused
+       * * `stopped` - stopped */
+      status: DocWatchStatusEnum;
+      /** pending: no brief yet. holding: the evidence stands. moved: a number left its baseline. confirmed or refuted: decided, and the watch ended. stale: the checks could not run.
+       *
+       * * `pending` - pending
+       * * `holding` - holding
+       * * `moved` - moved
+       * * `confirmed` - confirmed
+       * * `refuted` - refuted
+       * * `stale` - stale */
+      verdict: DocWatchVerdictEnum;
+      /** The agent's newest report, or empty. */
+      last_report: string;
+      /**
+         * When that report landed.
+         * @nullable
+         */
+      last_report_at: string | null;
+      /** When the watch started. */
+      created_at: string;
+    }
+
+    /**
      * Everything the space home view renders in one call.
      */
     export interface SpaceHome {
       /** Docs in this space, in tab order. */
       docs: DocSummary[];
+      /** Hypotheses under watch across the space's pages, the ones that moved first. */
+      watches: WatchSummary[];
     }
 
     /**
@@ -83941,7 +84220,8 @@ export namespace Schemas {
      */
     export interface TaskActivityDTO {
       id: string;
-      task_id: string;
+      /** @nullable */
+      task_id: string | null;
       task_title: string;
       /** @nullable */
       channel_id: string | null;
@@ -83975,8 +84255,11 @@ export namespace Schemas {
     }
 
     export interface TaskActivityReadMarker {
-      /** Task whose displayed activity should be marked read. */
-      task_id: string;
+      /**
+         * Task whose displayed activity should be marked read. Null for a comment on something that is not a task.
+         * @nullable
+         */
+      task_id?: string | null;
       /**
          * Comment activity row to mark read. Omit for collapsed task activity.
          * @nullable
@@ -85986,7 +86269,7 @@ export namespace Schemas {
       /** @nullable */
       proactive_tasks_enabled?: boolean | null;
       workflows_config?: TeamWorkflowsConfig;
-      readonly effective_membership_level: EffectiveMembershipLevelEnum;
+      readonly effective_membership_level: OrganizationMembershipLevelEnum;
       readonly has_group_types: boolean;
       readonly group_types: readonly TeamGroupTypesItem[];
       /** @nullable */
@@ -87433,6 +87716,146 @@ export namespace Schemas {
       task_id: string;
       /** ID of the idling successor run that submit will activate. */
       run_id: string;
+    }
+
+    /**
+     * * `confirmed` - confirmed
+     * * `refuted` - refuted
+     */
+    export type WatchActionVerdictEnum = typeof WatchActionVerdictEnum[keyof typeof WatchActionVerdictEnum];
+
+
+    export const WatchActionVerdictEnum = {
+      Confirmed: 'confirmed',
+      Refuted: 'refuted',
+    } as const;
+
+    /**
+     * What a person does to a watch.
+     */
+    export interface WatchAction {
+      /** check runs the evidence now. stop and resume toggle the watch. close sets a final verdict. arm starts the scout when it is missing.
+       *
+       * * `check` - check
+       * * `stop` - stop
+       * * `resume` - resume
+       * * `close` - close
+       * * `arm` - arm */
+      action: DocWatchActionEnum;
+      /** With close: confirmed or refuted.
+       *
+       * * `confirmed` - confirmed
+       * * `refuted` - refuted */
+      verdict?: WatchActionVerdictEnum | null;
+      /**
+         * With close: why.
+         * @maxLength 600
+         */
+      reason?: string;
+    }
+
+    /**
+     * An agent handing in the brief behind a watch.
+     */
+    export interface WatchBriefSubmit {
+      /**
+         * The request id named in the task.
+         * @maxLength 64
+         */
+      request_id: string;
+      /**
+         * The claim in one sentence, as the page states it.
+         * @maxLength 400
+         */
+      claim: string;
+      /**
+         * What would confirm it.
+         * @maxLength 400
+         */
+      confirms?: string;
+      /**
+         * What would refute it.
+         * @maxLength 400
+         */
+      refutes?: string;
+      /** Up to four numbers the claim stands on. */
+      evidence?: WatchEvidenceInput[];
+      /**
+         * Up to six things the scout follows: events, flags, experiments, error issues, replay filters.
+         * @items.maxLength 200
+         */
+      signals?: string[];
+    }
+
+    export interface WatchEvidenceResult {
+      /** The evidence label as submitted. */
+      label: string;
+      /** True when the query ran and gave a number or a trend. */
+      ok: boolean;
+      /**
+         * The number, or the last value of the trend.
+         * @nullable
+         */
+      value: string | null;
+      /**
+         * Why it was not taken. Fix the query and submit again.
+         * @nullable
+         */
+      error: string | null;
+    }
+
+    /**
+     * Whether the page took the brief.
+     */
+    export interface WatchBriefSubmitResult {
+      /** True when every evidence query ran and the brief was kept. */
+      ok: boolean;
+      /** One result per evidence query, in order. */
+      evidence: WatchEvidenceResult[];
+      /**
+         * Why the brief was not taken, or null.
+         * @nullable
+         */
+      error: string | null;
+    }
+
+    /**
+     * * `holding` - holding
+     * * `moved` - moved
+     * * `confirmed` - confirmed
+     * * `refuted` - refuted
+     */
+    export type WatchVerdictSubmitVerdictEnum = typeof WatchVerdictSubmitVerdictEnum[keyof typeof WatchVerdictSubmitVerdictEnum];
+
+
+    export const WatchVerdictSubmitVerdictEnum = {
+      Holding: 'holding',
+      Moved: 'moved',
+      Confirmed: 'confirmed',
+      Refuted: 'refuted',
+    } as const;
+
+    /**
+     * An agent saying where the claim stands.
+     */
+    export interface WatchVerdictSubmit {
+      /**
+         * The request id named in the task.
+         * @maxLength 64
+         */
+      request_id: string;
+      /** holding, moved, confirmed, or refuted. Confirmed and refuted end the watch.
+       *
+       * * `holding` - holding
+       * * `moved` - moved
+       * * `confirmed` - confirmed
+       * * `refuted` - refuted */
+      verdict: WatchVerdictSubmitVerdictEnum;
+      /**
+         * Why, in one line the reader sees.
+         * @maxLength 600
+         */
+      reason: string;
     }
 
     export interface WebAnalyticsRecapResponse {
@@ -93236,6 +93659,13 @@ export namespace Schemas {
     };
 
     export type DocsListParams = {
+    /**
+     * Only return rows in this space (channel).
+     */
+    channel?: string;
+    };
+
+    export type DocsContextRetrieveParams = {
     /**
      * Only return rows in this space (channel).
      */

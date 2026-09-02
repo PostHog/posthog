@@ -21,6 +21,12 @@ from .enums import (
     DocKind,
     DocStatus,
     PostAuthorKind,
+    WatchAction,
+    WatchActor,
+    WatchEvent,
+    WatchStatus,
+    WatchStopReason,
+    WatchVerdict,
 )
 
 
@@ -52,13 +58,15 @@ class DocSummaryDTO:
 
 @dataclass(frozen=True)
 class WatchSummaryDTO:
-    """A section under watch, as the space's context page lists it."""
+    """A hypothesis under watch, as the space's home lists it."""
 
+    thread_id: UUID
     doc_id: UUID
     doc_title: str
     anchor_key: str
     anchor_text: str
-    loop_id: str | None
+    status: WatchStatus
+    verdict: WatchVerdict
     last_report: str
     last_report_at: datetime | None
     created_at: datetime
@@ -97,6 +105,8 @@ class DiscussionPostDTO:
     created_at: datetime
     author_kind: PostAuthorKind = PostAuthorKind.HUMAN
     sent_to_agent: bool = False
+    # Set on posts a watch writes, so a timeline reads them without parsing words.
+    event: WatchEvent | None = None
 
 
 @dataclass(frozen=True)
@@ -109,6 +119,64 @@ class DataAnswerDTO:
     shape: DataShape
     run_id: str | None
     updated_at: datetime | None
+
+
+@dataclass(frozen=True)
+class WatchEvidenceDTO:
+    """One number the claim stands on, with where it stands against its baseline."""
+
+    label: str
+    query: str
+    shape: DataShape
+    baseline: float | None
+    value: float | None
+    checked_at: datetime | None
+    error: str | None
+    history: list[list[Any]]
+    moved: bool
+
+
+@dataclass(frozen=True)
+class WatchBriefDTO:
+    """What the agent compiled the claim into: the claim, what decides it, the evidence, the signals."""
+
+    claim: str
+    confirms: str
+    refutes: str
+    evidence: list[WatchEvidenceDTO]
+    signals: list[str]
+    submitted_at: datetime | None
+
+
+@dataclass(frozen=True)
+class WatchVerdictDTO:
+    verdict: WatchVerdict
+    reason: str
+    by: WatchActor
+    at: datetime | None
+
+
+@dataclass(frozen=True)
+class WatchScoutDTO:
+    """The scout that follows the hypothesis's signals."""
+
+    config_id: str
+    skill_name: str
+
+
+@dataclass(frozen=True)
+class DocWatchDTO:
+    """The watch on a thread: whether it runs, what it stands on, and where the claim stands."""
+
+    status: WatchStatus
+    stopped_reason: WatchStopReason | None
+    verdict: WatchVerdictDTO
+    brief: WatchBriefDTO | None
+    scout: WatchScoutDTO | None
+    scout_error: str | None
+    next_check_at: datetime | None
+    checked_at: datetime | None
+    evidence_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -126,13 +194,19 @@ class DiscussionThreadDTO:
     answer: DataAnswerDTO | None = None
     author_kind: PostAuthorKind = PostAuthorKind.HUMAN
     sent_to_agent: bool = False
-    loop_id: str | None = None
+    watch: DocWatchDTO | None = None
 
 
 @dataclass(frozen=True)
 class ReplyResultDTO:
     thread: DiscussionThreadDTO
     delivery: AgentDelivery
+
+
+@dataclass(frozen=True)
+class WatchEvidenceInput:
+    label: str
+    query: str
 
 
 @dataclass(frozen=True)
@@ -146,7 +220,8 @@ class CreateThreadInput:
     kind: DiscussionKind = DiscussionKind.TEXT
     task_id: str | None = None
     send_to_agent: bool = False
-    loop_id: str | None = None
+    # A watch on a number already on the page: the brief is the query, and no scout runs.
+    evidence: list[WatchEvidenceInput] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -181,6 +256,57 @@ class SubmitDataPointResultDTO:
     rows: int
     columns: int
     error: str | None
+
+
+@dataclass(frozen=True)
+class SubmitWatchBriefInput:
+    """An agent handing in the brief behind a watch. ``task_id`` is the run's own, from its token."""
+
+    team_id: int
+    task_id: str
+    request_id: str
+    claim: str
+    confirms: str
+    refutes: str
+    evidence: list[WatchEvidenceInput]
+    signals: list[str]
+
+
+@dataclass(frozen=True)
+class WatchEvidenceResultDTO:
+    label: str
+    ok: bool
+    value: str | None
+    error: str | None
+
+
+@dataclass(frozen=True)
+class SubmitWatchBriefResultDTO:
+    ok: bool
+    evidence: list[WatchEvidenceResultDTO]
+    error: str | None
+
+
+@dataclass(frozen=True)
+class SubmitWatchVerdictInput:
+    team_id: int
+    task_id: str
+    request_id: str
+    verdict: WatchVerdict
+    reason: str
+
+
+@dataclass(frozen=True)
+class WatchActionInput:
+    """What a person does to a watch from its thread."""
+
+    team_id: int
+    user_id: int
+    doc_id: UUID
+    thread_id: UUID
+    action: WatchAction
+    verdict: WatchVerdict | None = None
+    reason: str = ""
 
 
 @dataclass(frozen=True)

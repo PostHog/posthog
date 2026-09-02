@@ -43,15 +43,89 @@ export namespace DocSchemas {
   }
 
   /** A section under watch, as the space's context page lists it. */
+  export type WatchStatus = "active" | "paused" | "stopped";
+  export type WatchVerdictState =
+    | "pending"
+    | "holding"
+    | "moved"
+    | "confirmed"
+    | "refuted"
+    | "stale";
+  export type WatchStopReason =
+    | "section_removed"
+    | "page_done"
+    | "page_deleted"
+    | "handled"
+    | "person"
+    | "verdict";
+  export type WatchActor = "agent" | "person" | "page";
+  export type WatchActionKind = "check" | "stop" | "resume" | "close" | "arm";
+
   export interface WatchSummary {
+    thread_id: string;
     doc_id: string;
     doc_title: string;
     anchor_key: string;
     anchor_text: string;
-    loop_id: string | null;
+    status: WatchStatus;
+    verdict: WatchVerdictState;
     last_report: string;
     last_report_at: string | null;
     created_at: string;
+  }
+
+  /** One number the claim stands on, and where it is against its baseline. */
+  export interface WatchEvidence {
+    label: string;
+    query: string;
+    shape: DataShape;
+    baseline: number | null;
+    value: number | null;
+    checked_at: string | null;
+    error: string | null;
+    /** [time, value] pairs, oldest first. */
+    history: [string, number | null][];
+    moved: boolean;
+  }
+
+  export interface WatchBrief {
+    claim: string;
+    confirms: string;
+    refutes: string;
+    evidence: WatchEvidence[];
+    signals: string[];
+    submitted_at: string | null;
+  }
+
+  export interface WatchVerdict {
+    verdict: WatchVerdictState;
+    reason: string;
+    by: WatchActor;
+    at: string | null;
+  }
+
+  /** The watch on a thread: whether it runs, what it stands on, where the claim stands. */
+  export interface DocWatch {
+    status: WatchStatus;
+    stopped_reason: WatchStopReason | null;
+    verdict: WatchVerdict;
+    brief: WatchBrief | null;
+    scout: { config_id: string; skill_name: string } | null;
+    scout_error: string | null;
+    next_check_at: string | null;
+    checked_at: string | null;
+    evidence_only: boolean;
+  }
+
+  export interface WatchEvidenceInput {
+    label: string;
+    query: string;
+  }
+
+  export interface WatchActionBody {
+    action: WatchActionKind;
+    verdict?: "confirmed" | "refuted";
+    reason?: string;
   }
 
   export interface Doc extends DocSummary {
@@ -64,6 +138,19 @@ export namespace DocSchemas {
   export type DiscussionKind = "text" | "data" | "watch";
   export type AgentDelivery = "not_requested" | "sent" | "no_run" | "failed";
 
+  /** What a post the watch wrote stands for. */
+  export type WatchEvent =
+    | "brief"
+    | "check"
+    | "moved"
+    | "stale"
+    | "report"
+    | "verdict"
+    | "scout"
+    | "stopped"
+    | "paused"
+    | "resumed";
+
   export interface DiscussionPost {
     id: string;
     content: string;
@@ -72,6 +159,7 @@ export namespace DocSchemas {
     created_at: string;
     author_kind: PostAuthorKind;
     sent_to_agent: boolean;
+    event?: WatchEvent | null;
   }
 
   /** The query behind a data point. The page runs it on every read. */
@@ -94,8 +182,8 @@ export namespace DocSchemas {
     kind: DiscussionKind;
     /** The agent task this thread talks to, once someone tagged the agent. */
     task_id: string | null;
-    /** The loop behind a watched section. Its reports land as posts. */
-    loop_id: string | null;
+    /** The watch, on a watch thread. */
+    watch: DocWatch | null;
     answer: DataAnswer | null;
     replies: DiscussionPost[];
   }
@@ -110,8 +198,9 @@ export namespace DocSchemas {
     anchor_text: string;
     kind?: DiscussionKind;
     task_id?: string | null;
-    loop_id?: string | null;
     send_to_agent?: boolean;
+    /** For a watch on a number already on the page: its query. No agent, no scout. */
+    evidence?: WatchEvidenceInput[];
   }
 
   export interface DiscussionReply {
@@ -435,6 +524,21 @@ export async function setDiscussionResolved(
     "post",
     docActionPath(projectId, docId, `discussions/${threadId}/resolve`),
     { body: { resolved } },
+  );
+}
+
+export async function watchThread(
+  client: ApiClient,
+  projectId: string,
+  docId: string,
+  threadId: string,
+  body: DocSchemas.WatchActionBody,
+): Promise<DocSchemas.DiscussionThread> {
+  return docsRequest(
+    client,
+    "post",
+    docActionPath(projectId, docId, `discussions/${threadId}/watch`),
+    { body },
   );
 }
 

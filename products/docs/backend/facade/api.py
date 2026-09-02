@@ -9,7 +9,8 @@ return ORM instances or import DRF.
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
-from datetime import datetime
+from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from django.conf import settings
@@ -21,12 +22,13 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.context_layer.backend.facade import api as context_layer
+from products.signals.backend.facade import api as signals_facade
 from products.tasks.backend.facade import (
     api as tasks_facade,
     contracts as tasks_contracts,
 )
 
-from ..logic import collab, data_points, discussions, documents, markdown, mentions
+from ..logic import collab, data_points, discussions, documents, markdown, mentions, watches
 from ..models import Doc
 from . import contracts
 from .enums import (
@@ -38,6 +40,12 @@ from .enums import (
     DocKind,
     DocStatus,
     PostAuthorKind,
+    WatchAction,
+    WatchActor,
+    WatchEvent,
+    WatchStatus,
+    WatchStopReason,
+    WatchVerdict,
 )
 
 ChannelNotVisibleError = documents.ChannelNotVisibleError
@@ -84,13 +92,23 @@ def update_doc(
     doc = _visible_doc(team_id, user_id, doc_id)
     if doc is None:
         return None
-    return _to_doc(documents.update_doc(doc, title=title, status=status))
+    was_done = doc.status == DocStatus.DONE
+    updated = documents.update_doc(doc, title=title, status=status)
+    is_done = updated.status == DocStatus.DONE
+    if is_done and not was_done:
+        _pause_page_watches(updated)
+    elif was_done and not is_done:
+        _resume_page_watches(updated)
+    return _to_doc(updated)
 
 
 def delete_doc(team_id: int, user_id: int | None, doc_id: str | UUID) -> bool:
     doc = _visible_doc(team_id, user_id, doc_id)
     if doc is None:
         return False
+    for thread in discussions.watch_threads(doc=doc):
+        if discussions.watch_of(thread).get("status") != WatchStatus.STOPPED.value:
+            _stop_watch(doc, thread, WatchStopReason.PAGE_DELETED, line="The page was deleted, so the watch stopped.")
     documents.soft_delete_doc(doc)
     return True
 
@@ -103,39 +121,50 @@ EXCERPT_CHARS = 160
 
 
 def space_home(team_id: int, user_id: int | None, channel_id: str | UUID) -> contracts.SpaceHomeDTO:
-    """The context page's view of the space: each page with what lives in it, and every watched section."""
-    docs = list(documents.docs_in_channel(team_id, user_id, channel_id).defer("content"))
+    """The context page's view of the space: each page with what lives in it, and every watched hypothesis."""
+    docs = list(documents.docs_in_channel(team_id, user_id, channel_id).exclude(kind=DocKind.CONTEXT))
     threads = discussions.threads_for_docs(team_id, [doc.id for doc in docs])
     open_counts: dict[str, int] = {}
     watch_counts: dict[str, int] = {}
     watch_threads: list[Comment] = []
     for thread in threads:
-        context = thread.item_context or {}
         key = str(thread.item_id)
+        context = thread.item_context or {}
         if context.get("kind") == DiscussionKind.WATCH.value:
-            watch_counts[key] = watch_counts.get(key, 0) + 1
+            if discussions.watch_of(thread).get("status") != WatchStatus.STOPPED.value:
+                watch_counts[key] = watch_counts.get(key, 0) + 1
             watch_threads.append(thread)
         elif not context.get("resolved"):
             open_counts[key] = open_counts.get(key, 0) + 1
 
     reports = discussions.last_reports(team_id, [thread.id for thread in watch_threads])
     titles = {str(doc.id): doc.title for doc in docs}
-    watches = []
-    for thread in sorted(watch_threads, key=lambda entry: entry.created_at, reverse=True):
-        context = thread.item_context or {}
+    watches_out = []
+    for thread in watch_threads:
         report = reports.get(str(thread.id))
-        watches.append(
+        watch = _to_watch(discussions.watch_of(thread))
+        watches_out.append(
             contracts.WatchSummaryDTO(
+                thread_id=thread.id,
                 doc_id=UUID(str(thread.item_id)),
                 doc_title=titles.get(str(thread.item_id), ""),
-                anchor_key=context.get("anchor_key", ""),
-                anchor_text=context.get("anchor_text", ""),
-                loop_id=str(context["loop_id"]) if context.get("loop_id") else None,
-                last_report=(report.content or "") if report else "",
+                anchor_key=(thread.item_context or {}).get("anchor_key", ""),
+                anchor_text=(thread.item_context or {}).get("anchor_text", ""),
+                status=watch.status,
+                verdict=watch.verdict.verdict,
+                last_report=report.content or "" if report else "",
                 last_report_at=report.created_at if report else None,
                 created_at=thread.created_at,
             )
         )
+    watches_out.sort(
+        key=lambda entry: (
+            _WATCH_ORDER.get(entry.verdict, 9)
+            if entry.status == WatchStatus.ACTIVE
+            else 10 + _STATUS_ORDER.get(entry.status, 9),
+            -entry.created_at.timestamp(),
+        )
+    )
 
     summaries = [
         _to_summary(
@@ -146,7 +175,16 @@ def space_home(team_id: int, user_id: int | None, channel_id: str | UUID) -> con
         )
         for doc in docs
     ]
-    return contracts.SpaceHomeDTO(docs=summaries, watches=watches)
+    return contracts.SpaceHomeDTO(docs=summaries, watches=watches_out)
+
+
+_WATCH_ORDER = {
+    WatchVerdict.MOVED: 0,
+    WatchVerdict.STALE: 1,
+    WatchVerdict.PENDING: 2,
+    WatchVerdict.HOLDING: 3,
+}
+_STATUS_ORDER = {WatchStatus.PAUSED: 0, WatchStatus.STOPPED: 1}
 
 
 def _excerpt(text: str | None) -> str:
@@ -233,6 +271,7 @@ def save_steps(payload: contracts.SaveStepsInput) -> contracts.CollabSaveResultD
         doc.refresh_from_db()
         if doc.kind == DocKind.CONTEXT:
             schedule_context_sync(doc.id)
+        _reconcile_watch_anchors(doc)
         return contracts.CollabSaveResultDTO(
             status=CollabSubmitStatus.ACCEPTED, version=result.version, doc=_to_doc(doc)
         )
@@ -293,6 +332,7 @@ def create_thread(payload: contracts.CreateThreadInput) -> contracts.ReplyResult
     doc = _visible_doc(payload.team_id, payload.user_id, payload.doc_id)
     if doc is None:
         return None
+    watch = _new_watch(doc, payload) if payload.kind == DiscussionKind.WATCH else None
     thread = discussions.create_thread(
         doc,
         user_id=payload.user_id,
@@ -302,7 +342,7 @@ def create_thread(payload: contracts.CreateThreadInput) -> contracts.ReplyResult
         kind=payload.kind,
         task_id=payload.task_id,
         sent_to_agent=payload.send_to_agent,
-        loop_id=payload.loop_id,
+        watch=watch,
     )
     delivery = AgentDelivery.NOT_REQUESTED
     # A thread created with a task already has its question in the task, so nothing is
@@ -379,6 +419,13 @@ def set_thread_resolved(
     doc = _visible_doc(team_id, user_id, doc_id)
     if doc is None:
         return None
+    thread = discussions.get_thread(doc, thread_id)
+    if (thread.item_context or {}).get("kind") == DiscussionKind.WATCH.value:
+        if resolved:
+            _stop_watch(doc, thread, WatchStopReason.HANDLED, line="Marked handled, so the watch stopped.")
+        else:
+            _resume_watch(doc, thread, line="Reopened, so the watch runs again.")
+        return _reload_thread(doc, thread_id)
     discussions.set_thread_resolved(doc, thread_id=thread_id, resolved=resolved)
     collab.publish_discussion_change(doc, thread_id=str(thread_id))
     return _reload_thread(doc, thread_id)
@@ -387,21 +434,16 @@ def set_thread_resolved(
 # --- The agent in a thread ---
 
 
-def record_agent_turn(
-    *, team_id: int, task_id: str, run_id: str, turn_key: str, text: str, loop_id: str | None = None
-) -> None:
-    """An agent turn ended: it becomes a post on every thread that tagged this task, and on
-    every thread watching through this loop.
+def record_agent_turn(*, team_id: int, task_id: str, run_id: str, turn_key: str, text: str) -> None:
+    """An agent turn ended: it becomes a post on every thread that tagged this task.
 
     A data thread with no answer yet also reads a query out of the prose, for a run that
-    wrote the tag and never called the tool.
+    wrote the tag and never called the tool. A watch thread with no brief yet reads the
+    brief out of a turn shaped by the task's schema.
     """
     if not text.strip():
         return
-    threads = discussions.threads_for_task(team_id, task_id)
-    if loop_id:
-        threads += discussions.threads_for_loop(team_id, loop_id)
-    for thread in threads:
+    for thread in discussions.threads_for_task(team_id, task_id):
         if not thread.item_id:
             continue
         doc = Doc.objects.for_team(team_id).filter(id=thread.item_id, deleted=False).first()
@@ -409,15 +451,34 @@ def record_agent_turn(
             continue
         context = thread.item_context or {}
         is_data = context.get("kind") == DiscussionKind.DATA.value
+        is_watch = context.get("kind") == DiscussionKind.WATCH.value
         structured = data_points.extract_structured(text) if is_data else None
         if structured is not None:
             _apply_structured_answer(doc, thread, run_id=run_id, turn_key=turn_key, structured=structured)
             collab.publish_discussion_change(doc, thread_id=str(thread.id))
             continue
+        brief_json = watches.extract_structured_brief(text) if is_watch else None
+        if brief_json is not None and not discussions.watch_of(thread).get("brief"):
+            if (
+                not discussions.doc_comments(doc)
+                .filter(source_comment=thread, item_context__turn_key=turn_key)
+                .exists()
+            ):
+                _apply_brief(doc, thread, brief_json, run_id=run_id, request=None, turn_key=turn_key)
+            continue
         posted = discussions.append_agent_turn(doc, thread, run_id=run_id, turn_key=turn_key, text=text)
         if posted is None:
             continue
         _tell_people(doc, posted)
+        if is_watch and not discussions.watch_of(thread).get("brief"):
+            _remind(
+                doc,
+                thread,
+                team_id=team_id,
+                task_id=task_id,
+                text=watches.reminder_text(context["anchor_key"]),
+                line="Asked the agent to hand in the brief.",
+            )
         if is_data and not context.get("answer"):
             found = data_points.extract_query(text)
             # A query out of prose is kept only when it runs: the page must never show a broken one.
@@ -432,23 +493,26 @@ def record_agent_turn(
 
 
 def _remind_data_point(doc: Doc, thread: Comment, *, team_id: int, task_id: str) -> None:
-    """A turn ended with words and no query. The run gets one fixed reminder per ask, never a loop."""
+    anchor_key = (thread.item_context or {})["anchor_key"]
+    _remind(
+        doc,
+        thread,
+        team_id=team_id,
+        task_id=task_id,
+        text=data_points.reminder_text(anchor_key),
+        line="Asked the agent to hand in the number.",
+    )
+
+
+def _remind(doc: Doc, thread: Comment, *, team_id: int, task_id: str, text: str, line: str) -> None:
+    """A turn ended with words and no tool call. The run gets one fixed reminder per ask, never a loop."""
     context = thread.item_context or {}
     asks = discussions.human_ask_count(doc, thread)
     if int(context.get("reminders") or 0) >= asks:
         return
     discussions.set_reminders(thread, asks)
-    discussions.add_post(
-        doc,
-        thread,
-        content="Asked the agent to hand in the number.",
-        user_id=None,
-        author_kind=PostAuthorKind.SYSTEM,
-        sent_to_agent=True,
-    )
-    tasks_facade.forward_message_to_run(
-        task_id, team_id, content=data_points.reminder_text(context["anchor_key"]), actor_user_id=None
-    )
+    discussions.add_post(doc, thread, content=line, user_id=None, author_kind=PostAuthorKind.SYSTEM, sent_to_agent=True)
+    tasks_facade.forward_message_to_run(task_id, team_id, content=text, actor_user_id=None)
 
 
 def _apply_structured_answer(
@@ -580,6 +644,519 @@ def _latest_run_id(task_id: str, team_id: int) -> str | None:
     return str(run_id) if run_id else None
 
 
+# --- Watches ---
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _new_watch(doc: Doc, payload: contracts.CreateThreadInput) -> dict[str, Any]:
+    """A hypothesis watch waits for the agent's brief. A watch on a number already on the page
+    is its own brief: the query is the evidence, and no scout runs."""
+    watch: dict[str, Any] = {
+        "status": WatchStatus.ACTIVE.value,
+        "stopped_reason": None,
+        "verdict": {"verdict": WatchVerdict.PENDING.value, "reason": "", "by": WatchActor.PAGE.value, "at": None},
+        "brief": None,
+        "scout": None,
+        "scout_error": None,
+        "seen_report_ids": [],
+        "next_check_at": None,
+        "checked_at": None,
+        "evidence_only": bool(payload.evidence),
+    }
+    if not payload.evidence:
+        return watch
+    team = Team.objects.get(id=doc.team_id)
+    evidence = []
+    for entry in payload.evidence:
+        checked, _ = watches.run_evidence(team, watches.EvidenceInput(label=entry.label, query=entry.query))
+        if checked is not None:
+            evidence.append(checked)
+    now = _now()
+    brief = watches.Brief(
+        claim=payload.anchor_text or payload.content,
+        confirms="The number stays where it is.",
+        refutes="The number moves by a fifth or more.",
+        evidence=evidence,
+        signals=[],
+        submitted_at=now.isoformat(),
+        run_id=None,
+    )
+    watch["brief"] = brief.to_json()
+    watch["verdict"] = _verdict_json(WatchVerdict.HOLDING, "", WatchActor.PAGE)
+    watch["checked_at"] = now.isoformat()
+    watch["next_check_at"] = watches.next_check(now).isoformat()
+    return watch
+
+
+def _verdict_json(verdict: WatchVerdict, reason: str, by: WatchActor) -> dict[str, Any]:
+    return {"verdict": verdict.value, "reason": reason, "by": by.value, "at": _now().isoformat()}
+
+
+def _watch_thread(team_id: int, request_id: str) -> tuple[Doc, Comment] | None:
+    thread = discussions.thread_for_watch(team_id, request_id)
+    if thread is None or not thread.item_id:
+        return None
+    doc = Doc.objects.for_team(team_id).filter(id=thread.item_id, deleted=False).first()
+    return (doc, thread) if doc is not None else None
+
+
+def _run_may_speak_for(thread: Comment, *, team_id: int, task_id: str) -> bool:
+    """The compile run, a run someone tagged in, or a run of the thread's own scout."""
+    if (thread.item_context or {}).get("task_id") == task_id:
+        return True
+    return signals_facade.scout_run_owns_task(team_id, watches.SCOUT_SOURCE_PRODUCT, str(thread.id), task_id)
+
+
+def submit_watch_brief(
+    payload: contracts.SubmitWatchBriefInput, *, request: Any
+) -> contracts.SubmitWatchBriefResultDTO | None:
+    """The agent hands in what the claim stands on. ``None`` when no such watch exists.
+
+    Raises ``PermissionError`` when the watch belongs to another run.
+    """
+    found = _watch_thread(payload.team_id, payload.request_id)
+    if found is None:
+        return None
+    doc, thread = found
+    if not _run_may_speak_for(thread, team_id=payload.team_id, task_id=payload.task_id):
+        raise PermissionError("This watch belongs to another run.")
+    brief_json = {
+        "claim": payload.claim.strip(),
+        "confirms": payload.confirms.strip(),
+        "refutes": payload.refutes.strip(),
+        "evidence": [
+            {"label": entry.label, "query": entry.query} for entry in payload.evidence[: watches.MAX_EVIDENCE]
+        ],
+        "signals": [entry.strip() for entry in payload.signals if entry.strip()][: watches.MAX_SIGNALS],
+    }
+    if not brief_json["claim"]:
+        return contracts.SubmitWatchBriefResultDTO(ok=False, evidence=[], error="The claim is missing.")
+    return _apply_brief(
+        doc, thread, brief_json, run_id=_latest_run_id(payload.task_id, payload.team_id), request=request
+    )
+
+
+def _apply_brief(
+    doc: Doc,
+    thread: Comment,
+    brief_json: dict[str, Any],
+    *,
+    run_id: str | None,
+    request: Any,
+    turn_key: str | None = None,
+) -> contracts.SubmitWatchBriefResultDTO:
+    """Runs the evidence once, keeps the brief, and stands the scout up. A query that does not
+    run sends the whole brief back, so the agent fixes it in the same turn."""
+    team = Team.objects.get(id=doc.team_id)
+    results = []
+    evidence = []
+    for raw in brief_json["evidence"]:
+        checked, result = watches.run_evidence(team, watches.EvidenceInput(label=raw["label"], query=raw["query"]))
+        results.append(
+            contracts.WatchEvidenceResultDTO(label=result.label, ok=result.ok, value=result.value, error=result.error)
+        )
+        if checked is not None:
+            evidence.append(checked)
+    if any(not result.ok for result in results):
+        return contracts.SubmitWatchBriefResultDTO(ok=False, evidence=results, error="An evidence query did not run.")
+
+    now = _now()
+    brief = watches.Brief(
+        claim=brief_json["claim"],
+        confirms=brief_json["confirms"],
+        refutes=brief_json["refutes"],
+        evidence=evidence,
+        signals=brief_json["signals"],
+        submitted_at=now.isoformat(),
+        run_id=run_id,
+    )
+    had_brief = bool(discussions.watch_of(thread).get("brief"))
+    discussions.set_watch(
+        thread,
+        brief=brief.to_json(),
+        verdict=_verdict_json(WatchVerdict.HOLDING, "", WatchActor.PAGE),
+        checked_at=now.isoformat(),
+        next_check_at=watches.next_check(now).isoformat(),
+    )
+    scout_line = _ensure_scout(doc, thread, brief, request=request, replace=had_brief)
+    checks = len(evidence)
+    line = " ".join(
+        [
+            "Brief updated." if had_brief else "Watching.",
+            f"{checks} {'check runs' if checks == 1 else 'checks run'} daily." if checks else "No numbers to recheck.",
+            scout_line,
+        ]
+    )
+    discussions.add_post(
+        doc,
+        thread,
+        content=line,
+        user_id=None,
+        author_kind=PostAuthorKind.SYSTEM,
+        run_id=run_id,
+        turn_key=turn_key,
+        event=WatchEvent.BRIEF.value,
+    )
+    collab.publish_discussion_change(doc, thread_id=str(thread.id))
+    return contracts.SubmitWatchBriefResultDTO(ok=True, evidence=results, error=None)
+
+
+def _ensure_scout(doc: Doc, thread: Comment, brief: watches.Brief, *, request: Any, replace: bool) -> str:
+    """Stands the hypothesis's scout up, or says why it could not. A watch without a scout still
+    rechecks its evidence, so this never fails the brief."""
+    watch = discussions.watch_of(thread)
+    if watch.get("evidence_only"):
+        return ""
+    if request is None:
+        return "The scout starts when the thread is opened."
+    team = doc.team.parent_team or doc.team
+    if watch.get("scout") and replace:
+        try:
+            signals_facade.delete_scout_for_source(
+                team=team, source_product=watches.SCOUT_SOURCE_PRODUCT, config_id=str(watch["scout"]["config_id"])
+            )
+        except Exception:
+            logger.exception("doc_watch_scout_delete_failed", thread_id=str(thread.id))
+    elif watch.get("scout"):
+        return "The scout keeps following the signals."
+    definition = watches.scout_definition(
+        thread_id=str(thread.id),
+        request_id=str((thread.item_context or {}).get("anchor_key") or ""),
+        brief=brief,
+        doc_title=doc.title or "Untitled",
+        page_url=doc_url(doc.channel_id, doc.id),
+    )
+    try:
+        created = signals_facade.create_scout_for_source(
+            team=team,
+            user=request.user,
+            name=definition.name,
+            description=definition.description,
+            body=definition.body,
+            files=[],
+            config_options={},
+            request=request,
+            serializer_context={"project_id": doc.team.project_id, "request": request},
+            source_product=watches.SCOUT_SOURCE_PRODUCT,
+            source_id=str(thread.id),
+        )
+    except Exception as err:
+        message = str(err).strip().splitlines()[0][:200] if str(err).strip() else "The scout could not be created."
+        logger.exception("doc_watch_scout_create_failed", thread_id=str(thread.id))
+        discussions.set_watch(thread, scout=None, scout_error=message)
+        return "The scout could not start: " + message
+    discussions.set_watch(
+        thread, scout={"config_id": str(created.config.id), "skill_name": created.config.skill_name}, scout_error=None
+    )
+    count = len(brief.signals)
+    return (
+        f"The scout follows {count} {'signal' if count == 1 else 'signals'} daily."
+        if count
+        else "The scout follows the signals daily."
+    )
+
+
+def submit_watch_verdict(payload: contracts.SubmitWatchVerdictInput) -> bool | None:
+    """The agent says where the claim stands. ``None`` when no such watch exists.
+
+    Raises ``PermissionError`` when the watch belongs to another run.
+    """
+    found = _watch_thread(payload.team_id, payload.request_id)
+    if found is None:
+        return None
+    doc, thread = found
+    if not _run_may_speak_for(thread, team_id=payload.team_id, task_id=payload.task_id):
+        raise PermissionError("This watch belongs to another run.")
+    if payload.verdict in (WatchVerdict.PENDING, WatchVerdict.STALE):
+        return False
+    if discussions.watch_of(thread).get("status") != WatchStatus.ACTIVE.value:
+        return False
+    _set_verdict(
+        doc,
+        thread,
+        payload.verdict,
+        payload.reason.strip(),
+        WatchActor.AGENT,
+        run_id=_latest_run_id(payload.task_id, payload.team_id),
+    )
+    return True
+
+
+_VERDICT_WORD = {
+    WatchVerdict.HOLDING: "Holding",
+    WatchVerdict.MOVED: "Moved",
+    WatchVerdict.CONFIRMED: "Confirmed",
+    WatchVerdict.REFUTED: "Refuted",
+}
+
+
+def _set_verdict(
+    doc: Doc,
+    thread: Comment,
+    verdict: WatchVerdict,
+    reason: str,
+    by: WatchActor,
+    *,
+    run_id: str | None = None,
+    user_id: int | None = None,
+) -> None:
+    discussions.set_watch(thread, verdict=_verdict_json(verdict, reason, by))
+    line = f"{_VERDICT_WORD[verdict]}. {reason}".strip()
+    author = PostAuthorKind.AGENT if by == WatchActor.AGENT else PostAuthorKind.HUMAN
+    post = discussions.add_post(
+        doc, thread, content=line, user_id=user_id, author_kind=author, run_id=run_id, event=WatchEvent.VERDICT.value
+    )
+    _tell_people(doc, post)
+    if verdict in (WatchVerdict.CONFIRMED, WatchVerdict.REFUTED):
+        _stop_watch(doc, thread, WatchStopReason.VERDICT, line=f"{_VERDICT_WORD[verdict]}, so the watch ended.")
+    else:
+        collab.publish_discussion_change(doc, thread_id=str(thread.id))
+
+
+def watch_action(payload: contracts.WatchActionInput, *, request: Any = None) -> contracts.DiscussionThreadDTO | None:
+    """What a person does to a watch from its thread."""
+    doc = _visible_doc(payload.team_id, payload.user_id, payload.doc_id)
+    if doc is None:
+        return None
+    thread = discussions.get_thread(doc, payload.thread_id)
+    if (thread.item_context or {}).get("kind") != DiscussionKind.WATCH.value:
+        raise discussions.ThreadNotFoundError("This thread is not a watch.")
+    if payload.action == WatchAction.CHECK:
+        _check_watch(doc, thread, by_person=True)
+        _ingest_scout_reports(doc, thread)
+    elif payload.action == WatchAction.STOP:
+        _stop_watch(doc, thread, WatchStopReason.PERSON, line="Stopped watching.", user_id=payload.user_id)
+    elif payload.action == WatchAction.RESUME:
+        _resume_watch(doc, thread, line="Watching again.", user_id=payload.user_id)
+    elif payload.action == WatchAction.CLOSE and payload.verdict in (WatchVerdict.CONFIRMED, WatchVerdict.REFUTED):
+        _set_verdict(doc, thread, payload.verdict, payload.reason, WatchActor.PERSON, user_id=payload.user_id)
+    if payload.action in (WatchAction.CHECK, WatchAction.ARM, WatchAction.RESUME) and request is not None:
+        _arm_scout(doc, thread, request=request)
+    collab.publish_discussion_change(doc, thread_id=str(thread.id))
+    return _reload_thread(doc, thread.id)
+
+
+def _arm_scout(doc: Doc, thread: Comment, *, request: Any) -> None:
+    """A brief that arrived with no person in the room has no scout yet; the first person to act gives it one."""
+    watch = discussions.watch_of(thread)
+    brief = watches.Brief.from_json(watch.get("brief"))
+    if brief is None or watch.get("scout") or watch.get("status") != WatchStatus.ACTIVE.value:
+        return
+    line = _ensure_scout(doc, thread, brief, request=request, replace=False)
+    if discussions.watch_of(thread).get("scout"):
+        discussions.add_post(
+            doc, thread, content=line, user_id=None, author_kind=PostAuthorKind.SYSTEM, event=WatchEvent.SCOUT.value
+        )
+
+
+def check_due_watches(now: datetime | None = None) -> int:
+    """The scheduled tick: rechecks every watch that is due and brings in the scouts' reports.
+    Returns how many watches were checked."""
+    at = now or _now()
+    checked = 0
+    for thread in discussions.watch_threads():
+        watch = discussions.watch_of(thread)
+        if watch.get("status") != WatchStatus.ACTIVE.value or not thread.item_id:
+            continue
+        doc = Doc.objects.unscoped().filter(id=thread.item_id, deleted=False).select_related("team").first()
+        if doc is None:
+            continue
+        try:
+            _ingest_scout_reports(doc, thread)
+            due = _when(watch.get("next_check_at"))
+            if watch.get("brief") and due is not None and due <= at:
+                _check_watch(doc, thread)
+                checked += 1
+        except Exception:
+            logger.exception("doc_watch_check_failed", thread_id=str(thread.id))
+    return checked
+
+
+def _check_watch(doc: Doc, thread: Comment, *, by_person: bool = False) -> None:
+    """Runs the evidence again. A move is said once, in one line, and the scout is asked to explain it."""
+    watch = discussions.watch_of(thread)
+    brief = watches.Brief.from_json(watch.get("brief"))
+    now = _now()
+    if brief is None:
+        discussions.set_watch(thread, checked_at=now.isoformat(), next_check_at=watches.next_check(now).isoformat())
+        return
+    team = Team.objects.get(id=doc.team_id)
+    rechecked = [watches.recheck(team, entry) for entry in brief.evidence]
+    new_brief = watches.Brief(
+        claim=brief.claim,
+        confirms=brief.confirms,
+        refutes=brief.refutes,
+        evidence=rechecked,
+        signals=brief.signals,
+        submitted_at=brief.submitted_at,
+        run_id=brief.run_id,
+    )
+    previous = _member(WatchVerdict, (watch.get("verdict") or {}).get("verdict"), WatchVerdict.PENDING)
+    verdict = watches.verdict_after_check(new_brief)
+    changes: dict[str, Any] = {
+        "brief": new_brief.to_json(),
+        "checked_at": now.isoformat(),
+        "next_check_at": watches.next_check(now).isoformat(),
+    }
+    if verdict != previous:
+        changes["verdict"] = _verdict_json(verdict, "", WatchActor.PAGE)
+    discussions.set_watch(thread, **changes)
+
+    newly_moved = [
+        entry for entry, before in zip(rechecked, brief.evidence, strict=True) if entry.moved and not before.moved
+    ]
+    if newly_moved:
+        lines = [watches.moved_line(entry) for entry in newly_moved]
+        if watch.get("scout") and signals_facade.run_scout_now_for_source(
+            doc.team_id, watches.SCOUT_SOURCE_PRODUCT, str(watch["scout"]["config_id"])
+        ):
+            lines.append("The scout is looking into why.")
+        post = discussions.add_post(
+            doc,
+            thread,
+            content=" ".join(lines),
+            user_id=None,
+            author_kind=PostAuthorKind.SYSTEM,
+            event=WatchEvent.MOVED.value,
+        )
+        _tell_people(doc, post)
+    elif verdict == WatchVerdict.STALE and previous != WatchVerdict.STALE:
+        error = next((entry.error for entry in rechecked if entry.error), "the query did not run")
+        discussions.add_post(
+            doc,
+            thread,
+            content=f"The checks could not run: {error}",
+            user_id=None,
+            author_kind=PostAuthorKind.SYSTEM,
+            event=WatchEvent.STALE.value,
+        )
+    elif by_person and not newly_moved:
+        moved = [entry for entry in rechecked if entry.moved]
+        line = "Checked now. " + (
+            "Still moved: " + " ".join(watches.moved_line(entry) for entry in moved) if moved else "Everything holds."
+        )
+        discussions.add_post(
+            doc, thread, content=line, user_id=None, author_kind=PostAuthorKind.SYSTEM, event=WatchEvent.CHECK.value
+        )
+    collab.publish_discussion_change(doc, thread_id=str(thread.id))
+
+
+def _ingest_scout_reports(doc: Doc, thread: Comment) -> None:
+    """Every report the thread's scout filed lands once, as the agent's post."""
+    watch = discussions.watch_of(thread)
+    if not watch.get("scout"):
+        return
+    seen = [str(entry) for entry in watch.get("seen_report_ids") or []]
+    reports = signals_facade.scout_reports_for_source(
+        doc.team_id, watches.SCOUT_SOURCE_PRODUCT, str(thread.id), limit=10
+    )
+    fresh = [report for report in reports if report.report_id not in seen]
+    if not fresh:
+        return
+    for report in reversed(fresh):
+        post = discussions.add_post(
+            doc,
+            thread,
+            content=watches.report_post(report.title, report.summary),
+            user_id=None,
+            author_kind=PostAuthorKind.AGENT,
+            turn_key=f"report:{report.report_id}",
+            event=WatchEvent.REPORT.value,
+        )
+        _tell_people(doc, post)
+    discussions.set_watch(thread, seen_report_ids=[*seen, *(report.report_id for report in fresh)][-200:])
+    collab.publish_discussion_change(doc, thread_id=str(thread.id))
+
+
+def _set_scout_enabled(doc: Doc, thread: Comment, enabled: bool) -> None:
+    scout = discussions.watch_of(thread).get("scout")
+    if not scout:
+        return
+    try:
+        signals_facade.update_scout_for_source(
+            doc.team_id, watches.SCOUT_SOURCE_PRODUCT, str(scout["config_id"]), enabled=enabled
+        )
+    except Exception:
+        logger.exception("doc_watch_scout_toggle_failed", thread_id=str(thread.id))
+
+
+def _stop_watch(doc: Doc, thread: Comment, reason: WatchStopReason, *, line: str, user_id: int | None = None) -> None:
+    if discussions.watch_of(thread).get("status") == WatchStatus.STOPPED.value:
+        return
+    discussions.set_watch(thread, status=WatchStatus.STOPPED.value, stopped_reason=reason.value)
+    discussions.set_thread_resolved(doc, thread_id=thread.id, resolved=True)
+    _set_scout_enabled(doc, thread, False)
+    author = PostAuthorKind.HUMAN if user_id else PostAuthorKind.SYSTEM
+    discussions.add_post(doc, thread, content=line, user_id=user_id, author_kind=author, event=WatchEvent.STOPPED.value)
+    collab.publish_discussion_change(doc, thread_id=str(thread.id))
+
+
+def _pause_watch(doc: Doc, thread: Comment, *, line: str) -> None:
+    if discussions.watch_of(thread).get("status") != WatchStatus.ACTIVE.value:
+        return
+    discussions.set_watch(thread, status=WatchStatus.PAUSED.value, stopped_reason=WatchStopReason.PAGE_DONE.value)
+    _set_scout_enabled(doc, thread, False)
+    discussions.add_post(
+        doc, thread, content=line, user_id=None, author_kind=PostAuthorKind.SYSTEM, event=WatchEvent.PAUSED.value
+    )
+    collab.publish_discussion_change(doc, thread_id=str(thread.id))
+
+
+def _resume_watch(doc: Doc, thread: Comment, *, line: str, user_id: int | None = None) -> None:
+    watch = discussions.watch_of(thread)
+    if watch.get("status") == WatchStatus.ACTIVE.value:
+        if (thread.item_context or {}).get("resolved"):
+            discussions.set_thread_resolved(doc, thread_id=thread.id, resolved=False)
+        return
+    now = _now()
+    discussions.set_watch(
+        thread,
+        status=WatchStatus.ACTIVE.value,
+        stopped_reason=None,
+        next_check_at=now.isoformat() if watch.get("brief") else None,
+    )
+    discussions.set_thread_resolved(doc, thread_id=thread.id, resolved=False)
+    _set_scout_enabled(doc, thread, True)
+    author = PostAuthorKind.HUMAN if user_id else PostAuthorKind.SYSTEM
+    discussions.add_post(doc, thread, content=line, user_id=user_id, author_kind=author, event=WatchEvent.RESUMED.value)
+    collab.publish_discussion_change(doc, thread_id=str(thread.id))
+
+
+def _pause_page_watches(doc: Doc) -> None:
+    for thread in discussions.watch_threads(doc=doc):
+        _pause_watch(doc, thread, line="The page is done, so the watch paused.")
+
+
+def _resume_page_watches(doc: Doc) -> None:
+    for thread in discussions.watch_threads(doc=doc):
+        watch = discussions.watch_of(thread)
+        if watch.get("status") == WatchStatus.PAUSED.value:
+            _resume_watch(doc, thread, line="The page is open again, so the watch runs again.")
+
+
+def _reconcile_watch_anchors(doc: Doc) -> None:
+    """A watch whose words left the page stops. The save is the moment the page knows."""
+    threads = [
+        thread
+        for thread in discussions.watch_threads(doc=doc)
+        if discussions.watch_of(thread).get("status") != WatchStatus.STOPPED.value
+    ]
+    if not threads:
+        return
+    keys = watches.anchor_keys(doc.content)
+    for thread in threads:
+        if (thread.item_context or {}).get("anchor_key") not in keys:
+            _stop_watch(
+                doc,
+                thread,
+                WatchStopReason.SECTION_REMOVED,
+                line="The watched words left the page, so the watch stopped.",
+            )
+
+
 # --- Mapping ---
 
 
@@ -645,6 +1222,7 @@ def _to_post(post: Comment) -> contracts.DiscussionPostDTO:
         created_at=post.created_at,
         author_kind=PostAuthorKind(context.get("author_kind") or PostAuthorKind.HUMAN.value),
         sent_to_agent=bool(context.get("sent_to_agent", False)),
+        event=_member(WatchEvent, context.get("event"), None),
     )
 
 
@@ -679,8 +1257,64 @@ def _to_thread(thread: Comment, replies: list[Comment]) -> contracts.DiscussionT
         answer=_to_answer(context.get("answer")),
         author_kind=PostAuthorKind(context.get("author_kind") or PostAuthorKind.HUMAN.value),
         sent_to_agent=bool(context.get("sent_to_agent", False)),
-        loop_id=str(context["loop_id"]) if context.get("loop_id") else None,
+        watch=_to_watch(context["watch"]) if isinstance(context.get("watch"), dict) else None,
     )
+
+
+def _when(raw: object) -> datetime | None:
+    return datetime.fromisoformat(raw) if isinstance(raw, str) and raw else None
+
+
+def _to_watch(raw: dict[str, Any]) -> contracts.DocWatchDTO:
+    brief = watches.Brief.from_json(raw.get("brief"))
+    raw_verdict = raw.get("verdict")
+    verdict: dict[str, Any] = raw_verdict if isinstance(raw_verdict, dict) else {}
+    scout = raw.get("scout") if isinstance(raw.get("scout"), dict) else None
+    return contracts.DocWatchDTO(
+        status=_member(WatchStatus, raw.get("status"), WatchStatus.ACTIVE),
+        stopped_reason=_member(WatchStopReason, raw.get("stopped_reason"), None),
+        verdict=contracts.WatchVerdictDTO(
+            verdict=_member(WatchVerdict, verdict.get("verdict"), WatchVerdict.PENDING),
+            reason=str(verdict.get("reason") or ""),
+            by=_member(WatchActor, verdict.get("by"), WatchActor.PAGE),
+            at=_when(verdict.get("at")),
+        ),
+        brief=contracts.WatchBriefDTO(
+            claim=brief.claim,
+            confirms=brief.confirms,
+            refutes=brief.refutes,
+            evidence=[
+                contracts.WatchEvidenceDTO(
+                    label=entry.label,
+                    query=entry.query,
+                    shape=_member(DataShape, entry.shape, DataShape.NUMBER),
+                    baseline=entry.baseline,
+                    value=entry.value,
+                    checked_at=_when(entry.checked_at),
+                    error=entry.error,
+                    history=entry.history,
+                    moved=entry.moved,
+                )
+                for entry in brief.evidence
+            ],
+            signals=brief.signals,
+            submitted_at=_when(brief.submitted_at),
+        )
+        if brief
+        else None,
+        scout=contracts.WatchScoutDTO(config_id=str(scout["config_id"]), skill_name=str(scout["skill_name"]))
+        if scout and scout.get("config_id")
+        else None,
+        scout_error=raw.get("scout_error") or None,
+        next_check_at=_when(raw.get("next_check_at")),
+        checked_at=_when(raw.get("checked_at")),
+        evidence_only=bool(raw.get("evidence_only", False)),
+    )
+
+
+def _member(enum: Any, raw: object, default: Any) -> Any:
+    values = {member.value for member in enum}
+    return enum(str(raw)) if str(raw) in values else default
 
 
 def _reload_thread(doc: Doc, thread_id: str | UUID) -> contracts.DiscussionThreadDTO:

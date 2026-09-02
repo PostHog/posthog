@@ -1,4 +1,5 @@
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from posthog.test.base import APIBaseTest
@@ -303,17 +304,163 @@ class TestDocsAPI(APIBaseTest):
         assert thread["replies"][-1]["content"] == "No replay events yet."
         assert thread["replies"][-1]["author_kind"] == "agent"
 
-    def test_a_watched_section_gets_every_report_of_its_loop(self):
-        doc = self._create_doc()
-        self._start_thread(doc, kind="watch", anchor_key="w1", loop_id="loop-1")
+    def _fake_scout(self):
+        config = type("Config", (), {"id": uuid.uuid4(), "skill_name": "signals-scout-doc-watch-abc"})()
+        return type("Created", (), {"config": config, "created": True, "skill": None})()
 
-        api.record_agent_turn(
-            team_id=self.team.pk, task_id="task-9", run_id="run-9", turn_key="k9", text="Still holds.", loop_id="loop-1"
+    def _watch(self, doc: dict, value: str = "5", **extra: Any) -> dict:
+        thread = self._start_thread(
+            doc,
+            kind="watch",
+            anchor_key="w1",
+            anchor_text="most signups came from two countries",
+            task_id="task-7",
+            send_to_agent=True,
+            **extra,
         )
+        run = data_points.DataPointRun(shape=DataShape.NUMBER, value=value, rows=1, columns=1, error=None)
+        with (
+            patch("products.docs.backend.presentation.views._sandbox_task_id", return_value="task-7"),
+            patch("products.docs.backend.logic.data_points.run_once", return_value=run),
+            patch("products.docs.backend.facade.api.tasks_facade.latest_run_id", return_value=None),
+            patch(
+                "products.docs.backend.facade.api.signals_facade.create_scout_for_source",
+                return_value=self._fake_scout(),
+            ),
+        ):
+            response = self.client.post(
+                self._url("watches/brief/"),
+                data={
+                    "request_id": "w1",
+                    "claim": "Most signups come from two countries.",
+                    "confirms": "The two countries keep over half of signups.",
+                    "refutes": "Their share drops under half.",
+                    "evidence": [{"label": "signups last month", "query": "SELECT count() FROM events"}],
+                    "signals": ["signup_completed by country"],
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["ok"] is True
+        return thread
 
-        thread = self.client.get(self._url(f"{doc['id']}/discussions/")).json()[0]
-        assert thread["loop_id"] == "loop-1"
-        assert [post["content"] for post in thread["replies"]] == ["Still holds."]
+    def _thread(self, doc: dict) -> dict:
+        return self.client.get(self._url(f"{doc['id']}/discussions/")).json()[0]
+
+    def test_a_watch_brief_lands_and_only_its_run_may_send_it(self):
+        doc = self._create_doc()
+        self._watch(doc)
+
+        thread = self._thread(doc)
+        watch = thread["watch"]
+        assert watch["status"] == "active"
+        assert watch["verdict"]["verdict"] == "holding"
+        assert watch["brief"]["evidence"][0]["baseline"] == 5.0
+        assert watch["scout"]["skill_name"] == "signals-scout-doc-watch-abc"
+        assert thread["replies"][-1]["content"] == "Watching. 1 check runs daily. The scout follows 1 signal daily."
+
+        with patch("products.docs.backend.presentation.views._sandbox_task_id", return_value="task-8"):
+            other = self.client.post(
+                self._url("watches/brief/"), data={"request_id": "w1", "claim": "x"}, format="json"
+            )
+        assert other.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_evidence_that_moves_is_said_once_and_the_scout_is_asked_why(self):
+        doc = self._create_doc()
+        self._watch(doc)
+        moved = data_points.DataPointRun(shape=DataShape.NUMBER, value="2", rows=1, columns=1, error=None)
+        later = datetime.now(UTC) + timedelta(days=2)
+
+        with (
+            patch("products.docs.backend.logic.data_points.run_once", return_value=moved),
+            patch("products.docs.backend.facade.api.signals_facade.run_scout_now_for_source", return_value=True),
+            patch("products.docs.backend.facade.api.signals_facade.scout_reports_for_source", return_value=[]),
+        ):
+            assert api.check_due_watches(now=later) == 1
+            assert api.check_due_watches() == 0
+
+        thread = self._thread(doc)
+        assert thread["watch"]["verdict"]["verdict"] == "moved"
+        assert thread["watch"]["brief"]["evidence"][0]["moved"] is True
+        lines = [post["content"] for post in thread["replies"] if post["author_kind"] == "system"]
+        assert lines[-1] == "“signups last month” moved from 5 to 2. The scout is looking into why."
+
+    def test_the_watch_stops_when_its_words_leave_the_page(self):
+        doc = self._create_doc()
+        self._watch(doc)
+
+        with patch("products.docs.backend.facade.api.signals_facade.update_scout_for_source") as toggle:
+            saved = self.client.post(
+                self._url(f"{doc['id']}/collab/save/"),
+                data={
+                    "client_id": "c",
+                    "steps": [],
+                    "version": 0,
+                    "content": {"type": "doc", "content": [{"type": "paragraph"}]},
+                },
+                format="json",
+            )
+        assert saved.status_code == status.HTTP_200_OK, saved.json()
+        thread = self._thread(doc)
+        assert thread["watch"]["status"] == "stopped"
+        assert thread["watch"]["stopped_reason"] == "section_removed"
+        assert thread["resolved"] is True
+        assert toggle.call_args.kwargs["enabled"] is False
+
+    def test_a_done_page_pauses_its_watches_and_reopening_resumes_them(self):
+        doc = self._create_doc()
+        self._watch(doc)
+
+        with patch("products.docs.backend.facade.api.signals_facade.update_scout_for_source"):
+            self.client.patch(self._url(f"{doc['id']}/"), data={"status": "done"}, format="json")
+            assert self._thread(doc)["watch"]["status"] == "paused"
+            self.client.patch(self._url(f"{doc['id']}/"), data={"status": "active"}, format="json")
+        assert self._thread(doc)["watch"]["status"] == "active"
+
+    def test_a_scout_run_sets_the_verdict_and_refuted_ends_the_watch(self):
+        doc = self._create_doc()
+        self._watch(doc)
+
+        with (
+            patch("products.docs.backend.presentation.views._sandbox_task_id", return_value="scout-task"),
+            patch("products.docs.backend.facade.api.signals_facade.scout_run_owns_task", return_value=True),
+            patch("products.docs.backend.facade.api.signals_facade.update_scout_for_source"),
+            patch("products.docs.backend.facade.api.tasks_facade.latest_run_id", return_value=None),
+        ):
+            response = self.client.post(
+                self._url("watches/verdict/"),
+                data={"request_id": "w1", "verdict": "refuted", "reason": "The two countries fell to 30%."},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        thread = self._thread(doc)
+        assert thread["watch"]["verdict"] == {
+            "verdict": "refuted",
+            "reason": "The two countries fell to 30%.",
+            "by": "agent",
+            "at": thread["watch"]["verdict"]["at"],
+        }
+        assert thread["watch"]["status"] == "stopped"
+        assert [post["content"] for post in thread["replies"][-2:]] == [
+            "Refuted. The two countries fell to 30%.",
+            "Refuted, so the watch ended.",
+        ]
+
+    def test_a_number_on_the_page_is_watched_without_the_agent(self):
+        doc = self._create_doc()
+        with patch("products.docs.backend.logic.data_points.run_once", return_value=_NUMBER_RUN):
+            thread = self._start_thread(
+                doc,
+                kind="watch",
+                anchor_key="req-9",
+                anchor_text="teams with replay on",
+                evidence=[{"label": "teams with replay on", "query": "SELECT count() FROM events"}],
+            )
+
+        assert thread["watch"]["evidence_only"] is True
+        assert thread["watch"]["scout"] is None
+        assert thread["watch"]["verdict"]["verdict"] == "holding"
+        assert thread["watch"]["brief"]["evidence"][0]["baseline"] == 7.0
 
     def test_a_turn_shaped_by_the_schema_becomes_the_data_point(self):
         doc = self._create_doc()
@@ -348,10 +495,8 @@ class TestDocsAPI(APIBaseTest):
             format="json",
         )
         self._start_thread(doc)
-        self._start_thread(doc, kind="watch", anchor_key="w1", anchor_text="signups grow", loop_id="loop-1")
-        api.record_agent_turn(
-            team_id=self.team.pk, task_id="t", run_id="r", turn_key="k", text="Still growing.", loop_id="loop-1"
-        )
+        self._watch(doc)
+        api.record_agent_turn(team_id=self.team.pk, task_id="task-7", run_id="r", turn_key="k", text="Still growing.")
 
         home = self.client.get(self._url("home/") + f"?channel={self.channel_id}").json()
 
@@ -359,7 +504,8 @@ class TestDocsAPI(APIBaseTest):
         assert page["excerpt"] == "Replay went on for the whole team in August."
         assert page["open_thread_count"] == 1
         assert page["watch_count"] == 1
-        assert home["watches"][0]["anchor_text"] == "signups grow"
+        assert home["watches"][0]["anchor_text"] == "most signups came from two countries"
+        assert home["watches"][0]["verdict"] == "holding"
         assert home["watches"][0]["last_report"] == "Still growing."
 
     def _wiki(self, content: str):

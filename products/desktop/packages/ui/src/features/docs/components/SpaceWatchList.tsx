@@ -1,15 +1,140 @@
 import type { DocSchemas } from "@posthog/api-client/docs";
+import { cn } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
-import { DocMark } from "@posthog/ui/primitives/DocMark";
-import { Link } from "@tanstack/react-router";
+import { DocMark, type DocMarkState } from "@posthog/ui/primitives/DocMark";
+import { toast } from "@posthog/ui/primitives/toast";
+import { useDiscussionMutations } from "../hooks/useDocDiscussions";
 import { plainLine } from "./DocThreadRow";
+import {
+  SPACE_ROW_ACTION_CLASS,
+  SpaceRow,
+  SpaceSectionHeader,
+} from "./SpaceRow";
+
+const VERDICT_LABEL: Record<DocSchemas.WatchVerdictState, string> = {
+  pending: "Compiling",
+  holding: "Holding",
+  moved: "Moved",
+  confirmed: "Confirmed",
+  refuted: "Refuted",
+  stale: "Could not check",
+};
+
+/** The verdicts that ask a person to look. */
+const ATTENTION_TONE: Partial<Record<DocSchemas.WatchVerdictState, string>> = {
+  moved: "text-(--amber-11)",
+  refuted: "text-(--red-11)",
+};
+
+function needsAttention(watch: DocSchemas.WatchSummary): boolean {
+  return (
+    watch.status === "active" &&
+    (watch.verdict === "moved" || watch.verdict === "refuted")
+  );
+}
+
+function stateLabel(watch: DocSchemas.WatchSummary): string | null {
+  if (watch.status === "paused") return "Paused";
+  if (watch.status === "stopped") {
+    return watch.verdict === "confirmed" || watch.verdict === "refuted"
+      ? VERDICT_LABEL[watch.verdict]
+      : "Stopped";
+  }
+  // A watch that is still compiling has nothing to say yet.
+  if (watch.verdict === "pending") return null;
+  return VERDICT_LABEL[watch.verdict];
+}
+
+function markState(watch: DocSchemas.WatchSummary): DocMarkState {
+  if (watch.status !== "active") return "handled";
+  if (watch.verdict === "moved") return "moved";
+  if (watch.verdict === "stale") return "stale";
+  return "still";
+}
+
+function byAttentionThenRecency(
+  a: DocSchemas.WatchSummary,
+  b: DocSchemas.WatchSummary,
+): number {
+  const attention = Number(needsAttention(b)) - Number(needsAttention(a));
+  if (attention !== 0) return attention;
+  const active = Number(b.status === "active") - Number(a.status === "active");
+  if (active !== 0) return active;
+  return (b.last_report_at ?? "").localeCompare(a.last_report_at ?? "");
+}
+
+function WatchRow({
+  channelId,
+  watch,
+}: {
+  channelId: string;
+  watch: DocSchemas.WatchSummary;
+}) {
+  const mutation = useDiscussionMutations(watch.doc_id).watch;
+  const active = watch.status === "active";
+  const decided = watch.verdict === "confirmed" || watch.verdict === "refuted";
+  const label = stateLabel(watch);
+  const report = watch.last_report ? plainLine(watch.last_report) : null;
+  const excerpt =
+    label || report ? (
+      <>
+        {label ? (
+          <span className={cn("font-medium", ATTENTION_TONE[watch.verdict])}>
+            {label}
+          </span>
+        ) : null}
+        {label && report ? " · " : null}
+        {report}
+      </>
+    ) : null;
+
+  return (
+    <SpaceRow
+      icon={<DocMark variant="agent" state={markState(watch)} size={11} />}
+      title={`“${watch.anchor_text || "a section"}”`}
+      meta={watch.doc_title || "Untitled"}
+      age={
+        watch.last_report_at
+          ? formatRelativeTimeShort(watch.last_report_at)
+          : undefined
+      }
+      excerpt={excerpt}
+      muted={!active}
+      link={{
+        to: "/spaces/$channelId/docs/$docId",
+        params: { channelId, docId: watch.doc_id },
+        search: { thread: watch.anchor_key },
+      }}
+      action={
+        decided ? null : (
+          <button
+            type="button"
+            className={SPACE_ROW_ACTION_CLASS}
+            disabled={mutation.isPending}
+            onClick={() =>
+              mutation.mutate(
+                {
+                  threadId: watch.thread_id,
+                  body: { action: active ? "stop" : "resume" },
+                },
+                {
+                  onError: () => toast.error("The watch did not take that"),
+                },
+              )
+            }
+          >
+            {active ? "Stop" : "Resume"}
+          </button>
+        )
+      }
+    />
+  );
+}
 
 /**
- * The sections the agent keeps checking, across the space's pages.
- *
- * A hypothesis someone wrote down and asked to be watched is a claim about the
- * space, so it belongs on the context page beside the pages themselves. Each row
- * is the words under watch and the last thing the agent said about them.
+ * The claims the space keeps watching, across its pages. The ones that need a
+ * person come first, then the active ones by their latest report, then the
+ * paused and stopped ones.
  */
 export function SpaceWatchList({
   channelId,
@@ -19,45 +144,29 @@ export function SpaceWatchList({
   watches: DocSchemas.WatchSummary[];
 }) {
   if (watches.length === 0) return null;
+  const sorted = [...watches].sort(byAttentionThenRecency);
+  const moved = watches.filter(needsAttention).length;
+  const active = watches.filter((watch) => watch.status === "active").length;
   return (
-    <div className="pt-4">
-      <h3 className="mb-1 flex items-center gap-1.5 font-medium text-(--gray-11) text-[12px] uppercase tracking-[0.06em]">
-        <DocMark variant="agent" size={11} />
-        Watching
-      </h3>
-      <ul className="-mx-2">
-        {watches.map((watch) => (
-          <li key={`${watch.doc_id}:${watch.anchor_key}`}>
-            <Link
-              to="/spaces/$channelId/docs/$docId"
-              params={{ channelId, docId: watch.doc_id }}
-              search={{ thread: watch.anchor_key }}
-              className="group flex w-full cursor-pointer flex-col gap-0.5 rounded-(--radius-2) px-2 py-[7px] text-left transition-colors hover:bg-(--gray-3)"
-            >
-              <span className="flex items-baseline gap-2">
-                <span className="min-w-0 flex-1 truncate text-(--gray-12) text-[14px]">
-                  “{watch.anchor_text || "a section"}”
-                </span>
-                <span className="shrink-0 text-(--gray-9) text-[12px]">
-                  {watch.doc_title || "Untitled"}
-                </span>
-              </span>
-              <span className="flex items-baseline gap-2 text-[12.5px]">
-                <span className="min-w-0 flex-1 truncate text-(--gray-10)">
-                  {watch.last_report
-                    ? plainLine(watch.last_report)
-                    : "Waiting for the first report."}
-                </span>
-                <span className="w-14 shrink-0 text-right text-(--gray-9) text-[12px] tabular-nums">
-                  {watch.last_report_at
-                    ? formatRelativeTimeShort(watch.last_report_at)
-                    : ""}
-                </span>
-              </span>
-            </Link>
-          </li>
+    <section className="shrink-0">
+      <SpaceSectionHeader
+        title="Watching"
+        aside={
+          <span
+            className={cn(
+              "text-[12.5px] tabular-nums",
+              moved ? "text-(--amber-11)" : "text-(--gray-9)",
+            )}
+          >
+            {moved ? `${moved} moved` : `${active} active`}
+          </span>
+        }
+      />
+      <ul className="-mx-2 pt-1.5">
+        {sorted.map((watch) => (
+          <WatchRow key={watch.thread_id} channelId={channelId} watch={watch} />
         ))}
       </ul>
-    </div>
+    </section>
   );
 }

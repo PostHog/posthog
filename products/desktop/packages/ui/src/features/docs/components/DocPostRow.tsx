@@ -162,9 +162,11 @@ export function DocPostRow({
   if (post.author_kind === "system") {
     return (
       <div className="flex items-center gap-2 px-3 py-1 text-(--gray-10) text-[12px]">
-        <span className="h-px flex-1 bg-(--gray-4)" />
-        <span className="shrink-0">{post.content}</span>
-        <span className="h-px flex-1 bg-(--gray-4)" />
+        <span className="h-px min-w-3 flex-1 bg-(--gray-4)" />
+        <span className="min-w-0 max-w-[85%] text-center leading-snug">
+          {post.content}
+        </span>
+        <span className="h-px min-w-3 flex-1 bg-(--gray-4)" />
       </div>
     );
   }

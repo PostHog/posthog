@@ -13,6 +13,12 @@ from ..facade.enums import (
     DocStatus,
     DocTemplate,
     PostAuthorKind,
+    WatchAction,
+    WatchActor,
+    WatchEvent,
+    WatchStatus,
+    WatchStopReason,
+    WatchVerdict,
 )
 
 _PROSEMIRROR_SCHEMA = {
@@ -28,7 +34,11 @@ _DOC_STATUS_HELP = (
 _DOC_STATUS_CHOICES = [status.value for status in DocStatus]
 _TASK_ID_HELP = "The agent task this thread talks to. Set by the client that started the run."
 _SEND_TO_AGENT_HELP = "True when the post tags the agent. With a live run the text is forwarded into it."
-_LOOP_ID_HELP = "The loop that keeps checking a watched section. Each of its reports lands as a post."
+_WATCH_STATUS_HELP = "active: checks and the scout run. paused: the page is done. stopped: final."
+_WATCH_VERDICT_HELP = (
+    "pending: no brief yet. holding: the evidence stands. moved: a number left its baseline. "
+    "confirmed or refuted: decided, and the watch ended. stale: the checks could not run."
+)
 
 
 @extend_schema_field(_PROSEMIRROR_SCHEMA)
@@ -68,17 +78,19 @@ class DocSummarySerializer(serializers.Serializer):
         allow_blank=True, help_text="The first words of the page, for a list. Empty outside the space home."
     )
     open_thread_count = serializers.IntegerField(help_text="Threads on the page not yet marked handled.")
-    watch_count = serializers.IntegerField(help_text="Sections of the page the agent keeps checking.")
+    watch_count = serializers.IntegerField(help_text="Hypotheses on the page still under watch.")
 
 
 class WatchSummarySerializer(serializers.Serializer):
-    """A section under watch, as the space's context page lists it."""
+    """A hypothesis under watch, as the space's home lists it."""
 
+    thread_id = serializers.UUIDField(help_text="The watch's thread.")
     doc_id = serializers.UUIDField(help_text="The page the section is on.")
     doc_title = serializers.CharField(allow_blank=True, help_text="Title of that page.")
     anchor_key = serializers.CharField(allow_blank=True, help_text="Key of the watched section's thread.")
     anchor_text = serializers.CharField(allow_blank=True, help_text="The words under watch.")
-    loop_id = serializers.CharField(allow_null=True, help_text=_LOOP_ID_HELP)
+    status = serializers.ChoiceField(choices=[entry.value for entry in WatchStatus], help_text=_WATCH_STATUS_HELP)
+    verdict = serializers.ChoiceField(choices=[entry.value for entry in WatchVerdict], help_text=_WATCH_VERDICT_HELP)
     last_report = serializers.CharField(allow_blank=True, help_text="The agent's newest report, or empty.")
     last_report_at = serializers.DateTimeField(allow_null=True, help_text="When that report landed.")
     created_at = serializers.DateTimeField(help_text="When the watch started.")
@@ -187,6 +199,12 @@ class DiscussionPostSerializer(serializers.Serializer):
         help_text="human: a person. agent: the agent's turn. system: a one-line note the page wrote.",
     )
     sent_to_agent = serializers.BooleanField(help_text="Whether this post reached the agent's run.")
+    event = serializers.ChoiceField(
+        choices=[event.value for event in WatchEvent],
+        allow_null=True,
+        required=False,
+        help_text="On a post a watch wrote: what it stands for, so a timeline reads it without parsing words.",
+    )
 
 
 class DataAnswerSerializer(serializers.Serializer):
@@ -206,6 +224,70 @@ class DataAnswerSerializer(serializers.Serializer):
     updated_at = serializers.DateTimeField(allow_null=True, help_text="When it was last submitted.")
 
 
+class WatchEvidenceSerializer(serializers.Serializer):
+    """One number the claim stands on, and where it is against its baseline."""
+
+    label = serializers.CharField(allow_blank=True, help_text="What the number counts.")  # type: ignore[assignment]
+    query = serializers.CharField(help_text="The HogQL SELECT the page reruns.")
+    shape = serializers.ChoiceField(
+        choices=[(shape.value, shape.value) for shape in DataShape], help_text="number, or series for a trend."
+    )
+    baseline = serializers.FloatField(allow_null=True, help_text="The value when the brief landed.")
+    value = serializers.FloatField(allow_null=True, help_text="The value at the last check.")
+    checked_at = serializers.DateTimeField(allow_null=True, help_text="When it was last checked.")
+    error = serializers.CharField(allow_null=True, help_text="Why the last check did not run, or null.")
+    history = serializers.ListField(
+        child=serializers.ListField(child=serializers.JSONField()),
+        help_text="[time, value] pairs, oldest first, at most sixty.",
+    )
+    moved = serializers.BooleanField(help_text="True when the value left its baseline by a fifth or more.")
+
+
+class WatchBriefSerializer(serializers.Serializer):
+    """What the agent compiled the claim into."""
+
+    claim = serializers.CharField(help_text="The claim in one sentence.")
+    confirms = serializers.CharField(allow_blank=True, help_text="What would confirm it.")
+    refutes = serializers.CharField(allow_blank=True, help_text="What would refute it.")
+    evidence = WatchEvidenceSerializer(many=True, help_text="The numbers the page rechecks daily.")
+    signals = serializers.ListField(
+        child=serializers.CharField(), help_text="What the scout follows: events, flags, errors, replays."
+    )
+    submitted_at = serializers.DateTimeField(allow_null=True, help_text="When the brief landed.")
+
+
+class WatchVerdictSerializer(serializers.Serializer):
+    verdict = serializers.ChoiceField(choices=[entry.value for entry in WatchVerdict], help_text=_WATCH_VERDICT_HELP)
+    reason = serializers.CharField(allow_blank=True, help_text="Why, in one line.")
+    by = serializers.ChoiceField(
+        choices=[entry.value for entry in WatchActor], help_text="agent, person, or page for a derived verdict."
+    )
+    at = serializers.DateTimeField(allow_null=True, help_text="When the verdict was set.")
+
+
+class WatchScoutSerializer(serializers.Serializer):
+    config_id = serializers.CharField(help_text="The scout config that follows the signals.")
+    skill_name = serializers.CharField(help_text="The scout's skill name.")
+
+
+class DocWatchSerializer(serializers.Serializer):
+    """The watch on a thread: whether it runs, what it stands on, and where the claim stands."""
+
+    status = serializers.ChoiceField(choices=[entry.value for entry in WatchStatus], help_text=_WATCH_STATUS_HELP)
+    stopped_reason = serializers.ChoiceField(
+        choices=[entry.value for entry in WatchStopReason],
+        allow_null=True,
+        help_text="Why the watch stopped or paused, or null while it runs.",
+    )
+    verdict = WatchVerdictSerializer(help_text="Where the claim stands.")
+    brief = WatchBriefSerializer(allow_null=True, help_text="The brief, or null until the agent hands it in.")
+    scout = WatchScoutSerializer(allow_null=True, help_text="The scout, or null when none follows the signals.")
+    scout_error = serializers.CharField(allow_null=True, help_text="Why the scout could not start, or null.")
+    next_check_at = serializers.DateTimeField(allow_null=True, help_text="When the evidence is checked next.")
+    checked_at = serializers.DateTimeField(allow_null=True, help_text="When the evidence was last checked.")
+    evidence_only = serializers.BooleanField(help_text="True for a watch on a number already on the page.")
+
+
 class DiscussionThreadSerializer(DiscussionPostSerializer):
     """A thread anchored to a phrase or a data point in the doc, with its posts."""
 
@@ -220,11 +302,11 @@ class DiscussionThreadSerializer(DiscussionPostSerializer):
         choices=[kind.value for kind in DiscussionKind],
         help_text=(
             "text: started from a phrase. data: the thread behind a data point the page asked for. "
-            "watch: a section the agent keeps checking on a schedule."
+            "watch: a hypothesis the page keeps watching."
         ),
     )
     task_id = serializers.CharField(allow_null=True, help_text=_TASK_ID_HELP)
-    loop_id = serializers.CharField(allow_null=True, help_text=_LOOP_ID_HELP)
+    watch = DocWatchSerializer(allow_null=True, help_text="The watch, on a watch thread.")
     answer = DataAnswerSerializer(allow_null=True, help_text="The query a data thread ended with, or null.")
     replies = DiscussionPostSerializer(many=True, help_text="Posts after the first, oldest first.")
 
@@ -241,6 +323,13 @@ class DiscussionReplyResultSerializer(DiscussionThreadSerializer):
     )
 
 
+class WatchEvidenceInputSerializer(serializers.Serializer):
+    label = serializers.CharField(  # type: ignore[assignment]
+        allow_blank=True, max_length=120, help_text="What the number counts."
+    )
+    query = serializers.CharField(help_text="One HogQL SELECT: one number, or a date and a number per row.")
+
+
 class DiscussionCreateSerializer(serializers.Serializer):
     """What a new thread needs."""
 
@@ -255,10 +344,15 @@ class DiscussionCreateSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
         choices=[kind.value for kind in DiscussionKind],
         default=DiscussionKind.TEXT.value,
-        help_text="text for a phrase, data for a data point the page asked for, watch for a section the agent keeps checking.",
+        help_text="text for a phrase, data for a data point the page asked for, watch for a hypothesis to keep watching.",
     )
     task_id = serializers.CharField(required=False, allow_null=True, max_length=64, help_text=_TASK_ID_HELP)
-    loop_id = serializers.CharField(required=False, allow_null=True, max_length=64, help_text=_LOOP_ID_HELP)
+    evidence = WatchEvidenceInputSerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text="For a watch on a number already on the page: its query. No agent and no scout are involved.",
+    )
     send_to_agent = serializers.BooleanField(default=False, help_text=_SEND_TO_AGENT_HELP)
 
 
@@ -331,10 +425,79 @@ class DataPointSubmitResultSerializer(serializers.Serializer):
     )
 
 
+class WatchBriefSubmitSerializer(serializers.Serializer):
+    """An agent handing in the brief behind a watch."""
+
+    request_id = serializers.CharField(max_length=64, help_text="The request id named in the task.")
+    claim = serializers.CharField(max_length=400, help_text="The claim in one sentence, as the page states it.")
+    confirms = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=400, help_text="What would confirm it."
+    )
+    refutes = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=400, help_text="What would refute it."
+    )
+    evidence = WatchEvidenceInputSerializer(
+        many=True, required=False, default=list, help_text="Up to four numbers the claim stands on."
+    )
+    signals = serializers.ListField(
+        child=serializers.CharField(max_length=200),
+        required=False,
+        default=list,
+        help_text="Up to six things the scout follows: events, flags, experiments, error issues, replay filters.",
+    )
+
+
+class WatchEvidenceResultSerializer(serializers.Serializer):
+    label = serializers.CharField(allow_blank=True, help_text="The evidence label as submitted.")  # type: ignore[assignment]
+    ok = serializers.BooleanField(help_text="True when the query ran and gave a number or a trend.")
+    value = serializers.CharField(allow_null=True, help_text="The number, or the last value of the trend.")
+    error = serializers.CharField(allow_null=True, help_text="Why it was not taken. Fix the query and submit again.")
+
+
+class WatchBriefSubmitResultSerializer(serializers.Serializer):
+    """Whether the page took the brief."""
+
+    ok = serializers.BooleanField(help_text="True when every evidence query ran and the brief was kept.")
+    evidence = WatchEvidenceResultSerializer(many=True, help_text="One result per evidence query, in order.")
+    error = serializers.CharField(allow_null=True, help_text="Why the brief was not taken, or null.")
+
+
+class WatchVerdictSubmitSerializer(serializers.Serializer):
+    """An agent saying where the claim stands."""
+
+    request_id = serializers.CharField(max_length=64, help_text="The request id named in the task.")
+    verdict = serializers.ChoiceField(
+        choices=[
+            entry.value
+            for entry in (WatchVerdict.HOLDING, WatchVerdict.MOVED, WatchVerdict.CONFIRMED, WatchVerdict.REFUTED)
+        ],
+        help_text="holding, moved, confirmed, or refuted. Confirmed and refuted end the watch.",
+    )
+    reason = serializers.CharField(max_length=600, help_text="Why, in one line the reader sees.")
+
+
+class WatchActionSerializer(serializers.Serializer):
+    """What a person does to a watch."""
+
+    action = serializers.ChoiceField(
+        choices=[entry.value for entry in WatchAction],
+        help_text="check runs the evidence now. stop and resume toggle the watch. close sets a final verdict. arm starts the scout when it is missing.",
+    )
+    verdict = serializers.ChoiceField(
+        choices=[WatchVerdict.CONFIRMED.value, WatchVerdict.REFUTED.value],
+        required=False,
+        allow_null=True,
+        help_text="With close: confirmed or refuted.",
+    )
+    reason = serializers.CharField(
+        required=False, allow_blank=True, default="", max_length=600, help_text="With close: why."
+    )
+
+
 class SpaceHomeSerializer(serializers.Serializer):
     """Everything the space home view renders in one call."""
 
     docs = DocSummarySerializer(many=True, help_text="Docs in this space, in tab order.")
     watches = WatchSummarySerializer(
-        many=True, help_text="Sections under watch across the space's pages, newest first."
+        many=True, help_text="Hypotheses under watch across the space's pages, the ones that moved first."
     )

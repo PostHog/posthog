@@ -1,10 +1,6 @@
 import type { DocSchemas } from "@posthog/api-client/docs";
-import { runLoop } from "@posthog/api-client/loops";
 import { cn } from "@posthog/quill";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
-import { useTaskChannels } from "@posthog/ui/features/canvas/hooks/useTaskChannels";
-import { useCreateLoop } from "@posthog/ui/features/loops/hooks/useLoopMutations";
-import { useLoopsClient } from "@posthog/ui/features/loops/hooks/useLoopsClient";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
 import { toast } from "@posthog/ui/primitives/toast";
 import type { Editor } from "@tiptap/core";
@@ -19,13 +15,12 @@ import {
 } from "react";
 import type { RemoteCaret } from "../collab/remoteCarets";
 import type { DocConnectionStatus } from "../collab/useDocCollab";
+import { WATCH_NUMBER_EVENT } from "../extensions/DataValue";
 import {
-  DOC_AGENT_ADAPTER,
-  DOC_AGENT_MODEL,
-  DOC_AGENT_REASONING_EFFORT,
-  docTaskTitle,
-} from "../hooks/docAgent";
-import { watchLoopInstructions } from "../hooks/docThreadPrompt";
+  DOC_WATCH_RESULT_SCHEMA,
+  watchTaskInput,
+} from "../hooks/docThreadPrompt";
+import { useDocAgentRun } from "../hooks/useDocAgentRun";
 import {
   useDiscussionMutations,
   useDocDiscussions,
@@ -38,11 +33,17 @@ import {
   type PendingThread,
   type ThreadsPanelView,
 } from "./DocThreadsPanel";
+import { watchAnchorState } from "./DocWatchCard";
 
 /** Long enough to be seen, short enough to be gone before the next click. */
 const ANCHOR_FLASH_MS = 1_600;
-/** Weekday mornings: a report waits with the coffee, never in the night. */
-const WATCH_CRON = "0 9 * * 1-5";
+
+/** What a number on the page sends when it asks to be watched. */
+interface WatchNumberDetail {
+  requestId: string;
+  label: string;
+  query: string;
+}
 
 export interface DocCollabState {
   status: DocConnectionStatus;
@@ -99,14 +100,11 @@ export const DocSurface = forwardRef<
   ref,
 ) {
   const docId = doc.id;
-  const { channels } = useTaskChannels();
-  const spaceName = channels.find((channel) => channel.id === channelId)?.name;
   const discussions = useDocDiscussions(docId);
   const discussionActions = useDiscussionMutations(docId);
   const { data: tasks } = useTasks({ showAllUsers: true });
   const { data: currentUser } = useCurrentUser();
-  const createLoop = useCreateLoop();
-  const loopsClient = useLoopsClient();
+  const startRun = useDocAgentRun({ channelId });
 
   /** Closed, the list, or one thread. */
   const [panel, setPanel] = useState<ThreadsPanelView | null>(() =>
@@ -198,72 +196,108 @@ export const DocSurface = forwardRef<
     [discussionActions.start],
   );
 
-  // A watch is a loop on the space plus a thread on the section. The loop runs
-  // once now, so the first report arrives while the section is still fresh.
+  // A watch is a thread plus one run that compiles the claim into a brief. The
+  // page rechecks the brief's numbers from then on, and a scout follows its signals.
   const onWatchStarted = useCallback(
     async (anchor: PendingThread) => {
-      const title = docTaskTitle(anchor.anchorText, "Watched section");
-      const docTitle = doc.title || "Untitled";
       setPanel({ view: "thread", anchorKey: anchor.anchorKey });
       try {
-        const loop = await createLoop.mutateAsync({
-          name: `Watch: ${title}`,
-          description: `Keeps checking a section of the page "${docTitle}".`,
-          instructions: watchLoopInstructions({
-            anchorText: anchor.anchorText,
-            docTitle,
-          }),
-          // A loop on a space's context posts to a shared feed, so it is the team's.
-          visibility: "team",
-          runtime_adapter: DOC_AGENT_ADAPTER,
-          model: DOC_AGENT_MODEL,
-          reasoning_effort: DOC_AGENT_REASONING_EFFORT,
-          triggers: [
-            {
-              type: "schedule",
-              config: {
-                cron_expression: WATCH_CRON,
-                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-              },
-            },
-          ],
-          context_target: spaceName
-            ? { channel_id: channelId, name: spaceName }
-            : null,
+        const input = watchTaskInput({
+          anchorText: anchor.anchorText,
+          requestId: anchor.anchorKey,
+          docTitle: doc.title || "Untitled",
+        });
+        const task = await startRun({
+          question: input.question,
+          description: input.description,
+          titleFallback: "Watch a hypothesis",
+          outputSchema: DOC_WATCH_RESULT_SCHEMA,
         });
         await discussionActions.start.mutateAsync({
-          content: `Watching this. The agent checks it every weekday morning and reports here.`,
+          content: "Watch this.",
           anchor_key: anchor.anchorKey,
           anchor_text: anchor.anchorText.slice(0, 280),
           kind: "watch",
-          loop_id: loop.id,
+          task_id: task.id,
+          send_to_agent: true,
         });
-        if (loopsClient) {
-          await runLoop(loopsClient.client, loopsClient.projectId, loop.id);
-        }
         onAgentStarted();
       } catch (error) {
         removeAnchor(anchor.anchorKey);
         setPanel((open) => (open?.view === "thread" ? { view: "list" } : open));
-        const message = error instanceof Error ? error.message : String(error);
         toast.error("The watch did not start", {
-          description: message.includes("Loops")
-            ? "Loops are not on for this project yet."
-            : message,
+          description: error instanceof Error ? error.message : String(error),
         });
       }
     },
     [
-      channelId,
-      createLoop,
       discussionActions.start,
       doc.title,
-      loopsClient,
       onAgentStarted,
       removeAnchor,
-      spaceName,
+      startRun,
     ],
   );
+
+  // A number already on the page is its own evidence: no run, no scout, the
+  // page just rechecks it and says when it moves.
+  const onWatchNumber = useCallback(
+    async (detail: WatchNumberDetail) => {
+      const anchorKey = `watch:${detail.requestId}`;
+      if (threads.some((thread) => thread.anchor_key === anchorKey)) {
+        setPanel({ view: "thread", anchorKey });
+        return;
+      }
+      try {
+        await discussionActions.start.mutateAsync({
+          content: "Watch this number.",
+          anchor_key: anchorKey,
+          anchor_text: detail.label.slice(0, 280),
+          kind: "watch",
+          evidence: [{ label: detail.label, query: detail.query }],
+        });
+        setPanel({ view: "thread", anchorKey });
+      } catch (error) {
+        toast.error("The watch did not start", {
+          description: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+    [discussionActions.start, threads],
+  );
+
+  // The marks in the text follow their threads: handled goes hollow, and a
+  // watched claim's eye takes the colour of its verdict. Nothing to undo here.
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || threads.length === 0) return;
+    const type = editor.schema.marks.discussionAnchor;
+    const byKey = new Map(threads.map((thread) => [thread.anchor_key, thread]));
+    const tr = editor.state.tr;
+    editor.state.doc.descendants((node, pos) => {
+      for (const mark of node.marks) {
+        if (mark.type !== type) continue;
+        const thread = byKey.get(String(mark.attrs.anchorKey));
+        if (!thread) continue;
+        const next = {
+          ...mark.attrs,
+          resolved: thread.resolved,
+          watch: thread.watch ? watchAnchorState(thread.watch) : "",
+        };
+        if (
+          next.resolved === mark.attrs.resolved &&
+          next.watch === mark.attrs.watch
+        ) {
+          continue;
+        }
+        tr.removeMark(pos, pos + node.nodeSize, mark);
+        tr.addMark(pos, pos + node.nodeSize, type.create(next));
+      }
+    });
+    if (tr.docChanged) {
+      editor.view.dispatch(tr.setMeta("addToHistory", false));
+    }
+  }, [threads]);
 
   /** Shows the place a thread is about, and lights it for a moment. */
   const jumpToAnchor = useCallback((anchorKey: string) => {
@@ -321,10 +355,21 @@ export const DocSurface = forwardRef<
       if (!key) return;
       setPanel({ view: "thread", anchorKey: key });
     };
+    const onWatch = (event: Event) => {
+      const detail = (event as CustomEvent<WatchNumberDetail>).detail;
+      if (detail?.requestId && detail.query)
+        void onWatchNumberRef.current(detail);
+    };
 
     node.addEventListener("click", onClick);
-    detachBody.current = () => node.removeEventListener("click", onClick);
+    node.addEventListener(WATCH_NUMBER_EVENT, onWatch);
+    detachBody.current = () => {
+      node.removeEventListener("click", onClick);
+      node.removeEventListener(WATCH_NUMBER_EVENT, onWatch);
+    };
   }, []);
+  const onWatchNumberRef = useRef(onWatchNumber);
+  onWatchNumberRef.current = onWatchNumber;
 
   return (
     // A side panel needs room. Below the container breakpoint it covers the doc

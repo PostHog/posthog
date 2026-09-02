@@ -46,3 +46,55 @@ tools:
                 description: What it shows, in a few words, as the reader will see it. For example "teams with replay on this month".
             note:
                 description: One short line for the reader when the number needs a caveat, or why there is no answer when status is none. Leave empty otherwise.
+    doc-watch-brief-submit:
+        operation: docs_watches_brief_create
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Submit the brief behind a watched hypothesis
+        description: >
+            Hand in what a hypothesis on a page stands on, so the page can keep watching it. Pass the `request_id`
+            from your task, the `claim` in one sentence, what `confirms` it, what `refutes` it, up to four `evidence`
+            queries (each one HogQL SELECT that returns one number, or a date and a number per row), and up to six
+            `signals` to follow (events, feature flags, experiments, error issues, replay filters). The page runs each
+            evidence query once: on `ok: false` read the per-evidence `error`, fix the query, and call again; on
+            `ok: true` the page rechecks the evidence daily and a scout follows the signals. Call again with the same
+            `request_id` to replace the brief after a follow-up.
+        param_overrides:
+            request_id:
+                description: The request id given in the task description. Copy it exactly.
+            claim:
+                description: The hypothesis in one sentence, as the page states it.
+            confirms:
+                description: What in the data would confirm the claim, in one line.
+            refutes:
+                description: What in the data would refute the claim, in one line.
+            evidence:
+                description: Up to four {label, query} pairs. Each query is one HogQL SELECT returning one number, or a date and a number per row. No semicolon.
+            signals:
+                description: Up to six short lines naming what to follow, for example "signup_completed events by country" or "errors in the checkout flow".
+    doc-watch-verdict-submit:
+        operation: docs_watches_verdict_create
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set the verdict on a watched hypothesis
+        description: >
+            Say where a watched hypothesis stands after you looked at the data. Pass the `request_id` from your task,
+            a `verdict` of holding, moved, confirmed, or refuted, and a one-line `reason` the reader sees in the thread.
+            Confirmed and refuted end the watch, so use them only when the data leaves no doubt.
+        param_overrides:
+            request_id:
+                description: The request id given in the task description. Copy it exactly.
+            verdict:
+                description: holding when the evidence still supports the claim, moved when it shifted but is not decided, confirmed or refuted when the data leaves no doubt.
+            reason:
+                description: One line the reader sees, with the number that decides it.

@@ -2963,11 +2963,39 @@
         }
     },
     "doc-data-point-submit": {
-        "description": "Hand in the HogQL query behind a data point a page asked you for. Pass the `request_id` from your task, a `query` that returns exactly one row and one column, and a short `label`. The page checks the query and runs it once: on `ok: false` fix the query and call again; on `ok: true` the page shows the value live from then on. Call again with the same `request_id` to replace the query after a follow-up. When the project's data cannot answer, call with `status: none` and say why in `note`.",
+        "description": "Hand in the HogQL query behind a data point a page asked you for. Pass the `request_id` from your task, a `query`, and a short `label`. The page checks the query and runs it once: on `ok: false` fix the query and call again; on `ok: true` the page shows it live from then on, by its shape: one cell shows as a number in the sentence, a date column with a number column shows as a sparkline, anything else shows as a chart block under the sentence. Call again with the same `request_id` to replace the query after a follow-up. When the project's data cannot answer, call with `status: none` and say why in `note`.",
         "category": "Docs",
         "feature": "docs",
         "summary": "Submit the query behind a data point",
         "title": "Submit the query behind a data point",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "doc-watch-brief-submit": {
+        "description": "Hand in what a hypothesis on a page stands on, so the page can keep watching it. Pass the `request_id` from your task, the `claim` in one sentence, what `confirms` it, what `refutes` it, up to four `evidence` queries (each one HogQL SELECT that returns one number, or a date and a number per row), and up to six `signals` to follow (events, feature flags, experiments, error issues, replay filters). The page runs each evidence query once: on `ok: false` read the per-evidence `error`, fix the query, and call again; on `ok: true` the page rechecks the evidence daily and a scout follows the signals. Call again with the same `request_id` to replace the brief after a follow-up.",
+        "category": "Docs",
+        "feature": "docs",
+        "summary": "Submit the brief behind a watched hypothesis",
+        "title": "Submit the brief behind a watched hypothesis",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "doc-watch-verdict-submit": {
+        "description": "Say where a watched hypothesis stands after you looked at the data. Pass the `request_id` from your task, a `verdict` of holding, moved, confirmed, or refuted, and a one-line `reason` the reader sees in the thread. Confirmed and refuted end the watch, so use them only when the data leaves no doubt.",
+        "category": "Docs",
+        "feature": "docs",
+        "summary": "Set the verdict on a watched hypothesis",
+        "title": "Set the verdict on a watched hypothesis",
         "required_scopes": ["task:write"],
         "annotations": {
             "destructiveHint": false,

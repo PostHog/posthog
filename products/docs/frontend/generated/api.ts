@@ -9,8 +9,11 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    DataPointSubmitApi,
+    DataPointSubmitResultApi,
     DiscussionCreateApi,
     DiscussionReplyApi,
+    DiscussionReplyResultApi,
     DiscussionResolveApi,
     DiscussionThreadApi,
     DocApi,
@@ -19,12 +22,17 @@ import type {
     DocPresenceApi,
     DocReorderApi,
     DocSummaryApi,
+    DocsContextRetrieveParams,
     DocsHomeRetrieveParams,
     DocsListParams,
     DocsSearchRequestApi,
     DocsSearchResponseApi,
     PatchedDocUpdateApi,
     SpaceHomeApi,
+    WatchActionApi,
+    WatchBriefSubmitApi,
+    WatchBriefSubmitResultApi,
+    WatchVerdictSubmitApi,
 } from './api.schemas'
 
 export const getDocsListUrl = (projectId: string, params?: DocsListParams) => {
@@ -243,8 +251,8 @@ export const docsDiscussionsCreate = async (
     id: string,
     discussionCreateApi: DiscussionCreateApi,
     options?: RequestInit
-): Promise<DiscussionThreadApi> => {
-    return apiMutator<DiscussionThreadApi>(getDocsDiscussionsCreateUrl(projectId, id), {
+): Promise<DiscussionReplyResultApi> => {
+    return apiMutator<DiscussionReplyResultApi>(getDocsDiscussionsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -268,8 +276,8 @@ export const docsDiscussionsReplyCreate = async (
     threadId: string,
     discussionReplyApi: DiscussionReplyApi,
     options?: RequestInit
-): Promise<DiscussionThreadApi> => {
-    return apiMutator<DiscussionThreadApi>(getDocsDiscussionsReplyCreateUrl(projectId, id, threadId), {
+): Promise<DiscussionReplyResultApi> => {
+    return apiMutator<DiscussionReplyResultApi>(getDocsDiscussionsReplyCreateUrl(projectId, id, threadId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -299,6 +307,82 @@ export const docsDiscussionsResolveCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(discussionResolveApi),
+    })
+}
+
+export const getDocsDiscussionsWatchCreateUrl = (projectId: string, id: string, threadId: string) => {
+    return `/api/projects/${projectId}/docs/${id}/discussions/${threadId}/watch/`
+}
+
+/**
+ * Docs: collaborative rich-text documents filed in a space.
+ *
+ * Live editing runs over prosemirror-collab steps on a Redis stream. This API stores the
+ * durable copy and fans steps, carets, and discussion pings out over one SSE stream.
+ */
+export const docsDiscussionsWatchCreate = async (
+    projectId: string,
+    id: string,
+    threadId: string,
+    watchActionApi: WatchActionApi,
+    options?: RequestInit
+): Promise<DiscussionThreadApi> => {
+    return apiMutator<DiscussionThreadApi>(getDocsDiscussionsWatchCreateUrl(projectId, id, threadId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(watchActionApi),
+    })
+}
+
+export const getDocsContextRetrieveUrl = (projectId: string, params?: DocsContextRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/docs/context/?${stringifiedParams}`
+        : `/api/projects/${projectId}/docs/context/`
+}
+
+/**
+ * The space's context notes as a doc. Made on first use, from the wiki page when there is one.
+ */
+export const docsContextRetrieve = async (
+    projectId: string,
+    params?: DocsContextRetrieveParams,
+    options?: RequestInit
+): Promise<DocApi> => {
+    return apiMutator<DocApi>(getDocsContextRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDocsDataPointsSubmitCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/docs/data_points/submit/`
+}
+
+/**
+ * Called by the agent that a page asked for a data point. The query is checked and run once; on ok the page shows it live from then on. Submit again with the same request id to replace it.
+ * @summary Submit the query behind a data point
+ */
+export const docsDataPointsSubmitCreate = async (
+    projectId: string,
+    dataPointSubmitApi: DataPointSubmitApi,
+    options?: RequestInit
+): Promise<DataPointSubmitResultApi> => {
+    return apiMutator<DataPointSubmitResultApi>(getDocsDataPointsSubmitCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(dataPointSubmitApi),
     })
 }
 
@@ -355,6 +439,48 @@ export const docsReorderCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(docReorderApi),
+    })
+}
+
+export const getDocsWatchesBriefCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/docs/watches/brief/`
+}
+
+/**
+ * Called by the agent a page asked to watch a hypothesis. Each evidence query is run once; on ok the page rechecks them daily and a scout follows the signals. Submit again with the same request id to replace the brief.
+ * @summary Submit the brief behind a watch
+ */
+export const docsWatchesBriefCreate = async (
+    projectId: string,
+    watchBriefSubmitApi: WatchBriefSubmitApi,
+    options?: RequestInit
+): Promise<WatchBriefSubmitResultApi> => {
+    return apiMutator<WatchBriefSubmitResultApi>(getDocsWatchesBriefCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(watchBriefSubmitApi),
+    })
+}
+
+export const getDocsWatchesVerdictCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/docs/watches/verdict/`
+}
+
+/**
+ * Called by the agent that watches a hypothesis, after it looked at the data. Confirmed and refuted end the watch.
+ * @summary Set the verdict on a watched hypothesis
+ */
+export const docsWatchesVerdictCreate = async (
+    projectId: string,
+    watchVerdictSubmitApi: WatchVerdictSubmitApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getDocsWatchesVerdictCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(watchVerdictSubmitApi),
     })
 }
 

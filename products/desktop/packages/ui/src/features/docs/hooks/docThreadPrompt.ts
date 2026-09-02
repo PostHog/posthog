@@ -112,24 +112,80 @@ export function dataPointTaskInput(input: {
 }
 
 /**
- * The standing instructions of a loop that watches a section of a page.
- *
- * The loop runs on a schedule with no person in the room, so the prompt says
- * what a report is: short, about change, with the queries it stands on.
+ * What a watch run must end with. The adapter holds the model to this shape,
+ * so even a run that never touches the tool ends as the brief.
  */
-export function watchLoopInstructions(input: {
+export const DOC_WATCH_RESULT_SCHEMA: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  required: ["claim", "confirms", "refutes", "evidence", "signals"],
+  properties: {
+    claim: {
+      type: "string",
+      description: "The hypothesis in one sentence, as the page states it.",
+    },
+    confirms: {
+      type: "string",
+      description: "What in the data would confirm it, in one line.",
+    },
+    refutes: {
+      type: "string",
+      description: "What in the data would refute it, in one line.",
+    },
+    evidence: {
+      type: "array",
+      maxItems: 4,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["label", "query"],
+        properties: {
+          label: { type: "string", description: "What the number counts." },
+          query: {
+            type: "string",
+            description:
+              "One HogQL SELECT that returns one number, or a date and a number per row.",
+          },
+        },
+      },
+    },
+    signals: {
+      type: "array",
+      maxItems: 6,
+      items: { type: "string" },
+      description:
+        "Short lines naming what a scout should follow: events, flags, experiments, error issues, replay filters.",
+    },
+  },
+};
+
+/**
+ * The task that compiles a hypothesis into a watch brief.
+ *
+ * The contract comes first and the claim after it, so a small model reads the
+ * job before the subject. Two ways in reach the page: the tool during the run,
+ * and the schema-shaped final answer at its end.
+ */
+export function watchTaskInput(input: {
   anchorText: string;
+  requestId: string;
   docTitle: string;
-}): string {
-  return [
-    `Watch this part of the page "${input.docTitle}":`,
-    `“${input.anchorText.trim()}”`,
-    "",
-    "On every run, check whether this project's data still supports it. Report in at most six lines:",
-    "what holds, what changed since your last report, and one number for each claim, each cited",
-    'as <hogql label="what it counts">SELECT ...</hogql>. Do not edit the page. Do not build or save',
-    "an insight. If nothing changed, say so in one line.",
-  ].join("\n");
+}): { question: string; description: string } {
+  const claim = input.anchorText.trim().replace(/\s+/g, " ");
+  const call = `call doc-watch-brief-submit {"request_id": "${input.requestId}", "claim": "<the claim in one sentence>", "confirms": "<what would confirm it>", "refutes": "<what would refute it>", "evidence": [{"label": "<what it counts>", "query": "<SELECT>"}], "signals": ["<what to follow>"]}`;
+  return {
+    question: docTaskTitle(claim, "Watch a hypothesis"),
+    description: [
+      `A page asks you to watch this hypothesis: “${claim}”.`,
+      "",
+      "Use the watching-doc-hypotheses skill. Compile the claim into a brief: the claim in one sentence, what confirms it, what refutes it, up to four evidence queries (each one HogQL SELECT returning one number, or a date and a number per row; run each once with the PostHog SQL query tool), and up to six signals a scout should follow (real events, flags, experiments, error issues, replay filters in this project). Do not build or save anything.",
+      `Hand the brief in through the PostHog MCP \`exec\` tool: \`${call}\`. Run \`info doc-watch-brief-submit\` first if you need the schema. If it answers ok: false, fix the failing evidence query and call it again.`,
+      `request_id: ${input.requestId}`,
+      'End your reply as the JSON object {"claim", "confirms", "refutes", "evidence", "signals"}. Nothing else in the reply.',
+      "",
+      `Asked from the page "${input.docTitle}".`,
+    ].join("\n"),
+  };
 }
 
 export { hasAgentMention };

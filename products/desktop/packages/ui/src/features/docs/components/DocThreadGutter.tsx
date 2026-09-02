@@ -3,10 +3,16 @@ import type { Task } from "@posthog/shared/domain-types";
 import { DocMark } from "@posthog/ui/primitives/DocMark";
 import type { Editor } from "@tiptap/core";
 import { useCallback, useEffect, useState } from "react";
-import { DocRefHover } from "../extensions/inline/DocRefCard";
+import {
+  DocRefCardAction,
+  DocRefCardActions,
+  DocRefHover,
+} from "../extensions/inline/DocRefCard";
+import { useDiscussionMutations } from "../hooks/useDocDiscussions";
 import { agentStateOf } from "../hooks/useDocThread";
 import { lastLine, threadStanding } from "./DocThreadRow";
 import { taskFor } from "./DocThreadsPanel";
+import { VerdictPill } from "./DocWatchCard";
 
 interface Pin {
   anchorKey: string;
@@ -23,16 +29,19 @@ interface Pin {
  */
 export function DocThreadGutter({
   editor,
+  docId,
   threads,
   tasks,
   onOpen,
 }: {
   editor: Editor | null;
+  docId: string;
   threads: DocSchemas.DiscussionThread[];
   tasks: Task[];
   onOpen: (anchorKey: string) => void;
 }) {
   const [pins, setPins] = useState<Pin[]>([]);
+  const watchMutation = useDiscussionMutations(docId).watch;
 
   const measure = useCallback(() => {
     if (!editor?.view.dom.isConnected) return;
@@ -118,26 +127,87 @@ export function DocThreadGutter({
         const replies = thread.replies.filter(
           (post) => post.author_kind !== "system",
         ).length;
+        const openLabel =
+          replies === 0
+            ? "Open the thread"
+            : `Open the thread, ${replies} ${replies === 1 ? "reply" : "replies"}`;
+        const watch = thread.watch;
         return (
           <DocRefHover
             key={pin.anchorKey}
             side="left"
             nativeButton
-            card={{
-              title: last.who,
-              meta: (
-                <span className="line-clamp-3 whitespace-normal text-(--gray-11) text-[11.5px] leading-snug">
-                  {last.text}
-                </span>
-              ),
-              action: {
-                label:
-                  replies === 0
-                    ? "Open the thread"
-                    : `Open the thread, ${replies} ${replies === 1 ? "reply" : "replies"}`,
-                onSelect: () => onOpen(pin.anchorKey),
-              },
-            }}
+            card={
+              watch
+                ? {
+                    title: thread.anchor_text,
+                    render: (close) => (
+                      <div className="w-64 p-2.5">
+                        <div className="flex items-start gap-2">
+                          <VerdictPill watch={watch} />
+                          <span className="line-clamp-3 min-w-0 flex-1 whitespace-normal text-(--gray-11) text-[11.5px] leading-snug">
+                            {watch.verdict.reason || last.text}
+                          </span>
+                        </div>
+                        <DocRefCardActions>
+                          <DocRefCardAction
+                            onSelect={() => {
+                              onOpen(pin.anchorKey);
+                              close();
+                            }}
+                          >
+                            {openLabel}
+                          </DocRefCardAction>
+                          {watch.status === "active" && watch.brief ? (
+                            <DocRefCardAction
+                              onSelect={() => {
+                                watchMutation.mutate({
+                                  threadId: thread.id,
+                                  body: { action: "check" },
+                                });
+                                close();
+                              }}
+                            >
+                              Check now
+                            </DocRefCardAction>
+                          ) : null}
+                          {watch.stopped_reason === "verdict" ? null : (
+                            <DocRefCardAction
+                              onSelect={() => {
+                                watchMutation.mutate({
+                                  threadId: thread.id,
+                                  body: {
+                                    action:
+                                      watch.status === "active"
+                                        ? "stop"
+                                        : "resume",
+                                  },
+                                });
+                                close();
+                              }}
+                            >
+                              {watch.status === "active"
+                                ? "Stop watching"
+                                : "Watch again"}
+                            </DocRefCardAction>
+                          )}
+                        </DocRefCardActions>
+                      </div>
+                    ),
+                  }
+                : {
+                    title: last.who,
+                    meta: (
+                      <span className="line-clamp-3 whitespace-normal text-(--gray-11) text-[11.5px] leading-snug">
+                        {last.text}
+                      </span>
+                    ),
+                    action: {
+                      label: openLabel,
+                      onSelect: () => onOpen(pin.anchorKey),
+                    },
+                  }
+            }
             trigger={
               <button
                 type="button"

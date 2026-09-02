@@ -1409,7 +1409,7 @@ from = [
 
 [[modules]]
 path = "products.docs"
-depends_on = ["ee", "posthog", "products.tasks"]
+depends_on = ["ee", "posthog", "products.signals", "products.tasks"]
 layer = "modules"
 
 [[interfaces]]

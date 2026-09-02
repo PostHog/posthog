@@ -4,6 +4,7 @@ import { formatRelativeTimeShort } from "@posthog/shared";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { DocMark, type DocMarkState } from "@posthog/ui/primitives/DocMark";
 import { personName } from "./DocPostRow";
+import { watchMarkState } from "./DocWatchCard";
 
 /** How a thread stands, read off the thread and its task. */
 export interface ThreadStanding {
@@ -22,6 +23,9 @@ export function threadStanding(
       taskState === "failed"
     ) {
       return { variant: "agent", state: taskState };
+    }
+    if (thread.watch) {
+      return { variant: "agent", state: watchMarkState(thread.watch) };
     }
     return { variant: "agent", state: thread.resolved ? "handled" : "still" };
   }

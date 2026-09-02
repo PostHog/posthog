@@ -3,14 +3,18 @@ import { cn } from "@posthog/quill";
 export type DocMarkVariant = "agent" | "discussion";
 
 /**
- * agent: still | working | waiting | failed. discussion: open | handled. The
- * glyph is the same; the state says whether it moves and what colour it takes.
+ * agent: still | working | waiting | failed | moved | stale. discussion: open |
+ * handled. The glyph is the same; the state says whether it moves and what
+ * colour it takes. moved is a watched claim whose numbers left their baseline;
+ * stale is one the page could not check.
  */
 export type DocMarkState =
   | "still"
   | "working"
   | "waiting"
   | "failed"
+  | "moved"
+  | "stale"
   | "open"
   | "handled";
 

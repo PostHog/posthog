@@ -671,6 +671,7 @@ export interface SignalReportRefundResponseApi {
  * * `hubspot` - hubspot
  * * `engineering_analytics` - engineering_analytics
  * * `google_search_console` - google_search_console
+ * * `docs` - docs
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -724,6 +725,7 @@ export const SignalSourceProductApi = {
     Hubspot: 'hubspot',
     EngineeringAnalytics: 'engineering_analytics',
     GoogleSearchConsole: 'google_search_console',
+    Docs: 'docs',
 } as const
 
 /**
@@ -1495,7 +1497,8 @@ export interface SignalNodeApi {
      * * `intercom` - intercom
      * * `hubspot` - hubspot
      * * `engineering_analytics` - engineering_analytics
-     * * `google_search_console` - google_search_console */
+     * * `google_search_console` - google_search_console
+     * * `docs` - docs */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
@@ -4055,6 +4058,7 @@ export interface ScoutSuggestionRefreshApi {
  * * `hubspot` - HubSpot
  * * `engineering_analytics` - Engineering analytics
  * * `google_search_console` - Google Search Console
+ * * `docs` - Docs
  */
 export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
 
@@ -4108,6 +4112,7 @@ export const SignalSourceProductEnumApi = {
     Hubspot: 'hubspot',
     EngineeringAnalytics: 'engineering_analytics',
     GoogleSearchConsole: 'google_search_console',
+    Docs: 'docs',
 } as const
 
 /**

@@ -85,6 +85,7 @@ from products.data_warehouse.backend.facade.tasks import (
     reconcile_all_managed_warehouse_tables_task,
     send_external_data_failure_digest_catchup,
 )
+from products.docs.backend.facade.tasks import DOC_WATCH_CHECK_CRONTAB, check_doc_watches_task
 from products.endpoints.backend.facade.tasks import deactivate_stale_materializations
 from products.feature_flags.backend.tasks import (
     cleanup_stale_flag_definitions_expiry_tracking_task,
@@ -369,6 +370,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="15"),
         sweep_inactive_tasks_task.s(),
         name="archive inactive tasks",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        DOC_WATCH_CHECK_CRONTAB,
+        check_doc_watches_task.s(),
+        name="check watched doc hypotheses",
     )
 
     # Loop trigger schedule reconciliation - every 10 minutes, re-syncs schedules

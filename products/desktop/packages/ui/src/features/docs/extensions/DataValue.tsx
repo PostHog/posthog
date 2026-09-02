@@ -58,7 +58,7 @@ interface ChartSize {
 const INLINE: ChartSize = { width: SPARK_W, height: SPARK_H };
 
 /** The line of a series. Small enough to sit in a sentence; larger in a card. */
-function Spark({
+export function Spark({
   points,
   size = INLINE,
   className = "doc-spark",
@@ -223,6 +223,8 @@ interface FigureSource {
   shortId: string;
   /** Takes the figure out of the line and puts it under it as a block. */
   onConvert: (() => void) | null;
+  /** Asks the page to keep rechecking this number and say when it moves. */
+  onWatch: (() => void) | null;
 }
 
 function DataValueCard({
@@ -307,6 +309,16 @@ function DataValueCard({
             {showSql ? "Hide SQL" : "SQL"}
           </DocRefCardAction>
         ) : null}
+        {source.onWatch ? (
+          <DocRefCardAction
+            onSelect={() => {
+              source.onWatch?.();
+              close();
+            }}
+          >
+            Watch
+          </DocRefCardAction>
+        ) : null}
       </DocRefCardActions>
     </div>
   );
@@ -380,12 +392,14 @@ function QueryFigure({
   note,
   shape,
   onConvert,
+  onWatch,
 }: {
   query: string;
   label: string;
   note: string;
   shape: "number" | "series";
   onConvert: (() => void) | null;
+  onWatch: (() => void) | null;
 }) {
   const point = useDataPoint(query, shape);
   const landing = useLanding(query);
@@ -401,7 +415,7 @@ function QueryFigure({
       note={note}
       landing={landing}
       kind={point.seriesKind}
-      source={{ query, shortId: "", onConvert }}
+      source={{ query, shortId: "", onConvert, onWatch }}
     />
   );
 }
@@ -422,14 +436,29 @@ function InsightFigure({
       isLoading={isLoading}
       isError={isError}
       label={label || shortId}
-      source={{ query: "", shortId, onConvert }}
+      source={{ query: "", shortId, onConvert, onWatch: null }}
     />
   );
 }
 
+/** The page listens on its body for this; the node only knows its own element. */
+export const WATCH_NUMBER_EVENT = "doc:watch-number";
+
 export function DataValueView({ node, editor, getPos }: ReactNodeViewProps) {
   const attrs = node.attrs as DataValueAttrs;
   const { query, shortId, label, note, requestId, shape } = attrs;
+  const wrapper = useRef<HTMLElement | null>(null);
+  const onWatch =
+    editor.isEditable && requestId && query
+      ? () => {
+          wrapper.current?.dispatchEvent(
+            new CustomEvent(WATCH_NUMBER_EVENT, {
+              bubbles: true,
+              detail: { requestId, label: label || "Data point", query },
+            }),
+          );
+        }
+      : null;
 
   const onConvert = editor.isEditable
     ? () => {
@@ -450,6 +479,7 @@ export function DataValueView({ node, editor, getPos }: ReactNodeViewProps) {
       as="span"
       className="inline"
       data-request-id={requestId || undefined}
+      ref={wrapper}
     >
       {query ? (
         <QueryFigure
@@ -458,6 +488,7 @@ export function DataValueView({ node, editor, getPos }: ReactNodeViewProps) {
           note={note ?? ""}
           shape={shape === "series" ? "series" : "number"}
           onConvert={onConvert}
+          onWatch={onWatch}
         />
       ) : (
         <InsightFigure shortId={shortId} label={label} onConvert={onConvert} />

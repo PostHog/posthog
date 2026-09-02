@@ -1060,6 +1060,50 @@ def update_scout_for_source(
     return True
 
 
+def scout_run_owns_task(team_id: int, source_product: str, source_id: str, task_id: str) -> bool:
+    """True when the task is a run of a scout that the source product stood up on this object."""
+    try:
+        uuid.UUID(str(task_id))
+    except ValueError:
+        return False
+    return (
+        SignalScoutRun.objects.for_team(team_id)
+        .filter(
+            task_run__task_id=task_id,
+            scout_config__source_product=source_product,
+            scout_config__source_id=source_id,
+        )
+        .exists()
+    )
+
+
+def run_scout_now_for_source(team_id: int, source_product: str, config_id: str) -> bool:
+    """Dispatch one run of a source-owned scout now. False when the scout is not the source's,
+    or a fleet gate (spend, in-flight run, enrollment) holds it back; the schedule still runs it."""
+    from posthog.temporal.common.client import sync_connect  # noqa: PLC0415 — keeps Temporal off the import path
+
+    from products.signals.backend.scout_harness.run_gates import (  # noqa: PLC0415 — keeps the API surface off the import path
+        check_run_in_flight,
+        check_spend_gates,
+    )
+    from products.signals.backend.temporal.agentic.scout_scheduler import (  # noqa: PLC0415 — keeps the workflow graph off the import path
+        start_manual_signals_scout_run,
+    )
+
+    config = SignalScoutConfig.objects.for_team(team_id).filter(id=config_id, source_product=source_product).first()
+    if config is None:
+        return False
+    team = Team.objects.get(pk=team_id)
+    if any(gate is not None for gate in (check_spend_gates(team), check_run_in_flight(team_id, config.skill_name))):
+        return False
+    try:
+        start_manual_signals_scout_run(sync_connect(), team_id=team_id, skill_name=config.skill_name)
+    except Exception:
+        logger.exception("signals_scout: source run dispatch failed", team_id=team_id, skill_name=config.skill_name)
+        return False
+    return True
+
+
 def delete_scout_for_source(*, team: "Team", source_product: str, config_id: str) -> bool:
     """Retire a source-owned scout for good: archive its skill and remove its config.
 

@@ -824,6 +824,7 @@ export function DocEditor({
         <DocBlockGutter editor={editor} />
         <DocThreadGutter
           editor={editor}
+          docId={doc.id}
           threads={threads}
           tasks={tasks ?? []}
           onOpen={onOpenThread}

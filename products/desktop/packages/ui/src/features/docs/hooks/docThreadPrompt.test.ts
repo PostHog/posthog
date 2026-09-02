@@ -3,7 +3,7 @@ import {
   dataPointTaskInput,
   stripAgentMention,
   threadTaskInput,
-  watchLoopInstructions,
+  watchTaskInput,
 } from "./docThreadPrompt";
 
 describe("docThreadPrompt", () => {
@@ -40,13 +40,20 @@ describe("docThreadPrompt", () => {
     expect(stripAgentMention(content)).toBe(expected);
   });
 
-  it("asks a watch loop for a short report with cited numbers", () => {
-    const text = watchLoopInstructions({
+  it("asks a watch run for the brief through the tool and as its last words", () => {
+    const input = watchTaskInput({
       anchorText: "Signups grow weekly",
+      requestId: "w-1",
       docTitle: "Super",
     });
 
-    expect(text).toContain("“Signups grow weekly”");
-    expect(text).toContain("<hogql");
+    expect(input.question).toBe("Signups grow weekly");
+    expect(input.description).toContain("“Signups grow weekly”");
+    expect(input.description).toContain(
+      'call doc-watch-brief-submit {"request_id": "w-1"',
+    );
+    expect(input.description).toContain(
+      '{"claim", "confirms", "refutes", "evidence", "signals"}',
+    );
   });
 });

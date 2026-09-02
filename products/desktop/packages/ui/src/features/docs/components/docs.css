@@ -268,8 +268,302 @@
     center / contain no-repeat;
 }
 
+.doc-discussion-anchor[data-kind="watch"][data-watch="moved"] {
+  border-bottom-color: var(--amber-9);
+}
+
+.doc-discussion-anchor[data-kind="watch"][data-watch="moved"]::after {
+  background-color: var(--amber-9);
+}
+
+.doc-discussion-anchor[data-kind="watch"][data-watch="stale"]::after {
+  background-color: var(--gray-9);
+}
+
 .doc-discussion-anchor[data-kind="watch"][data-resolved="true"]::after {
   background-color: var(--gray-8);
+}
+
+/* The state of a watched claim, as a small pill in the panel and on the space home. */
+.doc-verdict {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  letter-spacing: 0.01em;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary);
+}
+
+.doc-verdict[data-verdict="moved"] {
+  background: color-mix(in srgb, var(--amber-9) 16%, transparent);
+  color: var(--amber-11);
+}
+
+.doc-verdict[data-verdict="stale"],
+.doc-verdict[data-verdict="pending"],
+.doc-verdict[data-status="paused"],
+.doc-verdict[data-status="stopped"] {
+  background: var(--gray-3);
+  color: var(--gray-11);
+}
+
+.doc-verdict[data-verdict="confirmed"] {
+  background: color-mix(in srgb, var(--green-9) 14%, transparent);
+  color: var(--green-11);
+}
+
+.doc-verdict[data-verdict="refuted"] {
+  background: color-mix(in srgb, var(--red-9) 12%, transparent);
+  color: var(--red-11);
+}
+
+/* Under the quote, fixed: where the claim stands in one line, then its
+   numbers as small figures. Everything longer lives in the dossier. */
+.doc-watch-strip {
+  margin: 6px 12px 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--gray-4);
+  font-size: 12.5px;
+  color: var(--gray-11);
+}
+
+.doc-watch-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.doc-watch-status-text {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-watch-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 6px;
+}
+
+.doc-watch-figure {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--gray-10);
+}
+
+.doc-watch-figure b {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-12);
+}
+
+.doc-watch-figure .doc-spark {
+  align-self: center;
+  stroke: var(--gray-8);
+}
+
+.doc-watch-figure[data-moved="true"] b,
+.doc-watch-figure[data-moved="true"] {
+  color: var(--amber-11);
+}
+
+.doc-watch-figure[data-moved="true"] .doc-spark {
+  stroke: var(--amber-9);
+}
+
+.doc-watch-history {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  cursor: pointer;
+  border: 0;
+  padding: 0;
+  background: none;
+  font-size: 11.5px;
+  color: var(--gray-10);
+}
+
+.doc-watch-history:hover {
+  color: var(--gray-12);
+}
+
+.doc-watch-note {
+  margin-top: 3px;
+  font-size: 11.5px;
+  color: var(--gray-10);
+}
+
+/* The dossier: the record of a watch, with room to read. Two columns, one
+   when the window is narrow. */
+.doc-dossier {
+  max-width: min(56rem, calc(100vw - 3rem));
+}
+
+.doc-dossier-title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--gray-12);
+}
+
+.doc-dossier-body {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  gap: 28px;
+}
+
+@media (max-width: 40rem) {
+  .doc-dossier-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.doc-dossier-column {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.doc-dossier-heading {
+  margin: 0 0 6px 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--gray-9);
+}
+
+.doc-dossier-evidence {
+  padding: 10px 12px;
+  border: 1px solid var(--gray-4);
+  border-radius: var(--radius-3);
+  background: var(--gray-2);
+}
+
+.doc-dossier-figure {
+  font-variant-numeric: tabular-nums;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--gray-12);
+}
+
+.doc-dossier-delta {
+  font-variant-numeric: tabular-nums;
+  color: var(--gray-10);
+}
+
+.doc-dossier-evidence[data-moved="true"] .doc-dossier-figure,
+.doc-dossier-evidence[data-moved="true"] .doc-dossier-delta {
+  color: var(--amber-11);
+}
+
+.doc-dossier-evidence .doc-card-chart {
+  width: 100%;
+  height: 72px;
+  stroke: var(--gray-9);
+}
+
+.doc-dossier-evidence[data-moved="true"] .doc-card-chart {
+  stroke: var(--amber-9);
+}
+
+.doc-dossier-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.doc-dossier-rule {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--gray-11);
+}
+
+.doc-timeline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.doc-timeline-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  gap: 10px;
+  padding: 7px 0 9px 0;
+}
+
+.doc-timeline-row + .doc-timeline-row {
+  border-top: 1px solid var(--gray-3);
+}
+
+.doc-timeline-dot {
+  margin-top: 5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--gray-6);
+}
+
+.doc-timeline-row[data-kind="moved"] .doc-timeline-dot,
+.doc-timeline-row[data-kind="stale"] .doc-timeline-dot {
+  background: var(--amber-9);
+}
+
+.doc-timeline-row[data-kind="report"] .doc-timeline-dot,
+.doc-timeline-row[data-kind="brief"] .doc-timeline-dot,
+.doc-timeline-row[data-kind="scout"] .doc-timeline-dot {
+  background: var(--primary);
+}
+
+.doc-timeline-row[data-kind="verdict"] .doc-timeline-dot,
+.doc-timeline-row[data-kind="stopped"] .doc-timeline-dot {
+  background: var(--gray-11);
+}
+
+.doc-timeline-kind {
+  font-weight: 600;
+  color: var(--gray-10);
+}
+
+.doc-watch-signals {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+  color: var(--gray-11);
+}
+
+.doc-watch-signal {
+  position: relative;
+  padding-left: 10px;
+}
+
+.doc-watch-signal::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 3px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--gray-8);
 }
 
 /* A SQL block: the query above, coloured like code, and the result under it.
@@ -657,6 +951,14 @@
 
 .doc-mark[data-state="handled"] {
   color: var(--gray-8);
+}
+
+.doc-mark[data-state="moved"] {
+  color: var(--amber-9);
+}
+
+.doc-mark[data-state="stale"] {
+  color: var(--gray-9);
 }
 
 .doc-mark-glyph {

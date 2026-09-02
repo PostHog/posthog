@@ -14,5 +14,4 @@ def on_task_run_turn_finished(
         run_id=str(task_run.id),
         turn_key=turn_key,
         text=last_text or text,
-        loop_id=str(task_run.task.loop_id) if getattr(task_run.task, "loop_id", None) else None,
     )

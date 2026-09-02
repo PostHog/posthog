@@ -54,7 +54,7 @@ def create_thread(
     kind: DiscussionKind = DiscussionKind.TEXT,
     task_id: str | None = None,
     sent_to_agent: bool = False,
-    loop_id: str | None = None,
+    watch: dict[str, Any] | None = None,
 ) -> Comment:
     return Comment.objects.create(
         team_id=doc.team_id,
@@ -67,7 +67,7 @@ def create_thread(
             "resolved": False,
             "kind": kind.value,
             "task_id": task_id,
-            "loop_id": loop_id,
+            "watch": watch,
             "author_kind": PostAuthorKind.HUMAN.value,
             "sent_to_agent": sent_to_agent,
         },
@@ -110,16 +110,44 @@ def threads_for_task(team_id: int, task_id: str) -> list[Comment]:
     )
 
 
-def threads_for_loop(team_id: int, loop_id: str) -> list[Comment]:
-    return list(
+def watch_threads(team_id: int | None = None, doc: Doc | None = None) -> list[Comment]:
+    """Every watch thread, on one doc or across the instance for the scheduled check."""
+    queryset = Comment.objects.filter(
+        scope=DOC_COMMENT_SCOPE,
+        deleted=False,
+        source_comment__isnull=True,
+        item_context__kind=DiscussionKind.WATCH.value,
+    )
+    if doc is not None:
+        queryset = queryset.filter(team_id=doc.team_id, item_id=str(doc.id))
+    elif team_id is not None:
+        queryset = queryset.filter(team_id=team_id)
+    return list(queryset.order_by("created_at"))
+
+
+def thread_for_watch(team_id: int, request_id: str) -> Comment | None:
+    """The watch thread behind an anchor key, wherever the doc is."""
+    return (
         Comment.objects.filter(
             team_id=team_id,
             scope=DOC_COMMENT_SCOPE,
             deleted=False,
             source_comment__isnull=True,
-            item_context__loop_id=loop_id,
+            item_context__anchor_key=request_id,
+            item_context__kind=DiscussionKind.WATCH.value,
         )
+        .order_by("-created_at")
+        .first()
     )
+
+
+def watch_of(thread: Comment) -> dict[str, Any]:
+    raw = (thread.item_context or {}).get("watch")
+    return dict(raw) if isinstance(raw, dict) else {}
+
+
+def set_watch(thread: Comment, **changes: Any) -> Comment:
+    return _update_context(thread, watch={**watch_of(thread), **changes})
 
 
 def add_post(
@@ -132,12 +160,15 @@ def add_post(
     sent_to_agent: bool = False,
     run_id: str | None = None,
     turn_key: str | None = None,
+    event: str | None = None,
 ) -> Comment:
     context: dict[str, Any] = {"author_kind": author_kind.value, "sent_to_agent": sent_to_agent}
     if run_id:
         context["run_id"] = run_id
     if turn_key:
         context["turn_key"] = turn_key
+    if event:
+        context["event"] = event
     return Comment.objects.create(
         team_id=doc.team_id,
         created_by_id=user_id,

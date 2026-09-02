@@ -7,9 +7,11 @@ import { useQuery } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import { personName } from "../components/DocPostRow";
 import {
+  DOC_WATCH_RESULT_SCHEMA,
   dataPointTaskInput,
   stripAgentMention,
   threadTaskInput,
+  watchTaskInput,
 } from "./docThreadPrompt";
 import { useDocAgentRun } from "./useDocAgentRun";
 import { useDiscussionMutations } from "./useDocDiscussions";
@@ -117,6 +119,8 @@ export function useDocThread(options: {
                   content: post.content,
                 }))
             : [];
+          // A watch thread with no brief yet compiles again; anything else is a question.
+          const compiles = thread?.kind === "watch" && !thread.watch?.brief;
           const input =
             thread?.kind === "data"
               ? dataPointTaskInput({
@@ -124,16 +128,23 @@ export function useDocThread(options: {
                   requestId: anchorKey,
                   docTitle: options.docTitle,
                 })
-              : threadTaskInput({
-                  anchorText,
-                  lines,
-                  question: text,
-                  docTitle: options.docTitle,
-                });
+              : compiles
+                ? watchTaskInput({
+                    anchorText,
+                    requestId: anchorKey,
+                    docTitle: options.docTitle,
+                  })
+                : threadTaskInput({
+                    anchorText,
+                    lines,
+                    question: text,
+                    docTitle: options.docTitle,
+                  });
           const created = await run({
             question: input.question,
             description: input.description,
             titleFallback: "Question from a doc",
+            outputSchema: compiles ? DOC_WATCH_RESULT_SCHEMA : undefined,
           });
           startedTaskId = created.id;
           options.onAgentStarted?.();
