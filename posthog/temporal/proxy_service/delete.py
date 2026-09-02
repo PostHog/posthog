@@ -19,6 +19,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.proxy_service.cloudflare import (
     CloudflareAPIError,
+    CustomHostname,
     delete_custom_hostname,
     get_custom_hostname_by_domain,
     update_cloudflare_proxy_root_redirect,
@@ -151,30 +152,38 @@ async def delete_cloudflare_proxy(inputs: DeleteManagedProxyInputs):
     # Worker route cleanup intentionally omitted: per-domain routes are no longer created (we
     # now rely on a single wildcard */* route). Proxies created before this change may have
     # orphaned per-domain routes; those should be cleaned up via a separate migration script.
-    # Delete Custom Hostname
+    # Look up the Custom Hostname. Only the lookup suppresses a rejected value: Cloudflare answers
+    # a value it cannot parse as a hostname with a 400, and that value names no Cloudflare resource,
+    # so there is nothing to delete and the record delete can proceed.
+    hostname: CustomHostname | None = None
     try:
         hostname = await asyncio.to_thread(get_custom_hostname_by_domain, inputs.domain)
-        if hostname:
-            await asyncio.to_thread(delete_custom_hostname, hostname.id)
-            logger.info("Deleted Cloudflare Custom Hostname %s for domain %s", hostname.id, inputs.domain)
-        else:
-            logger.info("No Cloudflare Custom Hostname found for domain %s", inputs.domain)
     except CloudflareAPIError as e:
-        # A rejected value names no Cloudflare resource, so there is nothing left to delete.
         if e.is_validation_error():
             logger.info("Cloudflare rejected domain %s as a Custom Hostname; nothing to delete: %s", inputs.domain, e)
         else:
+            logger.warning("Failed to look up Cloudflare Custom Hostname for domain %s: %s", inputs.domain, e)
+            errors.append(f"Custom Hostname lookup failed: {e}")
+
+    if hostname:
+        # The lookup found a resource, so any failure to delete it, a 400 included, is a real
+        # cleanup failure. Swallowing it would drop the record while the hostname still serves.
+        try:
+            await asyncio.to_thread(delete_custom_hostname, hostname.id)
+            logger.info("Deleted Cloudflare Custom Hostname %s for domain %s", hostname.id, inputs.domain)
+        except CloudflareAPIError as e:
             logger.warning("Failed to delete Cloudflare Custom Hostname for domain %s: %s", inputs.domain, e)
             errors.append(f"Custom Hostname deletion failed: {e}")
+    else:
+        logger.info("No Cloudflare Custom Hostname found for domain %s", inputs.domain)
 
+    # The KV delete targets a real key, so a failure here, a 400 included, is a real cleanup
+    # failure that would leave a stale redirect behind.
     try:
         await asyncio.to_thread(update_cloudflare_proxy_root_redirect, inputs.domain, None)
     except CloudflareAPIError as e:
-        if e.is_validation_error():
-            logger.info("Cloudflare rejected domain %s as a redirect key; nothing to delete: %s", inputs.domain, e)
-        else:
-            logger.warning("Failed to delete root redirect for domain %s: %s", inputs.domain, e)
-            errors.append(f"Root redirect deletion failed: {e}")
+        logger.warning("Failed to delete root redirect for domain %s: %s", inputs.domain, e)
+        errors.append(f"Root redirect deletion failed: {e}")
 
     if errors:
         raise NonRetriableException(f"Cloudflare API errors: {'; '.join(errors)}")
