@@ -233,9 +233,16 @@ class TrinoSource(SimpleSource[TrinoSourceConfig], ValidateDatabaseHostMixin):
         ]
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
-        # Schema discovery hands back Trino's own verdict, so the API must show it. The last key
-        # catches every other Trino-side failure, which is the remote server's fault and not a
-        # PostHog exception to file.
+        # Schema discovery hands back Trino's own verdict, so the API must show it. The message keys
+        # match in every consumer, because `str(TrinoSchemaDiscoveryError(...))` is the message. The
+        # last key stops PostHog filing an unrecognized Trino-side failure, which is the remote
+        # server's fault.
+        #
+        # NOTE: that last key only takes effect in the refresh-schemas classifier, which compares
+        # against `f"{type(error).__name__}: {message}"`. A message-only consumer such as
+        # `incremental_fields` compares against `str(e)`, so an unrecognized failure there is still
+        # filed. Closing that gap needs a shared classifier across the schema-discovery views, not a
+        # per-source key. Mirrors the note on the Stripe source.
         return {
             **{message: message for message in TRINO_KNOWN_ERROR_MESSAGES},
             TrinoSchemaDiscoveryError.__name__: None,
