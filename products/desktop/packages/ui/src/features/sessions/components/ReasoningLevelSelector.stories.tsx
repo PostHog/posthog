@@ -3,7 +3,10 @@ import {
   subscriptionModelAccess,
   type WorkspaceModeForAccess,
 } from "@posthog/ui/features/settings/adapterSubscription";
-import type { AgentAdapter } from "@posthog/ui/features/settings/settingsStore";
+import {
+  type AgentAdapter,
+  useSettingsStore,
+} from "@posthog/ui/features/settings/settingsStore";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { type ReactElement, useState } from "react";
 import { within } from "storybook/test";
@@ -117,6 +120,14 @@ function Harness({
   const [model, setModel] = useState("claude-opus-5");
   const [effort, setEffort] = useState("medium");
 
+  // The submenu reads the real useAdapterSubscription hook, which reads the
+  // settings store; the modelAccess prop below only gates the model list.
+  useSettingsStore
+    .getState()
+    .setClaudeModelAccess(
+      subscriptionOn ? "own-subscription" : "posthog-gateway",
+    );
+
   return (
     <div className="flex h-[520px] items-end p-2">
       <ReasoningLevelSelector
@@ -134,8 +145,9 @@ function Harness({
         onConfigOptionChange={() => {}}
         showBillingMenu={workspaceMode !== undefined}
         workspaceMode={workspaceMode}
-        // Logged out in Storybook (the status query never resolves); the
-        // login note shows only when the provider is the picked billing.
+        // Storybook never resolves the subscription status query, so the
+        // provider counts as not logged in; the store write above picks the
+        // billing shown in the submenu.
         modelAccess={
           workspaceMode === undefined
             ? undefined

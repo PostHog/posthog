@@ -125,23 +125,27 @@ export function SubscriptionSubmenu({
             </DropdownMenuRadioItem>
           )}
         </DropdownMenuRadioGroup>
-        {subscription.needsConnection && (
-          // A quiet inline note rather than a permanent menu row: it appears
-          // only once the provider option is picked while logged out, and
-          // sessions keep running on PostHog until the login completes.
-          <div className="flex flex-col gap-1 px-2 py-1.5 text-muted-foreground text-xs">
-            <span>{LOGIN_NOTE[adapter]}</span>
-            <button
-              type="button"
-              className="self-start underline underline-offset-2 hover:text-foreground"
-              onClick={() =>
-                openSettings("harness", SUBSCRIPTION_LOGIN_ACTION[adapter])
-              }
-            >
-              Log in
-            </button>
-          </div>
-        )}
+        {!cloudTask &&
+          subscription.subscriptionOn &&
+          !subscription.loggedIn && (
+            // A quiet inline note rather than a permanent menu row: it appears
+            // only once the provider option is picked without a confirmed
+            // login, and sessions keep running on PostHog until the login
+            // completes. Unknown status counts as not logged in, so the note
+            // stays reachable when the status check cannot run or is pending.
+            <div className="flex flex-col gap-1 px-2 py-1.5 text-muted-foreground text-xs">
+              <span>{LOGIN_NOTE[adapter]}</span>
+              <button
+                type="button"
+                className="self-start underline underline-offset-2 hover:text-foreground"
+                onClick={() =>
+                  openSettings("harness", SUBSCRIPTION_LOGIN_ACTION[adapter])
+                }
+              >
+                Log in
+              </button>
+            </div>
+          )}
       </DropdownMenuSubContent>
     </DropdownMenuSub>
   );
