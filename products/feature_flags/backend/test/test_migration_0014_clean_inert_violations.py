@@ -1,6 +1,6 @@
 from typing import Any
 
-from posthog.test.base import TestMigrations
+from posthog.test.base import NonAtomicTestMigrations
 
 MULTIVARIATE = {
     "variants": [
@@ -14,7 +14,9 @@ def group(**overrides: Any) -> dict:
     return {"properties": [], "rollout_percentage": 100, "variant": None, **overrides}
 
 
-class CleanInertFilterViolationsMigrationTest(TestMigrations):
+# A later migration creates an index concurrently, so migrating across it must not run
+# inside a transaction.
+class CleanInertFilterViolationsMigrationTest(NonAtomicTestMigrations):
     migrate_from = "0013_narrow_whole_rollout_percentages"
     migrate_to = "0014_clean_flag_filters_inert_violations"
 
