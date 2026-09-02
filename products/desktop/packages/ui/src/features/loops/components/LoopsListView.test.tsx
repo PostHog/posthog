@@ -110,6 +110,38 @@ describe("LoopsListViewPresentation", () => {
     );
   });
 
+  // The flag that switches loops onto workflows resolves after the first
+  // render. Workflow loops are all team-visible and the trigger strip is
+  // hidden for them, so a stale personal tab would show an empty page.
+  it("shows workflow loops when the mode flips after mount", () => {
+    const teamLoop = loop("mine-team", "team");
+    const { rerender } = render(
+      <Theme>
+        <LoopsListViewPresentation
+          loops={[teamLoop]}
+          workflowBacked={false}
+          onStartBlank={vi.fn()}
+          onStartFromTemplate={vi.fn()}
+        />
+      </Theme>,
+    );
+    expect(screen.queryByText("team loop")).not.toBeInTheDocument();
+
+    rerender(
+      <Theme>
+        <LoopsListViewPresentation
+          loops={[teamLoop]}
+          workflowBacked
+          onStartBlank={vi.fn()}
+          onStartFromTemplate={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+    expect(screen.getByText("team loop")).toBeVisible();
+  });
+
   it("hides the header trigger strip while loops are loading", () => {
     render(
       <Theme>
