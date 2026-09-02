@@ -92,97 +92,101 @@ export function NativeAlertEditor(): JSX.Element {
                 </div>
             }
         >
-            <div className="grid gap-6 @container" style={{ gridTemplateColumns: 'minmax(0, 7fr) minmax(0, 6fr)' }}>
-                <div className="flex flex-col gap-5">
-                    <div className="flex flex-col gap-1">
-                        <LemonLabel>Name</LemonLabel>
-                        <LemonInput
-                            value={draft.name}
-                            onChange={(name) => setDraft({ name })}
-                            placeholder="Production errors"
-                            data-attr="error-tracking-alert-name"
-                        />
-                    </div>
-
-                    <div className="flex flex-col gap-2">
-                        <LemonLabel>Open a thread when</LemonLabel>
-                        <div className="flex flex-col gap-1.5">
-                            {TRIGGER_OPTIONS.map((option) => (
-                                <LemonCheckbox
-                                    key={option.value}
-                                    checked={draft.triggers.includes(option.value)}
-                                    onChange={(checked) => setTriggerEnabled(option.value, checked)}
-                                    label={
-                                        <span>
-                                            <span className="font-medium">{option.label}</span>
-                                            <span className="text-secondary text-xs ml-2">{option.description}</span>
-                                        </span>
-                                    }
-                                />
-                            ))}
+            <div className="@container">
+                <div className="grid gap-6 grid-cols-1 @[820px]:grid-cols-[minmax(0,7fr)_minmax(0,6fr)]">
+                    <div className="flex flex-col gap-5">
+                        <div className="flex flex-col gap-1">
+                            <LemonLabel>Name</LemonLabel>
+                            <LemonInput
+                                value={draft.name}
+                                onChange={(name) => setDraft({ name })}
+                                placeholder="Production errors"
+                                data-attr="error-tracking-alert-name"
+                            />
                         </div>
-                    </div>
 
-                    <div className="flex flex-col gap-1">
-                        <LemonLabel info="Filters are checked against the exception that triggers the thread. Later updates to the issue are always posted into an open thread.">
-                            Only if the exception matches
-                        </LemonLabel>
-                        <PropertyFilters
-                            editable
-                            propertyFilters={draft.properties}
-                            taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
-                            onChange={(properties: AnyPropertyFilter[]) => setDraft({ properties })}
-                            pageKey="error-tracking-native-alert"
-                            buttonSize="small"
-                            hasRowOperator={false}
-                            disablePopover
-                        />
-                    </div>
-
-                    <div className="flex flex-col gap-2">
-                        <LemonLabel>Deliver to</LemonLabel>
-                        {draft.destinations.map((destination, index) => (
-                            <div key={index} className="flex items-start gap-2 p-3 border rounded">
-                                <SlackDestinationPicker
-                                    className="flex-1"
-                                    integrationId={destination.integrationId}
-                                    channel={destination.channel}
-                                    onIntegrationChange={(integrationId) =>
-                                        updateDestination(index, { integrationId, channel: null })
-                                    }
-                                    onChannelChange={(channel) => updateDestination(index, { channel })}
-                                />
-                                {draft.destinations.length > 1 && (
-                                    <LemonButton
-                                        icon={<IconTrash />}
-                                        size="small"
-                                        onClick={() => removeDestination(index)}
-                                        tooltip="Remove this channel"
+                        <div className="flex flex-col gap-2">
+                            <LemonLabel>Open a thread when</LemonLabel>
+                            <div className="flex flex-col gap-1.5">
+                                {TRIGGER_OPTIONS.map((option) => (
+                                    <LemonCheckbox
+                                        key={option.value}
+                                        checked={draft.triggers.includes(option.value)}
+                                        onChange={(checked) => setTriggerEnabled(option.value, checked)}
+                                        label={
+                                            <span>
+                                                <span className="font-medium">{option.label}</span>
+                                                <span className="text-secondary text-xs ml-2">
+                                                    {option.description}
+                                                </span>
+                                            </span>
+                                        }
                                     />
-                                )}
+                                ))}
                             </div>
-                        ))}
-                        <div>
-                            <LemonButton icon={<IconPlus />} size="small" type="secondary" onClick={addDestination}>
-                                Add another channel
-                            </LemonButton>
+                        </div>
+
+                        <div className="flex flex-col gap-1">
+                            <LemonLabel info="Filters are checked against the exception that triggers the thread. Later updates to the issue are always posted into an open thread.">
+                                Only if the exception matches
+                            </LemonLabel>
+                            <PropertyFilters
+                                editable
+                                propertyFilters={draft.properties}
+                                taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                                onChange={(properties: AnyPropertyFilter[]) => setDraft({ properties })}
+                                pageKey="error-tracking-native-alert"
+                                buttonSize="small"
+                                hasRowOperator={false}
+                                disablePopover
+                            />
+                        </div>
+
+                        <div className="flex flex-col gap-2">
+                            <LemonLabel>Deliver to</LemonLabel>
+                            {draft.destinations.map((destination, index) => (
+                                <div key={index} className="flex items-start gap-2 p-3 border rounded">
+                                    <SlackDestinationPicker
+                                        className="flex-1"
+                                        integrationId={destination.integrationId}
+                                        channel={destination.channel}
+                                        onIntegrationChange={(integrationId) =>
+                                            updateDestination(index, { integrationId, channel: null })
+                                        }
+                                        onChannelChange={(channel) => updateDestination(index, { channel })}
+                                    />
+                                    {draft.destinations.length > 1 && (
+                                        <LemonButton
+                                            icon={<IconTrash />}
+                                            size="small"
+                                            onClick={() => removeDestination(index)}
+                                            tooltip="Remove this channel"
+                                        />
+                                    )}
+                                </div>
+                            ))}
+                            <div>
+                                <LemonButton icon={<IconPlus />} size="small" type="secondary" onClick={addDestination}>
+                                    Add another channel
+                                </LemonButton>
+                            </div>
+                        </div>
+
+                        <div className="flex flex-col gap-1">
+                            <LemonLabel info="Limits how often the same issue can open a new thread in this alert's channels. Replies into an open thread are never limited.">
+                                Open a thread per issue
+                            </LemonLabel>
+                            <LemonSelect
+                                value={draft.throttleSeconds}
+                                onChange={(throttleSeconds) => setDraft({ throttleSeconds })}
+                                options={THROTTLE_OPTIONS}
+                                size="small"
+                            />
                         </div>
                     </div>
 
-                    <div className="flex flex-col gap-1">
-                        <LemonLabel info="Limits how often the same issue can open a new thread in this alert's channels. Replies into an open thread are never limited.">
-                            Open a thread per issue
-                        </LemonLabel>
-                        <LemonSelect
-                            value={draft.throttleSeconds}
-                            onChange={(throttleSeconds) => setDraft({ throttleSeconds })}
-                            options={THROTTLE_OPTIONS}
-                            size="small"
-                        />
-                    </div>
+                    <AlertPreview preview={preview} loading={previewLoading} channelLabel={channelLabel} />
                 </div>
-
-                <AlertPreview preview={preview} loading={previewLoading} channelLabel={channelLabel} />
             </div>
         </LemonModal>
     )

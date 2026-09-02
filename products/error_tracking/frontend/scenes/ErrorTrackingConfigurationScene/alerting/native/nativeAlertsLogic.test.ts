@@ -75,4 +75,11 @@ describe('nativeAlertsLogic', () => {
         ).toDispatchActions(['deleteAlertSuccess'])
         expect(logic.values.alerts.map((a) => a.id)).toEqual(['alert-1'])
     })
+
+    it('keeps a failed load distinct from an empty list', async () => {
+        mockList.mockReset().mockRejectedValue(new Error('boom'))
+        await expectLogic(logic, () => logic.actions.loadAlerts()).toDispatchActions(['loadAlertsFailure'])
+        expect(logic.values.alertsLoaded).toBe(false)
+        expect(logic.values.loadError).toBeTruthy()
+    })
 })
