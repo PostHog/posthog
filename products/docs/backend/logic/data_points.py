@@ -2,12 +2,19 @@
 
 import re
 import json
+from datetime import date, datetime
+from typing import Any
 
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
+
+from ..facade.enums import DataShape
+
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 
 _READ_START = re.compile(r"^\s*(with|select)\b", re.IGNORECASE)
 _HOGQL_TAG = re.compile(r"<hogql\b([^>]*)>(.*?)</hogql>", re.IGNORECASE | re.DOTALL)
@@ -38,21 +45,59 @@ def extract_query(text: str) -> tuple[str, str] | None:
     return query, (label.group(1) if label else "").strip()
 
 
-def run_once(team: Team, query: str) -> tuple[str | None, str | None]:
-    """``(value, error)``: the first cell of the first row, or why the query did not run."""
+@frozen
+class DataPointRun:
+    """What one run of the query gave: its shape, the cell the page shows, or why it did not run."""
+
+    shape: DataShape | None
+    value: str | None
+    rows: int
+    columns: int
+    error: str | None
+
+
+def _is_number(cell: Any) -> bool:
+    return isinstance(cell, int | float) and not isinstance(cell, bool)
+
+
+def _is_moment(cell: Any) -> bool:
+    return isinstance(cell, datetime | date) or (isinstance(cell, str) and bool(_ISO_DATE.match(cell)))
+
+
+def classify(rows: list[list[Any]]) -> DataPointRun:
+    """One cell is a number. Two columns of moments and numbers are a series. Anything else is a table."""
+    if not rows or not rows[0]:
+        return DataPointRun(shape=None, value=None, rows=0, columns=0, error="The query came back with no rows.")
+    columns = len(rows[0])
+    if len(rows) == 1 and columns == 1:
+        return DataPointRun(shape=DataShape.NUMBER, value=str(rows[0][0]), rows=1, columns=1, error=None)
+    if columns == 2 and len(rows) >= 2:
+        moments = [row[0] for row in rows]
+        numbers = [row[1] for row in rows]
+        if all(_is_number(cell) for cell in moments) and all(_is_moment(cell) for cell in numbers):
+            moments, numbers = numbers, moments
+        if all(_is_moment(cell) for cell in moments) and all(_is_number(cell) for cell in numbers):
+            return DataPointRun(shape=DataShape.SERIES, value=str(numbers[-1]), rows=len(rows), columns=2, error=None)
+    return DataPointRun(shape=DataShape.TABLE, value=None, rows=len(rows), columns=columns, error=None)
+
+
+def run_once(team: Team, query: str) -> DataPointRun:
+    """Runs the query one time and says what shape it has, or why it did not run."""
     try:
         with tags_context(product=Product.POSTHOG_CODE, feature=Feature.DOCS):
             response = execute_hogql_query(
                 query=query, team=team, query_type="doc_data_point", limit_context=LimitContext.QUERY
             )
     except Exception as err:
-        return None, str(err).strip().splitlines()[0][:300] if str(err).strip() else "The query did not run."
-    rows = response.results or []
-    if not rows or not rows[0]:
-        return None, "The query came back with no rows."
-    if len(rows) > 1 or len(rows[0]) > 1:
-        return None, f"The query came back with {len(rows)} rows and {len(rows[0])} columns. It must give one cell."
-    return str(rows[0][0]), None
+        message = str(err).strip()
+        return DataPointRun(
+            shape=None,
+            value=None,
+            rows=0,
+            columns=0,
+            error=message.splitlines()[0][:300] if message else "The query did not run.",
+        )
+    return classify([list(row) for row in (response.results or [])])
 
 
 def extract_structured(text: str) -> dict[str, str] | None:
@@ -73,7 +118,7 @@ def extract_structured(text: str) -> dict[str, str] | None:
 
 def reminder_text(request_id: str) -> str:
     """The one fixed follow-up a run gets when it wrote prose and no data point."""
-    submit = f'call doc-data-point-submit {{"request_id": "{request_id}", "query": "<the SELECT you ran>", "label": "<what the number counts, in a few words>"}}'
+    submit = f'call doc-data-point-submit {{"request_id": "{request_id}", "query": "<the SELECT you ran>", "label": "<what it shows, in a few words>"}}'
     none = f'call doc-data-point-submit {{"request_id": "{request_id}", "status": "none", "note": "<why the data cannot answer>"}}'
     return "\n".join(
         [

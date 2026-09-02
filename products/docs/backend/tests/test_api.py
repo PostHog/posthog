@@ -15,12 +15,17 @@ from posthog import redis as redis_module
 from posthog.models.user import User
 
 from products.docs.backend.facade import api
+from products.docs.backend.facade.enums import DataShape
+from products.docs.backend.logic import data_points
 from products.docs.backend.tasks.tasks import sync_context_doc_task
 from products.tasks.backend.facade.api import ensure_personal_channel_id
 
 # Keep the SSE generator lifetime tiny so the stream test terminates deterministically.
 _TEST_STREAM_LIFETIME = 0.3
 _TEST_STREAM_BLOCK_MS = 50
+
+
+_NUMBER_RUN = data_points.DataPointRun(shape=DataShape.NUMBER, value="7", rows=1, columns=1, error=None)
 
 
 @patch("posthog.collab.stream.STREAM_LIFETIME_SECONDS", _TEST_STREAM_LIFETIME)
@@ -194,7 +199,7 @@ class TestDocsAPI(APIBaseTest):
         self._start_thread(doc, kind="data", anchor_key="req-1", task_id="task-1", send_to_agent=True)
         text = 'Counted them: <hogql label="teams with replay">SELECT uniq(team_id) FROM events;</hogql>'
 
-        with patch("products.docs.backend.facade.api.data_points.run_once", return_value=("7", None)):
+        with patch("products.docs.backend.facade.api.data_points.run_once", return_value=_NUMBER_RUN):
             for _ in range(2):
                 api.record_agent_turn(team_id=self.team.pk, task_id="task-1", run_id="run-1", turn_key="k1", text=text)
 
@@ -233,7 +238,7 @@ class TestDocsAPI(APIBaseTest):
     def _submit(self, task_id: str | None, body: dict):
         with (
             patch("products.docs.backend.presentation.views._sandbox_task_id", return_value=task_id),
-            patch("products.docs.backend.facade.api.data_points.run_once", return_value=("7", None)),
+            patch("products.docs.backend.facade.api.data_points.run_once", return_value=_NUMBER_RUN),
             patch("products.docs.backend.facade.api.tasks_facade.latest_run_id", return_value=None),
         ):
             return self.client.post(self._url("data_points/submit/"), data=body, format="json")
@@ -247,15 +252,15 @@ class TestDocsAPI(APIBaseTest):
 
         first = self._submit("task-1", {"request_id": "req-1", "query": "SELECT 1;", "label": "one"})
         second = self._submit("task-1", {"request_id": "req-1", "query": "SELECT 2", "label": "two"})
-        assert first.json() == {"ok": True, "value": "7", "error": None}
+        assert first.json() == {"ok": True, "shape": "number", "value": "7", "rows": 1, "columns": 1, "error": None}
         assert second.status_code == status.HTTP_200_OK
 
         thread = self.client.get(self._url(f"{doc['id']}/discussions/")).json()[0]
         assert thread["answer"]["query"] == "SELECT 2"
         assert thread["answer"]["label"] == "two"
         assert [post["content"] for post in thread["replies"]] == [
-            "Put the data point on the page.",
-            "Updated the data point.",
+            "Put the number on the page.",
+            "Updated the number on the page.",
         ]
 
     @parameterized.expand([("DELETE FROM events",), ("SELECT 1; SELECT 2",), ("",)])
@@ -297,7 +302,7 @@ class TestDocsAPI(APIBaseTest):
         doc = self._create_doc()
         self._start_thread(doc, kind="data", anchor_key="req-2", task_id="task-2", send_to_agent=True)
 
-        with patch("products.docs.backend.facade.api.data_points.run_once", return_value=("42", None)):
+        with patch("products.docs.backend.facade.api.data_points.run_once", return_value=_NUMBER_RUN):
             api.record_agent_turn(
                 team_id=self.team.pk,
                 task_id="task-2",
@@ -309,7 +314,7 @@ class TestDocsAPI(APIBaseTest):
         thread = self.client.get(self._url(f"{doc['id']}/discussions/")).json()[0]
         assert thread["answer"]["query"] == "SELECT count() FROM events"
         assert [(post["author_kind"], post["content"]) for post in thread["replies"]] == [
-            ("system", "Put the data point on the page.")
+            ("system", "Put the number on the page.")
         ]
 
     def test_space_home_says_what_lives_in_each_page_and_lists_the_watches(self):

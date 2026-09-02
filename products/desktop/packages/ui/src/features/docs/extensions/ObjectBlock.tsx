@@ -40,6 +40,8 @@ export interface ObjectBlockAttrs {
   sessionId: string | null;
   title: string | null;
   caption: string | null;
+  /** The data request this block answered, which is also its thread's key. */
+  requestId: string | null;
 }
 
 function toSpec(attrs: ObjectBlockAttrs): ChartBlockSpec | null {
@@ -241,7 +243,11 @@ export function ObjectBlockView({
   }
 
   return (
-    <NodeViewWrapper className="my-4" data-drag-handle>
+    <NodeViewWrapper
+      className="my-4"
+      data-drag-handle
+      data-request-id={attrs.requestId || undefined}
+    >
       {spec && isSql && attrs.query ? (
         <SqlCard
           query={attrs.query}
@@ -279,6 +285,7 @@ export const ObjectBlock = Node.create({
       sessionId: { default: null },
       title: { default: null },
       caption: { default: null },
+      requestId: { default: null },
     };
   },
 
@@ -289,7 +296,10 @@ export const ObjectBlock = Node.create({
   renderHTML({ HTMLAttributes }) {
     return [
       "div",
-      mergeAttributes(HTMLAttributes, { "data-object-block": "" }),
+      mergeAttributes(HTMLAttributes, {
+        "data-object-block": "",
+        "data-request-id": HTMLAttributes.requestId || undefined,
+      }),
     ];
   },
 

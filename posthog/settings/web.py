@@ -667,6 +667,7 @@ SPECTACULAR_SETTINGS = {
         "DocThreadKindEnum": ["text", "data", "watch"],
         # A doc is a page, or the one doc that is a space's context notes.
         "DocKindEnum": ["page", "context"],
+        "DocDataShapeEnum": ["number", "series", "table"],
         # Disambiguates from data_modeling's node_type (table/view/matview/endpoint).
         "NotebookSQLV2NodeTypeEnum": ["hogql", "python"],
         "NotebookSQLV2RefKindEnum": ["hogql", "local"],

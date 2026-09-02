@@ -27,6 +27,42 @@ export interface DataValueAttrs {
   note: string;
   /** The request this answered, which is also its thread's key. */
   requestId: string;
+  /** One cell reads as a number; a date column with a number column reads as a sparkline. */
+  shape: "number" | "series";
+}
+
+const SPARK_W = 56;
+const SPARK_H = 14;
+
+/** The line of a series, drawn small enough to sit in a sentence. */
+function Spark({ points }: { points: number[] }) {
+  const max = Math.max(...points);
+  const min = Math.min(...points);
+  const range = max - min || 1;
+  const step = points.length > 1 ? SPARK_W / (points.length - 1) : 0;
+  const path = points
+    .map((point, index) => {
+      const x = (index * step).toFixed(1);
+      const y = (
+        SPARK_H -
+        1.5 -
+        ((point - min) / range) * (SPARK_H - 3)
+      ).toFixed(1);
+      return `${index === 0 ? "M" : "L"}${x} ${y}`;
+    })
+    .join(" ");
+  return (
+    <svg
+      className="doc-spark"
+      viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
+      width={SPARK_W}
+      height={SPARK_H}
+      role="img"
+      aria-label={`${points.length} points`}
+    >
+      <path d={path} fill="none" strokeWidth={1.5} strokeLinejoin="round" />
+    </svg>
+  );
 }
 
 const LAND_MS = 1_200;
@@ -51,6 +87,7 @@ function useLanding(query: string): boolean {
 
 function Figure({
   value,
+  points = [],
   isLoading,
   isError,
   label,
@@ -60,6 +97,7 @@ function Figure({
   landing,
 }: {
   value: string;
+  points?: number[];
   isLoading: boolean;
   isError: boolean;
   label: string;
@@ -69,6 +107,7 @@ function Figure({
   error?: string | null;
   landing?: boolean;
 }) {
+  const showSpark = !isLoading && !isError && points.length > 1;
   return (
     <Tooltip>
       <TooltipTrigger
@@ -81,6 +120,7 @@ function Figure({
           />
         }
       >
+        {showSpark ? <Spark points={points} /> : null}
         {isLoading ? "…" : isError ? "—" : value}
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-sm">
@@ -95,7 +135,9 @@ function Figure({
             {detail}
           </code>
           <span className="text-(--gray-8) text-[11px]">
-            Runs live on every read
+            {showSpark
+              ? `${points.length} points, the last one shown. Runs live on every read`
+              : "Runs live on every read"}
           </span>
         </div>
       </TooltipContent>
@@ -107,16 +149,19 @@ function QueryFigure({
   query,
   label,
   note,
+  shape,
 }: {
   query: string;
   label: string;
   note: string;
+  shape: "number" | "series";
 }) {
-  const point = useDataPoint(query);
+  const point = useDataPoint(query, shape);
   const landing = useLanding(query);
   return (
     <Figure
       value={point.value}
+      points={point.points}
       isLoading={point.isLoading}
       isError={point.isError}
       error={point.error}
@@ -142,7 +187,7 @@ function InsightFigure({ shortId, label }: { shortId: string; label: string }) {
 }
 
 export function DataValueView({ node }: ReactNodeViewProps) {
-  const { query, shortId, label, note, requestId } =
+  const { query, shortId, label, note, requestId, shape } =
     node.attrs as DataValueAttrs;
 
   return (
@@ -152,7 +197,12 @@ export function DataValueView({ node }: ReactNodeViewProps) {
       data-request-id={requestId || undefined}
     >
       {query ? (
-        <QueryFigure query={query} label={label} note={note ?? ""} />
+        <QueryFigure
+          query={query}
+          label={label}
+          note={note ?? ""}
+          shape={shape === "series" ? "series" : "number"}
+        />
       ) : (
         <InsightFigure shortId={shortId} label={label} />
       )}
@@ -174,6 +224,7 @@ export const DataValue = Node.create({
       label: { default: "" },
       note: { default: "" },
       requestId: { default: "" },
+      shape: { default: "number" },
     };
   },
 

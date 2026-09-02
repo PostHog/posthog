@@ -45,7 +45,7 @@ import { DataRequest, type DataRequestAttrs } from "../extensions/DataRequest";
 import { DataValue, type DataValueAttrs } from "../extensions/DataValue";
 import { DiscussionAnchor } from "../extensions/DiscussionAnchor";
 import { MetricRow } from "../extensions/MetricRow";
-import { ObjectBlock } from "../extensions/ObjectBlock";
+import { ObjectBlock, type ObjectBlockAttrs } from "../extensions/ObjectBlock";
 import { ObjectChip } from "../extensions/ObjectChip";
 import { PersonMention } from "../extensions/PersonMention";
 import { TaskChip } from "../extensions/TaskChip";
@@ -294,13 +294,25 @@ export function DocEditor({
         if (node.type.name === "dataRequest") {
           const { requestId, state } = node.attrs as DataRequestAttrs;
           if (requestId && (state === "asking" || state === "reply")) {
-            found.push({ requestId, kind: "request", query: null });
+            found.push({
+              requestId,
+              kind: "request",
+              query: null,
+              shape: null,
+            });
           }
           return;
         }
         if (node.type.name === "dataValue") {
-          const { requestId, query } = node.attrs as DataValueAttrs;
-          if (requestId) found.push({ requestId, kind: "value", query });
+          const { requestId, query, shape } = node.attrs as DataValueAttrs;
+          if (requestId) found.push({ requestId, kind: "value", query, shape });
+          return;
+        }
+        if (node.type.name === "objectBlock") {
+          const { requestId, query } = node.attrs as ObjectBlockAttrs;
+          if (requestId && query) {
+            found.push({ requestId, kind: "value", query, shape: "table" });
+          }
         }
       });
       setWatched((current) =>
@@ -309,7 +321,8 @@ export function DocEditor({
           (point, index) =>
             point.requestId === found[index]?.requestId &&
             point.kind === found[index]?.kind &&
-            point.query === found[index]?.query,
+            point.query === found[index]?.query &&
+            point.shape === found[index]?.shape,
         )
           ? current
           : found,
@@ -326,7 +339,7 @@ export function DocEditor({
   const findDataRequest = useCallback(
     (
       requestId: string,
-      type: "dataRequest" | "dataValue" = "dataRequest",
+      type: "dataRequest" | "dataValue" | "objectBlock" = "dataRequest",
     ): number | null => {
       if (!editor) return null;
       let found: number | null = null;
@@ -432,34 +445,74 @@ export function DocEditor({
         return;
       }
 
+      const blockPos = findDataRequest(requestId, "objectBlock");
       const valuePos = findDataRequest(requestId, "dataValue");
-      if (valuePos !== null) {
+      const inlinePos = valuePos ?? findDataRequest(requestId);
+      const inlineNode =
+        inlinePos === null ? null : editor.state.doc.nodeAt(inlinePos);
+      const label =
+        answer.label || String(inlineNode?.attrs.question ?? "") || "Data";
+
+      // A table lives in a block under the line; the words in the line stay.
+      if (answer.shape === "table") {
+        const block = editor.schema.nodeFromJSON({
+          type: "objectBlock",
+          attrs: {
+            mode: "hogql",
+            query: answer.query,
+            title: label,
+            requestId,
+          },
+        });
         const tr = editor.state.tr;
-        tr.setNodeAttribute(valuePos, "query", answer.query);
-        tr.setNodeAttribute(valuePos, "label", answer.label);
-        tr.setNodeAttribute(valuePos, "note", answer.note);
+        if (blockPos !== null) {
+          tr.setNodeAttribute(blockPos, "query", answer.query);
+          tr.setNodeAttribute(blockPos, "title", label);
+        } else if (inlinePos !== null && inlineNode) {
+          const after = editor.state.doc.resolve(inlinePos).after();
+          tr.delete(inlinePos, inlinePos + inlineNode.nodeSize);
+          tr.insert(tr.mapping.map(after), block);
+        } else {
+          return;
+        }
         editor.view.dispatch(tr);
         return;
       }
-      const pos = findDataRequest(requestId);
-      const node = pos === null ? null : editor.state.doc.nodeAt(pos);
-      if (pos === null || !node) return;
-      const question = String(node.attrs.question ?? "");
-      editor.view.dispatch(
-        editor.state.tr.replaceWith(
-          pos,
-          pos + node.nodeSize,
-          editor.schema.nodeFromJSON({
-            type: "dataValue",
-            attrs: {
-              query: answer.query,
-              label: answer.label || question,
-              note: answer.note,
-              requestId,
-            },
-          }),
-        ),
-      );
+
+      const value = editor.schema.nodeFromJSON({
+        type: "dataValue",
+        attrs: {
+          query: answer.query,
+          label,
+          note: answer.note,
+          shape: answer.shape,
+          requestId,
+        },
+      });
+      const tr = editor.state.tr;
+      if (valuePos !== null) {
+        tr.setNodeAttribute(valuePos, "query", answer.query);
+        tr.setNodeAttribute(valuePos, "label", answer.label);
+        tr.setNodeAttribute(valuePos, "note", answer.note);
+        tr.setNodeAttribute(valuePos, "shape", answer.shape);
+      } else if (inlinePos !== null && inlineNode) {
+        tr.replaceWith(inlinePos, inlinePos + inlineNode.nodeSize, value);
+      } else if (blockPos !== null) {
+        // The table became a number: it goes back into the text, on its own line.
+        const blockNode = editor.state.doc.nodeAt(blockPos);
+        if (!blockNode) return;
+        tr.replaceWith(
+          blockPos,
+          blockPos + blockNode.nodeSize,
+          editor.schema.nodes.paragraph.create(null, [
+            editor.schema.text(`${label}: `),
+            value,
+          ]),
+        );
+      } else {
+        return;
+      }
+      editor.view.dispatch(tr);
     },
     [editor, findDataRequest, updateDataRequest],
   );

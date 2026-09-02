@@ -16,6 +16,7 @@ from .enums import (
     AgentDelivery,
     CollabSubmitStatus,
     DataPointStatus,
+    DataShape,
     DiscussionKind,
     DocKind,
     DocStatus,
@@ -100,11 +101,12 @@ class DiscussionPostDTO:
 
 @dataclass(frozen=True)
 class DataAnswerDTO:
-    """The query behind a data point. The page runs it on every read."""
+    """The query behind a data point. The page runs it on every read and draws it by its shape."""
 
     query: str
     label: str
     note: str
+    shape: DataShape
     run_id: str | None
     updated_at: datetime | None
 
@@ -174,7 +176,10 @@ class SubmitDataPointInput:
 @dataclass(frozen=True)
 class SubmitDataPointResultDTO:
     ok: bool
+    shape: DataShape | None
     value: str | None
+    rows: int
+    columns: int
     error: str | None
 
 

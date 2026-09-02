@@ -52,7 +52,11 @@ export function DocThreadGutter({
     };
 
     editor.state.doc.descendants((node, pos) => {
-      if (node.type.name === "dataRequest" || node.type.name === "dataValue") {
+      if (
+        node.type.name === "dataRequest" ||
+        node.type.name === "dataValue" ||
+        node.type.name === "objectBlock"
+      ) {
         const requestId = node.attrs?.requestId;
         if (typeof requestId === "string") pin(requestId, pos);
         return;

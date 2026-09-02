@@ -195,9 +195,17 @@ def set_thread_resolved(doc: Doc, *, thread_id: str | UUID, resolved: bool) -> C
 
 
 def set_thread_answer(
-    thread: Comment, *, query: str, label: str, note: str, run_id: str | None, at: datetime | None = None
+    thread: Comment,
+    *,
+    query: str,
+    label: str,
+    note: str,
+    shape: str,
+    run_id: str | None,
+    at: datetime | None = None,
 ) -> Comment:
     answer = {
+        "shape": shape,
         "query": query,
         "label": label,
         "note": note,

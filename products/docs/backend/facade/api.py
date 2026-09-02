@@ -28,6 +28,7 @@ from .enums import (
     AgentDelivery,
     CollabSubmitStatus,
     DataPointStatus,
+    DataShape,
     DiscussionKind,
     DocKind,
     DocStatus,
@@ -389,8 +390,11 @@ def record_agent_turn(
         if is_data and not context.get("answer"):
             found = data_points.extract_query(text)
             # A query out of prose is kept only when it runs: the page must never show a broken one.
-            if found and data_points.run_once(Team.objects.get(id=team_id), found[0])[1] is None:
-                discussions.set_thread_answer(thread, query=found[0], label=found[1], note="", run_id=run_id)
+            run = data_points.run_once(Team.objects.get(id=team_id), found[0]) if found else None
+            if found and run is not None and run.shape is not None:
+                discussions.set_thread_answer(
+                    thread, query=found[0], label=found[1], note="", shape=run.shape.value, run_id=run_id
+                )
             else:
                 _remind_data_point(doc, thread, team_id=team_id, task_id=task_id)
         collab.publish_discussion_change(doc, thread_id=str(thread.id))
@@ -434,14 +438,14 @@ def _apply_structured_answer(
         )
         return
     query = data_points.clean_query(structured["query"])
-    value, error = (None, "Only one SELECT is accepted.")
+    run = data_points.DataPointRun(shape=None, value=None, rows=0, columns=0, error="Only one SELECT is accepted.")
     if data_points.is_read_query(query):
-        value, error = data_points.run_once(Team.objects.get(id=doc.team_id), query)
-    if error:
+        run = data_points.run_once(Team.objects.get(id=doc.team_id), query)
+    if run.error or run.shape is None:
         discussions.add_post(
             doc,
             thread,
-            content=f"The query the agent wrote did not run: {error}",
+            content=f"The query the agent wrote did not run: {run.error}",
             user_id=None,
             author_kind=PostAuthorKind.SYSTEM,
             run_id=run_id,
@@ -450,9 +454,9 @@ def _apply_structured_answer(
         return
     had_answer = bool((thread.item_context or {}).get("answer"))
     discussions.set_thread_answer(
-        thread, query=query, label=structured["label"], note=structured["note"], run_id=run_id
+        thread, query=query, label=structured["label"], note=structured["note"], shape=run.shape.value, run_id=run_id
     )
-    line = "Updated the data point." if had_answer else "Put the data point on the page."
+    line = _placed_line(run.shape, updated=had_answer)
     if structured["note"]:
         line = f"{line} {structured['note']}"
     discussions.add_post(
@@ -483,32 +487,61 @@ def submit_data_point(payload: contracts.SubmitDataPointInput) -> contracts.Subm
         note = payload.note.strip() or "The project's data cannot answer this."
         discussions.add_post(doc, thread, content=note, user_id=None, author_kind=PostAuthorKind.AGENT, run_id=run_id)
         collab.publish_discussion_change(doc, thread_id=str(thread.id))
-        return contracts.SubmitDataPointResultDTO(ok=True, value=None, error=None)
+        return _submit_result(ok=True, run=None)
 
     query = data_points.clean_query(payload.query)
     if not data_points.is_read_query(query):
-        return contracts.SubmitDataPointResultDTO(
-            ok=False, value=None, error="Only one SELECT (or WITH … SELECT) is accepted."
-        )
+        return _submit_result(ok=False, run=None, error="Only one SELECT (or WITH … SELECT) is accepted.")
     team = Team.objects.get(id=payload.team_id)
-    value, error = data_points.run_once(team, query)
-    if error:
-        return contracts.SubmitDataPointResultDTO(ok=False, value=None, error=error)
+    run = data_points.run_once(team, query)
+    if run.error or run.shape is None:
+        return _submit_result(ok=False, run=run, error=run.error or "The query came back with no rows.")
 
     had_answer = bool((thread.item_context or {}).get("answer"))
     discussions.set_thread_answer(
-        thread, query=query, label=payload.label.strip(), note=payload.note.strip(), run_id=run_id
+        thread,
+        query=query,
+        label=payload.label.strip(),
+        note=payload.note.strip(),
+        shape=run.shape.value,
+        run_id=run_id,
     )
     discussions.add_post(
         doc,
         thread,
-        content="Updated the data point." if had_answer else "Put the data point on the page.",
+        content=_placed_line(run.shape, updated=had_answer),
         user_id=None,
         author_kind=PostAuthorKind.SYSTEM,
         run_id=run_id,
     )
     collab.publish_discussion_change(doc, thread_id=str(thread.id))
-    return contracts.SubmitDataPointResultDTO(ok=True, value=value, error=None)
+    return _submit_result(ok=True, run=run)
+
+
+def _submit_result(
+    *, ok: bool, run: data_points.DataPointRun | None, error: str | None = None
+) -> contracts.SubmitDataPointResultDTO:
+    return contracts.SubmitDataPointResultDTO(
+        ok=ok,
+        shape=run.shape if run else None,
+        value=run.value if run else None,
+        rows=run.rows if run else 0,
+        columns=run.columns if run else 0,
+        error=error,
+    )
+
+
+_PLACED = {
+    DataShape.NUMBER: "the number",
+    DataShape.SERIES: "the trend",
+    DataShape.TABLE: "the table",
+}
+
+
+def _placed_line(shape: DataShape, *, updated: bool) -> str:
+    """The system line under a submit, so the thread says what the page now shows."""
+    what = _PLACED[shape]
+    return f"Updated {what} on the page." if updated else f"Put {what} on the page."
 
 
 def _latest_run_id(task_id: str, team_id: int) -> str | None:
@@ -588,10 +621,12 @@ def _to_answer(raw: object) -> contracts.DataAnswerDTO | None:
     if not isinstance(raw, dict) or not raw.get("query"):
         return None
     updated_at = raw.get("updated_at")
+    shape = raw.get("shape")
     return contracts.DataAnswerDTO(
         query=str(raw["query"]),
         label=str(raw.get("label") or ""),
         note=str(raw.get("note") or ""),
+        shape=DataShape(shape) if shape in DataShape.__members__.values() else DataShape.NUMBER,
         run_id=str(raw["run_id"]) if raw.get("run_id") else None,
         updated_at=datetime.fromisoformat(updated_at) if isinstance(updated_at, str) else None,
     )

@@ -75,10 +75,14 @@ export namespace DocSchemas {
   }
 
   /** The query behind a data point. The page runs it on every read. */
+  /** How the page draws a data point: a number in the line, a sparkline, or a chart block. */
+  export type DataShape = "number" | "series" | "table";
+
   export interface DataAnswer {
     query: string;
     label: string;
     note: string;
+    shape: DataShape;
     run_id: string | null;
     updated_at: string | null;
   }

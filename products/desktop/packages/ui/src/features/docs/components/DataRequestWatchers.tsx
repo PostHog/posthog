@@ -9,11 +9,18 @@ export interface WatchedDataPoint {
   kind: "request" | "value";
   /** The query the page shows now, so a new one from the thread is told apart. */
   query: string | null;
+  shape: DocSchemas.DataShape | null;
 }
 
 export type DataAnswer =
   /** The query the thread ended with. The page keeps it and runs it on every read. */
-  | { kind: "value"; query: string; label: string; note: string }
+  | {
+      kind: "value";
+      query: string;
+      label: string;
+      note: string;
+      shape: DocSchemas.DataShape;
+    }
   /** The agent's run ended and the thread has no query. */
   | { kind: "ended"; failed: boolean }
   /** The agent wrote in the thread but has not handed in a query yet. */
@@ -45,12 +52,16 @@ export function DataRequestWatchers({
       );
       if (!thread) continue;
       const answer = thread.answer;
-      if (answer && answer.query !== point.query) {
+      if (
+        answer &&
+        (answer.query !== point.query || answer.shape !== point.shape)
+      ) {
         onAnswer(point.requestId, {
           kind: "value",
           query: answer.query,
           label: answer.label,
           note: answer.note,
+          shape: answer.shape,
         });
         continue;
       }

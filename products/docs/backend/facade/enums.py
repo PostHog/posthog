@@ -62,3 +62,11 @@ class AgentDelivery(StrEnum):
 class DataPointStatus(StrEnum):
     OK = "ok"
     NONE = "none"
+
+
+class DataShape(StrEnum):
+    """What a data point's query gives back, which decides how the page draws it."""
+
+    NUMBER = "number"
+    SERIES = "series"
+    TABLE = "table"

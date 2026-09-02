@@ -7,6 +7,7 @@ from ..facade.enums import (
     AgentDelivery,
     CollabSubmitStatus,
     DataPointStatus,
+    DataShape,
     DiscussionKind,
     DocKind,
     DocStatus,
@@ -191,14 +192,16 @@ class DiscussionPostSerializer(serializers.Serializer):
 class DataAnswerSerializer(serializers.Serializer):
     """The query behind a data point."""
 
-    query = serializers.CharField(
-        help_text="A HogQL SELECT that gives one row and one column. The page runs it on every read."
-    )
+    query = serializers.CharField(help_text="A HogQL SELECT. The page runs it on every read.")
     # The key is "label" on the wire; the class attribute of the same name is DRF's own.
     label = serializers.CharField(  # type: ignore[assignment]
         allow_blank=True, help_text="What the data point measures, in a few words."
     )
     note = serializers.CharField(allow_blank=True, help_text="A caveat for the reader, or empty.")
+    shape = serializers.ChoiceField(
+        choices=[(shape.value, shape.value) for shape in DataShape],
+        help_text="number: one cell, shown inline. series: dates and numbers, shown as a sparkline. table: anything else, shown as a chart block.",
+    )
     run_id = serializers.CharField(allow_null=True, help_text="The run that submitted it.")
     updated_at = serializers.DateTimeField(allow_null=True, help_text="When it was last submitted.")
 
@@ -313,9 +316,16 @@ class DataPointSubmitResultSerializer(serializers.Serializer):
     """Whether the page took the query."""
 
     ok = serializers.BooleanField(help_text="True when the page took the query, or took the none status.")
-    value = serializers.CharField(
-        allow_null=True, help_text="The single cell the query returned when it ran once, as text."
+    shape = serializers.ChoiceField(
+        choices=[(shape.value, shape.value) for shape in DataShape],
+        allow_null=True,
+        help_text="How the page shows it: number (one cell), series (a sparkline), or table (a chart block).",
     )
+    value = serializers.CharField(
+        allow_null=True, help_text="The cell the page shows: the number, or the last value of a series."
+    )
+    rows = serializers.IntegerField(help_text="How many rows the query returned when it ran once.")
+    columns = serializers.IntegerField(help_text="How many columns the query returned when it ran once.")
     error = serializers.CharField(
         allow_null=True, help_text="Why the query was not taken. Fix the query and submit again."
     )

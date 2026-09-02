@@ -1,7 +1,11 @@
+from datetime import date
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.docs.backend.facade.enums import DataShape
+from products.docs.backend.logic import data_points
 from products.docs.backend.logic.data_points import extract_query, extract_structured, is_read_query
 
 
@@ -51,3 +55,22 @@ class TestDataPointQueries(SimpleTestCase):
     )
     def test_extract_structured_reads_the_schema_shaped_turn(self, text, expected):
         assert extract_structured(text) == expected
+
+
+class TestClassify(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ([[42]], DataShape.NUMBER, "42"),
+            ([[date(2026, 9, 1), 3], ["2026-09-02", 5.5]], DataShape.SERIES, "5.5"),
+            ([[3, "2026-09-01"], [5, "2026-09-02"]], DataShape.SERIES, "5"),
+            ([["$pageview", 3], ["$autocapture", 5]], DataShape.TABLE, None),
+            ([[1, 2, 3]], DataShape.TABLE, None),
+            ([[1], [2]], DataShape.TABLE, None),
+        ]
+    )
+    def test_classify_reads_the_shape(self, rows, shape, value):
+        run = data_points.classify(rows)
+        assert (run.shape, run.value, run.error) == (shape, value, None)
+
+    def test_classify_refuses_an_empty_result(self):
+        assert data_points.classify([]).error == "The query came back with no rows."

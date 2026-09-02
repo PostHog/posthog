@@ -301,27 +301,6 @@
   text-transform: uppercase;
 }
 
-/* Inline-code styling from the page must not reach the block's own code. */
-.doc-body .doc-sql-peek,
-.doc-body .doc-sql-full,
-.doc-body .doc-sql-editor-mirror {
-  background: none;
-  border-radius: 0;
-  font-size: inherit;
-}
-
-.doc-body .doc-sql-editor-mirror {
-  padding: 10px 12px;
-}
-
-.doc-body .doc-sql-peek {
-  padding: 0;
-}
-
-.doc-body .doc-sql-full {
-  padding: 10px 12px;
-}
-
 .doc-sql-toggle {
   display: flex;
   min-width: 0;
@@ -428,6 +407,27 @@
 
 .doc-sql-editor-input::selection {
   background: color-mix(in srgb, var(--primary) 25%, transparent);
+}
+
+/* Inline-code styling from the page must not reach the block's own code. */
+.doc-body .doc-sql-peek,
+.doc-body .doc-sql-full,
+.doc-body .doc-sql-editor-mirror {
+  background: none;
+  border-radius: 0;
+  font-size: inherit;
+}
+
+.doc-body .doc-sql-editor-mirror {
+  padding: 10px 12px;
+}
+
+.doc-body .doc-sql-peek {
+  padding: 0;
+}
+
+.doc-body .doc-sql-full {
+  padding: 10px 12px;
 }
 
 .doc-sql-foot {
@@ -574,6 +574,15 @@
   font-weight: 560;
   border-bottom: 1px solid var(--gray-6);
   cursor: default;
+}
+
+/* The sparkline of a series, on the baseline of the number it ends in. */
+.doc-spark {
+  display: inline-block;
+  margin-right: 0.35em;
+  vertical-align: -0.1em;
+  stroke: var(--primary);
+  overflow: visible;
 }
 
 .doc-datavalue[data-state="error"] {

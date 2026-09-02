@@ -68,12 +68,11 @@ export const DOC_DATA_RESULT_SCHEMA: Record<string, unknown> = {
     query: {
       type: "string",
       description:
-        "One HogQL SELECT that returns exactly one row and one column. Empty when status is none.",
+        "One HogQL SELECT. One cell for a number, a date column and a number column for a trend, anything else for a table. Empty when status is none.",
     },
     label: {
       type: "string",
-      description:
-        "What the number counts, in a few words. The reader sees this on it.",
+      description: "What it shows, in a few words. The reader sees this on it.",
     },
     note: {
       type: "string",
@@ -96,13 +95,13 @@ export function dataPointTaskInput(input: {
   docTitle: string;
 }): { question: string; description: string } {
   const question = input.question.trim();
-  const call = `call doc-data-point-submit {"request_id": "${input.requestId}", "query": "<your SELECT>", "label": "<what the number counts, in a few words>"}`;
+  const call = `call doc-data-point-submit {"request_id": "${input.requestId}", "query": "<your SELECT>", "label": "<what it shows, in a few words>"}`;
   return {
     question,
     description: [
-      `A page asks for one number: "${question}".`,
+      `A page asks for data: "${question}".`,
       "",
-      "Write one HogQL SELECT that returns exactly one row and one column, and run it once with the PostHog SQL query tool. Do not browse recordings, insights, or dashboards; do not build or save anything.",
+      "Write one HogQL SELECT and run it once with the PostHog SQL query tool. The page draws the result by its shape: one cell as a number in the sentence, a date column with a number column as a sparkline, anything else as a chart block. Do not browse recordings, insights, or dashboards; do not build or save anything.",
       `Hand the query in through the PostHog MCP \`exec\` tool: \`${call}\`. Run \`info doc-data-point-submit\` first if you need the schema. If it answers ok: false, fix the query and call it again.`,
       `request_id: ${input.requestId}`,
       'End your reply as the JSON object {"status", "query", "label", "note"}: status "ok" with the query, or status "none" with a note when the project\'s data cannot answer. Nothing else in the reply.',

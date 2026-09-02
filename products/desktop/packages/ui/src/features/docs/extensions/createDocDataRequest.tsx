@@ -109,8 +109,9 @@ export function createDocDataRequest(options: {
           },
         }));
 
+      // The question comes first: Enter asks it. A saved insight is the shortcut
+      // a person picks on purpose, never what a fast Enter lands on.
       return [
-        ...saved,
         {
           id: "ask",
           group: "Ask the agent",
@@ -120,6 +121,7 @@ export function createDocDataRequest(options: {
           hint: "↵",
           choice: { kind: "ask", question },
         },
+        ...saved,
       ];
     },
     onSelect: ({ editor, item }) => options.onPick(item.choice, editor),

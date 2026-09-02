@@ -7,10 +7,25 @@ const DATA_POINT_STALE_MS = 60_000;
 
 interface DataPointResult {
   value: string;
+  /** The numbers of a series, in row order, for a sparkline. Empty for one cell. */
+  points: number[];
   isLoading: boolean;
   isError: boolean;
   /** Why the query gave nothing, for the reader who hovers it. */
   error: string | null;
+}
+
+/** The number in each row, for a query that gives a date and a number per row. */
+export function seriesPoints(results: unknown[][] | undefined): number[] {
+  if (!results || results.length < 2) return [];
+  const points: number[] = [];
+  for (const row of results) {
+    if (!Array.isArray(row)) return [];
+    const cell = row.find((value) => typeof value === "number");
+    if (typeof cell !== "number") return [];
+    points.push(cell);
+  }
+  return points;
 }
 
 /**
@@ -74,7 +89,10 @@ export function readQueryError(error: unknown): string | null {
  * The page stores the query and nothing else, so the value comes from the
  * project every time the page is read.
  */
-export function useDataPoint(query: string): DataPointResult {
+export function useDataPoint(
+  query: string,
+  shape: "number" | "series" = "number",
+): DataPointResult {
   const result = useAuthenticatedQuery(
     ["docs", "data-point", query],
     (client) => client.runHogQLQuery(query),
@@ -85,11 +103,16 @@ export function useDataPoint(query: string): DataPointResult {
     },
   );
 
-  const value = formatCell(firstCell(result.data?.results));
+  const results = result.data?.results;
+  const points = shape === "series" ? seriesPoints(results) : [];
+  const value = formatCell(
+    points.length ? points[points.length - 1] : firstCell(results),
+  );
   const failed = readQueryError(result.error);
 
   return {
     value: value ?? "—",
+    points,
     isLoading: result.isLoading,
     isError: result.isError || (!result.isLoading && value === null),
     // A query that runs and returns nothing is as much a dead end as one that
