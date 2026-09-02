@@ -30,7 +30,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.cloud_utils import get_cached_instance_license
-from posthog.constants import FlagRequestType
+from posthog.constants import FLAG_REQUEST_BILLING_WEIGHTS, FlagRequestType
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
 from posthog.models import OrganizationMembership, User
@@ -3194,8 +3194,10 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         group_types_total=all_data["teams_with_group_types_total"].get(team.id, 0),
         decide_requests_count_in_period=decide_requests_count_in_period,
         local_evaluation_requests_count_in_period=local_evaluation_requests_count_in_period,
-        billable_feature_flag_requests_count_in_period=decide_requests_count_in_period
-        + (local_evaluation_requests_count_in_period * 10),
+        billable_feature_flag_requests_count_in_period=(
+            decide_requests_count_in_period * FLAG_REQUEST_BILLING_WEIGHTS[FlagRequestType.DECIDE]
+            + local_evaluation_requests_count_in_period * FLAG_REQUEST_BILLING_WEIGHTS[FlagRequestType.LOCAL_EVALUATION]
+        ),
         dashboard_count=all_data["teams_with_dashboard_count"].get(team.id, 0),
         dashboard_template_count=all_data["teams_with_dashboard_template_count"].get(team.id, 0),
         dashboard_shared_count=all_data["teams_with_dashboard_shared_count"].get(team.id, 0),

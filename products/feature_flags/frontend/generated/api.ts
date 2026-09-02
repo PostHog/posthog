@@ -39,6 +39,8 @@ import type {
     FeatureFlagsStaffCacheListParams,
     FeatureFlagsStaffTeamConfigListParams,
     FeatureFlagsStaffTeamsListParams,
+    FlagRequestMetricsResponseApi,
+    FlagRequestsVolumeRetrieveParams,
     FlagValueResponseApi,
     FlagValueValuesRetrieveParams,
     MyFlagsResponseApi,
@@ -1130,6 +1132,42 @@ export const featureFlagsUserBlastRadiusCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(userBlastRadiusRequestApi),
+    })
+}
+
+export const getFlagRequestsVolumeRetrieveUrl = (projectId: string, params?: FlagRequestsVolumeRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/flag_requests/volume/?${stringifiedParams}`
+        : `/api/projects/${projectId}/flag_requests/volume/`
+}
+
+/**
+ * Counts of the flag requests this project's SDKs made, split by request type and by SDK.
+ *
+ * The counts come from the same per-team counters the billing pipeline reads, so the totals here
+ * reconcile with billed flag request volume once the billing weights are applied. Requests made
+ * before this project started recording the breakdown are not included, because the counters
+ * cannot be rebuilt after the fact.
+ * @summary Get flag request volume
+ */
+export const flagRequestsVolumeRetrieve = async (
+    projectId: string,
+    params?: FlagRequestsVolumeRetrieveParams,
+    options?: RequestInit
+): Promise<FlagRequestMetricsResponseApi> => {
+    return apiMutator<FlagRequestMetricsResponseApi>(getFlagRequestsVolumeRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

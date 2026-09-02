@@ -16,6 +16,7 @@ from posthog.models import Team
 from posthog.redis import get_client, redis
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.request_metrics import record_request_metrics
 
 if TYPE_CHECKING:
     from posthoganalytics import Posthog
@@ -90,31 +91,46 @@ def increment_request_count(
         capture_exception(error)
 
 
-def _extract_total_count_for_key_from_redis_hash(client: redis.Redis, key: str) -> tuple[int, int, int]:
-    total_count = 0
+def _extract_counts_by_time_from_redis_hash(client: redis.Redis, key: str) -> dict[int, int]:
+    """
+    Consume every complete time bucket for `key`, returning counts keyed by the bucket's
+    unix epoch second.
+
+    Buckets are kept apart rather than summed here because `record_request_metrics` groups
+    them into the hour they belong to.
+    """
+    counts_by_time: dict[int, int] = {}
     existing_values = client.hgetall(key)
     time_buckets = existing_values.keys()
-    min_time = int(time.time())
-    max_time = 0
     # The latest bucket is still being filled, so we don't want to delete it nor count it.
     # It will be counted in a later iteration, when it's not being filled anymore.
     if time_buckets and len(time_buckets) > 1:
         # redis returns encoded bytes, so we need to convert them into unix epoch for sorting
         for time_bucket in sorted(time_buckets, key=lambda bucket: int(bucket))[:-1]:
-            min_time = min(min_time, int(time_bucket) * CACHE_BUCKET_SIZE)
-            max_time = max(max_time, int(time_bucket) * CACHE_BUCKET_SIZE)
-            total_count += int(existing_values[time_bucket])
+            counts_by_time[int(time_bucket) * CACHE_BUCKET_SIZE] = int(existing_values[time_bucket])
             client.hdel(key, time_bucket)
 
-    return total_count, min_time, max_time
+    return counts_by_time
 
 
-def _extract_sdk_breakdown_from_redis(
+def _totals_from_counts_by_time(counts_by_time: dict[int, int]) -> tuple[int, int, int]:
+    """Reduce drained buckets to the (total, min_time, max_time) triple the billing event carries."""
+    if not counts_by_time:
+        return 0, int(time.time()), 0
+
+    return sum(counts_by_time.values()), min(counts_by_time), max(counts_by_time)
+
+
+def _sum_by_library(sdk_counts_by_time: dict[str, dict[int, int]]) -> dict[str, int]:
+    return {library: sum(counts_by_time.values()) for library, counts_by_time in sdk_counts_by_time.items()}
+
+
+def _extract_sdk_counts_by_time_from_redis(
     client: redis.Redis, team_id: int, request_type: FlagRequestType
-) -> dict[str, int]:
+) -> dict[str, dict[int, int]]:
     """
     Extract per-SDK request counts from Redis, consuming the buckets.
-    Returns a dict mapping SDK name to total count.
+    Returns a dict mapping SDK name to counts keyed by the bucket's unix epoch second.
 
     Uses Redis pipelining to fetch all SDK keys in a single round-trip,
     then deletes consumed buckets in another round-trip.
@@ -129,7 +145,7 @@ def _extract_sdk_breakdown_from_redis(
     results = pipe.execute()
 
     # Process results and collect buckets to delete
-    sdk_breakdown: dict[str, int] = {}
+    sdk_counts_by_time: dict[str, dict[int, int]] = {}
     deletions: list[tuple[str, list[bytes]]] = []
 
     for library, key, existing_values in zip(SDK_LIBRARIES, keys, results):
@@ -142,16 +158,16 @@ def _extract_sdk_breakdown_from_redis(
         if len(time_buckets) <= 1:
             continue
 
-        total_count = 0
+        counts_by_time: dict[int, int] = {}
         buckets_to_delete: list[bytes] = []
 
         # Sort buckets and skip the latest one (still being filled)
         for time_bucket in sorted(time_buckets, key=lambda bucket: int(bucket))[:-1]:
-            total_count += int(existing_values[time_bucket])
+            counts_by_time[int(time_bucket) * CACHE_BUCKET_SIZE] = int(existing_values[time_bucket])
             buckets_to_delete.append(time_bucket)
 
-        if total_count > 0:
-            sdk_breakdown[library] = total_count
+        if sum(counts_by_time.values()) > 0:
+            sdk_counts_by_time[library] = counts_by_time
             deletions.append((key, buckets_to_delete))
 
     # Pipeline all deletions in one round-trip
@@ -162,7 +178,7 @@ def _extract_sdk_breakdown_from_redis(
                 pipe.hdel(key, bucket)
         pipe.execute()
 
-    return sdk_breakdown
+    return sdk_counts_by_time
 
 
 def capture_usage_for_all_teams(ph_client: "Posthog") -> None:
@@ -179,12 +195,19 @@ def _capture_team_usage_for_request_type(
     billing_token: str | None,
 ) -> None:
     key_name = get_team_request_key(team_id, request_type)
-    total_count, min_time, max_time = _extract_total_count_for_key_from_redis_hash(client, key_name)
-    sdk_breakdown = _extract_sdk_breakdown_from_redis(client, team_id, request_type)
+    total_counts_by_time = _extract_counts_by_time_from_redis_hash(client, key_name)
+    sdk_counts_by_time = _extract_sdk_counts_by_time_from_redis(client, team_id, request_type)
+    total_count, min_time, max_time = _totals_from_counts_by_time(total_counts_by_time)
+
+    # Recorded before the billing token check, so a self-hosted instance without a token still
+    # gets the in-product breakdown.
+    if total_count > 0:
+        record_request_metrics(team_id, request_type, total_counts_by_time, sdk_counts_by_time)
 
     if total_count == 0 or not billing_token:
         return
 
+    sdk_breakdown = _sum_by_library(sdk_counts_by_time)
     properties: dict = {
         "count": total_count,
         "team_id": team_id,

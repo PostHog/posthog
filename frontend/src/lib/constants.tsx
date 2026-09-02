@@ -348,6 +348,7 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAG_DRAG_DROP_CONDITIONS: 'feature-flag-drag-drop-conditions', // owner: @gustavo #team-feature-flags
     FEATURE_FLAG_EARLY_EXIT: 'feature-flag-early-exit', // owner: @gustavo #team-feature-flags
     FEATURE_FLAG_NOTIFICATIONS: 'feature-flag-notifications', // owner: @reecejones #team-platform-features
+    FEATURE_FLAG_REQUEST_VOLUME: 'feature-flag-request-volume', // owner: #team-feature-flags
     FIELD_NOTES: 'field-notes', // owner: @adamleith
     FLAG_EVALUATION_TAGS: 'flag-evaluation-tags', // owner: @dmarticus #team-feature-flags
     FLAGGED_FEATURE_INDICATOR: 'flagged-feature-indicator', // owner: @benjackwhite

@@ -21,6 +21,7 @@ APP_SOURCE_TO_PRODUCT_KEY: dict[str, ProductKey] = {
     "hog_function": ProductKey.PIPELINE_DESTINATIONS,
     "hog_flow": ProductKey.WORKFLOWS,
     "batch_export": ProductKey.PIPELINE_BATCH_EXPORTS,
+    "feature_flags": ProductKey.FEATURE_FLAGS,
 }
 
 

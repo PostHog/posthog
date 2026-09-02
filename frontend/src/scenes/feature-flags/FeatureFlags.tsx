@@ -56,6 +56,7 @@ import {
 } from '~/types'
 
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
+import { FlagRequestVolume } from 'products/feature_flags/frontend/requestVolume/FlagRequestVolume'
 
 import { ApprovalsPromoBanner } from './ApprovalsPromoBanner'
 import { BulkCopyFlagsModal, BulkCopyToProjectsButton } from './BulkCopyFlagsModal'
@@ -759,6 +760,7 @@ export function FeatureFlags(): JSX.Element {
     const { featureFlags: enabledFeatureFlags } = useValues(enabledFeaturesLogic)
     const newFeatureFlagUrl = urls.featureFlagTemplates()
     const showNotificationsTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_NOTIFICATIONS]
+    const showRequestsTab = !!enabledFeatureFlags[FEATURE_FLAGS.FEATURE_FLAG_REQUEST_VOLUME]
 
     return (
         <SceneContent className="feature_flags">
@@ -830,6 +832,15 @@ export function FeatureFlags(): JSX.Element {
                         label: 'History',
                         content: <ActivityLog scope={ActivityScope.FEATURE_FLAG} />,
                     },
+                    ...(showRequestsTab
+                        ? [
+                              {
+                                  key: FeatureFlagsTab.REQUESTS,
+                                  label: 'Requests',
+                                  content: <FlagRequestVolume />,
+                              },
+                          ]
+                        : []),
                     ...(showNotificationsTab
                         ? [
                               {

@@ -40214,6 +40214,27 @@ export namespace Schemas {
       add_images_to_comment_on_pr?: boolean;
     }
 
+    /**
+     * How many billable requests one request of each type counts as. A local evaluation request is weighted because one poll returns the definitions of every flag in the project.
+     */
+    export type FlagRequestMetricsResponseBillingWeights = {[key: string]: number};
+
+    export interface FlagRequestMetricsSeries {
+      /** The request type or SDK this series counts, depending on 'breakdown'. Requests that the flags service could not attribute to an SDK are counted under 'unattributed'. */
+      name: string;
+      /** Request count per bucket. One entry for each entry in 'labels'. */
+      values: number[];
+    }
+
+    export interface FlagRequestMetricsResponse {
+      /** Start of each time bucket, formatted for the requested interval. */
+      labels: string[];
+      /** One series per request type or per SDK, depending on 'breakdown'. */
+      series: FlagRequestMetricsSeries[];
+      /** How many billable requests one request of each type counts as. A local evaluation request is weighted because one poll returns the definitions of every flag in the project. */
+      billing_weights: FlagRequestMetricsResponseBillingWeights;
+    }
+
     export interface FlagValueItem {
       name: unknown;
     }
@@ -94453,6 +94474,53 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type FlagRequestsVolumeRetrieveParams = {
+    /**
+     * Start of the time range. Accepts a relative value such as '-7d' or '-24h', or an ISO 8601 timestamp.
+     * @minLength 1
+     */
+    after?: string;
+    /**
+     * End of the time range, in the same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string;
+    /**
+     * Split the series by flag request type, or by the SDK that sent the requests.
+     *
+     * * `request_type` - Request type
+     * * `library` - Library
+     * @minLength 1
+     */
+    breakdown?: FlagRequestsVolumeRetrieveBreakdown;
+    /**
+     * Size of each time bucket in the returned series.
+     *
+     * * `hour` - Hour
+     * * `day` - Day
+     * * `week` - Week
+     * @minLength 1
+     */
+    interval?: FlagRequestsVolumeRetrieveInterval;
+    };
+
+    export type FlagRequestsVolumeRetrieveBreakdown = typeof FlagRequestsVolumeRetrieveBreakdown[keyof typeof FlagRequestsVolumeRetrieveBreakdown];
+
+
+    export const FlagRequestsVolumeRetrieveBreakdown = {
+      RequestType: 'request_type',
+      Library: 'library',
+    } as const;
+
+    export type FlagRequestsVolumeRetrieveInterval = typeof FlagRequestsVolumeRetrieveInterval[keyof typeof FlagRequestsVolumeRetrieveInterval];
+
+
+    export const FlagRequestsVolumeRetrieveInterval = {
+      Hour: 'hour',
+      Day: 'day',
+      Week: 'week',
+    } as const;
 
     export type FlagValueValuesRetrieveParams = {
     /**
