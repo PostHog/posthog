@@ -681,8 +681,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * costs the caller a round trip. `query` still wins whenever it is an object, so a well-formed
  * call is never reinterpreted.
  *
- * `z.preprocess` is transparent to JSON Schema conversion, so this widens what is accepted
- * without widening what `tools/list` advertises.
+ * Same `z.preprocess` seam as `normalizeParamAliases`, and transparent to JSON Schema output
+ * for the same reason: the advertised shape stays the wrapped one.
  */
 function normalizeReadDataSchemaInput(input: unknown): unknown {
     if (!isRecord(input)) {
