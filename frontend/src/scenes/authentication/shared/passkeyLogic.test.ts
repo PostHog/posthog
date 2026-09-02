@@ -1,6 +1,7 @@
 import { browserSupportsWebAuthnAutofill, startAuthentication } from '@simplewebauthn/browser'
 import { expectLogic } from 'kea-test-utils'
 
+import { loginLogic } from 'scenes/authentication/login/loginLogic'
 import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -94,6 +95,71 @@ describe('passkeyLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(beginHandler).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('beginPasskeyLogin (authenticator failure)', () => {
+        let logic: ReturnType<typeof passkeyLogic.build>
+
+        beforeEach(() => {
+            ;(startAuthentication as jest.Mock).mockRejectedValue(
+                new DOMException('The operation failed for an operation-specific reason', 'OperationError')
+            )
+            useMocks({
+                post: {
+                    '/api/webauthn/login/begin/': () => [
+                        200,
+                        {
+                            challenge: 'abc',
+                            timeout: 60000,
+                            rpId: 'localhost',
+                            allowCredentials: [],
+                            userVerification: 'required',
+                        },
+                    ],
+                },
+            })
+            initKeaTests()
+            loginLogic.mount()
+            logic = passkeyLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            jest.clearAllMocks()
+        })
+
+        it('shows a friendly message and does not report the authenticator DOMException as a failure', async () => {
+            logic.actions.beginPasskeyLogin()
+
+            // The DOMException must not reach the loader failure path, which is where it would be
+            // captured as a fatal exception the user cannot act on.
+            await expectLogic(logic)
+                .toDispatchActions([
+                    loginLogic.actionCreators.setGeneralError(
+                        'passkey_error',
+                        'Your device could not complete the passkey. Please try again, or use your password.'
+                    ),
+                    'passkeyAuthenticationFailed',
+                    'startPasskeyAuthenticationSuccess',
+                ])
+                .toNotHaveDispatchedActions(['startPasskeyAuthenticationFailure'])
+        })
+
+        it('rethrows a non-OperationError DOMException so it stays reportable', async () => {
+            // A NotSupportedError signals a browser or configuration defect, not an OperationError the
+            // user must simply retry. It must reach the loader failure path, which is where the global
+            // reporter captures it, rather than be swallowed like OperationError.
+            ;(startAuthentication as jest.Mock).mockRejectedValue(
+                new DOMException('The requested operation is not supported', 'NotSupportedError')
+            )
+
+            logic.actions.beginPasskeyLogin()
+
+            await expectLogic(logic)
+                .toDispatchActions(['startPasskeyAuthenticationFailure'])
+                .toNotHaveDispatchedActions(['passkeyAuthenticationFailed'])
         })
     })
 })
