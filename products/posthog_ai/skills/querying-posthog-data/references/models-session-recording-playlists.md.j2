@@ -1,0 +1,24 @@
+# Session Recording Playlists
+
+## SessionRecordingPlaylist (`system.session_recording_playlists`)
+
+Saved views for organizing session recordings. There are two types: collections (manually curated lists) and filters (saved filter criteria that dynamically match recordings).
+
+### Columns
+
+{{ schema_columns('system.session_recording_playlists') }}
+
+### Key Relationships
+
+- Each playlist belongs to a **Team** (`team_id`)
+- Playlists are created by a **User** (`created_by_id`)
+- Collection playlists contain recordings via `SessionRecordingPlaylistItem` (not exposed as a system table)
+
+### Important Notes
+
+- The `type` field determines behavior:
+  - `collection` — manually curated list of recordings
+  - `filters` — saved filter criteria that dynamically match recordings
+- Use `short_id` for lookups (this is the API lookup field)
+- Use `deleted = false` to filter out soft-deleted playlists
+- The `filters` field is only meaningful when `type = 'filters'`

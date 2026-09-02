@@ -1,0 +1,22 @@
+# Session Recordings
+
+## SessionRecording (`system.session_recordings`)
+
+Metadata for session recordings captured by the PostHog SDK. The actual replay data lives in ClickHouse and object storage; this Postgres table stores recording-level metadata used for listing and filtering.
+
+### Columns
+
+{{ schema_columns('system.session_recordings') }}
+
+### Key Relationships
+
+- Each recording belongs to a **Team** (`team_id`)
+- Recordings are linked to persons via `distinct_id`
+- Recordings can be added to **Session Recording Playlists** via `SessionRecordingPlaylistItem`
+
+### Important Notes
+
+- Recordings are created by the SDK, not via the API
+- The `session_id` field is the user-facing ID (used in URLs and API calls), not the internal `id`
+- Activity data (click_count, duration, etc.) is populated from ClickHouse and may be NULL for older recordings
+- Use `deleted IS NOT TRUE` to filter out soft-deleted recordings
