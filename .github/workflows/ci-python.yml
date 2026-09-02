@@ -36,6 +36,14 @@ jobs:
         outputs:
             python: ${{ steps.filter.outputs.python || 'true' }}
             complexity_files: ${{ steps.filter.outputs.complexity_files }}
+            # Per-tool outputs gating the self-contained pytest steps in code-quality.
+            # Each defaults to true, so master push and the hourly cron — where the filter
+            # is skipped — still run every suite.
+            hogli: ${{ steps.filter.outputs.hogli || 'true' }}
+            owners: ${{ steps.filter.outputs.owners || 'true' }}
+            query_perf: ${{ steps.filter.outputs.query_perf || 'true' }}
+            stamphog: ${{ steps.filter.outputs.stamphog || 'true' }}
+            bin_scripts: ${{ steps.filter.outputs.bin_scripts || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -107,6 +115,43 @@ jobs:
                         # Stamphog policy files validated by the pr-approval-agent suite
                         - '.stamphog/**'
                         - '**/AGENT_APPROVALS.md'
+                      # Per-tool groups below gate the pytest steps in code-quality. Each of
+                      # these trees imports only stdlib and its own package — none of them
+                      # imports posthog — so a change under posthog/ cannot affect them and
+                      # they do not need to run on every Python PR. Verify that before adding
+                      # a tree here: a path filter that skips tests is a claim about the
+                      # import graph (see ci-things-already-tried.md, #50137).
+                      # Dependency and workflow changes run all of them.
+                      hogli:
+                        - 'tools/hogli/**'
+                        - 'tools/hogli-commands/**'
+                        - 'hogli.yaml'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - .github/workflows/ci-python.yml
+                      owners:
+                        - 'tools/owners/**'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - .github/workflows/ci-python.yml
+                      query_perf:
+                        - 'tools/query-performance-ai/**'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - .github/workflows/ci-python.yml
+                      stamphog:
+                        - 'tools/pr-approval-agent/**'
+                        - 'products/stamphog/packages/pr-approval-agent/**'
+                        - '.stamphog/**'
+                        - '**/AGENT_APPROVALS.md'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - .github/workflows/ci-python.yml
+                      bin_scripts:
+                        - 'bin/**'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - .github/workflows/ci-python.yml
 
     code-quality:
         needs: changes
@@ -117,6 +162,16 @@ jobs:
 
         name: Python code quality (depot-ubuntu-24.04)
         runs-on: depot-ubuntu-24.04
+        # Read by the per-tool guards on the pytest steps below. These sit inside a
+        # `parallel:` block, where step-level `if:` has no exercised precedent in this
+        # repo — the one existing case can never be false — so the guard is a shell test
+        # on a job-level env var, which behaves the same either way.
+        env:
+            RUN_HOGLI: ${{ needs.changes.outputs.hogli }}
+            RUN_OWNERS: ${{ needs.changes.outputs.owners }}
+            RUN_QUERY_PERF: ${{ needs.changes.outputs.query_perf }}
+            RUN_STAMPHOG: ${{ needs.changes.outputs.stamphog }}
+            RUN_BIN_SCRIPTS: ${{ needs.changes.outputs.bin_scripts }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -275,19 +330,27 @@ jobs:
 
                   - name: Run hogli framework tests
                     shell: bash
-                    run: pytest tools/hogli/tests -v --junitxml=junit-hogli.xml
+                    run: |
+                        [ "$RUN_HOGLI" = "true" ] || { echo "hogli unchanged — skipping"; exit 0; }
+                        pytest tools/hogli/tests -v --junitxml=junit-hogli.xml
 
                   - name: Run hogli extension tests
                     shell: bash
-                    run: pytest tools/hogli-commands/hogli_commands/tests -v --junitxml=junit-hogli-commands.xml
+                    run: |
+                        [ "$RUN_HOGLI" = "true" ] || { echo "hogli unchanged — skipping"; exit 0; }
+                        pytest tools/hogli-commands/hogli_commands/tests -v --junitxml=junit-hogli-commands.xml
 
                   - name: Run owners resolver tests
                     shell: bash
-                    run: pytest tools/owners/tests -v --junitxml=junit-owners.xml
+                    run: |
+                        [ "$RUN_OWNERS" = "true" ] || { echo "tools/owners unchanged — skipping"; exit 0; }
+                        pytest tools/owners/tests -v --junitxml=junit-owners.xml
 
                   - name: Run query-performance-ai tests
                     shell: bash
-                    run: pytest tools/query-performance-ai/query_performance_ai -v --junitxml=junit-query-performance-ai.xml
+                    run: |
+                        [ "$RUN_QUERY_PERF" = "true" ] || { echo "query-performance-ai unchanged — skipping"; exit 0; }
+                        pytest tools/query-performance-ai/query_performance_ai -v --junitxml=junit-query-performance-ai.xml
 
                   - name: Run pr-approval-agent (stamphog) tests
                     shell: bash
@@ -297,6 +360,7 @@ jobs:
                     # both exist, because that merge can add a file at the old path next to the new
                     # tree.
                     run: |
+                        [ "$RUN_STAMPHOG" = "true" ] || { echo "pr-approval-agent unchanged — skipping"; exit 0; }
                         found=0
                         for dir in products/stamphog/packages/pr-approval-agent tools/pr-approval-agent; do
                           [ -d "$dir" ] || continue
@@ -310,13 +374,17 @@ jobs:
 
                   - name: Run dependency detection script tests
                     shell: bash
-                    run: pytest bin/test/test_find_python_dependencies.py -v --junitxml=junit-dependency-detection.xml
+                    run: |
+                        [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
+                        pytest bin/test/test_find_python_dependencies.py -v --junitxml=junit-dependency-detection.xml
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
               with:
                   name: junit-results-hogli
+                  # A gated-off suite writes no junit file, which is now the common case.
+                  if-no-files-found: ignore
                   path: |
                       junit-hogli.xml
                       junit-hogli-commands.xml
@@ -329,6 +397,7 @@ jobs:
               if: always()
               with:
                   name: junit-results-dependency-detection
+                  if-no-files-found: ignore
                   path: junit-dependency-detection.xml
 
     # Collate job - single required status check for branch protection.
