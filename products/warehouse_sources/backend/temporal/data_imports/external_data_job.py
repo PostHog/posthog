@@ -157,8 +157,8 @@ Any_Source_Errors: dict[str, str | None] = {
     DECIMAL_OVERFLOW_FRAGMENT: (
         "A decimal column no longer fits the type we stored for it. Reset and fully re-sync this "
         "table, then re-enable the sync, to rebuild the column from your current data. We store "
-        "decimals up to 38 digits. Wider columns, and whole-number columns that need all 38, are "
-        "rebuilt as text rather than numbers."
+        "decimals up to 38 digits. A column that needs more than that is rebuilt as text rather "
+        "than numbers."
     ),
     # Raised by the pipeline when a column's incoming values no longer fit the stored Delta column
     # type — the source column was widened (e.g. Postgres `integer` → `bigint`) or now carries larger
