@@ -109,7 +109,12 @@ from products.replay_vision.backend.scanner_config import (
     scanner_config_error,
 )
 from products.replay_vision.backend.scanner_draft import DraftError, draft_scanner_from_goal, draft_scanner_from_goal_v2
-from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN, run_inline_scan, scan_existing_scanner
+from products.replay_vision.backend.scanning import (
+    MAX_SESSIONS_PER_SCAN,
+    run_inline_scan,
+    scan_existing_scanner,
+    session_has_replay_data,
+)
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
@@ -1726,6 +1731,10 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         body = ObserveRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         session_id: str = body.validated_data["session_id"]
+        # No replay, no scan: the workflow would only reach `fetch_session_events` and settle as
+        # ineligible, leaving an observation whose recording the player can never load.
+        if not session_has_replay_data(team=self.team, session_id=session_id):
+            raise ValidationError("No recording is stored for this session, so there is nothing to watch.")
 
         workflow_id, outcome = start_apply_scanner_workflow(
             scanner, session_id, triggered_by_user_id=user.id, trigger=ObservationTrigger.ON_DEMAND

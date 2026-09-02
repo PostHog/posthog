@@ -2,9 +2,10 @@ from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN, run_inline_scan
+from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN, run_inline_scan, session_has_replay_data
 
 
 class TestInlineScanServiceBounds(BaseTest):
@@ -43,3 +44,12 @@ class TestInlineScanServiceBounds(BaseTest):
                 model=ScannerModel.GEMINI_3_7_FLASH,
             )
         assert not ReplayScanner.all_origins.filter(team=self.team).exists()
+
+
+class TestSessionHasReplayData(BaseTest):
+    @pytest.mark.django_db
+    def test_a_lookup_error_lets_the_scan_through(self):
+        # The activity checks eligibility again, so a ClickHouse blip should cost a wasted credit
+        # rather than refuse every scan the project asks for.
+        with patch("products.replay_vision.backend.scanning.SessionReplayEvents.exists", side_effect=Exception("boom")):
+            assert session_has_replay_data(team=self.team, session_id="s1") is True

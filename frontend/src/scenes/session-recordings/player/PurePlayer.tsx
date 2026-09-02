@@ -44,6 +44,8 @@ const HedgehogConstruction2 = pngHoggie(construction2Png)
 export interface PurePlayerProps {
     noMeta?: boolean
     noBorder?: boolean
+    /** Shown in place of the generic not-found page when the recording cannot be loaded. */
+    notFoundState?: JSX.Element
 }
 
 export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysInterface => {
@@ -53,7 +55,7 @@ export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysIn
     )
 }
 
-export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps): JSX.Element {
+export function PurePlayer({ noMeta = false, noBorder = false, notFoundState }: PurePlayerProps): JSX.Element {
     const playerRef = useRef<HTMLDivElement | null>(null)
     const [playerContainer, setPlayerContainer] = useState<HTMLDivElement | null>(null)
     const playerCallbackRef = useCallback((el: HTMLDivElement | null) => {
@@ -273,7 +275,7 @@ export function PurePlayer({ noMeta = false, noBorder = false }: PurePlayerProps
     if (isNotFound) {
         return (
             <div className="flex-1 w-full flex justify-center">
-                <RecordingNotFound sessionRecordingId={sessionRecordingId} />
+                {notFoundState ?? <RecordingNotFound sessionRecordingId={sessionRecordingId} />}
             </div>
         )
     }

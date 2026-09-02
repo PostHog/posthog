@@ -2076,6 +2076,11 @@ class TestObserveAction(_VisionAPITestCase):
         self.scanner = self._create_scanner()
         # Claims from earlier tests' mocked starts are never released by an activity.
         get_client().delete(_team_key(self.team.id), _scanner_key(self.scanner.id))
+        # These tests name sessions that were never ingested, so default the replay lookup to "present"
+        # and let the cases that care about it say otherwise.
+        replay_lookup = patch("products.replay_vision.backend.api.scanners.session_has_replay_data", return_value=True)
+        self.mock_session_has_replay_data = replay_lookup.start()
+        self.addCleanup(replay_lookup.stop)
 
     def observe_url(self, scanner_id: str) -> str:
         return f"{self.scanners_url}{scanner_id}/observe/"
@@ -2245,6 +2250,22 @@ class TestObserveAction(_VisionAPITestCase):
             self.observe_url(str(self.scanner.id)), data={"session_id": "sess-dup"}, format="json"
         )
         self.assertEqual(first.json()["workflow_id"], second.json()["workflow_id"])
+
+    def test_observe_is_refused_when_the_session_has_no_replay(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Without this the workflow starts, spends a credit, and settles as an observation whose
+        # recording the player can never load.
+        mock_sync_connect.return_value = MagicMock()
+        start_workflow = MagicMock()
+        mock_async_to_sync.return_value = start_workflow
+        self.mock_session_has_replay_data.return_value = False
+
+        resp = self.client.post(self.observe_url(str(self.scanner.id)), data={"session_id": "sess-gone"}, format="json")
+
+        self.assertEqual(resp.status_code, 400, resp.json())
+        start_workflow.assert_not_called()
+        self.assertFalse(ReplayObservation.objects.filter(scanner=self.scanner, session_id="sess-gone").exists())
 
     def test_observe_rejects_missing_session_id(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock

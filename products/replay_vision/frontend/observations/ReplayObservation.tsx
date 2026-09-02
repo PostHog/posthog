@@ -48,6 +48,7 @@ import {
     readResult,
 } from '../components/ObservationCard'
 import { ObservationProgressBar } from '../components/ObservationProgressBar'
+import { ObservationRecordingUnavailable } from '../components/ObservationRecordingUnavailable'
 import { ObservationRetryButton } from '../components/ObservationRetryButton'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { ScannerTypeBadge } from '../components/ScannerTypeBadge'
@@ -325,6 +326,14 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             noBorder
                             noDock
                             withSidebar
+                            notFoundState={
+                                <ObservationRecordingUnavailable
+                                    observationId={observation.id}
+                                    scannerId={observation.scanner_id}
+                                    sessionId={observation.session_id}
+                                    distinctId={observation.distinct_id}
+                                />
+                            }
                         />
                         {pendingSeek && (
                             <AutoSeekToTime
