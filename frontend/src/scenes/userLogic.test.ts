@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -245,6 +246,37 @@ describe('userLogic', () => {
             }).toDispatchActions(['updateUserFailure'])
 
             expect(captureSpy).toHaveBeenCalled()
+        })
+    })
+
+    describe('switching organization', () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('ignores repeat clicks while a switch is in flight', async () => {
+            // A hanging request keeps the switch in flight and blocks navigation.
+            const updateSpy = jest.spyOn(api, 'update').mockImplementation(() => new Promise(() => undefined))
+
+            await expectLogic(userLogic, () => {
+                userLogic.actions.updateCurrentOrganization('other-org-id')
+                userLogic.actions.updateCurrentOrganization('other-org-id')
+            }).toMatchValues({ switchingToOrganizationId: 'other-org-id' })
+
+            expect(updateSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('shows an error and clears the pending state when the switch fails', async () => {
+            const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => '')
+            jest.spyOn(api, 'update').mockRejectedValue(new Error('nope'))
+
+            await expectLogic(userLogic, () => {
+                userLogic.actions.updateCurrentOrganization('other-org-id')
+            })
+                .toDispatchActions(['updateCurrentOrganizationFailure'])
+                .toMatchValues({ switchingToOrganizationId: null })
+
+            expect(errorToast).toHaveBeenCalled()
         })
     })
 })
