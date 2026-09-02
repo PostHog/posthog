@@ -150,39 +150,9 @@ def create_workflow_task(
         observe_workflow_task_create(reason="replayed")
         return replay
 
-    validate_connectors(team.id, owner_id, mcp_installation_ids)
-
-    gate_owner = User.objects.filter(id=owner_id).first()
-    if gate_owner is None:
-        observe_workflow_task_create(reason="owner_ineligible")
-        raise WorkflowTaskOwnerIneligible()
-
-    # Fast, unlocked pre-checks before the gate call below. The gate mints an
-    # OAuthAccessToken for gate_owner and makes a blocking request to the LLM gateway, so
-    # an owner who already lost team access, or a workflow that's already past its daily
-    # cap, must not reach it: checking first means neither pays for that mint-and-call on
-    # every trigger event. These reads are not authoritative, since nothing holds the
-    # advisory locks here yet, so a concurrent write can move the counts after this check
-    # runs. The same checks run again under the locks below, and that locked run is the
-    # one that decides.
-    if not user_has_current_team_access(gate_owner, team):
-        observe_workflow_task_create(reason="owner_ineligible")
-        raise WorkflowTaskOwnerIneligible()
-    daily_counts = _daily_task_counts(team.id, hog_flow_id)
-    if daily_counts.workflow >= WORKFLOW_TASK_RATE_CAP_PER_DAY:
-        observe_workflow_task_create(reason="rate_capped")
-        raise WorkflowTaskRateCapped(WORKFLOW_TASK_RATE_CAP_PER_DAY)
-    if daily_counts.team >= WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY:
-        observe_workflow_task_create(reason="team_rate_capped")
-        raise WorkflowTaskTeamRateCapped(WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY)
-
-    # The gate stays outside the transaction: it calls the LLM gateway (short timeout,
-    # fails open), and holding the advisory locks across an external call would stall
-    # every workflow fire for the team. Replays never reach it, so engine retries of an
-    # already-created task succeed even for a blocked owner.
-    if usage_limit_response(gate_owner, team.id) is not None:
-        observe_workflow_task_create(reason="gate_blocked")
-        raise WorkflowTaskUsageLimited()
+    _enforce_pre_transaction_gates(
+        team=team, hog_flow_id=hog_flow_id, owner_id=owner_id, mcp_installation_ids=mcp_installation_ids
+    )
 
     # Snapshot the connector allowlist onto the run: the sandbox mounts only what's here
     # (see loop_mcp_installation_allowlist), so a later edit of the workflow can't change
@@ -206,54 +176,10 @@ def create_workflow_task(
         # One transaction so a duplicate origin_key rolls back the task, its run, and the
         # (on_commit, therefore never-fired) dispatch together.
         with transaction.atomic():
-            # Team lock first, per-workflow lock second, always in this order so fires
-            # can't deadlock. The team lock serializes the team-wide daily-cap check
-            # (two workflows hold different per-workflow locks and would both read a
-            # below-cap count); the per-workflow lock keeps the in-flight count exact,
-            # including against pods that predate the team lock during a rolling deploy.
-            with connection.cursor() as cursor:
-                cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"workflow-tasks-team:{team.id}"])
-                cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"workflow-tasks:{hog_flow_id}"])
-                if slack_context is not None:
-                    # And once per thread, across workflows, because the live-run check below
-                    # decides who owns the thread's reply channel: two triggers arriving
-                    # together would otherwise both find it free and both talk into it. Always
-                    # taken after the workflow lock, so the pair has one order and can't deadlock.
-                    cursor.execute(
-                        "SELECT pg_advisory_xact_lock(hashtext(%s))",
-                        [f"workflow-task-slack-thread:{slack_context.channel}:{slack_context.thread_ts}"],
-                    )
-
-            # Prometheus counters are process-local: the rollback these raises trigger
-            # can't undo an increment, and each raise ends the call, so each outcome
-            # counts exactly once.
-            # Same in-transaction check loops make before minting: locks the owner and
-            # membership rows so a concurrent offboarding can't slip between check and create.
-            if not loop_owner_eligible_for_credentials(owner_id, team):
-                observe_workflow_task_create(reason="owner_ineligible")
-                raise WorkflowTaskOwnerIneligible()
-
-            # The daily caps count created Task rows in the trailing 24h. A capped attempt
-            # raises and rolls back, writing no row, so rejections can't consume the
-            # budget: the Task table is the "created" ledger, like loops'
-            # outcome_reason="created" fires. Read again here even though the pre-check
-            # above already ran the same query: that read was unlocked, so a concurrent
-            # create could have pushed the count over the cap since then. This locked
-            # read is the one that decides.
-            daily_counts = _daily_task_counts(team.id, hog_flow_id)
-            if daily_counts.workflow >= WORKFLOW_TASK_RATE_CAP_PER_DAY:
-                observe_workflow_task_create(reason="rate_capped")
-                raise WorkflowTaskRateCapped(WORKFLOW_TASK_RATE_CAP_PER_DAY)
-            if daily_counts.team >= WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY:
-                observe_workflow_task_create(reason="team_rate_capped")
-                raise WorkflowTaskTeamRateCapped(WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY)
-
-            in_flight = TaskRun.objects.filter(
-                task__team_id=team.id, task__hog_flow_id=hog_flow_id, status__in=ACTIVE_RUN_STATUSES
-            ).count()
-            if in_flight >= max_parallel_tasks:
-                observe_workflow_task_create(reason="limit_reached")
-                raise WorkflowTaskLimitExceeded(in_flight, max_parallel_tasks)
+            _acquire_workflow_locks(team_id=team.id, hog_flow_id=hog_flow_id, slack_context=slack_context)
+            _enforce_locked_gates(
+                team=team, hog_flow_id=hog_flow_id, owner_id=owner_id, max_parallel_tasks=max_parallel_tasks
+            )
 
             # Resolved under the thread lock so the live-run check inside it holds for the
             # rest of the transaction.
@@ -313,6 +239,97 @@ def create_workflow_task(
     # replay path above, which counts as replayed instead.
     observe_workflow_task_create(reason="created")
     return _task_dto(task, created=True)
+
+
+def _enforce_pre_transaction_gates(
+    *, team: Team, hog_flow_id: uuid.UUID, owner_id: int, mcp_installation_ids: list[str] | None
+) -> None:
+    """Fast, unlocked pre-checks before the gate call. The gate mints an OAuthAccessToken
+    for the owner and makes a blocking request to the LLM gateway, so an owner who already
+    lost team access, or a workflow that's already past its daily cap, must not reach it:
+    checking first means neither pays for that mint-and-call on every trigger event. These
+    reads are not authoritative, since nothing holds the advisory locks yet, so a concurrent
+    write can move the counts after this check runs. The same checks run again under the
+    locks in the transaction, and that locked run is the one that decides.
+    """
+    validate_connectors(team.id, owner_id, mcp_installation_ids)
+
+    gate_owner = User.objects.filter(id=owner_id).first()
+    if gate_owner is None:
+        observe_workflow_task_create(reason="owner_ineligible")
+        raise WorkflowTaskOwnerIneligible()
+
+    if not user_has_current_team_access(gate_owner, team):
+        observe_workflow_task_create(reason="owner_ineligible")
+        raise WorkflowTaskOwnerIneligible()
+    _enforce_daily_caps(team.id, hog_flow_id)
+
+    # The gate stays outside the transaction: it calls the LLM gateway (short timeout,
+    # fails open), and holding the advisory locks across an external call would stall
+    # every workflow fire for the team. Replays never reach it, so engine retries of an
+    # already-created task succeed even for a blocked owner.
+    if usage_limit_response(gate_owner, team.id) is not None:
+        observe_workflow_task_create(reason="gate_blocked")
+        raise WorkflowTaskUsageLimited()
+
+
+def _acquire_workflow_locks(
+    *, team_id: int, hog_flow_id: uuid.UUID, slack_context: contracts.WorkflowTaskSlackContext | None
+) -> None:
+    """Team lock first, per-workflow lock second, always in this order so fires can't
+    deadlock. The team lock serializes the team-wide daily-cap check (two workflows hold
+    different per-workflow locks and would both read a below-cap count); the per-workflow
+    lock keeps the in-flight count exact, including against pods that predate the team lock
+    during a rolling deploy.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"workflow-tasks-team:{team_id}"])
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"workflow-tasks:{hog_flow_id}"])
+        if slack_context is not None:
+            # And once per thread, across workflows, because the live-run check decides who
+            # owns the thread's reply channel: two triggers arriving together would otherwise
+            # both find it free and both talk into it. Always taken after the workflow lock,
+            # so the pair has one order and can't deadlock.
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtext(%s))",
+                [f"workflow-task-slack-thread:{slack_context.channel}:{slack_context.thread_ts}"],
+            )
+
+
+def _enforce_locked_gates(*, team: Team, hog_flow_id: uuid.UUID, owner_id: int, max_parallel_tasks: int) -> None:
+    """The authoritative rechecks under the advisory locks. Prometheus counters are
+    process-local: the rollback these raises trigger can't undo an increment, and each raise
+    ends the call, so each outcome counts exactly once.
+    """
+    # Locks the owner and membership rows so a concurrent offboarding can't slip between
+    # check and create.
+    if not loop_owner_eligible_for_credentials(owner_id, team):
+        observe_workflow_task_create(reason="owner_ineligible")
+        raise WorkflowTaskOwnerIneligible()
+
+    _enforce_daily_caps(team.id, hog_flow_id)
+
+    in_flight = TaskRun.objects.filter(
+        task__team_id=team.id, task__hog_flow_id=hog_flow_id, status__in=ACTIVE_RUN_STATUSES
+    ).count()
+    if in_flight >= max_parallel_tasks:
+        observe_workflow_task_create(reason="limit_reached")
+        raise WorkflowTaskLimitExceeded(in_flight, max_parallel_tasks)
+
+
+def _enforce_daily_caps(team_id: int, hog_flow_id: uuid.UUID) -> None:
+    """The daily caps count created Task rows in the trailing 24h. A capped attempt raises
+    and rolls back, writing no row, so rejections can't consume the budget: the Task table is
+    the "created" ledger, like loops' outcome_reason="created" fires. Runs both unlocked as a
+    pre-check and under the locks; the locked read is the one that decides.
+    """
+    daily_counts = _daily_task_counts(team_id, hog_flow_id)
+    if daily_counts.workflow >= WORKFLOW_TASK_RATE_CAP_PER_DAY:
+        observe_workflow_task_create(reason="rate_capped")
+        raise WorkflowTaskRateCapped(WORKFLOW_TASK_RATE_CAP_PER_DAY)
+    if daily_counts.team >= WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY:
+        observe_workflow_task_create(reason="team_rate_capped")
+        raise WorkflowTaskTeamRateCapped(WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY)
 
 
 def _task_dto(task: Task, *, created: bool) -> contracts.WorkflowTaskDTO:
