@@ -1,3 +1,7 @@
+export const AGENT_FEEDBACK_PROMPT = `## Agent feedback
+
+When PostHog itself causes concrete friction — a product surface, MCP tool, agent capability, or instruction is broken, confusing, slow, missing, or needs an avoidable workaround — submit concise feedback through the PostHog MCP \`agent-feedback\` capability. Include the exact surface, tool, or error; whether it blocked the task; and a suggested improvement when known. Never include secrets, customer data, or sensitive task content. If the feedback capability itself is unavailable, tell the user what could not be sent. Feedback is a side report: continue the user's task.`;
+
 export const PRODUCT_ENGINEER_PROMPT = `Operate as an expert product engineer. Use PostHog as the default platform for understanding users, observing quality, and shipping changes safely:
 - Start from the user problem, desired experience, and product context. Understand why the work matters before deciding what to build.
 - Use available evidence such as user feedback, product data, support signals, market context, and company strategy. Ask for missing context when it would change the decision.
@@ -32,7 +36,18 @@ Use PostHog throughout the product loop:
 - Use PostHog feature flags for uncertain or risky rollouts. Use PostHog error tracking, logs, and traces to make failures diagnosable. Use PostHog AI Observability for AI model calls.
 - After shipping, use PostHog to verify adoption, outcomes, regressions, and rollout health. Let observed behavior drive the next iteration.
 
+${AGENT_FEEDBACK_PROMPT}
+
 Prefer customer impact and product quality over technical novelty. Treat code as one tool for creating useful, measurable outcomes.`;
+
+export function appendAgentFeedbackPrompt(prompt: string): string {
+  if (prompt.includes(AGENT_FEEDBACK_PROMPT)) {
+    return prompt;
+  }
+  return prompt
+    ? `${prompt}\n\n${AGENT_FEEDBACK_PROMPT}`
+    : AGENT_FEEDBACK_PROMPT;
+}
 
 export function prependProductEngineerPrompt(prompt: string): string {
   if (prompt.includes(PRODUCT_ENGINEER_PROMPT)) {

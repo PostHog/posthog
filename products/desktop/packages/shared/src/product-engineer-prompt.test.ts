@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  appendAgentFeedbackPrompt,
   PRODUCT_ENGINEER_PROMPT,
   prependProductEngineerPrompt,
 } from "./product-engineer-prompt";
@@ -23,7 +24,16 @@ describe("prependProductEngineerPrompt", () => {
 
   it("does not duplicate guidance when a session rebuilds its prompt", () => {
     const firstPrompt = prependProductEngineerPrompt(UPSTREAM_PROMPT);
+    const feedbackPrompt = appendAgentFeedbackPrompt(UPSTREAM_PROMPT);
 
     expect(prependProductEngineerPrompt(firstPrompt)).toBe(firstPrompt);
+    expect(appendAgentFeedbackPrompt(feedbackPrompt)).toBe(feedbackPrompt);
+  });
+
+  it("keeps agent feedback actionable and privacy safe", () => {
+    expect(PRODUCT_ENGINEER_PROMPT).toContain("agent-feedback");
+    expect(PRODUCT_ENGINEER_PROMPT).toContain("whether it blocked the task");
+    expect(PRODUCT_ENGINEER_PROMPT).toContain("Never include secrets");
+    expect(PRODUCT_ENGINEER_PROMPT).toContain("continue the user's task");
   });
 });
