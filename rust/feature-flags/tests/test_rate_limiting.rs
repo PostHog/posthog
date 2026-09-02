@@ -382,8 +382,8 @@ async fn test_rate_limit_replenishment() -> Result<()> {
 
     // Capacity is one token and a denial does not extend the window. Only a grant moves the
     // window forward by one second, so the whole burst is served without a block only if it
-    // spans BURST - 1 seconds. Below that, at least one request is blocked, which keeps the
-    // check independent of how long one round trip takes on a loaded runner.
+    // spans BURST - 1 seconds. The check tolerates a total burst latency below BURST - 1
+    // seconds, which no run of six localhost round trips reaches on a loaded runner.
     const BURST: usize = 6;
     let mut statuses = Vec::with_capacity(BURST);
     for _ in 0..BURST {
