@@ -39,6 +39,8 @@ For managed DuckLake data, call `compile_hogql_to_trino_sql(...)` through the ma
 - materialized saved queries to their `posthog_data_modeling_team_<team_id>` DuckLake copies;
 - copied warehouse sources to their provisioned data-import schema and table names.
 
+The compiler returns Trino SQL and parameter values by default. Pass `include_hogql=True` to include a normalized HogQL diagnostic; this optional rendering reuses the compilation database.
+
 The control-plane read accepts both `trino_catalog_name` and the earlier `catalog` field during a rolling deployment. A disabled or non-ready Trino target, an organization mismatch, a missing team row, or an unmapped relation fails compilation before SQL submission. The helper only compiles; deploying it does not change query routing or execute Trino SQL.
 
 Trino compilation currently requires `personsOnEventsMode=person_id_override_properties_on_events`. The compiler rejects unset, disabled, V1, and joined modes before semantic lowering so it cannot silently apply V2 person attribution to a query that requested different behavior.
