@@ -34,7 +34,7 @@ class FeatureFlagStatus(StrEnum):
 
 @dataclass
 class FeatureFlagRolloutSummary:
-    # Whether the flag is effectively rolled out to everyone, independent of recent evaluation.
+    # Whether the flag is effectively rolled out to everyone, independent of whether an SDK has called it.
     effectively_full_rollout: bool
     # Whether any release condition has property filters (conditionally targeted vs. blanket rollout).
     has_targeting_conditions: bool

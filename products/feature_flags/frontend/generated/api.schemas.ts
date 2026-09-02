@@ -1161,7 +1161,7 @@ export interface DependentFlagApi {
 }
 
 export interface FeatureFlagRolloutSummaryApi {
-    /** True if the flag is effectively rolled out to everyone, independent of recent evaluation. For boolean flags this means at least one release condition targets 100% with no property filters (or there are no release conditions); for multivariate flags it means a single variant is served to 100% via a fully rolled out release condition. This is the signal for 'fully rolled out' / GA — unlike `status`, which only reflects recent evaluation. */
+    /** True if the flag is effectively rolled out to everyone, independent of whether an SDK has called it. For boolean flags this means at least one release condition targets 100% with no property filters (or there are no release conditions); for multivariate flags it means a single variant is served to 100% via a fully rolled out release condition. This is the signal for 'fully rolled out' / GA. Unlike `status`, it does not depend on $feature_flag_called events. */
     effectively_full_rollout: boolean
     /** True if any release condition has property filters, i.e. the flag is conditionally targeted rather than a blanket rollout. When true, `max_rollout_percentage` is a percentage within the targeted segment, not of the whole user base. */
     has_targeting_conditions: boolean

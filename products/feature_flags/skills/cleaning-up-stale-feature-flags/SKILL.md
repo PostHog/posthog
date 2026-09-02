@@ -18,7 +18,7 @@ This skill guides you through finding feature flags that are no longer serving a
 
 A feature flag is considered stale when it's no longer doing useful work. PostHog tracks this with two signals:
 
-1. **Usage-based staleness**: The flag has `last_called_at` data, but hasn't been evaluated in 30+ days. This is the strongest signal — the SDKs are no longer checking this flag.
+1. **Usage-based staleness**: The flag has `last_called_at` data, but no `$feature_flag_called` event in 30+ days. Those events come from the SDK when it calls the flag, so a flag served only by local evaluation (or with flag-call events turned off) can look stale while it still serves traffic. Confirm the flag is really unused before removing it.
 2. **Configuration-based staleness**: The flag has no usage data (`last_called_at` is null), is 30+ days old, and is 100% rolled out (boolean at 100% with no property filters, or a multivariate flag with one variant at 100%). A fully rolled out flag with no conditions is equivalent to a hardcoded value — it can be replaced by removing the flag check from code.
 
 Disabled flags (`active: false`) are not considered stale — they were intentionally turned off and may be kept for reactivation.
