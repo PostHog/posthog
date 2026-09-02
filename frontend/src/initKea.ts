@@ -72,6 +72,13 @@ generic toast would be a second one. Owned by featureFlagLogic's saveFeatureFlag
 */
 const DUPLICATE_KEY_SELF_HANDLED = new Set(['saveFeatureFlag'])
 
+/*
+Write actions whose own logic toasts the 404 (the target was deleted, or it belongs to another
+project). The generic toast would be a second one, and the rejection describes a state the user
+can reach on purpose, so it is not worth reporting.
+*/
+const NOT_FOUND_SELF_HANDLED = new Set(['upsertHogFunction'])
+
 interface InitKeaProps {
     state?: Record<string, any>
     routerHistory?: any
@@ -142,12 +149,14 @@ export function initKea({
                 // uses the distinct `impersonation_read_only` code and still toasts.
                 const isAccessDenied =
                     isAccessDeniedError(error) && (isLoadAction || ACCESS_DENIED_SELF_HANDLED.has(String(actionKey)))
+                const isSelfHandledNotFound = error?.status === 404 && NOT_FOUND_SELF_HANDLED.has(String(actionKey))
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     error?.status !== undefined &&
                     ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic; 409 conflict flows surface their own UI
                     !(isLoadAction && error.status === 403) && // 403 access denied is handled by sceneLogic gates
-                    !isAccessDenied
+                    !isAccessDenied &&
+                    !isSelfHandledNotFound
                 ) {
                     let errorMessage = error.detail || error.statusText
                     const isTwoFactorError =
@@ -199,7 +208,7 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (shouldReportApiFailure(error)) {
+                if (!isSelfHandledNotFound && shouldReportApiFailure(error)) {
                     posthog.captureException(error)
                 }
             },
