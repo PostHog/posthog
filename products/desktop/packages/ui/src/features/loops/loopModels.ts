@@ -11,22 +11,26 @@ import {
   isRestrictedModelOption,
   selectOptionDocsUrl,
 } from "@posthog/shared";
+import { DEFAULT_MODEL_BY_RUNTIME_ADAPTER } from "@posthog/shared/model-catalog";
 
 export interface LoopModelOption {
   value: string;
   label: string;
 }
 
-// Mirrors DEFAULT_MODEL_BY_RUNTIME_ADAPTER in posthog's
-// products/tasks/backend/temporal/process_task/utils.py: the model a loop
-// fires with when none is pinned, and the one the serializer validates a
-// blank-model loop's reasoning effort against.
+// The model a loop fires with when none is pinned, and the one the serializer
+// validates a blank-model loop's reasoning effort against. The id comes from
+// the shared catalog so it cannot disagree with what the backend applies; the
+// label is a display name for that id, which only the served catalog knows.
 export const LOOP_DEFAULT_MODELS: Record<
   LoopSchemas.LoopRuntimeAdapterEnum,
   { id: string; label: string }
 > = {
-  claude: { id: "claude-sonnet-5", label: "Claude Sonnet 5" },
-  codex: { id: "gpt-5", label: "GPT-5" },
+  claude: {
+    id: DEFAULT_MODEL_BY_RUNTIME_ADAPTER.claude,
+    label: "Claude Sonnet 5",
+  },
+  codex: { id: DEFAULT_MODEL_BY_RUNTIME_ADAPTER.codex, label: "GPT-5" },
 };
 
 function isKimiModelId(modelId: string): boolean {
@@ -34,9 +38,9 @@ function isKimiModelId(modelId: string): boolean {
 }
 
 // Served-catalog stand-in while the preview config loads or when the request
-// fails, so the picker never collapses to "Default" alone. Matches the
-// backend's per-adapter catalogs in process_task/utils.py minus client-blocked
-// models; the served catalog stays authoritative once it arrives.
+// fails, so the picker never collapses to "Default" alone. Ids come from the
+// shared catalog; the labels stay here because a display name is the served
+// catalog's to give. The served catalog is authoritative once it arrives.
 const FALLBACK_MODEL_OPTIONS: Record<
   LoopSchemas.LoopRuntimeAdapterEnum,
   LoopModelOption[]

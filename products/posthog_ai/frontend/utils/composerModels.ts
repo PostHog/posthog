@@ -8,6 +8,7 @@ import {
     RuntimeAdapterEnumApi,
     TaskRunCreateRequestSchemaApi,
 } from 'products/tasks/frontend/generated/api.schemas'
+import { DEFAULT_MODEL_BY_RUNTIME_ADAPTER, MODELS } from 'products/tasks/frontend/modelCatalog.generated'
 
 import { type PermissionMode, resolveModeForRuntimeAdapter } from './composerModes'
 
@@ -24,25 +25,34 @@ const FALLBACK_EFFORTS: ReasoningEffortEnumApi[] = [
     ReasoningEffortEnumApi.High,
 ]
 
+// The efforts the backend will accept for a model, read off the shared catalog the backend validates against.
+// Falls back to the generic floor for a model the catalog doesn't name. Both the catalog's effort names and
+// `ReasoningEffortEnumApi` are generated from the same Python enum, so the cast restates what codegen guarantees.
+function catalogEffortsFor(model: string): ReasoningEffortEnumApi[] {
+    const efforts = MODELS.find((entry) => entry.id === model)?.reasoningEfforts
+    return efforts?.length ? (efforts as ReasoningEffortEnumApi[]) : FALLBACK_EFFORTS
+}
+
 // Used only when the tasks API can't answer: an unreachable LLM gateway makes the catalogue endpoint return an empty
 // list, and an empty model dropdown is worse than a stale one. The live catalogue is the source of truth — see
 // `modelCatalogueLogic`. Claude-only: without the catalogue we can't know a Codex model exists, and Claude is the default.
+// The efforts come from the shared catalog rather than the generic floor above, so a fallback pick is one the API accepts.
 export const FALLBACK_MODEL_CHOICES: ModelChoiceApi[] = [
     {
         runtime_adapter: RuntimeAdapterEnumApi.Claude,
         model: 'claude-sonnet-5',
         display_name: 'Claude Sonnet 5',
-        supported_efforts: FALLBACK_EFFORTS,
+        supported_efforts: catalogEffortsFor('claude-sonnet-5'),
     },
     {
         runtime_adapter: RuntimeAdapterEnumApi.Claude,
         model: 'claude-opus-5',
         display_name: 'Claude Opus 5',
-        supported_efforts: FALLBACK_EFFORTS,
+        supported_efforts: catalogEffortsFor('claude-opus-5'),
     },
 ]
 
-export const DEFAULT_COMPOSER_MODEL = 'claude-sonnet-5'
+export const DEFAULT_COMPOSER_MODEL = DEFAULT_MODEL_BY_RUNTIME_ADAPTER.claude
 export const DEFAULT_COMPOSER_EFFORT: ReasoningEffortEnumApi = ReasoningEffortEnumApi.High
 
 const EFFORT_LABELS: Record<string, string> = {
