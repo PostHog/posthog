@@ -223,9 +223,18 @@ impl Config {
 
     /// Resolve which topic to use for the given destination on this sink.
     ///
-    /// A destination whose topic is unset or empty resolves to `None`, which
-    /// the sink handles by skipping the event. A deployment reaching that on a
-    /// destination it routes to would have failed [`Config::validate`] at boot.
+    /// A destination whose topic is unset or empty resolves to `None`. The sink
+    /// turns that into a fatal `KafkaSinkError::UnmappedDestination`, so the
+    /// event is reported as dropped rather than silently skipped.
+    ///
+    /// [`Config::validate`] covers most of this at boot, but not all of it:
+    /// `reachable_topics` is keyed on capture mode and omits
+    /// `Destination::AiEventsOverflow` and `Destination::Custom`, both of which
+    /// a running pipeline can produce. Those two are closed elsewhere — the
+    /// overflow valve only arms when its topic is set (`setup.rs`), and an empty
+    /// `redirect_to_topic` is discarded at restriction-load time — so there is
+    /// no reachable misconfiguration today. The error path exists because that
+    /// is an invariant spread across three files, not a type-level guarantee.
     pub fn topic_for<'a>(&'a self, dest: &'a Destination) -> Option<&'a str> {
         let topic: &str = match dest {
             Destination::AnalyticsMain => self.topic_main.as_deref().unwrap_or_default(),

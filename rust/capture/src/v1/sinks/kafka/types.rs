@@ -30,6 +30,13 @@ pub enum KafkaSinkError {
     Produce(ProduceError),
     Timeout,
     TaskPanicked,
+    /// The sink has no topic configured for this event's destination.
+    ///
+    /// A configuration bug, not a transient failure: retrying cannot conjure a
+    /// topic mapping, so this is fatal. It is reported rather than skipped
+    /// because a skipped event keeps its `Ok` verdict in `merge_sink_results`,
+    /// and the client is then told 200 for something never produced.
+    UnmappedDestination(&'static str),
 }
 
 impl KafkaSinkError {
@@ -45,6 +52,7 @@ impl KafkaSinkError {
             }
             Self::Timeout => Outcome::Timeout,
             Self::TaskPanicked => Outcome::RetriableError,
+            Self::UnmappedDestination(_) => Outcome::FatalError,
         }
     }
 
@@ -54,6 +62,7 @@ impl KafkaSinkError {
             Self::Produce(e) => e.as_tag(),
             Self::Timeout => "timeout",
             Self::TaskPanicked => "task_panicked",
+            Self::UnmappedDestination(_) => "unmapped_destination",
         }
     }
 
@@ -63,6 +72,9 @@ impl KafkaSinkError {
             Self::Produce(e) => Cow::Owned(format!("{e}")),
             Self::Timeout => Cow::Borrowed("produce timeout"),
             Self::TaskPanicked => Cow::Borrowed("task panicked during delivery"),
+            Self::UnmappedDestination(dest) => {
+                Cow::Owned(format!("no topic configured for destination '{dest}'"))
+            }
         }
     }
 }
