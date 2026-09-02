@@ -22,8 +22,20 @@ MAX_JOBS_PER_TEAM = 10
 _COHORT_FILTER_TYPES = ("cohort", "static-cohort", "precalculated-cohort")
 
 
+class EventFiltersField(serializers.ListField):
+    """Check the filter shape on write, and return stored filters unchanged on read.
+
+    Rows saved before this field checked its input can hold non-dict elements, and
+    ``DictField.to_representation`` raises on those. One such row would break the
+    list endpoint for the whole team, which is how the user finds and deletes it.
+    """
+
+    def to_representation(self, value: Any) -> Any:
+        return value
+
+
 class ClusteringJobSerializer(serializers.ModelSerializer):
-    event_filters = serializers.ListField(
+    event_filters = EventFiltersField(
         child=serializers.DictField(),
         required=False,
         help_text="PostHog property filters that scope this clustering job. Empty array means no filters.",

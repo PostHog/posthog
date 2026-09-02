@@ -344,6 +344,14 @@ class TestClusteringJobViewSet(APIBaseTest):
         job.refresh_from_db()
         self.assertEqual(job.event_filters, filters)
 
+    def test_list_returns_job_with_legacy_non_dict_filter(self):
+        # Filters copied from the team config predate any element check, so a stored
+        # element may not be a dict. One such row must not break the whole list.
+        self._create_job(name="Legacy", event_filters=["not-a-dict"])
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"][0]["event_filters"], ["not-a-dict"])
+
 
 class TestDefaultClusteringJobsOnTeamCreate(APIBaseTest):
     """Exercises the post_save signal in models/clustering_job.py that seeds the three
