@@ -28,8 +28,8 @@ from products.replay_vision.backend.models.replay_observation import (
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerOrigin, ScannerType
 from products.replay_vision.backend.models.replay_scanner_prompt_suggestion import (
+    PromptSuggestionStatus,
     ReplayScannerPromptSuggestion,
-    SuggestionStatus,
 )
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
 from products.replay_vision.backend.prompt_evaluation import EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT
@@ -595,7 +595,7 @@ async def test_reap_settles_stuck_prompt_suggestion_evaluations(org_team) -> Non
                 scanner=scanner,
                 team=team,
                 suggested_prompt=f"p-{key}",
-                status=SuggestionStatus.PENDING,
+                status=PromptSuggestionStatus.PENDING,
                 scanner_version=1,
                 evaluation={
                     "status": "running",

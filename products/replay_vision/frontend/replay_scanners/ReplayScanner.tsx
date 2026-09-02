@@ -148,7 +148,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                     {
                         key: ReplayScannerTab.Search,
                         label: 'Search',
-                        content: <ObservationSearchTab scannerId={scannerId} />,
+                        content: <ObservationSearchTab scanner={scanner} />,
                     },
                     {
                         key: ReplayScannerTab.OnDemand,
