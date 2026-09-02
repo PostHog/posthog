@@ -20,6 +20,9 @@ export interface PersonUpdate {
     // Fine-grained property tracking
     properties_to_set: Properties // Properties to set/update
     properties_to_unset: string[] // Property keys to unset
+    // Keys queued since the last flush. properties_to_set also holds folded-in snapshots and
+    // flushed writes, so it cannot tell a queued key from a stale one.
+    pending_keys: Set<string>
     original_is_identified: boolean
     original_created_at: DateTime
     original_last_seen_at: DateTime | null
@@ -51,6 +54,7 @@ export function fromInternalPerson(person: InternalPerson, distinctId: string): 
         needs_write: false,
         properties_to_set: {},
         properties_to_unset: [],
+        pending_keys: new Set(),
         original_is_identified: person.is_identified,
         original_created_at: person.created_at,
         original_last_seen_at: person.last_seen_at,

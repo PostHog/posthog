@@ -258,6 +258,7 @@ class BatchWritingPersonsCache {
                 properties: { ...result.properties },
                 properties_to_set: { ...result.properties_to_set },
                 properties_to_unset: [...result.properties_to_unset],
+                pending_keys: new Set(result.pending_keys),
             }
         }
 
@@ -446,16 +447,11 @@ class BatchWritingPersonsCache {
             is_identified: existingPersonUpdate.is_identified || person.is_identified,
         }
 
-        // A read for another distinct id of this person brings a fresh database snapshot. Writes
-        // this batch queued since its last flush have to survive it. `properties_to_set` also
-        // holds keys folded in from an earlier snapshot, so re-apply only the keys that differ
-        // from this entry's own baseline. The rest stay free to take the newer value.
+        // Queued sets must survive a fresh database snapshot; every other key takes the newer value.
         const pendingSets: Properties = {}
-        if (existingPersonUpdate.needs_write) {
-            for (const [key, value] of Object.entries(existingPersonUpdate.properties_to_set)) {
-                if (existingPersonUpdate.properties[key] !== value) {
-                    pendingSets[key] = value
-                }
+        for (const key of existingPersonUpdate.pending_keys) {
+            if (Object.hasOwn(existingPersonUpdate.properties_to_set, key)) {
+                pendingSets[key] = existingPersonUpdate.properties_to_set[key]
             }
         }
 
@@ -465,8 +461,10 @@ class BatchWritingPersonsCache {
             ...pendingSets,
             ...person.properties_to_set,
         }
+        mergedPersonUpdate.pending_keys = new Set([...existingPersonUpdate.pending_keys, ...person.pending_keys])
         for (const key of person.properties_to_unset) {
             delete mergedPersonUpdate.properties_to_set[key]
+            mergedPersonUpdate.pending_keys.delete(key)
         }
 
         mergedPersonUpdate.properties_to_unset = [
@@ -700,6 +698,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             // after this point will re-set needs_write=true and the next
             // flush will pick those changes up.
             update.needs_write = false
+            update.pending_keys.clear()
         }
         // END synchronous linearization point.
 
@@ -1913,6 +1912,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             // Add all properties from the update to properties_to_set
             Object.entries(update.properties).forEach(([key, value]) => {
                 personUpdate.properties_to_set[key] = value
+                personUpdate.pending_keys.add(key)
                 // Remove from unset list if it was there
                 const unsetIndex = personUpdate.properties_to_unset.indexOf(key)
                 if (unsetIndex !== -1) {
@@ -1977,6 +1977,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         // Add properties to set (merge with existing properties_to_set)
         Object.entries(propertiesToSet).forEach(([key, value]) => {
             personUpdate.properties_to_set[key] = value
+            personUpdate.pending_keys.add(key)
             // Remove from unset list if it was there
             const unsetIndex = personUpdate.properties_to_unset.indexOf(key)
             if (unsetIndex !== -1) {
@@ -1991,6 +1992,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             }
             // Remove from set list if it was there
             delete personUpdate.properties_to_set[key]
+            personUpdate.pending_keys.delete(key)
         })
 
         // Handle is_identified specially with || operator
@@ -2268,6 +2270,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             needs_write: personUpdate.needs_write,
             properties_to_set: personUpdate.properties_to_set,
             properties_to_unset: personUpdate.properties_to_unset,
+            pending_keys: personUpdate.pending_keys,
             original_is_identified: personUpdate.original_is_identified,
             original_created_at: personUpdate.original_created_at,
             original_last_seen_at: personUpdate.original_last_seen_at,
