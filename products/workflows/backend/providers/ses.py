@@ -74,9 +74,31 @@ class IspSendingMetrics:
     unavailable: tuple[str, ...] = ()
 
 
-def _build_isp_queries(
-    domains: Sequence[str], isps: Sequence[str], start: datetime, end: datetime
-) -> tuple[list[dict[str, Any]], dict[str, tuple[str, str]]]:
+@frozen
+class IspMetric:
+    """One SES metric for one mailbox provider: what a single query asks for, and what indexes its answer."""
+
+    isp: str
+    metric: str
+
+
+@frozen
+class IspQueryPlan:
+    """The queries for a breakdown, and the index from query id back to what each one asked."""
+
+    queries: list[dict[str, Any]]
+    subjects: dict[str, IspMetric]
+
+
+@frozen
+class IspMetricSeries:
+    """Daily counts per provider and metric, and the subjects SES returned no answer for."""
+
+    buckets: Mapping[IspMetric, Mapping[str, int]]
+    failed: frozenset[IspMetric]
+
+
+def _build_isp_queries(domains: Sequence[str], isps: Sequence[str], start: datetime, end: datetime) -> IspQueryPlan:
     """
     The BatchGetMetricData queries for a breakdown, and an index from query id to what it asked.
 
@@ -85,12 +107,12 @@ def _build_isp_queries(
     to what each id asked for.
     """
     queries: list[dict[str, Any]] = []
-    subjects: dict[str, tuple[str, str]] = {}
+    subjects: dict[str, IspMetric] = {}
     for domain in domains:
         for isp in isps:
             for metric in ISP_METRICS:
                 query_id = f"q{len(queries)}"
-                subjects[query_id] = (isp, metric)
+                subjects[query_id] = IspMetric(isp=isp, metric=metric)
                 queries.append(
                     {
                         "Id": query_id,
@@ -101,31 +123,31 @@ def _build_isp_queries(
                         "EndDate": end,
                     }
                 )
-    return queries, subjects
+    return IspQueryPlan(queries=queries, subjects=subjects)
 
 
-def _isp_rows_from_series(
-    isps: Sequence[str],
-    series: Mapping[tuple[str, str], Mapping[str, int]],
-    failed: set[tuple[str, str]],
-) -> list[IspSendingMetrics]:
+def _isp_rows_from_series(isps: Sequence[str], series: IspMetricSeries) -> list[IspSendingMetrics]:
     """Per-provider rows derived from the collected series, busiest provider first."""
+    buckets, failed = series.buckets, series.failed
     rows: list[IspSendingMetrics] = []
     for isp in isps:
-        if (isp, "SEND") in failed:
+        if IspMetric(isp=isp, metric="SEND") in failed:
             # Without the denominator there is no row to build: volume is unknown and every
             # rate divides by it. This is the one case where the provider is dropped.
             continue
-        sent_by_date = series.get((isp, "SEND"), {})
+        sent_by_date = buckets.get(IspMetric(isp=isp, metric="SEND"), {})
         emails_sent = sum(sent_by_date.values())
         if emails_sent == 0:
             continue
-        delivered_by_date = series.get((isp, "DELIVERY"), {})
-        bounced_by_date = series.get((isp, "PERMANENT_BOUNCE"), {})
-        delivery_failed = (isp, "DELIVERY") in failed
-        bounce_failed = (isp, "PERMANENT_BOUNCE") in failed
-        complaint_failed = (isp, "COMPLAINT") in failed or (isp, "DELIVERY_COMPLAINT") in failed
-        complaint_base = sum(series.get((isp, "DELIVERY_COMPLAINT"), {}).values())
+        delivered_by_date = buckets.get(IspMetric(isp=isp, metric="DELIVERY"), {})
+        bounced_by_date = buckets.get(IspMetric(isp=isp, metric="PERMANENT_BOUNCE"), {})
+        delivery_failed = IspMetric(isp=isp, metric="DELIVERY") in failed
+        bounce_failed = IspMetric(isp=isp, metric="PERMANENT_BOUNCE") in failed
+        complaint_failed = (
+            IspMetric(isp=isp, metric="COMPLAINT") in failed
+            or IspMetric(isp=isp, metric="DELIVERY_COMPLAINT") in failed
+        )
+        complaint_base = sum(buckets.get(IspMetric(isp=isp, metric="DELIVERY_COMPLAINT"), {}).values())
         rows.append(
             IspSendingMetrics(
                 isp=isp,
@@ -137,7 +159,9 @@ def _isp_rows_from_series(
                 complaint_rate=(
                     None
                     if complaint_failed or not complaint_base
-                    else min(1.0, sum(series.get((isp, "COMPLAINT"), {}).values()) / complaint_base)
+                    else min(
+                        1.0, sum(buckets.get(IspMetric(isp=isp, metric="COMPLAINT"), {}).values()) / complaint_base
+                    )
                 ),
                 # The trend is a delivery-rate series, so a failed DELIVERY query leaves nothing
                 # to draw. An empty series renders no line rather than a flat one at zero.
@@ -719,26 +743,20 @@ class SESProvider:
         if max_domains is not None and len(domains) > max_domains:
             domains = self._busiest_domains(domains, start=start, end=end, limit=max_domains, deadline=deadline)
 
-        queries, query_subjects = _build_isp_queries(domains, isps, start, end)
-        series, failed = self._collect_isp_series(queries, query_subjects, deadline, len(domains))
-        return _isp_rows_from_series(isps, series, failed)
+        plan = _build_isp_queries(domains, isps, start, end)
+        series = self._collect_isp_series(plan, deadline, len(domains))
+        return _isp_rows_from_series(isps, series)
 
-    def _collect_isp_series(
-        self,
-        queries: list[dict[str, Any]],
-        query_subjects: dict[str, tuple[str, str]],
-        deadline: float,
-        domain_count: int,
-    ) -> tuple[dict[tuple[str, str], dict[str, int]], set[tuple[str, str]]]:
+    def _collect_isp_series(self, plan: IspQueryPlan, deadline: float, domain_count: int) -> IspMetricSeries:
         """
         Run the queries in batches, returning the daily series and the subjects with no answer.
 
         A subject in the failed set has an empty series for want of an answer, not because nothing
         happened, so every rate derived from it is reported as unknown rather than as zero.
         """
-        series: dict[tuple[str, str], dict[str, int]] = defaultdict(lambda: defaultdict(int))
-        failed: set[tuple[str, str]] = set()
-        for batch in batched(queries, METRIC_QUERY_BATCH_SIZE, strict=False):
+        buckets_by_subject: dict[IspMetric, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        failed: set[IspMetric] = set()
+        for batch in batched(plan.queries, METRIC_QUERY_BATCH_SIZE, strict=False):
             if monotonic() + METRIC_CALL_WORST_CASE_SECONDS > deadline:
                 # Raises rather than returning the batches that did answer: a rate built from a
                 # partial fan-out is wrong, not merely incomplete. The caller turns this into an
@@ -748,15 +766,14 @@ class SESProvider:
                 )
             response = self.ses_v2_metrics_client.batch_get_metric_data(Queries=list(batch))  # type: ignore[arg-type]
             for result in response.get("Results", []):
-                isp, metric = query_subjects[result["Id"]]
-                buckets = series[(isp, metric)]
+                buckets = buckets_by_subject[plan.subjects[result["Id"]]]
                 # AWS documents Values as "cumulative / sum" without saying which, so this reads
                 # them as per-bucket counts. If they are running totals, summed deliveries overshoot
                 # sends and every provider pins to a 100% delivery rate against the clamp.
                 for timestamp, value in zip(result.get("Timestamps", []), result.get("Values", []), strict=False):
                     buckets[timestamp.date().isoformat()] += value
             for error in response.get("Errors", []):
-                subject = query_subjects.get(error.get("Id", ""))
+                subject = plan.subjects.get(error.get("Id", ""))
                 if subject is not None:
                     failed.add(subject)
                 # A per-query failure leaves that metric at zero, which understates a rate rather
@@ -773,4 +790,4 @@ class SESProvider:
                         "error_message": error.get("Message"),
                     },
                 )
-        return series, failed
+        return IspMetricSeries(buckets=buckets_by_subject, failed=frozenset(failed))
