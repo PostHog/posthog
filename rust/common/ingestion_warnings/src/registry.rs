@@ -74,6 +74,13 @@ impl WarningType {
             "invalid_event_uuid" => Some(Self::InvalidEventUuid),
             "duplicate_event_uuid" => Some(Self::DuplicateEventUuid),
             "message_size_too_large" => Some(Self::MessageSizeTooLarge),
+            // The v1 AI lane's per-event ceiling. v0 reports the same condition
+            // as `CaptureError::AiEventTooBig`, which already maps here, so
+            // moving AI traffic onto the v1 endpoint keeps the warning a
+            // project owner already sees for an oversized event. An alias, not
+            // a second route: `MessageSizeTooLarge` stays tag-derived, so the
+            // one-route-per-type invariant below is untouched.
+            "ai_event_too_big" => Some(Self::MessageSizeTooLarge),
             _ => None,
         }
     }

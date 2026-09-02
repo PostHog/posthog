@@ -83,7 +83,7 @@ pub async fn process_batch(
 
     // Best-effort v2 ingestion warnings for validation drops, emitted before
     // the all-dropped early return so those batches are covered too.
-    emit_validation_drop_warnings(state, context, &events);
+    emit_drop_warnings(state, context, &events, None);
 
     // Import mode ingests only historical backfills: drop any batch not flagged
     // `historical_migration` (a batch-level flag) by marking every event Drop and
@@ -137,6 +137,12 @@ pub async fn process_batch(
     }
 
     apply_ai_event_size_limit(state.ai_max_event_bytes, &mut events);
+
+    // The validation sweep runs before this stage, so an oversized AI event
+    // would otherwise drop with no customer-visible signal at all. v0 raises
+    // `MessageSizeTooLarge` for the same condition; this keeps a project owner
+    // seeing it once the AI lane moves to v1.
+    emit_drop_warnings(state, context, &events, Some(DETAIL_AI_EVENT_TOO_BIG));
 
     if let Some(ref limiter) = state.ai_byte_rate_limiter {
         apply_ai_byte_limits(limiter, &context.api_token, &mut events).await;
@@ -368,15 +374,21 @@ fn emit_batch_abort_warning(
     );
 }
 
-/// Best-effort v2 ingestion warnings for per-event validation drops: one
-/// message per registered drop tag with the deduped occurrence count.
+/// Best-effort v2 ingestion warnings for per-event drops: one message per
+/// registered drop tag with the deduped occurrence count.
 /// `distinctId`/`eventUuid` are included only when a tag matched exactly one
 /// event — with multiple events they would be ambiguous, so they are omitted.
 /// Skips entirely when the emitter is off or the batch had no drops.
-fn emit_validation_drop_warnings(
+///
+/// `only_tag` scopes the pass. The validation sweep runs before any other stage
+/// can drop an event, so it takes `None` and sweeps everything. Later stages
+/// name their own tag, because a second unscoped sweep would re-emit every
+/// warning the first one already sent.
+fn emit_drop_warnings(
     state: &router::State,
     context: &Context,
     events: &[WrappedEvent],
+    only_tag: Option<&str>,
 ) {
     let emitter = state.ingestion_warning_emitter.as_deref();
     if emitter.is_none() {
@@ -391,6 +403,11 @@ fn emit_validation_drop_warnings(
     for ev in events {
         if ev.result != EventResult::Drop {
             continue;
+        }
+        if let Some(tag) = only_tag {
+            if ev.details != Some(tag) {
+                continue;
+            }
         }
         let Some(warning) = ev.details.and_then(WarningType::from_tag) else {
             continue;
@@ -4571,6 +4588,86 @@ mod tests {
             emitted[0].extra_details.get("eventUuid"),
             Some(&serde_json::json!(offender_uuid))
         );
+    }
+
+    /// An oversized AI event must stay visible to the project owner. v0 maps
+    /// `CaptureError::AiEventTooBig` to `MessageSizeTooLarge`; on v1 the drop
+    /// happens after the validation sweep has already run, so without the
+    /// scoped second pass the customer sees nothing at all for exactly the
+    /// case the higher AI ceiling exists to serve.
+    #[tokio::test]
+    async fn oversize_ai_event_emits_the_message_size_warning() {
+        let collector = Arc::new(CollectingEmitter::new());
+        let ts = TestStateBuilder::new()
+            .with_capture_mode(CaptureMode::Ai)
+            .with_ai_max_event_bytes(700)
+            .with_ingestion_warning_emitter(collector.clone())
+            .build();
+        let mut ctx = test_utils::test_analytics_context();
+
+        let mut oversized = named_event("$ai_generation");
+        oversized.properties =
+            test_utils::raw_obj(&format!(r#"{{"$ai_input":"{}"}}"#, "x".repeat(800)));
+        let oversized_uuid = oversized.uuid.clone();
+        let batch = valid_batch(vec![oversized, named_event("$ai_generation")]);
+
+        let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        let dropped: Vec<_> = resp
+            .entries()
+            .into_iter()
+            .filter(|(_, e)| e.result == EventResult::Drop)
+            .collect();
+        assert_eq!(dropped.len(), 1, "only the oversized event drops");
+        assert_eq!(dropped[0].1.details, Some(DETAIL_AI_EVENT_TOO_BIG));
+
+        let emitted = collector.emitted();
+        assert_eq!(emitted.len(), 1, "exactly one warning, not one per pass");
+        assert_eq!(emitted[0].warning, WarningType::MessageSizeTooLarge);
+        assert_eq!(emitted[0].count, 1);
+        assert_eq!(
+            emitted[0].extra_details.get("eventUuid"),
+            Some(&serde_json::json!(oversized_uuid))
+        );
+    }
+
+    /// The scoped pass must not re-send what the validation sweep already sent.
+    /// Both stages drop events in this batch; each warning may appear once.
+    #[tokio::test]
+    async fn a_validation_drop_is_not_re_emitted_by_the_ai_size_pass() {
+        let collector = Arc::new(CollectingEmitter::new());
+        let ts = TestStateBuilder::new()
+            .with_capture_mode(CaptureMode::Ai)
+            .with_ai_max_event_bytes(700)
+            .with_ingestion_warning_emitter(collector.clone())
+            .build();
+        let mut ctx = test_utils::test_analytics_context();
+
+        let mut oversized = named_event("$ai_generation");
+        oversized.properties =
+            test_utils::raw_obj(&format!(r#"{{"$ai_input":"{}"}}"#, "x".repeat(800)));
+        let mut no_distinct_id = named_event("$ai_generation");
+        no_distinct_id.distinct_id = String::new();
+
+        let batch = valid_batch(vec![
+            oversized,
+            no_distinct_id,
+            named_event("$ai_generation"),
+        ]);
+
+        process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        let emitted = collector.emitted();
+        let mut seen: Vec<_> = emitted.iter().map(|e| e.warning).collect();
+        seen.sort_by_key(|w| w.as_str());
+        let unique: std::collections::HashSet<_> = seen.iter().collect();
+        assert_eq!(
+            seen.len(),
+            unique.len(),
+            "each warning type may be emitted at most once: {seen:?}"
+        );
+        assert!(seen.contains(&WarningType::MessageSizeTooLarge));
+        assert!(seen.contains(&WarningType::MissingDistinctId));
     }
 
     /// With several offenders the identifiers would be an arbitrary pick, so
