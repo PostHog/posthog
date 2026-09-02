@@ -210,7 +210,6 @@ export function SpaceDocView({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
     </div>
   );
 }
