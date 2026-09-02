@@ -216,6 +216,9 @@ class ResumedSandboxState:
     image_source: str | None = None
     agent_ready_at: str | None = None
     agent_boot_interaction_telemetry_enabled: bool | None = None
+    # ISO8601 earliest time the CI follow-up may poll the PR again. None on payloads
+    # written before this field existed.
+    ci_follow_up_poll_after: str | None = None
 
 
 @frozen
@@ -414,6 +417,12 @@ _PATCH_ID_RUN_LIFECYCLE_BOUNDS = "tasks-run-lifecycle-bounds"
 
 _PATCH_ID_SNAPSHOT_BEFORE_CI_FOLLOW_UP = "tasks-snapshot-before-ci-follow-up"
 
+# Anchors the inactivity timer on the last agent activity instead of sleeping the full
+# timeout on every loop iteration. The anchored timer can fire without a Timer command, so
+# replays of pre-rollout histories must keep the old full-length sleep.
+# Same two-step deprecate-then-delete cleanup lifecycle as the patches above.
+_PATCH_ID_ANCHORED_INACTIVITY_TIMER = "tasks-anchored-inactivity-timer"
+
 # Keeps an interactive run alive when follow-up delivery exhausts retries, releasing
 # the message's dedupe key so a retry can land; background runs keep the fail-fast
 # terminalization poll_for_turn callers rely on. Same cleanup lifecycle as above.
@@ -446,6 +455,12 @@ def _run_lifecycle_bounds_enabled() -> bool:
     if not workflow.in_workflow():
         return True
     return workflow.patched(_PATCH_ID_RUN_LIFECYCLE_BOUNDS)
+
+
+def _anchored_inactivity_timer_enabled() -> bool:
+    if not workflow.in_workflow():
+        return True
+    return workflow.patched(_PATCH_ID_ANCHORED_INACTIVITY_TIMER)
 
 
 def _dev_stack_preview_enabled() -> bool:
@@ -494,6 +509,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._pending_permission_responses: list[PendingPermissionResponse] = []
         self._ci_repetitions: int = 0
         self._last_active_time: Optional[datetime] = None
+        # Earliest time the CI follow-up may poll the PR again. Held apart from
+        # `_last_active_time`, because a poll that finds nothing is not agent activity.
+        self._ci_follow_up_poll_after: Optional[datetime] = None
         # Start of the continue_as_new chain, carried across continuations so the
         # wall-clock cap measures the whole chain rather than restarting per run.
         # None on the first execution, where workflow.info().start_time is the anchor.
@@ -678,7 +696,18 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 await self._dispatch_followup(followup)
 
     async def _wait_for_inactivity(self, timeout: timedelta = INACTIVITY_TIMEOUT):
-        await workflow.sleep(timeout.total_seconds())
+        """Fire once the agent has been quiet for `timeout`, measured from the last activity.
+
+        The loop rebuilds this timer on every iteration, and every other event that wins the
+        wait cancels it. A full-length sleep each time therefore measures the gap between
+        workflow events, not the gap since the agent was last active, so any periodic event
+        shorter than the timeout holds the exit off for the life of the run.
+        """
+        remaining = timeout
+        if self._last_active_time is not None and _anchored_inactivity_timer_enabled():
+            remaining = timeout - (workflow.now() - self._last_active_time)
+        if remaining.total_seconds() > 0:
+            await workflow.sleep(remaining.total_seconds())
         return TaskEvent.TIMEOUT_REACHED
 
     async def _wait_for_max_run_duration(self, cap: timedelta):
@@ -696,22 +725,30 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await workflow.sleep(remaining)
         return TaskEvent.MAX_DURATION_REACHED
 
+    def _ci_follow_up_remaining(self) -> timedelta:
+        """Time left before the next CI poll may run.
+
+        A poll runs CI_FOLLOW_UP_DELAY after the last agent activity, and never before the
+        bound a skipped poll set for itself.
+        """
+        activity_bound = self._last_active_time + CI_FOLLOW_UP_DELAY if self._last_active_time else None
+        bounds = [bound for bound in (activity_bound, self._ci_follow_up_poll_after) if bound is not None]
+        if not bounds:
+            return CI_FOLLOW_UP_DELAY
+        return max(bounds) - workflow.now()
+
     async def _wait_for_ci_follow_up(self):
-        if self._last_active_time:
-            elapsed = workflow.now() - self._last_active_time
-            remaining = CI_FOLLOW_UP_DELAY - elapsed
-            if remaining.total_seconds() > 0:
-                workflow.logger.info(
-                    "Waiting for CI follow-up event",
-                    extra={
-                        "run_id": self.context.run_id,
-                        "repetitions": self._ci_repetitions,
-                        "delay_seconds": remaining.total_seconds(),
-                    },
-                )
-                await workflow.sleep(remaining.total_seconds())
-        else:
-            await workflow.sleep(CI_FOLLOW_UP_DELAY.total_seconds())
+        remaining = self._ci_follow_up_remaining()
+        if remaining.total_seconds() > 0:
+            workflow.logger.info(
+                "Waiting for CI follow-up event",
+                extra={
+                    "run_id": self.context.run_id,
+                    "repetitions": self._ci_repetitions,
+                    "delay_seconds": remaining.total_seconds(),
+                },
+            )
+            await workflow.sleep(remaining.total_seconds())
         return TaskEvent.CI_FOLLOW_UP
 
     def _self_driving_quota_recheck_scheduled(self) -> bool:
@@ -803,6 +840,29 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             await workflow.sleep(remaining.total_seconds())
         return TaskEvent.QUOTA_RECHECK
 
+    def _inactivity_timeout(self, *, warm_idle: bool, ci_follow_up_scheduled: bool) -> timedelta:
+        """How long the agent may stay quiet before the run exits.
+
+        A scheduled CI follow-up raises a floor under the timeout, because the timer measures
+        from the last agent activity and a poll that finds nothing is not activity: without
+        the floor the run would end after its first quiet poll. The floor covers only the
+        polls still left, so it shrinks as the sequence burns down. Pre-anchor replays keep
+        the single-delay floor their recorded timers used. The testing-only
+        `TASKS_INACTIVITY_TIMEOUT_SECONDS` env var bypasses the floor, but only when
+        explicitly set AND short — so a misconfigured large value still respects the CI floor.
+        """
+        base_timeout = self.context.inactivity_timeout()
+        if warm_idle:
+            return min(WARM_IDLE_TIMEOUT, base_timeout)
+        if not ci_follow_up_scheduled:
+            return base_timeout
+
+        polls_left = MAX_CI_REPETITIONS - self._ci_repetitions if _anchored_inactivity_timer_enabled() else 1
+        ci_follow_up_floor = polls_left * CI_FOLLOW_UP_DELAY + timedelta(minutes=1)
+        if bool(settings.TASKS_INACTIVITY_TIMEOUT_SECONDS) and base_timeout < ci_follow_up_floor:
+            return base_timeout
+        return max(base_timeout, ci_follow_up_floor)
+
     def _describe_wait(self, *, warm_idle: bool, ci_follow_up_scheduled: bool, inactivity_timeout: timedelta) -> str:
         """Human-readable summary of what the loop is blocked on, for the Temporal UI.
 
@@ -816,12 +876,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         if not ci_follow_up_scheduled:
             return f"⏳ Waiting for the agent to finish or send an update (inactivity timeout {timeout_min}m)."
 
-        next_check = CI_FOLLOW_UP_DELAY
-        if self._last_active_time:
-            remaining = CI_FOLLOW_UP_DELAY - (workflow.now() - self._last_active_time)
-            if remaining > timedelta(0):
-                next_check = remaining
-        next_min = max(1, round(next_check.total_seconds() / 60))
+        next_min = max(1, round(self._ci_follow_up_remaining().total_seconds() / 60))
         return (
             f"⏳ Waiting for the agent, or to re-check the PR's CI in ~{next_min}m "
             f"(CI follow-up {self._ci_repetitions + 1}/{MAX_CI_REPETITIONS}; inactivity timeout {timeout_min}m)."
@@ -837,21 +892,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             and self._context.pr_loop_enabled
             and self._ci_repetitions < MAX_CI_REPETITIONS
         )
-        # When CI follow-up is scheduled, the inactivity timer must outlive
-        # CI_FOLLOW_UP_DELAY. The testing-only `TASKS_INACTIVITY_TIMEOUT_SECONDS`
-        # env var bypasses the floor, but only when explicitly set AND short —
-        # so a misconfigured large value still respects the CI floor.
-        base_timeout = self.context.inactivity_timeout()
-        ci_follow_up_floor = CI_FOLLOW_UP_DELAY + timedelta(minutes=1)
-        testing_override_active = bool(settings.TASKS_INACTIVITY_TIMEOUT_SECONDS) and (
-            base_timeout < ci_follow_up_floor
+        inactivity_timeout = self._inactivity_timeout(
+            warm_idle=warm_idle, ci_follow_up_scheduled=ci_follow_up_scheduled
         )
-        if warm_idle:
-            inactivity_timeout = min(WARM_IDLE_TIMEOUT, base_timeout)
-        elif ci_follow_up_scheduled and not testing_override_active:
-            inactivity_timeout = max(base_timeout, ci_follow_up_floor)
-        else:
-            inactivity_timeout = base_timeout
 
         workflow.set_current_details(
             self._describe_wait(
@@ -1283,7 +1326,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                                 # Without this, _wait_for_ci_follow_up returns immediately
                                 # whenever last_active_time is older than the delay, and the
                                 # workflow tight-loops calling GET /repos/.../pulls/{n}.
-                                self._last_active_time = workflow.now()
+                                self._ci_follow_up_poll_after = workflow.now() + CI_FOLLOW_UP_DELAY
                             case _:
                                 raise ValueError(f"Unknown CIFollowUpDecision: {follow_up_result}")
                     case TaskEvent.SANDBOX_TTL_APPROACHING:
@@ -1846,6 +1889,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 is_agent_design_enabled=self._is_agent_design_enabled,
                 dev_stack_preview_enabled=self._dev_stack_preview_enabled,
                 last_active_time=self._last_active_time.isoformat() if self._last_active_time else None,
+                ci_follow_up_poll_after=(
+                    self._ci_follow_up_poll_after.isoformat() if self._ci_follow_up_poll_after else None
+                ),
                 accepted_message_ids=self._accepted_message_ids,
                 chain_started_at=self._chain_start_time().isoformat(),
                 agent_active=self._agent_active,
@@ -1889,6 +1935,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._accepted_message_ids = resumed.accepted_message_ids
         self._accepted_message_id_set = set(resumed.accepted_message_ids)
         self._last_active_time = datetime.fromisoformat(resumed.last_active_time) if resumed.last_active_time else None
+        self._ci_follow_up_poll_after = (
+            datetime.fromisoformat(resumed.ci_follow_up_poll_after) if resumed.ci_follow_up_poll_after else None
+        )
         self._agent_active = resumed.agent_active
         self._end_of_turn_received = resumed.end_of_turn_received
         self._last_agent_heartbeat_at = (

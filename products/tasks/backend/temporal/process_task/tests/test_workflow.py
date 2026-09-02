@@ -14,6 +14,7 @@ import pytest
 from unittest.mock import AsyncMock, Mock
 
 from django.conf import settings
+from django.test import override_settings
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
@@ -445,6 +446,78 @@ class TestSandboxDeadline:
 
         assert event == process_task_workflow_module.TaskEvent.SANDBOX_TTL_APPROACHING
         sleep_mock.assert_not_awaited()
+
+
+class TestInactivityTimer:
+    """Pins the inactivity exit to the last agent activity, so a shorter periodic event
+    cannot hold it off for the life of the run."""
+
+    TIMEOUT = timedelta(minutes=30)
+    NOW = datetime(2026, 7, 16, 12, 0, tzinfo=UTC)
+
+    def _workflow(self, monkeypatch, *, last_active_minutes_ago: int | None) -> tuple[ProcessTaskWorkflow, AsyncMock]:
+        wf = ProcessTaskWorkflow()
+        wf._context = _build_context(github_integration_id=123)
+        wf._last_active_time = (
+            self.NOW - timedelta(minutes=last_active_minutes_ago) if last_active_minutes_ago is not None else None
+        )
+        sleep_mock = AsyncMock()
+        monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=self.NOW))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+        monkeypatch.setattr(process_task_workflow_module.workflow, "sleep", sleep_mock)
+        return wf, sleep_mock
+
+    @pytest.mark.parametrize(
+        "last_active_minutes_ago,expected_seconds",
+        [
+            pytest.param(25, 5 * 60, id="quiet_for_part_of_the_window"),
+            pytest.param(None, 30 * 60, id="no_activity_yet"),
+            pytest.param(40, None, id="quiet_past_the_window"),
+        ],
+    )
+    async def test_the_timer_sleeps_only_the_time_left_on_the_window(
+        self, monkeypatch, last_active_minutes_ago, expected_seconds
+    ):
+        wf, sleep_mock = self._workflow(monkeypatch, last_active_minutes_ago=last_active_minutes_ago)
+
+        event = await wf._wait_for_inactivity(self.TIMEOUT)
+
+        assert event == process_task_workflow_module.TaskEvent.TIMEOUT_REACHED
+        if expected_seconds is None:
+            sleep_mock.assert_not_awaited()
+        else:
+            sleep_mock.assert_awaited_once_with(expected_seconds)
+
+    @pytest.mark.parametrize(
+        "repetitions,expected_minutes",
+        [
+            pytest.param(0, 3 * 15 + 1, id="whole_poll_sequence_left"),
+            pytest.param(2, 15 + 1, id="one_poll_left"),
+        ],
+    )
+    @override_settings(TASKS_INACTIVITY_TIMEOUT_SECONDS=0)
+    def test_a_scheduled_ci_poll_holds_the_window_open_for_the_polls_left(self, repetitions, expected_minutes):
+        # The window has to outlive the polls still due, or a run waiting on CI would exit
+        # after its first quiet poll now that a quiet poll no longer counts as activity.
+        wf = ProcessTaskWorkflow()
+        wf._context = _build_context(github_integration_id=123, state={"inactivity_timeout_seconds": 120})
+        wf._ci_repetitions = repetitions
+
+        timeout = wf._inactivity_timeout(warm_idle=False, ci_follow_up_scheduled=True)
+
+        assert timeout == timedelta(minutes=expected_minutes)
+        assert wf._inactivity_timeout(warm_idle=False, ci_follow_up_scheduled=False) == timedelta(seconds=120)
+
+    async def test_a_skipped_ci_poll_defers_the_next_poll_without_extending_the_window(self, monkeypatch):
+        wf, sleep_mock = self._workflow(monkeypatch, last_active_minutes_ago=20)
+        wf._ci_follow_up_poll_after = self.NOW + timedelta(minutes=15)
+
+        assert await wf._wait_for_ci_follow_up() == process_task_workflow_module.TaskEvent.CI_FOLLOW_UP
+        sleep_mock.assert_awaited_once_with(15 * 60)
+
+        sleep_mock.reset_mock()
+        await wf._wait_for_inactivity(self.TIMEOUT)
+        sleep_mock.assert_awaited_once_with(10 * 60)
 
 
 class TestSandboxRotation:
