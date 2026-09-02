@@ -17,6 +17,15 @@ describe('logs column config', () => {
             expect(columnsToCustomColumns(columns)).toEqual(['attributes.http.url', 'pattern', 'upper(level)'])
         })
 
+        it('deduplicates repeated expressions, which the server would reject as a redefined alias', () => {
+            const columns: LogsColumnConfig[] = [
+                { id: 'p1', type: 'pattern' },
+                { id: 'p2', type: 'pattern' },
+                { id: 'c', type: 'custom', expression: 'pattern' },
+            ]
+            expect(columnsToCustomColumns(columns)).toEqual(['pattern'])
+        })
+
         it.each<[string, LogsColumnConfig[]]>([
             ['no columns', []],
             ['client-side built-ins only', [{ id: 'timestamp', type: 'timestamp' }]],

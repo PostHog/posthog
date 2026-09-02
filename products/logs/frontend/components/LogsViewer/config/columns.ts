@@ -100,7 +100,12 @@ export function columnExpression(column: LogsColumnConfig): string | undefined {
 
 /** Lower a column list to the `LogsQuery.customColumns` wire value. Client-side built-ins never hit the wire. */
 export function columnsToCustomColumns(columns: LogsColumnConfig[]): LogsQuery['customColumns'] {
-    const expressions = columns.map(columnExpression).filter((expression): expression is string => !!expression)
+    // Deduplicated: the server aliases each expression by its hash, so sending one twice would
+    // define the same alias twice and fail the whole query. Two columns sharing an expression
+    // (two Pattern columns, or Pattern next to a hand-written `pattern`) read the same alias.
+    const expressions = [
+        ...new Set(columns.map(columnExpression).filter((expression): expression is string => !!expression)),
+    ]
     // Undefined (not []) when there are no server-computed columns, so the query payload is
     // byte-identical to a pre-custom-columns query and cache keys are unaffected.
     return expressions.length > 0 ? expressions : undefined
