@@ -31,10 +31,13 @@ jobs:
         continue-on-error: true
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # Enough history to resolve the branch point (merge-base) with the base ref.
+                  fetch-depth: 200
             - name: Fetch PR base for the clone baseline
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref || 'master' }}
-              run: git fetch --no-tags --depth=1 origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+              run: git fetch --no-tags --depth=200 origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
             - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc

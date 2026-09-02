@@ -2,11 +2,11 @@
 # ruff: noqa: T201 allow print statements
 """Gate a branch on new code duplication in Python and TypeScript.
 
-Runs jscpd over the repo and compares clone fingerprints against the base
-ref, so only duplication the branch introduces can fail the gate. Existing
-duplication is grandfathered in. App code and test code are held to
-different bars: a clone between two test files may run longer before it
-fails, because repeated setup is idiomatic in tests.
+Runs jscpd over this tree and over a worktree of the branch point, and
+diffs the two clone sets, so only duplication the branch introduces can
+fail the gate. Existing duplication is grandfathered in. App code and
+test code are held to different bars: a clone between two test files may
+run longer before it fails, because repeated setup is idiomatic in tests.
 
 With --report-dir, also writes one findings file per language for the CI
 report comment (.github/scripts/post-duplication-section.mjs).
@@ -26,7 +26,7 @@ FORMATS = "python,typescript,tsx"
 
 # Migrations and generated code duplicate by design; .depot/ is a vendored
 # mirror of .github/actions/.
-IGNORE = "**/migrations/**,**/generated/**,.depot/**"
+IGNORE = "**/migrations/**,**/generated/**,**/generated.*,.depot/**"
 
 # jscpd scan floor. Anything smaller is never reported at all.
 SCAN_MIN_LINES = 10
@@ -50,8 +50,6 @@ def load_limits() -> tuple[int, int]:
     return int(data["production"]), int(data["test"])
 
 
-# A new clone fails the gate at this many tokens. ~70 tokens is 10-15 lines
-# of Python or TypeScript; ~150 tokens is 25-35 lines.
 APP_MAX_NEW_CLONE_TOKENS, TEST_MAX_NEW_CLONE_TOKENS = load_limits()
 
 LANGUAGES = ("python", "typescript")
@@ -86,21 +84,77 @@ def find_gate_failures(clones: list[dict]) -> list[tuple[dict, bool]]:
 def build_findings(failures: list[tuple[dict, bool]]) -> dict[str, list[dict]]:
     """Shape the failures as per-language findings for the CI report files."""
     findings: dict[str, list[dict]] = {language: [] for language in LANGUAGES}
-    for clone, both_tests in failures:
+    for clone, _ in failures:
         findings[clone_language(clone)].append(
             {
                 "first_file": clone["firstFile"]["name"],
                 "first_start": clone["firstFile"]["start"],
-                "first_end": clone["firstFile"]["end"],
                 "second_file": clone["secondFile"]["name"],
                 "second_start": clone["secondFile"]["start"],
-                "second_end": clone["secondFile"]["end"],
                 "lines": clone["lines"],
                 "tokens": clone["tokens"],
-                "test": both_tests,
             }
         )
     return findings
+
+
+def run_jscpd(scan_root: Path, out_dir: Path) -> list[dict]:
+    """Scan one tree with jscpd and return its clone list."""
+    proc = subprocess.run(
+        [
+            "npx",
+            "--yes",
+            f"jscpd@{JSCPD_VERSION}",
+            "--format",
+            FORMATS,
+            "--min-lines",
+            str(SCAN_MIN_LINES),
+            "--min-tokens",
+            str(SCAN_MIN_TOKENS),
+            "--skip-comments",
+            "--reporters",
+            "json",
+            "--output",
+            str(out_dir),
+            "--ignore",
+            IGNORE,
+            ".",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=900,
+        cwd=scan_root,
+    )
+    report_path = out_dir / "jscpd-report.json"
+    if proc.returncode != 0 or not report_path.exists():
+        print(proc.stdout[-3000:])
+        print(proc.stderr[-3000:])
+        print(f"duplication lint could not run: jscpd exited {proc.returncode} scanning {scan_root}")
+        raise SystemExit(2)
+    return json.loads(report_path.read_text())["duplicates"]
+
+
+def clone_key(clone: dict) -> frozenset:
+    """Pair key, insensitive to which side jscpd calls first."""
+    first = (clone["firstFile"]["name"], clone["firstFile"]["start"], clone["firstFile"]["end"])
+    second = (clone["secondFile"]["name"], clone["secondFile"]["start"], clone["secondFile"]["end"])
+    return frozenset((first, second))
+
+
+def resolve_baseline(base: str) -> str:
+    """Return the ref to compare clones against.
+
+    The branch point, not the base tip: jscpd matches clones with their
+    locations, so a file that moved on the base since the branch forked
+    re-flags every old clone inside it as new. Comparing against the
+    merge-base keeps pre-existing duplication out of the gate no matter
+    how far behind the branch falls.
+    """
+    merge_base = subprocess.run(["git", "merge-base", base, "HEAD"], capture_output=True, text=True).stdout.strip()
+    if merge_base:
+        return merge_base
+    print(f"Could not resolve the merge-base with {base!r} (shallow history?). Falling back to {base!r}.")
+    return base
 
 
 def main() -> int:
@@ -119,40 +173,38 @@ def main() -> int:
         print("  git fetch --no-tags --depth=1 origin master:refs/remotes/origin/master")
         return 2
 
-    with tempfile.TemporaryDirectory(prefix="jscpd-") as out_dir:
-        proc = subprocess.run(
-            [
-                "npx",
-                "--yes",
-                f"jscpd@{JSCPD_VERSION}",
-                "--format",
-                FORMATS,
-                "--min-lines",
-                str(SCAN_MIN_LINES),
-                "--min-tokens",
-                str(SCAN_MIN_TOKENS),
-                "--skip-comments",
-                "--reporters",
-                "json",
-                "--output",
-                out_dir,
-                "--ignore",
-                IGNORE,
-                "--baseline-from-ref",
-                args.base,
-                args.path,
-            ],
+    baseline = resolve_baseline(args.base)
+    print(f"Comparing clones against {baseline}")
+
+    # jscpd's own --baseline-from-ref mismatches clones whose files moved on
+    # the base since the branch forked, and some stable pairs it re-flags
+    # with no visible cause. Scan both trees with identical flags and diff
+    # the clone sets ourselves instead: a clone is new only when its pair
+    # (both sides' path and span, either order) is absent from the baseline.
+    with tempfile.TemporaryDirectory(prefix="jscpd-") as tmp:
+        tmp_path = Path(tmp)
+        baseline_worktree = tmp_path / "baseline-worktree"
+        add = subprocess.run(
+            ["git", "worktree", "add", "--detach", str(baseline_worktree), baseline],
             capture_output=True,
             text=True,
-            timeout=900,
         )
-        report_path = Path(out_dir) / "jscpd-report.json"
-        if proc.returncode != 0 or not report_path.exists():
-            print(proc.stdout[-3000:])
-            print(proc.stderr[-3000:])
-            print(f"duplication lint could not run: jscpd exited {proc.returncode}")
+        if add.returncode != 0:
+            print(add.stderr[-2000:])
+            print(f"duplication lint could not check out the baseline {baseline}")
             return 2
-        clones = json.loads(report_path.read_text())["duplicates"]
+        try:
+            current_clones = run_jscpd(Path(args.path).resolve(), tmp_path / "current-report")
+            baseline_clones = run_jscpd(baseline_worktree, tmp_path / "baseline-report")
+        finally:
+            subprocess.run(["git", "worktree", "remove", "--force", str(baseline_worktree)], capture_output=True)
+
+    baseline_keys = {clone_key(clone) for clone in baseline_clones}
+    clones = []
+    for clone in current_clones:
+        clone["isNew"] = clone_key(clone) not in baseline_keys
+        clones.append(clone)
+    print(f"{len(clones)} clones in this tree, {sum(1 for c in clones if c['isNew'])} not in the baseline")
 
     failures = find_gate_failures(clones)
     findings = build_findings(failures)

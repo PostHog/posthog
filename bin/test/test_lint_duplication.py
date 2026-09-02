@@ -8,6 +8,7 @@ from bin.lint_duplication import (
     APP_MAX_NEW_CLONE_TOKENS,
     TEST_MAX_NEW_CLONE_TOKENS,
     build_findings,
+    clone_key,
     clone_language,
     find_gate_failures,
     is_test_file,
@@ -117,19 +118,30 @@ class TestBuildFindings(unittest.TestCase):
             {
                 "first_file": "posthog/api/a.py",
                 "first_start": 1,
-                "first_end": 10,
                 "second_file": "posthog/api/test/test_a.py",
                 "second_start": 1,
-                "second_end": 10,
                 "lines": 10,
                 "tokens": 200,
-                "test": False,
             },
         )
 
     def test_clone_language_defaults_to_typescript_for_non_python(self) -> None:
         self.assertEqual(clone_language(make_clone("a.ts", "b.ts", 100, fmt="tsx")), "typescript")
         self.assertEqual(clone_language(make_clone("a.py", "b.py", 100)), "python")
+
+
+class TestCloneKey(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("same_pair_same_key", make_clone("a.py", "b.py", 100), make_clone("a.py", "b.py", 100), True),
+            ("swapped_sides_same_key", make_clone("a.py", "b.py", 100), make_clone("b.py", "a.py", 100), True),
+            ("moved_span_differs", make_clone("a.py", "b.py", 100), make_clone("a.py", "b.py", 100), False),
+        ]
+    )
+    def test_key(self, _name: str, first: dict, second: dict, expected_equal: bool) -> None:
+        if _name == "moved_span_differs":
+            second["firstFile"]["start"] = 42
+        self.assertEqual(clone_key(first) == clone_key(second), expected_equal)
 
 
 if __name__ == "__main__":
