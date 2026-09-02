@@ -19,6 +19,20 @@ if (!sectionId || !reportPath) {
     console.error('Usage: post-duplication-section.mjs <python|typescript> <findings.json>')
     process.exit(1)
 }
+const statusPath = reportPath.replace(/duplication-findings-[^/]+\.json$/, 'duplication-scan-status.json')
+// The lint writes this before the scans start, so a failed scan is
+// distinguishable from an unrebased branch (which has no files at all).
+// Check it first: a failed scan must replace any stale section from an
+// earlier commit rather than leave it standing.
+if (fs.existsSync(statusPath) && JSON.parse(fs.readFileSync(statusPath, 'utf8')).status === 'failed') {
+    await postSection({
+        id: sectionId,
+        status: 'fail',
+        summary: 'the duplication scan could not run',
+        body: 'The duplication scan failed on this run (see the job log). Nothing here says whether this branch adds duplication.',
+    })
+    process.exit(0)
+}
 if (!fs.existsSync(reportPath)) {
     console.info(`No findings report at ${reportPath} — skipping (branch predates the check?)`)
     process.exit(0)

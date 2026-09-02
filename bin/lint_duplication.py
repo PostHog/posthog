@@ -19,6 +19,7 @@ import hashlib
 import argparse
 import tempfile
 import subprocess
+import collections
 from pathlib import Path
 
 JSCPD_VERSION = "5.1.1"
@@ -147,6 +148,23 @@ def clone_key(clone: dict) -> tuple[frozenset, str]:
     return pair, hashlib.sha1(clone["fragment"].encode()).hexdigest()
 
 
+def mark_new_clones(current: list[dict], baseline: list[dict]) -> None:
+    """Flag clones the baseline cannot account for, counting occurrences.
+
+    A fragment already copied once between two files is grandfathered only
+    for as many copies as the baseline holds: a third copy of the same
+    fragment in the same file pair is new duplication and must be flagged.
+    """
+    available = collections.Counter(clone_key(clone) for clone in baseline)
+    for clone in current:
+        key = clone_key(clone)
+        if available[key] > 0:
+            available[key] -= 1
+            clone["isNew"] = False
+        else:
+            clone["isNew"] = True
+
+
 def resolve_baseline(base: str, repo: Path) -> str:
     """Return the ref to compare clones against.
 
@@ -181,15 +199,29 @@ def main() -> int:
         print("  git fetch --no-tags --depth=1 origin master:refs/remotes/origin/master")
         return 2
 
-    baseline = resolve_baseline(args.base, Path(args.path).resolve())
+    if args.report_dir:
+        # Written before the scans so a crash can never leave a stale "ok":
+        # the CI report can then tell "the scan failed" from "the branch
+        # predates the check" (no files at all).
+        (Path(args.report_dir) / "duplication-scan-status.json").write_text(json.dumps({"status": "failed"}) + "\n")
+
+    repo = Path(args.path).resolve()
+    if not repo.is_dir():
+        print(f"Scan path {repo} does not exist.")
+        return 2
+
+    baseline = resolve_baseline(args.base, repo)
     print(f"Comparing clones against {baseline}")
 
     # jscpd's own --baseline-from-ref mismatches clones whose files moved on
     # the base since the branch forked, and some stable pairs it re-flags
     # with no visible cause. Scan both trees with identical flags and diff
     # the clone sets ourselves instead: a clone is new only when no clone in
-    # the baseline pairs the same files over the same fragment.
-    repo = Path(args.path).resolve()
+    # the baseline pairs the same files over the same fragment. jscpd merges
+    # repeated occurrences of one fragment into a single clone, so a repeat
+    # copy inside an already-duplicated file pair is not detectable here;
+    # new file pairs and edited blocks are.
+    scan_failed = False
     with tempfile.TemporaryDirectory(prefix="jscpd-") as tmp:
         tmp_path = Path(tmp)
         baseline_worktree = tmp_path / "baseline-worktree"
@@ -209,19 +241,25 @@ def main() -> int:
         try:
             current_clones = run_jscpd(repo, tmp_path / "current-report")
             baseline_clones = run_jscpd(baseline_worktree, tmp_path / "baseline-report")
+        except SystemExit:
+            scan_failed = True
+            current_clones = []
         finally:
             subprocess.run(
                 ["git", "worktree", "remove", "--force", str(baseline_worktree)], capture_output=True, cwd=repo
             )
 
-    baseline_keys = {clone_key(clone) for clone in baseline_clones}
-    clones = []
-    for clone in current_clones:
-        clone["isNew"] = clone_key(clone) not in baseline_keys
-        clones.append(clone)
-    print(f"{len(clones)} clones in this tree, {sum(1 for c in clones if c['isNew'])} not in the baseline")
+    if scan_failed:
+        return 2
 
-    failures = find_gate_failures(clones)
+    mark_new_clones(current_clones, baseline_clones)
+    print(
+        f"{len(current_clones)} clones in this tree, {sum(1 for c in current_clones if c['isNew'])} not in the baseline"
+    )
+    if args.report_dir:
+        (Path(args.report_dir) / "duplication-scan-status.json").write_text(json.dumps({"status": "ok"}) + "\n")
+
+    failures = find_gate_failures(current_clones)
     findings = build_findings(failures)
 
     if args.report_dir:
