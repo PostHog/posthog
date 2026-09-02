@@ -907,6 +907,7 @@ export interface PgAnalyzeIssueReferenceApi {
 export interface PgAnalyzeIssueSignalExtraApi {
     severity: string | null
     references: PgAnalyzeIssueReferenceApi[]
+    cited_queries?: string[]
     database_id: string | null
     server_human_id: string | null
     server_name: string | null
