@@ -105,6 +105,10 @@ class RunQuotaLimitingWorkflow(PostHogWorkflow):
                 retry_policy=common.RetryPolicy(
                     # A shard host that refuses connections stays down for minutes, so the waits
                     # (2 then 4 minutes) must outlast it and still fit the 15-minute schedule.
+                    # Timeouts retry too, because non_retryable only covers ApplicationError, so a
+                    # timed-out attempt can still write while the next one starts. That is accepted:
+                    # a run recomputes and replaces the whole quota state, and the next tick
+                    # corrects a stale write.
                     maximum_attempts=3,
                     initial_interval=timedelta(minutes=2),
                 ),
