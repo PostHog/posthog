@@ -36,6 +36,7 @@ import {
   isJsonRpcRequest,
   isJsonRpcResponse,
   isPersistedOptionSupported,
+  isProviderCredentialError,
   isRateLimitError,
   isTransientUpstreamError,
   isTurnEndedWithoutResponseError,
@@ -4546,6 +4547,21 @@ export class SessionService {
         });
         throw new Error(
           "The model ended this turn without a response. Your session is unaffected — please send the message again.",
+          { cause: error },
+        );
+      }
+
+      // The gateway refused the call because PostHog's own provider credentials were
+      // rejected. Nothing the user can change, and the raw provider wording reads like
+      // a usage limit, so name the cause instead of surfacing it.
+      if (isProviderCredentialError(errorMessage, errorDetails)) {
+        this.d.log.error("Gateway provider credentials rejected", {
+          taskRunId: session.taskRunId,
+          errorMessage,
+          errorDetails,
+        });
+        throw new Error(
+          "The AI provider rejected PostHog's credentials. This is not your usage limit, and retrying will not help until PostHog fixes it.",
           { cause: error },
         );
       }

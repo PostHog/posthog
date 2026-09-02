@@ -162,6 +162,19 @@ describe("classifyPromptFailure", () => {
       true,
     ],
     ["Authentication required", undefined, "authentication", true],
+    [
+      "PostHog's openai credentials were rejected. This is a problem with the PostHog gateway, not a usage limit on your account. Retries fail until PostHog fixes it.",
+      undefined,
+      "provider_credentials",
+      false,
+    ],
+    // Wording a gateway that predates the classification still sends.
+    [
+      `API Error: 401 {"error":{"message":"You do not have access to the organization tied to the API key.","code":"invalid_organization"}}`,
+      undefined,
+      "provider_credentials",
+      false,
+    ],
     ["process exited", undefined, "fatal_session", true],
     ["invalid model", undefined, "unknown", false],
   ] as const)("classifies %j as %s", (message, errorType, kind, retryable) => {
@@ -208,6 +221,15 @@ describe("isFatalSessionError", () => {
       isFatalSessionError(
         "internal error",
         "API Error: the operation timed out",
+      ),
+    ).toBe(false);
+  });
+
+  it("does not treat a rejected gateway credential as fatal", () => {
+    // Tearing the session down and resending would just hit the same refusal.
+    expect(
+      isFatalSessionError(
+        `Internal error: API Error: 401 {"error":{"code":"invalid_organization"}}`,
       ),
     ).toBe(false);
   });
