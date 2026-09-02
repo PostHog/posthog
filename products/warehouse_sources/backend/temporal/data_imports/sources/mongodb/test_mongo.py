@@ -429,6 +429,16 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "('atlas-sql-681905984ce3f87167df11fa-wf3cgp.a.query.mongodb.net', 27017) "
                 "server_type: Unknown, rtt: None, error=AutoReconnect('...connection closed...')>]>",
             ),
+            # MongoDB OperationFailure code 211 (KeyNotFound): the cluster's HMAC keystore has no
+            # valid key for the cursor's timestamp. Retrying the same cursor always fails the same
+            # way, so it must be classified non-retryable.
+            (
+                "key_not_found_hmac",
+                "No keys found for HMAC that is valid for time: { ts: Timestamp(1000000000, 1) } "
+                "with id: 1234567890, full error: {'ok': 0.0, 'errmsg': 'No keys found for HMAC "
+                "that is valid for time: { ts: Timestamp(1000000000, 1) } with id: 1234567890', "
+                "'code': 211, 'codeName': 'KeyNotFound'}",
+            ),
         ]
     )
     def test_known_errors_are_non_retryable(self, _name, error_msg):
@@ -464,6 +474,7 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ("atlas_sql_endpoint", "query.mongodb.net", "connection string"),
             ("unescaped_credentials", "must be escaped according to RFC 3986", "connection string"),
             ("document_missing_id", "one of its documents has no _id field", "view"),
+            ("key_not_found", "No keys found for HMAC", "key management"),
         ]
     )
     def test_pattern_has_friendly_message(self, _name, pattern, expected_substring):
