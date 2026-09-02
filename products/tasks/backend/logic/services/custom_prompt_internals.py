@@ -1049,14 +1049,15 @@ def extract_json_from_text(text: str | None, label: str) -> Any:
     while (brace_pos := text.find("{", start)) != -1:
         try:
             value, _ = decoder.raw_decode(text, brace_pos)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            # A decode that ran to the end of the text is a valid object the reply was cut off inside
+            # — a truncation. Returning a nested object from it would hand the caller a fragment, and
+            # the schema error that follows names a missing field instead of the truncation. A decode
+            # that fails well before the end is just a stray brace in prose, so skip past it.
+            if e.pos >= len(text.rstrip()):
+                raise TruncatedAgentOutputError(label) from e
             start = brace_pos + 1
             continue
-        # An object that sits inside an unclosed outer object is a fragment of a reply that was cut
-        # short. Returning it hands the caller a plausible but wrong payload, and the schema error
-        # that follows names a missing field instead of the truncation that caused it.
-        if _open_object_depth(text[:brace_pos]) > 0:
-            raise TruncatedAgentOutputError(label)
         return value
 
     # 4. Last resort — try the whole text as-is, then surface a classified error so

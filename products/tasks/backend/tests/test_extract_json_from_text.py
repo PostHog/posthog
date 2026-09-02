@@ -21,6 +21,7 @@ class TestExtractJsonFromText:
             ("text_above_and_below_generic_block", f"Here is your answer:\n```\n{JSON_STR}\n```\nHope that helps!"),
             ("text_above_and_below_json_block", f"Here is your answer:\n```json\n{JSON_STR}\n```\nHope that helps!"),
             ("brace_in_text_below_bare_json", f"{JSON_STR}\nReplace {{name}} before you send it."),
+            ("unmatched_brace_in_text_above_bare_json", f"The reply must start with {{ — here it is:\n{JSON_STR}"),
         ]
     )
     def test_extracts_json(self, _name, text):
