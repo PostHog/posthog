@@ -2097,6 +2097,24 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         original_text_tile = next(t for t in dashboard_with_tiles["tiles"] if t.get("text"))
         assert text_tile["text"]["id"] != original_text_tile["text"]["id"]
 
+    def test_dashboard_duplication_reports_a_tile_it_cannot_copy(self) -> None:
+        existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
+        # A name already at the column limit no longer fits once duplication appends " (Copy)",
+        # so the copy fails validation. Any tile that fails it used to reach save() on an invalid
+        # serializer and return a 500 naming nothing.
+        self.dashboard_api.create_insight({"dashboards": [existing_dashboard.pk], "name": "n" * 400})
+
+        _, response = self.dashboard_api.create_dashboard(
+            {
+                "name": "another",
+                "use_dashboard": existing_dashboard.id,
+                "duplicate_tiles": True,
+            },
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        assert "Can't copy the insight" in response["detail"]
+
     @parameterized.expand(
         [
             ("with_layouts", {"sm": {"x": 6, "y": 0, "w": 6, "h": 5}}, {"sm": {"x": 6, "y": 0, "w": 6, "h": 5}}),
