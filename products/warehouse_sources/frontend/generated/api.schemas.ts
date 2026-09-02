@@ -15,9 +15,10 @@
  * * `cdc` - cdc
  * * `xmin` - xmin
  */
-export type SyncTypeEnumApi = (typeof SyncTypeEnumApi)[keyof typeof SyncTypeEnumApi]
+export type ExternalDataSchemaSyncTypeEnumApi =
+    (typeof ExternalDataSchemaSyncTypeEnumApi)[keyof typeof ExternalDataSchemaSyncTypeEnumApi]
 
-export const SyncTypeEnumApi = {
+export const ExternalDataSchemaSyncTypeEnumApi = {
     FullRefresh: 'full_refresh',
     Incremental: 'incremental',
     Append: 'append',
@@ -166,7 +167,7 @@ export interface ExternalDataSchemaApi {
      * * `webhook` - webhook
      * * `cdc` - cdc
      * * `xmin` - xmin */
-    sync_type?: SyncTypeEnumApi | null
+    sync_type?: ExternalDataSchemaSyncTypeEnumApi | null
     /**
      * Column name used to track sync progress.
      * @nullable
@@ -329,7 +330,7 @@ export interface PatchedExternalDataSchemaApi {
      * * `webhook` - webhook
      * * `cdc` - cdc
      * * `xmin` - xmin */
-    sync_type?: SyncTypeEnumApi | null
+    sync_type?: ExternalDataSchemaSyncTypeEnumApi | null
     /**
      * Column name used to track sync progress.
      * @nullable
@@ -424,10 +425,10 @@ export interface PatchedExternalDataSchemaApi {
  * * `wizard` - wizard
  * * `self_driving` - self_driving
  */
-export type ExternalDataSourceSerializersCreatedViaEnumApi =
-    (typeof ExternalDataSourceSerializersCreatedViaEnumApi)[keyof typeof ExternalDataSourceSerializersCreatedViaEnumApi]
+export type ExternalDataSourceCreatedViaEnumApi =
+    (typeof ExternalDataSourceCreatedViaEnumApi)[keyof typeof ExternalDataSourceCreatedViaEnumApi]
 
-export const ExternalDataSourceSerializersCreatedViaEnumApi = {
+export const ExternalDataSourceCreatedViaEnumApi = {
     Web: 'web',
     Api: 'api',
     Mcp: 'mcp',
@@ -3097,9 +3098,10 @@ export const ExternalDataSourceTypeEnumApi = {
  * * `warehouse` - warehouse
  * * `direct` - direct
  */
-export type AccessMethodEnumApi = (typeof AccessMethodEnumApi)[keyof typeof AccessMethodEnumApi]
+export type ExternalDataSourceAccessMethodEnumApi =
+    (typeof ExternalDataSourceAccessMethodEnumApi)[keyof typeof ExternalDataSourceAccessMethodEnumApi]
 
-export const AccessMethodEnumApi = {
+export const ExternalDataSourceAccessMethodEnumApi = {
     Warehouse: 'warehouse',
     Direct: 'direct',
 } as const
@@ -3149,7 +3151,7 @@ export interface ExternalDataSourceSerializersApi {
      * * `mcp` - mcp
      * * `wizard` - wizard
      * * `self_driving` - self_driving */
-    created_via?: ExternalDataSourceSerializersCreatedViaEnumApi | null
+    created_via?: ExternalDataSourceCreatedViaEnumApi | null
     readonly status: string
     client_secret: string
     account_id: string
@@ -3166,7 +3168,7 @@ export interface ExternalDataSourceSerializersApi {
      * @nullable
      */
     description?: string | null
-    readonly access_method: AccessMethodEnumApi
+    readonly access_method: ExternalDataSourceAccessMethodEnumApi
     /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
     /** Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources. */
@@ -4586,7 +4588,7 @@ export interface ExternalDataSourceCreateApi {
      *
      * * `warehouse` - warehouse
      * * `direct` - direct */
-    access_method?: AccessMethodEnumApi
+    access_method?: ExternalDataSourceAccessMethodEnumApi
     /** Where the request came from: `web` for the in-app UI, `api` for direct API callers, `mcp` for agent/MCP tool calls. `wizard` and `self_driving` cannot be set directly — they are derived server-side for wizard- and PostHog Desktop-driven MCP calls. Defaults to `api`.
      *
      * * `web` - web
@@ -4619,7 +4621,7 @@ export interface PatchedExternalDataSourceSerializersApi {
      * * `mcp` - mcp
      * * `wizard` - wizard
      * * `self_driving` - self_driving */
-    created_via?: ExternalDataSourceSerializersCreatedViaEnumApi | null
+    created_via?: ExternalDataSourceCreatedViaEnumApi | null
     readonly status?: string
     client_secret?: string
     account_id?: string
@@ -4636,7 +4638,7 @@ export interface PatchedExternalDataSourceSerializersApi {
      * @nullable
      */
     description?: string | null
-    readonly access_method?: AccessMethodEnumApi
+    readonly access_method?: ExternalDataSourceAccessMethodEnumApi
     /** Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources. */
     direct_query_enabled?: boolean
     /** Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources. */
@@ -4702,7 +4704,7 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      * * `webhook` - webhook
      * * `cdc` - cdc
      * * `xmin` - xmin */
-    sync_type?: SyncTypeEnumApi | null
+    sync_type?: ExternalDataSchemaSyncTypeEnumApi | null
     /**
      * Incremental cursor field for incremental or append syncs.
      * @nullable
@@ -6125,7 +6127,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      *
      * * `warehouse` - warehouse
      * * `direct` - direct */
-    readonly access_method: AccessMethodEnumApi
+    readonly access_method: ExternalDataSourceAccessMethodEnumApi
     /** Whether HogQL queries compile for this connection. When false, only raw SQL (sendRawQuery) works. */
     readonly supports_hogql: boolean
     /** Whether this option is the built-in PostHog managed warehouse connection. */

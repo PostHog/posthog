@@ -2283,9 +2283,9 @@ export interface CustomPropertyOptionApi {
  * * `tracked` - tracked
  * * `ignored` - ignored
  */
-export type AccountSegmentEnumApi = (typeof AccountSegmentEnumApi)[keyof typeof AccountSegmentEnumApi]
+export type SyncSegmentEnumApi = (typeof SyncSegmentEnumApi)[keyof typeof SyncSegmentEnumApi]
 
-export const AccountSegmentEnumApi = {
+export const SyncSegmentEnumApi = {
     Tracked: 'tracked',
     Ignored: 'ignored',
 } as const
@@ -2319,7 +2319,7 @@ export interface CustomPropertySyncRunApi {
      *
      * * `tracked` - tracked
      * * `ignored` - ignored */
-    readonly account_segment: AccountSegmentEnumApi | null
+    readonly account_segment: SyncSegmentEnumApi | null
     /** Current account sync phase. Person and group property runs return null.
      *
      * * `staging` - staging
@@ -2957,9 +2957,10 @@ export const FeatureRequestStatusEnumApi = {
  * * `medium` - Medium
  * * `low` - Low
  */
-export type RequestPriorityEnumApi = (typeof RequestPriorityEnumApi)[keyof typeof RequestPriorityEnumApi]
+export type FeatureRequestPriorityEnumApi =
+    (typeof FeatureRequestPriorityEnumApi)[keyof typeof FeatureRequestPriorityEnumApi]
 
-export const RequestPriorityEnumApi = {
+export const FeatureRequestPriorityEnumApi = {
     High: 'high',
     Medium: 'medium',
     Low: 'low',
@@ -3050,7 +3051,7 @@ export interface FeatureRequestApi {
      * * `high` - High
      * * `medium` - Medium
      * * `low` - Low */
-    readonly request_priority: RequestPriorityEnumApi | null
+    readonly request_priority: FeatureRequestPriorityEnumApi | null
     /** Whether the request is archived. */
     readonly is_archived: boolean
     /**
@@ -3177,7 +3178,7 @@ export interface FeatureRequestUpdateApi {
      * * `high` - High
      * * `medium` - Medium
      * * `low` - Low */
-    request_priority?: RequestPriorityEnumApi | null
+    request_priority?: FeatureRequestPriorityEnumApi | null
 }
 
 export interface PatchedFeatureRequestUpdateApi {
@@ -3212,7 +3213,7 @@ export interface PatchedFeatureRequestUpdateApi {
      * * `high` - High
      * * `medium` - Medium
      * * `low` - Low */
-    request_priority?: RequestPriorityEnumApi | null
+    request_priority?: FeatureRequestPriorityEnumApi | null
 }
 
 export interface FeatureRequestAddAccountApi {
@@ -3362,9 +3363,10 @@ export interface FeatureRequestHistoryChangeApi {
 /**
  * * `manual` - Manual
  */
-export type ChangeSourceEnumApi = (typeof ChangeSourceEnumApi)[keyof typeof ChangeSourceEnumApi]
+export type FeatureRequestHistorySourceEnumApi =
+    (typeof FeatureRequestHistorySourceEnumApi)[keyof typeof FeatureRequestHistorySourceEnumApi]
 
-export const ChangeSourceEnumApi = {
+export const FeatureRequestHistorySourceEnumApi = {
     Manual: 'manual',
 } as const
 
@@ -3378,7 +3380,7 @@ export interface FeatureRequestHistoryApi {
     /** System that recorded the request change.
      *
      * * `manual` - Manual */
-    readonly change_source: ChangeSourceEnumApi
+    readonly change_source: FeatureRequestHistorySourceEnumApi
     /**
      * ID of the user who changed the request, if known.
      * @nullable
@@ -3425,7 +3427,7 @@ export interface FeatureRequestStatusHistoryApi {
     /** System that recorded the status change.
      *
      * * `manual` - Manual */
-    readonly change_source: ChangeSourceEnumApi
+    readonly change_source: FeatureRequestHistorySourceEnumApi
     /**
      * ID of the user who changed the status, if known.
      * @nullable
@@ -3496,9 +3498,9 @@ export const GroupUsageMetricDisplayEnumApi = {
  * * `count` - count
  * * `sum` - sum
  */
-export type MathEnumApi = (typeof MathEnumApi)[keyof typeof MathEnumApi]
+export type GroupUsageMetricMathEnumApi = (typeof GroupUsageMetricMathEnumApi)[keyof typeof GroupUsageMetricMathEnumApi]
 
-export const MathEnumApi = {
+export const GroupUsageMetricMathEnumApi = {
     Count: 'count',
     Sum: 'sum',
 } as const
@@ -3541,7 +3543,7 @@ export interface GroupUsageMetricApi {
      *
      * * `count` - count
      * * `sum` - sum */
-    math?: MathEnumApi
+    math?: GroupUsageMetricMathEnumApi
     /**
      * Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.
      * @maxLength 255
@@ -3597,7 +3599,7 @@ export interface PatchedGroupUsageMetricApi {
      *
      * * `count` - count
      * * `sum` - sum */
-    math?: MathEnumApi
+    math?: GroupUsageMetricMathEnumApi
     /**
      * Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.
      * @maxLength 255
