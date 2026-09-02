@@ -75,6 +75,7 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentBasicSerializer,
     ExperimentFlagCleanupTargetSerializer,
     ExperimentFlagCleanupTaskSerializer,
+    ExperimentInSessionExposureSerializer,
     ExperimentMetricsRecalculationSerializer,
     ExperimentSerializer,
     ExperimentSessionBucketRequestSerializer,
@@ -99,6 +100,7 @@ from products.experiments.backend.recalculation import (
     get_run_results,
     request_recalculation,
 )
+from products.experiments.backend.replay_linkage import resolve_in_session_exposure_semantics
 from products.experiments.backend.running_time_calculator import (
     BaselineStats,
     calculate_baseline_value,
@@ -1452,6 +1454,30 @@ class EnterpriseExperimentsViewSet(
         )
         serializer = ExperimentSessionContextsResponseSerializer(
             {"results": [{"session_id": session_id, "results": items} for session_id, items in contexts.items()]}
+        )
+        return Response(serializer.data)
+
+    @extend_schema(
+        request=None,
+        responses={200: OpenApiResponse(response=ExperimentInSessionExposureSerializer)},
+    )
+    @action(methods=["GET"], detail=True, url_path="in_session_exposure", required_scopes=["experiment:read"])
+    def in_session_exposure(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """How the recordings tab's in-session exposure scope reads on this experiment.
+
+        Resolved through the same seam as the recordings query's `in_session` refusal, so the
+        scope control disables exactly what a query would be refused for, and the copy can say
+        when sessions are matched on the stamped flag property rather than on the exposure event.
+        Postgres reads only, so it can serve the tab's mount path.
+        """
+        experiment: Experiment = self.get_object()
+        semantics = resolve_in_session_exposure_semantics(self.team, experiment)
+        serializer = ExperimentInSessionExposureSerializer(
+            {
+                "available": semantics.unavailable_reason is None,
+                "unavailable_reason": semantics.unavailable_reason,
+                "uses_stamped_fallback": semantics.uses_stamped_fallback,
+            }
         )
         return Response(serializer.data)
 

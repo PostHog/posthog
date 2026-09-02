@@ -49,12 +49,14 @@ import {
 } from '~/types'
 
 import {
+    experimentsInSessionExposureRetrieve,
     experimentsSessionBucketsCreate,
     experimentsSessionContextsCreate,
     experimentsSessionEventDeltasCreate,
 } from 'products/experiments/frontend/generated/api'
 import { ExperimentWatchCardKindEnumApi } from 'products/experiments/frontend/generated/api.schemas'
 import type {
+    ExperimentInSessionExposureApi,
     ExperimentSessionBucketResponseApi,
     ExperimentSessionBucketEnumApi,
     ExperimentSessionEventDeltaResponseApi,
@@ -65,13 +67,11 @@ import type { ScannerTypeEnumApi } from 'products/replay_vision/frontend/generat
 
 import type { ExperimentIdType } from '../../../types'
 import type { ExperimentSavedMetric } from '../experimentLogic'
-import { EXPERIMENT_EXPOSURE_EVENT, EXPOSURE_DEFAULT_EVENT, getActivationConfig } from '../exposureContract'
 import { getDefaultMetricTitle } from '../MetricsView/shared/utils'
 import {
     getExperimentVariants,
     getFunnelDropoffReason,
     getMetricSessionFilters,
-    isEventExposureConfig,
     isUnlinkableEventFilter,
 } from '../utils'
 import {
@@ -124,18 +124,6 @@ export type ExperimentReplayMetricFilterMode = 'fired_all' | 'fired_any' | 'no_m
  * that never touch the feature under test.
  */
 export type ExperimentReplayExposureScope = 'in_session' | 'all_exposed'
-
-/** Why in-session narrowing can't mean anything for this experiment, mirroring the backend's
- * refusal: a custom exposure event captured server-side never carries a session id, and unlike
- * the default events it has no stamped-property stand-in. */
-export const IN_SESSION_EXPOSURE_UNAVAILABLE_REASON =
-    "This experiment's exposure event is captured server-side without a session ID, so no session can contain it. Showing all exposed participants' sessions."
-
-/** Why in-session narrowing can't mean anything for an activation experiment, mirroring the
- * backend's refusal: exposure is counted from the activation event, which can land in a later
- * session than the flag call, so no single session reliably holds the exposure moment. */
-export const IN_SESSION_EXPOSURE_ACTIVATION_UNAVAILABLE_REASON =
-    "This experiment uses an activation event, so its exposure can span more than one session. Showing all exposed participants' sessions."
 
 /** What the tab asks the bucket endpoint for, and the spec a loaded response belongs to. */
 export interface ExperimentSessionBucketRequest {
@@ -206,6 +194,9 @@ export interface experimentReplayTabLogicValues {
     effectiveVariantKey: string | null
     exposureInSessionUnavailableReason: string | null
     exposureScope: ExperimentReplayExposureScope
+    exposureUsesStampedFallback: boolean
+    inSessionExposure: ExperimentInSessionExposureApi | null
+    inSessionExposureLoading: boolean
     linkedScanners: LinkedScanner[]
     linkedScannersLoading: boolean
     loadedRecordings: ExperimentReplayRecording[]
@@ -301,6 +292,21 @@ export interface experimentReplayTabLogicActions {
         payload?: any
         seenTogetherMap: Record<string, boolean>
     } // viewRecordingsLinkabilityLogic
+    loadInSessionExposure: (_?: unknown) => unknown
+    loadInSessionExposureFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadInSessionExposureSuccess: (
+        inSessionExposure: ExperimentInSessionExposureApi | null,
+        payload?: unknown
+    ) => {
+        inSessionExposure: ExperimentInSessionExposureApi | null
+        payload?: unknown
+    }
     loadLinkedScanners: (_?: unknown) => unknown
     loadLinkedScannersFailure: (
         error: string,
@@ -419,15 +425,11 @@ export interface experimentReplayTabLogicMeta {
         variantKeys: (arg: any) => string[]
         behaviorComparisonAvailable: (featureFlags: FeatureFlagsSet) => boolean
         effectiveVariantKey: (selectedVariantKey: string | null, variantKeys: string[]) => string | null
-        exposureInSessionUnavailableReason: (
-            linkabilityLoaded: boolean,
-            unlinkableEventNames: Set<string>,
-            arg: any
-        ) => string | null
+        exposureInSessionUnavailableReason: (inSessionExposure: any) => string | null
+        exposureUsesStampedFallback: (inSessionExposure: any) => boolean
         effectiveExposureScope: (
             exposureScope: ExperimentReplayExposureScope,
-            exposureInSessionUnavailableReason: string | null,
-            linkabilityLoaded: boolean
+            inSessionExposure: any
         ) => ExperimentReplayExposureScope
         metricOptions: (
             linkabilityLoaded: boolean,
@@ -611,6 +613,30 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 },
             },
         ],
+        inSessionExposure: [
+            null as ExperimentInSessionExposureApi | null,
+            {
+                // Whether the in-session scope can answer for this experiment, and whether its
+                // evidence is the stamped-property fallback. Resolved server-side through the same
+                // seam the recordings query refuses on, so the control disables exactly what a query
+                // would be refused for, and the caption can tell "the exposure was captured here"
+                // from "the flag was active here". Fail-soft to null, read as "not yet available"
+                // by the selectors below, so a failed check never sends a narrowing the backend
+                // would reject.
+                loadInSessionExposure: async (_: unknown = null, breakpoint) => {
+                    try {
+                        const response = await experimentsInSessionExposureRetrieve(
+                            String(values.currentProjectId),
+                            Number(props.experiment.id)
+                        )
+                        breakpoint()
+                        return response
+                    } catch {
+                        return null
+                    }
+                },
+            },
+        ],
     })),
     reducers({
         // null = "All" (every exposed session, regardless of variant). Persisted (keyed per
@@ -749,52 +775,37 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             (selectedVariantKey: string | null, variantKeys: string[]): string | null =>
                 selectedVariantKey !== null && variantKeys.includes(selectedVariantKey) ? selectedVariantKey : null,
         ],
-        // Mirrors the backend's refusal condition so an in-session choice (picked or persisted)
-        // never turns the tab into an error banner: only a custom exposure event has no stand-in
-        // when it was never captured with a $session_id (the default events fall back to the
-        // stamped $feature/<key> property). Null while the linkability check loads or fails, the
-        // fail-open posture every linkability consumer shares.
+        // Why the in-session scope can't answer for this experiment, from the server-side check —
+        // the single seam the recordings query refuses on, so the option is disabled for exactly
+        // the experiments a query would be refused for (activation, or a custom event with no
+        // stand-in, or a fallback scan too large for this project). Null while the check loads or
+        // fails, so the option isn't disabled on a transient error; the query still stays on all
+        // sessions until the check confirms availability (see effectiveExposureScope).
         exposureInSessionUnavailableReason: [
-            (s) => [s.linkabilityLoaded, s.unlinkableEventNames, (_, props) => props.experiment],
-            (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, experiment: Experiment): string | null => {
-                if (getActivationConfig(experiment.exposure_criteria)) {
-                    // Activation experiments count exposure from the activation event, which can land
-                    // in a later session than the flag call, so no single session reliably holds the
-                    // exposure moment. Config-based, so it doesn't wait on the linkability check.
-                    return IN_SESSION_EXPOSURE_ACTIVATION_UNAVAILABLE_REASON
-                }
-                if (!linkabilityLoaded) {
-                    return null
-                }
-                const exposureConfig = experiment.exposure_criteria?.exposure_config
-                const customEvent =
-                    exposureConfig &&
-                    isEventExposureConfig(exposureConfig) &&
-                    exposureConfig.event &&
-                    exposureConfig.event !== EXPOSURE_DEFAULT_EVENT &&
-                    exposureConfig.event !== EXPERIMENT_EXPOSURE_EVENT
-                        ? exposureConfig.event
-                        : null
-                return customEvent !== null && unlinkableEventNames.has(customEvent)
-                    ? IN_SESSION_EXPOSURE_UNAVAILABLE_REASON
-                    : null
-            },
+            (s) => [s.inSessionExposure],
+            (inSessionExposure: ExperimentInSessionExposureApi | null): string | null =>
+                inSessionExposure?.unavailable_reason ?? null,
+        ],
+        // True when in-session evidence is the stamped $feature/<key> property rather than the
+        // exposure event itself: the caption and tooltip must then say the flag was active in the
+        // session, not that the exposure was captured there. Server-resolved so it can't disagree
+        // with the query for edge configs the way a frontend re-derivation would.
+        exposureUsesStampedFallback: [
+            (s) => [s.inSessionExposure],
+            (inSessionExposure: ExperimentInSessionExposureApi | null): boolean =>
+                inSessionExposure?.uses_stamped_fallback ?? false,
         ],
         effectiveExposureScope: [
-            (s) => [s.exposureScope, s.exposureInSessionUnavailableReason, s.linkabilityLoaded],
+            (s) => [s.exposureScope, s.inSessionExposure],
             (
                 exposureScope: ExperimentReplayExposureScope,
-                exposureInSessionUnavailableReason: string | null,
-                linkabilityLoaded: boolean
+                inSessionExposure: ExperimentInSessionExposureApi | null
             ): ExperimentReplayExposureScope =>
-                // A failed linkability check leaves the refusal unknowable while
-                // seenTogetherMapLoading is already false, so a persisted or clicked in-session
-                // choice would otherwise reach the query and draw a backend 400 for a never-linked
-                // custom exposure. Hold at the all-sessions superset until the check confirms
-                // linkability; the query gate and the caption both read this, so they stay in step.
-                exposureInSessionUnavailableReason !== null || (exposureScope === 'in_session' && !linkabilityLoaded)
-                    ? 'all_exposed'
-                    : exposureScope,
+                // Narrow only on the server's confirmed-available verdict. While the check is in
+                // flight or if it failed (null), or when it reports the scope unavailable, hold at
+                // the all-sessions superset so no narrowing the backend would refuse reaches the
+                // query. The query gate and the caption both read this, so they stay in step.
+                exposureScope === 'in_session' && inSessionExposure?.available ? 'in_session' : 'all_exposed',
         ],
         // Every uuid-carrying metric: inline primary + secondary, then saved/shared metrics (their
         // definition lives in `saved_metrics[].query`) — the same set the backend
@@ -1031,7 +1042,6 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                                   experiment_id: experiment.id,
                                   ...(effectiveVariantKey !== null ? { variant: effectiveVariantKey } : {}),
                                   ...(effectiveExposureScope === 'in_session' &&
-                                  !seenTogetherMapLoading &&
                                   bucketSessionIds === undefined &&
                                   selectedWatchCard === null
                                       ? { in_session: true }
@@ -1218,6 +1228,10 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
     })),
     afterMount(({ values, actions }) => {
         actions.setDefaultTab(SessionRecordingSidebarTab.OVERVIEW)
+        // Resolve whether the in-session scope can answer before the viewer picks it, so the option
+        // is disabled (not left to fail as a query error) when it can't, and the caption knows
+        // whether evidence is the stamped-property fallback. A Postgres-only read on the backend.
+        actions.loadInSessionExposure()
         // Only the vision entry point renders the watching-scanners card, so don't spend the lookup
         // for everyone else who opens this tab without the flag.
         if (values.featureFlags[FEATURE_FLAGS.VISION_ENTRYPOINT_EXPERIMENTS]) {

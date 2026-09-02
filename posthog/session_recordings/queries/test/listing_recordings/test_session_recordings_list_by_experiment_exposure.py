@@ -51,6 +51,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
 )
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.replay_linkage import IN_SESSION_EVIDENCE_SCAN_MAX_MEMORY_BYTES
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 FROZEN_NOW = "2021-08-21T20:00:00Z"
@@ -603,6 +604,75 @@ class TestSessionRecordingsListByExperimentExposure(ClickhouseTestMixin, APIBase
                 recordings_filter={"experiment_exposure": {"experiment_id": experiment.id, "in_session": True}},
                 user=self.user,
             )
+
+    def test_in_session_stamped_fallback_is_refused_on_precomputing_teams(self) -> None:
+        # The stamped-property fallback scan has no event name to prune on, so it reads every event
+        # in the window. On teams where precomputation marks full-window live scans as a real cost,
+        # that scan times out rather than answering, so in_session over the fallback is refused the
+        # same way the population scan refuses, instead of being left to time out. The non-
+        # precomputing case is covered by test_in_session_reads_the_stamped_flag_property_*.
+        self._enable_precomputation()
+        experiment = self._create_experiment()
+        # No EventProperty row marks the default event as session-linked, so evidence falls back to
+        # the stamped flag property.
+        create_person(team=self.team, distinct_ids=["backend-exposed-user"])
+        self._create_exposure_event("backend-exposed-user", BASE_TIME + timedelta(hours=2), "test")
+        flush_persons_and_events()
+
+        with self.assertRaises(ValidationError):
+            filter_recordings_by(
+                team=self.team,
+                recordings_filter={"experiment_exposure": {"experiment_id": experiment.id, "in_session": True}},
+                user=self.user,
+            )
+
+    def test_in_session_evidence_scan_is_memory_bounded_and_times_out_by_throwing(self) -> None:
+        # The evidence scan and its GLOBAL IN set always run live, so the listing query must carry
+        # the ceiling, and its timeout must throw rather than return a partial session set that
+        # silently drops in-session recordings.
+        experiment = self._create_experiment()
+        EventProperty.objects.create(team=self.team, event="$feature_flag_called", property="$session_id")
+
+        executed_settings: list[HogQLGlobalSettings] = []
+
+        def record_settings_and_hit_the_ceiling(*args: object, **kwargs: object) -> None:
+            executed_settings.append(cast(HogQLGlobalSettings, kwargs["settings"]))
+            raise ClickHouseQueryMemoryLimitExceeded()
+
+        with patch.object(HogQLCursorPaginator, "execute_hogql_query", side_effect=record_settings_and_hit_the_ceiling):
+            with self.assertRaises(ClickHouseQueryMemoryLimitExceeded):
+                filter_recordings_by(
+                    team=self.team,
+                    recordings_filter={"experiment_exposure": {"experiment_id": experiment.id, "in_session": True}},
+                    user=self.user,
+                )
+        self.assertEqual(executed_settings[0].max_memory_usage, IN_SESSION_EVIDENCE_SCAN_MAX_MEMORY_BYTES)
+        self.assertEqual(executed_settings[0].timeout_overflow_mode, "throw")
+
+    def test_in_session_narrowing_survives_a_query_date_range_covering_the_evidence(self) -> None:
+        # The evidence scan clamps to the query's own date range (plus a session-length buffer). A
+        # range covering the exposure must keep the in-session session, proving the clamp narrows
+        # the scan without dropping evidence the listed window still holds.
+        experiment = self._create_experiment()
+        EventProperty.objects.create(team=self.team, event="$feature_flag_called", property="$session_id")
+        create_person(team=self.team, distinct_ids=["exposed-user"])
+        exposure_time = BASE_TIME + timedelta(hours=2)
+        self._create_exposure_event(
+            "exposed-user", exposure_time, "test", properties={"$session_id": "session-with-exposure"}
+        )
+        flush_persons_and_events()
+        self._produce_recording(
+            "exposed-user", "session-with-exposure", exposure_time, exposure_time + timedelta(minutes=10)
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "date_from": (exposure_time - timedelta(hours=1)).isoformat(),
+                "date_to": (exposure_time + timedelta(hours=1)).isoformat(),
+                "experiment_exposure": {"experiment_id": experiment.id, "in_session": True},
+            },
+            ["session-with-exposure"],
+        )
 
     @parameterized.expand(
         [

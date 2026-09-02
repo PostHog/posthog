@@ -33,7 +33,6 @@ import { scannerTypeLabel } from 'products/replay_vision/frontend/replay_scanner
 import { NOT_A_FUNNEL_REASON } from '../utils'
 import { ExperimentBehaviorComparison, ExperimentBehaviorComparisonToggle } from './ExperimentBehaviorComparison'
 import {
-    ExperimentReplayExposureScope,
     ExperimentReplayMetricFilterMode,
     ExperimentReplayMetricOption,
     ExperimentSessionBucket,
@@ -51,20 +50,35 @@ const ALL_VARIANTS = '$all'
 // turned down scanners for this experiment did not ask to be told again in purple.
 const SCANNER_CROSS_SELL_DISMISS_KEY = 'experiment-replay-vision-scanner-cross-sell'
 
-// What the unfiltered list is, said once above it, following the exposure scope control. The
-// 'all_exposed' caption carries the part that isn't guessable: exposure is resolved per person,
-// matching who the analysis counts, so sessions appear even when the exposure event fired
+// The 'all_exposed' caption carries the part that isn't guessable: exposure is resolved per
+// person, matching who the analysis counts, so sessions appear even when the exposure event fired
 // server-side or in an earlier session.
-const POPULATION_CAPTIONS: Record<ExperimentReplayExposureScope, string> = {
-    in_session: 'Showing sessions of exposed participants where the exposure was captured in the session.',
-    all_exposed:
-        "Showing sessions of exposed participants from their first exposure onward. The exposure event itself doesn't have to be in the session.",
+const ALL_EXPOSED_CAPTION =
+    "Showing sessions of exposed participants from their first exposure onward. The exposure event itself doesn't have to be in the session."
+
+// On the fallback path the evidence is the stamped flag property, which means the flag was active
+// in the session, not that the exposure event was captured there, so the copy must not claim more
+// than the query delivers. Mirrors the wording the behavior-comparison shelf uses for the same
+// case on this tab.
+function inSessionCaption(usesStampedFallback: boolean): string {
+    return usesStampedFallback
+        ? 'Showing sessions of exposed participants where the feature flag was active, since no exposure event can be matched to a recording here.'
+        : 'Showing sessions of exposed participants where the exposure was captured in the session.'
+}
+
+function inSessionTooltip(usesStampedFallback: boolean): string {
+    return usesStampedFallback
+        ? 'Sessions where the feature flag was active. No exposure event can be matched to a recording for this experiment, so the flag being active stands in.'
+        : 'Only sessions where an exposure event for this experiment was captured in the session.'
 }
 
 // Buckets and watch cards select their sessions from the in-session-exposed population, so the
 // scope control cannot widen or narrow them and is parked instead of silently ignored.
-const SCOPE_LOCKED_BY_BUCKET_REASON =
-    'This metric filter already narrows to sessions where the exposure was captured in the session.'
+function scopeLockedByBucketReason(usesStampedFallback: boolean): string {
+    return usesStampedFallback
+        ? 'This metric filter already narrows to sessions where the feature flag was active.'
+        : 'This metric filter already narrows to sessions where the exposure was captured in the session.'
+}
 
 // A session fires a metric's events, never the metric — the caption spells that out where it
 // has the room the trigger doesn't.
@@ -247,6 +261,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         effectiveVariantKey,
         effectiveExposureScope,
         exposureInSessionUnavailableReason,
+        exposureUsesStampedFallback,
         variantKeys,
         recordingsFilters,
         effectiveMetricUuids,
@@ -360,13 +375,16 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                     size="small"
                     value={effectiveExposureScope}
                     onChange={(value) => setExposureScope(value)}
-                    disabledReason={sessionBucketRequest !== null ? SCOPE_LOCKED_BY_BUCKET_REASON : undefined}
+                    disabledReason={
+                        sessionBucketRequest !== null
+                            ? scopeLockedByBucketReason(exposureUsesStampedFallback)
+                            : undefined
+                    }
                     options={[
                         {
                             value: 'in_session' as const,
                             label: 'Exposed in session',
-                            tooltip:
-                                'Only sessions where an exposure event for this experiment was captured in the session.',
+                            tooltip: inSessionTooltip(exposureUsesStampedFallback),
                             disabledReason: exposureInSessionUnavailableReason ?? undefined,
                             'data-attr': 'experiment-recordings-exposure-scope-in-session',
                         },
@@ -458,7 +476,9 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                 {!sessionBucketRequest && metricFilterMode === 'fired_all' ? (
                     effectiveMetricUuids.length === 0 ? (
                         <span data-attr="experiment-recordings-population-caption">
-                            {POPULATION_CAPTIONS[effectiveExposureScope]}
+                            {effectiveExposureScope === 'in_session'
+                                ? inSessionCaption(exposureUsesStampedFallback)
+                                : ALL_EXPOSED_CAPTION}
                         </span>
                     ) : null
                 ) : !sessionBucketRequest ? (

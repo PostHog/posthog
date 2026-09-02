@@ -11,6 +11,7 @@ import { initKeaTests } from '~/test/init'
 import { Experiment, FilterLogicalOperator, SessionRecordingSidebarTab } from '~/types'
 
 import {
+    experimentsInSessionExposureRetrieve,
     experimentsSessionBucketsCreate,
     experimentsSessionContextsCreate,
     experimentsSessionEventDeltasCreate,
@@ -26,6 +27,7 @@ jest.mock('lib/utils/product-intents', () => ({
 }))
 
 jest.mock('products/experiments/frontend/generated/api', () => ({
+    experimentsInSessionExposureRetrieve: jest.fn(),
     experimentsSessionContextsCreate: jest.fn().mockResolvedValue({ results: [] }),
     experimentsSessionBucketsCreate: jest.fn(),
     experimentsSessionEventDeltasCreate: jest.fn(),
@@ -126,6 +128,19 @@ const ALL_LINKABLE = {
     client_step: true,
 }
 
+type InSessionExposureResponse = {
+    available: boolean
+    unavailable_reason: string | null
+    uses_stamped_fallback: boolean
+}
+
+// The common case: in-session evidence is the exposure event itself, and the scope can answer.
+const IN_SESSION_AVAILABLE: InSessionExposureResponse = {
+    available: true,
+    unavailable_reason: null,
+    uses_stamped_fallback: false,
+}
+
 // Exposure narrowing lives in `experiment_exposure`, not the filter tree, so an unfiltered
 // tab carries an empty group.
 const EMPTY_FILTER_GROUP = {
@@ -148,6 +163,8 @@ describe('experimentReplayTabLogic', () => {
         ;(experimentsSessionEventDeltasCreate as jest.Mock).mockResolvedValue(DELTA_RESPONSE)
         ;(visionScannersList as jest.Mock).mockClear()
         ;(visionScannersList as jest.Mock).mockResolvedValue({ results: [] })
+        ;(experimentsInSessionExposureRetrieve as jest.Mock).mockClear()
+        ;(experimentsInSessionExposureRetrieve as jest.Mock).mockResolvedValue(IN_SESSION_AVAILABLE)
         seenTogetherSpy = jest.spyOn(api.propertyDefinitions, 'seenTogether')
         seenTogetherSpy.mockResolvedValue(ALL_LINKABLE)
         logic = experimentReplayTabLogic({ experiment: EXPERIMENT })
@@ -232,7 +249,7 @@ describe('experimentReplayTabLogic', () => {
         expect(recordingsFilters.experiment_exposure).toEqual({ experiment_id: 42, variant: 'test' })
     })
 
-    it('defaults to all sessions and narrows when the scope is set to in-session exposure', async () => {
+    it('defaults to all sessions and narrows when in-session exposure is available', async () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 42 })
 
@@ -240,127 +257,83 @@ describe('experimentReplayTabLogic', () => {
         expect(logic.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 42, in_session: true })
     })
 
-    it('holds the in-session narrowing out of the query until the linkability check lands', async () => {
-        // Sent before linkability is known, in_session can hit the backend refusal for a custom
-        // exposure event that turns out unlinkable; exposure-only is the correct superset until then.
-        let resolveSeenTogether!: (map: Record<string, boolean>) => void
-        seenTogetherSpy.mockReturnValue(new Promise((resolve) => (resolveSeenTogether = resolve)))
+    it('holds the in-session narrowing out of the query until the availability check lands', async () => {
+        // Sent before the backend confirms availability, in_session can hit a refusal for an
+        // experiment whose exposure can't be pinned to a session; exposure-only is the correct
+        // superset until then.
+        let resolveCheck!: (response: InSessionExposureResponse) => void
+        ;(experimentsInSessionExposureRetrieve as jest.Mock).mockReturnValue(
+            new Promise((resolve) => (resolveCheck = resolve))
+        )
         const pending = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 51 } as Experiment })
         pending.mount()
         pending.actions.setExposureScope('in_session')
 
         expect(pending.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 51 })
 
-        resolveSeenTogether(ALL_LINKABLE)
+        resolveCheck(IN_SESSION_AVAILABLE)
         await expectLogic(pending).toFinishAllListeners()
         expect(pending.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 51, in_session: true })
         pending.unmount()
     })
 
-    it('forces all sessions when a custom exposure event can never be session-linked', async () => {
-        seenTogetherSpy.mockResolvedValue({ ...ALL_LINKABLE, backend_exposure: false })
-        const customExposure = experimentReplayTabLogic({
-            experiment: {
-                ...EXPERIMENT,
-                id: 52,
-                exposure_criteria: {
-                    exposure_config: {
-                        kind: 'ExperimentEventExposureConfig',
-                        event: 'backend_exposure',
-                        properties: [],
-                    },
-                },
-            } as unknown as Experiment,
+    it('disables in-session and stays on all sessions when the backend reports it unavailable', async () => {
+        // The backend refuses in_session for experiments whose exposure can't be pinned to a
+        // session (activation, or a custom event with no session-linked stand-in, or a fallback
+        // scan too large for the project). The tab mirrors that from the same check: the option is
+        // disabled with the reason, and a picked or persisted choice falls back to all sessions
+        // instead of drawing a backend 400.
+        ;(experimentsInSessionExposureRetrieve as jest.Mock).mockResolvedValue({
+            available: false,
+            unavailable_reason:
+                'This experiment uses an activation event, so its exposure can span more than one session.',
+            uses_stamped_fallback: false,
         })
-        customExposure.mount()
-        await expectLogic(customExposure).toFinishAllListeners()
-        customExposure.actions.setExposureScope('in_session')
+        const unavailable = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 52 } as Experiment })
+        unavailable.mount()
+        await expectLogic(unavailable).toFinishAllListeners()
+        unavailable.actions.setExposureScope('in_session')
 
-        // The backend refuses in_session for these (a custom event has no stamped-property
-        // stand-in), so sending it would turn the tab into an error banner.
-        expect(customExposure.values.exposureInSessionUnavailableReason).not.toBeNull()
-        expect(customExposure.values.effectiveExposureScope).toBe('all_exposed')
-        expect(customExposure.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 52 })
-        customExposure.unmount()
+        expect(unavailable.values.exposureInSessionUnavailableReason).not.toBeNull()
+        expect(unavailable.values.effectiveExposureScope).toBe('all_exposed')
+        expect(unavailable.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 52 })
+        unavailable.unmount()
     })
 
-    it('forces all sessions when the linkability check fails for a custom exposure event', async () => {
-        // A failed check leaves the refusal unknowable (linkabilityLoaded stays false) while
-        // seenTogetherMapLoading returns to false. Passing in_session through here would send it
-        // to the backend, which refuses a never-linked custom exposure with a 400 — the error the
-        // frontend mirror exists to prevent. Fail open to the all-sessions superset instead.
-        seenTogetherSpy.mockRejectedValue(new Error('network error'))
-        const failedCustom = experimentReplayTabLogic({
-            experiment: {
-                ...EXPERIMENT,
-                id: 54,
-                exposure_criteria: {
-                    exposure_config: {
-                        kind: 'ExperimentEventExposureConfig',
-                        event: 'backend_exposure',
-                        properties: [],
-                    },
-                },
-            } as unknown as Experiment,
-        })
-        failedCustom.mount()
-        await expectLogic(failedCustom).toFinishAllListeners()
-        failedCustom.actions.setExposureScope('in_session')
+    it('falls back to all sessions when the availability check fails', async () => {
+        // A failed check can't confirm the scope is safe to send, so the option isn't disabled (the
+        // failure is transient) but the query still holds at the all-sessions superset, never
+        // sending a narrowing the backend might refuse.
+        ;(experimentsInSessionExposureRetrieve as jest.Mock).mockRejectedValue(new Error('network error'))
+        const failed = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 54 } as Experiment })
+        failed.mount()
+        await expectLogic(failed).toFinishAllListeners()
+        failed.actions.setExposureScope('in_session')
 
-        // No refusal reason, because the failed check can't tell whether the event is linkable —
-        // yet the scope still falls back, so in_session never reaches the query.
-        expect(failedCustom.values.exposureInSessionUnavailableReason).toBeNull()
-        expect(failedCustom.values.effectiveExposureScope).toBe('all_exposed')
-        expect(failedCustom.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 54 })
-        failedCustom.unmount()
+        expect(failed.values.exposureInSessionUnavailableReason).toBeNull()
+        expect(failed.values.effectiveExposureScope).toBe('all_exposed')
+        expect(failed.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 54 })
+        failed.unmount()
     })
 
-    it('forces all sessions for an activation experiment, whose exposure can span sessions', async () => {
-        const activation = experimentReplayTabLogic({
-            experiment: {
-                ...EXPERIMENT,
-                id: 53,
-                exposure_criteria: {
-                    activation_config: {
-                        kind: 'ExperimentEventExposureConfig',
-                        event: 'task_completed',
-                        properties: [],
-                    },
-                },
-            } as unknown as Experiment,
+    it('narrows but labels sessions as flag-active when the backend evidence is the stamped fallback', async () => {
+        // Server-side default exposure: the event carries no session id, so the backend matches on
+        // the stamped $feature/<key> property. The narrowing still applies (tighter than all
+        // sessions), but the copy must say the flag was active, not that the exposure was captured.
+        ;(experimentsInSessionExposureRetrieve as jest.Mock).mockResolvedValue({
+            available: true,
+            unavailable_reason: null,
+            uses_stamped_fallback: true,
         })
-        activation.mount()
-        await expectLogic(activation).toFinishAllListeners()
-        activation.actions.setExposureScope('in_session')
+        const fallback = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 43 } as Experiment })
+        fallback.mount()
+        await expectLogic(fallback).toFinishAllListeners()
+        fallback.actions.setExposureScope('in_session')
 
-        // The backend refuses in_session for activation experiments (exposure is counted from the
-        // activation event, which can land in a later session than the flag call), so sending it
-        // would turn the tab into an error banner.
-        expect(activation.values.exposureInSessionUnavailableReason).not.toBeNull()
-        expect(activation.values.effectiveExposureScope).toBe('all_exposed')
-        expect(activation.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 53 })
-        activation.unmount()
-    })
-
-    it('keeps the person-scoped filter when the exposure event is server-side', async () => {
-        // The case the person-scoped filter exists for: a server-side exposure event carries no
-        // session id, and any client-side downgrade of the query on that signal would reintroduce
-        // the empty tab this filter replaced.
-        seenTogetherSpy.mockResolvedValue({ $feature_flag_called: false })
-        // Distinct id: both this logic and the linkability lookup are keyed by experiment id.
-        const serverSide = experimentReplayTabLogic({ experiment: { ...EXPERIMENT, id: 43 } as Experiment })
-        serverSide.mount()
-
-        await expectLogic(serverSide).toFinishAllListeners()
-        serverSide.actions.setExposureScope('in_session')
-        // in_session stays available: for the default exposure event the backend answers it over
-        // the stamped $feature/<key> property, so only a custom exposure event forces it off.
-        expect(serverSide.values.recordingsFilters.experiment_exposure).toEqual({
-            experiment_id: 43,
-            in_session: true,
-        })
-        expect(serverSide.values.recordingsFilters.filter_group).toEqual(EMPTY_FILTER_GROUP)
-        serverSide.unmount()
+        expect(fallback.values.exposureUsesStampedFallback).toBe(true)
+        expect(fallback.values.recordingsFilters.experiment_exposure).toEqual({ experiment_id: 43, in_session: true })
+        expect(fallback.values.recordingsFilters.filter_group).toEqual(EMPTY_FILTER_GROUP)
+        fallback.unmount()
     })
 
     it('ANDs each selected metric filter onto the exposure filter, and ignores unknown metric uuids', async () => {

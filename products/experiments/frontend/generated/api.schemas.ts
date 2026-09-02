@@ -2030,6 +2030,21 @@ export interface ExperimentFlagCleanupTaskApi {
 }
 
 /**
+ * How the recordings tab's in-session exposure scope reads on this experiment.
+ */
+export interface ExperimentInSessionExposureApi {
+    /** Whether the in-session exposure scope can answer for this experiment. Mirrors the recordings query, which refuses `experiment_exposure.in_session` exactly when this is false. */
+    available: boolean
+    /**
+     * Why the in-session scope can't answer for this experiment, worded for display next to the disabled option. Null when available.
+     * @nullable
+     */
+    unavailable_reason: string | null
+    /** True when in-session evidence is the stamped `$feature/<flag_key>` property, which means the flag was active in the session, rather than the exposure event itself being captured there. Copy must not claim the exposure was captured in the session when this is set. */
+    uses_stamped_fallback: boolean
+}
+
+/**
  * * `manual` - Manual
  * * `agent_mcp` - Agent (MCP)
  * * `cold_run` - Cold Run
