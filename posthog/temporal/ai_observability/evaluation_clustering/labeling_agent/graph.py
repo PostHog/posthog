@@ -5,15 +5,10 @@ from typing import Any
 
 import structlog
 from langchain_core.messages import HumanMessage
-from langchain_openai import ChatOpenAI
 from langgraph.prebuilt import create_react_agent
 
 from posthog.llm.gateway_client import team_distinct_id
-from posthog.temporal.ai_observability.clustering_agent import (
-    LabelingAgentError,
-    fill_missing_labels,
-    prepare_labeling_agent_run,
-)
+from posthog.temporal.ai_observability.clustering_agent import fill_missing_labels, get_labeling_llm
 from posthog.temporal.ai_observability.evaluation_clustering.labeling_agent.prompts import (
     EVAL_CLUSTER_LABELING_SYSTEM_PROMPT,
 )
@@ -65,14 +60,21 @@ def run_eval_labeling_agent(
         **({"clustering_run_id": clustering_run_id} if clustering_run_id else {}),
         **({"clustering_job_id": clustering_job_id} if clustering_job_id else {}),
     }
+    llm = get_labeling_llm(
+        LABELING_AGENT_MODEL,
+        LABELING_AGENT_TIMEOUT,
+        trace_id=resolved_trace_id,
+        session_id=resolved_session_id,
+        properties=observability_properties,
+        distinct_id=resolved_distinct_id,
+    )
 
-    def make_agent(llm: ChatOpenAI) -> Any:
-        return create_react_agent(
-            model=llm,
-            tools=EVAL_LABELING_TOOLS,
-            prompt=EVAL_CLUSTER_LABELING_SYSTEM_PROMPT,
-            state_schema=EvalLabelingState,
-        )
+    agent = create_react_agent(
+        model=llm,
+        tools=EVAL_LABELING_TOOLS,
+        prompt=EVAL_CLUSTER_LABELING_SYSTEM_PROMPT,
+        state_schema=EvalLabelingState,
+    )
 
     initial_state: dict[str, Any] = {
         "messages": [HumanMessage(content="Please begin labeling the evaluation clusters.")],
@@ -92,19 +94,8 @@ def run_eval_labeling_agent(
         properties=observability_properties,
     )
 
-    # Built outside the try: a configuration error must fail the activity, not ship default labels.
-    run_agent = prepare_labeling_agent_run(
-        make_agent,
-        model=LABELING_AGENT_MODEL,
-        timeout=LABELING_AGENT_TIMEOUT,
-        trace_id=resolved_trace_id,
-        session_id=resolved_session_id,
-        properties=observability_properties,
-        distinct_id=resolved_distinct_id,
-    )
-
     try:
-        result = run_agent(
+        result = agent.invoke(
             initial_state,
             {"recursion_limit": LABELING_AGENT_RECURSION_LIMIT, "callbacks": callbacks},
         )
@@ -116,17 +107,6 @@ def run_eval_labeling_agent(
         )
         labels = result.get("current_labels", {})
         return _apply_fallbacks(labels, cluster_data)
-    except LabelingAgentError as e:
-        cause = e.__cause__ or e
-        logger.exception(
-            "eval_cluster_labeling_agent_error",
-            error=str(cause),
-            error_type=type(cause).__name__,
-            team_id=team_id,
-            partial_labels=len(e.partial_labels),
-        )
-        # Keep what the failed attempts labeled; defaults fill the rest.
-        return _apply_fallbacks(e.partial_labels, cluster_data)
     except Exception as e:
         logger.exception(
             "eval_cluster_labeling_agent_error",

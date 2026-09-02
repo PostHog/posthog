@@ -371,7 +371,7 @@ class TestFillMissingLabels:
 
 class TestRunLabelingAgentIntegration:
     @patch("posthog.temporal.ai_observability.trace_clustering.labeling_agent.graph.build_langchain_callbacks")
-    @patch("posthog.temporal.ai_observability.clustering_agent.get_labeling_llm")
+    @patch("posthog.temporal.ai_observability.trace_clustering.labeling_agent.graph.get_labeling_llm")
     @patch("posthog.temporal.ai_observability.trace_clustering.labeling_agent.graph.create_react_agent")
     def test_runs_agent_and_returns_labels(self, mock_create_agent, mock_get_labeling_llm, mock_build_callbacks):
         mock_llm = MagicMock()
@@ -422,7 +422,7 @@ class TestRunLabelingAgentIntegration:
         )
         assert mock_agent.invoke.call_args.args[1]["callbacks"] == callbacks
 
-    @patch("posthog.temporal.ai_observability.clustering_agent.get_labeling_llm")
+    @patch("posthog.temporal.ai_observability.trace_clustering.labeling_agent.graph.get_labeling_llm")
     @patch("posthog.temporal.ai_observability.trace_clustering.labeling_agent.graph.create_react_agent")
     def test_handles_agent_error_gracefully(self, mock_create_agent, mock_get_labeling_llm):
         mock_llm = MagicMock()
@@ -447,7 +447,7 @@ class TestRunLabelingAgentIntegration:
         assert observability_kwargs["session_id"] == observability_kwargs["trace_id"]
         assert observability_kwargs["distinct_id"] == "team-1"
 
-    @patch("posthog.temporal.ai_observability.clustering_agent.get_labeling_llm")
+    @patch("posthog.temporal.ai_observability.trace_clustering.labeling_agent.graph.get_labeling_llm")
     @patch("posthog.temporal.ai_observability.trace_clustering.labeling_agent.graph.create_react_agent")
     def test_passes_correct_config_to_agent(self, mock_create_agent, mock_get_labeling_llm):
         mock_llm = MagicMock()
