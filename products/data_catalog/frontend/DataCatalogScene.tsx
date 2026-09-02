@@ -1,3 +1,8 @@
+// Side-effect: registers the data catalog approval-card previews (certify, deprecate, metric approve,
+// relationship accept/reject) into the shared PostHog AI tool registry. Imported here so they are
+// registered whenever the catalog scene loads.
+import './registerDataCatalogToolPreviews'
+
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconPlusSmall } from '@posthog/icons'
