@@ -312,7 +312,7 @@ describe('dataQualityCheckEditorLogic', () => {
         await mountLogic()
         await openWith(null, { checkType: 'custom_sql', customSql: 'SELECT order_id FROM orders' })
 
-        await expectLogic(logic, () => logic.actions.runCustomSqlPreview())
+        await expectLogic(logic, () => logic.actions.runCustomSqlPreview(undefined))
             .toDispatchActions(['runCustomSqlPreviewSuccess'])
             .toFinishAllListeners()
 
@@ -324,7 +324,7 @@ describe('dataQualityCheckEditorLogic', () => {
         expect(logic.values.customSqlPreviewStale).toBe(true)
 
         ;(performQuery as jest.Mock).mockResolvedValueOnce({ columns: [], results: [], hasMore: false })
-        await expectLogic(logic, () => logic.actions.runCustomSqlPreview())
+        await expectLogic(logic, () => logic.actions.runCustomSqlPreview(undefined))
             .toDispatchActions(['runCustomSqlPreviewSuccess'])
             .toFinishAllListeners()
 
@@ -337,7 +337,7 @@ describe('dataQualityCheckEditorLogic', () => {
         await mountLogic()
         await openWith(null, { checkType: 'custom_sql', customSql: 'SELECT order_id FROM orders' })
 
-        await expectLogic(logic, () => logic.actions.runCustomSqlPreview())
+        await expectLogic(logic, () => logic.actions.runCustomSqlPreview(undefined))
             .toDispatchActions(['runCustomSqlPreviewSuccess'])
             .toFinishAllListeners()
 
@@ -366,7 +366,7 @@ describe('dataQualityCheckEditorLogic', () => {
         await mountLogic()
         await openWith(null, { checkType: 'custom_sql', customSql: 'SELECT id FROM stripe_charges WHERE amount < 0' })
 
-        await expectLogic(logic, () => logic.actions.runCustomSqlPreview())
+        await expectLogic(logic, () => logic.actions.runCustomSqlPreview(undefined))
             .toDispatchActions(['runCustomSqlPreviewSuccess'])
             .toFinishAllListeners()
 
@@ -384,7 +384,7 @@ describe('dataQualityCheckEditorLogic', () => {
         await mountLogic()
         await openWith(null, { checkType: 'custom_sql', customSql: 'SELECT * FROM missing' })
 
-        await expectLogic(logic, () => logic.actions.runCustomSqlPreview())
+        await expectLogic(logic, () => logic.actions.runCustomSqlPreview(undefined))
             .toDispatchActions(['runCustomSqlPreviewFailure'])
             .toFinishAllListeners()
 
@@ -408,8 +408,8 @@ describe('dataQualityCheckEditorLogic', () => {
 
         // First request stays pending; the second supersedes it and passes. Do not wait for all
         // listeners here — the first request is meant to still be in flight.
-        logic.actions.runCustomSqlPreview()
-        await expectLogic(logic, () => logic.actions.runCustomSqlPreview()).toDispatchActions([
+        logic.actions.runCustomSqlPreview(undefined)
+        await expectLogic(logic, () => logic.actions.runCustomSqlPreview(undefined)).toDispatchActions([
             'runCustomSqlPreviewSuccess',
         ])
 

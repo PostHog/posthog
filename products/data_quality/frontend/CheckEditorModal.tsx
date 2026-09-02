@@ -305,7 +305,7 @@ function CustomSqlField(): JSX.Element {
                         sourceQuery={customSqlSourceQuery}
                         onError={setCustomSqlEditorError}
                         onMetadataLoading={setCustomSqlValidationLoading}
-                        onPressCmdEnter={() => runCustomSqlPreview()}
+                        onPressCmdEnter={() => runCustomSqlPreview(undefined)}
                         autoFocus
                         minHeight="8rem"
                         maxHeight="40vh"
