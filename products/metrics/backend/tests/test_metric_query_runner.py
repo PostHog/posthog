@@ -223,6 +223,10 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ("avg", 16.5),
             # Counting raw samples would give 6.
             ("count", 2.0),
+            # The discriminating case for min: over raw samples this is 1.0, series a's
+            # stale first sample, rather than the smallest current reading across series.
+            ("min", 3.0),
+            ("max", 30.0),
         ]
     )
     def test_aggregations_run_across_series_not_samples(self, aggregation: str, expected: float):
@@ -607,8 +611,14 @@ class TestRunMetricQueryFacade(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             (
-                "unsupported_aggregation",
-                {"clauses": (MetricQueryClause(name="a", metric_name="m1", aggregation=MetricAggregation.MIN),)},
+                "quantile_other_than_p95",
+                {
+                    "clauses": (
+                        MetricQueryClause(
+                            name="a", metric_name="m1", aggregation=MetricAggregation.QUANTILE, quantile=0.5
+                        ),
+                    )
+                },
             ),
         ]
     )
