@@ -219,22 +219,14 @@ export interface dashboardAiSyncLogicActions {
         action: DashboardLoadAction
     } // dashboardLogic
     loadDashboardSuccess: (
-        dashboard:
-            | null
-            | import('~/types').DashboardType<
-                  QueryBasedInsightModel<import('../../queries/schema').Node<Record<string, any>>>
-              >,
+        dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null,
         payload?:
             | {
                   action: DashboardLoadAction
               }
             | undefined
     ) => {
-        dashboard:
-            | null
-            | import('~/types').DashboardType<
-                  QueryBasedInsightModel<import('../../queries/schema').Node<Record<string, any>>>
-              >
+        dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
         payload?: {
             action: DashboardLoadAction
         }
