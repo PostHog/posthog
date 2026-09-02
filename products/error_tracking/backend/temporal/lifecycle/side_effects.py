@@ -131,22 +131,15 @@ def produce_issue_lifecycle_internal_event(
         flush_internal_events_producer(KAFKA_DELIVERY_TIMEOUT_SECONDS)
         result.get(timeout=0)
 
-    try:
-        produce(properties)
-    except KafkaException as error:
-        kafka_error = error.args[0] if error.args else None
-        if not isinstance(kafka_error, KafkaError) or kafka_error.name() != "MSG_SIZE_TOO_LARGE":
-            raise
-        properties.pop("exception_props", None)
-        properties["message_was_too_large"] = True
-        produce(properties)
-
     extra = {
         key: str(value)
         for key, value in (extra_properties or {}).items()
         if key in ("computed_baseline", "current_bucket_value") and value is not None
     }
     status_property = properties.get("status")
+    # Dispatched before the Kafka publish so a persistent publication failure (which
+    # re-raises and fails the activity) does not also drop the alert. Redelivered
+    # starts on activity retry are idempotent on the notification id.
     start_alert_delivery_workflow(
         team_id=inputs.team_id,
         event=event,
@@ -157,9 +150,21 @@ def produce_issue_lifecycle_internal_event(
         status=status_property if isinstance(status_property, str) else None,
         assignee=inputs.assignee,
         event_uuid=inputs.event_uuid,
-        event_timestamp=timestamp.isoformat(),
+        # Paired with event_uuid, so it must be the exception's own time: spiking
+        # passes the detection time as exception_timestamp, which can differ.
+        event_timestamp=inputs.event_timestamp,
         extra=extra or None,
     )
+
+    try:
+        produce(properties)
+    except KafkaException as error:
+        kafka_error = error.args[0] if error.args else None
+        if not isinstance(kafka_error, KafkaError) or kafka_error.name() != "MSG_SIZE_TOO_LARGE":
+            raise
+        properties.pop("exception_props", None)
+        properties["message_was_too_large"] = True
+        produce(properties)
 
 
 async def emit_issue_lifecycle_signal(
