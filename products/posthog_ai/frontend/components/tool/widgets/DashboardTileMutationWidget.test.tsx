@@ -43,7 +43,16 @@ describe('DashboardTileMutationWidget', () => {
     it('uses View dashboard when several tiles changed', () => {
         render(
             <DashboardTileMutationWidget
-                message={makeMessage({ rawOutput: JSON.stringify({ tiles: [{ id: 101 }, { id: 102 }] }) })}
+                message={makeMessage({
+                    innerInput: {
+                        id: 5,
+                        widgets: [
+                            { widget_type: 'activity_events_list', config: {} },
+                            { widget_type: 'logs_list', config: {} },
+                        ],
+                    },
+                    rawOutput: JSON.stringify({ tiles: [{ id: 101 }, { id: 102 }] }),
+                })}
                 isLastInGroup
             />
         )
@@ -55,5 +64,21 @@ describe('DashboardTileMutationWidget', () => {
         render(<DashboardTileMutationWidget message={makeMessage({ rawOutput: JSON.stringify({}) })} isLastInGroup />)
 
         expect(screen.getByText('Call dashboard-widgets-batch-add')).toBeInTheDocument()
+    })
+
+    it('falls back to the generic card when the successful batch shape contradicts its request', () => {
+        render(
+            <DashboardTileMutationWidget
+                message={makeMessage({
+                    resolvedKey: 'dashboard-widgets-batch-update',
+                    innerToolName: 'dashboard-widgets-batch-update',
+                    innerInput: { id: 5, widgets: [{ tile_id: 101 }] },
+                    rawOutput: JSON.stringify({ tiles: [{ id: 102 }] }),
+                })}
+                isLastInGroup
+            />
+        )
+
+        expect(screen.getByText('Call dashboard-widgets-batch-update')).toBeInTheDocument()
     })
 })

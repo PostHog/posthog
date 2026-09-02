@@ -89,9 +89,9 @@ function asPositiveInteger(value: unknown): number | null {
     if (typeof value === 'number') {
         return Number.isSafeInteger(value) && value > 0 ? value : null
     }
-    if (typeof value === 'string' && /^[1-9]\d*$/.test(value)) {
+    if (typeof value === 'string' && /^\d+$/.test(value)) {
         const parsed = Number(value)
-        return Number.isSafeInteger(parsed) ? parsed : null
+        return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
     }
     return null
 }
@@ -262,11 +262,30 @@ export function extractInsightDashboardRevealTarget(message: ToolCallMessage): D
 }
 
 function responseTileIds(value: unknown): number[] | null {
-    if (!Array.isArray(value)) {
+    if (!Array.isArray(value) || value.length === 0) {
         return null
     }
 
     const ids = value.map((tile) => asPositiveInteger(asRecord(tile)?.id))
+    return ids.every(isNotNull) ? ids : null
+}
+
+function requestWidgets(value: unknown): Record<string, unknown>[] | null {
+    if (!Array.isArray(value) || value.length === 0) {
+        return null
+    }
+
+    const widgets = value.map(asRecord)
+    return widgets.every(isNotNull) ? widgets : null
+}
+
+function requestWidgetTileIds(value: unknown): number[] | null {
+    const widgets = requestWidgets(value)
+    if (!widgets) {
+        return null
+    }
+
+    const ids = widgets.map((widget) => asPositiveInteger(widget.tile_id))
     return ids.every(isNotNull) ? ids : null
 }
 
@@ -298,14 +317,29 @@ export function extractDashboardMutationRevealTarget(message: ToolCallMessage): 
             const tileId = asPositiveInteger(output.id)
             return dashboardId !== null && tileId !== null ? { dashboardId, tileId } : null
         }
-        case 'dashboard-widgets-batch-add':
-        case 'dashboard-widgets-batch-update': {
+        case 'dashboard-widgets-batch-add': {
             const dashboardId = asPositiveInteger(input.id)
             const tileIds = responseTileIds(output.tiles)
-            if (dashboardId === null || tileIds === null) {
+            const widgets = requestWidgets(input.widgets)
+            if (dashboardId === null || tileIds === null || widgets === null || tileIds.length !== widgets.length) {
                 return null
             }
             return { dashboardId, tileId: tileIds.length === 1 ? tileIds[0] : undefined }
+        }
+        case 'dashboard-widgets-batch-update': {
+            const dashboardId = asPositiveInteger(input.id)
+            const tileIds = responseTileIds(output.tiles)
+            const requestedTileIds = requestWidgetTileIds(input.widgets)
+            if (
+                dashboardId === null ||
+                tileIds === null ||
+                requestedTileIds === null ||
+                tileIds.length !== requestedTileIds.length ||
+                !tileIds.every((tileId, index) => tileId === requestedTileIds[index])
+            ) {
+                return null
+            }
+            return { dashboardId, tileId: requestedTileIds.length === 1 ? requestedTileIds[0] : undefined }
         }
         case 'dashboard-update': {
             const dashboardId = matchingDashboardResponseId(output, input)

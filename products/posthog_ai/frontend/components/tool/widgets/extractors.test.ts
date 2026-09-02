@@ -253,7 +253,43 @@ describe('mcp tool adapter extractors', () => {
         it.each([
             ['text tile without its response tile id', 'dashboard-create-text-tile', {}, { id: 5 }],
             ['batch add without its tiles response', 'dashboard-widgets-batch-add', {}, { id: 5 }],
+            [
+                'batch add with an empty response tiles array',
+                'dashboard-widgets-batch-add',
+                { tiles: [] },
+                { id: 5, widgets: [{ widget_type: 'activity_events_list', config: {} }] },
+            ],
+            [
+                'batch add with mismatched request and response cardinality',
+                'dashboard-widgets-batch-add',
+                { tiles: [widgetTile(101)] },
+                {
+                    id: 5,
+                    widgets: [
+                        { widget_type: 'activity_events_list', config: {} },
+                        { widget_type: 'logs_list', config: {} },
+                    ],
+                },
+            ],
             ['batch update with an incomplete tile', 'dashboard-widgets-batch-update', { tiles: [{}] }, { id: 5 }],
+            [
+                'batch update with an empty response tiles array',
+                'dashboard-widgets-batch-update',
+                { tiles: [] },
+                { id: 5, widgets: [{ tile_id: 101 }] },
+            ],
+            [
+                'batch update with mismatched request and response cardinality',
+                'dashboard-widgets-batch-update',
+                { tiles: [widgetTile(101)] },
+                { id: 5, widgets: [{ tile_id: 101 }, { tile_id: 102 }] },
+            ],
+            [
+                'batch update with response tile IDs that disagree with request order',
+                'dashboard-widgets-batch-update',
+                { tiles: [widgetTile(102), widgetTile(101)] },
+                { id: 5, widgets: [{ tile_id: 101 }, { tile_id: 102 }] },
+            ],
             ['dashboard update without its Dashboard response id', 'dashboard-update', { name: 'KPIs' }, { id: 5 }],
             ['copy without its Dashboard response id', 'dashboard-tile-copy', { name: 'KPIs' }, { id: 5 }],
             ['reorder with a zero Dashboard response id', 'dashboard-reorder-tiles', dashboardResponse(0), { id: 5 }],
@@ -273,6 +309,18 @@ describe('mcp tool adapter extractors', () => {
             ['negative numeric-string input id', 'dashboard-reorder-tiles', dashboardResponse(5), { id: '-5' }],
             ['zero numeric-string input id', 'dashboard-reorder-tiles', dashboardResponse(5), { id: '0' }],
             ['fractional numeric-string input id', 'dashboard-reorder-tiles', dashboardResponse(5), { id: '5.5' }],
+            [
+                'unsafe numeric dashboard ID',
+                'dashboard-reorder-tiles',
+                dashboardResponse(9007199254740992),
+                { id: 9007199254740992 },
+            ],
+            [
+                'unsafe numeric-string dashboard ID',
+                'dashboard-reorder-tiles',
+                dashboardResponse('9007199254740992'),
+                { id: '9007199254740992' },
+            ],
         ])(
             'rejects %s even when input contains a usable dashboard target',
             (_name, resolvedKey, output, innerInput) => {
@@ -282,13 +330,13 @@ describe('mcp tool adapter extractors', () => {
             }
         )
 
-        it('normalizes safe numeric-string dashboard and tile IDs', () => {
+        it('normalizes safe numeric-string dashboard and tile IDs, including MCP-compatible leading zeros', () => {
             expect(
                 extractDashboardMutationRevealTarget(
                     execMutationMessage({
                         resolvedKey: 'dashboard-create-text-tile',
-                        innerInput: { id: '5' },
-                        output: { id: '101' },
+                        innerInput: { id: '005' },
+                        output: { id: '00101' },
                     })
                 )
             ).toEqual({ dashboardId: 5, tileId: 101 })
