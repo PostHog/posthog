@@ -159,6 +159,13 @@ export class CyclotronV2Janitor {
     }
 
     async runOnce(): Promise<CyclotronV2CleanupResult> {
+        // Sweep first, before the cyclotron-cleanup stages below. Each of those issues an unguarded
+        // pool.query, so a failure specific to cyclotron_jobs (a statement timeout or lock pressure on
+        // that hot table) rejects out of runOnce and would skip the sweep for as long as it lasts. The
+        // sweep touches a different table and swallows its own errors, so running it up front keeps
+        // expired watchers draining even while cyclotron cleanup is failing.
+        await this.sweepExpiredConversionWatchers()
+
         const deletedCounts = await this.cleanupTerminalJobs()
         const deleted = Object.values(deletedCounts).reduce((a, b) => a + b, 0)
 
@@ -172,7 +179,6 @@ export class CyclotronV2Janitor {
             : await this.failPoisonPills()
 
         const stalled = await this.resetStalledJobs()
-        await this.sweepExpiredConversionWatchers()
         const depths = await this.measureQueueDepths()
 
         janitorRunCounter.inc()
