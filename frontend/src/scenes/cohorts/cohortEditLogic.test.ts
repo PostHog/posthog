@@ -314,10 +314,10 @@ describe('cohortEditLogic', () => {
                                 properties: {
                                     values: [
                                         {
-                                            id: "'Did not complete event' is a negative cohort criteria. Negation criteria can only be used when matching all criteria (AND), and must be accompanied by at least one positive matching criteria.",
+                                            id: "'Did not complete event' is a negative cohort criteria. Negation criteria need at least one positive matching criterion. Set the top selector to Match all criteria, then add a positive criterion in this or another group.",
                                             values: [
                                                 {
-                                                    value: "'Did not complete event' is a negative cohort criteria. Negation criteria can only be used when matching all criteria (AND), and must be accompanied by at least one positive matching criteria.",
+                                                    value: "'Did not complete event' is a negative cohort criteria. Negation criteria need at least one positive matching criterion. Set the top selector to Match all criteria, then add a positive criterion in this or another group.",
                                                 },
                                                 {},
                                             ],
@@ -368,10 +368,10 @@ describe('cohortEditLogic', () => {
                                 properties: {
                                     values: [
                                         {
-                                            id: "'Did not complete event' is a negative cohort criteria. Negation criteria can only be used when matching all criteria (AND), and must be accompanied by at least one positive matching criteria.",
+                                            id: "'Did not complete event' is a negative cohort criteria. Negation criteria need at least one positive matching criterion. Set the top selector to Match all criteria, then add a positive criterion in this or another group.",
                                             values: [
                                                 {
-                                                    value: "'Did not complete event' is a negative cohort criteria. Negation criteria can only be used when matching all criteria (AND), and must be accompanied by at least one positive matching criteria.",
+                                                    value: "'Did not complete event' is a negative cohort criteria. Negation criteria need at least one positive matching criterion. Set the top selector to Match all criteria, then add a positive criterion in this or another group.",
                                                 },
                                             ],
                                         },

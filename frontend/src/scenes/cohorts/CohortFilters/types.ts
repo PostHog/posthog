@@ -138,7 +138,7 @@ export type CohortFieldProps =
     | CohortRelativeAndExactTimeFieldProps
 
 export enum CohortClientErrors {
-    NegationCriteriaMissingOther = 'Negation criteria can only be used when matching all criteria (AND), and must be accompanied by at least one positive matching criteria.',
+    NegationCriteriaMissingOther = 'Negation criteria need at least one positive matching criterion. Set the top selector to Match all criteria, then add a positive criterion in this or another group.',
     NegationCriteriaCancel = 'These criteria cancel each other out, and would result in no matching persons.',
     PeriodTimeMismatch = 'The lower bound period value must not be greater than the upper bound value.',
     SequentialTimeMismatch = 'The lower bound period sequential time value must not be greater than the upper bound time value.',
