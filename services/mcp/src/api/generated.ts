@@ -9276,6 +9276,7 @@ export namespace Schemas {
     export const AgentKeyEnum = {
       Support: 'support',
       Scout: 'scout',
+      Workflow: 'workflow',
     } as const;
 
     /**
@@ -17682,12 +17683,15 @@ export namespace Schemas {
       event_filters: ClusteringConfigSetEventFiltersEventFiltersItem[];
     }
 
+    export type ClusteringJobEventFiltersItem = { [key: string]: unknown };
+
     export interface ClusteringJob {
       readonly id: string;
       /** @maxLength 100 */
       name: string;
       analysis_level: AnalysisLevelEnum;
-      event_filters?: unknown;
+      /** PostHog property filters that scope this clustering job. Empty array means no filters. */
+      event_filters?: ClusteringJobEventFiltersItem[];
       enabled?: boolean;
       readonly created_at: string;
       readonly updated_at: string;
@@ -18584,6 +18588,12 @@ export namespace Schemas {
       message: string;
       /** TipTap rich content JSON for formatted messages. */
       rich_content?: unknown;
+      /**
+         * Tags to apply to the new ticket, e.g. to mark its source. Each is normalized (lowercased, trimmed). Up to 100.
+         * @maxItems 100
+         * @items.maxLength 255
+         */
+      tags?: string[];
     }
 
     export interface ComposeTicketResponse {
@@ -24204,6 +24214,10 @@ export namespace Schemas {
      * * `Anvil` - Anvil
      * * `Coolify` - Coolify
      * * `SocialPilot` - SocialPilot
+     * * `Strato` - Strato
+     * * `Medusa` - Medusa
+     * * `Membrain` - Membrain
+     * * `RecallAI` - RecallAI
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -25534,6 +25548,10 @@ export namespace Schemas {
       Anvil: 'Anvil',
       Coolify: 'Coolify',
       SocialPilot: 'SocialPilot',
+      Strato: 'Strato',
+      Medusa: 'Medusa',
+      Membrain: 'Membrain',
+      RecallAI: 'RecallAI',
     } as const;
 
     /**
@@ -26877,7 +26895,11 @@ export namespace Schemas {
        * * `Lovable` - Lovable
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot */
+       * * `SocialPilot` - SocialPilot
+       * * `Strato` - Strato
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -28933,7 +28955,11 @@ export namespace Schemas {
        * * `Lovable` - Lovable
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot */
+       * * `SocialPilot` - SocialPilot
+       * * `Strato` - Strato
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -29867,7 +29893,7 @@ export namespace Schemas {
       /** Number of events matching this element chain */
       count: number;
       /**
-         * Stable identity of the raw element chain (hash computed before any attribute filtering), for deduplicating rows across pages
+         * Hash of the chain as the server grouped it; combine with type to deduplicate rows across pages
          * @nullable
          */
       hash: string | null;
@@ -30186,7 +30212,7 @@ export namespace Schemas {
       /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart, so a wrong `false` opens a duplicate PR. Tracked separately. */
       already_addressed?: boolean;
       /**
-         * Optional repo for autostart (opening a draft PR): `owner/repo` targets that repo, the `NO_REPO` sentinel opts out (report lands without a PR), and omitting it triggers free-form selection across the team's repos — the slow path on a many-repo team, so pass `owner/repo` when you know it.
+         * Optional repo for opening a draft PR, by autostart or by a person from the inbox. Pass `owner/repo` whenever you can say where a fix would land. Omit the field when you can't, which triggers free-form selection across the team's repos (the slow path on a many-repo team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo.
          * @nullable
          */
       repository?: string | null;
@@ -37482,7 +37508,11 @@ export namespace Schemas {
        * * `Lovable` - Lovable
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot */
+       * * `SocialPilot` - SocialPilot
+       * * `Strato` - Strato
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -38846,7 +38876,11 @@ export namespace Schemas {
        * * `Lovable` - Lovable
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot */
+       * * `SocialPilot` - SocialPilot
+       * * `Strato` - Strato
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -46078,6 +46112,8 @@ export namespace Schemas {
       readonly has_scim: boolean;
       /** Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token. */
       scim_enabled?: boolean;
+      /** SCIM base URL for this identity provider configuration. */
+      readonly scim_base_url: string;
       /**
          * Plaintext SCIM bearer token. Only returned once, immediately after SCIM is enabled or the token is regenerated; null otherwise.
          * @nullable
@@ -49049,6 +49085,7 @@ export namespace Schemas {
      * * `source` - source
      * * `trace_id` - trace_id
      * * `span_id` - span_id
+     * * `pattern` - pattern
      * * `message` - message
      * * `custom` - custom
      */
@@ -49061,6 +49098,7 @@ export namespace Schemas {
       Source: 'source',
       TraceId: 'trace_id',
       SpanId: 'span_id',
+      Pattern: 'pattern',
       Message: 'message',
       Custom: 'custom',
     } as const;
@@ -49068,13 +49106,14 @@ export namespace Schemas {
     export interface LogsViewColumn {
       /** Client-generated stable identity for list operations (React keys, reorder). Never interpreted by the server. */
       id: string;
-      /** Column type. Built-in types resolve client-side from log row fields; `custom` columns are computed server-side from `expression`.
+      /** Column type. Most built-in types resolve client-side from log row fields; `pattern` and `custom` columns are computed server-side, the latter from `expression`.
        *
        * * `timestamp` - timestamp
        * * `level` - level
        * * `source` - source
        * * `trace_id` - trace_id
        * * `span_id` - span_id
+       * * `pattern` - pattern
        * * `message` - message
        * * `custom` - custom */
       type: LogsViewColumnTypeEnum;
@@ -50450,6 +50489,8 @@ export namespace Schemas {
       name: string;
       /** Server description. */
       description: string;
+      /** MCP server URL. Clients derive a brand icon from it when icon_domain is empty. */
+      url: string;
       /** Deprecated brand icon key. Empty for custom servers. */
       icon_key: string;
       /** Brand domain. Empty for custom servers. */
@@ -50462,6 +50503,8 @@ export namespace Schemas {
        * * `disabled` - disabled
        * * `missing_credential` - missing_credential */
       connection_state: ConnectionStateEnum;
+      /** Whether agent runs can use this grant: the server is enabled for the project and an admin has not revoked the sharing member's access. Independent of connection_state, which reports credential health. */
+      reachable: boolean;
     }
 
     export interface MCPServiceAccount {
@@ -56187,6 +56230,37 @@ export namespace Schemas {
       results: Run[];
     }
 
+    export interface SCIMRequestLog {
+      readonly id: string;
+      readonly request_method: string;
+      readonly request_path: string;
+      readonly request_headers: unknown;
+      readonly request_body: unknown;
+      readonly response_status: number;
+      readonly response_body: unknown;
+      readonly identity_provider: string;
+      /** @nullable */
+      readonly duration_ms: number | null;
+      readonly created_at: string;
+    }
+
+    export interface PaginatedSCIMRequestLog {
+      /** Total number of matching SCIM requests. */
+      count: number;
+      /**
+         * URL for the next page, or null on the last page.
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL for the previous page, or null on the first page.
+         * @nullable
+         */
+      previous: string | null;
+      /** SCIM requests on this page. */
+      results: SCIMRequestLog[];
+    }
+
     export type SandboxCustomImageDTOSpec = { [key: string]: unknown };
 
     export type SandboxCustomImageDTOScanResult = { [key: string]: unknown };
@@ -57179,6 +57253,11 @@ export namespace Schemas {
       readonly review_mode: ReviewModeEnum;
       /** Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'. */
       trigger_label?: string;
+      /**
+         * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'manager' is required to change enabled, review_mode, or trigger_label.
+         * @nullable
+         */
+      readonly user_access_level: string | null;
       readonly created_at: string;
       readonly updated_at: string;
     }
@@ -60601,12 +60680,15 @@ export namespace Schemas {
       auto_archive_after_days?: number | null;
     }
 
+    export type PatchedClusteringJobEventFiltersItem = { [key: string]: unknown };
+
     export interface PatchedClusteringJob {
       readonly id?: string;
       /** @maxLength 100 */
       name?: string;
       analysis_level?: AnalysisLevelEnum;
-      event_filters?: unknown;
+      /** PostHog property filters that scope this clustering job. Empty array means no filters. */
+      event_filters?: PatchedClusteringJobEventFiltersItem[];
       enabled?: boolean;
       readonly created_at?: string;
       readonly updated_at?: string;
@@ -63357,6 +63439,8 @@ export namespace Schemas {
       readonly has_scim?: boolean;
       /** Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token. */
       scim_enabled?: boolean;
+      /** SCIM base URL for this identity provider configuration. */
+      readonly scim_base_url?: string;
       /**
          * Plaintext SCIM bearer token. Only returned once, immediately after SCIM is enabled or the token is regenerated; null otherwise.
          * @nullable
@@ -79497,7 +79581,11 @@ export namespace Schemas {
        * * `Lovable` - Lovable
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot */
+       * * `SocialPilot` - SocialPilot
+       * * `Strato` - Strato
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -80877,7 +80965,11 @@ export namespace Schemas {
        * * `Lovable` - Lovable
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot */
+       * * `SocialPilot` - SocialPilot
+       * * `Strato` - Strato
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -82239,7 +82331,11 @@ export namespace Schemas {
        * * `Lovable` - Lovable
        * * `Anvil` - Anvil
        * * `Coolify` - Coolify
-       * * `SocialPilot` - SocialPilot */
+       * * `SocialPilot` - SocialPilot
+       * * `Strato` - Strato
+       * * `Medusa` - Medusa
+       * * `Membrain` - Membrain
+       * * `RecallAI` - RecallAI */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -86233,9 +86329,9 @@ export namespace Schemas {
       runner: string;
       /** Runner-native test id reconstructed from Trunk's (file, classname, name) key. */
       nodeid: string;
-      /** Repo-relative path of the test file, as Trunk reports it. */
+      /** Repo-relative path of the test file, empty when neither the repository nor Trunk places it. */
       file: string;
-      /** Owning team slug from the per-test CI spans' emission-time stamp, or 'unowned' when no in-retention span carries one. */
+      /** Owning team slug from the repository's ownership files, or 'unowned' when the test's file cannot be placed or no team claims its path. */
       owner_team: string;
       /** Trunk's current health verdict on the test, e.g. 'FLAKY' or 'BROKEN'. */
       status: string;
@@ -86261,6 +86357,8 @@ export namespace Schemas {
       tests: TrunkQuarantinedTest[];
       /** False when no TrunkIo source has the QuarantinedTests endpoint synced; not an error. */
       available: boolean;
+      /** False when the repository's ownership files could not be read, so every test reads as 'unowned' for that reason rather than because no team claims it. */
+      owners_resolved: boolean;
       /** Days a quarantine may stand before it counts as overdue. */
       ttl_days: number;
       /** The 'owner/name' repository the debt was read for; test file paths are relative to it. */
@@ -87324,8 +87422,8 @@ export namespace Schemas {
 
     export interface WidgetGenerateRequest {
       /**
-         * Instructions for the generated widget.
-         * @maxLength 20000
+         * Instructions for the generated widget. Initial and improvement instructions accept up to 20,000 characters; regeneration accepts complete instructions up to 50,000 characters.
+         * @maxLength 50000
          */
       prompt: string;
       /** Idempotency key for this generation job. */
@@ -87343,6 +87441,8 @@ export namespace Schemas {
        * * `regenerate` - regenerate
        * * `improve` - improve */
       generation_operation?: GenerationOperationEnum;
+      /** Current widget version the improvement is based on. Required for improve operations. */
+      expected_current_version_id?: string;
     }
 
     /**
@@ -87500,7 +87600,10 @@ export namespace Schemas {
       version_operation: GeneratedWidgetVersionOperationEnum;
       /** Instructions added by this version. */
       prompt_delta: string;
-      /** Complete instructions represented by this version. */
+      /**
+         * Complete instructions represented by this version, up to 50,000 characters.
+         * @maxLength 50000
+         */
       effective_prompt: string;
       /**
          * AI model, or null when this version did not run a model.
@@ -90338,6 +90441,41 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type DomainsScimLogsRetrieveParams = {
+    /**
+     * Include requests at or after this time.
+     */
+    after?: string;
+    /**
+     * Include requests at or before this time.
+     */
+    before?: string;
+    /**
+     * Page number to return.
+     * @minimum 1
+     */
+    page?: number;
+    /**
+     * Number of requests to return per page.
+     * @minimum 1
+     * @maximum 100
+     */
+    page_size?: number;
+    /**
+     * Search request paths and masked request bodies.
+     * @minLength 1
+     */
+    search?: string;
+    /**
+     * Maximum HTTP response status to include, such as 499.
+     */
+    status_max?: number;
+    /**
+     * Minimum HTTP response status to include, such as 400.
+     */
+    status_min?: number;
+    };
+
     export type OrgFeatureFlagsKeysParams = {
     /**
      * Page size (max 100)
@@ -90366,6 +90504,41 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type IdentityProviderConfigsScimLogsRetrieveParams = {
+    /**
+     * Include requests at or after this time.
+     */
+    after?: string;
+    /**
+     * Include requests at or before this time.
+     */
+    before?: string;
+    /**
+     * Page number to return.
+     * @minimum 1
+     */
+    page?: number;
+    /**
+     * Number of requests to return per page.
+     * @minimum 1
+     * @maximum 100
+     */
+    page_size?: number;
+    /**
+     * Search request paths and masked request bodies.
+     * @minLength 1
+     */
+    search?: string;
+    /**
+     * Maximum HTTP response status to include, such as 499.
+     */
+    status_max?: number;
+    /**
+     * Minimum HTTP response status to include, such as 400.
+     */
+    status_min?: number;
     };
 
     export type OrgOrganizationsIntegrationsListParams = {
@@ -90621,7 +90794,7 @@ export namespace Schemas {
      */
     ordering?: string;
     /**
-     * Case-insensitive substring search across account name and external ID.
+     * Case-insensitive substring search across account name and external ID. A query holding an email address also matches accounts that list it as a known email, and a query holding a domain matches accounts that own that email domain.
      */
     search?: string;
     /**
@@ -90943,6 +91116,7 @@ export namespace Schemas {
      * * `DataQualityCheck` - DataQualityCheck
      * * `Billing` - Billing
      * * `Loop` - Loop
+     * * `StamphogRepoConfig` - StamphogRepoConfig
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -91040,6 +91214,7 @@ export namespace Schemas {
       DataQualityCheck: 'DataQualityCheck',
       Billing: 'Billing',
       Loop: 'Loop',
+      StamphogRepoConfig: 'StamphogRepoConfig',
     } as const;
 
     /**
@@ -91123,6 +91298,7 @@ export namespace Schemas {
      * * `DataQualityCheck` - DataQualityCheck
      * * `Billing` - Billing
      * * `Loop` - Loop
+     * * `StamphogRepoConfig` - StamphogRepoConfig
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -91208,6 +91384,7 @@ export namespace Schemas {
       DataQualityCheck: 'DataQualityCheck',
       Billing: 'Billing',
       Loop: 'Loop',
+      StamphogRepoConfig: 'StamphogRepoConfig',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
@@ -98655,6 +98832,14 @@ export namespace Schemas {
 
     export type SignalsReportsListParams = {
     /**
+     * Comma-separated actionability judgments to include. Valid values: immediately_actionable, requires_human_input, not_actionable. Reports without a judgment are excluded.
+     */
+    actionability?: string;
+    /**
+     * Filter by whether the latest actionability judgment says the issue is already being handled. False also includes older reports where that judgment did not record a value.
+     */
+    already_addressed?: boolean;
+    /**
      * Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.
      */
     channel_id?: string;
@@ -98687,6 +98872,10 @@ export namespace Schemas {
      */
     priority?: string;
     /**
+     * Reviewer scope: for_me, entire_project, or teammate. Pass teammate_uuid with teammate.
+     */
+    scope?: string;
+    /**
      * Comma-separated list of scout skill_name slugs (e.g. signals-scout-error-tracking). Reports are kept if at least one of their contributing signals was authored by one of these scouts. Combines with source_product as an AND.
      */
     scout?: string;
@@ -98698,6 +98887,10 @@ export namespace Schemas {
      * Case-insensitive substring match against report title and summary.
      */
     search?: string;
+    /**
+     * Inbox sort preset: priority, last_updated, newest, or oldest. Ignored when ordering is supplied.
+     */
+    sort?: string;
     /**
      * Comma-separated list of source record ids. Reports are kept if at least one of their contributing signals came from one of these records — e.g. pass a support ticket's UUID to see what the inbox already found for that ticket. Requires exactly one source_product, since a source id is only unique within its product.
      */
@@ -98718,6 +98911,18 @@ export namespace Schemas {
      * Only reports associated with this task (via the report's task associations).
      */
     task_id?: string;
+    /**
+     * PostHog user UUID used when scope=teammate.
+     */
+    teammate_uuid?: string;
+    /**
+     * When true and priority is omitted, include priorities at or above the requesting user's personal PR-generation threshold, falling back to the project threshold.
+     */
+    use_priority_preference?: boolean;
+    /**
+     * Apply an inbox view: actionable, needs_input, monitoring, resolved, dismissed, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters.
+     */
+    view?: string;
     };
 
     export type SignalsReportArtefactsListParams = {
@@ -99880,6 +100085,7 @@ export namespace Schemas {
 
 
     export const UploadedMediaListPurpose = {
+      Canvas: 'canvas',
       Email: 'email',
     } as const;
 
@@ -99891,6 +100097,7 @@ export namespace Schemas {
 
     export const UploadedMediaCreateBodyPurpose = {
       Email: 'email',
+      Canvas: 'canvas',
     } as const;
 
     export type UploadedMediaCreateBody = {
