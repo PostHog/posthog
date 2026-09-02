@@ -1967,6 +1967,11 @@ async fn test_get_persons_by_ids_without_properties() {
         .expect("Failed to get persons with props");
     assert_eq!(with_props.len(), 1);
     assert!(with_props[0].properties.is_some());
+    // A bulk read leaves the property metadata columns behind even when the
+    // caller wants properties. Restoring either column changes no result a
+    // caller reads, so only these assertions catch it.
+    assert!(with_props[0].properties_last_updated_at.is_none());
+    assert!(with_props[0].properties_last_operation.is_none());
 
     let without_props = ctx
         .storage
@@ -1991,6 +1996,16 @@ async fn test_get_persons_by_uuids_without_properties() {
         .await
         .expect("Failed to insert person");
 
+    let with_props = ctx
+        .storage
+        .get_persons_by_uuids(ctx.team_id, &[person.uuid], true)
+        .await
+        .expect("Failed to get persons with props");
+    assert_eq!(with_props.len(), 1);
+    assert!(with_props[0].properties.is_some());
+    assert!(with_props[0].properties_last_updated_at.is_none());
+    assert!(with_props[0].properties_last_operation.is_none());
+
     let without_props = ctx
         .storage
         .get_persons_by_uuids(ctx.team_id, &[person.uuid], false)
@@ -2013,6 +2028,17 @@ async fn test_get_persons_by_distinct_ids_in_team_without_properties() {
         .await
         .expect("Failed to insert person");
 
+    let with_props = ctx
+        .storage
+        .get_persons_by_distinct_ids_in_team(ctx.team_id, &["props_did_test".to_string()], true)
+        .await
+        .expect("Failed to get persons with props");
+    assert_eq!(with_props.len(), 1);
+    let person = with_props[0].1.as_ref().expect("Person should be found");
+    assert!(person.properties.is_some());
+    assert!(person.properties_last_updated_at.is_none());
+    assert!(person.properties_last_operation.is_none());
+
     let results = ctx
         .storage
         .get_persons_by_distinct_ids_in_team(ctx.team_id, &["props_did_test".to_string()], false)
@@ -2034,6 +2060,20 @@ async fn test_get_persons_by_distinct_ids_cross_team_without_properties() {
     ctx.insert_person("props_cross_test", Some(props))
         .await
         .expect("Failed to insert person");
+
+    let with_props = ctx
+        .storage
+        .get_persons_by_distinct_ids_cross_team(
+            &[(ctx.team_id, "props_cross_test".to_string())],
+            true,
+        )
+        .await
+        .expect("Failed to get persons with props");
+    assert_eq!(with_props.len(), 1);
+    let person = with_props[0].1.as_ref().expect("Person should be found");
+    assert!(person.properties.is_some());
+    assert!(person.properties_last_updated_at.is_none());
+    assert!(person.properties_last_operation.is_none());
 
     let results = ctx
         .storage
