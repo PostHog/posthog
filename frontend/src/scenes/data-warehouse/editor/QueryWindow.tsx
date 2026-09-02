@@ -1,7 +1,7 @@
 import { Monaco } from '@monaco-editor/react'
 import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
-import { memo, useCallback, useMemo, useRef } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef } from 'react'
 
 import { IconDatabase, IconGear, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
@@ -14,7 +14,6 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
@@ -31,7 +30,9 @@ import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/fro
 
 import { BIEditor } from './bi/BIEditor'
 import { biEditorLogic } from './bi/biEditorLogic'
-import { BIEditorView } from './bi/biEditorTypes'
+import { BIConfigValidationIssue, BIEditorView, getBIConfigValidationIssue } from './bi/biEditorTypes'
+import { BIEditorViewToggle } from './bi/BIEditorViewToggle'
+import { canUseBIEditor } from './bi/biEditorViewUtils'
 import { FixErrorButton } from './components/FixErrorButton'
 import { ConnectionSelector } from './ConnectionSelector'
 import { editorSizingLogic } from './editorSizingLogic'
@@ -43,6 +44,14 @@ import { QueryVariablesMenu } from './QueryVariablesMenu'
 import { sqlEditorLogic, tabModelPath } from './sqlEditorLogic'
 
 const EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS = 150
+
+const BI_CONFIG_DISABLED_REASONS: Record<BIConfigValidationIssue, string> = {
+    missing_source: 'Select a data source before running the query',
+    missing_field: 'Finish selecting every field before running the query',
+    missing_custom_value: 'Enter every custom value expression before running the query',
+    missing_filter_value: 'Enter every filter value before running the query',
+    missing_custom_filter: 'Enter every custom filter condition before running the query',
+}
 
 interface QueryWindowProps {
     onSetMonacoAndEditor: (monaco: Monaco, editor: importedEditor.IStandaloneCodeEditor) => void
@@ -101,7 +110,7 @@ export function QueryWindow({
         sendRawQueryEnabled,
         selectedConnectionSupportsHogQL,
     } = useValues(logic)
-    const { config: biConfig, editorView } = useValues(biLogic)
+    const { config: biConfig, editorView, generatedQuery } = useValues(biLogic)
 
     const {
         setQueryInput,
@@ -122,13 +131,16 @@ export function QueryWindow({
     const { editorVimModeEnabled } = useValues(userPreferencesLogic)
     const { setEditorVimModeEnabled } = useActions(userPreferencesLogic)
     const { isDatabaseTreeCollapsed } = useValues(editorSizingLogic)
-    // Raw-only connections are forced to raw SQL mode — no toggle to show.
     const canSendRawQuery = !!selectedConnectionId && selectedConnectionSupportsHogQL
-    const showBIEditor = biModeFeatureEnabled && mode === SQLEditorMode.FullScene && editorView === BIEditorView.BI
+    const biEditorAvailable = canUseBIEditor(biModeFeatureEnabled, mode, sendRawQueryEnabled)
+    const showBIEditor = biEditorAvailable && editorView === BIEditorView.BI
+    const biConfigValidationIssue = showBIEditor ? getBIConfigValidationIssue(biConfig) : null
     const debouncedMaxToolQueryInput = useDebouncedValue(queryInput, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const debouncedMaxToolSourceQuery = useDebouncedValue(sourceQuery, EMBEDDED_MAX_TOOL_CONTEXT_DEBOUNCE_MS)
     const executeSqlToolStateRef = useRef({ queryInput, sourceQuery })
-    executeSqlToolStateRef.current = { queryInput, sourceQuery }
+    useEffect(() => {
+        executeSqlToolStateRef.current = { queryInput, sourceQuery }
+    }, [queryInput, sourceQuery])
     const executeSqlToolContext = useMemo(
         () => getExecuteSqlToolContext(debouncedMaxToolQueryInput, debouncedMaxToolSourceQuery),
         [debouncedMaxToolQueryInput, debouncedMaxToolSourceQuery]
@@ -267,15 +279,12 @@ export function QueryWindow({
                             showDatabaseTree={showDatabaseTree}
                             onShowDatabaseTree={onShowDatabaseTree}
                         />
-                        {mode === SQLEditorMode.FullScene && biModeFeatureEnabled ? (
-                            <LemonSegmentedButton
-                                value={editorView}
-                                onChange={setEditorView}
-                                options={[
-                                    { value: BIEditorView.SQL, label: 'SQL' },
-                                    { value: BIEditorView.BI, label: 'BI' },
-                                ]}
-                                size="small"
+                        {biEditorAvailable ? (
+                            <BIEditorViewToggle
+                                editorView={editorView}
+                                queryInput={queryInput}
+                                generatedQuery={generatedQuery}
+                                setEditorView={setEditorView}
                             />
                         ) : null}
                         {hideRunButton ? null : (
@@ -284,8 +293,8 @@ export function QueryWindow({
                                 runQueryLoading={runQueryLoading}
                                 runQueryDisabledReason={
                                     runQueryDisabledReason ??
-                                    (showBIEditor && !biConfig.source
-                                        ? 'Drag a field into the BI editor before running'
+                                    (biConfigValidationIssue
+                                        ? BI_CONFIG_DISABLED_REASONS[biConfigValidationIssue]
                                         : undefined)
                                 }
                                 runQueryTooltip={runQueryTooltip}

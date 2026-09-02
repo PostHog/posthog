@@ -100,6 +100,13 @@ export interface BIQueryBuildResult {
     node: DataVisualizationNode
 }
 
+export type BIConfigValidationIssue =
+    | 'missing_source'
+    | 'missing_field'
+    | 'missing_custom_value'
+    | 'missing_filter_value'
+    | 'missing_custom_filter'
+
 export const BI_FIELD_DRAG_MIME_TYPE = 'application/x-posthog-bi-field'
 
 export const DEFAULT_BI_CONFIG: BIConfig = {
@@ -111,6 +118,48 @@ export const DEFAULT_BI_CONFIG: BIConfig = {
     filters: [],
     limit: 1000,
     sort: null,
+}
+
+function hasConfiguredField(field: BIField): boolean {
+    return !!(field.expression.trim() || field.name.trim())
+}
+
+function getBIValueValidationIssue(value: BIValue): BIConfigValidationIssue | null {
+    if (value.aggregation === 'custom') {
+        return value.customExpression?.trim() ? null : 'missing_custom_value'
+    }
+
+    return hasConfiguredField(value.field) ? null : 'missing_field'
+}
+
+function getBIFilterValidationIssue(filter: BIFilter): BIConfigValidationIssue | null {
+    if (filter.operator === 'custom') {
+        return filter.customExpression?.trim() ? null : 'missing_custom_filter'
+    }
+
+    if (!hasConfiguredField(filter.field)) {
+        return 'missing_field'
+    }
+
+    const operatorDoesNotNeedValue = ['last_7_days', 'is_set', 'is_not_set'].includes(filter.operator)
+    return operatorDoesNotNeedValue || filter.value.trim() ? null : 'missing_filter_value'
+}
+
+export function getBIConfigValidationIssue(config: BIConfig): BIConfigValidationIssue | null {
+    if (!config.source) {
+        return 'missing_source'
+    }
+
+    if ([...config.rows, ...config.columns].some((field) => !hasConfiguredField(field))) {
+        return 'missing_field'
+    }
+
+    const valueIssue = config.values.map(getBIValueValidationIssue).find((issue) => issue !== null)
+    if (valueIssue) {
+        return valueIssue
+    }
+
+    return config.filters.map(getBIFilterValidationIssue).find((issue) => issue !== null) ?? null
 }
 
 export function normalizeBIConfig(config: BIConfig): BIConfig {
