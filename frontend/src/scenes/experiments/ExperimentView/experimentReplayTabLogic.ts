@@ -118,9 +118,10 @@ export interface ExperimentReplayMetricOption {
 export type ExperimentReplayMetricFilterMode = 'fired_all' | 'fired_any' | 'no_metric_activity' | 'funnel_dropoff'
 
 /**
- * Which of an exposed participant's sessions the list shows: only the ones carrying in-session
- * exposure evidence (the default, since the long tail of an exposed person's other sessions
- * rarely touches the feature under test), or every session from first exposure onward.
+ * Which of an exposed participant's sessions the list shows: every session from first exposure
+ * onward (the default, matching the population the analysis counts), or only the ones carrying
+ * in-session exposure evidence, for opting out of the long tail of an exposed person's sessions
+ * that never touch the feature under test.
  */
 export type ExperimentReplayExposureScope = 'in_session' | 'all_exposed'
 
@@ -620,11 +621,11 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                 selectWatchCard: (state: string | null, { card }) => (card ? card.variant : state),
             },
         ],
-        // Persisted like the variant facet. The default excludes the long tail of an exposed
-        // person's sessions that never touch the feature under test; 'all_exposed' widens to
-        // their whole journey from first exposure.
+        // Persisted like the variant facet. The default shows exposed persons' whole journey
+        // from first exposure, matching the population the analysis counts; 'in_session'
+        // narrows out the long tail of their sessions that never touch the feature under test.
         exposureScope: [
-            'in_session' as ExperimentReplayExposureScope,
+            'all_exposed' as ExperimentReplayExposureScope,
             { persist: true },
             {
                 setExposureScope: (_, { scope }) => scope,
@@ -741,11 +742,11 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             (selectedVariantKey: string | null, variantKeys: string[]): string | null =>
                 selectedVariantKey !== null && variantKeys.includes(selectedVariantKey) ? selectedVariantKey : null,
         ],
-        // Mirrors the backend's refusal condition so the default never turns the tab into an
-        // error banner: only a custom exposure event has no stand-in when it was never captured
-        // with a $session_id (the default events fall back to the stamped $feature/<key>
-        // property). Null while the linkability check loads or fails, the fail-open posture
-        // every linkability consumer shares.
+        // Mirrors the backend's refusal condition so an in-session choice (picked or persisted)
+        // never turns the tab into an error banner: only a custom exposure event has no stand-in
+        // when it was never captured with a $session_id (the default events fall back to the
+        // stamped $feature/<key> property). Null while the linkability check loads or fails, the
+        // fail-open posture every linkability consumer shares.
         exposureInSessionUnavailableReason: [
             (s) => [s.linkabilityLoaded, s.unlinkableEventNames, (_, props) => props.experiment],
             (linkabilityLoaded: boolean, unlinkableEventNames: Set<string>, experiment: Experiment): string | null => {
