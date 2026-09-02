@@ -60,6 +60,7 @@ export interface TaskCreationInput {
    */
   cloudRtkEnabled?: boolean;
   signalReportId?: string;
+  originProduct?: string;
   /**
    * How the task relates to its signal report ("discussion", "canvas", …).
    * Routes the server's per-report cap: unlabelled defaults to implementation,

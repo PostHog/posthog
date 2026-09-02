@@ -238,6 +238,13 @@ export type ChannelItemSort = "recent" | "created" | "alpha";
 
 export const ANY_SOURCE = "any";
 
+/**
+ * Sources the list hides unless the filter names them. A page starts a task
+ * for every question it asks, and those would drown the sessions a person
+ * started.
+ */
+const HIDDEN_SOURCES: ReadonlySet<string> = new Set(["docs"]);
+
 export interface ChannelItemFilters {
   createdBy: CreatedByFilter;
   attention: AttentionFilter;
@@ -346,7 +353,9 @@ export function filterChannelItems(
     ) {
       return false;
     }
-    if (filters.source !== ANY_SOURCE && item.source !== filters.source) {
+    if (filters.source === ANY_SOURCE) {
+      if (item.source && HIDDEN_SOURCES.has(item.source)) return false;
+    } else if (item.source !== filters.source) {
       return false;
     }
     return true;

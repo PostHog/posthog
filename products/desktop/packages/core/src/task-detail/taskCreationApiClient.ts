@@ -25,6 +25,7 @@ export interface CreateTaskRunClientOptions {
   rtkEnabled?: boolean;
   runSource?: CloudRunSource;
   signalReportId?: string;
+  originProduct?: string;
   initialPermissionMode?: string;
   importedMcpServers?: McpServerConnection[];
   relayedMcpServers?: CloudMcpServerRelayDesignation[];

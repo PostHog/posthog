@@ -42,6 +42,7 @@ export function useDocAgentRun(options: { channelId: string }) {
         executionMode: DOC_AGENT_EXECUTION_MODE,
         outputSchema: input.outputSchema,
         allowNoRepo: true,
+        originProduct: "docs",
       });
 
       if (!result.success) throw new Error(result.error);

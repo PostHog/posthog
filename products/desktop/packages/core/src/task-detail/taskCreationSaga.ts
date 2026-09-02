@@ -443,6 +443,7 @@ export class TaskCreationSaga extends Saga<
             rtkEnabled: input.cloudRtkEnabled,
             runSource: input.cloudRunSource ?? "manual",
             signalReportId: input.signalReportId,
+            originProduct: input.originProduct,
             importedMcpServers: input.importedMcpServers,
             relayedMcpServers: input.relayedMcpServers,
             initialPermissionMode: cloudAdapter
@@ -872,7 +873,7 @@ export class TaskCreationSaga extends Saga<
               : undefined,
           origin_product: input.signalReportId
             ? "signal_report"
-            : "user_created",
+            : (input.originProduct ?? "user_created"),
           // Labels the task↔report association so the server routes it to the
           // right per-report cap; unlabelled defaults to implementation, which
           // burns the report's one-live-PR gate.

@@ -4,6 +4,7 @@ import {
   Bug,
   ChatCircle,
   Cloud as CloudIcon,
+  FileText,
   FilmSlate,
   Flask,
   GitBranch,
@@ -44,6 +45,7 @@ export const ICON_SIZE = 12;
 type OriginProductMeta = { Icon: typeof SlackLogo; label: string };
 const ORIGIN_PRODUCT_META: Record<string, OriginProductMeta> = {
   slack: { Icon: SlackLogo, label: "Slack" },
+  docs: { Icon: FileText, label: "Doc" },
   signal_report: { Icon: Broadcast, label: "Signals" },
   signals_scout: { Icon: Binoculars, label: "Signals scout" },
   support_queue: { Icon: Lifebuoy, label: "Support" },

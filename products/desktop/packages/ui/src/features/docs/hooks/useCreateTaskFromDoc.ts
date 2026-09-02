@@ -46,6 +46,7 @@ export function useCreateTaskFromDoc(options: {
         title: toTitle(variables.lineText),
         description,
         channel: options.channelId,
+        origin_product: "docs",
       });
     },
   );
