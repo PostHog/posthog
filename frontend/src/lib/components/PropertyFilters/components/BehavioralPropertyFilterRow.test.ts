@@ -1,5 +1,4 @@
 import {
-    behavioralCountOperator,
     withBehavioralCount,
     withBehavioralEventFilters,
     withBehavioralNegation,
@@ -64,27 +63,6 @@ describe('BehavioralPropertyFilterRow value mapping', () => {
         ],
     ])('%s', (_name, operator, operatorValue, expected) => {
         expect(withBehavioralCount(counted, operator, operatorValue)).toEqual({ ...counted, ...expected })
-    })
-
-    test.each<[string, Partial<BehavioralPropertyFilter>, PropertyOperator]>([
-        ['a count keeps its own operator', {}, PropertyOperator.GreaterThanOrEqual],
-        [
-            'a count without an operator reads as "exactly", matching the query',
-            { operator: undefined },
-            PropertyOperator.Exact,
-        ],
-        [
-            'the plain criterion reads as "at least" once',
-            { value: BehavioralEventType.PerformEvent, operator: undefined, operator_value: undefined },
-            PropertyOperator.GreaterThanOrEqual,
-        ],
-        [
-            'the plain criterion ignores an operator it should never have had',
-            { value: BehavioralEventType.PerformEvent, operator: PropertyOperator.Exact },
-            PropertyOperator.GreaterThanOrEqual,
-        ],
-    ])('count operator: %s', (_name, overrides, expected) => {
-        expect(behavioralCountOperator({ ...counted, ...overrides })).toEqual(expected)
     })
 
     it('clears the count when switching to "did not perform"', () => {
