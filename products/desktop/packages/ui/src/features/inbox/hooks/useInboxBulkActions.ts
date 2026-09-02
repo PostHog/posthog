@@ -47,7 +47,7 @@ function toReviewerWriteContent(
     .filter((entry): entry is SuggestedReviewerWriteEntry => entry !== null);
 }
 
-interface BulkActionResult {
+export interface BulkActionResult {
   successCount: number;
   failureCount: number;
   succeededIds: string[];
@@ -424,7 +424,16 @@ export function useInboxBulkActions(
    * `is_suggested_reviewer`).
    */
   const removeReviewerMutation = useAuthenticatedMutation(
-    async (client, input: { reportIds: string[]; meUuid: string }) =>
+    async (
+      client,
+      input: {
+        reportIds: string[];
+        meUuid: string;
+        // Lets a caller that renders its own failure UX (triage's jump-back
+        // toast) suppress the hook's failure toasts; success is unchanged.
+        suppressFailureToast?: boolean;
+      },
+    ) =>
       runBulkAction(input.reportIds, async (reportId) => {
         const artefacts = await client.getSignalReportArtefacts(reportId);
         const artefact = artefacts.results.find(
@@ -451,20 +460,24 @@ export function useInboxBulkActions(
         );
       }),
     {
-      onSuccess: async (result) => {
+      onSuccess: async (result, variables) => {
         trackBulkAction("remove_suggested_reviewer", result);
         await invalidateInboxQueries();
         applyBulkResultToSelection(result);
 
         if (result.failureCount > 0) {
-          toast.error(formatBulkActionSummary("removeReviewer", result));
+          if (!variables.suppressFailureToast) {
+            toast.error(formatBulkActionSummary("removeReviewer", result));
+          }
           return;
         }
 
         toast.success(formatBulkActionSummary("removeReviewer", result));
       },
-      onError: (error) => {
-        toast.error(error.message || "Failed to remove yourself as reviewer");
+      onError: (error, variables) => {
+        if (!variables.suppressFailureToast) {
+          toast.error(error.message || "Failed to remove yourself as reviewer");
+        }
       },
     },
   );
@@ -527,26 +540,34 @@ export function useInboxBulkActions(
     reingestMutation,
   ]);
 
-  const removeReviewerSelected = useCallback(async () => {
-    if (eligibility.removeReviewerDisabledReason !== null || !meUuid) {
-      return false;
-    }
+  const removeReviewerSelected = useCallback(
+    async (options?: {
+      suppressFailureToast?: boolean;
+    }): Promise<BulkActionResult | null> => {
+      if (eligibility.removeReviewerDisabledReason !== null || !meUuid) {
+        return null;
+      }
 
-    const reportIds = eligibility.selectedReports
-      .filter((report) => report.is_suggested_reviewer)
-      .map((report) => report.id);
-    if (reportIds.length === 0) {
-      return false;
-    }
+      const reportIds = eligibility.selectedReports
+        .filter((report) => report.is_suggested_reviewer)
+        .map((report) => report.id);
+      if (reportIds.length === 0) {
+        return null;
+      }
 
-    await removeReviewerMutation.mutateAsync({ reportIds, meUuid });
-    return true;
-  }, [
-    eligibility.removeReviewerDisabledReason,
-    eligibility.selectedReports,
-    meUuid,
-    removeReviewerMutation,
-  ]);
+      return removeReviewerMutation.mutateAsync({
+        reportIds,
+        meUuid,
+        suppressFailureToast: options?.suppressFailureToast,
+      });
+    },
+    [
+      eligibility.removeReviewerDisabledReason,
+      eligibility.selectedReports,
+      meUuid,
+      removeReviewerMutation,
+    ],
+  );
 
   return {
     selectedReports: eligibility.selectedReports,

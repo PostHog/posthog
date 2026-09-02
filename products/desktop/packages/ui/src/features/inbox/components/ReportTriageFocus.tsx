@@ -3,6 +3,7 @@ import {
   type InboxScope,
   inboxReviewerScopeValue,
   inboxScopeTriggerLabel,
+  matchesInboxScope,
 } from "@posthog/core/inbox/reportMembership";
 import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
 import { Button } from "@posthog/quill";
@@ -25,9 +26,10 @@ import {
   useReportTasks,
 } from "@posthog/ui/features/inbox/hooks/useReportTasks";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
+import { toast } from "@posthog/ui/primitives/toast";
 import { navigateToInboxReportDetail } from "@posthog/ui/router/navigationBridge";
 import { track } from "@posthog/ui/shell/analytics";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
@@ -128,8 +130,25 @@ export function ReportTriageFocus({
 
   // The queue shrinks under us when a report is archived; clamping (rather
   // than resetting) is what makes archive-and-advance work.
-  const clamped = Math.min(index, Math.max(0, reports.length - 1));
-  const report = reports[clamped];
+  //
+  // Removing yourself as reviewer shrinks the queue too (only in a scope where
+  // membership depends on being a reviewer), so the removal is applied
+  // optimistically: the report leaves the rendered queue on the keypress, not
+  // when the server catches up. Without this, navigating while the request is
+  // in flight double-advances - the index moves, then the shrink moves the
+  // reports under it, and the next report is silently skipped.
+  const [optimisticRemovedId, setOptimisticRemovedId] = useState<string | null>(
+    null,
+  );
+  const queue = useMemo(
+    () =>
+      optimisticRemovedId === null
+        ? reports
+        : reports.filter((r) => r.id !== optimisticRemovedId),
+    [reports, optimisticRemovedId],
+  );
+  const clamped = Math.min(index, Math.max(0, queue.length - 1));
+  const report = queue[clamped];
   const reportId = report?.id;
   const { data: reportTasks, isLoading: reportTasksLoading } = useReportTasks(
     reportId ?? "",
@@ -152,8 +171,8 @@ export function ReportTriageFocus({
     !!existingPrUrl &&
     parsePrUrl(existingPrUrl) !== null;
   const prShortcut = canOpenPr ? "open" : canCreatePr ? "create" : null;
-  const previousReport = clamped > 0 ? reports[clamped - 1] : null;
-  const nextReport = clamped < reports.length - 1 ? reports[clamped + 1] : null;
+  const previousReport = clamped > 0 ? queue[clamped - 1] : null;
+  const nextReport = clamped < queue.length - 1 ? queue[clamped + 1] : null;
   const { prefetch } = useInboxReportDetailPrefetch(
     report
       ? {
@@ -194,10 +213,52 @@ export function ReportTriageFocus({
   const canRemoveSelfFromReviewers =
     bulkActions.removeReviewerDisabledReason === null &&
     report?.is_suggested_reviewer === true;
+
   const handleRemoveReviewer = useCallback(() => {
-    if (bulkActions.isRemovingReviewer) return;
-    void bulkActions.removeReviewerSelected();
-  }, [bulkActions]);
+    if (bulkActions.isRemovingReviewer || !report) return;
+    const removed = report;
+    const removedIndex = clamped;
+    // Only scopes that filter on reviewer status drop the report from the
+    // queue; elsewhere it stays and only the hint disappears.
+    const leavesQueue =
+      matchesInboxScope(removed, scope) &&
+      !matchesInboxScope({ ...removed, is_suggested_reviewer: false }, scope);
+    if (leavesQueue) {
+      setOptimisticRemovedId(removed.id);
+    }
+    void (async () => {
+      const result = await bulkActions
+        .removeReviewerSelected({ suppressFailureToast: true })
+        .catch(() => null);
+      if (result?.succeededIds.includes(removed.id)) {
+        // The filter stays until the refetch drops the report, so the
+        // handoff is invisible; the cleanup effect below releases it.
+        return;
+      }
+      if (leavesQueue) {
+        setOptimisticRemovedId(null);
+      }
+      toast.warning("Couldn't remove you as reviewer", {
+        description: `${removed.title} is still in your queue.`,
+        action: {
+          label: "Back to report",
+          onClick: () => setIndex(removedIndex),
+        },
+      });
+    })();
+  }, [bulkActions, report, clamped, scope]);
+
+  // Release the optimistic removal once the server state catches up: after a
+  // successful removal the refetched queue no longer holds the report, so the
+  // filter becomes a no-op.
+  useEffect(() => {
+    if (
+      optimisticRemovedId !== null &&
+      !reports.some((r) => r.id === optimisticRemovedId)
+    ) {
+      setOptimisticRemovedId(null);
+    }
+  }, [reports, optimisticRemovedId]);
 
   const handleDismissConfirm = useCallback(
     async (result: DismissReportDialogResult) => {
@@ -210,8 +271,8 @@ export function ReportTriageFocus({
   );
 
   const goNext = useCallback(
-    () => setIndex((i) => Math.min(i + 1, reports.length - 1)),
-    [reports.length],
+    () => setIndex((i) => Math.min(i + 1, queue.length - 1)),
+    [queue.length],
   );
   const goPrev = useCallback(() => setIndex((i) => Math.max(i - 1, 0)), []);
   const handleExit = useCallback(() => {
@@ -308,7 +369,7 @@ export function ReportTriageFocus({
         <ReportTriageFocusView
           report={report}
           position={clamped + 1}
-          total={reports.length}
+          total={queue.length}
           scopeLabel={inboxScopeTriggerLabel(scope)}
           hasActiveFilters={hasActiveFilters}
           previousReport={previousReport}
