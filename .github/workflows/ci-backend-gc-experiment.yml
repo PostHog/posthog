@@ -669,8 +669,8 @@ jobs:
                   }
 
                   run_sweep() {
-                      local workers="$1"
-                      local label="n${workers}"
+                      local workers="$1" round="$2"
+                      local label="n${workers}-r${round}"
                       local xdist=()
                       if [ "$workers" -gt 1 ]; then
                           ./bin/clone-test-db-for-xdist "$workers"
@@ -696,12 +696,12 @@ jobs:
                       local wall
                       wall=$(echo "$(date +%s.%N) - $start" | bc)
                       read -r busy_after idle_after <<< "$(cpu_snapshot)"
-                      python3 - "$label" "$workers" "$exit_code" "$wall" "$busy_before" "$idle_before" "$busy_after" "$idle_after" "$cores" <<'PY'
+                      python3 - "$label" "$workers" "$exit_code" "$wall" "$busy_before" "$idle_before" "$busy_after" "$idle_after" "$cores" "$round" <<'PY'
                   import json
                   import sys
                   import xml.etree.ElementTree as ET
 
-                  label, workers, exit_code, wall, bb, ib, ba, ia, cores = sys.argv[1:10]
+                  label, workers, exit_code, wall, bb, ib, ba, ia, cores, round_ = sys.argv[1:11]
                   busy = int(ba) - int(bb)
                   idle = int(ia) - int(ib)
                   used = busy / (busy + idle) * int(cores) if busy + idle else 0.0
@@ -716,6 +716,7 @@ jobs:
                   result = {
                       "label": label,
                       "workers": int(workers),
+                      "round": int(round_),
                       "wall_s": round(float(wall), 1),
                       "cores_used": round(used, 2),
                       "runner_cores": int(cores),
@@ -729,10 +730,14 @@ jobs:
                   PY
                   }
 
-                  for workers in 1 2 3; do
-                      echo "::group::pytest with $workers worker(s)"
-                      run_sweep "$workers" || echo "::warning::sweep n=$workers did not finish cleanly"
-                      echo "::endgroup::"
+                  # Three interleaved rounds: a worker count is never measured only at one
+                  # point in the job, so drift across the job cannot masquerade as an effect.
+                  for round in 1 2 3; do
+                      for workers in 1 2 3; do
+                          echo "::group::round $round, pytest with $workers worker(s)"
+                          run_sweep "$workers" "$round" || echo "::warning::round $round sweep n=$workers did not finish cleanly"
+                          echo "::endgroup::"
+                      done
                   done
 
                   echo "## Runner saturation and xdist sweep" >> "$GITHUB_STEP_SUMMARY"
@@ -740,17 +745,30 @@ jobs:
                   import glob
                   import json
 
+                  import statistics
+
                   rows = [json.load(open(p)) for p in sorted(glob.glob("results/n*.json"))]
-                  base = next((r["wall_s"] for r in rows if r["workers"] == 1), None)
+                  by_workers: dict[int, list[dict]] = {}
+                  for row in rows:
+                      by_workers.setdefault(row["workers"], []).append(row)
+                  base = statistics.fmean([r["wall_s"] for r in by_workers.get(1, [])]) if by_workers.get(1) else None
                   print()
-                  print("| workers | wall s | vs 1 worker | cores used | runner saturation | tests | failures |")
-                  print("|---|---|---|---|---|---|---|")
-                  for r in rows:
-                      delta = f"{(r['wall_s'] - base) / base * 100:+.1f}%" if base else "n/a"
+                  print("| workers | rounds | wall s | vs 1 worker | cores used | runner saturation | tests | failures |")
+                  print("|---|---|---|---|---|---|---|---|")
+                  for workers, runs in sorted(by_workers.items()):
+                      wall = statistics.fmean([r["wall_s"] for r in runs])
+                      delta = f"{(wall - base) / base * 100:+.1f}%" if base else "n/a"
                       print(
-                          f"| {r['workers']} | {r['wall_s']:.0f} | {delta} | {r['cores_used']:.2f} of {r['runner_cores']} "
-                          f"| {r['saturation_pct']:.0f}% | {r['tests']} | {r['failures']} |"
+                          f"| {workers} | {len(runs)} | {wall:.0f} | {delta} "
+                          f"| {statistics.fmean([r['cores_used'] for r in runs]):.2f} of {runs[0]['runner_cores']} "
+                          f"| {statistics.fmean([r['saturation_pct'] for r in runs]):.0f}% | {runs[0]['tests']} "
+                          f"| {sum(r['failures'] for r in runs)} |"
                       )
+                  print()
+                  print("| workers | round | wall s | cores used | failures |")
+                  print("|---|---|---|---|---|")
+                  for r in sorted(rows, key=lambda r: (r["workers"], r["round"])):
+                      print(f"| {r['workers']} | {r['round']} | {r['wall_s']:.0f} | {r['cores_used']:.2f} | {r['failures']} |")
                   print()
                   print("Cost tracks wall time here: every row runs on the same runner size, so a shorter row is also a cheaper row.")
                   PY
