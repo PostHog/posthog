@@ -808,6 +808,10 @@ class TestScoutReportAPI(APIBaseTest):
         assert stored["alice"]["github_name"] == "Alice A."
         assert stored["alice"]["reason"] == "confirmed owner via human correction"
         assert stored["dave"]["relevant_commits"] == []
+        # The merge must not strip the fresh `source_skill` stamp from a re-picked login: it is the
+        # provenance autostart's owner exclusion falls back on when the best-effort tally write fails.
+        assert stored["alice"]["source_skill"] == run.skill_name
+        assert stored["dave"]["source_skill"] == run.skill_name
 
     def test_edit_uses_scout_picks_verbatim_and_stamps_owners_on_any_report(self) -> None:
         # No injection: an edit replaces reviewers with the scout's picks in order, even on a report

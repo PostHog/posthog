@@ -588,8 +588,11 @@ def _merge_forward_reviewer_evidence(*, report_id: str, suggested_reviewers: Sug
             # Owner provenance is recomputed from the live `LLMSkillOwner` set on every
             # reviewers-setting edit, so the fresh entry's flag wins — OR-ing in the prior value
             # would keep a former owner, re-added as a normal reviewer, excluded from autostart
-            # identity selection on stale evidence.
+            # identity selection on stale evidence. `source_skill` is the fresh stamp too: dropping
+            # it here would strip the atomic provenance from exactly the entries a scout re-picks,
+            # leaving autostart's owner exclusion resting on the best-effort tally alone.
             "is_skill_owner": entry.is_skill_owner,
+            "source_skill": entry.source_skill,
         }
         try:
             merged.append(SuggestedReviewerEntry.model_validate(candidate))

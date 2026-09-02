@@ -45,6 +45,13 @@ describe('buildDiscussReportPrompt', () => {
             'a report judged not actionable',
             makeReport({ status: SignalReportStatus.READY, actionability: 'not_actionable' }),
         ],
+        // An implementation PR already exists for this report, so carrying a stored "implement the
+        // fix" suggestion out would open a second PR for the same work — the same field that hides
+        // Create PR.
+        [
+            'a report with an implementation PR',
+            makeReport({ status: SignalReportStatus.READY, implementation_pr_url: 'https://github.com/x/y/pull/1' }),
+        ],
         // null = the kickoff refetch could not confirm the report's current state; fail closed.
         ['an unconfirmed report state', null],
     ])('pins the agent to answering for %s', (_name, report) => {
