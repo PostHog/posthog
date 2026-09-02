@@ -95,11 +95,19 @@ class TestClusteringJobViewSet(APIBaseTest):
         )
         self.assertEqual(response.status_code, expected_status)
 
-    def test_create_job_with_filters(self):
-        filters = [{"key": "$ai_model", "value": "gpt-4", "operator": "exact", "type": "event"}]
+    @parameterized.expand(
+        [
+            ("concrete_value", "gpt-4"),
+            # A filter property picked without a matched value carries null; PostHog
+            # filters allow that, so the request must be accepted, not rejected.
+            ("null_value", None),
+        ]
+    )
+    def test_create_job_with_filters(self, name, filter_value):
+        filters = [{"key": "$ai_model", "value": filter_value, "operator": "exact", "type": "event"}]
         response = self.client.post(
             self._url(),
-            {"name": "GPT-4 Only", "analysis_level": "generation", "event_filters": filters, "enabled": True},
+            {"name": f"Filtered {name}", "analysis_level": "generation", "event_filters": filters, "enabled": True},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -321,6 +329,20 @@ class TestClusteringJobViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         job.refresh_from_db()
         self.assertEqual(job.event_filters, [])
+
+    def test_partial_update_accepts_null_valued_filter(self):
+        # A job saved with a null-valued filter must stay editable: the UI re-sends the
+        # whole event_filters array on any edit, so a rejected null would lock the job.
+        job = self._create_job(name="Has null filter")
+        filters = [{"key": "$ai_model", "value": None, "operator": "exact", "type": "event"}]
+        response = self.client.patch(
+            self._url(f"{job.id}/"),
+            {"event_filters": filters},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        job.refresh_from_db()
+        self.assertEqual(job.event_filters, filters)
 
 
 class TestDefaultClusteringJobsOnTeamCreate(APIBaseTest):

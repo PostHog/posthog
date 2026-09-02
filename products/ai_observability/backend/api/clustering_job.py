@@ -24,7 +24,7 @@ _COHORT_FILTER_TYPES = ("cohort", "static-cohort", "precalculated-cohort")
 
 class ClusteringJobSerializer(serializers.ModelSerializer):
     event_filters = serializers.ListField(
-        child=serializers.DictField(child=serializers.JSONField()),
+        child=serializers.DictField(),
         required=False,
         help_text="PostHog property filters that scope this clustering job. Empty array means no filters.",
     )
