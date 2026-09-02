@@ -22,6 +22,7 @@ import {
     SignalsScoutConfigDestroyParams,
     SignalsScoutConfigListQueryParams,
     SignalsScoutConfigRunParams,
+    SignalsScoutConfigSyncQueryParams,
     SignalsScoutConfigUpdateBody,
     SignalsScoutConfigUpdateParams,
     SignalsScoutCreateBody,
@@ -202,6 +203,9 @@ const inboxReportsBulkSetState = (): ToolBase<
         if (params.dismissal_note !== undefined) {
             body['dismissal_note'] = params.dismissal_note
         }
+        if (params.corrected_repository !== undefined) {
+            body['corrected_repository'] = params.corrected_repository
+        }
         if (params.snooze_for !== undefined) {
             body['snooze_for'] = params.snooze_for
         }
@@ -232,6 +236,7 @@ const inboxReportsList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/`,
             query: {
                 channel_id: params.channel_id,
+                count_only: params.count_only,
                 has_implementation_pr: params.has_implementation_pr,
                 include_all_statuses: params.include_all_statuses,
                 limit: params.limit,
@@ -329,6 +334,9 @@ const inboxReportsSetState = (): ToolBase<typeof InboxReportsSetStateSchema, Wit
         }
         if (params.dismissal_note !== undefined) {
             body['dismissal_note'] = params.dismissal_note
+        }
+        if (params.corrected_repository !== undefined) {
+            body['corrected_repository'] = params.corrected_repository
         }
         if (params.snooze_for !== undefined) {
             body['snooze_for'] = params.snooze_for
@@ -601,17 +609,19 @@ const scoutConfigList = (): ToolBase<typeof ScoutConfigListSchema, WithPostHogUr
     },
 })
 
-const ScoutConfigSyncSchema = z.object({})
+const ScoutConfigSyncSchema = SignalsScoutConfigSyncQueryParams
 
 const scoutConfigSync = (): ToolBase<typeof ScoutConfigSyncSchema, WithPostHogUrl<Schemas.SignalScoutConfig[]>> => ({
     name: 'scout-config-sync',
     schema: ScoutConfigSyncSchema,
-    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof ScoutConfigSyncSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SignalScoutConfig[]>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/sync/`,
+            query: {
+                surface: params.surface,
+            },
         })
         return await withPostHogUrl(context, result, '/inbox')
     },
@@ -1311,7 +1321,7 @@ const signalsScoutConfigList = (): ToolBase<
     },
 })
 
-const SignalsScoutConfigSyncSchema = z.object({})
+const SignalsScoutConfigSyncSchema = SignalsScoutConfigSyncQueryParams
 
 const signalsScoutConfigSync = (): ToolBase<
     typeof SignalsScoutConfigSyncSchema,
@@ -1319,12 +1329,14 @@ const signalsScoutConfigSync = (): ToolBase<
 > => ({
     name: 'signals-scout-config-sync',
     schema: SignalsScoutConfigSyncSchema,
-    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof SignalsScoutConfigSyncSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SignalScoutConfig[]>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/sync/`,
+            query: {
+                surface: params.surface,
+            },
         })
         return await withPostHogUrl(context, result, '/inbox')
     },

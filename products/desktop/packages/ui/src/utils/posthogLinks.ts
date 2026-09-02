@@ -70,16 +70,23 @@ export function experimentUrl(
   );
 }
 
-export function featureFlagsIndexUrl(overrides?: LinkOverrides): string | null {
-  return withProjectId((pid) => `/project/${pid}/feature_flags`, overrides);
-}
-
 export function skillUrl(
   skillName: string,
   overrides?: LinkOverrides,
 ): string | null {
   return withProjectId(
     (pid) => `/project/${pid}/skills/${encodeURIComponent(skillName)}`,
+    overrides,
+  );
+}
+
+/** The browser-accessible URL for a Self-driving report. */
+export function inboxReportUrl(
+  reportId: string,
+  overrides?: LinkOverrides,
+): string | null {
+  return withProjectId(
+    (pid) => `/project/${pid}/inbox/${encodeURIComponent(reportId)}`,
     overrides,
   );
 }

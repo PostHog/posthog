@@ -23,7 +23,7 @@ export interface FileTreeNode {
   children?: FileTreeNode[];
 }
 
-export interface FileExplorerSearchResult {
+interface FileExplorerSearchResult {
   path: string;
   name?: string;
   description?: string;

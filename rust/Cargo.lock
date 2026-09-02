@@ -1094,7 +1094,7 @@ dependencies = [
  "http-body 0.4.6",
  "md-5 0.10.6",
  "pin-project-lite",
- "sha1",
+ "sha1 0.10.6",
  "sha2 0.10.9",
  "tracing",
 ]
@@ -2591,6 +2591,7 @@ dependencies = [
  "hogvm",
  "metrics",
  "petgraph 0.8.3",
+ "proptest",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -2657,6 +2658,7 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "proptest",
+ "rand 0.8.5",
  "rdkafka",
  "rustls 0.23.37",
  "serde",
@@ -2843,6 +2845,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-grpc"
+version = "0.1.0"
+dependencies = [
+ "http 1.4.0",
+ "metrics",
+ "metrics-util",
+ "pin-project",
+ "tokio",
+ "tonic 0.12.3",
+ "tower 0.4.13",
+]
+
+[[package]]
 name = "common-hypercache"
 version = "0.1.0"
 dependencies = [
@@ -2900,6 +2915,13 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "common-kafka-consumer"
+version = "0.1.0"
+dependencies = [
+ "rdkafka",
 ]
 
 [[package]]
@@ -4528,7 +4550,7 @@ dependencies = [
  "serde",
  "serde-pickle",
  "serde_json",
- "sha1",
+ "sha1 0.10.6",
  "sha2 0.10.9",
  "sqlx",
  "strum 0.28.0",
@@ -5398,7 +5420,7 @@ dependencies = [
  "http 1.4.0",
  "httpdate",
  "mime",
- "sha1",
+ "sha1 0.10.6",
 ]
 
 [[package]]
@@ -5490,7 +5512,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
- "sha1",
+ "sha1 0.10.6",
  "sha2 0.10.9",
  "thiserror 2.0.18",
 ]
@@ -6156,6 +6178,7 @@ dependencies = [
  "chrono",
  "common-alloc",
  "common-continuous-profiling",
+ "common-kafka-consumer",
  "dashmap 6.1.0",
  "envconfig",
  "futures",
@@ -9297,9 +9320,9 @@ dependencies = [
 
 [[package]]
 name = "posthog-rs"
-version = "0.25.3"
+version = "0.25.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6dee0240ce9b45d3811701cb5a9f45c6c9b73b4165aadfcbae5954fbcc46234f"
+checksum = "da98c41706b1666fe28e5d8bd783ac50d4fd67e576f96d34cdb10872b45e7165"
 dependencies = [
  "backtrace",
  "brotli",
@@ -9313,7 +9336,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
- "sha1",
+ "sha1 0.11.0",
  "tokio",
  "tracing",
  "uuid",
@@ -11522,6 +11545,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha1"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aacc4cc499359472b4abe1bf11d0b12e688af9a805fa5e3016f9a386dc2d0214"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.3.0",
+ "digest 0.11.3",
+]
+
+[[package]]
 name = "sha1_smol"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11918,7 +11952,7 @@ dependencies = [
  "rsa",
  "rust_decimal",
  "serde",
- "sha1",
+ "sha1 0.10.6",
  "sha2 0.10.9",
  "smallvec",
  "sqlx-core",
@@ -13843,6 +13877,7 @@ dependencies = [
  "axum 0.7.9",
  "chrono",
  "common-database",
+ "common-grpc",
  "common-kafka",
  "common-liveness",
  "envconfig",
@@ -14833,7 +14868,7 @@ dependencies = [
  "memchr",
  "pbkdf2",
  "ppmd-rust",
- "sha1",
+ "sha1 0.10.6",
  "time",
  "zeroize",
  "zopfli",

@@ -1355,7 +1355,10 @@ class TestLLMSkillAPI(APIBaseTest):
             description="Open a PR.",
             body="# Make PR",
             allowed_tools=["query"],
-            metadata={"tags": ["github"]},
+            metadata={
+                "tags": ["github"],
+                "variables": [{"name": "repository", "prompt": "Repository to update"}],
+            },
         )
         LLMSkillFile.objects.create(
             skill=skill, path="references/playbook.md", content="hints", content_type="text/markdown"
@@ -1374,6 +1377,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert kwargs["name"] == "Make Pr"  # default display name = title-cased slug
         assert kwargs["description"] == "Open a PR."
         assert kwargs["tags"] == ["github"]  # falls back to metadata tags
+        assert kwargs["metadata"] == skill.metadata
         assert kwargs["allowed_tools"] == ["query"]
         assert kwargs["author_handle"] == "andymaguire"
         assert kwargs["files"] == [

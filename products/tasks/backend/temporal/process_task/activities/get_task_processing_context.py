@@ -1,3 +1,5 @@
+import json
+import hashlib
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -15,6 +17,7 @@ from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
     AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
+    BENJAMIN_FEATURE_FLAG,
     CONTINUE_AS_NEW_FEATURE_FLAG,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     DEV_STACK_IMAGE_NAME,
@@ -134,6 +137,7 @@ class TaskProcessingContext:
     # The kill-switch flag wins over everything; otherwise a per-run state override
     # (the user's toggle) applies. Captured at workflow start so it's stable across retries.
     rtk_enabled: bool = True
+    benjamin_enabled: bool = False
     # Captured at workflow start so the continue_as_new trigger is deterministic across replay.
     continue_as_new_enabled: bool = False
     continue_as_new_history_threshold: int = 0
@@ -436,6 +440,66 @@ def _is_rtk_enabled(
         return state_override
 
     return True
+
+
+def _is_benjamin_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+    origin_product: str | None = None,
+    state: dict | None = None,
+) -> bool:
+    run_state = state or {}
+    launched_value = run_state.get("benjamin_effective")
+    if isinstance(launched_value, bool):
+        return launched_value
+
+    state_override = run_state.get("benjamin_enabled")
+    if isinstance(state_override, bool):
+        return state_override
+
+    try:
+        payload = posthoganalytics.get_feature_flag_payload(
+            BENJAMIN_FEATURE_FLAG,
+            distinct_id=distinct_id,
+            groups={"organization": organization_id},
+            group_properties={"organization": {"id": organization_id}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+        fraction = _benjamin_rollout_fraction(payload, origin_product)
+    except Exception as e:
+        log_with_activity_context("benjamin_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    if fraction <= 0:
+        return False
+    if fraction >= 1:
+        return True
+    bucket = int(hashlib.sha256(f"{BENJAMIN_FEATURE_FLAG}:{run_id}".encode()).hexdigest()[:16], 16) / 2**64
+    return bucket < fraction
+
+
+def _benjamin_rollout_fraction(payload: object, origin_product: str | None) -> float:
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            return 0.0
+    if not isinstance(payload, dict):
+        return 0.0
+
+    origins = payload.get("origins")
+    if isinstance(origins, dict) and origin_product in origins:
+        return _benjamin_fraction_value(origins[origin_product])
+    return _benjamin_fraction_value(payload.get("default"))
+
+
+def _benjamin_fraction_value(value: object) -> float:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return 0.0
+    return float(value)
 
 
 def _is_sandbox_event_ingest_enabled(
@@ -794,15 +858,17 @@ def _resolve_sandbox_backend(
     run_id: str,
     state: dict | None,
     task_runtime: str,
-    use_modal_vm_sandbox: bool,
-    use_modal_network_allowlist: bool,
-    custom_image_name: str | None,
+    has_user_custom_image: bool,
 ) -> str:
     """Pick the sandbox provider for this run.
 
-    Hogland only takes plain default-template ACP runs; anything needing a
-    Modal-only feature (VM runtime, custom image, Pi runtime, Modal-level network
-    allowlist) stays on Modal even with the flag on. Fails closed to Modal.
+    Hogland only takes plain golden-template ACP runs. A user/environment custom image
+    or the Pi runtime are hard incapabilities — hogland runs only its own golden, so
+    those force Modal even with the flag on. The Modal VM-sandbox / network-allowlist
+    flags and the org *default* image are runtime preferences, not incapabilities: a
+    run the hogland flag (or override) selects wins hogland over them, and the caller
+    forces them off so the run provisions on hogland's golden. Egress stays enforced
+    in-box by agentsh via the run's allowed_domains. Fails closed to Modal.
     """
     raw_override = (state or {}).get("sandbox_backend")
     override = raw_override if isinstance(raw_override, str) and raw_override in ("modal", "hogland") else None
@@ -812,21 +878,22 @@ def _resolve_sandbox_backend(
         log_with_activity_context("sandbox_backend_state_override", run_id=run_id, sandbox_backend="modal")
         return "modal"
 
-    # Hard gates: a "hogland" result (override OR flag) is only allowed when hogland can
-    # actually run this run. These sit ahead of the override so a stale or forged `hogland`
-    # carried across a cloud resume can't defeat the EU guard or the Modal-only
-    # fallbacks and leave the run with unenforced egress.
+    # Hard gates: a "hogland" result (override OR flag) is only allowed when hogland is
+    # available (US region + configured URL/token) and can actually run this run (no
+    # user custom image, no Pi runtime). These sit ahead of the override so a stale or
+    # forged `hogland` carried across a cloud resume can't defeat the EU guard or route
+    # an incapable run to hogland.
     if not settings.HOGLAND_API_URL or not (settings.HOGLAND_API_TOKEN_FILE or settings.HOGLAND_API_TOKEN):
         return "modal"
     # Hogland runs in the US only; EU runs stay on Modal regardless of flag/override state.
     if getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU":
         return "modal"
-    if (
-        use_modal_vm_sandbox
-        or custom_image_name is not None
-        or task_runtime == Task.Runtime.PI
-        or use_modal_network_allowlist
-    ):
+    # Hard hogland incapabilities: a user/environment custom image or the Pi runtime
+    # cannot run on hogland's golden, so keep those on Modal even when the flag is on.
+    # The org default image (default_custom_image) is NOT gated here — hogland serves
+    # its golden equivalent — nor are the Modal VM-sandbox / network-allowlist flags; a
+    # flagged run wins hogland over all of them (the caller forces them off).
+    if has_user_custom_image or task_runtime == Task.Runtime.PI:
         return "modal"
 
     # Past the gates, a "hogland" override pins the run (the canary lever), no flag eval.
@@ -1258,10 +1325,17 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id=run_id,
         state=state,
     )
+    benjamin_enabled = _is_benjamin_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        origin_product=task.origin_product,
+        state=state,
+    )
     emit_agent_log(
         run_id,
         "debug",
-        f"rtk_enabled: {rtk_enabled} for this task run",
+        f"rtk_enabled: {rtk_enabled}, benjamin_enabled: {benjamin_enabled} for this task run",
     )
     # The same test that mints the token's interactive-run marker: user-started signals runs get
     # a finite wall-clock ceiling because their inference is unbilled and the generic interactive
@@ -1290,10 +1364,21 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id=run_id,
         state=state,
         task_runtime=task.runtime,
-        use_modal_vm_sandbox=use_modal_vm_sandbox,
-        use_modal_network_allowlist=use_modal_network_allowlist,
-        custom_image_name=custom_image_name,
+        # Only a real user/environment image is a hogland incapability. The org default
+        # image (default_custom_image, applied when the user picked none) is not — hogland
+        # serves its golden equivalent — so it must not gate the run onto Modal.
+        has_user_custom_image=environment_custom_image_name is not None,
     )
+    if sandbox_backend == "hogland":
+        # Hogland runs are plain golden-template runs, so the Modal VM-runtime,
+        # network-allowlist, and org-default-image preferences don't apply. Force them off
+        # so provisioning builds a plain hogland box on the golden (not a Modal VM_BASE
+        # config with a default image) and skips the Modal provider-layer allowlist. Egress
+        # stays enforced in-box by agentsh, which keys on the run's allowed_domains
+        # independently of use_modal_network_allowlist.
+        use_modal_vm_sandbox = False
+        use_modal_network_allowlist = False
+        custom_image_name = None
     emit_agent_log(
         run_id,
         "debug",
@@ -1378,6 +1463,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         agent_proxy_keep_stream_open=agent_proxy_keep_stream_open,
         custom_image_name=custom_image_name,
         rtk_enabled=rtk_enabled,
+        benjamin_enabled=benjamin_enabled,
         continue_as_new_enabled=_is_continue_as_new_enabled(
             distinct_id=distinct_id,
             organization_id=organization_id,
