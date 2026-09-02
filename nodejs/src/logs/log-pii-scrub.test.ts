@@ -31,6 +31,26 @@ describe('log-pii-scrub', () => {
             expect(scrubPlainString(`key ${syntheticStripeTestKey}`)).toBe(`key ${PII_REDACTED}`)
         })
 
+        // Built by concatenation, like the Stripe key above, so no line of this file reads as a
+        // live credential to a secret scanner.
+        it.each([
+            ['GitHub personal access tokens', 'gh' + 'p_' + 'A1b2C3d4E5f6G7h8I9j0KlMnOpQrStUvWxYz'],
+            ['GitHub server tokens', 'gh' + 's_' + 'A1b2C3d4E5f6G7h8I9j0KlMnOpQrStUvWxYz'],
+            ['Slack tokens', 'xox' + 'b-' + '123456789012-abcdefghijkl'],
+            ['AWS access key ids', 'AKIA' + 'IOSFODNN7EXAMPLE'],
+            ['JWTs', 'ey' + 'JhbGciOiJIUzI1NiJ9' + '.' + 'eyJzdWIiOiIxMjMifQ' + '.' + 'S1gnAtUr3-_x'],
+        ])('redacts %s', (_label, secret) => {
+            expect(scrubPlainString(`credential ${secret} rejected`)).toBe(`credential ${PII_REDACTED} rejected`)
+        })
+
+        it.each([
+            ['a word that opens like a GitHub prefix', 'ghost_writer opened a file'],
+            ['a truncated AWS key id', 'AKIAIOSFODNN7 is too short'],
+            ['a base64 word that is not a JWT', 'eyJhbGciOiJIUzI1NiJ9 alone'],
+        ])('leaves %s alone', (_label, input) => {
+            expect(scrubPlainString(input)).toBe(input)
+        })
+
         it('does not redact PAN-like digit runs (lite scrub)', () => {
             expect(scrubPlainString('card 4242424242424242 end')).toBe('card 4242424242424242 end')
             expect(scrubPlainString('card 4242-4242-4242-4242 end')).toBe('card 4242-4242-4242-4242 end')

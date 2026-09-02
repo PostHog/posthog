@@ -2,7 +2,7 @@ import { createTrackedRE2 } from '~/common/utils/tracked-re2'
 
 import { parseLogBodyForIngestion } from './log-body-parse'
 
-export const PATTERN_VERSION = 3
+export const PATTERN_VERSION = 4
 
 /**
  * Everything here shapes the emitted pattern, so it sits inside `PATTERN_VERSION`: two records may
@@ -28,12 +28,54 @@ export const PATTERN_CAPS: PatternCaps = Object.freeze({
     maxOutputChars: 1024,
 })
 
-export type MaskRuleName = 'timestamp' | 'klogtime' | 'uuid' | 'email' | 'host' | 'hex0x' | 'hex' | 'ipv4' | 'num'
+export type MaskRuleName =
+    | 'timestamp'
+    | 'klogtime'
+    | 'clftime'
+    | 'ctime'
+    | 'httpdate'
+    | 'syslogtime'
+    | 'uuid'
+    | 'email'
+    | 'host'
+    | 'hex0x'
+    | 'hex'
+    | 'ipv4'
+    | 'num'
 
 export type MaskRule = {
     name: MaskRuleName
     pattern: string
     replacement: string
+}
+
+const MONTH = '(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)'
+const WEEKDAY = '(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)'
+const DAY_OF_MONTH = '(?:0?[1-9]|[12]\\d|3[01])'
+const TIME_OF_DAY = '\\d{2}:\\d{2}:\\d{2}'
+
+/** Shortest hex run read as an identifier. Git short shas and container ids sit at 8 to 12 chars. */
+const HEX_MIN_CHARS = 8
+
+/**
+ * At least `HEX_MIN_CHARS` hex chars, at least one of them a letter.
+ *
+ * The letter is what keeps a plain digit run on `num`. Without it, a floor this low would claim
+ * every epoch, id, and byte count of that width and read it as `<HEX>` instead of `<N>`.
+ *
+ * RE2 has no lookahead, so "contains a letter" is spelled out. Each arm anchors on the *first*
+ * letter, which makes everything before it digits by definition, and carries the tail length that
+ * reaches the minimum. The last arm covers every longer digit prefix, where the minimum is already met.
+ */
+function hexWithLetterPattern(): string {
+    const leadingDigits = (count: number): string => (count === 0 ? '' : `[0-9]{${count}}`)
+    const arms = Array.from(
+        { length: HEX_MIN_CHARS - 1 },
+        (_unused, digitsBefore) =>
+            `${leadingDigits(digitsBefore)}[a-fA-F][0-9a-fA-F]{${HEX_MIN_CHARS - 1 - digitsBefore},}`
+    )
+    arms.push(`[0-9]{${HEX_MIN_CHARS - 1},}[a-fA-F][0-9a-fA-F]*`)
+    return `\\b(?:${arms.join('|')})\\b`
 }
 
 export const MASK_RULES: readonly MaskRule[] = [
@@ -68,20 +110,57 @@ export const MASK_RULES: readonly MaskRule[] = [
         pattern: `\\b${letter}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\\d|3[01]) \\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?`,
         replacement: `${letter}<KLOGTIME>`,
     })),
+    // Date formats that spell the month or the weekday as a name. `\b\d+` masks the digits around
+    // the name but cannot touch the name itself, so the name survives into the pattern as a literal:
+    // one line splits into 12 patterns over a year, and into 7 over a week once a weekday is in it.
+    // Each rule consumes the whole date, so the name leaves with it.
+    //
+    // The name also guards the match, the way the severity letter guards `klogtime`. Nothing here
+    // matches a bare number followed by a time of day.
+    //
+    // Order matters between these four and is asserted by the sequential-chain corpus. `ctime` and
+    // `httpdate` open on a weekday and `syslogtime` opens on a month, so on a ctime line the month
+    // rule starts later in the string. A single pass takes the leftmost match and drops the weekday,
+    // but a rule-at-a-time chain would let the month rule cut the line first and strand the weekday.
+    // Listing the weekday forms first makes both orders agree.
+    {
+        name: 'clftime',
+        pattern: `\\b\\d{2}/${MONTH}/\\d{4}:${TIME_OF_DAY}(?: [+-]\\d{4})?`,
+        replacement: '<TIMESTAMP>',
+    },
+    {
+        name: 'ctime',
+        pattern: `\\b${WEEKDAY} ${MONTH} {1,2}${DAY_OF_MONTH} ${TIME_OF_DAY}(?: [A-Z]{2,5})? \\d{4}`,
+        replacement: '<TIMESTAMP>',
+    },
+    {
+        name: 'httpdate',
+        pattern: `\\b${WEEKDAY}, \\d{1,2} ${MONTH} \\d{4} ${TIME_OF_DAY}(?: GMT| UTC| [+-]\\d{4})?`,
+        replacement: '<TIMESTAMP>',
+    },
+    {
+        name: 'syslogtime',
+        pattern: `\\b${MONTH} {1,2}${DAY_OF_MONTH} ${TIME_OF_DAY}`,
+        replacement: '<TIMESTAMP>',
+    },
     {
         name: 'uuid',
         pattern: '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
         replacement: '<UUID>',
     },
     { name: 'email', pattern: '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}', replacement: '<EMAIL>' },
+    // The suffix list carries no `so` or `sh`. Both are real TLDs, but the rule cannot tell a host
+    // from a filename, and shared object and shell script names reach it far more often than a
+    // Somali or Saint Helenian domain does. With them in the list, `libssl.so` and `deploy.sh` both
+    // mask to `<HOST>`, which merges lines that name different files.
     {
         name: 'host',
         pattern:
-            '\\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\\.){1,8}(?:ai|app|aws|bot|cloud|co|com|de|dev|eu|fr|gg|internal|io|jp|local|me|net|nl|org|sh|so|tv|uk|us|xyz)\\b',
+            '\\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?\\.){1,8}(?:ai|app|aws|bot|cloud|co|com|de|dev|eu|fr|gg|internal|io|jp|local|me|net|nl|org|tv|uk|us|xyz)\\b',
         replacement: '<HOST>',
     },
     { name: 'hex0x', pattern: '\\b0x[0-9a-fA-F]+\\b', replacement: '<HEX>' },
-    { name: 'hex', pattern: '\\b[0-9a-fA-F]{16,}\\b', replacement: '<HEX>' },
+    { name: 'hex', pattern: hexWithLetterPattern(), replacement: '<HEX>' },
     { name: 'ipv4', pattern: '\\b\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\b', replacement: '<IP>' },
     { name: 'num', pattern: '\\b\\d+', replacement: '<N>' },
 ]
@@ -144,17 +223,43 @@ function extractJsonMessage(value: object, messageKeys: readonly string[]): stri
 const capOutput = (pattern: string): string =>
     pattern.length > PATTERN_CAPS.maxOutputChars ? pattern.slice(0, PATTERN_CAPS.maxOutputChars) : pattern
 
-function jsonKeySetPattern(value: object): string {
-    const keys = Object.keys(value).sort()
+/**
+ * Keys go through the same mask rules as a message, because a key set is just as often built from
+ * data: an object keyed by user id, host, or trace id otherwise emits one pattern per record, which
+ * is the shape the key set exists to collapse.
+ *
+ * Masking, then deduplicating, then capping, in that order. Deduplicating after the mask is what
+ * bounds such an object to a single key, and doing it before the cap keeps the dropped-key count off
+ * the raw key count, because `+41` and `+42` are two patterns for one shape.
+ */
+function jsonKeySetPattern(value: object): { pattern: string; ruleFires: number[] } {
+    const ruleFires: number[] = new Array(MASK_RULES.length).fill(0)
+    const masked = new Set<string>()
+    for (const key of Object.keys(value)) {
+        const result = maskString(key)
+        for (let i = 0; i < ruleFires.length; i++) {
+            ruleFires[i] += result.ruleFires[i]
+        }
+        masked.add(result.masked)
+    }
+
+    const keys = [...masked].sort()
     const kept = keys.slice(0, KEY_SET_MAX_KEYS)
     const overflow = keys.length - kept.length
-    return `<JSON:${kept.join(',')}${overflow > 0 ? `,+${overflow}` : ''}>`
+    return { pattern: `<JSON:${kept.join(',')}${overflow > 0 ? `,+${overflow}` : ''}>`, ruleFires }
 }
 
 export type PatternInputSelection =
     | { kind: 'empty'; bodyKind: PatternBodyKind; inputCapped: boolean }
     | { kind: 'mask'; input: string; bodyKind: PatternBodyKind; inputCapped: boolean }
-    | { kind: 'pattern'; pattern: string; bodyKind: PatternBodyKind; inputCapped: boolean; jsonKeyCount?: number }
+    | {
+          kind: 'pattern'
+          pattern: string
+          bodyKind: PatternBodyKind
+          inputCapped: boolean
+          ruleFires: number[]
+          jsonKeyCount?: number
+      }
 
 export function selectPatternInput(
     body: string | null | undefined,
@@ -176,13 +281,23 @@ export function selectPatternInput(
         case 'json_object_or_array': {
             const message = extractJsonMessage(parsed.value, messageKeys)
             if (message === null) {
-                const isArray = Array.isArray(parsed.value)
+                if (Array.isArray(parsed.value)) {
+                    return {
+                        kind: 'pattern',
+                        pattern: JSON_ARRAY,
+                        bodyKind,
+                        inputCapped,
+                        ruleFires: new Array(MASK_RULES.length).fill(0),
+                    }
+                }
+                const keySet = jsonKeySetPattern(parsed.value)
                 return {
                     kind: 'pattern',
-                    pattern: isArray ? JSON_ARRAY : jsonKeySetPattern(parsed.value),
+                    pattern: keySet.pattern,
                     bodyKind,
                     inputCapped,
-                    ...(isArray ? {} : { jsonKeyCount: Object.keys(parsed.value).length }),
+                    ruleFires: keySet.ruleFires,
+                    jsonKeyCount: Object.keys(parsed.value).length,
                 }
             }
             return { kind: 'mask', input: message, bodyKind, inputCapped }
@@ -222,7 +337,7 @@ export function buildLogPattern(body: string | null | undefined, messageKeys: re
             inputCapped,
             maskedLength: selection.pattern.length,
             ...(selection.jsonKeyCount === undefined ? {} : { jsonKeyCount: selection.jsonKeyCount }),
-            ruleFires: [],
+            ruleFires: selection.ruleFires,
         }
     }
 
