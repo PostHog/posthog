@@ -4543,10 +4543,10 @@ mod tests {
     /// `redirect_to_topic` to `Custom`, a DLQ restriction to `Dlq` -- all three
     /// are still the AI lane.
     ///
-    /// `apply_restrictions` runs after the gate today, so none of this is
-    /// reachable through `process_batch`. That is exactly why it is worth
-    /// pinning directly: the ordering is the only thing that made the previous
-    /// destination-based check correct, and nothing else would fail if it moved.
+    /// `apply_restrictions` runs after the gate, so this state is not reachable
+    /// through `process_batch`. The gate is called directly here so the
+    /// invariant holds on its own terms rather than on stage ordering: if the
+    /// two stages were ever reordered, nothing else in the suite would fail.
     #[rstest::rstest]
     #[case::force_overflow(Destination::AiEventsOverflow)]
     #[case::redirect_to_topic(Destination::Custom("some_other_topic".to_string()))]
@@ -4573,9 +4573,8 @@ mod tests {
         assert_eq!(events[0].details, None);
     }
 
-    /// The other direction: being pointed *at* `AiEvents` does not make a
-    /// non-AI event welcome. Under the old destination-based check this event
-    /// would have been waved through.
+    /// The other direction: a destination of `AiEvents` does not put a non-AI
+    /// event on the lane. Only the event name decides membership.
     #[tokio::test]
     async fn a_non_ai_event_pointed_at_the_ai_destination_is_still_dropped() {
         let ts = TestStateBuilder::new()

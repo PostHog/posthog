@@ -278,8 +278,8 @@ Callers have two orthogonal ways to prevent an event from being produced:
 | `Destination::Drop` | Routing logic (e.g. quota limiter) | `topic_for()` returns `None`, event skipped |
 
 `Destination::Drop` is the only destination allowed to skip. `topic_for()` can
-also return `None` for a destination whose topic is unset -- eight of them can,
-now that the analytics topics are per-mode optional -- and that is a
+also return `None` for a destination whose topic is unset. Eight destinations
+can, because the analytics topics are optional per capture mode. That is a
 misconfiguration rather than an instruction. The sink reports it as a fatal
 `KafkaSinkError::UnmappedDestination` with a counter, because an event skipped
 without a `SinkResult` keeps its incoming `Ok` in `merge_sink_results` and the
