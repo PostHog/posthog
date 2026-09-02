@@ -1,3 +1,5 @@
+import { encode } from '@toon-format/toon'
+
 import { ArtifactSource } from '~/queries/schema/schema-assistant-messages'
 
 import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
@@ -27,6 +29,45 @@ function toolMessage(
         rawOutput,
         content: [],
         status: 'completed',
+    }
+}
+
+function execMutationMessage({
+    resolvedKey,
+    innerInput,
+    output,
+    forceJson = true,
+}: {
+    resolvedKey: string
+    innerInput: Record<string, unknown>
+    output: Record<string, unknown>
+    forceJson?: boolean
+}): ToolCallMessage {
+    return {
+        ...toolMessage(forceJson ? JSON.stringify(output) : encode(output), innerInput, resolvedKey),
+        rawInput: {
+            command: `call ${forceJson ? '--json ' : ''}${resolvedKey} ${JSON.stringify(innerInput)}`,
+        },
+        innerToolName: resolvedKey,
+    }
+}
+
+function dashboardResponse(id: number | string): Record<string, unknown> {
+    return { id, name: 'KPIs', _posthogUrl: `https://us.posthog.com/project/1/dashboard/${id}` }
+}
+
+function widgetTile(id: number | string): Record<string, unknown> {
+    return {
+        id,
+        insight: null,
+        text: null,
+        button_tile: null,
+        widget: { id: 'widget-1', widget_type: 'activity_events_list', name: null, description: '', config: {} },
+        layouts: {},
+        filters_overrides: null,
+        order: null,
+        last_refresh: null,
+        is_cached: false,
     }
 }
 
@@ -117,57 +158,140 @@ describe('mcp tool adapter extractors', () => {
 
     describe('extractDashboardMutationRevealTarget', () => {
         it.each([
-            ['dashboard-create-text-tile', { id: 101 }, { id: 5 }, { dashboardId: 5, tileId: 101 }],
-            ['dashboard-update-text-tile', { id: 102 }, { id: 5 }, { dashboardId: 5, tileId: 102 }],
-            ['dashboard-widgets-batch-add', { tiles: [{ id: 103 }] }, { id: 5 }, { dashboardId: 5, tileId: 103 }],
+            ['dashboard-create-text-tile', { id: 101 }, { id: 5 }, { dashboardId: 5, tileId: 101 }, true],
+            [
+                'dashboard-update-text-tile',
+                { id: 102 },
+                { id: 5, tile_id: 102 },
+                { dashboardId: 5, tileId: 102 },
+                false,
+            ],
+            [
+                'dashboard-widgets-batch-add',
+                { tiles: [widgetTile(103)] },
+                { id: 5, widgets: [{ widget_type: 'activity_events_list', config: {} }] },
+                { dashboardId: 5, tileId: 103 },
+                true,
+            ],
             [
                 'dashboard-widgets-batch-update',
-                { updated: true },
-                { id: 5, widgets: [{ tile_id: 104 }] },
+                { tiles: [widgetTile(104)] },
+                { id: 5, widgets: [{ tile_id: 104, widget_type: 'activity_events_list', name: 'Recent events' }] },
                 { dashboardId: 5, tileId: 104 },
+                false,
             ],
-            ['dashboard-update', { id: 5 }, { id: 5, tiles: [{ id: 105 }] }, { dashboardId: 5, tileId: 105 }],
-            ['dashboard-tile-copy', { id: 106 }, { id: 5 }, { dashboardId: 5 }],
-            ['dashboard-reorder-tiles', { id: 5 }, { id: 5 }, { dashboardId: 5 }],
-            ['dashboard-delete-tile', { id: 106 }, { id: 5 }, { dashboardId: 5 }],
+            [
+                'dashboard-update',
+                dashboardResponse(5),
+                { id: 5, tiles: [{ id: 105, layouts: {} }] },
+                { dashboardId: 5, tileId: 105 },
+                true,
+            ],
+            [
+                'dashboard-tile-copy',
+                dashboardResponse(5),
+                { id: 5, fromDashboardId: 4, tileId: 106 },
+                { dashboardId: 5 },
+                false,
+            ],
+            ['dashboard-reorder-tiles', dashboardResponse(5), { id: 5, tile_order: [106] }, { dashboardId: 5 }, true],
+            [
+                'dashboard-delete-tile',
+                { _posthogUrl: 'https://us.posthog.com/project/1/dashboard/5' },
+                { id: 5, tile_id: 106 },
+                { dashboardId: 5 },
+                false,
+            ],
             [
                 'dashboards-move-tile-partial-update',
-                { id: 106 },
+                dashboardResponse(5),
                 { id: 5, to_dashboard: 6, tile: { id: 106 } },
                 { dashboardId: 6, tileId: 106 },
+                true,
             ],
-        ])('extracts the schema-specific target for %s', (resolvedKey, rawOutput, innerInput, expected) => {
-            expect(extractDashboardMutationRevealTarget(toolMessage(rawOutput, innerInput, resolvedKey))).toEqual(
-                expected
-            )
+        ])('extracts the schema-specific target for %s', (resolvedKey, output, innerInput, expected, forceJson) => {
+            expect(
+                extractDashboardMutationRevealTarget(
+                    execMutationMessage({ resolvedKey, innerInput, output, forceJson })
+                )
+            ).toEqual(expected)
         })
 
         it.each([
-            ['several created tiles', 'dashboard-widgets-batch-add', { tiles: [{ id: 101 }, { id: 102 }] }, { id: 5 }],
+            [
+                'several created tiles',
+                'dashboard-widgets-batch-add',
+                { tiles: [widgetTile(101), widgetTile(102)] },
+                {
+                    id: 5,
+                    widgets: [
+                        { widget_type: 'activity_events_list', config: {} },
+                        { widget_type: 'logs_list', config: {} },
+                    ],
+                },
+            ],
             [
                 'several updated tiles',
                 'dashboard-widgets-batch-update',
-                { updated: true },
+                { tiles: [widgetTile(101), widgetTile(102)] },
                 { id: 5, widgets: [{ tile_id: 101 }, { tile_id: 102 }] },
             ],
             [
                 'several dashboard-update tiles',
                 'dashboard-update',
-                { id: 5 },
+                dashboardResponse(5),
                 { id: 5, tiles: [{ id: 101 }, { id: 102 }] },
             ],
-        ])('does not select a tile when %s are affected', (_name, resolvedKey, rawOutput, innerInput) => {
-            expect(extractDashboardMutationRevealTarget(toolMessage(rawOutput, innerInput, resolvedKey))).toEqual({
+        ])('does not select a tile when %s are affected', (_name, resolvedKey, output, innerInput) => {
+            expect(
+                extractDashboardMutationRevealTarget(execMutationMessage({ resolvedKey, innerInput, output }))
+            ).toEqual({
                 dashboardId: 5,
             })
         })
 
-        it('rejects malformed output even when the input names a dashboard', () => {
+        it.each([
+            ['text tile without its response tile id', 'dashboard-create-text-tile', {}, { id: 5 }],
+            ['batch add without its tiles response', 'dashboard-widgets-batch-add', {}, { id: 5 }],
+            ['batch update with an incomplete tile', 'dashboard-widgets-batch-update', { tiles: [{}] }, { id: 5 }],
+            ['dashboard update without its Dashboard response id', 'dashboard-update', { name: 'KPIs' }, { id: 5 }],
+            ['copy without its Dashboard response id', 'dashboard-tile-copy', { name: 'KPIs' }, { id: 5 }],
+            ['reorder with a zero Dashboard response id', 'dashboard-reorder-tiles', dashboardResponse(0), { id: 5 }],
+            [
+                'move with a fractional source Dashboard response id',
+                'dashboards-move-tile-partial-update',
+                dashboardResponse(5.5),
+                { id: 5, to_dashboard: 6, tile: { id: 106 } },
+            ],
+            [
+                'delete with a fabricated Dashboard id instead of its enriched 204 output',
+                'dashboard-delete-tile',
+                { id: 5, name: 'KPIs' },
+                { id: 5, tile_id: 106 },
+            ],
+            ['delete without the enriched 204 URL', 'dashboard-delete-tile', {}, { id: 5, tile_id: 106 }],
+            ['negative numeric-string input id', 'dashboard-reorder-tiles', dashboardResponse(5), { id: '-5' }],
+            ['zero numeric-string input id', 'dashboard-reorder-tiles', dashboardResponse(5), { id: '0' }],
+            ['fractional numeric-string input id', 'dashboard-reorder-tiles', dashboardResponse(5), { id: '5.5' }],
+        ])(
+            'rejects %s even when input contains a usable dashboard target',
+            (_name, resolvedKey, output, innerInput) => {
+                expect(
+                    extractDashboardMutationRevealTarget(execMutationMessage({ resolvedKey, innerInput, output }))
+                ).toBeNull()
+            }
+        )
+
+        it('normalizes safe numeric-string dashboard and tile IDs', () => {
             expect(
                 extractDashboardMutationRevealTarget(
-                    toolMessage(undefined, { id: 5, tiles: [{ id: 101 }] }, 'dashboard-update')
+                    execMutationMessage({
+                        resolvedKey: 'dashboard-create-text-tile',
+                        innerInput: { id: '5' },
+                        output: { id: '101' },
+                    })
                 )
-            ).toBeNull()
+            ).toEqual({ dashboardId: 5, tileId: 101 })
         })
     })
 

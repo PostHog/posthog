@@ -20,7 +20,7 @@ export function UpsertDashboardWidget(props: ToolRendererProps): JSX.Element {
     const dashboard = message.status === 'completed' ? extractDashboard(message) : null
     const revealTarget = message.status === 'completed' ? extractDashboardMutationRevealTarget(message) : null
 
-    if (!dashboard) {
+    if (!dashboard || (message.resolvedKey === 'dashboard-update' && !revealTarget)) {
         return <GenericMcpToolRenderer {...props} />
     }
 

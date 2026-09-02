@@ -261,10 +261,23 @@ export function extractInsightDashboardRevealTarget(message: ToolCallMessage): D
     return dashboards.length === 1 && insightShortId ? { dashboardId: dashboards[0], insightShortId } : null
 }
 
-function singleTileId(value: unknown): number | undefined {
-    return Array.isArray(value) && value.length === 1
-        ? (asPositiveInteger(asRecord(value[0])?.id) ?? undefined)
-        : undefined
+function responseTileIds(value: unknown): number[] | null {
+    if (!Array.isArray(value)) {
+        return null
+    }
+
+    const ids = value.map((tile) => asPositiveInteger(asRecord(tile)?.id))
+    return ids.every(isNotNull) ? ids : null
+}
+
+function matchingDashboardResponseId(output: Record<string, unknown>, input: Record<string, unknown>): number | null {
+    const responseId = asPositiveInteger(output.id)
+    const requestedId = asPositiveInteger(input.id)
+    return responseId !== null && responseId === requestedId ? responseId : null
+}
+
+function hasEnrichedNoContentResponse(output: Record<string, unknown>): boolean {
+    return typeof output._posthogUrl === 'string' && output._posthogUrl.trim().length > 0
 }
 
 export function extractDashboardMutationRevealTarget(message: ToolCallMessage): DashboardRevealTarget | null {
@@ -278,35 +291,47 @@ export function extractDashboardMutationRevealTarget(message: ToolCallMessage): 
         return null
     }
 
-    const dashboardId = asPositiveInteger(
-        message.resolvedKey === 'dashboards-move-tile-partial-update' ? input.to_dashboard : input.id
-    )
-    if (!dashboardId) {
-        return null
-    }
-
     switch (message.resolvedKey) {
         case 'dashboard-create-text-tile':
-        case 'dashboard-update-text-tile':
-            return { dashboardId, tileId: asPositiveInteger(output.id) ?? undefined }
+        case 'dashboard-update-text-tile': {
+            const dashboardId = asPositiveInteger(input.id)
+            const tileId = asPositiveInteger(output.id)
+            return dashboardId !== null && tileId !== null ? { dashboardId, tileId } : null
+        }
         case 'dashboard-widgets-batch-add':
-            return { dashboardId, tileId: singleTileId(output.tiles) }
-        case 'dashboard-widgets-batch-update':
-            return {
-                dashboardId,
-                tileId:
-                    Array.isArray(input.widgets) && input.widgets.length === 1
-                        ? (asPositiveInteger(asRecord(input.widgets[0])?.tile_id) ?? undefined)
-                        : undefined,
+        case 'dashboard-widgets-batch-update': {
+            const dashboardId = asPositiveInteger(input.id)
+            const tileIds = responseTileIds(output.tiles)
+            if (dashboardId === null || tileIds === null) {
+                return null
             }
-        case 'dashboard-update':
-            return { dashboardId, tileId: singleTileId(input.tiles) }
-        case 'dashboards-move-tile-partial-update':
-            return { dashboardId, tileId: asPositiveInteger(asRecord(input.tile)?.id) ?? undefined }
-        case 'dashboard-delete-tile':
+            return { dashboardId, tileId: tileIds.length === 1 ? tileIds[0] : undefined }
+        }
+        case 'dashboard-update': {
+            const dashboardId = matchingDashboardResponseId(output, input)
+            if (dashboardId === null) {
+                return null
+            }
+            const inputTileIds = responseTileIds(input.tiles)
+            return { dashboardId, tileId: inputTileIds?.length === 1 ? inputTileIds[0] : undefined }
+        }
         case 'dashboard-reorder-tiles':
-        case 'dashboard-tile-copy':
-            return { dashboardId }
+        case 'dashboard-tile-copy': {
+            const dashboardId = matchingDashboardResponseId(output, input)
+            return dashboardId !== null ? { dashboardId } : null
+        }
+        case 'dashboards-move-tile-partial-update': {
+            if (matchingDashboardResponseId(output, input) === null) {
+                return null
+            }
+            const dashboardId = asPositiveInteger(input.to_dashboard)
+            const tileId = asPositiveInteger(asRecord(input.tile)?.id)
+            return dashboardId !== null && tileId !== null ? { dashboardId, tileId } : null
+        }
+        case 'dashboard-delete-tile': {
+            const dashboardId = asPositiveInteger(input.id)
+            return dashboardId !== null && hasEnrichedNoContentResponse(output) ? { dashboardId } : null
+        }
         default:
             return null
     }

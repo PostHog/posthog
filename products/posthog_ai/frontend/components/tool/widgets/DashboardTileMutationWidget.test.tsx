@@ -7,17 +7,24 @@ import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTyp
 import { DashboardTileMutationWidget } from './DashboardTileMutationWidget'
 
 function makeMessage(overrides: Partial<ToolCallMessage> = {}): ToolCallMessage {
+    const innerInput = overrides.innerInput ?? {
+        id: 5,
+        widgets: [{ widget_type: 'activity_events_list', config: {} }],
+    }
+    const rawOutput = overrides.rawOutput ?? JSON.stringify({ tiles: [{ id: 101 }] })
+    const { innerInput: _innerInput, rawOutput: _rawOutput, ...messageOverrides } = overrides
     return {
         id: 'call-1',
         resolvedKey: 'dashboard-widgets-batch-add',
         rawServerName: 'posthog',
         rawToolName: 'mcp__posthog__exec',
-        rawInput: {},
-        innerInput: { id: 5 },
-        rawOutput: { tiles: [{ id: 101 }] },
+        rawInput: { command: `call --json dashboard-widgets-batch-add ${JSON.stringify(innerInput)}` },
+        innerToolName: 'dashboard-widgets-batch-add',
+        innerInput,
+        rawOutput,
         content: [],
         status: 'completed',
-        ...overrides,
+        ...messageOverrides,
     }
 }
 
@@ -36,7 +43,7 @@ describe('DashboardTileMutationWidget', () => {
     it('uses View dashboard when several tiles changed', () => {
         render(
             <DashboardTileMutationWidget
-                message={makeMessage({ rawOutput: { tiles: [{ id: 101 }, { id: 102 }] } })}
+                message={makeMessage({ rawOutput: JSON.stringify({ tiles: [{ id: 101 }, { id: 102 }] }) })}
                 isLastInGroup
             />
         )
@@ -44,13 +51,8 @@ describe('DashboardTileMutationWidget', () => {
         expect(screen.getByText('View dashboard').closest('a')).toHaveAttribute('href', '/dashboard/5')
     })
 
-    it('falls back to the generic card for malformed output', () => {
-        render(
-            <DashboardTileMutationWidget
-                message={makeMessage({ rawOutput: undefined, innerToolName: 'dashboard-widgets-batch-add' })}
-                isLastInGroup
-            />
-        )
+    it('falls back to the generic card for a completed schema-incomplete record', () => {
+        render(<DashboardTileMutationWidget message={makeMessage({ rawOutput: JSON.stringify({}) })} isLastInGroup />)
 
         expect(screen.getByText('Call dashboard-widgets-batch-add')).toBeInTheDocument()
     })

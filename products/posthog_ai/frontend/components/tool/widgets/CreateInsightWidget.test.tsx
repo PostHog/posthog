@@ -9,17 +9,22 @@ import { CreateInsightWidget } from './CreateInsightWidget'
 jest.mock('~/queries/Query/Query', () => ({ Query: () => <div>Visualization</div> }))
 
 function makeMessage(overrides: Partial<ToolCallMessage> = {}): ToolCallMessage {
+    const innerInput = overrides.innerInput ?? { dashboards: [5] }
+    const rawOutput =
+        overrides.rawOutput ?? JSON.stringify({ short_id: 'abc123', query: { kind: 'TrendsQuery', series: [] } })
+    const { innerInput: _innerInput, rawOutput: _rawOutput, ...messageOverrides } = overrides
     return {
         id: 'call-1',
         resolvedKey: 'insight-create',
         rawServerName: 'posthog',
         rawToolName: 'mcp__posthog__exec',
-        rawInput: {},
-        innerInput: { dashboards: [5] },
-        rawOutput: { short_id: 'abc123', query: { kind: 'TrendsQuery', series: [] } },
+        rawInput: { command: `call --json insight-create ${JSON.stringify(innerInput)}` },
+        innerToolName: 'insight-create',
+        innerInput,
+        rawOutput,
         content: [],
         status: 'completed',
-        ...overrides,
+        ...messageOverrides,
     }
 }
 
@@ -42,10 +47,10 @@ describe('CreateInsightWidget', () => {
         expect(document.querySelector('a[href="/insights/abc123"]')).toBeInTheDocument()
     })
 
-    it('uses the generic card when the insight output is malformed', () => {
+    it('uses the generic card when a completed insight record is schema-incomplete', () => {
         render(
             <CreateInsightWidget
-                message={makeMessage({ rawOutput: undefined, innerToolName: 'insight-create' })}
+                message={makeMessage({ rawOutput: JSON.stringify({ short_id: 'abc123' }) })}
                 isLastInGroup
             />
         )
