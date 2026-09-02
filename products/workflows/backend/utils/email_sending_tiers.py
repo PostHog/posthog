@@ -1,13 +1,10 @@
-from datetime import UTC, datetime
-from typing import Literal, Optional
+from typing import Literal
 
 from django.conf import settings
-from django.utils.dateparse import parse_datetime
 
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.models.team import Team
 
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 
@@ -33,8 +30,7 @@ class TeamEmailSendingTier:
     tier: int
     pinned: bool
     limits: EmailSendingTierLimits
-    # False while the rollout mode is "off" or "shadow", or while enforcement is narrowed to teams
-    # created after a cutoff this team predates. Callers must fall back to pre-tier behavior.
+    # False while the rollout mode is "off" or "shadow". Callers must fall back to pre-tier behavior.
     enforced: bool
 
 
@@ -97,40 +93,8 @@ def get_email_sending_tier_limits(tier: int) -> EmailSendingTierLimits:
     )
 
 
-def _enforcement_cutoff_raw() -> str:
-    return str(settings.WORKFLOWS_EMAIL_TIER_ENFORCE_TEAMS_CREATED_AFTER or "").strip()
-
-
-def _enforcement_cutoff() -> Optional[datetime]:
-    raw = _enforcement_cutoff_raw()
-    if not raw:
-        return None
-    # Read on the send path, so a typo in the env var must not raise here.
-    try:
-        parsed = parse_datetime(raw)
-    except ValueError:
-        parsed = None
-    if parsed is None:
-        logger.warning("workflows_email_tier_cutoff_unparseable", value=raw)
-        return None
-    # A bare date ("2026-01-01") parses to a naive datetime, while the team creation dates it is
-    # compared against are UTC-aware. Read a naive cutoff as UTC instead of raising on the compare.
-    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
-
-
-def is_tier_enforced_for_team(team_created_at: Optional[datetime]) -> bool:
-    if email_sending_tier_mode() != "enforce":
-        return False
-    cutoff = _enforcement_cutoff()
-    if cutoff is None:
-        # An empty cutoff enforces every team. A set but unparseable cutoff must not, because an
-        # operator typo has to narrow enforcement rather than widen it to everyone. This matches
-        # email_sending_tier_mode(), which reads an unrecognized value as "off", and the module's
-        # rule that a config problem must never throttle a paying customer.
-        return not _enforcement_cutoff_raw()
-    # An unknown creation date reads as "not after the cutoff": the cutoff exists to spare
-    # established teams, so an unresolvable team must land on the established side.
-    return team_created_at is not None and team_created_at >= cutoff
+def is_tier_enforced() -> bool:
+    return email_sending_tier_mode() == "enforce"
 
 
 def resolve_team_email_sending_tier(team_id: int) -> TeamEmailSendingTier:
@@ -157,43 +121,31 @@ def resolve_team_email_sending_tier(team_id: int) -> TeamEmailSendingTier:
 
 
 def _resolve_team_email_sending_tier(team_id: int, top_tier: int) -> TeamEmailSendingTier:
-    row = (
-        TeamWorkflowsConfig.objects.filter(team_id=team_id)
-        .values("email_sending_tier", "email_sending_tier_pinned", "team__created_at")
-        .first()
-    )
-
     if team_id in settings.HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS:
         # The pre-tier allowlist keeps working as a staff pin at the top tier.
         return TeamEmailSendingTier(
             tier=top_tier,
             pinned=True,
             limits=get_email_sending_tier_limits(top_tier),
-            enforced=is_tier_enforced_for_team(row["team__created_at"] if row else _team_created_at(team_id)),
+            enforced=is_tier_enforced(),
         )
 
+    row = (
+        TeamWorkflowsConfig.objects.filter(team_id=team_id)
+        .values("email_sending_tier", "email_sending_tier_pinned")
+        .first()
+    )
     if row is None:
-        # No row means the team never touched a workflows setting, so it starts at tier 0. Reading
-        # the creation date still matters: enforcement can be narrowed to teams created after a
-        # cutoff, and a team without a row can sit on either side of it.
+        # No row means the team never touched a workflows setting, so it starts at tier 0.
         tier = MIN_EMAIL_SENDING_TIER
         pinned = False
-        created_at = _team_created_at(team_id)
     else:
         tier = row["email_sending_tier"]
         pinned = row["email_sending_tier_pinned"]
-        created_at = row["team__created_at"]
 
     return TeamEmailSendingTier(
         tier=tier,
         pinned=pinned,
         limits=get_email_sending_tier_limits(tier),
-        enforced=is_tier_enforced_for_team(created_at),
+        enforced=is_tier_enforced(),
     )
-
-
-def _team_created_at(team_id: int) -> Optional[datetime]:
-    if _enforcement_cutoff() is None:
-        # Without a cutoff the date changes nothing, so skip the query.
-        return None
-    return Team.objects.filter(id=team_id).values_list("created_at", flat=True).first()
