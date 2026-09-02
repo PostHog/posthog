@@ -83,7 +83,9 @@ def trino_error_to_message(error: Exception) -> str:
     lowered = message.lower()
     if message == TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR:
         return message
-    if "authentication" in lowered or "unauthorized" in lowered or "401" in lowered:
+    # Match the driver's HTTP 401 form ("error 401: ..."), not a bare "401": a Trino query error's
+    # text carries a query ID whose time part can hold "401" and would derail this classification.
+    if "authentication" in lowered or "unauthorized" in lowered or "error 401" in lowered:
         return TRINO_AUTHENTICATION_ERROR
     # Trino gives permission checks to an access control plugin. That plugin can fail on its own, for
     # example when it cannot reach its policy service, which nobody can fix from PostHog.

@@ -159,6 +159,14 @@ def test_trino_error_to_message_preserves_tls_verification_action() -> None:
         ("TrinoExternalError: Failed to query OPA backend", TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR),
         ("Access Denied: Cannot select from table hive.analytics.events", TRINO_ACCESS_DENIED_ERROR),
         ("Authentication failed for user posthog", TRINO_AUTHENTICATION_ERROR),
+        ("error 401", TRINO_AUTHENTICATION_ERROR),
+        # A Trino query error's text carries a query ID (YYYYMMDD_HHMMSS_seq_random). The "401" in
+        # its time part must not turn an access denial into an authentication error.
+        (
+            'TrinoUserError(type=USER_ERROR, name=PERMISSION_DENIED, message="Access Denied: '
+            'Cannot select from table hive.analytics.events", query_id=20260902_123401_00000_abcde)',
+            TRINO_ACCESS_DENIED_ERROR,
+        ),
     ],
 )
 def test_trino_error_to_message_explains_access_failures(raw_error: str, expected: str) -> None:
