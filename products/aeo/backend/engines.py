@@ -23,6 +23,7 @@ import requests
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import ai_gateway_headers, resolve_ai_gateway_config
+from posthog.security.llm_prompt_sanitization import GENERIC_VALUE_MAX_LEN, sanitize_user_text
 
 GATEWAY_TIMEOUT_SECONDS = 420  # web-search turns routinely take 10-60s, and multi-search answers several minutes
 EXA_TIMEOUT_SECONDS = 60
@@ -255,6 +256,17 @@ def top_domains(urls: list[str]) -> list[str]:
     return domains
 
 
+def _safe_values(values: list[str], *, limit: int = MAX_URLS_PER_CHECK) -> list[str]:
+    """Strip invisible characters and LLM framing markers from engine-derived strings.
+
+    URLs, search queries and provider error bodies are third-party text, and the
+    alerting scout reads them, so they reach an LLM. Sanitize before recording,
+    the same way AI subscriptions sanitize user-controlled event names.
+    """
+    cleaned = (sanitize_user_text(value, GENERIC_VALUE_MAX_LEN) for value in values[:limit])
+    return [value for value in cleaned if value]
+
+
 def build_check_properties(
     *,
     check: CitationCheck,
@@ -274,7 +286,7 @@ def build_check_properties(
     properties: dict[str, Any] = {
         "aeo_run_id": run_id,
         "prompt_id": prompt_id,
-        "prompt_text": prompt_text[:MAX_PROMPT_LENGTH],
+        "prompt_text": sanitize_user_text(prompt_text, MAX_PROMPT_LENGTH),
         "prompt_source": prompt_source,
         "prompt_hash": prompt_hash,
         "engine": check.engine,
@@ -282,15 +294,15 @@ def build_check_properties(
         "check_failed": check.error is not None,
         "cited": bool(target_urls),
         "num_citations": len(check.cited_urls),
-        "cited_urls": check.cited_urls[:MAX_URLS_PER_CHECK],
-        "retrieved_urls": check.retrieved_urls[:MAX_URLS_PER_CHECK],
-        "search_queries": check.search_queries[:MAX_QUERIES_PER_CHECK],
-        "target_urls": target_urls[:MAX_URLS_PER_CHECK],
+        "cited_urls": _safe_values(check.cited_urls),
+        "retrieved_urls": _safe_values(check.retrieved_urls),
+        "search_queries": _safe_values(check.search_queries, limit=MAX_QUERIES_PER_CHECK),
+        "target_urls": _safe_values(target_urls),
         "target_best_position": target_position(check.cited_urls, target_domains),
-        "top_cited_domains": top_domains(check.cited_urls)[:MAX_URLS_PER_CHECK],
+        "top_cited_domains": _safe_values(top_domains(check.cited_urls)),
     }
     if check.error is not None:
-        properties["error"] = check.error[:MAX_ERROR_LENGTH]
+        properties["error"] = sanitize_user_text(check.error, MAX_ERROR_LENGTH)
     if check.cost_usd is not None:
         properties["cost_usd"] = check.cost_usd
     if check.trace_id is not None:
