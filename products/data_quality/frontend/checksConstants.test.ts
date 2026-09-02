@@ -1,6 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 
-import { failingForLabel } from './checksConstants'
+import { byStatusAttention, checkRunDisplayName, failingForLabel } from './checksConstants'
+import { CheckTypeEnumApi } from './generated/api.schemas'
 
 describe('checksConstants', () => {
     const now = dayjs('2026-08-19T12:00:00Z')
@@ -33,5 +34,32 @@ describe('checksConstants', () => {
                 now
             )
         ).toEqual(expected)
+    })
+
+    it.each<[string, string | null, CheckTypeEnumApi, string, string]>([
+        [
+            'a named check is labelled by its name',
+            'orders_are_fresh',
+            CheckTypeEnumApi.Freshness,
+            '',
+            'orders_are_fresh',
+        ],
+        ['an unnamed check describes its assertion', null, CheckTypeEnumApi.NotNull, 'email', 'Not null on email'],
+        ['a check on no column names the type alone', null, CheckTypeEnumApi.RowCount, '', 'Row count'],
+    ])('%s', (_case, checkName, checkType, columnName, expected) => {
+        expect(checkRunDisplayName({ check_name: checkName, check_type: checkType, column_name: columnName })).toEqual(
+            expected
+        )
+    })
+
+    it('sorts the runs that need a person above the ones that do not', () => {
+        const runs = [{ status: 'passed' }, { status: 'skipped' }, { status: 'errored' }, { status: 'failed' }]
+
+        expect([...runs].sort(byStatusAttention).map((run) => run.status)).toEqual([
+            'failed',
+            'errored',
+            'skipped',
+            'passed',
+        ])
     })
 })
