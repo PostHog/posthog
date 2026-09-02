@@ -4,6 +4,8 @@ from posthog.test.base import BaseTest, TestMigrations
 from unittest.mock import patch
 
 from django.apps import apps as global_apps
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 
 def variants(*percentages: Any) -> dict:
@@ -225,3 +227,38 @@ class ClampRolloutCompareAndSwapTest(BaseTest):
 
         flag.refresh_from_db()
         assert flag.filters == edited
+
+
+class ClampRolloutQueryCountTest(BaseTest):
+    """The scan reads `ensure_experience_continuity`, so it has to be in the `.only()`. Without
+    it Django refetches the column once per row, and the field has silently dropped out once."""
+
+    def test_the_scan_does_not_query_per_row(self) -> None:
+        from importlib import import_module
+
+        from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+        migration = import_module("products.feature_flags.backend.migrations.0015_clamp_rollout_percentages_over_100")
+        for i in range(25):
+            FeatureFlag.objects.create(
+                team=self.team,
+                created_by=self.user,
+                key=f"counted-{i}",
+                filters={
+                    "groups": [],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "a", "name": "", "rollout_percentage": 60},
+                            {"key": "b", "name": "", "rollout_percentage": 60},
+                        ]
+                    },
+                },
+            )
+
+        with CaptureQueriesContext(connection) as captured:
+            migration.clamp_rollout_percentages_over_100(global_apps, None)
+
+        selects = [q["sql"] for q in captured.captured_queries if q["sql"].lstrip().upper().startswith("SELECT")]
+        # One batch of up to 500, then one empty batch that ends the loop. A per-row refetch
+        # would add one SELECT for every flag scanned.
+        assert len(selects) == 2, "\n".join(selects)
