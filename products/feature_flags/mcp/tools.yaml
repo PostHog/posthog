@@ -135,6 +135,14 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+        response:
+            include:
+                - id
+                - key
+                - active
+                - archived
+                - status
+                - version
     feature-flag-disable:
         operation: feature_flags_disable_create
         enabled: true
@@ -176,6 +184,14 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+        response:
+            include:
+                - id
+                - key
+                - active
+                - archived
+                - status
+                - version
     feature-flag-enable:
         operation: feature_flags_enable_create
         enabled: true
@@ -212,6 +228,14 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+        response:
+            include:
+                - id
+                - key
+                - active
+                - archived
+                - status
+                - version
     feature-flag-get-all:
         operation: feature_flags_list
         enabled: true
@@ -287,6 +311,14 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+        response:
+            include:
+                - id
+                - key
+                - active
+                - archived
+                - status
+                - version
     feature-flags-activity-retrieve:
         operation: feature_flags_activity_retrieve
         enabled: true
