@@ -3,7 +3,13 @@ from typing import cast
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
+import pyarrow as pa
+
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import (
+    PipelineV3,
+    _LaneWriter,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import OutputLane
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportJobModels,
 )
@@ -24,7 +30,7 @@ def _make_pipeline() -> PipelineV3:
     with patch.object(PipelineV3, "__init__", return_value=None):
         pipeline = PipelineV3.__new__(PipelineV3)
 
-    pipeline._resource = MagicMock(name="test_table", primary_keys=["id"])
+    pipeline._resource = MagicMock(name="test_table", primary_keys=["id"], lanes=None, finalize_metadata=None)
     pipeline._resource_name = "test_table"
     pipeline._job = MagicMock(team_id=1, workflow_run_id="run-abc", billable=False)
     pipeline._source = MagicMock(source_type="Postgres")
@@ -52,8 +58,14 @@ def _make_pipeline() -> PipelineV3:
     pipeline._load_id = 1
     pipeline._s3_batch_writer = MagicMock()
     pipeline._pg_producer = MagicMock(sync_type="full_refresh")
+    pipeline._lane_writers = [
+        _LaneWriter(
+            lane=OutputLane(name="test_table"),
+            s3_batch_writer=pipeline._s3_batch_writer,
+            pg_producer=pipeline._pg_producer,
+        )
+    ]
     pipeline._accumulated_pa_schema = None
-    pipeline._batch_results = []
     pipeline._shutdown_monitor = MagicMock()
     pipeline._attempt = 1
     pipeline._uses_delta_write_column_selection = False
@@ -97,6 +109,7 @@ class TestAttemptScopedRunUuid:
             partition_format=None,
             partition_mode=None,
             cdc_write_mode=None,
+            lanes=None,
         )
 
         with (
@@ -226,6 +239,7 @@ class TestCDCSourceWiring:
             partition_format=None,
             partition_mode=None,
             cdc_write_mode=cdc_write_mode,
+            lanes=None,
         )
 
         base = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
@@ -309,3 +323,186 @@ class TestCDCSeqProvenanceSurvivesStaging:
         buf.seek(0)
 
         assert has_engine_seq(pq.read_table(buf))
+
+
+def _run_uuids(lanes) -> list[str]:
+    """Run ids the pipeline hands its S3 writers, one per lane."""
+    mock_job = MagicMock(team_id=1, workflow_run_id="wfrun-abc", billable=False, id="job-1")
+    mock_schema = MagicMock(
+        id="schema-1",
+        source_id="source-1",
+        is_incremental=False,
+        is_webhook=False,
+        is_xmin=False,
+        is_append=False,
+        table=None,
+        primary_key_columns=None,
+        partition_count=None,
+        partition_size=None,
+        partitioning_keys=None,
+        partition_format=None,
+        partition_mode=None,
+        incremental_field_earliest_value=None,
+        incremental_field_type=None,
+    )
+    mock_resource = MagicMock(
+        name="test",
+        primary_keys=["id"],
+        partition_count=None,
+        partition_size=None,
+        partition_keys=None,
+        partition_format=None,
+        partition_mode=None,
+        cdc_write_mode=None,
+        lanes=lanes,
+    )
+    module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline"
+    with (
+        patch(f"{module}.current_activity_attempt", return_value=3),
+        patch(f"{module}.current_workflow_id", return_value="wf-1"),
+        patch(f"{module}.current_workflow_run_id", return_value="wfrun-abc"),
+        patch(f"{module}.S3BatchWriter") as mock_s3_writer_cls,
+        patch(f"{module}.PostgresProducer"),
+        patch(f"{module}.DeltaTableRef"),
+    ):
+        PipelineV3(
+            source_response=mock_resource,
+            logger=_make_logger(),
+            job_id="job-1",
+            reset_pipeline=False,
+            shutdown_monitor=MagicMock(),
+            resumable_source_manager=None,
+            models=ImportJobModels(job=mock_job, schema=mock_schema, source=mock_source_stub(), table=None),
+        )
+        return [call[0][3] for call in mock_s3_writer_cls.call_args_list]
+
+
+def mock_source_stub() -> MagicMock:
+    return MagicMock()
+
+
+def _lane_writer(name: str, *, billable: bool = True, transform=None) -> _LaneWriter:
+    s3_batch_writer = MagicMock(
+        write_batch=MagicMock(side_effect=lambda t, i: MagicMock(batch_index=i)),
+        write_schema=MagicMock(return_value=f"s3://schema/{name}"),
+        get_data_folder=MagicMock(return_value=f"s3://data/{name}"),
+    )
+    return _LaneWriter(
+        lane=OutputLane(name=name, billable=billable, transform=transform),
+        s3_batch_writer=s3_batch_writer,
+        pg_producer=MagicMock(sync_type="cdc"),
+    )
+
+
+@pytest.mark.asyncio
+class TestLaneFanOut:
+    @staticmethod
+    def _pipeline(writers: list[_LaneWriter]) -> PipelineV3:
+        pipeline = _make_pipeline()
+        pipeline._lane_writers = writers
+        pipeline._s3_batch_writer = writers[0].s3_batch_writer
+        pipeline._pg_producer = writers[0].pg_producer
+        pipeline._resource.finalize_metadata = None
+        cast(MagicMock, pipeline._schema).configure_mock(incremental_field=None, enabled_columns=None)
+        pipeline._last_incremental_field_value = None
+        pipeline._earliest_incremental_field_value = None
+        return pipeline
+
+    async def _process(self, pipeline: PipelineV3, table) -> MagicMock:
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.update_incremental_field_values",
+                AsyncMock(return_value=MagicMock(last_value=None, earliest_value=None)),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.update_row_tracking_after_batch",
+                AsyncMock(),
+            ) as tracked,
+        ):
+            await pipeline._process_batch(pa_table=table, batch_index=0, row_count=table.num_rows)
+        return tracked
+
+    async def test_every_lane_writes_the_batch(self) -> None:
+        writers = [_lane_writer("users"), _lane_writer("users_cdc", billable=False)]
+        pipeline = self._pipeline(writers)
+
+        await self._process(pipeline, pa.table({"id": pa.array([1, 2], pa.int64())}))
+
+        assert [len(writer.batch_results) for writer in writers] == [1, 1]
+        for writer in writers:
+            cast(MagicMock, writer.pg_producer.send_batch_notification).assert_called_once()
+
+    async def test_only_the_billable_lane_counts_towards_usage(self) -> None:
+        # One read of a change stream is one sync however many tables it keeps.
+        writers = [_lane_writer("users"), _lane_writer("users_cdc", billable=False)]
+        pipeline = self._pipeline(writers)
+
+        tracked = await self._process(pipeline, pa.table({"id": pa.array([1, 2, 3], pa.int64())}))
+
+        assert tracked.call_args[0][3] == 3
+
+    async def test_a_lane_that_already_holds_the_rows_stages_nothing_for_that_index(self) -> None:
+        writers = [_lane_writer("users"), _lane_writer("users_cdc", transform=lambda t: t.slice(0, 0))]
+        pipeline = self._pipeline(writers)
+
+        await self._process(pipeline, pa.table({"id": pa.array([1, 2], pa.int64())}))
+
+        assert [len(writer.batch_results) for writer in writers] == [1, 0]
+        cast(MagicMock, writers[1].pg_producer.send_batch_notification).assert_not_called()
+
+    async def test_each_lane_ends_with_its_own_final_batch(self) -> None:
+        writers = [_lane_writer("users"), _lane_writer("users_cdc", billable=False)]
+        pipeline = self._pipeline(writers)
+        await self._process(pipeline, pa.table({"id": pa.array([1], pa.int64())}))
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.finalize_desc_sort_incremental_value",
+                AsyncMock(),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.advance_xmin_state",
+                AsyncMock(),
+            ),
+        ):
+            await pipeline._finalize(row_count=1)
+
+        for writer in writers:
+            call = cast(MagicMock, writer.pg_producer.send_batch_notification).call_args
+            assert call.kwargs["is_final_batch"] is True
+
+    async def test_a_lane_with_nothing_to_write_sends_no_final_batch(self) -> None:
+        writers = [_lane_writer("users"), _lane_writer("users_cdc", transform=lambda t: t.slice(0, 0))]
+        pipeline = self._pipeline(writers)
+        await self._process(pipeline, pa.table({"id": pa.array([1], pa.int64())}))
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.finalize_desc_sort_incremental_value",
+                AsyncMock(),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.advance_xmin_state",
+                AsyncMock(),
+            ),
+        ):
+            await pipeline._finalize(row_count=1)
+
+        cast(MagicMock, writers[1].pg_producer.send_batch_notification).assert_not_called()
+
+
+class TestLaneRunUuids:
+    def test_a_single_lane_source_keeps_the_run_id_it_always_had(self) -> None:
+        writers = _run_uuids(lanes=None)
+
+        assert writers == ["wfrun-abc-a3"]
+
+    def test_each_cdc_lane_gets_a_run_of_its_own(self) -> None:
+        writers = _run_uuids(
+            lanes=[
+                OutputLane(name="users", cdc_write_mode="incremental_merge", run_uuid_suffix="-consolidated"),
+                OutputLane(name="users_cdc", cdc_write_mode="scd2_append", run_uuid_suffix="-cdc"),
+            ]
+        )
+
+        assert writers == ["wfrun-abc-a3-consolidated", "wfrun-abc-a3-cdc"]

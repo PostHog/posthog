@@ -92,49 +92,30 @@ def _deltalite_write_stats(stats: Any) -> dict[str, int | float | str | bool]:
     return fields
 
 
-def _nested_user_metadata(commit: dict[str, Any]) -> dict[str, Any] | None:
-    """The commit's `userMetadata` mapping, or None when it has none in a shape we understand.
-
-    delta-rs 1.x inlines custom metadata onto the top-level commit dict; older and other layouts
-    nest it here, sometimes as a JSON string.
-    """
-    raw = commit.get("userMetadata")
-    if isinstance(raw, dict):
-        return raw
-    if isinstance(raw, str):
-        try:
-            parsed = json.loads(raw)
-        except (json.JSONDecodeError, ValueError):
-            return None
-        return parsed if isinstance(parsed, dict) else None
-    return None
-
-
 def commit_matches(commit: dict[str, Any], match: dict[str, str]) -> bool:
     """Return True iff every (k, v) in `match` is present in this commit's metadata.
 
-    Handles both the flat layout (delta-rs 1.x inlines custom_metadata onto the top-level commit
-    dict) and a nested `userMetadata` key (older/other layouts).
+    Handles both the flat layout (delta-rs 1.x inlines custom_metadata onto the
+    top-level commit dict) and a nested `userMetadata` key (older/other layouts).
     """
     if all(commit.get(k) == v for k, v in match.items()):
         return True
 
-    nested = _nested_user_metadata(commit)
-    if nested is None:
+    raw = commit.get("userMetadata")
+    if raw is None:
+        return False
+
+    if isinstance(raw, str):
+        try:
+            nested = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            return False
+    elif isinstance(raw, dict):
+        nested = raw
+    else:
         return False
 
     return all(nested.get(k) == v for k, v in match.items())
-
-
-def commit_custom_metadata(commit: dict[str, Any]) -> dict[str, Any]:
-    """This commit's custom metadata, whichever layout delta-rs wrote it in.
-
-    The nested mapping when there is one, and otherwise the commit itself — which is where the flat
-    layout puts the entries. Never a merge of the two, so a metadata key cannot shadow a commit
-    field or the other way round.
-    """
-    nested = _nested_user_metadata(commit)
-    return nested if nested is not None else dict(commit)
 
 
 class DeltaWriter:
@@ -624,23 +605,6 @@ class DeltaWriter:
                 return True
 
         return False
-
-    async def find_commit_with_metadata(self, match: dict[str, str], *, scan_limit: int = 50) -> dict[str, Any] | None:
-        """The custom metadata of the most recent commit matching `match`, or None.
-
-        `has_commit_with_metadata` answers whether a batch landed; this answers what it recorded
-        when it landed, which is how a value written alongside a commit survives a crash before it
-        reached its own store.
-        """
-        delta_table = await self._table.get_delta_table()
-        if delta_table is None:
-            return None
-
-        history = await asyncio.to_thread(delta_table.history, limit=scan_limit)
-        for commit in history:
-            if commit_matches(commit, match):
-                return commit_custom_metadata(commit)
-        return None
 
     async def has_batch_been_committed(self, run_uuid: str, batch_index: int) -> bool:
         """Check whether a specific (run_uuid, batch_index) has already been committed to delta.

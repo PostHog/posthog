@@ -1,7 +1,8 @@
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import LanePosition
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
@@ -43,6 +44,12 @@ def _inputs(reset_pipeline: bool = False) -> SourceInputs:
     )
 
 
+def _delta_ref() -> MagicMock:
+    ref = MagicMock()
+    ref.return_value.get_delta_table = AsyncMock(return_value=MagicMock())
+    return ref
+
+
 def _dispatch(
     schema: MagicMock,
     inputs: SourceInputs,
@@ -54,6 +61,10 @@ def _dispatch(
         patch(f"{_SCHEMA_MODEL}.objects") as objects,
         patch(f"{_JOB_MODEL}.objects") as job_objects,
         patch(f"{_MANAGER}.has_batches_in_flight", return_value=in_flight),
+        patch(f"{_MANAGER}.DeltaTableRef", _delta_ref()),
+        patch(
+            f"{_MANAGER}.read_lane_position", AsyncMock(return_value=LanePosition(position=None, rows_at_position=0))
+        ),
         patch.object(PostgresSource, "make_ssh_tunnel_func", return_value=MagicMock()),
     ):
         objects.select_related.return_value.get.return_value = schema
@@ -86,14 +97,16 @@ class TestBufferedDispatch:
         assert response.name == "users_cdc"
         assert response.cdc_write_mode == "scd2_append"
 
-    def test_both_alternates_so_each_table_is_served_by_a_run_of_its_own(self):
-        # A pipeline run writes one table, so serving both at once is not expressible. Each run
-        # takes the lane the last one did not.
-        schema = _schema(cdc_table_mode="both")
-        assert _dispatch(schema, _inputs()).name == "users"
+    def test_both_writes_each_table_on_every_run(self):
+        response = _dispatch(_schema(cdc_table_mode="both"), _inputs())
 
-        schema.sync_type_config = {"cdc_buffer_listing": {"users": {"listed_at": "2026-08-28T12:00:00+00:00"}}}
-        assert _dispatch(schema, _inputs()).name == "users_cdc"
+        assert [lane.name for lane in response.lanes or []] == ["users", "users_cdc"]
+
+    def test_each_lane_gets_its_own_run_in_the_queue(self):
+        response = _dispatch(_schema(cdc_table_mode="both"), _inputs())
+
+        suffixes = [lane.run_uuid_suffix for lane in response.lanes or []]
+        assert suffixes == ["-consolidated", "-cdc"]
 
     def test_a_v2_run_reaching_the_buffered_lane_fails_loudly(self):
         # The forcing keeps this unreachable; if a race or deploy skew gets past it, the run must
@@ -101,14 +114,14 @@ class TestBufferedDispatch:
         with pytest.raises(ValueError, match="requires v3"):
             _dispatch(_schema(), _inputs(), job_version="v2-non-dlt")
 
-    def test_a_missing_job_row_does_not_block_buffered_consumption(self):
-        response = _dispatch(_schema(), _inputs(), job_version=None)
-
-        assert response.name == "users"
+    def test_a_missing_job_row_fails_the_run(self):
+        # Every lane reads its resume point off its own Delta table, which needs the job row.
+        with pytest.raises(ValueError, match="no job row"):
+            _dispatch(_schema(), _inputs(), job_version=None)
 
     def test_a_delivery_still_in_flight_fails_the_run_rather_than_completing_it(self):
-        # An empty response completes the job, and a listing stamp matures into a deletion proof on
-        # its job completing — so standing down would prove files a crashed attempt never drained.
+        # An empty response completes the job, and completing it deletes the files this run read —
+        # so standing down would delete files a crashed attempt never drained.
         with pytest.raises(ValueError, match="deliveries in flight"):
             _dispatch(_schema(), _inputs(), in_flight=True)
 

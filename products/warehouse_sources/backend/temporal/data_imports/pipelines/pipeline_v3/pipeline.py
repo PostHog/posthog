@@ -78,6 +78,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer import ParquetCompression
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+    OutputLane,
     ResumableData,
     SourceResponse,
 )
@@ -88,6 +89,26 @@ if TYPE_CHECKING:
     )
 
 PARQUET_COMPRESSION: ParquetCompression = "zstd"
+
+
+class _LaneWriter:
+    """One table this run writes: its own run in the queue, its own staged files, its own count.
+
+    A run that feeds several tables reads its source once and writes each table from that read.
+    Splitting the queue-side identity per lane is what keeps them apart — batch idempotency,
+    staging paths and claim ordering are all keyed on the run id.
+    """
+
+    def __init__(self, lane: OutputLane, s3_batch_writer: S3BatchWriter, pg_producer: PostgresProducer) -> None:
+        self.lane = lane
+        self.s3_batch_writer = s3_batch_writer
+        self.pg_producer = pg_producer
+        self.batch_results: list[BatchWriteResult] = []
+        self.row_count = 0
+
+    def prepare(self, pa_table: pa.Table) -> pa.Table:
+        """This lane's share of a batch — the same rows unless it already holds some of them."""
+        return self.lane.transform(pa_table) if self.lane.transform is not None else pa_table
 
 
 class PipelineV3(Generic[ResumableData]):
@@ -109,7 +130,7 @@ class PipelineV3(Generic[ResumableData]):
     _s3_batch_writer: S3BatchWriter
     _pg_producer: PostgresProducer
     _accumulated_pa_schema: pa.Schema | None
-    _batch_results: list[BatchWriteResult]
+    _lane_writers: list["_LaneWriter"]
 
     def __init__(
         self,
@@ -151,12 +172,14 @@ class PipelineV3(Generic[ResumableData]):
         self._delta_table_ref = DeltaTableRef(self._resource_name, self._job, self._logger)
 
         attempt = current_activity_attempt()
-        attempt_scoped_run_uuid = f"{self._job.workflow_run_id}-a{attempt}" if self._job.workflow_run_id else None
-
-        self._s3_batch_writer = S3BatchWriter(
-            self._logger, self._job, str(self._schema.id), attempt_scoped_run_uuid, compression=PARQUET_COMPRESSION
-        )
         self._attempt = attempt
+
+        # One lane unless the source feeds several tables from one read. The suffix is what keeps
+        # each lane's batches a separate run in the queue; it is empty for every single-lane
+        # source, so their run ids are unchanged.
+        self._output_lanes = source_response.lanes or [
+            OutputLane(name=source_response.name, cdc_write_mode=source_response.cdc_write_mode)
+        ]
 
         sync_type: SyncTypeLiteral = "full_refresh"
         if source_response.cdc_write_mode is not None:
@@ -197,28 +220,64 @@ class PipelineV3(Generic[ResumableData]):
 
         is_resume = resumable_source_manager is not None and resumable_source_manager.can_resume()
 
-        self._pg_producer = PostgresProducer(
-            database_url=WAREHOUSE_SOURCES_DATABASE_URL,
-            team_id=self._job.team_id,
-            job_id=str(self._job.id),
-            schema_id=str(self._schema.id),
-            source_id=str(self._schema.source_id),
-            resource_name=self._resource_name,
-            sync_type=sync_type,
-            run_uuid=self._s3_batch_writer.get_run_uuid(),
-            logger=self._logger,
-            primary_keys=self._resource.primary_keys,
-            cdc_write_mode=self._resource.cdc_write_mode,
-            is_resume=is_resume,
-            partition_count=partition_count,
-            partition_size=partition_size,
-            partition_keys=partition_keys,
-            partition_format=partition_format,
-            partition_mode=partition_mode,
-            is_first_ever_sync=is_first_ever_sync,
-            workflow_id=current_workflow_id(),
-            workflow_run_id=current_workflow_run_id(),
-        )
+        # Writers first, so every lane's run id exists before any producer is built: the first
+        # batch of a run supersedes older runs of the job, and each lane has to name its siblings
+        # so it does not sweep away the tables this same run is writing.
+        lane_writers = [
+            (
+                lane,
+                S3BatchWriter(
+                    self._logger,
+                    self._job,
+                    str(self._schema.id),
+                    (
+                        f"{self._job.workflow_run_id}-a{attempt}{lane.run_uuid_suffix}"
+                        if self._job.workflow_run_id
+                        else None
+                    ),
+                    compression=PARQUET_COMPRESSION,
+                ),
+            )
+            for lane in self._output_lanes
+        ]
+        run_uuids = [writer.get_run_uuid() for _lane, writer in lane_writers]
+
+        self._lane_writers: list[_LaneWriter] = []
+        for lane, s3_batch_writer in lane_writers:
+            self._lane_writers.append(
+                _LaneWriter(
+                    lane=lane,
+                    s3_batch_writer=s3_batch_writer,
+                    pg_producer=PostgresProducer(
+                        database_url=WAREHOUSE_SOURCES_DATABASE_URL,
+                        team_id=self._job.team_id,
+                        job_id=str(self._job.id),
+                        schema_id=str(self._schema.id),
+                        source_id=str(self._schema.source_id),
+                        resource_name=lane.name,
+                        sync_type=sync_type,
+                        run_uuid=s3_batch_writer.get_run_uuid(),
+                        logger=self._logger,
+                        primary_keys=self._resource.primary_keys,
+                        cdc_write_mode=lane.cdc_write_mode,
+                        is_resume=is_resume,
+                        partition_count=partition_count,
+                        partition_size=partition_size,
+                        partition_keys=partition_keys,
+                        partition_format=partition_format,
+                        partition_mode=partition_mode,
+                        is_first_ever_sync=is_first_ever_sync,
+                        workflow_id=current_workflow_id(),
+                        workflow_run_id=current_workflow_run_id(),
+                        sibling_run_uuids=run_uuids,
+                    ),
+                )
+            )
+
+        # Everything outside the fan-out reads the first lane: it is the table this run is named
+        # for, and for a single-lane source it is the only one.
+        self._s3_batch_writer = self._lane_writers[0].s3_batch_writer
+        self._pg_producer = self._lane_writers[0].pg_producer
 
         self._resumable_source_manager = resumable_source_manager
         # A source can shrink the batcher chunk (e.g. document sources with large rows) so the
@@ -252,7 +311,6 @@ class PipelineV3(Generic[ResumableData]):
         self._earliest_incremental_field_value: Any = process_incremental_value(
             models.schema.incremental_field_earliest_value, models.schema.incremental_field_type
         )
-        self._batch_results = []
 
     async def run(self) -> PipelineResult:
         pa_memory_pool = pa.default_memory_pool()
@@ -334,7 +392,8 @@ class PipelineV3(Generic[ResumableData]):
 
             is_fresh_sync = self._delta_table_ref.is_first_sync or self._schema.table is None
             if is_fresh_sync:
-                self._pg_producer.is_first_ever_sync = True
+                for writer in self._lane_writers:
+                    writer.pg_producer.is_first_ever_sync = True
 
             # Defensive pre-write compaction so a sync that arrived at a fragmented Delta
             # target cleans up before adding more small files; see DeltaMaintenance.run_scheduled.
@@ -400,7 +459,7 @@ class PipelineV3(Generic[ResumableData]):
             # With zero batches, `_finalize` sent no final-batch notification, so the load
             # consumer will never hear about this run and cannot finalize it — the workflow must.
             # See the PipelineResult docstring for the full ownership contract.
-            consumer_will_hear_about_this_run = len(self._batch_results) > 0
+            consumer_will_hear_about_this_run = any(writer.batch_results for writer in self._lane_writers)
 
             return {
                 "should_trigger_cdp_producer": await self._sinks.cdp_producer.should_run(),
@@ -425,15 +484,17 @@ class PipelineV3(Generic[ResumableData]):
                     "sync_type": sync_type,
                     "status": status,
                     "duration_seconds": duration,
-                    "total_batches": len(self._batch_results),
+                    "total_batches": sum(len(writer.batch_results) for writer in self._lane_writers),
                     "total_rows": row_count if "row_count" in locals() else 0,
                 },
             )
 
             self._logger.debug("V3 Pipeline: Cleaning up resources")
             del self._resource
+            for writer in self._lane_writers:
+                writer.pg_producer.close()
+            del self._lane_writers
             del self._s3_batch_writer
-            self._pg_producer.close()
             del self._pg_producer
 
             cleanup_memory(pa_memory_pool, py_table if "py_table" in locals() else None)
@@ -473,10 +534,22 @@ class PipelineV3(Generic[ResumableData]):
             pa_table, self._accumulated_pa_schema, self._logger, protected_columns=cursor_columns
         )
 
-        batch_result = await asyncio.to_thread(self._s3_batch_writer.write_batch, pa_table, batch_index)
-        self._batch_results.append(batch_result)
-
-        self._pg_producer.send_batch_notification(batch_result, is_final_batch=False, cumulative_row_count=row_count)
+        # Each lane writes the same batch under its own run id. A lane that already holds these
+        # rows contributes nothing for this index, which leaves a gap in its batch indexes — the
+        # claim gate orders on "no earlier index still running", so gaps are harmless.
+        billable_rows = 0
+        for writer in self._lane_writers:
+            lane_table = writer.prepare(pa_table)
+            if not lane_table.num_rows:
+                continue
+            writer.row_count += lane_table.num_rows
+            batch_result = await asyncio.to_thread(writer.s3_batch_writer.write_batch, lane_table, batch_index)
+            writer.batch_results.append(batch_result)
+            writer.pg_producer.send_batch_notification(
+                batch_result, is_final_batch=False, cumulative_row_count=writer.row_count
+            )
+            if writer.lane.billable:
+                billable_rows = lane_table.num_rows
 
         self._internal_schema.add_pyarrow_table(pa_table)
 
@@ -495,8 +568,10 @@ class PipelineV3(Generic[ResumableData]):
         self._last_incremental_field_value = incremental_values.last_value
         self._earliest_incremental_field_value = incremental_values.earliest_value
 
+        # One read of a change stream is one sync however many tables it keeps, so only the
+        # billable lane's rows count towards usage.
         await update_row_tracking_after_batch(
-            str(self._job.id), self._job.team_id, self._schema.id, pa_table.num_rows, self._logger
+            str(self._job.id), self._job.team_id, self._schema.id, billable_rows, self._logger
         )
 
     async def _finalize(self, row_count: int) -> None:
@@ -512,7 +587,7 @@ class PipelineV3(Generic[ResumableData]):
             except Exception:
                 await self._logger.aexception("V3 Pipeline: Failed to persist observed columns into schema_metadata")
 
-        total_batches = len(self._batch_results)
+        total_batches = sum(len(writer.batch_results) for writer in self._lane_writers)
 
         if total_batches == 0:
             self._logger.debug("V3 Pipeline: No batches extracted, skipping finalization")
@@ -522,21 +597,30 @@ class PipelineV3(Generic[ResumableData]):
             f"V3 Pipeline: Finalizing extraction",
             total_batches=total_batches,
             total_rows=row_count,
+            lanes=[writer.lane.name for writer in self._lane_writers],
         )
 
-        schema_path = await asyncio.to_thread(self._s3_batch_writer.write_schema)
+        # Read after extraction, so it describes what this run actually consumed.
+        extra_metadata = self._resource.finalize_metadata() if self._resource.finalize_metadata else None
 
-        final_batch = self._batch_results[-1]
-
-        self._pg_producer.send_batch_notification(
-            final_batch,
-            is_final_batch=True,
-            total_batches=total_batches,
-            total_rows=row_count,
-            data_folder=self._s3_batch_writer.get_data_folder(),
-            schema_path=schema_path,
-            cumulative_row_count=row_count,
-        )
+        # Sent only now, with every lane's data batches already queued: the job completes on the
+        # last final batch to land, and it must not land while another lane still has rows to write.
+        schema_path = None
+        for writer in self._lane_writers:
+            if not writer.batch_results:
+                continue
+            lane_schema_path = await asyncio.to_thread(writer.s3_batch_writer.write_schema)
+            schema_path = schema_path or lane_schema_path
+            writer.pg_producer.send_batch_notification(
+                writer.batch_results[-1],
+                is_final_batch=True,
+                total_batches=len(writer.batch_results),
+                total_rows=writer.row_count,
+                data_folder=writer.s3_batch_writer.get_data_folder(),
+                schema_path=lane_schema_path,
+                cumulative_row_count=writer.row_count,
+                extra_metadata=extra_metadata,
+            )
 
         await finalize_desc_sort_incremental_value(
             self._resource,

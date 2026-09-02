@@ -29,12 +29,9 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
     WRITE_RESOLUTION_FLAG,
     is_cdc_write_resolution_enabled,
-    read_load_position,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
-    served_lanes,
-    serves_buffered_lane,
-)
+from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import serves_buffered_lane
+from products.warehouse_sources.backend.temporal.data_imports.cdc.types import parse_ingest_mode
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BatchQueue,
 )
@@ -150,17 +147,15 @@ class Command(BaseCommand):
         (CDCReservedColumnError) — catching it here keeps the source out of a flip-then-break loop.
 
         The buffered lane writes its own `_ph_cdc_seq` into the warehouse table, so the column alone
-        proves nothing once a schema has consumed the buffer. A recorded load position is proof the
-        column is ours: capture would have hard-errored on a real collision before any file existed.
+        proves nothing once a source is already buffered — capture would have hard-errored on a real
+        collision before any file existed. On a source still on legacy, the column can only be the
+        source's own.
         """
+        already_buffered = parse_ingest_mode(eligible[0].source.job_inputs) == "buffered" if eligible else False
         conflicted = [
             s.name
             for s in eligible
-            if s.table is not None
-            and CDC_SEQ_COLUMN in (s.table.columns or {})
-            and not any(
-                read_load_position(s.sync_type_config, lane.resource_name) is not None for lane in served_lanes(s)
-            )
+            if not already_buffered and s.table is not None and CDC_SEQ_COLUMN in (s.table.columns or {})
         ]
         if conflicted:
             raise CommandError(
@@ -317,14 +312,11 @@ class Command(BaseCommand):
             time.sleep(DRAIN_POLL_SECONDS)
 
     def _wait_for_buffer_drain(self, team_id: int, schemas: list[ExternalDataSchema], timeout: int) -> None:
-        """Block until every remaining buffer file sits strictly below every lane's load position.
+        """Block until no buffer file is left for any schema.
 
-        A file AT the position is not proof of consumption: one Postgres transaction shares a commit
-        position across every event, so a transaction split across files leaves an unread tail whose
-        `end_seq` already equals the floor, and `drop_superseded_rows` keeps rows at the watermark
-        precisely so that tail can still land. The consumer settles it by deleting the file once a
-        completed run proves it read it, so waiting for the deletion is the same proof the consumer
-        uses — a couple of ticks on an idle schema.
+        The consumer deletes a file once the job that read it completes, so an empty prefix is the
+        consumer's own proof that every change in it reached both of its tables. Extraction is
+        already paused by this point, so nothing refills the prefix while this waits.
         """
         from products.data_warehouse.backend.facade.api import get_s3_client
 
@@ -333,37 +325,21 @@ class Command(BaseCommand):
         while True:
             behind: list[str] = []
             for schema in schemas:
-                schema.refresh_from_db(fields=["sync_type_config"])
-                # The slowest lane decides: a file the companion has not taken is not drained,
-                # however far ahead the consolidated lane is. A lane that never recorded a position
-                # floors at zero, so every file blocks — correct, since nothing proves it applied.
-                floor = min(
-                    (
-                        read_load_position(schema.sync_type_config, lane.resource_name) or 0
-                        for lane in served_lanes(schema)
-                    ),
-                    default=0,
-                )
                 prefix = strip_s3_protocol(get_buffer_prefix(team_id, str(schema.id)))
                 try:
                     keys = s3.ls(prefix, detail=False, refresh=True)
                 except FileNotFoundError:
                     continue
-                for key in keys:
-                    parsed = parse_buffer_file_name(key.rsplit("/", 1)[-1])
-                    if parsed is not None and parsed.end_seq >= floor:
-                        behind.append(schema.name)
-                        break
+                if any(parse_buffer_file_name(key.rsplit("/", 1)[-1]) is not None for key in keys):
+                    behind.append(schema.name)
             if not behind:
                 return
             if time.monotonic() >= deadline:
                 raise CommandError(
-                    f"Buffered changes not yet proven applied for: {', '.join(sorted(behind))} after "
+                    f"Buffered changes not yet applied for: {', '.join(sorted(behind))} after "
                     f"{timeout}s. Rolling back now could lose them — the slot already advanced past that "
-                    "WAL, and the consumer deletes each file only once it proves it read it. Extraction "
-                    "is left paused; let the scheduled syncs catch up, then re-run. A lane that has "
-                    "never recorded a position blocks every file, so a schema that has not yet "
-                    "consumed once needs one successful sync before a rollback can prove anything."
+                    "WAL, and the consumer deletes each file only once the job that read it completes. "
+                    "Extraction is left paused; let the scheduled syncs catch up, then re-run."
                 )
             self.stdout.write(f"    waiting, buffer not drained for: {', '.join(sorted(behind))}")
             time.sleep(DRAIN_POLL_SECONDS)

@@ -7,6 +7,7 @@ from django.conf import settings
 from django.db import close_old_connections, transaction
 
 import s3fs
+import psycopg
 import pyarrow as pa
 import deltalake as deltalake
 import structlog
@@ -19,9 +20,10 @@ from temporalio.service import RPCError, RPCStatusCode
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential_jitter
 
 from posthog.exceptions_capture import capture_exception
+from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.utils import get_machine_id
 
-from products.data_warehouse.backend.facade.api import update_external_job_status
+from products.data_warehouse.backend.facade.api import aget_s3_client, update_external_job_status
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -34,15 +36,13 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     enrich_delete_rows,
     enrich_toast_omitted_rows,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import get_buffer_prefix
+from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import ensure_position_stats
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
     SCD2_APPEND_MODE,
-    batch_max_seq,
     has_engine_seq,
     is_cdc_write_resolution_enabled,
-    persist_load_position,
-    read_load_position,
     resolve_batch,
-    rows_at_max_seq,
     verify_delete_enrichment,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
@@ -72,7 +72,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     OwnershipLostError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.idempotency import (
-    batch_marked_in_cache,
     is_batch_already_processed,
     mark_batch_as_processed,
 )
@@ -87,6 +86,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import (
     ExportSignalMessage,
     SyncTypeLiteral,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+    BatchQueue,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import read_parquet
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
@@ -240,121 +242,23 @@ def _enrich_cdc_rows(
 def _resolve_cdc_positions(
     pa_table: pa.Table,
     *,
-    sync_type_config: dict | None,
-    resource_name: str,
     primary_keys: list[str],
     cdc_write_mode: str | None,
     team_id: str,
 ) -> pa.Table:
-    """Drop rows this lane's table has already applied."""
+    """Collapse a merge batch to one row per key — the write engine rejects duplicates."""
     if not has_engine_seq(pa_table):
         return pa_table
-
-    watermark = read_load_position(sync_type_config, resource_name)
 
     pa_table, stats = resolve_batch(
         pa_table,
         primary_keys,
-        watermark=watermark,
         cdc_write_mode=cdc_write_mode,
     )
-    for reason, dropped in (("superseded", stats.superseded), ("duplicate_key", stats.duplicate_key)):
-        if dropped:
-            CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL.labels(team_id=team_id, reason=reason).inc(dropped)
+    if stats.duplicate_key:
+        CDC_SEQ_GUARD_ROWS_DROPPED_TOTAL.labels(team_id=team_id, reason="duplicate_key").inc(stats.duplicate_key)
 
     return pa_table
-
-
-COMMIT_METADATA_POSITION_KEY = "cdc_load_position"
-COMMIT_METADATA_ROWS_KEY = "cdc_load_rows_at_position"
-
-
-def load_progress_to_commit_metadata(position: int, rows_at_position: int) -> dict[str, str]:
-    """The load progress as Delta commit metadata, so a persist failing after it is recoverable."""
-    return {COMMIT_METADATA_POSITION_KEY: str(position), COMMIT_METADATA_ROWS_KEY: str(rows_at_position)}
-
-
-def load_progress_from_commit_metadata(commit: dict[str, Any] | None) -> tuple[int, int] | None:
-    """Read back what `load_progress_to_commit_metadata` wrote, or None for a commit without it."""
-    if not commit:
-        return None
-    position = commit.get(COMMIT_METADATA_POSITION_KEY)
-    rows = commit.get(COMMIT_METADATA_ROWS_KEY)
-    if not isinstance(position, str) or not position.isdigit():
-        return None
-    return int(position), int(rows) if isinstance(rows, str) and rows.isdigit() else 0
-
-
-def _persist_load_progress(
-    schema_id: Any,
-    export_signal: ExportSignalMessage,
-    *,
-    position: int,
-    rows_at_position: int,
-    is_append: bool,
-) -> None:
-    """Record where this lane got to, after its write committed.
-
-    The merge lane tolerates losing it: the rows are re-read and it is recorded again, and the
-    upsert makes the replay a no-op. The append lane does not — its skip is how a re-read stops
-    short of the rows it already wrote, and a lost count re-appends them. So it fails the batch
-    instead, and the redelivery recovers the value from the commit that carried it.
-    """
-    try:
-        persist_load_position(
-            schema_id,
-            export_signal.team_id,
-            export_signal.resource_name,
-            position,
-            rows_at_position=rows_at_position,
-        )
-    except Exception:
-        if is_append:
-            raise
-        logger.warning("cdc_load_position_persist_failed", exc_info=True)
-
-
-def _recover_load_progress(export_signal: ExportSignalMessage, delta_table_ref: DeltaTableRef) -> None:
-    """Persist what a committed append batch recorded, for a redelivery that found it already done.
-
-    A batch persists its progress after its commit, so a crash between the two leaves the table
-    ahead of the count — and the next run would re-read those rows and append them twice. The
-    commit carries the pair, so the redelivery that detects the batch as done can finish what the
-    crashed attempt started.
-
-    Skipped when the dedup flag is present: that flag is written after the progress, so its presence
-    proves nothing was left half-done. Without this the ordinary final-batch re-send would scan
-    Delta history on every append run.
-    """
-    if export_signal.cdc_write_mode != SCD2_APPEND_MODE:
-        return
-    if batch_marked_in_cache(
-        export_signal.team_id, export_signal.schema_id, export_signal.run_uuid, export_signal.batch_index
-    ):
-        return
-
-    commit = async_to_sync(DeltaWriter(delta_table_ref).find_commit_with_metadata)(
-        {"run_uuid": export_signal.run_uuid, "batch_index": str(export_signal.batch_index)}
-    )
-    recovered = load_progress_from_commit_metadata(commit)
-    if recovered is None:
-        return
-
-    position, rows_at_position = recovered
-    persist_load_position(
-        export_signal.schema_id,
-        export_signal.team_id,
-        export_signal.resource_name,
-        position,
-        rows_at_position=rows_at_position,
-    )
-    logger.info(
-        "cdc_load_progress_recovered_from_commit",
-        resource_name=export_signal.resource_name,
-        batch_index=export_signal.batch_index,
-        position=position,
-        rows_at_position=rows_at_position,
-    )
 
 
 def _apply_partitioning(
@@ -568,7 +472,40 @@ def _release_pipeline_lock_for_job(export_signal: ExportSignalMessage) -> None:
         capture_exception(e)
 
 
-def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
+async def _delete_drained_buffer_files(export_signal: ExportSignalMessage) -> None:
+    """Delete the buffer files this job's run drained, now that the job has completed.
+
+    Completion is what proves them consumed: every file the run read reached a batch, and every
+    batch committed. Deleting earlier would race a batch that has not landed, and a position-based
+    rule cannot stand in for the list — one transaction can span several files that all carry its
+    commit position, so "everything up to here" can name a file written after the run listed.
+    """
+    prefix = get_buffer_prefix(export_signal.team_id, export_signal.schema_id)
+    async with aget_s3_client() as s3:
+        for name in export_signal.cdc_buffer_files or []:
+            try:
+                await s3._rm(f"{prefix}/{name}")
+            except FileNotFoundError:
+                continue
+
+
+def _mark_job_completed(export_signal: ExportSignalMessage) -> bool:
+    """Complete the job if this was the last of its runs to finish. Returns whether it did.
+
+    A job whose source feeds several tables has one run per table, each ending in its own final
+    batch. Whichever lands last completes the job; the others return here having done nothing, so
+    the lock stays held and post-import waits for the whole run.
+    """
+    with psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
+        if BatchQueue.has_unfinished_sibling_run(conn, job_id=export_signal.job_id, run_uuid=export_signal.run_uuid):
+            logger.info(
+                "job_completion_deferred_to_sibling_run",
+                external_data_job_id=export_signal.job_id,
+                run_uuid=export_signal.run_uuid,
+                resource_name=export_signal.resource_name,
+            )
+            return False
+
     # Reconnect stale connections before the transaction; close_old_connections must never
     # run inside an atomic block since it can drop the connection mid-transaction.
     close_old_connections()
@@ -595,6 +532,9 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
     if job_completed:
         async_to_sync(finish_row_tracking)(export_signal.team_id, export_signal.schema_id)
 
+        if export_signal.cdc_buffer_files:
+            async_to_sync(_delete_drained_buffer_files)(export_signal)
+
         logger.info(
             "job_marked_completed",
             external_data_job_id=export_signal.job_id,
@@ -611,6 +551,7 @@ def _mark_job_completed(export_signal: ExportSignalMessage) -> None:
         )
 
     _release_pipeline_lock_for_job(export_signal)
+    return job_completed
 
 
 def _is_retryable_temporal_rpc_error(exc: BaseException) -> bool:
@@ -898,7 +839,6 @@ def _process_message_reported(
                 run_uuid=export_signal.run_uuid,
                 batch_index=export_signal.batch_index,
             )
-            _recover_load_progress(export_signal, delta_table_ref)
             return
 
         if already_processed and export_signal.is_final_batch:
@@ -909,7 +849,6 @@ def _process_message_reported(
                 run_uuid=export_signal.run_uuid,
                 batch_index=export_signal.batch_index,
             )
-            _recover_load_progress(export_signal, delta_table_ref)
             if verify_ownership is not None:
                 verify_ownership()
             prepared_queryable_folder = _run_post_load_for_already_processed_batch(export_signal)
@@ -917,10 +856,10 @@ def _process_message_reported(
             # completion promotes the cursor and releases the lock under a new owner.
             if verify_ownership is not None:
                 verify_ownership()
-            _mark_job_completed(export_signal)
-            if prepared_queryable_folder:
-                _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
-            _trigger_post_import_workflow(export_signal)
+            if _mark_job_completed(export_signal):
+                if prepared_queryable_folder:
+                    _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
+                _trigger_post_import_workflow(export_signal)
             return
 
         logger.debug(
@@ -965,10 +904,6 @@ def _process_message_reported(
             "batch_index": str(export_signal.batch_index),
         }
 
-        # Counted on the batch as read. After resolution the batch no longer says how much of the
-        # position it carried, and the count the reader skips by has to match what it will re-read.
-        pending_rows_at_position = rows_at_max_seq(pa_table) if cdc_write_mode == SCD2_APPEND_MODE else 0
-
         resolution_enabled = cdc_write_mode is not None and is_cdc_write_resolution_enabled(
             export_signal.team_id, schema_id_str, export_signal.run_uuid
         )
@@ -985,22 +920,10 @@ def _process_message_reported(
         if resolution_enabled:
             pa_table = _resolve_cdc_positions(
                 pa_table,
-                sync_type_config=schema.sync_type_config,
-                resource_name=export_signal.resource_name,
                 primary_keys=primary_keys or [],
                 cdc_write_mode=cdc_write_mode,
                 team_id=team_id_str,
             )
-
-        # Recorded whatever the resolution rollout says. It is the append lane's resume point, so
-        # withholding it there re-appends the whole batch next run; and it is what proves a buffer
-        # file drained, so withholding it anywhere leaves that team's buffer growing to the S3 TTL
-        # with the slot long advanced past those changes.
-        pending_load_position = batch_max_seq(pa_table) if cdc_write_mode is not None else None
-
-        if pending_load_position is not None:
-            # Carried on the commit so a persist that fails after it can still be recovered.
-            commit_metadata.update(load_progress_to_commit_metadata(pending_load_position, pending_rows_at_position))
 
         if cdc_write_mode == SCD2_APPEND_MODE and SCD2_VALID_FROM_COLUMN not in pa_table.column_names:
             # Derived here rather than in the source: `valid_to` points at the next event for the
@@ -1077,14 +1000,10 @@ def _process_message_reported(
 
         DELTA_ROWS_WRITTEN_TOTAL.labels(team_id=team_id_str, schema_id=schema_id_str).inc(pa_table.num_rows)
 
-        if pending_load_position is not None:
-            _persist_load_progress(
-                schema.id,
-                export_signal,
-                position=pending_load_position,
-                rows_at_position=pending_rows_at_position,
-                is_append=cdc_write_mode == SCD2_APPEND_MODE,
-            )
+        if cdc_write_mode == SCD2_APPEND_MODE:
+            # The history table is its own resume point, and reading it back cheaply needs Delta
+            # to keep min/max for the position column. See `cdc.lane_position`.
+            async_to_sync(ensure_position_stats)(delta_table)
 
         internal_schema = HogQLSchema()
         # Build from the Delta table schema first to cover all columns from
@@ -1143,12 +1062,11 @@ def _process_message_reported(
             if verify_ownership is not None:
                 verify_ownership()
 
-            _mark_job_completed(export_signal)
+            if _mark_job_completed(export_signal):
+                if prepared_queryable_folder:
+                    _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
 
-            if prepared_queryable_folder:
-                _trigger_ducklake_register_data_imports(export_signal, prepared_queryable_folder)
-
-            _trigger_post_import_workflow(export_signal)
+                _trigger_post_import_workflow(export_signal)
 
             logger.debug("post_load_operations_complete")
 

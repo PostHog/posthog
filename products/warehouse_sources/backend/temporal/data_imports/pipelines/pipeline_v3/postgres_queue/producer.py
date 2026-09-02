@@ -72,6 +72,7 @@ class PostgresProducer:
         cdc_table_mode: str | None = None,
         workflow_id: str | None = None,
         workflow_run_id: str | None = None,
+        sibling_run_uuids: list[str] | None = None,
     ) -> None:
         self._team_id = team_id
         self._job_id = job_id
@@ -93,6 +94,8 @@ class PostgresProducer:
         self._cdc_table_mode = cdc_table_mode
         self._workflow_id = workflow_id
         self._workflow_run_id = workflow_run_id
+        # The other tables this same run writes, so superseding older attempts spares them.
+        self._sibling_run_uuids = sibling_run_uuids or []
 
         self._conn = _connect_with_retry(database_url)
         self._batches_sent = 0
@@ -118,9 +121,10 @@ class PostgresProducer:
         data_folder: Optional[str] = None,
         schema_path: Optional[str] = None,
         cumulative_row_count: int = 0,
+        extra_metadata: Optional[dict[str, Any]] = None,
     ) -> None:
         """Insert a batch row into the Postgres queue."""
-        metadata: dict[str, Any] = {}
+        metadata: dict[str, Any] = dict(extra_metadata or {})
         if data_folder is not None:
             metadata["data_folder"] = data_folder
         if schema_path is not None:
@@ -155,7 +159,10 @@ class PostgresProducer:
         # stalls later is recovered by the reconcile sweep's stranded-run pass.
         if batch_result.batch_index == 0 and not self._is_resume:
             superseded = BatchQueue.supersede_other_runs(
-                self._conn, job_id=self._job_id, current_run_uuid=self._run_uuid
+                self._conn,
+                job_id=self._job_id,
+                current_run_uuid=self._run_uuid,
+                sibling_run_uuids=self._sibling_run_uuids,
             )
             if superseded > 0:
                 self._logger.info("superseded_old_run_batches", count=superseded)

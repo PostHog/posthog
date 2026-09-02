@@ -1316,13 +1316,14 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
         Returning None keeps the caller on the legacy `CDCHandledExternally` path, so a source that
         was never flipped — or a lane the buffer doesn't serve — behaves exactly as before.
         """
+        from asgiref.sync import async_to_sync
+
         from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
         from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
             CDCSourceManager,
+            build_output_lanes,
             consumes_buffer,
             has_batches_in_flight,
-            select_lane,
-            served_lanes,
         )
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import (
             PostgresCDCConfig,
@@ -1354,32 +1355,35 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "'streaming'. Reset it to snapshot (cdc_mode='snapshot') so the re-snapshot path runs."
             )
 
-        lane = select_lane(schema, job_id=inputs.job_id)
-        primary_keys = schema.primary_key_columns
-
         if has_batches_in_flight(schema):
             # Reading now would stage rows alongside a delivery that is still landing: a legacy one
             # carries no position to order against, and a previous attempt of this job holds staged
             # batches that are still claimable, which the append lane would write twice.
             #
-            # Failing beats returning nothing. An empty response COMPLETES the job, and a listing
-            # stamp matures into a deletion proof on its job completing — so a tick that stood down
-            # would hand the crashed attempt's stamp a proof for files it never drained. The
-            # activity's own retries double as the wait, and a plain error leaves the schedule
-            # alone, unlike CDCHandledExternally.
+            # Failing beats returning nothing. An empty response COMPLETES the job, and completing
+            # a job deletes the buffer files its run read — so a tick that stood down would delete
+            # files the crashed attempt never drained. The activity's own retries double as the
+            # wait, and a plain error leaves the schedule alone, unlike CDCHandledExternally.
             raise ValueError(
                 f"Buffered CDC schema {schema.name} still has deliveries in flight. Consuming the "
                 "buffer now could write rows a landing batch is about to write. Retrying."
             )
 
-        manager = CDCSourceManager(
-            inputs, inputs.logger, lane_resource_names=[served.resource_name for served in served_lanes(schema)]
-        )
+        if job is None:
+            raise ValueError(f"Buffered CDC schema {schema.name} has no job row for run {inputs.job_id}")
+
+        # Every table this schema's changes feed, written from one read of the buffer. Each lane
+        # carries where its own table stops, because a failed run can leave one ahead of the other.
+        lanes = async_to_sync(build_output_lanes)(schema, job, inputs.logger)
+        manager = CDCSourceManager(inputs, inputs.logger)
         return SourceResponse(
-            name=lane.resource_name,
-            items=lambda: manager.get_items(lane.resource_name, write_mode=lane.write_mode),
-            primary_keys=primary_keys,
-            cdc_write_mode=lane.write_mode,
+            name=lanes[0].name,
+            items=manager.get_items,
+            primary_keys=schema.primary_key_columns,
+            cdc_write_mode=lanes[0].cdc_write_mode,
+            lanes=lanes,
+            # Read after extraction: the loader deletes these once the job completes.
+            finalize_metadata=lambda: {"cdc_buffer_files": manager.drained_files},
         )
 
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:

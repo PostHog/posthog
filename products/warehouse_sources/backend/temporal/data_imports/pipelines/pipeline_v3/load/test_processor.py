@@ -16,10 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     SCD2_VALID_TO_COLUMN,
     TOAST_OMITTED_COLUMN,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
-    LOAD_POSITION_CONFIG_KEY,
-    batch_max_seq,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     _apply_partitioning,
@@ -33,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _trigger_post_import_workflow,
     process_message,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.test_mocks import mock_delta_table
 
 
@@ -718,61 +715,34 @@ class TestEnrichCdcRows:
             pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE), pa.array(seqs, pa.int64())
         )
 
-    def _resolve(self, table: pa.Table, *, watermark: int | None, cdc_write_mode: str = "incremental_merge"):
-        config = {LOAD_POSITION_CONFIG_KEY: {"users": watermark}} if watermark is not None else {}
+    def _resolve(self, table: pa.Table, *, cdc_write_mode: str = "incremental_merge"):
         return _resolve_cdc_positions(
             table,
-            sync_type_config=config,
-            resource_name="users",
             primary_keys=["id"],
             cdc_write_mode=cdc_write_mode,
             team_id="2",
         )
 
-    def test_resolution_drops_applied_rows_and_returns_the_new_position(self):
-        table = self._stamped([1, 2, 3], ["I", "I", "I"], [10, 20, 30])
-        result = self._resolve(table, watermark=20)
+    def test_the_merge_lane_collapses_a_key_to_its_latest_version(self):
+        # The write engine rejects duplicate keys outright.
+        table = self._stamped([1, 1, 2], ["I", "U", "I"], [10, 20, 30])
+        result = self._resolve(table)
 
-        # Strictly-below only: 20 stays, because a split transaction shares its commit position.
-        assert result.column("id").to_pylist() == [2, 3]
-        assert batch_max_seq(result) == 30
+        assert result.column(CDC_SEQ_COLUMN).to_pylist() == [20, 30]
 
     def test_resolution_is_skipped_without_an_engine_stamped_position(self):
         # A source column named _ph_cdc_seq must not drive the guard.
-        table = self._stamped([1, 2], ["I", "I"], [10, 20]).drop_columns([CDC_SEQ_COLUMN])
+        table = self._stamped([1, 1], ["I", "U"], [10, 20]).drop_columns([CDC_SEQ_COLUMN])
         table = table.append_column(pa.field(CDC_SEQ_COLUMN, pa.int64()), pa.array([10, 20], pa.int64()))
-        result = self._resolve(table, watermark=99)
+        result = self._resolve(table)
 
         assert result is table
-        assert batch_max_seq(result) is None
 
-    def test_resolution_keeps_every_row_on_the_first_batch_ever(self):
-        # No recorded position yet: nothing is provably applied, so nothing may be dropped.
-        table = self._stamped([1, 2], ["I", "I"], [10, 20])
-        result = self._resolve(table, watermark=None)
-
-        assert result.column("id").to_pylist() == [1, 2]
-        assert batch_max_seq(result) == 20
-
-    def test_resolution_reads_the_position_for_its_own_lane_only(self):
-        # Consolidated and companion tables advance independently; one must not gate the other.
-        table = self._stamped([1, 2], ["I", "I"], [10, 20])
-        result = _resolve_cdc_positions(
-            table,
-            sync_type_config={LOAD_POSITION_CONFIG_KEY: {"users_cdc": 99}},
-            resource_name="users",
-            primary_keys=["id"],
-            cdc_write_mode="incremental_merge",
-            team_id="2",
-        )
-
-        assert result.num_rows == 2
-
-    def test_resolution_does_not_dedupe_the_history_lane(self):
+    def test_the_history_lane_keeps_every_version_of_a_key(self):
         table = self._stamped([1, 1], ["I", "U"], [10, 20])
-        result = self._resolve(table, watermark=None, cdc_write_mode="scd2_append")
+        result = self._resolve(table, cdc_write_mode="scd2_append")
 
-        assert result.num_rows == 2
+        assert result.column(CDC_SEQ_COLUMN).to_pylist() == [10, 20]
 
     def _write_existing(self, path: str) -> None:
         write_deltalake(
@@ -1030,3 +1000,67 @@ class TestReadExistingRowsByFirstPk:
             result = _read_existing_rows_by_first_pk(delta_table, "id", components)
 
             assert set(result.column("id").to_pylist()) == set(expected_ids)
+
+
+class TestJobCompletionAcrossLanes:
+    """A job whose source feeds two tables has one queue run per table.
+
+    Completing on the first final batch to land would release the lock, start post-import and
+    delete the buffer while the other table still had rows to write.
+    """
+
+    @staticmethod
+    def _complete(signal: dict[str, Any], *, sibling_unfinished: bool, status: str = "Completed"):
+        with (
+            patch(f"{_PROCESSOR}.psycopg"),
+            patch(f"{_PROCESSOR}.BatchQueue.has_unfinished_sibling_run", return_value=sibling_unfinished),
+            patch(f"{_PROCESSOR}.close_old_connections"),
+            patch(f"{_PROCESSOR}.transaction.atomic"),
+            patch(f"{_PROCESSOR}.update_external_job_status", return_value=MagicMock(status=status)) as mock_status,
+            patch(f"{_PROCESSOR}._promote_staged_cursor"),
+            patch(f"{_PROCESSOR}.finish_row_tracking", AsyncMock()),
+            patch(f"{_PROCESSOR}._release_pipeline_lock_for_job") as mock_release,
+            patch(f"{_PROCESSOR}._delete_drained_buffer_files", AsyncMock()) as mock_delete,
+        ):
+            completed = _mark_job_completed(ExportSignalMessage.from_dict(signal))
+        return completed, mock_status, mock_release, mock_delete
+
+    def test_a_lane_finishing_first_leaves_the_job_running(self):
+        completed, mock_status, mock_release, _ = self._complete(_message(is_final_batch=True), sibling_unfinished=True)
+
+        assert completed is False
+        mock_status.assert_not_called()
+        mock_release.assert_not_called()
+
+    def test_the_last_lane_to_finish_completes_the_job(self):
+        completed, mock_status, mock_release, _ = self._complete(
+            _message(is_final_batch=True), sibling_unfinished=False
+        )
+
+        assert completed is True
+        mock_status.assert_called_once()
+        mock_release.assert_called_once()
+
+    def test_completing_deletes_the_buffer_files_the_run_drained(self):
+        _, _, _, mock_delete = self._complete(
+            _message(is_final_batch=True, cdc_buffer_files=["1-10-0.parquet"]), sibling_unfinished=False
+        )
+
+        mock_delete.assert_called_once()
+
+    def test_a_deferred_completion_deletes_nothing(self):
+        # The other lane has not written these changes yet; deleting now would lose them.
+        _, _, _, mock_delete = self._complete(
+            _message(is_final_batch=True, cdc_buffer_files=["1-10-0.parquet"]), sibling_unfinished=True
+        )
+
+        mock_delete.assert_not_called()
+
+    def test_a_job_that_went_terminal_elsewhere_deletes_nothing(self):
+        _, _, _, mock_delete = self._complete(
+            _message(is_final_batch=True, cdc_buffer_files=["1-10-0.parquet"]),
+            sibling_unfinished=False,
+            status="Failed",
+        )
+
+        mock_delete.assert_not_called()

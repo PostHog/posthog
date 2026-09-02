@@ -1,5 +1,3 @@
-from typing import Any
-
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -13,19 +11,11 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     DELETED_COLUMN,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
-    APPLIED_ROWS_CONFIG_KEY,
-    LOAD_POSITION_CONFIG_KEY,
     MAX_VERIFIED_DELETE_ROWS,
     SCD2_APPEND_MODE,
     batch_max_seq,
     dedupe_keep_highest_seq,
-    drop_superseded_rows,
-    has_engine_seq,
     is_cdc_write_resolution_enabled,
-    persist_load_position,
-    provable_position,
-    read_load_position,
-    read_load_state,
     resolve_batch,
     verify_delete_enrichment,
 )
@@ -63,64 +53,6 @@ class TestBatchMaxSeq:
     def test_ignores_nulls(self):
         table = _batch([1, 2, 3], ["a", "b", "c"], ["I", "I", "I"], seqs=[10, None, 30])
         assert batch_max_seq(table) == 30
-
-
-class TestDropSupersededRows:
-    def test_passthrough_without_watermark(self):
-        table = _batch([1, 2], ["a", "b"], ["I", "I"], seqs=[10, 20])
-        result, dropped = drop_superseded_rows(table, None)
-        assert dropped == 0
-        assert result is table
-
-    def test_passthrough_without_seq_column(self):
-        table = _batch([1, 2], ["a", "b"], ["I", "I"])
-        result, dropped = drop_superseded_rows(table, 99)
-        assert dropped == 0
-        assert result is table
-
-    def test_drops_only_rows_strictly_below_watermark(self):
-        table = _batch([1, 2, 3], ["a", "b", "c"], ["I", "I", "I"], seqs=[10, 20, 30])
-        result, dropped = drop_superseded_rows(table, 20)
-
-        assert dropped == 1
-        assert result.column("id").to_pylist() == [2, 3]
-
-    def test_keeps_later_chunks_of_a_split_transaction(self):
-        # Every event in one Postgres transaction shares its commit LSN, and a transaction bigger
-        # than the flush budget spans micro-batches. Dropping seq == watermark would discard the
-        # rest of the transaction outright.
-        table = _batch([3, 4], ["c", "d"], ["I", "I"], seqs=[20, 20])
-        result, dropped = drop_superseded_rows(table, 20)
-
-        assert dropped == 0
-        assert result.column("id").to_pylist() == [3, 4]
-
-    def test_keeps_null_positions(self):
-        # An unknown position cannot be proven stale; dropping it would lose data.
-        table = _batch([1, 2], ["a", "b"], ["I", "I"], seqs=[None, 5])
-        result, dropped = drop_superseded_rows(table, 10)
-
-        assert dropped == 1
-        assert result.column("id").to_pylist() == [1]
-
-    def test_drops_replayed_rows_below_the_watermark(self):
-        table = _batch([1, 2], ["a", "b"], ["I", "I"], seqs=[10, 20])
-        result, dropped = drop_superseded_rows(table, 30)
-
-        assert dropped == 2
-        assert result.num_rows == 0
-
-    def test_ignores_a_source_owned_seq_column(self):
-        # The batcher passes through a source column named _ph_cdc_seq untouched, so its values
-        # are user data. Trusting them would let a source set a high value, poison the watermark,
-        # and have its own later rows dropped.
-        table = _batch([1, 2], ["a", "b"], ["I", "I"], seqs=[10, 20], engine_seq=False)
-        result, dropped = drop_superseded_rows(table, 15)
-
-        assert dropped == 0
-        assert result is table
-        assert not has_engine_seq(table)
-        assert batch_max_seq(table) is None
 
 
 class TestDedupeKeepHighestSeq:
@@ -174,11 +106,10 @@ class TestDedupeKeepHighestSeq:
 
 
 class TestResolveBatch:
-    def test_consolidated_lane_drops_superseded_and_dedupes(self):
+    def test_consolidated_lane_dedupes(self):
         table = _batch([1, 1, 2], ["old", "new", "other"], ["I", "U", "I"], seqs=[10, 20, 30])
-        result, stats = resolve_batch(table, ["id"], watermark=None, cdc_write_mode="incremental_merge")
+        result, stats = resolve_batch(table, ["id"], cdc_write_mode="incremental_merge")
 
-        assert stats.superseded == 0
         assert stats.duplicate_key == 1
         assert result.column("name").to_pylist() == ["new", "other"]
 
@@ -186,31 +117,23 @@ class TestResolveBatch:
         # The companion table is append-only history: deduping it would delete versions, not
         # resolve a conflict.
         table = _batch([1, 1], ["v1", "v2"], ["I", "U"], seqs=[10, 20])
-        result, stats = resolve_batch(table, ["id"], watermark=None, cdc_write_mode=SCD2_APPEND_MODE)
+        result, stats = resolve_batch(table, ["id"], cdc_write_mode=SCD2_APPEND_MODE)
 
         assert stats.duplicate_key == 0
         assert result.column("name").to_pylist() == ["v1", "v2"]
 
-    def test_history_lane_still_drops_already_applied_rows(self):
-        # Replaying a buffer file into the companion is how duplicate history rows arise.
-        table = _batch([1, 1], ["v1", "v2"], ["I", "U"], seqs=[10, 20])
-        result, stats = resolve_batch(table, ["id"], watermark=15, cdc_write_mode=SCD2_APPEND_MODE)
-
-        assert stats.superseded == 1
-        assert result.column("name").to_pylist() == ["v2"]
-
     def test_source_owned_seq_column_disables_resolution_entirely(self):
         table = _batch([1, 1], ["old", "new"], ["I", "U"], seqs=[99, 1], engine_seq=False)
-        result, stats = resolve_batch(table, ["id"], watermark=50, cdc_write_mode="incremental_merge")
+        result, stats = resolve_batch(table, ["id"], cdc_write_mode="incremental_merge")
 
-        assert (stats.superseded, stats.duplicate_key) == (0, 0)
+        assert stats.duplicate_key == 0
         assert result is table
 
     def test_noop_on_batches_without_positions(self):
         table = _batch([1, 2], ["a", "b"], ["I", "I"])
-        result, stats = resolve_batch(table, ["id"], watermark=99, cdc_write_mode="incremental_merge")
+        result, stats = resolve_batch(table, ["id"], cdc_write_mode="incremental_merge")
 
-        assert (stats.superseded, stats.duplicate_key) == (0, 0)
+        assert stats.duplicate_key == 0
         assert result is table
 
 
@@ -267,107 +190,6 @@ class TestVerifyDeleteEnrichment:
         report = verify_delete_enrichment(table, ["id"], _existing(ids, [f"name{i}" for i in ids]))
 
         assert report.delete_rows_checked == MAX_VERIFIED_DELETE_ROWS
-
-
-class TestLoadPosition:
-    @parameterized.expand(
-        [
-            ("absent_config", None, None),
-            ("empty_config", {}, None),
-            ("other_lane_only", {LOAD_POSITION_CONFIG_KEY: {"users_cdc": 99}}, None),
-            ("int_value", {LOAD_POSITION_CONFIG_KEY: {"users": 42}}, 42),
-            # JSON round-trips can hand back strings; a bad value must read as "unknown", not 0.
-            ("string_value", {LOAD_POSITION_CONFIG_KEY: {"users": "42"}}, 42),
-            ("garbage_value", {LOAD_POSITION_CONFIG_KEY: {"users": "not-a-number"}}, None),
-            ("null_value", {LOAD_POSITION_CONFIG_KEY: {"users": None}}, None),
-        ]
-    )
-    def test_read(self, _name, config, expected):
-        assert read_load_position(config, "users") == expected
-
-    def test_persist_creates_the_key_and_leaves_siblings_alone(self):
-        captured: dict[str, Any] = {"cdc_last_log_position": "0/ABC"}
-
-        def fake_update(schema_id, team_id, *, mutate=None, **kwargs):
-            mutate(captured)
-
-        with patch(
-            "products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys",
-            side_effect=fake_update,
-        ):
-            persist_load_position("schema-1", 2, "users", 100, rows_at_position=3)
-
-        assert captured[LOAD_POSITION_CONFIG_KEY] == {"users": 100}
-        assert captured[APPLIED_ROWS_CONFIG_KEY] == {"users": 3}
-        # Capture's own position lives in the same JSON column and must survive.
-        assert captured["cdc_last_log_position"] == "0/ABC"
-
-    @parameterized.expand(
-        [
-            ("advances", 50, 2, 100, 3, 100, 3),
-            ("never_rewinds", 100, 3, 50, 9, 100, 3),
-            # Batches of one run land the same position one after another, so the rows they applied
-            # at it accumulate: the total is what a later run must skip.
-            ("equal_accumulates_rows", 100, 2, 100, 3, 100, 5),
-        ]
-    )
-    def test_persist_is_monotonic(
-        self, _name, existing, existing_rows, incoming, incoming_rows, expected, expected_rows
-    ):
-        captured = {
-            LOAD_POSITION_CONFIG_KEY: {"users": existing},
-            APPLIED_ROWS_CONFIG_KEY: {"users": existing_rows},
-        }
-
-        def fake_update(schema_id, team_id, *, mutate=None, **kwargs):
-            mutate(captured)
-
-        with patch(
-            "products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys",
-            side_effect=fake_update,
-        ):
-            persist_load_position("schema-1", 2, "users", incoming, rows_at_position=incoming_rows)
-
-        assert captured[LOAD_POSITION_CONFIG_KEY]["users"] == expected
-        assert captured[APPLIED_ROWS_CONFIG_KEY]["users"] == expected_rows
-
-    def test_the_position_reads_the_same_after_a_rollback_to_code_without_the_count(self):
-        # The count is a sibling key, so code that predates it reads the position untouched rather
-        # than finding a shape it cannot parse and treating the lane as never having committed.
-        captured: dict[str, Any] = {}
-
-        def fake_update(schema_id, team_id, *, mutate=None, **kwargs):
-            mutate(captured)
-
-        with patch(
-            "products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys",
-            side_effect=fake_update,
-        ):
-            persist_load_position("schema-1", 2, "users", 100, rows_at_position=3)
-
-        assert captured[LOAD_POSITION_CONFIG_KEY]["users"] == 100
-
-    def test_read_state_treats_a_missing_count_as_nothing_landed(self):
-        assert read_load_state({LOAD_POSITION_CONFIG_KEY: {"users": 42}}, "users") == (42, 0)
-
-
-class TestProvablePosition:
-    """What a lane may claim it FINISHED, which is what makes a buffer file deletable."""
-
-    def test_a_lane_part_way_through_a_transaction_proves_only_the_one_before(self):
-        # Its skip counts rows across every file the transaction touches, so deleting any of them
-        # would spend the count on rows that never landed and drop the ones that follow.
-        config = {LOAD_POSITION_CONFIG_KEY: {"users": 200}, APPLIED_ROWS_CONFIG_KEY: {"users": 2}}
-
-        assert provable_position(config, "users") == 199
-
-    def test_a_lane_with_nothing_applied_at_its_position_proves_it(self):
-        config = {LOAD_POSITION_CONFIG_KEY: {"users": 200}, APPLIED_ROWS_CONFIG_KEY: {"users": 0}}
-
-        assert provable_position(config, "users") == 200
-
-    def test_a_lane_that_has_committed_nothing_proves_nothing(self):
-        assert provable_position({}, "users") is None
 
 
 class TestIsCdcWriteResolutionEnabled:

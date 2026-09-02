@@ -98,18 +98,6 @@ def is_batch_already_processed(
         raise
 
 
-def batch_marked_in_cache(team_id: int, schema_id: str, run_uuid: str, batch_index: int) -> bool:
-    """Whether the dedup flag is present, i.e. `mark_batch_as_processed` ran for this batch.
-
-    The flag is written last, after everything the batch persists, so its presence means nothing was
-    left half-done — which is what lets a caller skip repairing state the batch already recorded.
-    """
-    with get_redis_client() as redis_client:
-        if redis_client is None:
-            return False
-        return redis_client.exists(get_idempotency_key(team_id, schema_id, run_uuid, batch_index)) == 1
-
-
 def mark_batch_as_processed(team_id: int, schema_id: str, run_uuid: str, batch_index: int) -> None:
     """Mark a batch as processed in the cache."""
     with get_redis_client() as redis_client:

@@ -510,6 +510,7 @@ class PendingBatch:
             "partition_mode": self.metadata.get("partition_mode"),
             "cdc_write_mode": self.metadata.get("cdc_write_mode"),
             "cdc_table_mode": self.metadata.get("cdc_table_mode"),
+            "cdc_buffer_files": self.metadata.get("cdc_buffer_files"),
         }
 
 
@@ -1119,9 +1120,15 @@ class BatchQueue:
         *,
         job_id: str,
         current_run_uuid: str,
+        sibling_run_uuids: list[str] | None = None,
         progress_stale_seconds: int = TAKEOVER_STALE_THRESHOLD_SECONDS,
     ) -> int:
         """Mark non-terminal batches from *stalled* older runs of the same job as superseded.
+
+        ``sibling_run_uuids`` are the other runs THIS attempt is writing — one per table, when the
+        source feeds several from one read. They are spared: their batches are this run's own
+        output, still 'pending' because the loader has not reached them yet, and superseding them
+        would drop a table's data on the floor.
 
         A run the loader is still working through is spared: any batch whose latest
         state is 'executing', 'succeeded', or 'waiting_retry' with ``state_changed_at``
@@ -1142,7 +1149,7 @@ class BatchQueue:
         """
         cursor = conn.execute(
             _bulk_fail_dual_write_sql(
-                f"""b.job_id = %(job_id)s AND b.run_uuid != %(current_run_uuid)s
+                f"""b.job_id = %(job_id)s AND b.run_uuid != ALL(%(spared_run_uuids)s)
                 AND NOT EXISTS (
                     SELECT 1
                     FROM {BATCH_TABLE} b_live
@@ -1154,7 +1161,7 @@ class BatchQueue:
             ),
             {
                 "job_id": job_id,
-                "current_run_uuid": current_run_uuid,
+                "spared_run_uuids": list({current_run_uuid, *(sibling_run_uuids or [])}),
                 "progress_stale": progress_stale_seconds,
                 "error_response": json.dumps({"error": "superseded by newer attempt", "superseded": True}),
             },
@@ -1448,6 +1455,39 @@ class BatchQueue:
             f"DELETE FROM {LEASE_TABLE} WHERE owner_token = %(owner)s",
             {"owner": owner_token},
         )
+
+    @staticmethod
+    def has_unfinished_sibling_run(
+        conn: psycopg.Connection[Any],
+        *,
+        job_id: str,
+        run_uuid: str,
+    ) -> bool:
+        """Whether any OTHER run of this job still has a batch that has not succeeded.
+
+        A job whose source feeds several tables has one run per table, and each ends with its own
+        final batch. The job is done when the last of them lands, so every final batch asks this
+        and the one that finds nothing outstanding completes the job.
+
+        Anything other than 'succeeded' holds completion, failures included: a run that failed
+        never wrote its table, and `fail_run` is what takes the job terminal instead.
+        """
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM {BATCH_TABLE} b
+                    WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                      AND b.job_id = %(job_id)s
+                      AND b.run_uuid <> %(run_uuid)s
+                      AND b.latest_state <> 'succeeded'
+                )
+                """,
+                {"job_id": job_id, "run_uuid": run_uuid},
+            )
+            row = cur.fetchone()
+        return bool(row and row[0])
 
     @staticmethod
     def get_run_activity_summary(

@@ -43,6 +43,30 @@ class _Dataclass(Protocol):
 ResumableData = TypeVar("ResumableData", bound=_Dataclass)
 
 
+@dataclasses.dataclass(frozen=False)
+class OutputLane:
+    """One table a response's item stream feeds.
+
+    A source whose single stream lands in more than one table — a change stream feeding both a
+    merged table and its append-only history — declares one lane per table. The pipeline writes
+    every lane from the same read, so the source reads its origin once however many tables it
+    keeps.
+    """
+
+    name: str
+    cdc_write_mode: Optional[str] = None
+    run_uuid_suffix: str = ""
+    """Appended to the run id so each lane's batches are their own run: the queue keys idempotency,
+    staging paths and claim ordering on that id, and two lanes sharing one would collide on all
+    three. Empty for a source with a single lane, whose run ids then read as they always have."""
+    billable: bool = True
+    """Whether this lane's rows count towards the team's synced-row usage. A source feeding two
+    tables from one stream bills the stream once."""
+    transform: Optional[Callable[[Any], Any]] = None
+    """Applied to each batch before this lane writes it. May drop rows; must not change columns,
+    which are reconciled once for every lane."""
+
+
 @dataclasses.dataclass(frozen=False)  # callers mutate `primary_keys` after construction
 class SourceResponse:
     name: str
@@ -82,6 +106,12 @@ class SourceResponse:
     """xmin syncs: full 64-bit `xid8` ceiling, the durable wraparound-safe cursor."""
     xmin_num_wraparound: Optional[int] = None
     """xmin syncs: epoch (high 32 bits of `xmin_ceiling_xid8`) at this run's ceiling."""
+    finalize_metadata: Optional[Callable[[], dict[str, Any]]] = None
+    """Read once after extraction, and carried on every lane's final batch. Lets a source hand the
+    loader something only the completed run knows — which buffer files it drained, say."""
+    lanes: Optional[list[OutputLane]] = None
+    """Tables this response's items feed, when it feeds more than the one `name` alone describes.
+    None means the single lane built from `name` and `cdc_write_mode`."""
 
 
 # Not frozen: nothing mutates it in place today, so freezing it is plausible, but every source
