@@ -5,13 +5,19 @@ check that the agent turns a churn-prediction request into a notebook that pulls
 signals with SQL, carries the analysis into Python, and lands on a conclusion — the shape of
 a real analysis, graded qualitatively rather than by matching an exact query.
 
-Three layers grade each case:
+Each case is seeded by ``seed_churn_signal``, which plants a small cohort of accounts that
+were power users early in the demo window and then went completely silent — the textbook
+churn shape. That gives the run a synthetic ground truth to grade the prediction against.
+
+Four layers grade each case:
 
 - ``NotebookCreated`` / ``CellRunsCompleted`` — the outcome, read from the database: a markdown
   notebook exists, and both a SQL (``hogql``) and a Python cell reached a completed run. This is
   what proves the agent used *both* lanes rather than doing everything in one.
 - ``NotebookApproachQuality`` — the approach, an LLM judge over the cells the agent authored:
   did it pull the right behavioural signals and reason its way to a churn conclusion.
+- ``ChurnCohortSurfaced`` — the prediction itself: what fraction of the planted silent accounts
+  the notebook actually named as at-risk.
 
 Because these cases need a completed Python run, run them on docker:
     hogli evals eval_notebook_analysis --provider docker
@@ -20,8 +26,13 @@ Because these cases need a completed Python run, run them on docker:
 
 from __future__ import annotations
 
-from products.notebooks.evals.scorers import CellRunsCompleted, NotebookApproachQuality, NotebookCreated
-from products.notebooks.evals.seeders import seed_case_team
+from products.notebooks.evals.scorers import (
+    CellRunsCompleted,
+    ChurnCohortSurfaced,
+    NotebookApproachQuality,
+    NotebookCreated,
+)
+from products.notebooks.evals.seeders import seed_churn_signal
 from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
@@ -46,6 +57,7 @@ async def eval_notebook_analysis(ctx: EvalContext) -> None:
             expected={
                 "notebook_created": {},
                 "cell_runs_completed": _SQL_AND_PYTHON,
+                "churn_cohort_surfaced": {},
                 "notebook_approach_quality": {
                     "approach": (
                         "Uses SQL to pull per-account file-sharing engagement from behavioural events "
@@ -58,7 +70,7 @@ async def eval_notebook_analysis(ctx: EvalContext) -> None:
                     )
                 },
             },
-            setup=seed_case_team,
+            setup=seed_churn_signal,
         ),
         SandboxedEvalCase(
             name="churn_from_upload_activity",
@@ -71,6 +83,7 @@ async def eval_notebook_analysis(ctx: EvalContext) -> None:
             expected={
                 "notebook_created": {},
                 "cell_runs_completed": _SQL_AND_PYTHON,
+                "churn_cohort_surfaced": {},
                 "notebook_approach_quality": {
                     "approach": (
                         "Uses SQL to pull weekly uploaded_file activity per account or user across "
@@ -81,7 +94,7 @@ async def eval_notebook_analysis(ctx: EvalContext) -> None:
                     )
                 },
             },
-            setup=seed_case_team,
+            setup=seed_churn_signal,
         ),
         SandboxedEvalCase(
             name="churn_open_ended",
@@ -93,6 +106,7 @@ async def eval_notebook_analysis(ctx: EvalContext) -> None:
             expected={
                 "notebook_created": {},
                 "cell_runs_completed": _SQL_AND_PYTHON,
+                "churn_cohort_surfaced": {},
                 "notebook_approach_quality": {
                     "approach": (
                         "Chooses sensible behavioural churn signals for a file-storage product on its own "
@@ -105,7 +119,7 @@ async def eval_notebook_analysis(ctx: EvalContext) -> None:
                     )
                 },
             },
-            setup=seed_case_team,
+            setup=seed_churn_signal,
         ),
     ]
 
@@ -116,6 +130,7 @@ async def eval_notebook_analysis(ctx: EvalContext) -> None:
             RequiredToolCall({"notebooks-add-cell"}),
             NotebookCreated(),
             CellRunsCompleted(),
+            ChurnCohortSurfaced(),
             NotebookApproachQuality(),
         ],
         ctx=ctx,

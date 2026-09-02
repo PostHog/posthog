@@ -32,7 +32,7 @@ from products.posthog_ai.eval_harness.scorers import (
 )
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
-__all__ = ["CellRunsCompleted", "NotebookApproachQuality", "NotebookCreated"]
+__all__ = ["CellRunsCompleted", "ChurnCohortSurfaced", "NotebookApproachQuality", "NotebookCreated"]
 
 
 def _seeded_team_id(output: dict | None) -> int | None:
@@ -157,6 +157,65 @@ class CellRunsCompleted(AsyncOnlyScorerMixin, Scorer):
             .order_by("created_at")
             .values_list("node_type", "status", "error")
         ]
+
+
+class ChurnCohortSurfaced(AsyncOnlyScorerMixin, Scorer):
+    """Fractional: how many planted churn accounts did the notebook name?
+
+    Opt in with ``expected = {"churn_cohort_surfaced": {}}`` on a case seeded by
+    ``seed_churn_signal``. Reads the planted cohort from ``seed["churn_needle"]`` and
+    looks for each account's identifiers — email, name, distinct id, account key — in the
+    notebook markdown the agent left behind and its final message. The planted accounts
+    are power users who went silent, so a sound churn prediction should list them; the
+    score is the fraction it surfaced, a synthetic ground truth for the prediction itself.
+
+    Self-skips (``None``) when the case does not opt in or was not seeded with a cohort.
+    """
+
+    def _name(self) -> str:
+        return "churn_cohort_surfaced"
+
+    async def _run_eval_async(self, output: Any, expected: Any = None, **kwargs: Any) -> Score:
+        if _spec(expected, self._name()) is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        needle = ((output or {}).get("seed") or {}).get("churn_needle")
+        accounts = needle.get("accounts") if isinstance(needle, dict) else None
+        if not isinstance(accounts, list) or not accounts:
+            return Score(name=self._name(), score=None, metadata={"reason": "no churn needle configured"})
+        team_id = _seeded_team_id(output)
+        if team_id is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No seed.team_id — case needs a seeder"})
+
+        markdown = await asyncio.to_thread(self._read_markdown, team_id)
+        haystack = f"{markdown}\n{_final_message(output)}".lower()
+
+        surfaced: list[str] = []
+        missing: list[str] = []
+        for account in accounts:
+            identifiers = [
+                str(account.get(key, "")).lower()
+                for key in ("email", "name", "distinct_id", "account_key")
+                if account.get(key)
+            ]
+            label = account.get("email") or account.get("distinct_id") or str(account.get("index"))
+            if any(identifier and identifier in haystack for identifier in identifiers):
+                surfaced.append(label)
+            else:
+                missing.append(label)
+
+        return Score(
+            name=self._name(),
+            score=len(surfaced) / len(accounts),
+            metadata={"surfaced": surfaced, "missing": missing, "total": len(accounts)},
+        )
+
+    @staticmethod
+    def _read_markdown(team_id: int) -> str:
+        bodies = [
+            _markdown_body(notebook.content) or ""
+            for notebook in Notebook.objects.filter(team_id=team_id, deleted=False)
+        ]
+        return "\n".join(bodies)
 
 
 _ADD_CELL_TOOL = "notebooks-add-cell"
