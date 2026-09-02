@@ -4,7 +4,7 @@ from django.db import models, transaction
 
 from posthog.models.utils import UUIDTModel
 
-from .constants import Channel, ChannelDetail, Priority, Status
+from .constants import AI_REPLY_SCAN_STATUSES, Channel, ChannelDetail, Priority, Status
 
 if TYPE_CHECKING:
     from posthog.models import Person
@@ -178,6 +178,15 @@ class Ticket(UUIDTModel):
                 fields=["snoozed_until"],
                 name="posthog_con_snooze_wake_idx",
                 condition=models.Q(snoozed_until__isnull=False),
+            ),
+            # AI-reply coordinator eligibility scan. It runs every minute with no team predicate, so
+            # every team-led index above leaves it a full scan. It filters on a short lookback over
+            # last_message_at, and falls back to created_at while that denormalized timestamp is
+            # still null; both branches of the OR read this index.
+            models.Index(
+                fields=["last_message_at", "created_at"],
+                name="posthog_con_ai_reply_scan_idx",
+                condition=models.Q(status__in=AI_REPLY_SCAN_STATUSES),
             ),
             models.Index(fields=["organization_id"], name="posthog_org_id_idx"),
             models.Index(
