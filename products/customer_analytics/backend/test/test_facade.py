@@ -163,6 +163,34 @@ class TestCustomerAnalyticsFacade(BaseTest):
         assert [r.name for r in rows] == expected_names
         assert all(isinstance(row, contracts.AccountRef) and isinstance(row.id, str) for row in rows)
 
+    @patch(
+        "products.customer_analytics.backend.logic.account_member_search.posthog_feature_flag_enabled",
+        return_value=True,
+    )
+    @patch("products.customer_analytics.backend.logic.account_member_search.execute_hogql_query")
+    def test_search_accounts_matches_eu_organization_member_email(
+        self, mock_execute_hogql_query: MagicMock, _mock_feature_enabled: MagicMock
+    ) -> None:
+        self.user.is_staff = True
+        self.user.save(update_fields=["is_staff"])
+        eu_organization_id = str(uuid4())
+        account = create_account(
+            team_id=self.team.id,
+            name="EU member account",
+            external_id=eu_organization_id,
+        )
+        mock_execute_hogql_query.return_value = MagicMock(results=[[eu_organization_id]])
+
+        rows, count = facade.search_accounts(
+            self.team.id,
+            "member@eu.example",
+            self._uac(),
+            limit=10,
+        )
+
+        assert count == 1
+        assert [row.id for row in rows] == [str(account.id)]
+
     def test_search_accounts_excludes_ignored_by_default(self):
         create_account(team_id=self.team.id, name="Acme Tracked")
         create_account(team_id=self.team.id, name="Acme Ignored", ignored_at=timezone.now())
