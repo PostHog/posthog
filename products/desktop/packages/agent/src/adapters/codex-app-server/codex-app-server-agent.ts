@@ -1682,8 +1682,15 @@ export class CodexAppServerAgent extends BaseAcpAgent {
 
     if (method === APP_SERVER_NOTIFICATIONS.TURN_COMPLETED) {
       this.commandOutputs.clear();
-      const turn = (params as { turn?: { id?: string; status?: string } })
-        ?.turn;
+      const turn = (
+        params as {
+          turn?: {
+            id?: string;
+            status?: string;
+            error?: { message?: unknown };
+          };
+        }
+      )?.turn;
       const completedNativeGoalTurn = turn?.id === this.nativeGoalTurnId;
       if (completedNativeGoalTurn) {
         this.nativeGoalTurnId = undefined;
@@ -1702,9 +1709,14 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       // Drop the late completion of an already-interrupted turn (else it cancels the follow-up).
       if (this.turns.shouldDropCompletion(turn?.id)) return;
       if (turn?.status === "failed") {
+        // codex reports the terminal cause on the completion itself. Prefer it
+        // over the last retry message, which can be stale or never arrived.
+        const terminalCause =
+          typeof turn.error?.message === "string" ? turn.error.message : "";
         this.deferFailedTurnFinalization(
           turn?.id,
           this.turns.currentGeneration,
+          terminalCause,
         );
         return;
       }
@@ -2117,6 +2129,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   private deferFailedTurnFinalization(
     turnId: string | undefined,
     generation: number,
+    terminalCause: string,
   ): void {
     setTimeout(() => {
       if (generation !== this.turns.currentGeneration) return;
@@ -2128,7 +2141,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         return;
       }
       if (!this.turns.isPending) return;
-      this.refuseTurnWithMessage(describeFatalError(this.lastTurnErrorMessage));
+      this.refuseTurnWithMessage(
+        describeFatalError(terminalCause || this.lastTurnErrorMessage),
+      );
     }, 250);
   }
 

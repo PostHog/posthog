@@ -2512,6 +2512,89 @@ describe("CodexAppServerAgent", () => {
     vi.useRealTimers();
   });
 
+  it("surfaces the completion's own fatal cause when it is the only one", async () => {
+    vi.useFakeTimers();
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/started", { turn: { id: "turn_1" } });
+    // codex reports the cause only on the completion — no error notification arrived.
+    stub.emit("turn/completed", {
+      turn: {
+        id: "turn_1",
+        status: "failed",
+        error: { message: "API Error: 502 Bad Gateway" },
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(done).resolves.toMatchObject({ stopReason: "refusal" });
+    expect(sessionUpdates).toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "The agent stopped before completing this request: API Error: 502 Bad Gateway",
+        },
+      },
+    });
+    vi.useRealTimers();
+  });
+
+  it("prefers the completion's terminal cause over a stale retry message", async () => {
+    vi.useFakeTimers();
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/started", { turn: { id: "turn_1" } });
+    // A retry reports one cause; the turn then dies for a different terminal reason.
+    stub.emit("error", {
+      turnId: "turn_1",
+      willRetry: true,
+      error: { message: "API Error: 503 Service Unavailable" },
+    });
+    stub.emit("turn/completed", {
+      turn: {
+        id: "turn_1",
+        status: "failed",
+        error: { message: "API Error: 500 Internal Server Error" },
+      },
+    });
+
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(done).resolves.toMatchObject({ stopReason: "refusal" });
+    expect(sessionUpdates).toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "The agent stopped before completing this request: API Error: 500 Internal Server Error",
+        },
+      },
+    });
+    vi.useRealTimers();
+  });
+
   it("does not let an ID-less failed completion refuse a later prompt", async () => {
     vi.useFakeTimers();
     const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
