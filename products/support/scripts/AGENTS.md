@@ -15,12 +15,12 @@ Don't re-export through `lib/__init__.py` - a `from .` re-export there trips the
 
 ```python
 from lib.errors import PostHogScriptError            # the one error type; raise for any expected, operator-facing failure
-from lib.console import confirm, format_status_counts, log, printable
+from lib.console import close_log_file, confirm, format_status_counts, log, printable, set_log_file
 from lib.posthog_api import request_with_retries, resolve_host, setup_session_auth
 ```
 
 - `lib.errors` - `PostHogScriptError`.
-- `lib.console` - `log` (stderr output), `printable` (escape untrusted text), `confirm` (typed-keyword prompt, EOF-safe), `format_status_counts` (status histogram).
+- `lib.console` - `log` (stderr output), `printable` (escape untrusted text), `confirm` (typed-keyword prompt, EOF-safe), `format_status_counts` (status histogram), `set_log_file`/`close_log_file` (stream every `log()` line to a file too, in addition to stderr - see Output below).
 - `lib.posthog_api` - `resolve_host`, `request_with_retries` (every HTTP call), `setup_session_auth` (browser-session/impersonation auth), `log_session_expiry` (logs the impersonated session's remaining idle-timeout time; no-op for personal-API-key auth), plus `MAX_RETRIES`.
 
 Never re-implement retries, host resolution, auth, output, or the error type inside a script.
@@ -52,6 +52,9 @@ Just call it; don't set the cookie yourself.
 All human output goes to **stderr** via `log()`, so **stdout** stays clean for `--output` JSON or piped data.
 Do not use `print` (ruff `T2` flags it).
 
+`--output NAME` (a base name, no extension) writes two files: `NAME-findings.json` (the scan report, written once discovery finishes) and `NAME-log.txt` (every `log()` line, streamed as it happens via `set_log_file`/`close_log_file`).
+Call `set_log_file(f"{args.output}-log.txt")` before any other work in `main()` and `close_log_file()` in a `finally` around the call into `run()`, so a crash or Ctrl-C mid-run still leaves a complete transcript up to that point - never buffer log lines in memory to write out at the end.
+
 Wrap any value that originated from ingested data (property names, `distinct_id`s, an API error body) in `printable()` before logging it.
 Those strings can carry terminal escape sequences that would otherwise spoof or wipe the operator's terminal.
 
@@ -68,7 +71,7 @@ Anything that writes or deletes follows this order:
 
 1. Scan and dedupe the affected set.
 2. Log a total, a per-target breakdown, and a sample (first ~10).
-3. Offer `--output <file>` to dump the full affected set as JSON.
+3. Offer `--output <name>` to dump the full affected set as JSON to `<name>-findings.json` (see Output above).
 4. `--dry-run` returns here, changing nothing.
 5. Otherwise confirm with `confirm(prompt, "<verb>", eof_message=...)` (a typed keyword such as `scrub` / `prune`), skippable with `--yes`.
 6. When there is no bulk endpoint, mutate one item per request and report outcomes: count only 2xx as success, log a `FAILED: ...` line with the HTTP status/message immediately for every failure (don't wait until the run finishes), and log a running `format_status_counts` histogram every batch. Surface a 403 hint (read-only credential or field-level access control) and a final failure total at the end - don't re-print the individual failures there, they already scrolled by live.
@@ -79,6 +82,23 @@ Call out anything eventually-consistent (e.g. ingestion lag) in the module docst
 
 - Module docstring first: what the script does, how it discovers targets, how it mutates them, any consistency caveats, and a usage block with the env vars and a `--dry-run` example.
 - `parse_args() -> argparse.Namespace`, then `main() -> int` returning an exit code.
+- If the script offers a `--output` findings report (the scrub/prune shape), keep `main()` thin and put the actual work in `run(args: argparse.Namespace) -> int`, so `main()` only wires up the log file around it:
+
+  ```python
+  def main() -> int:
+      args = parse_args()
+      if args.output:
+          set_log_file(f"{args.output}-log.txt")
+      try:
+          return run(args)
+      finally:
+          close_log_file()
+
+
+  def run(args: argparse.Namespace) -> int:
+      ...
+  ```
+
 - Standard bottom guard:
 
   ```python

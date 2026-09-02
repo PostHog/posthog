@@ -19,6 +19,11 @@ incoming events, so fix the source instrumentation first. For a full server-side
 cleanup (Postgres + event properties + ClickHouse), use the `cleanup-property-definitions`
 Temporal workflow instead.
 
+--output NAME writes two files: NAME-findings.json (the matched-definitions report, written
+once discovery finishes) and NAME-log.txt (every line the operator sees on stderr, written as
+it happens - a dry run, an aborted confirm, a completed prune, or a crash mid-run all leave a
+complete transcript up to that point).
+
 Usage:
   export POSTHOG_PERSONAL_API_KEY=phx_...   # needs property_definition:read and :write
   python products/support/scripts/prune_property_definitions.py temp_prop other_prop \\
@@ -46,7 +51,7 @@ from typing import Any, Optional
 from urllib.parse import urlencode
 
 import requests
-from lib.console import confirm, format_status_counts, log, printable
+from lib.console import close_log_file, confirm, format_status_counts, log, printable, set_log_file
 from lib.errors import PostHogScriptError
 from lib.posthog_api import log_session_expiry, request_with_retries, resolve_host, setup_session_auth
 
@@ -198,7 +203,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--batch-size", type=int, default=50, help="How many deletes to group per reported status-code batch"
     )
-    parser.add_argument("--output", help="Write the matched definitions report to this JSON file")
+    parser.add_argument(
+        "--output",
+        metavar="NAME",
+        help="Base name for output files (no extension): writes <NAME>-findings.json (the matched "
+        "definitions report) and <NAME>-log.txt (the full run log, written as it happens)",
+    )
     parser.add_argument("--yes", "-y", action="store_true", help="Skip the confirmation prompt")
     args = parser.parse_args()
 
@@ -231,6 +241,15 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    if args.output:
+        set_log_file(f"{args.output}-log.txt")
+    try:
+        return run(args)
+    finally:
+        close_log_file()
+
+
+def run(args: argparse.Namespace) -> int:
     names = sorted(set(args.names))
 
     session = requests.Session()
@@ -265,7 +284,8 @@ def main() -> int:
             log(f"  {printable(name)}")
 
     if args.output:
-        with open(args.output, "w") as f:
+        findings_path = f"{args.output}-findings.json"
+        with open(findings_path, "w") as f:
             json.dump(
                 {
                     "type": args.prop_type,
@@ -277,7 +297,7 @@ def main() -> int:
                 f,
                 indent=2,
             )
-        log(f"Wrote report to {args.output}")
+        log(f"Wrote report to {findings_path}")
 
     if not matched:
         log("Nothing to prune.")

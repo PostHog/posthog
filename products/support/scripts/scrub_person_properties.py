@@ -22,6 +22,11 @@ Scrubbing happens either by:
 Scrubbing is processed by the ingestion pipeline, so it is eventually consistent: persons
 can keep showing the property for a short while after the script finishes.
 
+--output NAME writes two files: NAME-findings.json (the affected-persons report, written once
+discovery finishes) and NAME-log.txt (every line the operator sees on stderr, written as it
+happens - a dry run, an aborted confirm, a completed scrub, or a crash mid-run all leave a
+complete transcript up to that point).
+
 Usage:
   export POSTHOG_PERSONAL_API_KEY=phx_...   # needs query:read and person:read (+ person:write for api mode)
   export POSTHOG_PROJECT_API_KEY=phc_...    # only needed for events mode
@@ -47,7 +52,7 @@ from typing import Any, Optional
 from urllib.parse import urlencode
 
 import requests
-from lib.console import confirm, format_status_counts, log, printable
+from lib.console import close_log_file, confirm, format_status_counts, log, printable, set_log_file
 from lib.errors import PostHogScriptError
 from lib.posthog_api import (
     hogql_string_literal,
@@ -301,7 +306,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="Only report who would be affected; change nothing")
     parser.add_argument("--batch-size", type=int, default=500, help="Events per batch capture request (events mode)")
     parser.add_argument("--page-size", type=int, default=500, help="Persons fetched per page when scanning")
-    parser.add_argument("--output", help="Write the affected persons report to this JSON file")
+    parser.add_argument(
+        "--output",
+        metavar="NAME",
+        help="Base name for output files (no extension): writes <NAME>-findings.json (the affected "
+        "persons report) and <NAME>-log.txt (the full run log, written as it happens)",
+    )
     parser.add_argument("--yes", "-y", action="store_true", help="Skip the confirmation prompt")
     args = parser.parse_args()
 
@@ -327,6 +337,15 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    if args.output:
+        set_log_file(f"{args.output}-log.txt")
+    try:
+        return run(args)
+    finally:
+        close_log_file()
+
+
+def run(args: argparse.Namespace) -> int:
     properties = sorted(set(args.properties))
 
     session = requests.Session()
@@ -346,9 +365,10 @@ def main() -> int:
         log(f"  {prop}: {count} persons")
 
     if args.output:
-        with open(args.output, "w") as f:
+        findings_path = f"{args.output}-findings.json"
+        with open(findings_path, "w") as f:
             json.dump({"properties": properties, "affected_persons": affected}, f, indent=2)
-        log(f"Wrote report to {args.output}")
+        log(f"Wrote report to {findings_path}")
 
     if not affected:
         log("Nothing to scrub.")

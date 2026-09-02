@@ -2,13 +2,39 @@
 
 import sys
 from collections import Counter
+from typing import Optional, TextIO
 
 from .errors import PostHogScriptError
+
+_log_file: Optional[TextIO] = None
+
+
+def set_log_file(path: str) -> None:
+    """Stream every subsequent log() call to `path` too, starting fresh.
+
+    Opens `path` once, in write mode, so every log() line lands in it as it happens, in the
+    same order the operator sees on stderr - a crash or Ctrl-C mid-run still leaves a
+    complete transcript up to that point, rather than losing output that was only ever held
+    in memory.
+    """
+    global _log_file
+    _log_file = open(path, "w")
+
+
+def close_log_file() -> None:
+    """Flush and close the file opened by set_log_file(), if any. Safe to call unconditionally."""
+    global _log_file
+    if _log_file is not None:
+        _log_file.close()
+        _log_file = None
 
 
 def log(message: str) -> None:
     """Write a progress/report line to stderr, keeping stdout free for piped data."""
     print(message, file=sys.stderr)  # noqa: T201 - stderr logging is this CLI's output channel
+    if _log_file is not None:
+        _log_file.write(message + "\n")
+        _log_file.flush()
 
 
 def printable(value: str) -> str:
