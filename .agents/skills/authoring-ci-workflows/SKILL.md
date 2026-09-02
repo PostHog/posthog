@@ -293,6 +293,24 @@ Otherwise the fallback is full on drafts too: `ci-nodejs.yml` has a bare `pull_r
 `turbo-discover.js` (`draft ? 'skip' : 'full'`) and `ci-frontend.yml`'s `fall_back` are the two reference implementations of the draft/ready split; `ci-nodejs.yml` and `ci-e2e-playwright.yml` are the reference for always-full.
 Foot-gun: if the job that selects tests is cancelled mid-flight, its `mode` output is empty — normalize empty-mode **on a draft** to `skip`, or the draft grabs the full matrix and serializes the ready run behind it.
 
+### A selector needs telemetry, or nobody knows whether it bites
+
+A narrowing that falls back on most runs looks identical in the YAML to one that works.
+The Playwright selector was eligible on 2,783 runs over two weeks and narrowed on 167 of them; the rest fell back, most often on one glob.
+That is unreadable without an event, so every selector emits one to the DevEx project (347861): `posthog-ci-test-selection`, `posthog-ci-e2e-spec-selection`, `posthog-ci-jest-selection`, `posthog-ci-nodejs-selection`.
+
+Copy the shape from `capture-jest-selection` in `ci-frontend.yml`:
+
+- Emit **on full runs too**, tagged so they are distinguishable. They are the baseline a narrowed run is measured against.
+- Give the fallback a **closed category** plus an unbounded **detail**. The category is what you group by; the detail is what tells you which glob to attack.
+- Emit the counts from **every** branch of the selector, including the ones that narrow to nothing.
+- `continue-on-error`, `github.run_attempt == '1'`, and the same-repo `if:` — telemetry never reds CI, never double-counts a re-run, and forks have no secret.
+- Do not duplicate timings. `posthog-ci-running-time-job` already carries each job's duration; join it on `run_id`.
+
+What this still does not answer is whether a narrowed run would have **caught** what broke.
+Only backend scores that, in `tools/test_selection_verdict.py`, which reads the run's JUnit and reports recall.
+The cheap oracle for the rest is the queue: the `trunk-merge/**` run tests the same code with the full suite, so a failure there whose file was reachable from the diff and was not selected is a miss, at no extra compute.
+
 ## The hourly master lane
 
 The merge queue's `trunk-merge/**` run tests every commit before it lands, so re-running a heavy suite on the master push tests a commit that CI already covered.

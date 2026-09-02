@@ -47,6 +47,10 @@ jobs:
             # confined to Node source files jest can resolve; anything else is 'full'.
             test_mode: ${{ steps.select-tests.outputs.mode || 'full' }}
             test_files: ${{ steps.select-tests.outputs.files }}
+            # Telemetry (see capture-nodejs-selection). Emitted on every path, so a
+            # fallback rate can be read per reason rather than inferred from mode alone.
+            test_reason: ${{ steps.select-tests.outputs.reason }}
+            test_file_count: ${{ steps.select-tests.outputs.file_count }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -201,25 +205,28 @@ jobs:
               run: |
                   set -uo pipefail
 
+                  # $1 is a closed category, so the telemetry can be grouped by reason.
                   full() {
                       echo "::notice::$1; running the full jest suite"
                       {
                           echo "mode=full"
                           echo "files="
+                          echo "reason=$1"
+                          echo "file_count=${count:-}"
                       } >> "$GITHUB_OUTPUT"
                       exit 0
                   }
 
                   # Master push and the cron skip the paths filter, so every output is empty.
-                  [ "${{ github.event_name }}" = "pull_request" ] || full "not a pull request"
+                  [ "${{ github.event_name }}" = "pull_request" ] || full not_a_pull_request
                   # Trunk's merge-queue branches raise a pull_request event like any other, so
                   # they need excluding by name. That run is the gate for master and must never
                   # be narrowed.
                   case "$HEAD_REF" in
-                      trunk-merge/*) full "merge queue run" ;;
+                      trunk-merge/*) full merge_queue ;;
                   esac
-                  [ "$NODE_FULL" != "true" ] || full "config, lockfile or Rust change"
-                  [ "$NODE_SRC" = "true" ] || full "no resolvable Node source changes"
+                  [ "$NODE_FULL" != "true" ] || full config_change
+                  [ "$NODE_SRC" = "true" ] || full no_node_sources
 
                   # Paths arrive repo-relative; jest runs from nodejs/, so strip the prefix.
                   # `list-files: escape` returns one shell-escaped, space-separated list, so
@@ -228,13 +235,15 @@ jobs:
                   files=$(printf '%s\n' $NODE_SRC_FILES | sed 's|^nodejs/||' | tr '\n' ' ')
                   # shellcheck disable=SC2086
                   count=$(printf '%s\n' $NODE_SRC_FILES | grep -c . || true)
-                  [ "$count" -le 200 ] || full "diff touches $count Node sources (>200)"
-                  [ -n "${files// /}" ] || full "changed-file list came back empty"
+                  [ "$count" -le 200 ] || full over_ceiling
+                  [ -n "${files// /}" ] || full empty_file_list
 
                   echo "::notice::selective jest over $count changed Node source file(s)"
                   {
                       echo "mode=selective"
                       echo "files=$files"
+                      echo "reason="
+                      echo "file_count=$count"
                   } >> "$GITHUB_OUTPUT"
 
     lint:
@@ -971,6 +980,52 @@ jobs:
               uses: ./.github/actions/report-jest-timings
               with:
                   artifacts: ./junit-artifacts
+
+    # Jest-selection telemetry -> DevEx project (347861), alongside the equivalent
+    # events for the backend (posthog-ci-test-selection), the frontend
+    # (posthog-ci-jest-selection) and Playwright (posthog-ci-e2e-spec-selection).
+    # Without it the fallback rate of this selector is only readable by opening runs
+    # one at a time, and this workflow has no other telemetry.
+    # Emitted on full runs too — the merge queue's trunk-merge/** run raises a
+    # pull_request event, so `mode=full` there is the baseline selective runs are
+    # measured against. This workflow captures no job durations, so a saving is read
+    # off the tests job's own conclusion and the run in the Actions API, not from here.
+    # Telemetry never reds CI (continue-on-error).
+    # hogli-lint: not-a-required-gate — reads results to describe the run, gates nothing
+    capture-nodejs-selection:
+        name: Capture Node.js jest selection
+        needs: [changes, tests]
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        # Nothing to report on a PR that never ran the suite. Forks and Dependabot never
+        # have the secret.
+        if: >-
+            !cancelled() && github.run_attempt == '1'
+            && github.event_name == 'pull_request'
+            && github.actor != 'dependabot[bot]'
+            && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
+            && (needs.tests.result == 'success' || needs.tests.result == 'failure')
+        steps:
+            - name: Capture Node.js jest selection to DevEx PostHog
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  event: 'posthog-ci-nodejs-selection'
+                  properties: |
+                      {
+                        "mode": ${{ toJSON(needs.changes.outputs.test_mode) }},
+                        "selected_file_count": ${{ needs.changes.outputs.test_file_count || 'null' }},
+                        "full_run_reason_category": ${{ toJSON(needs.changes.outputs.test_reason || '') }},
+                        "tests_result": ${{ toJSON(needs.tests.result) }},
+                        "pr_draft": ${{ toJSON(github.event.pull_request.draft) }},
+                        "merge_queue": ${{ startsWith(github.head_ref, 'trunk-merge/') }},
+                        "event_type": ${{ toJSON(github.event.action) }},
+                        "branch": ${{ toJSON(github.head_ref || github.ref_name) }},
+                        "sha": ${{ toJSON(github.sha) }},
+                        "pr_number": ${{ github.event.pull_request.number || 'null' }},
+                        "run_id": ${{ toJSON(github.run_id) }}
+                      }
 
     node_tests:
         # report-test-speed is deliberately not in needs: it is visible but non-gating.
