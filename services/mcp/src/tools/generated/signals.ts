@@ -138,7 +138,7 @@ const inboxReportArtefactsList = (): ToolBase<
         })
         return withAgentNote(
             await withPostHogUrl(context, result, '/inbox'),
-            'Before you change code for this report, find the newest note that starts with `## Steps to verify fix`. Run those checks against current data. If the issue no longer occurs, do not implement the old fix. Record the result in the report log, and reassess the report.'
+            'Before you change code for this report, find the newest note that starts with `## Steps to verify fix`. Run those checks against current data. If the issue no longer occurs, do not implement the old fix. Record the result in the report log, and reassess the report.\n'
         )
     },
 })
