@@ -967,17 +967,18 @@ fn routing_groups(groups: Vec<Group>) -> GroupedMessages {
             Some(key) => key,
             None => {
                 unkeyed_count += 1;
-                let first = group.offsets.first().copied().unwrap_or(Offset(-1));
+                let first = group.messages.first().map_or(Offset(-1), |m| m.offset);
                 format!(":{}:{}", group.partition, first)
             }
         };
+        let messages = group.messages.into_iter().map(|m| m.message);
         match index_by_key.get(&routing_key) {
-            Some(&index) => merged[index].messages.extend(group.messages),
+            Some(&index) => merged[index].messages.extend(messages),
             None => {
                 index_by_key.insert(routing_key.clone(), merged.len());
                 merged.push(MessageGroup {
                     routing_key,
-                    messages: group.messages,
+                    messages: messages.collect(),
                 });
             }
         }

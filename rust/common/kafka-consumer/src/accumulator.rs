@@ -13,15 +13,21 @@ pub struct PolledMessage<K, M> {
     pub inner: M,
 }
 
-/// One key's messages from one poll on one partition, in offset order, or one
-/// keyless message on its own.
+/// One message in a group, paired with its offset so the two cannot diverge.
+#[derive(Debug)]
+pub struct GroupMessage<M> {
+    pub offset: Offset,
+    pub message: M,
+}
+
+/// One key's messages from one poll on one partition, or one keyless message
+/// on its own. Messages keep submission order; ordering by offset is the
+/// caller's contract, not the accumulator's.
 #[derive(Debug)]
 pub struct Group<K, M> {
     pub partition: Partition,
     pub key: Option<K>,
-    /// One per message, ascending.
-    pub offsets: Vec<Offset>,
-    pub messages: Vec<M>,
+    pub messages: Vec<GroupMessage<M>>,
 }
 
 impl<K, M> Group<K, M> {
@@ -36,13 +42,14 @@ impl<K, M> Group<K, M> {
 
 /// Demuxes one poll into groups. Push messages in delivery order: a keyed
 /// message joins its partition's group for that key, a keyless message opens
-/// a group of its own. Groups come out in first-seen order.
+/// a group of its own. Groups come out in first-seen order, and each group
+/// keeps its messages in submission order.
 #[derive(Debug)]
 pub struct Accumulator<K, M> {
     groups: Vec<Group<K, M>>,
     /// Nested rather than keyed by `(Partition, K)`, so a lookup borrows the
     /// key instead of cloning it per message.
-    by_key: HashMap<Partition, HashMap<K, usize>>,
+    group_index_by_key: HashMap<Partition, HashMap<K, usize>>,
     message_count: usize,
 }
 
@@ -50,7 +57,7 @@ impl<K, M> Default for Accumulator<K, M> {
     fn default() -> Self {
         Self {
             groups: Vec::new(),
-            by_key: HashMap::new(),
+            group_index_by_key: HashMap::new(),
             message_count: 0,
         }
     }
@@ -64,32 +71,31 @@ impl<K: Hash + Eq + Clone, M> Accumulator<K, M> {
                 self.groups.push(Group {
                     partition,
                     key: None,
-                    offsets: Vec::with_capacity(1),
                     messages: Vec::with_capacity(1),
                 });
                 self.groups.len() - 1
             }
             Some(key) => {
-                let by_key = self.by_key.entry(partition).or_default();
-                match by_key.get(&key) {
+                let group_index_by_key = self.group_index_by_key.entry(partition).or_default();
+                match group_index_by_key.get(&key) {
                     Some(&index) => index,
                     None => {
                         let index = self.groups.len();
                         self.groups.push(Group {
                             partition,
                             key: Some(key.clone()),
-                            offsets: Vec::new(),
                             messages: Vec::new(),
                         });
-                        by_key.insert(key, index);
+                        group_index_by_key.insert(key, index);
                         index
                     }
                 }
             }
         };
-        let group = &mut self.groups[index];
-        group.offsets.push(offset);
-        group.messages.push(inner);
+        self.groups[index].messages.push(GroupMessage {
+            offset,
+            message: inner,
+        });
         self.message_count += 1;
     }
 
@@ -122,8 +128,12 @@ mod tests {
         );
     }
 
+    fn offsets<K>(group: &Group<K, i64>) -> Vec<Offset> {
+        group.messages.iter().map(|m| m.offset).collect()
+    }
+
     #[test]
-    fn keyed_messages_group_per_partition_and_key_in_offset_order() {
+    fn keyed_messages_group_per_partition_and_key_in_submission_order() {
         let mut acc = Accumulator::default();
         push(&mut acc, 0, 0, Some("a"));
         push(&mut acc, 0, 1, Some("b"));
@@ -134,7 +144,7 @@ mod tests {
         let groups = acc.into_groups();
         let shapes: Vec<(Partition, Option<&str>, Vec<Offset>)> = groups
             .iter()
-            .map(|g| (g.partition, g.key, g.offsets.clone()))
+            .map(|g| (g.partition, g.key, offsets(g)))
             .collect();
         assert_eq!(
             shapes,
@@ -144,7 +154,8 @@ mod tests {
                 (Partition(1), Some("a"), vec![Offset(5)]),
             ]
         );
-        assert_eq!(groups[0].messages, vec![0, 2]);
+        let bodies: Vec<i64> = groups[0].messages.iter().map(|m| m.message).collect();
+        assert_eq!(bodies, vec![0, 2]);
     }
 
     #[test]
@@ -157,8 +168,8 @@ mod tests {
         let groups = acc.into_groups();
         assert_eq!(groups.len(), 3);
         assert_eq!(groups[0].key, None);
-        assert_eq!(groups[0].offsets, vec![Offset(0)]);
+        assert_eq!(offsets(&groups[0]), vec![Offset(0)]);
         assert_eq!(groups[2].key, None);
-        assert_eq!(groups[2].offsets, vec![Offset(2)]);
+        assert_eq!(offsets(&groups[2]), vec![Offset(2)]);
     }
 }
