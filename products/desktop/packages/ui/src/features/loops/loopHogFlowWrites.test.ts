@@ -40,8 +40,8 @@ function scriptedClient(
 const FLOW = { id: "flow-1", status: "active", schedules: [] };
 const SCHEDULE_ROW = {
   id: "sched-1",
-  rrule: "FREQ=DAILY;BYHOUR=9;BYMINUTE=0;BYSECOND=0",
-  starts_at: "2026-01-01T00:00:00Z",
+  rrule: "FREQ=DAILY;INTERVAL=1",
+  starts_at: "2026-01-01T09:00:00Z",
   timezone: "UTC",
   status: "active",
   next_run_at: null,
