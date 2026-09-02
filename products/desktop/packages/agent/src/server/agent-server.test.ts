@@ -28,6 +28,7 @@ import {
 } from "vitest";
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import { getSessionJsonlPath } from "../adapters/claude/session/jsonl-hydration";
+import { SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION as STE100_INSTRUCTION } from "../adapters/ste100-guidance";
 import type { PermissionMode } from "../execution-mode";
 import type { PostHogAPIClient } from "../posthog-api";
 import type { ResumeState } from "../resume";
@@ -4338,6 +4339,35 @@ describe("AgentServer HTTP Mode", () => {
       ).toContain("BENJAMIN-PLUS MODE ACTIVE");
     });
 
+    it("injects STE100 guidance into Slack prompts when POSTHOG_BENJAMIN is set", () => {
+      vi.stubEnv("POSTHOG_BENJAMIN", "1");
+      vi.stubEnv("POSTHOG_CODE_INTERACTION_ORIGIN", "slack");
+      const s = createServer();
+      const sessionPrompt = (
+        s as unknown as TestableServer
+      ).buildSessionSystemPrompt();
+
+      expect(
+        typeof sessionPrompt === "string"
+          ? sessionPrompt
+          : sessionPrompt.append,
+      ).toContain(STE100_INSTRUCTION);
+    });
+
+    it("does not inject STE100 guidance into user-created prompts", () => {
+      vi.stubEnv("POSTHOG_BENJAMIN", "1");
+      const s = createServer();
+      const sessionPrompt = (
+        s as unknown as TestableServer
+      ).buildSessionSystemPrompt();
+      const prompt =
+        typeof sessionPrompt === "string"
+          ? sessionPrompt
+          : sessionPrompt.append;
+
+      expect(prompt).not.toContain(STE100_INSTRUCTION);
+    });
+
     it("omits benjamin from codex instructions when POSTHOG_BENJAMIN is unset", () => {
       const s = createServer({ runtimeAdapter: "codex" });
       const sessionPrompt = (
@@ -4954,6 +4984,10 @@ describe("AgentServer HTTP Mode", () => {
   });
 
   describe("buildCloudSystemPrompt", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
     it.each([
       {
         delivery: "canvas_file" as const,
@@ -5208,6 +5242,49 @@ describe("AgentServer HTTP Mode", () => {
       );
       expect(prompt).toContain("These `<@U…>` tokens are Slack-only");
       delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
+    });
+
+    it("tells the agent to self-assign through gh rather than match a name", () => {
+      // `gh` already knows who the run acts as, so the agent must read it rather than
+      // ask the user for a handle it is forbidden from guessing.
+      vi.stubEnv("GITHUB_TOKEN", "ghu_actor");
+      const s = createServer();
+      const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt();
+      expect(prompt).toContain('gh issue create --assignee "@me"');
+      expect(prompt).toContain("gh api user --jq .login");
+      // An installation token resolves to the app, so acting on it would assign a bot.
+      expect(prompt).toContain("ending in `[bot]`");
+      // Without this the "never guess a GitHub identity" rule forbids the handle we
+      // just told the agent to read.
+      expect(prompt).toContain(
+        "or one you read from `gh api user --jq .login`",
+      );
+    });
+
+    it.each(["slack", "signal_report"])(
+      "carries the GitHub identity guidance on %s-origin runs",
+      (origin) => {
+        // Non-Slack runs open issues under a person's credentials too, so this must not
+        // sit behind `isSlack`.
+        vi.stubEnv("GITHUB_TOKEN", "ghu_actor");
+        vi.stubEnv("POSTHOG_CODE_INTERACTION_ORIGIN", origin);
+        const s = createServer() as unknown as TestableServer;
+        expect(s.buildCloudSystemPrompt()).toContain(
+          "# Whose GitHub account you are using",
+        );
+      },
+    );
+
+    it("omits the guidance without a token but still permits a gh-read login", () => {
+      // The prompt is built once per session, so a run whose user connects GitHub
+      // partway through never re-renders. Dropping the exception too would keep the
+      // mention rule forbidding the login for the rest of that run.
+      const s = createServer();
+      const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt();
+      expect(prompt).not.toContain("# Whose GitHub account you are using");
+      expect(prompt).toContain(
+        "or one you read from `gh api user --jq .login`",
+      );
     });
 
     it("returns auto-PR prompt for signal_report-origin runs", () => {

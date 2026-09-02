@@ -695,6 +695,13 @@ class ChartDisplayType(StrEnum):
     SCATTER_PLOT = "ScatterPlot"
 
 
+class LegendPosition(StrEnum):
+    TOP = "top"
+    BOTTOM = "bottom"
+    LEFT = "left"
+    RIGHT = "right"
+
+
 class Curve(StrEnum):
     LINEAR = "linear"
     SMOOTH = "smooth"
@@ -1596,6 +1603,7 @@ class ExternalDataSourceType(StrEnum):
     CUSTOMERLY = "Customerly"
     DATASCOPE = "Datascope"
     DBT = "Dbt"
+    DEMODESK = "Demodesk"
     DEPUTY = "Deputy"
     DEVIN_AI = "DevinAI"
     DOCUSEAL = "Docuseal"
@@ -2785,13 +2793,6 @@ class FunnelVizType(StrEnum):
     FLOW = "flow"
 
 
-class LegendPosition(StrEnum):
-    TOP = "top"
-    BOTTOM = "bottom"
-    LEFT = "left"
-    RIGHT = "right"
-
-
 class Position(StrEnum):
     START = "start"
     END = "end"
@@ -3037,6 +3038,7 @@ class IntegrationKind(StrEnum):
     APNS = "apns"
     POSTGRESQL = "postgresql"
     AWS_S3 = "aws-s3"
+    AWS_REDSHIFT = "aws-redshift"
     S3_COMPATIBLE = "s3-compatible"
     SNOWFLAKE = "snowflake"
     YOUTUBE_ANALYTICS = "youtube-analytics"
@@ -3295,6 +3297,18 @@ class MetricsAttributeScope(StrEnum):
     AUTO = "auto"
 
 
+class MetricsAxisScale(StrEnum):
+    LINEAR = "linear"
+    LOG = "log"
+
+
+class MetricsDisplayType(StrEnum):
+    LINE = "line"
+    AREA = "area"
+    BAR = "bar"
+    STAT = "stat"
+
+
 class MetricsFilterOp(StrEnum):
     EQ = "eq"
     NEQ = "neq"
@@ -3308,6 +3322,12 @@ class MetricsOtelType(StrEnum):
     HISTOGRAM = "histogram"
     EXPONENTIAL_HISTOGRAM = "exponential_histogram"
     SUMMARY = "summary"
+
+
+class MetricsStatSummary(StrEnum):
+    LATEST = "latest"
+    AVERAGE = "average"
+    TOTAL = "total"
 
 
 class MultiQuestionFormFieldType(StrEnum):

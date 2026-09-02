@@ -14,6 +14,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.signals.backend.artefact_schemas import (
+    DISMISSAL_NOTE_MAX_LENGTH,
     CodeReference,
     NoteArtefact,
     Priority,
@@ -988,14 +989,26 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not SignalReportArtefact.objects.filter(report=report).exists()
 
-    def test_post_status_type_with_invalid_content_returns_400(self):
+    @parameterized.expand(
+        [
+            ("priority_out_of_range", "priority_judgment", {"priority": "P9"}),
+            # The state API caps the note; the generic endpoint must not be the way around that cap.
+            (
+                "dismissal_note_over_the_cap",
+                "dismissal",
+                {"reason": "other", "note": "x" * (DISMISSAL_NOTE_MAX_LENGTH + 1)},
+            ),
+        ]
+    )
+    def test_post_rejects_content_that_fails_the_type_schema(self, _name, artefact_type, content):
         report = self._create_report()
         response = self.client.post(
             self._list_url(str(report.id)),
-            data=json.dumps({"artefact_type": "priority_judgment", "content": {"priority": "P9"}}),
+            data=json.dumps({"artefact_type": artefact_type, "content": content}),
             content_type="application/json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalReportArtefact.objects.filter(report=report).exists()
 
     def test_post_rejects_unknown_type(self):
         report = self._create_report()
