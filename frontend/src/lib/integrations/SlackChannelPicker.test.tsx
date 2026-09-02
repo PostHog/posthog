@@ -55,6 +55,15 @@ const OFF_PAGE_CHANNEL = {
     is_private_without_access: false,
 }
 
+// Typing a channel name and then clicking away is the interaction that drops a search. Two cases
+// below start from it and differ only in what they assert next.
+async function dropASearch(container: HTMLElement): Promise<void> {
+    const input = container.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')!
+    await userEvent.click(input)
+    await userEvent.type(input, 'general')
+    await userEvent.click(document.body)
+}
+
 describe('SlackChannelPicker', () => {
     let channelsRequestSearchQueries: (string | null)[] = []
     let channelIdLookups: string[] = []
@@ -280,10 +289,7 @@ describe('SlackChannelPicker', () => {
             expect(channelsRequestSearchQueries).toEqual([''])
         })
 
-        const input = container.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')!
-        await userEvent.click(input)
-        await userEvent.type(input, 'general')
-        await userEvent.click(document.body)
+        await dropASearch(container)
 
         expect(await screen.findByText('No channel selected. Pick one from the list.')).toBeInTheDocument()
     })
@@ -317,10 +323,7 @@ describe('SlackChannelPicker', () => {
                 <SlackChannelPicker integration={INTEGRATION} onChange={jest.fn()} />
             </Provider>
         )
-        const input = container.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')!
-        await userEvent.click(input)
-        await userEvent.type(input, 'general')
-        await userEvent.click(document.body)
+        await dropASearch(container)
         expect(await screen.findByText('No channel selected. Pick one from the list.')).toBeInTheDocument()
 
         rerender(

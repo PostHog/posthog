@@ -404,6 +404,12 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
     // clicks away is left with an empty input and no idea why. Track that case to show it back.
     const hasUnselectedSearchRef = useRef(false)
     const [blurredWithoutSelection, setBlurredWithoutSelection] = useState(false)
+    // The marker and the state it feeds always clear together: a search that ended in a selection
+    // was never dropped.
+    const clearDroppedSearch = (): void => {
+        hasUnselectedSearchRef.current = false
+        setBlurredWithoutSelection(false)
+    }
     // A pasted channel id is already an unambiguous choice, so hold it until the lookup resolves and
     // then pick it. Nobody should have to recognize their channel by id in the list.
     const [pastedChannelId, setPastedChannelId] = useState<string | null>(null)
@@ -446,8 +452,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
         // A caller can swap the integration (switching Slack workspace) without unmounting this
         // picker, so state from the old workspace's search must not leak into the new one.
         hasActiveSearchRef.current = false
-        hasUnselectedSearchRef.current = false
-        setBlurredWithoutSelection(false)
+        clearDroppedSearch()
         setLocalValue(null)
         setPastedChannelId(null)
     }, [integration.id])
@@ -461,9 +466,8 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
             return
         }
         setPastedChannelId(null)
-        hasUnselectedSearchRef.current = false
-        setBlurredWithoutSelection(false)
-        if (value?.split('|')[0] !== channel.id) {
+        clearDroppedSearch()
+        if (slackChannelId(value ?? '') !== channel.id) {
             onChange?.(`${channel.id}|#${channel.name}`)
         }
     }, [pastedChannelId, slackChannels, value, onChange])
@@ -491,8 +495,7 @@ export function SlackChannelPicker({ onChange, value, integration, disabled }: S
                     // LemonInputSelect blurs the input before it reports a selection, so onBlur has
                     // already flagged the search as dropped by the time this runs. Both happen on
                     // one synchronous call stack, so this reset wins and no error renders.
-                    hasUnselectedSearchRef.current = false
-                    setBlurredWithoutSelection(false)
+                    clearDroppedSearch()
                     if (key) {
                         // Pin into the by-id slot so the post-select bulk reload can't drop the
                         // channel from slackChannels and unresolve the label.
