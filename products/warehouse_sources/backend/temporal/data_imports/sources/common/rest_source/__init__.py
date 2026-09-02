@@ -7,6 +7,11 @@ from typing import Any, Optional, cast
 import structlog
 from dateutil import parser
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_telemetry import (
+    FanoutParentSource,
+    log_fanout_parent_rows_consumed,
+)
+
 from .config_setup import (
     Incremental,
     IncrementalParam,
@@ -142,6 +147,7 @@ def _make_paginate_dependent_resource(
     data_selector_required: bool = False,
     data_selector_empty_ok: bool = False,
     on_parent_error: Optional[Callable[[str, Exception], None]] = None,
+    parent_source: FanoutParentSource = "api",
 ) -> Callable[..., Iterator[list[Any]]]:
     """Build the generator for a dependent (child) resource.
 
@@ -249,10 +255,11 @@ def _make_paginate_dependent_resource(
         # Counted after the page so parents a resume skips don't inflate it. A running total,
         # since there's no end-of-parent signal: the last line of a run carries the fan-out's
         # size, for either parent kind, which the API path never surfaced anywhere.
-        logger.info(
-            "data_imports.fanout_parent_rows_consumed",
-            page_rows=page_rows,
+        log_fanout_parent_rows_consumed(
+            logger,
+            parent_source=parent_source,
             rows_total=parent_rows_consumed,
+            page_rows=page_rows,
         )
 
     return paginate_dependent_resource
@@ -421,7 +428,16 @@ def create_resources(
             )
 
         else:
-            predecessor = resources[resolved_params[0].resolve_config["resource"]]
+            parent_name = resolved_params[0].resolve_config["resource"]
+            predecessor = resources[parent_name]
+
+            # An iterator-backed parent is the warehouse read that `build_dependent_resource` sets
+            # up; every other parent pages its endpoint over HTTP. Derived here rather than passed
+            # in, because the fan-out builder falls back to the API parent when the table cannot be
+            # resolved, and this reports where the rows came from rather than what was requested.
+            parent_source: FanoutParentSource = (
+                "warehouse" if endpoint_resource_map[parent_name].get("data_iterator") else "api"
+            )
 
             base_params = exclude_keys(request_params, {rp.param_name for rp in resolved_params})
 
@@ -439,6 +455,7 @@ def create_resources(
                 data_selector_required=bool(endpoint_config.get("data_selector_required")),
                 data_selector_empty_ok=bool(endpoint_config.get("data_selector_empty_ok")),
                 on_parent_error=on_parent_error,
+                parent_source=parent_source,
             )
 
             resources[resource_name] = Resource(

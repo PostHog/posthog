@@ -18,6 +18,9 @@ from stripe import ListObject
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_telemetry import (
+    FANOUT_PARENT_ROWS_CONSUMED,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
     ParentTableRef,
 )
@@ -462,6 +465,7 @@ def _run_nested_get_rows(
     warehouse_parent=None,
     parent_method=None,
     can_resume=False,
+    logger=None,
 ):
     if parent_objects is None:
         parent_objects = [{"id": "cus_ok1"}, {"id": "cus_gone"}, {"id": "cus_ok2"}]
@@ -494,7 +498,7 @@ def _run_nested_get_rows(
             account_id=None,
             db_incremental_field_last_value=None,
             db_incremental_field_earliest_value=None,
-            logger=MagicMock(),
+            logger=logger or MagicMock(),
             resumable_source_manager=resumable_source_manager,
             api_version=STRIPE_API_VERSION_ACACIA,
             warehouse_parent=warehouse_parent,
@@ -1560,6 +1564,31 @@ class TestStripeWarehouseParentFanout:
 
         assert warehouse_rows == api_rows
         assert [row["customer"] for row in warehouse_rows] == ["cus_1", "cus_2"]
+
+    def test_both_parent_paths_report_the_fan_out_size_and_where_it_came_from(self, tmp_path):
+        # A webhook-maintained parent holds only what its drains delivered, so it can be missing
+        # customers the API listing still returns. Comparing the fan-out size across the two parent
+        # sources for one schema is the only signal for that, and it needs both a count and the
+        # label naming which source produced it.
+        customers = [{"id": "cus_1", "balance": -500}, {"id": "cus_2", "balance": 250}]
+        uri = _write_customer_parent_table(tmp_path, customers)
+        api_logger = MagicMock()
+        warehouse_logger = MagicMock()
+
+        api_method, _ = _recording_nested_method()
+        warehouse_method, _ = _recording_nested_method()
+
+        _run_nested_get_rows(api_method, parent_objects=customers, logger=api_logger)
+        _run_nested_get_rows(
+            warehouse_method,
+            warehouse_parent=ParentTableRef(uri=uri, version=deltalake.DeltaTable(uri).version()),
+            logger=warehouse_logger,
+        )
+
+        api_logger.info.assert_called_once_with(FANOUT_PARENT_ROWS_CONSUMED, parent_source="api", rows_total=2)
+        warehouse_logger.info.assert_called_once_with(
+            FANOUT_PARENT_ROWS_CONSUMED, parent_source="warehouse", rows_total=2
+        )
 
     def test_the_skip_predicate_reads_the_balance_off_the_warehouse_row(self, tmp_path):
         # The projected `balance` column is what makes this conversion worth doing: without it

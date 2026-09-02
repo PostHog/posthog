@@ -1,10 +1,14 @@
 from dataclasses import dataclass, replace
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import Mock, patch
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import rest_source
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_telemetry import (
+    FANOUT_PARENT_ROWS_CONSUMED,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     _make_paginate_dependent_resource,
 )
@@ -14,9 +18,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     required_parents_from_endpoint_configs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ParentRowFilter,
     ResolvedParam,
+    RESTAPIConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
     ParentTableRef,
@@ -373,6 +379,66 @@ def test_paginate_dependent_resource_does_not_leak_params_across_parents() -> No
         assert params_snapshot["since"] == "2026-01-01"
         assert params_snapshot["until"] == "2026-03-01"
         assert "before" not in params_snapshot
+
+
+def _pages_by_path(pages: dict[str, list[dict[str, Any]]]):
+    def paginate(self, *, path: str = "", **kwargs):
+        yield pages[path]
+
+    return paginate
+
+
+@pytest.mark.parametrize(
+    "iterator_backed_parent,expected_parent_source",
+    [(False, "api"), (True, "warehouse")],
+)
+def test_dependent_resource_reports_which_parent_source_served_its_rows(
+    iterator_backed_parent: bool, expected_parent_source: str
+) -> None:
+    # The fan-out size only detects a warehouse parent that is missing rows when the same line
+    # says which source produced it. The label follows the parent that actually served the rows,
+    # because `build_dependent_resource` falls back to the API parent when the warehouse table
+    # cannot be resolved.
+    parent_resource: dict[str, Any] = {"name": "parents", "endpoint": {"path": "/parents"}}
+    if iterator_backed_parent:
+        parent_resource["data_iterator"] = lambda: iter([[{"id": "p1"}, {"id": "p2"}]])
+
+    config: dict[str, Any] = {
+        "client": {"base_url": "https://api.example.com"},
+        "resources": [
+            parent_resource,
+            {
+                "name": "children",
+                "endpoint": {
+                    "path": "/parents/{parent_id}/children",
+                    "params": {"parent_id": {"type": "resolve", "resource": "parents", "field": "id"}},
+                },
+            },
+        ],
+    }
+    pages = {
+        "/parents": [{"id": "p1"}, {"id": "p2"}],
+        "/parents/p1/children": [{"id": "c1"}],
+        "/parents/p2/children": [{"id": "c2"}],
+    }
+
+    with (
+        patch.object(RESTClient, "paginate", _pages_by_path(pages)),
+        patch.object(rest_source, "logger") as logger,
+    ):
+        resources = rest_source.rest_api_resources(
+            cast(RESTAPIConfig, config), team_id=1, job_id="j", db_incremental_field_last_value=None
+        )
+        children = next(r for r in resources if r.name == "children")
+        rows = [row for page in children for row in page]
+
+    assert [row["id"] for row in rows] == ["c1", "c2"]
+    logger.info.assert_called_once_with(
+        FANOUT_PARENT_ROWS_CONSUMED,
+        parent_source=expected_parent_source,
+        rows_total=2,
+        page_rows=2,
+    )
 
 
 class _FakeResumableClient:

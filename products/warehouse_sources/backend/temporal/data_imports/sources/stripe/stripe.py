@@ -31,6 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     WebhookDeletionResult,
     WebhookSyncResult,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_telemetry import (
+    log_fanout_parent_rows_consumed,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -916,6 +919,7 @@ def get_rows(
             # method's actual signature so both shapes get the parent id where Stripe expects it.
             parent_param_is_kwarg = resource.nested_parent_param in inspect.signature(resource.method).parameters
             skipped_parents = 0
+            parents_consumed = 0
             parents_since_checkpoint = 0
             # Seeded from where this run started, so an interruption before any parent finishes
             # checkpoints there rather than back at the first parent.
@@ -939,6 +943,7 @@ def get_rows(
                     parents_since_checkpoint = 0
 
                 parent_obj_id = obj[resource.parent_id]
+                parents_consumed += 1
                 parents_since_checkpoint += 1
                 nested_resume_params: dict[str, Any] = {}
                 if nested_resume is not None and parent_obj_id == nested_resume.nested_parent_id:
@@ -1000,6 +1005,15 @@ def get_rows(
                 # this parent contributes nothing further, so the sweep may resume after it.
                 last_finished_parent = parent_obj_id
                 last_finished_position = parent_pages.position_after_current if parent_pages else None
+            # Counts every parent row the listing handed over, including the ones
+            # `parent_has_nested` ruled out, so that the number means the same thing on both parent
+            # sources. Emitted once because this sweep has an end, unlike the shared REST fan-out,
+            # which carries a running total on every parent page.
+            log_fanout_parent_rows_consumed(
+                logger,
+                parent_source="warehouse" if warehouse_parent is not None else "api",
+                rows_total=parents_consumed,
+            )
             if skipped_parents:
                 logger.debug(
                     f"Stripe: skipped {skipped_parents} {resource.nested_parent_param}(s) with no nested data, saving that many API calls"
