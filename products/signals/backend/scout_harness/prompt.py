@@ -13,6 +13,10 @@ from products.signals.backend.report_charts import MAX_REPORT_CHARTS
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, SkillAuthor, skill_uses_report_channel
 
+# The project-scan step shared by the interactive "Suggest a scout" chat (`scout_chat.py`) and the
+# headless pre-computed suggestion run (`suggestions.py`), so the two voices never drift.
+SCOUT_PROJECT_SCAN_GUIDANCE = "take a quick scan of this PostHog project to ground your suggestions: skim its events, insights, dashboards, recently emitted signals, and the existing scout fleet so you understand what this product is and where automated monitoring would add value."
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -232,7 +236,7 @@ Notes are the team's cheapest steering lever: feedback on what you've surfaced (
 Each note's `origin` says how to read it, and each names the report ids it concerns, so `inbox-reports-retrieve` gets you the full context:
 
 - `human`: steering someone wrote for you directly.
-- `report_dismissal`: a reviewer's verdict on one or more of your reports, forwarded so it reaches you without you re-finding them. One note covers one verdict, so when a reviewer acted on several reports at once read it as their view of that batch, never as a fleet-wide rule. **Dismissed** is the only kind that should make you stop filing something, and the reason code decides whether it even means that: `analysis_wrong`, `report_unclear`, and `wontfix_*` speak to your precision, so fold a reason that generalizes into a `noise:`/`pattern:` entry; `already_fixed` means the issue was real and someone fixed it, so record that a fix shipped and keep watching for a recurrence. **Snoozed or restored** is about timing, not correctness: the report is still live, so keep watching what it describes.
+- `report_dismissal`: a reviewer's verdict on one or more of your reports, forwarded so it reaches you without you re-finding them. One note covers one verdict, so when a reviewer acted on several reports at once read it as their view of that batch, never as a fleet-wide rule. **Dismissed** is the only kind that should make you stop filing something, and the reason code decides whether it even means that: `analysis_wrong`, `report_unclear`, and `wontfix_*` speak to your precision, so fold a reason that generalizes into a `noise:`/`pattern:` entry; `wrong_repo` says the report targeted the wrong repository, not that the finding was wrong — keep watching the topic, record the repository the note says was wrong so you do not pick it again for that kind of work, and record the corrected repository when the note names one; `already_fixed` means the issue was real and someone fixed it, so record that a fix shipped and keep watching for a recurrence. **Snoozed or restored** is about timing, not correctness: the report is still live, so keep watching what it describes.
 - `report_discussion`: a question a user asked when they opened a discussion on one of your reports. Not a verdict and not a directive, but often carrying a preference, a correction, or context you couldn't have known ("this is expected, it's the approval flow"): fold the durable part into a `noise:`/`pattern:`/`watch:` entry, and leave one-off asks and unrelated chatter be.
 
 A resolved report never reaches you this way, because resolving means the report did its job rather than that filing it was wrong. Its note stays on the report, so read `dismissal_note` there when your inbox search turns it up, and record that a fix shipped and when, so you can tell a later recurrence from the original.

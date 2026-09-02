@@ -51,23 +51,33 @@ interface BulkActionResult {
   successCount: number;
   failureCount: number;
   succeededIds: string[];
+  failedIds: string[];
+  durationMs: number;
+  totalCount: number;
 }
 
 async function runBulkAction(
   reportIds: string[],
   perItem: (reportId: string) => Promise<unknown>,
 ): Promise<BulkActionResult> {
+  const startedAt = Date.now();
   const results = await Promise.allSettled(reportIds.map(perItem));
   const succeededIds: string[] = [];
+  const failedIds: string[] = [];
   for (let i = 0; i < results.length; i += 1) {
     if (results[i].status === "fulfilled") {
       succeededIds.push(reportIds[i]);
+    } else {
+      failedIds.push(reportIds[i]);
     }
   }
   return {
     successCount: succeededIds.length,
-    failureCount: results.length - succeededIds.length,
+    failureCount: failedIds.length,
     succeededIds,
+    failedIds,
+    durationMs: Date.now() - startedAt,
+    totalCount: reportIds.length,
   };
 }
 
@@ -220,6 +230,7 @@ export function useInboxBulkActions(
   reports: SignalReport[],
   selection: InboxBulkSelection,
   surface: InboxReportActionSurface = "toolbar",
+  triageId?: string,
 ) {
   const queryClient = useQueryClient();
   const client = useOptionalAuthenticatedClient();
@@ -243,25 +254,50 @@ export function useInboxBulkActions(
       result: BulkActionResult,
       dismissal?: DismissReportDialogResult,
     ) => {
-      if (result.successCount === 0) return;
       const byId = new Map(reports.map((report) => [report.id, report]));
       const succeeded = result.succeededIds
         .map((id) => byId.get(id))
         .filter((report): report is SignalReport => report !== undefined);
-      if (succeeded.length === 0) return;
-      const events = buildBulkActionEvents({
-        reports: succeeded,
-        actionType,
-        surface,
-        dismissal: dismissal
-          ? { reason: dismissal.reason, note: dismissal.note }
-          : undefined,
-      });
-      for (const event of events) {
-        track(ANALYTICS_EVENTS.INBOX_REPORT_ACTION, event);
+      if (succeeded.length > 0) {
+        const events = buildBulkActionEvents({
+          reports: succeeded,
+          actionType,
+          surface,
+          triageId,
+          bulkSize: result.totalCount,
+          dismissalReason: dismissal?.reason,
+        });
+        for (const event of events) {
+          track(ANALYTICS_EVENTS.INBOX_REPORT_ACTION, event);
+        }
+      }
+      for (const reportId of result.succeededIds) {
+        track(ANALYTICS_EVENTS.INBOX_REPORT_ACTION_RESULT, {
+          report_id: reportId,
+          action_type: actionType,
+          surface,
+          outcome: "succeeded",
+          duration_ms: result.durationMs,
+          is_bulk: result.totalCount > 1,
+          bulk_size: result.totalCount,
+          ...(triageId ? { triage_id: triageId } : {}),
+        });
+      }
+      for (const reportId of result.failedIds) {
+        track(ANALYTICS_EVENTS.INBOX_REPORT_ACTION_RESULT, {
+          report_id: reportId,
+          action_type: actionType,
+          surface,
+          outcome: "failed",
+          failure_code: "request_failed",
+          duration_ms: result.durationMs,
+          is_bulk: result.totalCount > 1,
+          bulk_size: result.totalCount,
+          ...(triageId ? { triage_id: triageId } : {}),
+        });
       }
     },
-    [reports, surface],
+    [reports, surface, triageId],
   );
 
   /**
