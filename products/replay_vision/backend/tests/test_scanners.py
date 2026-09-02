@@ -85,6 +85,14 @@ class TestPreamble:
         assert "asterisks" in rendered
         assert "not a bug" in rendered.lower()
 
+    def test_preamble_masking_covers_blocked_values_rendering_as_blank_gaps(self) -> None:
+        # A blocked element renders as an empty gap next to a still-legible label — the mechanism behind the
+        # false "blank property value / missing name" signals. The striped-box and asterisk cases alone did not
+        # cover it, so the model read the blank as absent data.
+        rendered = scanner_from_db(_build_replay_scanner()).preamble(team_name="Acme")
+        assert "blocked element renders as an empty gap" in rendered
+        assert "blank, empty, or missing next to a legible label" in rendered
+
     def test_preamble_forbids_reproducing_personal_data_verbatim(self) -> None:
         # Masking hides PII in the video, but the events tool / navigation URLs can expose it in the clear;
         # the model must reason about such values generically, never echo them into its output.
@@ -885,6 +893,16 @@ class TestSignalSideMission:
         assert "no timestamp references" in instruction
         # Old event-steering must stay gone.
         assert "name the specific events and their sequence" not in instruction
+
+    def test_signals_step_grounds_findings_against_the_graded_verdict(self) -> None:
+        # The signals turn runs after the core turn in the same conversation, so it must stay consistent with the
+        # verdict it just gave — not invent a screen or flow the earlier turn never graded.
+        scanner = scanner_from_db(_build_replay_scanner(emits_signals=True))
+        step = _signals_step(scanner)
+        assert step is not None
+        instruction = step.instruction
+        assert "Stay consistent with the verdict you already gave" in instruction
+        assert "Never introduce a screen, modal, or flow the earlier turn never mentioned" in instruction
 
     @pytest.mark.parametrize(
         "raw, clean",
