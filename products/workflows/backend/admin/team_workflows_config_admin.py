@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.http import HttpRequest
 
 from products.workflows.backend.models import TeamWorkflowsConfig
 
@@ -14,3 +15,9 @@ class TeamWorkflowsConfigAdmin(admin.ModelAdmin):
     search_fields = ("team__id", "team__name", "team__organization__name")
     raw_id_fields = ("team",)
     list_select_related = ("team", "team__organization")
+
+    def get_readonly_fields(self, request: HttpRequest, obj: TeamWorkflowsConfig | None = None) -> tuple[str, ...]:
+        return ("team",) if obj is not None else ()
+
+    def has_delete_permission(self, request: HttpRequest, obj: TeamWorkflowsConfig | None = None) -> bool:
+        return False
