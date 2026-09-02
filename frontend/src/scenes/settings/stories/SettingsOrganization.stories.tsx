@@ -35,6 +35,39 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                 },
                 '/api/projects/:id/integrations': { results: [] },
                 '/api/organizations/:id/integrations': { results: [] },
+                '/api/organizations/:id/domains': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            id: 'verified-domain',
+                            domain: 'example.com',
+                            is_verified: true,
+                            verified_at: '2023-05-01T00:00:00Z',
+                            verification_challenge: 'challenge',
+                            jit_provisioning_enabled: true,
+                            sso_enforcement: 'saml',
+                            scim_base_url: 'https://app.posthog.com/scim/v2/idp-config',
+                        },
+                    ],
+                },
+                '/api/organizations/:id/identity_provider_configs': {
+                    count: 1,
+                    next: null,
+                    previous: null,
+                    results: [
+                        {
+                            id: 'idp-config',
+                            config_scope: null,
+                            domain_scope: 'selected',
+                            organization_domain_ids: ['verified-domain'],
+                            has_saml: true,
+                            has_scim: true,
+                            has_id_jag: true,
+                        },
+                    ],
+                },
                 // One member with a rule already saved and one without, so the member
                 // notifications section renders both states of the control.
                 '/api/organizations/:id/notification_locks/': [
