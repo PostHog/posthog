@@ -63,6 +63,7 @@ import {
 } from "./DataRequestWatchers";
 import { DocBlockGutter } from "./DocBlockGutter";
 import { DocThreadGutter } from "./DocThreadGutter";
+import { DocWatchAnchorHover } from "./DocWatchAnchorHover";
 import "./docs.css";
 
 export interface DocEditorProps {
@@ -827,6 +828,11 @@ export function DocEditor({
           docId={doc.id}
           threads={threads}
           tasks={tasks ?? []}
+          onOpen={onOpenThread}
+        />
+        <DocWatchAnchorHover
+          editor={editor}
+          threads={threads}
           onOpen={onOpenThread}
         />
       </div>
