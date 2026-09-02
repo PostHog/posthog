@@ -4,11 +4,13 @@
 # or see flox-edit(1), manifest.toml(5) for more information.
 #
 # Flox manifest version managed by Flox CLI
-schema-version = "1.11.0"
+schema-version = "1.10.0"
 
 # Floor, not a pin: warns when a developer's CLI predates what this
 # environment expects, so an older flox cannot rewrite manifest.lock
-# differently from everyone else.
+# differently from everyone else. Deliberately left at schema-version
+# 1.10.0: the field works there, and bumping the schema would hard-gate
+# anyone below flox 1.11.0 for no added effect.
 minimum-cli-version = "1.15.0"
 
 # List packages you wish to install in your environment inside

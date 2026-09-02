@@ -1,7 +1,7 @@
 {
   "lockfile-version": 1,
   "manifest": {
-    "schema-version": "1.11.0",
+    "schema-version": "1.10.0",
     "minimum-cli-version": "1.15.0",
     "install": {
       "air": {
