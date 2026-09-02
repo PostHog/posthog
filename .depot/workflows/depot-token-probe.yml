@@ -1,0 +1,71 @@
+# Measures what a Depot CI job gets for free before ci-backend can move here:
+# which GitHub App owns the ambient GITHUB_TOKEN, how big its rate-limit bucket
+# is, and what name Depot posts for a job's check run. The bucket answer decides
+# whether every dedicated App key must exist in the Depot secret store before
+# the cutover; the check-run name is what the master ruleset has to require.
+#
+# Dispatch:  depot ci dispatch --repo PostHog/posthog --workflow depot-token-probe.yml --ref <branch>
+# Ruleset dry run: open a PR from a depot-cutover-test/** branch; the pull_request
+# arm posts the check so a throwaway ruleset on that prefix can require it.
+name: Depot token probe
+
+on:
+    workflow_dispatch: {}
+    pull_request:
+        types: [opened, synchronize, reopened]
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    probe:
+        name: Depot CI probe
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.head_ref, 'depot-cutover-test/')
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/scripts/monitor-github-rate-limit.js
+                  sparse-checkout-cone-mode: false
+
+            - name: Identify the ambient token and its bucket
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  set -uo pipefail
+                  {
+                    echo "### Ambient GITHUB_TOKEN on Depot CI"
+                    echo
+                    echo "- token prefix: \`${GH_TOKEN:0:4}\` (ghs_ = App installation token)"
+                    echo "- run id: \`$GITHUB_RUN_ID\`, actions env: \`${GITHUB_ACTIONS:-unset}\`, server: \`${GITHUB_SERVER_URL:-unset}\`"
+                    echo
+                    echo '```'
+                    gh api -i rate_limit | grep -iE '^x-ratelimit-(limit|remaining|used|resource)'
+                    echo '```'
+                    echo
+                    echo "core bucket: $(gh api rate_limit --jq '.resources.core | "\(.used)/\(.limit) used, resets \(.reset | todate)"')"
+                    echo
+                    echo "#### Installation scope (404/403 means not an installation token)"
+                    echo '```'
+                    gh api /installation/repositories --jq '{total_count, sample: [.repositories[:5][].full_name]}' 2>&1 || true
+                    echo '```'
+                    echo
+                    echo "#### /user (403 expected for an App installation token)"
+                    echo '```'
+                    gh api user --jq '{login, type}' 2>&1 || true
+                    echo '```'
+                  } | tee -a "$GITHUB_STEP_SUMMARY"
+
+            - name: Emit the bucket snapshot to the DevEx project
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+              with:
+                  script: |
+                      const script = require('./.github/scripts/monitor-github-rate-limit.js')
+                      await script({ github, context, core }, { source: 'depot_ambient' })
