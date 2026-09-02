@@ -46,6 +46,17 @@ def notify_email_sending_tier_changes(decisions: list[TierDecision]) -> None:
 
 def _notify_demotion(decision: TierDecision) -> None:
     limits = get_email_sending_tier_limits(decision.new_tier)
+    # The email goes first and each channel gets its own guard: the email reaches the admins who
+    # can act on the demotion, so an in-app publish failure must not take it down with it.
+    try:
+        send_email_sending_tier_demoted.delay(
+            team_id=decision.team_id,
+            per_day=limits.per_day,
+            per_hour=limits.per_hour,
+            demoted_at=timezone.now().isoformat(),
+        )
+    except Exception:
+        logger.exception("workflows_email_tier_demotion_email_dispatch_failed", team_id=decision.team_id)
     create_notification(
         NotificationData(
             team_id=decision.team_id,
@@ -61,12 +72,6 @@ def _notify_demotion(decision: TierDecision) -> None:
             target_id=str(decision.team_id),
             source_url="/workflows/reputation",
         )
-    )
-    send_email_sending_tier_demoted.delay(
-        team_id=decision.team_id,
-        per_day=limits.per_day,
-        per_hour=limits.per_hour,
-        demoted_at=timezone.now().isoformat(),
     )
 
 

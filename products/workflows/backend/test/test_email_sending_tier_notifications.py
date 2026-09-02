@@ -75,3 +75,5 @@ class TestNotifyEmailSendingTierChanges(SimpleTestCase):
         notify_email_sending_tier_changes([_demotion("rates_above_threshold"), second])
         assert self.create_notification.call_count == 2
         assert self.create_notification.call_args.args[0].team_id == 2
+        # The demotion email must survive the in-app failure: it reaches the admins who can act.
+        assert self.email_task.delay.call_count == 1
