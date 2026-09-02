@@ -215,7 +215,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
 
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
 
-    const { queryId, pollResponse } = useValues(dataNodeLogic)
+    const { queryId, pollResponse, loadingTimeSeconds } = useValues(dataNodeLogic)
 
     const setQuerySource = useCallback(
         (source: HogQLQuery) => props.setQuery?.({ ...props.query, source }),
@@ -246,7 +246,11 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
         component = (
             <div className="flex flex-col flex-1 justify-center items-center bg-surface-primary h-full">
-                <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
+                <StatelessInsightLoadingState
+                    queryId={queryId}
+                    pollResponse={pollResponse}
+                    loadingTimeSeconds={loadingTimeSeconds}
+                />
             </div>
         )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsTable) {

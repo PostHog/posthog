@@ -1257,6 +1257,7 @@ const Content = ({
                     pollResponse={pollResponse}
                     setProgress={setProgress}
                     progress={progress}
+                    loadingTimeSeconds={loadingTimeSeconds}
                     suggestion={
                         // Only worth saying once the query is demonstrably slow.
                         selectedDirectSource?.source_type === 'Motherduck' && loadingTimeSeconds >= 60 ? (

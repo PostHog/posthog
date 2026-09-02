@@ -27,6 +27,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import posthog from 'lib/posthog-typed'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 import { renderDetailWithLinks } from 'lib/utils/renderDetailWithLinks'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -337,6 +338,7 @@ export function StatelessInsightLoadingState({
     suggestion,
     setProgress,
     progress,
+    loadingTimeSeconds = 0,
     renderEmptyStateAsSkeleton = false,
 }: {
     queryId?: string | null
@@ -421,6 +423,12 @@ export function StatelessInsightLoadingState({
         </div>
     )
 
+    // The wall-clock timer keeps ticking during a Storybook capture, so freeze it there for a
+    // deterministic snapshot, the same way the loading bar and messages are frozen.
+    const frozenForStorybook = inStorybook() || inStorybookTestRunner()
+    const elapsedSeconds = frozenForStorybook ? 42 : loadingTimeSeconds
+    const elapsedLabel = elapsedSeconds > 0 ? humanFriendlyDuration(elapsedSeconds) : null
+
     return (
         <div
             data-attr="insight-empty-state"
@@ -444,6 +452,11 @@ export function StatelessInsightLoadingState({
             >
                 <LoadingBar loadId={queryId} progress={progress} setProgress={setProgress} />
                 {suggestions}
+                {elapsedLabel && (
+                    <p data-attr="insight-loading-elapsed" className="text-secondary text-xs m-0">
+                        Running for {elapsedLabel}
+                    </p>
+                )}
                 <LoadingDetails
                     pollResponse={pollResponse}
                     queryId={queryId}

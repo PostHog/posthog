@@ -10,9 +10,40 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { TeamType } from '~/types'
 
-import { InsightEmptyState } from './EmptyStates'
+import { InsightEmptyState, StatelessInsightLoadingState } from './EmptyStates'
 
 describe('EmptyStates', () => {
+    describe('<StatelessInsightLoadingState />', () => {
+        beforeEach(() => {
+            initKeaTests()
+        })
+
+        afterEach(() => {
+            cleanup()
+        })
+
+        // The wait used to freeze after the 15s suggestion, so second 16 and second 100 looked
+        // identical. The elapsed readout keeps the loading state honest for long-running queries.
+        it.each([
+            { loadingTimeSeconds: 125, expected: 'Running for 2m 5s' },
+            { loadingTimeSeconds: 42, expected: 'Running for 42s' },
+        ])('shows how long the query has run ($loadingTimeSeconds s)', ({ loadingTimeSeconds, expected }) => {
+            const { container } = render(
+                <StatelessInsightLoadingState queryId="q1" loadingTimeSeconds={loadingTimeSeconds} />
+            )
+            // humanFriendlyDuration joins units with a non-breaking space, so normalize before comparing.
+            const text = container
+                .querySelector('[data-attr="insight-loading-elapsed"]')
+                ?.textContent?.replace(/\s/g, ' ')
+            expect(text).toBe(expected)
+        })
+
+        it('hides the elapsed readout before the timer starts', () => {
+            const { container } = render(<StatelessInsightLoadingState queryId="q1" loadingTimeSeconds={0} />)
+            expect(container.querySelector('[data-attr="insight-loading-elapsed"]')).toBeNull()
+        })
+    })
+
     describe('<InsightEmptyState />', () => {
         beforeEach(() => {
             initKeaTests()
