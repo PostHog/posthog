@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from time import time_ns
 from types import SimpleNamespace
 from typing import Any
 
@@ -36,6 +37,11 @@ def _write_parent_table(tmp_path: Path) -> str:
     )
     deltalake.write_deltalake(uri, table)
     return uri
+
+
+def _wait_for_next_delta_commit_timestamp(previous_timestamp_ms: int) -> None:
+    while time_ns() // 1_000_000 <= previous_timestamp_ms:
+        pass
 
 
 def _patched_reader(uri: str, version: int | None = None, **kwargs):
@@ -178,9 +184,11 @@ def test_resolve_pins_to_last_completed_snapshot_while_parent_is_syncing(tmp_pat
     uri = _write_parent_table(tmp_path)
     v0_table = deltalake.DeltaTable(uri)
     v0 = v0_table.version()
-    v0_timestamp = datetime.fromtimestamp(v0_table.history()[0]["timestamp"] / 1000, tz=UTC)
+    v0_timestamp_ms = v0_table.history()[0]["timestamp"]
+    v0_timestamp = datetime.fromtimestamp(v0_timestamp_ms / 1000, tz=UTC)
 
     # An in-flight full refresh has already committed a partial overwrite on top of v0.
+    _wait_for_next_delta_commit_timestamp(v0_timestamp_ms)
     deltalake.write_deltalake(uri, pa.table({"id": ["partial"], "last_seen": ["x"], "title": ["y"]}), mode="overwrite")
 
     pinned = _patched_resolve(uri, snapshot_timestamp=v0_timestamp)
