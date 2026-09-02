@@ -175,6 +175,25 @@ When unset, no organization is sent and OpenAI infers the org from the API key.
 The `organization` field is also in `FORBIDDEN_REQUEST_PARAMS`, so caller-supplied
 values are stripped — only the gateway-configured organization reaches OpenAI.
 
+### Startup credential check
+
+Because the key and the organization are configured separately, a pair that does
+not match passes every local check and then fails live requests with a `401`.
+The gateway verifies the pairing once at startup so that case becomes a failed
+rollout instead of silent 401s. It is on by default
+(`LLM_GATEWAY_OPENAI_CREDENTIAL_CHECK_ENABLED=true`) and runs once per pod, not on
+every readiness probe like the database grant check, because each run costs a
+request to OpenAI.
+
+The check sends one `GET /v1/models` to OpenAI with the configured key and, when
+set, the `OpenAI-Organization` header. Only a `401` stops the pod from booting.
+A `403` from an edge or proxy in front of OpenAI, any other error status, and an
+unreachable provider are all treated as inconclusive and let the pod start.
+
+Set `LLM_GATEWAY_OPENAI_CREDENTIAL_CHECK_ENABLED=false` to skip the check, for
+example when an operator must start a pod that OpenAI rejects. The gateway also
+skips it when no OpenAI key is configured.
+
 ## Bedrock provider
 
 AWS Bedrock is available as an alternative provider for the Anthropic endpoints.
