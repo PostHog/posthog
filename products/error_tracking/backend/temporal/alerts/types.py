@@ -21,6 +21,10 @@ class AlertDeliveryWorkflowInputs:
     # inside activities; nothing large crosses the Temporal payload boundary.
     event_uuid: str | None = None
     event_timestamp: str | None = None
+    # The `exception_timestamp` the lifecycle event carried. Spiking uses the detection
+    # time there while event_timestamp stays the exception's own time (the fetch anchor);
+    # filters must see the same value on both delivery paths.
+    lifecycle_timestamp: str | None = None
     # Small event-specific extras (e.g. spike baseline values); never exception payloads.
     extra: dict[str, str] | None = None
 
