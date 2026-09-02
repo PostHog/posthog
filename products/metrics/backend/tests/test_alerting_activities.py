@@ -158,6 +158,62 @@ class TestMetricsAlertActivityEndToEnd(ClickhouseTestMixin, APIBaseTest):
         assert kwargs["properties"]["labels"] == {"service": "api"}
         assert kwargs["properties"]["value"] == 250.0
 
+    def test_every_evaluated_check_is_recorded(self):
+        # N-of-M reads the window back from CHECK events, so a check must be recorded
+        # even when it changes no state — otherwise the first N-1 breaches are lost.
+        now = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="http.server.request.duration",
+            metric_type="gauge",
+            points=[(now - dt.timedelta(minutes=1), 40.0)],
+        )
+        alert = _alert(self.team)
+
+        self._run_check(alert)
+
+        checks = MetricsAlertEvent.objects.filter(alert=alert, kind=MetricsAlertEvent.Kind.CHECK)
+        assert checks.count() == 1
+        assert checks.get().threshold_breached is False
+        assert checks.get().error_message is None
+
+    def test_n_of_m_accumulates_breaches_across_checks(self):
+        # 2-of-3: the first breaching check must persist its CHECK row so the second
+        # breaching check sees it in get_recent_breaches and fires.
+        alert = _alert(self.team, evaluation_periods=3, datapoints_to_alarm=2)
+
+        def seed_breaching_point():
+            # Seed near the middle of the 5-minute window, not its edge: the runner
+            # evaluates [date_to - window, date_to) where date_to is the (past) scheduled
+            # next_check_at, so a point at now-1m can sit seconds inside — or outside —
+            # the window depending on wall-clock drift between seed and check.
+            now = timezone.now().replace(microsecond=0)
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="http.server.request.duration",
+                metric_type="gauge",
+                points=[(now - dt.timedelta(minutes=2, seconds=30), 150.0)],
+            )
+
+        seed_breaching_point()
+        first, _ = self._run_check(alert)
+        alert.refresh_from_db()
+        assert first.state_after == "not_firing"  # 1 breach < 2 required
+        assert alert.state == "not_firing"
+
+        # Mark the alert due again: the first check advanced next_check_at by one
+        # interval from its seeded (past) value, which can still sit minutes in the
+        # past and push the freshly seeded point out of the next check's window.
+        alert.next_check_at = timezone.now() - dt.timedelta(minutes=1)
+        alert.save(update_fields=["next_check_at"])
+
+        seed_breaching_point()
+        second, mock_produce = self._run_check(alert)
+        alert.refresh_from_db()
+        assert second.state_after == "firing"
+        assert second.notification == "fire"
+        assert alert.state == "firing"
+
     def test_discovery_finds_only_due_enabled_alerts(self):
         _alert(self.team, name="due")
         _alert(self.team, name="not due", next_check_at=timezone.now() + dt.timedelta(hours=1))

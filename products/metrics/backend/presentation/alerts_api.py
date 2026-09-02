@@ -28,7 +28,7 @@ from products.alerts.backend.destinations import (
     soft_delete_alert_destinations,
     soft_delete_all_alert_destinations,
 )
-from products.metrics.backend.alert_destinations import (
+from products.metrics.backend.facade.alerts import (
     EVENT_KIND_CONFIG,
     EVENT_KINDS,
     METRICS_ALERT_EVENT_IDS,
@@ -36,7 +36,7 @@ from products.metrics.backend.alert_destinations import (
     METRICS_DESTINATION_TYPES,
 )
 from products.metrics.backend.facade.contracts import METRICS_FEATURE_FLAG
-from products.metrics.backend.models import MetricsAlertConfiguration, MetricsAlertEvent
+from products.metrics.backend.facade.models import MetricsAlertConfiguration, MetricsAlertEvent
 
 MAX_DESTINATION_IDS_PER_DELETE_REQUEST = 50
 

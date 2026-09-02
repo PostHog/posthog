@@ -1,5 +1,3 @@
-"""Tests for the metrics alert lifecycle adapter over the shared state machine."""
-
 from datetime import UTC, datetime, timedelta
 
 from products.metrics.backend.alert_state_machine import (

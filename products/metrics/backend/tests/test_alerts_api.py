@@ -1,5 +1,3 @@
-"""API tests for the metrics alerting endpoints."""
-
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 

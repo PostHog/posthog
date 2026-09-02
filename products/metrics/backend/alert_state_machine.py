@@ -15,7 +15,7 @@ terminal BROKEN). This module owns the metrics-shaped inputs (`AlertSnapshot`,
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -69,14 +69,10 @@ class CheckResult:
     value: float | None
     threshold_breached: bool
     # Labels of the breaching group when group_by is set ({} for the un-grouped alert).
-    labels: dict = None  # type: ignore[assignment]
+    labels: dict = field(default_factory=dict)
     error_message: str | None = None
     query_duration_ms: int | None = None
     is_transient_error: bool = False
-
-    def __post_init__(self) -> None:
-        if self.labels is None:
-            object.__setattr__(self, "labels", {})
 
 
 @dataclass(frozen=True)

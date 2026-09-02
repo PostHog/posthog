@@ -241,20 +241,20 @@ def _check_metrics_alert_sync(input: CheckMetricsAlertInput) -> CheckMetricsAler
             alert.last_notified_at = now
             update_fields.append("last_notified_at")
 
-        state_changed = state_before != committed_outcome.new_state.value
-        is_error = check_result.error_message is not None
-        if state_changed or is_error:
-            MetricsAlertEvent.objects.create(
-                alert=alert,
-                kind=MetricsAlertEvent.Kind.CHECK,
-                value=check_result.value,
-                threshold_breached=check_result.threshold_breached,
-                labels=check_result.labels,
-                state_before=state_before,
-                state_after=committed_outcome.new_state.value,
-                error_message=check_result.error_message,
-                query_duration_ms=check_result.query_duration_ms,
-            )
+        # Record every evaluated check. N-of-M reads the window back from these
+        # rows via get_recent_breaches, so skipping a non-state-changing breach
+        # would silently drop the first N-1 breaches of the window.
+        MetricsAlertEvent.objects.create(
+            alert=alert,
+            kind=MetricsAlertEvent.Kind.CHECK,
+            value=check_result.value,
+            threshold_breached=check_result.threshold_breached,
+            labels=check_result.labels,
+            state_before=state_before,
+            state_after=committed_outcome.new_state.value,
+            error_message=check_result.error_message,
+            query_duration_ms=check_result.query_duration_ms,
+        )
         alert.save(update_fields=update_fields)
 
     logger.info(

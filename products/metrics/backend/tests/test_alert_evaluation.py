@@ -1,5 +1,3 @@
-"""Unit tests for the metrics alert evaluator decision logic."""
-
 from datetime import UTC, datetime
 
 from products.metrics.backend.alert_evaluation import _check_result_from_rows, evaluate_metric_alert
