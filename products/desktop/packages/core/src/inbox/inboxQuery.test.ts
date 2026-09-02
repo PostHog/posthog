@@ -6,6 +6,8 @@ import {
   inboxReportDetailQueryKey,
   resolveInboxReportDetailCache,
   resolveInboxReportForRender,
+  restoreInboxReportCaches,
+  updateInboxReportCaches,
 } from "./inboxQuery";
 
 function fakeReport(id: string): SignalReport {
@@ -93,5 +95,75 @@ describe("inboxQuery", () => {
       cachedReport,
     );
     expect(resolveInboxReportForRender(null, cachedReport)).toBeNull();
+  });
+
+  it("updates cached report states and restores them after a failed request", () => {
+    const queryClient = new QueryClient();
+    const report = fakeReport("changing");
+    const other = fakeReport("other");
+    const readyListKey = [
+      "inbox",
+      "signal-reports",
+      "list",
+      { status: "ready" },
+    ] as const;
+    const archiveListKey = [
+      "inbox",
+      "signal-reports",
+      "infinite-list",
+      { status: "ready,resolved" },
+    ] as const;
+    const readyList = { results: [report, other], count: 2 };
+    const archiveList = {
+      pages: [
+        { results: [report], count: 2 },
+        { results: [other], count: 2 },
+      ],
+      pageParams: [0, 1],
+    };
+
+    queryClient.setQueryData(inboxReportDetailQueryKey(report.id), report);
+    queryClient.setQueryData(readyListKey, readyList);
+    queryClient.setQueryData(archiveListKey, archiveList);
+    queryClient.setQueryData(
+      ["inbox", "signal-reports", "scope-count", "for-you"],
+      42,
+    );
+
+    const resolved = { ...report, status: "resolved" as const };
+    const snapshot = updateInboxReportCaches(queryClient, [resolved]);
+
+    expect(
+      queryClient.getQueryData<SignalReport>(
+        inboxReportDetailQueryKey(report.id),
+      ),
+    ).toEqual(resolved);
+    expect(queryClient.getQueryData(readyListKey)).toEqual({
+      results: [other],
+      count: 1,
+    });
+    expect(queryClient.getQueryData(archiveListKey)).toEqual({
+      pages: [
+        { results: [resolved], count: 2 },
+        { results: [other], count: 2 },
+      ],
+      pageParams: [0, 1],
+    });
+    expect(
+      queryClient.getQueryData([
+        "inbox",
+        "signal-reports",
+        "scope-count",
+        "for-you",
+      ]),
+    ).toBe(42);
+
+    restoreInboxReportCaches(queryClient, snapshot);
+
+    expect(
+      queryClient.getQueryData(inboxReportDetailQueryKey(report.id)),
+    ).toEqual(report);
+    expect(queryClient.getQueryData(readyListKey)).toEqual(readyList);
+    expect(queryClient.getQueryData(archiveListKey)).toEqual(archiveList);
   });
 });

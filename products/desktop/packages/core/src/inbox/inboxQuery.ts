@@ -3,7 +3,11 @@ import type {
   SignalReportsQueryParams,
   SignalReportsResponse,
 } from "@posthog/shared/types";
-import type { InfiniteData, QueryClient } from "@tanstack/react-query";
+import type {
+  InfiniteData,
+  QueryClient,
+  QueryKey,
+} from "@tanstack/react-query";
 
 /**
  * React Query key factory for inbox-reports queries. Lives in its own
@@ -108,4 +112,130 @@ export function resolveInboxReportForRender(
   cachedReport: SignalReport | null,
 ): SignalReport | null {
   return report === undefined ? cachedReport : report;
+}
+
+export type InboxReportCacheSnapshot = Array<readonly [QueryKey, unknown]>;
+
+function queryAcceptsReportStatus(
+  queryKey: QueryKey,
+  status: SignalReport["status"],
+): boolean {
+  const params = queryKey[3];
+  if (!params || typeof params !== "object" || !("status" in params)) {
+    return true;
+  }
+  const statusFilter = (params as SignalReportsQueryParams).status;
+  if (!statusFilter) return true;
+  return statusFilter.split(",").some((value) => value.trim() === status);
+}
+
+function updateReportPage(
+  page: SignalReportsResponse,
+  reportsById: Map<string, SignalReport>,
+  queryKey: QueryKey,
+  removedCount: number,
+): SignalReportsResponse {
+  return {
+    ...page,
+    results: page.results.flatMap((report) => {
+      const updated = reportsById.get(report.id);
+      if (!updated) return [report];
+      return queryAcceptsReportStatus(queryKey, updated.status)
+        ? [updated]
+        : [];
+    }),
+    count: Math.max(0, page.count - removedCount),
+  };
+}
+
+/**
+ * Apply report updates to cached detail and list queries before the server refresh finishes.
+ * The snapshot lets a mutation restore the exact previous cache after a failed request.
+ */
+export function updateInboxReportCaches(
+  queryClient: QueryClient,
+  reports: SignalReport[],
+): InboxReportCacheSnapshot {
+  const reportsById = new Map(reports.map((report) => [report.id, report]));
+  const snapshot: InboxReportCacheSnapshot = [];
+  const entries = queryClient.getQueriesData<unknown>({
+    queryKey: inboxReportKeys.all,
+  });
+
+  for (const [queryKey, data] of entries) {
+    let updatedData: unknown = data;
+    const kind = queryKey[2];
+
+    if (
+      typeof kind === "string" &&
+      queryKey[3] === "detail" &&
+      reportsById.has(kind) &&
+      data
+    ) {
+      updatedData = reportsById.get(kind);
+    } else if (
+      kind === "list" &&
+      data &&
+      typeof data === "object" &&
+      "results" in data &&
+      Array.isArray((data as SignalReportsResponse).results)
+    ) {
+      const page = data as SignalReportsResponse;
+      const removedCount = page.results.filter((report) => {
+        const updated = reportsById.get(report.id);
+        return updated && !queryAcceptsReportStatus(queryKey, updated.status);
+      }).length;
+      if (page.results.some((report) => reportsById.has(report.id))) {
+        updatedData = updateReportPage(
+          page,
+          reportsById,
+          queryKey,
+          removedCount,
+        );
+      }
+    } else if (
+      kind === "infinite-list" &&
+      data &&
+      typeof data === "object" &&
+      "pages" in data &&
+      Array.isArray((data as InfiniteData<unknown>).pages)
+    ) {
+      const infiniteData = data as InfiniteData<SignalReportsResponse>;
+      const cachedReportIds = new Set(
+        infiniteData.pages.flatMap((page) =>
+          page.results
+            .filter((report) => reportsById.has(report.id))
+            .map((report) => report.id),
+        ),
+      );
+      if (cachedReportIds.size > 0) {
+        const removedCount = [...cachedReportIds].filter((reportId) => {
+          const updated = reportsById.get(reportId);
+          return updated && !queryAcceptsReportStatus(queryKey, updated.status);
+        }).length;
+        updatedData = {
+          ...infiniteData,
+          pages: infiniteData.pages.map((page) =>
+            updateReportPage(page, reportsById, queryKey, removedCount),
+          ),
+        };
+      }
+    }
+
+    if (updatedData !== data) {
+      snapshot.push([queryKey, data]);
+      queryClient.setQueryData(queryKey, updatedData);
+    }
+  }
+
+  return snapshot;
+}
+
+export function restoreInboxReportCaches(
+  queryClient: QueryClient,
+  snapshot: InboxReportCacheSnapshot,
+): void {
+  for (const [queryKey, data] of snapshot) {
+    queryClient.setQueryData(queryKey, data);
+  }
 }

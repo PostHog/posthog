@@ -1,4 +1,9 @@
 import { buildResolveRequest } from "@posthog/core/inbox/bulkActions";
+import {
+  type InboxReportCacheSnapshot,
+  restoreInboxReportCaches,
+  updateInboxReportCaches,
+} from "@posthog/core/inbox/inboxQuery";
 import type { InboxReportActionSurface } from "@posthog/shared/analytics-events";
 import type { ResolveReasonOptionValue } from "@posthog/shared/dismissalReasons";
 import type { SignalReport } from "@posthog/shared/types";
@@ -35,36 +40,45 @@ export function useInboxReportResolveAction(
   const trackResult = useReportActionResultTracker(report, surface, triageId);
   const inFlightRef = useRef(false);
   const startedAtRef = useRef<number | null>(null);
-  const hasOpenPr =
-    Boolean(report.implementation_pr_url) &&
-    report.implementation_pr_merged !== true;
-  const mutation = useAuthenticatedMutation(
+  const mutation = useAuthenticatedMutation<
+    SignalReport,
+    Error,
+    ResolveReportDialogResult,
+    { cacheSnapshot: InboxReportCacheSnapshot }
+  >(
     (client, result: ResolveReportDialogResult) =>
       client.updateSignalReportState(
         report.id,
         buildResolveRequest(result.reason, result.note),
       ),
     {
-      onSuccess: async () => {
-        if (startedAtRef.current !== null) {
-          trackResult("resolve", "succeeded", startedAtRef.current);
-        }
-        setOpen(false);
-        toast.success(
-          hasOpenPr
-            ? "Report resolved. Closing its pull request."
-            : "Report resolved",
-        );
-        await queryClient.invalidateQueries({
+      onMutate: async (result) => {
+        await queryClient.cancelQueries({
           queryKey: reportKeys.all,
           exact: false,
         });
-        await queryClient.invalidateQueries({
-          queryKey: taskFeedResultsQueryRoot,
-          exact: false,
-        });
+        const optimisticReport: SignalReport = {
+          ...report,
+          status: "resolved",
+          dismissal_reason: result.reason,
+          dismissal_note: result.note || null,
+        };
+        return {
+          cacheSnapshot: updateInboxReportCaches(queryClient, [
+            optimisticReport,
+          ]),
+        };
       },
-      onError: (error) => {
+      onSuccess: (updatedReport) => {
+        updateInboxReportCaches(queryClient, [updatedReport]);
+        if (startedAtRef.current !== null) {
+          trackResult("resolve", "succeeded", startedAtRef.current);
+        }
+      },
+      onError: (error, _result, context) => {
+        if (context) {
+          restoreInboxReportCaches(queryClient, context.cacheSnapshot);
+        }
         if (startedAtRef.current !== null) {
           trackResult(
             "resolve",
@@ -78,6 +92,14 @@ export function useInboxReportResolveAction(
       onSettled: () => {
         inFlightRef.current = false;
         startedAtRef.current = null;
+        void queryClient.invalidateQueries({
+          queryKey: reportKeys.all,
+          exact: false,
+        });
+        void queryClient.invalidateQueries({
+          queryKey: taskFeedResultsQueryRoot,
+          exact: false,
+        });
       },
     },
   );
@@ -92,6 +114,7 @@ export function useInboxReportResolveAction(
       inFlightRef.current = true;
       startedAtRef.current = Date.now();
       fireAction("resolve", { dismissal_reason: reason });
+      setOpen(false);
       mutation.mutate({ reason, note });
     },
     [fireAction, mutation],

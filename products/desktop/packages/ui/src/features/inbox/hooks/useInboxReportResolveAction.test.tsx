@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   actionTrackerArgs: [] as unknown[],
   resultTrackerArgs: [] as unknown[],
   toastSuccess: vi.fn(),
+  toastError: vi.fn(),
 }));
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
@@ -31,7 +32,7 @@ vi.mock("@posthog/ui/features/inbox/hooks/useReportActionTracker", () => ({
 }));
 
 vi.mock("@posthog/ui/primitives/toast", () => ({
-  toast: { success: mocks.toastSuccess, error: vi.fn() },
+  toast: { success: mocks.toastSuccess, error: mocks.toastError },
 }));
 
 import { useInboxReportResolveAction } from "./useInboxReportResolveAction";
@@ -108,7 +109,7 @@ describe("useInboxReportResolveAction", () => {
     );
   });
 
-  it("shows success before refreshing report queries", async () => {
+  it("updates the list before the request finishes without a success toast", async () => {
     let finishRequest: ((value: SignalReport) => void) | undefined;
     mocks.updateState.mockReturnValue(
       new Promise<SignalReport>((resolve) => {
@@ -116,19 +117,56 @@ describe("useInboxReportResolveAction", () => {
       }),
     );
     const queryClient = new QueryClient();
-    vi.spyOn(queryClient, "invalidateQueries").mockReturnValue(
-      new Promise<void>(() => {}),
-    );
+    const listKey = [
+      "inbox",
+      "signal-reports",
+      "list",
+      { status: "ready" },
+    ] as const;
+    queryClient.setQueryData(listKey, { results: [report], count: 1 });
+    const invalidate = vi
+      .spyOn(queryClient, "invalidateQueries")
+      .mockReturnValue(new Promise<void>(() => {}));
     const { result } = renderHook(() => useInboxReportResolveAction(report), {
       wrapper: createWrapper(queryClient),
     });
 
     act(() => result.current.resolveWithReason("fixed_outside_posthog"));
     await waitFor(() => expect(mocks.updateState).toHaveBeenCalledOnce());
+    expect(queryClient.getQueryData(listKey)).toEqual({
+      results: [],
+      count: 0,
+    });
     await act(async () => finishRequest?.({ ...report, status: "resolved" }));
 
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+    expect(invalidate).toHaveBeenCalled();
+  });
+
+  it("restores the list when the request fails", async () => {
+    mocks.updateState.mockRejectedValue(new Error("Request failed"));
+    const queryClient = new QueryClient({
+      defaultOptions: { mutations: { retry: false } },
+    });
+    const listKey = [
+      "inbox",
+      "signal-reports",
+      "list",
+      { status: "ready" },
+    ] as const;
+    queryClient.setQueryData(listKey, { results: [report], count: 1 });
+    const { result } = renderHook(() => useInboxReportResolveAction(report), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    act(() => result.current.resolveWithReason("fixed_outside_posthog"));
+
     await waitFor(() =>
-      expect(mocks.toastSuccess).toHaveBeenCalledWith("Report resolved"),
+      expect(queryClient.getQueryData(listKey)).toEqual({
+        results: [report],
+        count: 1,
+      }),
     );
+    expect(mocks.toastError).toHaveBeenCalledWith("Request failed");
   });
 });

@@ -50,10 +50,11 @@ export function useInboxReportDismissAction(
     async (reason: DismissalReasonOptionValue, note = "") => {
       const result = { reason, note } satisfies DismissReportDialogResult;
       const isSnooze = isDismissalReasonSnooze(reason);
+      setOpen(false);
       const ok = isSnooze
         ? await bulkActions.snoozeSelected(result)
         : await bulkActions.suppressSelected(result);
-      if (ok) setOpen(false);
+      if (!ok) setOpen(true);
     },
     [bulkActions],
   );

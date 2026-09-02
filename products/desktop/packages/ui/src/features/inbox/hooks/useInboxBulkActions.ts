@@ -3,6 +3,11 @@ import {
   buildBulkActionEvents,
   type InboxBulkActionType,
 } from "@posthog/core/inbox/engagement";
+import {
+  type InboxReportCacheSnapshot,
+  restoreInboxReportCaches,
+  updateInboxReportCaches,
+} from "@posthog/core/inbox/inboxQuery";
 import { inboxStatusLabel } from "@posthog/core/inbox/reportPresentation";
 import type { InboxReportActionSurface } from "@posthog/shared/analytics-events";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
@@ -55,6 +60,11 @@ interface BulkActionResult {
   failedIds: string[];
   durationMs: number;
   totalCount: number;
+}
+
+interface ReportStateMutationContext {
+  cacheSnapshot: InboxReportCacheSnapshot;
+  optimisticReports: SignalReport[];
 }
 
 async function runBulkAction(
@@ -359,20 +369,57 @@ export function useInboxBulkActions(
       );
     },
     {
-      onSuccess: async (result, variables) => {
+      onMutate: async (variables): Promise<ReportStateMutationContext> => {
+        await queryClient.cancelQueries({
+          queryKey: reportKeys.all,
+          exact: false,
+        });
+        const selectedIds = new Set(variables.reportIds);
+        const optimisticReports = reports
+          .filter((report) => selectedIds.has(report.id))
+          .map(
+            (report): SignalReport => ({
+              ...report,
+              status: "suppressed",
+              dismissal_reason:
+                variables.dismissal?.reason ?? report.dismissal_reason,
+              dismissal_note:
+                variables.dismissal?.note || report.dismissal_note || null,
+            }),
+          );
+        return {
+          cacheSnapshot: updateInboxReportCaches(
+            queryClient,
+            optimisticReports,
+          ),
+          optimisticReports,
+        };
+      },
+      onSuccess: (result, variables, context) => {
+        if (result.failureCount > 0) {
+          restoreInboxReportCaches(queryClient, context.cacheSnapshot);
+          const succeededIds = new Set(result.succeededIds);
+          updateInboxReportCaches(
+            queryClient,
+            context.optimisticReports.filter((report) =>
+              succeededIds.has(report.id),
+            ),
+          );
+        }
         trackBulkAction("dismiss", result, variables.dismissal);
-        await invalidateInboxQueries();
         applyBulkResultToSelection(result);
+        void invalidateInboxQueries();
 
         if (result.failureCount > 0) {
           toast.error(formatBulkActionSummary("suppress", result));
-          return;
         }
-
-        toast.success(formatBulkActionSummary("suppress", result));
       },
-      onError: (error) => {
+      onError: (error, _variables, context) => {
+        if (context) {
+          restoreInboxReportCaches(queryClient, context.cacheSnapshot);
+        }
         toast.error(error.message || "Failed to dismiss reports");
+        void invalidateInboxQueries();
       },
     },
   );
@@ -389,20 +436,57 @@ export function useInboxBulkActions(
         ),
       ),
     {
-      onSuccess: async (result, variables) => {
+      onMutate: async (variables): Promise<ReportStateMutationContext> => {
+        await queryClient.cancelQueries({
+          queryKey: reportKeys.all,
+          exact: false,
+        });
+        const selectedIds = new Set(variables.reportIds);
+        const optimisticReports = reports
+          .filter((report) => selectedIds.has(report.id))
+          .map(
+            (report): SignalReport => ({
+              ...report,
+              status: "potential",
+              dismissal_reason:
+                variables.dismissal?.reason ?? report.dismissal_reason,
+              dismissal_note:
+                variables.dismissal?.note || report.dismissal_note || null,
+            }),
+          );
+        return {
+          cacheSnapshot: updateInboxReportCaches(
+            queryClient,
+            optimisticReports,
+          ),
+          optimisticReports,
+        };
+      },
+      onSuccess: (result, variables, context) => {
+        if (result.failureCount > 0) {
+          restoreInboxReportCaches(queryClient, context.cacheSnapshot);
+          const succeededIds = new Set(result.succeededIds);
+          updateInboxReportCaches(
+            queryClient,
+            context.optimisticReports.filter((report) =>
+              succeededIds.has(report.id),
+            ),
+          );
+        }
         trackBulkAction("snooze", result, variables.dismissal);
-        await invalidateInboxQueries();
         applyBulkResultToSelection(result);
+        void invalidateInboxQueries();
 
         if (result.failureCount > 0) {
           toast.error(formatBulkActionSummary("snooze", result));
-          return;
         }
-
-        toast.success(formatBulkActionSummary("snooze", result));
       },
-      onError: (error) => {
+      onError: (error, _variables, context) => {
+        if (context) {
+          restoreInboxReportCaches(queryClient, context.cacheSnapshot);
+        }
         toast.error(error.message || "Failed to snooze reports");
+        void invalidateInboxQueries();
       },
     },
   );
