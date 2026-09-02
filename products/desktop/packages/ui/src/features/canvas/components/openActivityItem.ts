@@ -3,6 +3,7 @@ import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canv
 import { useThreadPanelStore } from "@posthog/ui/features/canvas/stores/threadPanelStore";
 import {
   navigateToChannelDashboard,
+  navigateToChannelDoc,
   navigateToChannelTask,
   navigateToTaskDetail,
 } from "@posthog/ui/router/navigationBridge";
@@ -17,6 +18,11 @@ export function openActivityItem(item: TaskActivityItem): void {
     navigateToChannelDashboard(channelId, item.commentTarget.itemId);
     return;
   }
+  if (channelId && item.commentTarget?.scope === "doc") {
+    navigateToChannelDoc(channelId, item.commentTarget.itemId, item.commentId);
+    return;
+  }
+  if (!item.taskId) return;
   // The channel thread route is the deep-link target; unfiled tasks fall back
   // to the plain task view.
   if (channelId) {

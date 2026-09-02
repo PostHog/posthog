@@ -613,7 +613,7 @@ class TaskActivityViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @validated_request(request_serializer=TaskActivityMarkReadSerializer)
     def mark_read(self, request, *args, **kwargs):
         activities = [
-            (activity["task_id"], activity["seen_before"], activity.get("activity_id"))
+            (activity.get("task_id"), activity["seen_before"], activity.get("activity_id"))
             for activity in request.validated_data["activities"]
         ]
         marked_read = tasks_facade.mark_task_activity_read(self.team_id, self._user_id(), activities)

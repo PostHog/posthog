@@ -18,9 +18,17 @@ import {
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
 import { MentionText } from "@posthog/ui/features/canvas/components/MentionText";
 import { ThreadTimestamp } from "@posthog/ui/features/canvas/components/ThreadTimestamp";
+import { useEvidenceUrl } from "@posthog/ui/features/editor/components/EvidenceRefChip";
 import { DocMark } from "@posthog/ui/primitives/DocMark";
+import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
 import { Spin } from "@posthog/ui/primitives/Spinner";
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { Fragment, type ReactNode, useMemo } from "react";
+import {
+  DocRefCardAction,
+  DocRefCardActions,
+  DocRefHover,
+} from "../extensions/inline/DocRefCard";
 
 export function personName(person: DocSchemas.DocPerson | null): string {
   if (!person) return "Someone";
@@ -75,26 +83,7 @@ function AgentText({ content }: { content: string }) {
         }
         const { ref } = segment;
         if (ref.kind === "hogql") {
-          return (
-            <Tooltip key={key}>
-              <TooltipTrigger
-                render={
-                  <span className="doc-post-sql">
-                    <DocMark variant="agent" size={10} />
-                    {ref.label && ref.label !== "SQL query"
-                      ? ref.label
-                      : "query"}
-                    <code>{ref.id.replace(/\s+/g, " ").trim()}</code>
-                  </span>
-                }
-              />
-              <TooltipContent className="max-w-md">
-                <code className="whitespace-pre-wrap break-words font-mono text-(--gray-6) text-[11.5px] leading-[1.5]">
-                  {ref.id.trim()}
-                </code>
-              </TooltipContent>
-            </Tooltip>
-          );
+          return <SqlChip key={key} query={ref.id} label={ref.label} />;
         }
         return (
           <span key={key} className="doc-post-sql">
@@ -103,6 +92,44 @@ function AgentText({ content }: { content: string }) {
         );
       })}
     </>
+  );
+}
+
+/** A query the agent cited: its label in the row, the SQL in the card. */
+function SqlChip({ query, label }: { query: string; label: string }) {
+  const url = useEvidenceUrl("hogql", query);
+  return (
+    <DocRefHover
+      card={{
+        title: label && label !== "SQL query" ? label : "Query",
+        render: (close) => (
+          <div className="w-80 p-2.5">
+            <div className="max-h-40 overflow-hidden whitespace-pre-wrap break-words font-mono text-[11.5px] leading-[1.5]">
+              <HighlightedCode code={query.trim()} language="sql" />
+            </div>
+            {url ? (
+              <DocRefCardActions>
+                <DocRefCardAction
+                  onSelect={() => {
+                    openExternalUrl(url);
+                    close();
+                  }}
+                >
+                  Open in PostHog
+                </DocRefCardAction>
+              </DocRefCardActions>
+            ) : null}
+          </div>
+        ),
+      }}
+      trigger={
+        <span className="doc-post-sql">
+          <DocMark variant="agent" size={10} />
+          {label && label !== "SQL query" ? label : "query"}
+          <code>{query.replace(/\s+/g, " ").trim()}</code>
+        </span>
+      }
+    />
   );
 }
 

@@ -2483,7 +2483,11 @@ class TaskActivityPageSerializer(DataclassSerializer):
 
 
 class TaskActivityReadMarkerSerializer(serializers.Serializer):
-    task_id = serializers.UUIDField(help_text="Task whose displayed activity should be marked read.")
+    task_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Task whose displayed activity should be marked read. Null for a comment on something that is not a task.",
+    )
     activity_id = serializers.UUIDField(
         required=False,
         allow_null=True,

@@ -78,6 +78,19 @@ export function navigateToChannelTask(channelId: string, taskId: string): void {
   });
 }
 
+/** A page in a space, with one of its threads open when `thread` names it. */
+export function navigateToChannelDoc(
+  channelId: string,
+  docId: string,
+  thread?: string | null,
+): void {
+  void getRouterOrNull()?.navigate({
+    to: "/spaces/$channelId/docs/$docId",
+    params: { channelId, docId },
+    search: thread ? { thread } : {},
+  });
+}
+
 export function navigateToChannelNewTask(channelId: string): void {
   void getRouterOrNull()?.navigate({
     to: "/spaces/$channelId/new",

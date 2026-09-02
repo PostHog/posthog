@@ -1,9 +1,9 @@
 import type { DocSchemas } from "@posthog/api-client/docs";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@posthog/quill";
 import type { Task } from "@posthog/shared/domain-types";
 import { DocMark } from "@posthog/ui/primitives/DocMark";
 import type { Editor } from "@tiptap/core";
 import { useCallback, useEffect, useState } from "react";
+import { DocRefHover } from "../extensions/inline/DocRefCard";
 import { agentStateOf } from "../hooks/useDocThread";
 import { lastLine, threadStanding } from "./DocThreadRow";
 import { taskFor } from "./DocThreadsPanel";
@@ -119,34 +119,42 @@ export function DocThreadGutter({
           (post) => post.author_kind !== "system",
         ).length;
         return (
-          <Tooltip key={pin.anchorKey}>
-            <TooltipTrigger
-              render={
-                <button
-                  type="button"
-                  aria-label="Open the thread for this line"
-                  onClick={() => onOpen(pin.anchorKey)}
-                  style={{ top: `${pin.top + 2}px` }}
-                  className="pointer-events-auto absolute right-0 grid size-6 cursor-pointer place-items-center rounded-(--radius-2) transition-colors hover:bg-(--gray-4)"
+          <DocRefHover
+            key={pin.anchorKey}
+            side="left"
+            nativeButton
+            card={{
+              title: last.who,
+              meta: (
+                <span className="line-clamp-3 whitespace-normal text-(--gray-11) text-[11.5px] leading-snug">
+                  {last.text}
+                </span>
+              ),
+              action: {
+                label:
+                  replies === 0
+                    ? "Open the thread"
+                    : `Open the thread, ${replies} ${replies === 1 ? "reply" : "replies"}`,
+                onSelect: () => onOpen(pin.anchorKey),
+              },
+            }}
+            trigger={
+              <button
+                type="button"
+                aria-label="Open the thread for this line"
+                onClick={() => onOpen(pin.anchorKey)}
+                style={{ top: `${pin.top + 2}px` }}
+                className="pointer-events-auto absolute right-0 grid size-6 cursor-pointer place-items-center rounded-(--radius-2) transition-colors hover:bg-(--gray-4)"
+              >
+                <DocMark
+                  variant={standing.variant}
+                  state={standing.state}
+                  size={16}
+                  count={replies}
                 />
-              }
-            >
-              <DocMark
-                variant={standing.variant}
-                state={standing.state}
-                size={16}
-                count={replies}
-              />
-            </TooltipTrigger>
-            <TooltipContent side="left" className="max-w-xs">
-              <span className="block whitespace-normal font-medium">
-                {last.who}
-              </span>
-              <span className="line-clamp-3 block whitespace-normal text-(--gray-5) leading-snug">
-                {last.text}
-              </span>
-            </TooltipContent>
-          </Tooltip>
+              </button>
+            }
+          />
         );
       })}
     </div>

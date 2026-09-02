@@ -24,11 +24,18 @@ function ownedItemName(item: TaskActivityItem): string {
   switch (item.commentTarget?.scope) {
     case "desktop_canvas":
       return "canvas";
+    case "doc":
+      return "page";
     case "task_artifact":
       return "artifact";
     default:
       return "task";
   }
+}
+
+/** A comment with no author is the agent's: on a page it posts in the thread like a person. */
+function commentAuthor(item: TaskActivityItem): string {
+  return item.author ? userDisplayName(item.author) : "Agent";
 }
 
 function activityEventPresentation(
@@ -68,21 +75,21 @@ function activityEventPresentation(
     }
     case "mention":
       return {
-        action: `${userDisplayName(item.author)} mentioned you`,
-        actionInSpace: `${userDisplayName(item.author)} mentioned you in`,
-        agentIcon: null,
+        action: `${commentAuthor(item)} mentioned you`,
+        actionInSpace: `${commentAuthor(item)} mentioned you in`,
+        agentIcon: item.author ? null : "chat",
       };
     case "thread_reply":
       return {
-        action: `${userDisplayName(item.author)} replied to a thread you participated in`,
-        actionInSpace: `${userDisplayName(item.author)} replied to a thread in`,
-        agentIcon: null,
+        action: `${commentAuthor(item)} replied to a thread you participated in`,
+        actionInSpace: `${commentAuthor(item)} replied to a thread in`,
+        agentIcon: item.author ? null : "chat",
       };
     case "owned_item_comment":
       return {
-        action: `${userDisplayName(item.author)} commented on your ${ownedItemName(item)}`,
-        actionInSpace: `${userDisplayName(item.author)} commented on your ${ownedItemName(item)} in`,
-        agentIcon: null,
+        action: `${commentAuthor(item)} commented on your ${ownedItemName(item)}`,
+        actionInSpace: `${commentAuthor(item)} commented on your ${ownedItemName(item)} in`,
+        agentIcon: item.author ? null : "chat",
       };
     case "created":
       return {

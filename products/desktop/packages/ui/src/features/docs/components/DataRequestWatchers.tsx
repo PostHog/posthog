@@ -9,6 +9,7 @@ export interface WatchedDataPoint {
   kind: "request" | "value";
   /** The query the page shows now, so a new one from the thread is told apart. */
   query: string | null;
+  /** The shape the page shows inline. A block shows any shape, so it reports none. */
   shape: DocSchemas.DataShape | null;
 }
 
@@ -52,10 +53,8 @@ export function DataRequestWatchers({
       );
       if (!thread) continue;
       const answer = thread.answer;
-      if (
-        answer &&
-        (answer.query !== point.query || answer.shape !== point.shape)
-      ) {
+      const reshaped = point.shape !== null && answer?.shape !== point.shape;
+      if (answer && (answer.query !== point.query || reshaped)) {
         onAnswer(point.requestId, {
           kind: "value",
           query: answer.query,

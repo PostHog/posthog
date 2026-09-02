@@ -52,6 +52,7 @@ import { TaskChip } from "../extensions/TaskChip";
 import { useAskDataFromDoc } from "../hooks/useAskDataFromDoc";
 import { useCreateTaskFromDoc } from "../hooks/useCreateTaskFromDoc";
 import { useDocsClient } from "../hooks/useDocsClient";
+import { replaceInlineWithBlock } from "../prosemirror/dataPointShape";
 import { refFromUrl } from "../prosemirror/posthogUrl";
 import { pruneUnknown } from "../prosemirror/pruneUnknown";
 import { selectionText } from "../prosemirror/selectionText";
@@ -310,8 +311,9 @@ export function DocEditor({
         }
         if (node.type.name === "objectBlock") {
           const { requestId, query } = node.attrs as ObjectBlockAttrs;
+          // A block shows a result of any shape, so only its query is watched.
           if (requestId && query) {
-            found.push({ requestId, kind: "value", query, shape: "table" });
+            found.push({ requestId, kind: "value", query, shape: null });
           }
         }
       });
@@ -430,6 +432,27 @@ export function DocEditor({
     askDataFromDoc(choice.question);
   };
 
+  /**
+   * Writes what the thread says onto a node the page already has. Nothing the
+   * thread does is the writer's keystroke, so it never lands on the undo stack:
+   * Cmd+Z after a change of shape brings the shape back, not a stale query.
+   */
+  const syncAttrs = useCallback(
+    (pos: number, attrs: Record<string, unknown>) => {
+      if (!editor) return;
+      const node = editor.state.doc.nodeAt(pos);
+      if (!node) return;
+      const changed = Object.entries(attrs).filter(
+        ([key, value]) => node.attrs[key] !== value,
+      );
+      if (changed.length === 0) return;
+      const tr = editor.state.tr.setMeta("addToHistory", false);
+      for (const [key, value] of changed) tr.setNodeAttribute(pos, key, value);
+      editor.view.dispatch(tr);
+    },
+    [editor],
+  );
+
   /** Puts what the thread found where the request was, or updates the value. */
   const resolveDataRequest = useCallback(
     (requestId: string, answer: DataAnswer) => {
@@ -453,8 +476,15 @@ export function DocEditor({
       const label =
         answer.label || String(inlineNode?.attrs.question ?? "") || "Data";
 
+      // A block keeps the shape the writer gave it; the thread only brings the query.
+      if (blockPos !== null) {
+        syncAttrs(blockPos, { query: answer.query, title: label });
+        return;
+      }
+
       // A table lives in a block under the line; the words in the line stay.
       if (answer.shape === "table") {
+        if (inlinePos === null) return;
         const block = editor.schema.nodeFromJSON({
           type: "objectBlock",
           attrs: {
@@ -464,18 +494,8 @@ export function DocEditor({
             requestId,
           },
         });
-        const tr = editor.state.tr;
-        if (blockPos !== null) {
-          tr.setNodeAttribute(blockPos, "query", answer.query);
-          tr.setNodeAttribute(blockPos, "title", label);
-        } else if (inlinePos !== null && inlineNode) {
-          const after = editor.state.doc.resolve(inlinePos).after();
-          tr.delete(inlinePos, inlinePos + inlineNode.nodeSize);
-          tr.insert(tr.mapping.map(after), block);
-        } else {
-          return;
-        }
-        editor.view.dispatch(tr);
+        const tr = replaceInlineWithBlock(editor.state, inlinePos, block);
+        if (tr) editor.view.dispatch(tr);
         return;
       }
 
@@ -489,32 +509,25 @@ export function DocEditor({
           requestId,
         },
       });
-      const tr = editor.state.tr;
       if (valuePos !== null) {
-        tr.setNodeAttribute(valuePos, "query", answer.query);
-        tr.setNodeAttribute(valuePos, "label", answer.label);
-        tr.setNodeAttribute(valuePos, "note", answer.note);
-        tr.setNodeAttribute(valuePos, "shape", answer.shape);
-      } else if (inlinePos !== null && inlineNode) {
-        tr.replaceWith(inlinePos, inlinePos + inlineNode.nodeSize, value);
-      } else if (blockPos !== null) {
-        // The table became a number: it goes back into the text, on its own line.
-        const blockNode = editor.state.doc.nodeAt(blockPos);
-        if (!blockNode) return;
-        tr.replaceWith(
-          blockPos,
-          blockPos + blockNode.nodeSize,
-          editor.schema.nodes.paragraph.create(null, [
-            editor.schema.text(`${label}: `),
-            value,
-          ]),
-        );
-      } else {
+        syncAttrs(valuePos, {
+          query: answer.query,
+          label: answer.label,
+          note: answer.note,
+          shape: answer.shape,
+        });
         return;
       }
-      editor.view.dispatch(tr);
+      if (inlinePos === null || !inlineNode) return;
+      editor.view.dispatch(
+        editor.state.tr.replaceWith(
+          inlinePos,
+          inlinePos + inlineNode.nodeSize,
+          value,
+        ),
+      );
     },
-    [editor, findDataRequest, updateDataRequest],
+    [editor, findDataRequest, syncAttrs, updateDataRequest],
   );
 
   /**

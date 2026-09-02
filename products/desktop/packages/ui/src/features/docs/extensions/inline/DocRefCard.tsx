@@ -1,6 +1,6 @@
 import { Popover } from "@base-ui/react/popover";
 import { cn } from "@posthog/quill";
-import type { ReactElement } from "react";
+import type { ReactElement, ReactNode } from "react";
 import { useState } from "react";
 import type { InlineRefCard } from "./types";
 
@@ -8,7 +8,7 @@ const OPEN_DELAY_MS = 200;
 const CLOSE_DELAY_MS = 100;
 
 /**
- * The one card every inline reference opens on hover.
+ * The one card every hovered thing in a doc opens.
  *
  * Self-styled rather than quill's popover, which is not loaded on every
  * surface a doc renders on, and matched to the evidence card so the two read
@@ -18,14 +18,17 @@ export function DocRefHover({
   card,
   trigger,
   nativeButton = false,
+  side = "top",
 }: {
   card?: InlineRefCard;
   trigger: ReactElement;
   /** The trigger is a real button, so Base UI must not synthesize one. */
   nativeButton?: boolean;
+  side?: "top" | "left";
 }): ReactElement {
   const [open, setOpen] = useState(false);
   if (!card) return trigger;
+  const close = () => setOpen(false);
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -39,7 +42,7 @@ export function DocRefHover({
       />
       {open && (
         <Popover.Portal>
-          <Popover.Positioner side="top" sideOffset={8} className="z-[9999]">
+          <Popover.Positioner side={side} sideOffset={8} className="z-[9999]">
             <Popover.Popup
               data-testid="doc-ref-card"
               className={cn(
@@ -49,15 +52,42 @@ export function DocRefHover({
               style={{ boxShadow: "0 4px 12px rgba(0, 0, 0, 0.25)" }}
             >
               {card.render ? (
-                card.render()
+                card.render(close)
               ) : (
-                <DefaultCardBody card={card} onDone={() => setOpen(false)} />
+                <DefaultCardBody card={card} onDone={close} />
               )}
             </Popover.Popup>
           </Popover.Positioner>
         </Popover.Portal>
       )}
     </Popover.Root>
+  );
+}
+
+/** The row of actions at the foot of a card. */
+export function DocRefCardActions({
+  children,
+}: {
+  children: ReactNode;
+}): ReactElement {
+  return <div className="mt-2.5 flex items-center gap-3">{children}</div>;
+}
+
+export function DocRefCardAction({
+  children,
+  onSelect,
+}: {
+  children: ReactNode;
+  onSelect: () => void;
+}): ReactElement {
+  return (
+    <button
+      type="button"
+      className="cursor-pointer border-none bg-transparent p-0 text-(--gray-11) text-[11px] hover:text-(--gray-12)"
+      onClick={onSelect}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -79,16 +109,16 @@ function DefaultCardBody({
         </span>
       ) : null}
       {card.action ? (
-        <button
-          type="button"
-          className="mt-2.5 cursor-pointer border-none bg-transparent p-0 text-(--gray-11) text-[11px] hover:text-(--gray-12)"
-          onClick={() => {
-            card.action?.onSelect();
-            onDone();
-          }}
-        >
-          {card.action.label}
-        </button>
+        <DocRefCardActions>
+          <DocRefCardAction
+            onSelect={() => {
+              card.action?.onSelect();
+              onDone();
+            }}
+          >
+            {card.action.label}
+          </DocRefCardAction>
+        </DocRefCardActions>
       ) : null}
     </>
   );

@@ -14,14 +14,19 @@ from uuid import UUID
 
 from django.conf import settings
 
+import structlog
+
 from posthog.models.comment import Comment
 from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.context_layer.backend.facade import api as context_layer
-from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade import (
+    api as tasks_facade,
+    contracts as tasks_contracts,
+)
 
-from ..logic import collab, data_points, discussions, documents, markdown
+from ..logic import collab, data_points, discussions, documents, markdown, mentions
 from ..models import Doc
 from . import contracts
 from .enums import (
@@ -37,6 +42,9 @@ from .enums import (
 
 ChannelNotVisibleError = documents.ChannelNotVisibleError
 ThreadNotFoundError = discussions.ThreadNotFoundError
+
+
+logger = structlog.get_logger(__name__)
 
 
 def doc_url(channel_id: str | UUID, doc_id: str | UUID) -> str:
@@ -301,6 +309,7 @@ def create_thread(payload: contracts.CreateThreadInput) -> contracts.ReplyResult
     # forwarded: the agent's first turn answers it.
     if payload.send_to_agent and not payload.task_id:
         delivery = AgentDelivery.NO_RUN
+    _tell_people(doc, thread)
     collab.publish_discussion_change(doc, thread_id=str(thread.id))
     return contracts.ReplyResultDTO(thread=_to_thread(thread, []), delivery=delivery)
 
@@ -319,7 +328,7 @@ def reply_to_thread(payload: contracts.ReplyInput) -> contracts.ReplyResultDTO |
     elif payload.send_to_agent:
         delivery = _forward_to_agent(thread, team_id=payload.team_id, user_id=payload.user_id, content=payload.content)
 
-    discussions.add_post(
+    post = discussions.add_post(
         doc,
         thread,
         content=payload.content,
@@ -327,8 +336,29 @@ def reply_to_thread(payload: contracts.ReplyInput) -> contracts.ReplyResultDTO |
         author_kind=PostAuthorKind.HUMAN,
         sent_to_agent=delivery == AgentDelivery.SENT,
     )
+    _tell_people(doc, post)
     collab.publish_discussion_change(doc, thread_id=str(thread.id))
     return contracts.ReplyResultDTO(thread=_reload_thread(doc, thread.id), delivery=delivery)
+
+
+def _tell_people(doc: Doc, post: Comment) -> None:
+    """The people a post concerns hear about it in their Activity: the page's owner for a new
+    thread, the thread's people for a reply, and anyone the post names. Never fails the post."""
+    try:
+        tasks_facade.record_comment_activity(
+            team_id=doc.team_id,
+            comment_id=post.id,
+            mentioned_user_ids=mentions.mentioned_user_ids(doc.team, post.content or ""),
+            target=tasks_contracts.CommentActivityTargetDTO(
+                scope=discussions.DOC_COMMENT_SCOPE,
+                item_id=str(doc.id),
+                title=doc.title or "Untitled",
+                channel_id=doc.channel_id,
+                owner_id=doc.created_by_id,
+            ),
+        )
+    except Exception:
+        logger.exception("doc_post_activity_failed", doc_id=str(doc.id), post_id=str(post.id))
 
 
 def _forward_to_agent(thread: Comment, *, team_id: int, user_id: int, content: str) -> AgentDelivery:
@@ -387,6 +417,7 @@ def record_agent_turn(
         posted = discussions.append_agent_turn(doc, thread, run_id=run_id, turn_key=turn_key, text=text)
         if posted is None:
             continue
+        _tell_people(doc, posted)
         if is_data and not context.get("answer"):
             found = data_points.extract_query(text)
             # A query out of prose is kept only when it runs: the page must never show a broken one.
@@ -626,7 +657,7 @@ def _to_answer(raw: object) -> contracts.DataAnswerDTO | None:
         query=str(raw["query"]),
         label=str(raw.get("label") or ""),
         note=str(raw.get("note") or ""),
-        shape=DataShape(shape) if shape in DataShape.__members__.values() else DataShape.NUMBER,
+        shape=DataShape(str(shape)) if str(shape) in {member.value for member in DataShape} else DataShape.NUMBER,
         run_id=str(raw["run_id"]) if raw.get("run_id") else None,
         updated_at=datetime.fromisoformat(updated_at) if isinstance(updated_at, str) else None,
     )

@@ -8,6 +8,7 @@ from django.db.models import Q
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.models import Comment
 
 from products.tasks.backend.models import Channel, Task, TaskArtifact, TaskCommentActivity, TaskRun
@@ -74,6 +75,18 @@ def comment_task_id(comment: Comment) -> UUID | None:
         return None
 
 
+@frozen
+class CommentActivityTarget:
+    """Something that is not a task but takes comments: a doc page, say. The feed row
+    carries these words because it cannot read the owning product's tables."""
+
+    scope: str
+    item_id: str
+    title: str
+    channel_id: UUID | None
+    owner_id: int | None
+
+
 def project_comment_activity(
     *,
     team_id: int,
@@ -82,9 +95,22 @@ def project_comment_activity(
     include_relationship_recipients: bool,
     target_owner_id: int | None,
     activity_at: datetime | None,
+    target: CommentActivityTarget | None = None,
 ) -> None:
     comment = Comment.objects.filter(team_id=team_id, id=comment_id).first()
-    if comment is None or comment.created_by_id is None:
+    if comment is None:
+        return
+    if target is not None:
+        _project_target_comment_activity(
+            team_id=team_id,
+            comment=comment,
+            mentioned_user_ids=mentioned_user_ids,
+            include_relationship_recipients=include_relationship_recipients,
+            activity_at=activity_at,
+            target=target,
+        )
+        return
+    if comment.created_by_id is None:
         return
     task_id = comment_task_id(comment)
     if task_id is None:
@@ -134,6 +160,54 @@ def project_comment_activity(
         recipients=recipients,
     )
     _enqueue_slack_dms(team_id=team_id, comment_id=comment_id, task_id=task_id, recipients=recipients)
+
+
+def _thread_participant_ids(team_id: int, root_comment_id: UUID) -> list[int]:
+    return [
+        participant_id
+        for participant_id in Comment.objects.filter(team_id=team_id, deleted=False)
+        .filter(Q(id=root_comment_id) | Q(source_comment_id=root_comment_id))
+        .values_list("created_by_id", flat=True)
+        if participant_id
+    ]
+
+
+def _project_target_comment_activity(
+    *,
+    team_id: int,
+    comment: Comment,
+    mentioned_user_ids: Sequence[int],
+    include_relationship_recipients: bool,
+    activity_at: datetime | None,
+    target: CommentActivityTarget,
+) -> None:
+    """The same recipients as a task comment, for a comment on something else. An agent
+    can write these, so the author may be nobody; everyone else in the thread still hears."""
+    root_comment_id = comment.source_comment_id or comment.id
+    recipients: dict[int, str] = {}
+    if include_relationship_recipients:
+        if comment.source_comment_id:
+            recipients.update(
+                (participant_id, TaskCommentActivity.Kind.THREAD_REPLY)
+                for participant_id in _thread_participant_ids(team_id, root_comment_id)
+            )
+        elif target.owner_id:
+            recipients[target.owner_id] = TaskCommentActivity.Kind.OWNED_ITEM_COMMENT
+    recipients.update((user_id, TaskCommentActivity.Kind.MENTION) for user_id in mentioned_user_ids)
+    if comment.created_by_id is not None:
+        recipients.pop(comment.created_by_id, None)
+    TaskCommentActivity.record_many(
+        team_id=team_id,
+        task_id=None,
+        channel_id=target.channel_id,
+        target_scope=target.scope,
+        target_item_id=target.item_id,
+        target_title=target.title[:400],
+        activity_at=activity_at or comment.created_at,
+        comment_id=comment.id,
+        root_comment_id=root_comment_id,
+        recipients=recipients,
+    )
 
 
 def _enqueue_slack_dms(*, team_id: int, comment_id: UUID, task_id: UUID, recipients: dict[int, str]) -> None:

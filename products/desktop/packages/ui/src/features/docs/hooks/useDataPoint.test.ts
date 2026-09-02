@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readQueryError } from "./useDataPoint";
 
-describe("readQueryError", () => {
+describe("useDataPoint", () => {
   it.each([
     [
       'Failed request: [400] {"type":"validation_error","code":"hogql_syntax_error","detail":"expected identifier after \'.\', got Dot","attr":null}',

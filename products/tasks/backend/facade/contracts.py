@@ -285,16 +285,29 @@ class TaskMentionDTO:
 
 
 @dataclass(frozen=True)
+class CommentActivityTargetDTO:
+    """What a comment was on when it was not a task: the words the feed row shows, and the
+    owner who hears about a new thread on it."""
+
+    scope: str
+    item_id: str
+    title: str
+    channel_id: UUID | None = None
+    owner_id: int | None = None
+
+
+@dataclass(frozen=True)
 class TaskActivityDTO:
-    """One entry in the requesting user's task-centric activity feed.
+    """One entry in the requesting user's activity feed.
 
     Lifecycle signals collapse to one row per task, while comment notifications remain
     separate entries. Source fields describe the message or comment tied
-    to ``activity_at`` and stay empty for task creation.
+    to ``activity_at`` and stay empty for task creation. ``task_id`` is null for a comment
+    on something else; ``latest_comment_scope`` and ``latest_comment_item_id`` then say what.
     """
 
     id: UUID
-    task_id: UUID
+    task_id: UUID | None
     task_title: str
     channel_id: UUID | None
     channel_name: str | None

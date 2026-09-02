@@ -1498,7 +1498,14 @@ class TaskCommentActivity(TeamScopedRootMixin):
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
-    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
+    # Null for a comment on something that is not a task: the target fields say what it was on.
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+", null=True, blank=True)
+    channel = models.ForeignKey(
+        Channel, on_delete=models.SET_NULL, related_name="+", null=True, blank=True, db_constraint=False
+    )
+    target_scope = models.CharField(max_length=79, blank=True, default="")
+    target_item_id = models.CharField(max_length=255, blank=True, default="")
+    target_title = models.CharField(max_length=400, blank=True, default="")
     comment = models.ForeignKey(
         "posthog.Comment",
         on_delete=models.CASCADE,
@@ -1539,27 +1546,51 @@ class TaskCommentActivity(TeamScopedRootMixin):
         cls,
         *,
         team_id: int,
-        task_id: uuid.UUID | str,
+        task_id: uuid.UUID | str | None,
         comment_id: uuid.UUID,
         root_comment_id: uuid.UUID,
         activity_at: datetime,
         recipients: dict[int, str],
+        channel_id: uuid.UUID | str | None = None,
+        target_scope: str = "",
+        target_item_id: str = "",
+        target_title: str = "",
     ) -> None:
         if not recipients:
             return
         values = []
         params: list[Any] = []
         for user_id, kind in recipients.items():
-            values.append("(%s, %s, %s, %s, %s, %s, %s, %s, NULL)")
-            params.extend([uuid7(), team_id, user_id, task_id, comment_id, root_comment_id, kind, activity_at])
+            values.append("(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NULL)")
+            params.extend(
+                [
+                    uuid7(),
+                    team_id,
+                    user_id,
+                    task_id,
+                    channel_id,
+                    target_scope,
+                    target_item_id,
+                    target_title,
+                    comment_id,
+                    root_comment_id,
+                    kind,
+                    activity_at,
+                ]
+            )
         with connection.cursor() as cursor:
             cursor.execute(
                 f"""
                 INSERT INTO {cls._meta.db_table}
-                       (id, team_id, user_id, task_id, comment_id, root_comment_id, kind, activity_at, read_at)
+                       (id, team_id, user_id, task_id, channel_id, target_scope, target_item_id, target_title,
+                        comment_id, root_comment_id, kind, activity_at, read_at)
                 VALUES {", ".join(values)}
                 ON CONFLICT (team_id, user_id, comment_id) DO UPDATE
                    SET task_id = EXCLUDED.task_id,
+                       channel_id = EXCLUDED.channel_id,
+                       target_scope = EXCLUDED.target_scope,
+                       target_item_id = EXCLUDED.target_item_id,
+                       target_title = EXCLUDED.target_title,
                        root_comment_id = EXCLUDED.root_comment_id,
                        kind = EXCLUDED.kind,
                        activity_at = EXCLUDED.activity_at,

@@ -9,8 +9,8 @@ export interface InlineRefCard {
   title: string;
   meta?: ReactNode;
   action?: { label: string; onSelect: () => void };
-  /** Replaces the default body. Mounted only while the card is open. */
-  render?: () => ReactNode;
+  /** Replaces the default body. Mounted only while the card is open; `close` shuts the card. */
+  render?: (close: () => void) => ReactNode;
 }
 
 /** What a kind reads about itself, once, per rendered reference. */

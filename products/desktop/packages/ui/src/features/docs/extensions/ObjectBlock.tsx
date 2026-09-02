@@ -3,6 +3,7 @@ import {
   CaretDownIcon,
   CaretRightIcon,
   PencilSimpleIcon,
+  TextAlignLeftIcon,
 } from "@phosphor-icons/react";
 import {
   Button,
@@ -10,6 +11,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
+import { replaceBlockWithInline } from "@posthog/ui/features/docs/prosemirror/dataPointShape";
 import { useEvidenceUrl } from "@posthog/ui/features/editor/components/EvidenceRefChip";
 import { MessageChartCard } from "@posthog/ui/features/editor/components/MessageChartCard";
 import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
@@ -138,10 +140,13 @@ function SqlCard({
   query,
   spec,
   onEdit,
+  onInline,
 }: {
   query: string;
   spec: ChartBlockSpec;
   onEdit: () => void;
+  /** Puts the result back into the text as a data point. */
+  onInline: (() => void) | null;
 }) {
   const [showQuery, setShowQuery] = useState(false);
   const url = useEvidenceUrl("hogql", query);
@@ -184,6 +189,23 @@ function SqlCard({
             </TooltipTrigger>
             <TooltipContent>Edit the query</TooltipContent>
           </Tooltip>
+          {onInline ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="icon"
+                    variant="default"
+                    aria-label="Show in the text"
+                    onClick={onInline}
+                  />
+                }
+              >
+                <TextAlignLeftIcon size={13} />
+              </TooltipTrigger>
+              <TooltipContent>Show in the text</TooltipContent>
+            </Tooltip>
+          ) : null}
           {url ? (
             <Tooltip>
               <TooltipTrigger
@@ -219,12 +241,22 @@ function SqlCard({
 
 export function ObjectBlockView({
   node,
+  editor,
+  getPos,
   updateAttributes,
 }: ReactNodeViewProps) {
   const attrs = node.attrs as ObjectBlockAttrs;
   const isSql = attrs.mode === "hogql";
   const [editing, setEditing] = useState(isSql && !attrs.query);
   const spec = toSpec(attrs);
+  const onInline = editor.isEditable
+    ? () => {
+        const pos = getPos();
+        if (pos === undefined) return;
+        const tr = replaceBlockWithInline(editor.state, pos);
+        if (tr) editor.view.dispatch(tr);
+      }
+    : null;
 
   if (isSql && (editing || !spec)) {
     return (
@@ -253,6 +285,7 @@ export function ObjectBlockView({
           query={attrs.query}
           spec={spec}
           onEdit={() => setEditing(true)}
+          onInline={onInline}
         />
       ) : spec ? (
         <MessageChartCard

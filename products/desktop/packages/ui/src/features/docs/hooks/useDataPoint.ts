@@ -1,4 +1,10 @@
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
+import {
+  type SeriesKind,
+  seriesKind,
+  seriesLabels,
+  seriesPoints,
+} from "@posthog/ui/features/docs/hooks/dataPointSeries";
 import { formatMetric } from "@posthog/ui/features/docs/hooks/useInsightMetric";
 import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 
@@ -7,25 +13,15 @@ const DATA_POINT_STALE_MS = 60_000;
 
 interface DataPointResult {
   value: string;
-  /** The numbers of a series, in row order, for a sparkline. Empty for one cell. */
+  /** The numbers of a series, in row order, for a small chart. Empty for one cell. */
   points: number[];
+  /** One label per point. */
+  labels: string[];
+  seriesKind: SeriesKind | null;
   isLoading: boolean;
   isError: boolean;
   /** Why the query gave nothing, for the reader who hovers it. */
   error: string | null;
-}
-
-/** The number in each row, for a query that gives a date and a number per row. */
-export function seriesPoints(results: unknown[][] | undefined): number[] {
-  if (!results || results.length < 2) return [];
-  const points: number[] = [];
-  for (const row of results) {
-    if (!Array.isArray(row)) return [];
-    const cell = row.find((value) => typeof value === "number");
-    if (typeof cell !== "number") return [];
-    points.push(cell);
-  }
-  return points;
 }
 
 /**
@@ -105,14 +101,22 @@ export function useDataPoint(
 
   const results = result.data?.results;
   const points = shape === "series" ? seriesPoints(results) : [];
-  const value = formatCell(
-    points.length ? points[points.length - 1] : firstCell(results),
-  );
+  const kind = points.length ? seriesKind(results) : null;
+  // A line ends in its latest point; columns add up to one total.
+  const figure =
+    kind === "time"
+      ? points[points.length - 1]
+      : kind === "categories"
+        ? points.reduce((sum, point) => sum + point, 0)
+        : firstCell(results);
+  const value = formatCell(figure);
   const failed = readQueryError(result.error);
 
   return {
     value: value ?? "—",
     points,
+    labels: points.length ? seriesLabels(results) : [],
+    seriesKind: kind,
     isLoading: result.isLoading,
     isError: result.isError || (!result.isLoading && value === null),
     // A query that runs and returns nothing is as much a dead end as one that

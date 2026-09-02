@@ -72,7 +72,9 @@ export function ActivityRow({
   // The event records a past prompt; only the live session says whether it
   // still needs a reply after the row was created.
   const awaitsReply =
-    item.activityKind === "awaiting_input" && blockedTaskIds.has(item.taskId);
+    item.activityKind === "awaiting_input" &&
+    item.taskId !== null &&
+    blockedTaskIds.has(item.taskId);
   const agentIconClassName = awaitsReply ? "text-(--blue-11)" : undefined;
   const agentIconWrapperClassName =
     item.isUnread && !awaitsReply
@@ -83,10 +85,10 @@ export function ActivityRow({
       action_type: "open_task",
       surface,
       channel_id: channelId ?? undefined,
-      task_id: item.taskId,
+      task_id: item.taskId ?? undefined,
     });
     onMarkRead(item);
-    if (item.commentId && item.commentTarget) {
+    if (item.commentId && item.commentTarget && item.taskId) {
       useCommentNavigationStore
         .getState()
         .requestCommentFocus(item.taskId, item.commentTarget, item.commentId);
@@ -181,7 +183,11 @@ export function ActivityRow({
           aria-label="Copy thread link"
           className="absolute top-2 right-2 opacity-0 transition-opacity group-hover:opacity-100"
           onClick={() =>
-            void copyChannelLink(channelId, "activity", item.taskId)
+            void copyChannelLink(
+              channelId,
+              "activity",
+              item.taskId ?? undefined,
+            )
           }
         >
           <LinkIcon size={14} />

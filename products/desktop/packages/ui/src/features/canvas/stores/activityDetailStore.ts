@@ -1,5 +1,6 @@
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
 import type { SignalReport } from "@posthog/shared/types";
+import { navigateToChannelDoc } from "@posthog/ui/router/navigationBridge";
 import { getRouterOrNull } from "@posthog/ui/router/routerRef";
 import { useRouterState } from "@tanstack/react-router";
 
@@ -98,6 +99,16 @@ export function getActivitySelection(): ActivitySelection | null {
 }
 
 export function selectActivityItem(item: TaskActivityItem): void {
+  // A page has no pane here: it opens in its space, on the thread.
+  if (item.commentTarget?.scope === "doc" && item.channelId) {
+    navigateToChannelDoc(
+      item.channelId,
+      item.commentTarget.itemId,
+      item.commentId,
+    );
+    return;
+  }
+  if (!item.taskId) return;
   void getRouterOrNull()?.navigate({
     to: "/activity",
     search: {

@@ -131,6 +131,17 @@ export const DocSurface = forwardRef<
 
   const threads = discussions.data ?? [];
   const openCount = threads.filter((thread) => !thread.resolved).length;
+
+  // A link can arrive while the page is already open, and it may name the
+  // thread by its id rather than its anchor, the way the Activity feed does.
+  useEffect(() => {
+    if (openThreadKey) setPanel({ view: "thread", anchorKey: openThreadKey });
+  }, [openThreadKey]);
+  useEffect(() => {
+    if (!panel || panel.view !== "thread") return;
+    const byId = threads.find((thread) => thread.id === panel.anchorKey);
+    if (byId) setPanel({ view: "thread", anchorKey: byId.anchor_key });
+  }, [panel, threads]);
   useEffect(() => {
     onOpenThreadCount?.(openCount);
   }, [openCount, onOpenThreadCount]);

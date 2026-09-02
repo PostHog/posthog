@@ -285,7 +285,7 @@ export interface TaskSessionStorageAccess {
  * free-form column on the backend `Comment` model, so adding a resource is a
  * new member here plus a caller — no migration and no endpoint.
  */
-export type CommentScope = "task_artifact" | "desktop_canvas" | "task";
+export type CommentScope = "task_artifact" | "desktop_canvas" | "task" | "doc";
 
 /** Named `Resource*` so it never collides with the DOM's global `Comment`.
  * Optimistic rows do not have a server version yet, while item_context is a

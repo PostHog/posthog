@@ -18,6 +18,7 @@ from products.docs.backend.facade import api
 from products.docs.backend.facade.enums import DataShape
 from products.docs.backend.logic import data_points
 from products.docs.backend.tasks.tasks import sync_context_doc_task
+from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.api import ensure_personal_channel_id
 
 # Keep the SSE generator lifetime tiny so the stream test terminates deterministically.
@@ -234,6 +235,22 @@ class TestDocsAPI(APIBaseTest):
 
         posts = self.client.get(self._url(f"{doc['id']}/discussions/")).json()[0]["replies"]
         assert [post["author_kind"] for post in posts] == ["agent", "system", "agent", "human", "agent", "system"]
+
+    def test_a_named_teammate_and_the_page_owner_hear_about_a_thread(self):
+        peer = User.objects.create_and_join(self.organization, "peer@example.com", None, first_name="Bob")
+        doc = self._create_doc()
+        thread = self._start_thread(doc)
+        self.client.post(
+            self._url(f"{doc['id']}/discussions/{thread['id']}/reply/"),
+            data={"content": "@[Bob](Peer@Example.com) can you check this?"},
+            format="json",
+        )
+
+        rows = tasks_facade.list_task_activity(self.team.pk, peer.id).results
+        assert [
+            (row.activity_kind, row.task_id, row.latest_comment_scope, row.latest_comment_item_id) for row in rows
+        ] == [("mention", None, "doc", doc["id"])]
+        assert rows[0].task_title == doc["title"]
 
     def _submit(self, task_id: str | None, body: dict):
         with (

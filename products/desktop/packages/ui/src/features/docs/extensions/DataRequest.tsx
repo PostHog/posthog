@@ -6,6 +6,7 @@ import {
   ReactNodeViewRenderer,
 } from "@tiptap/react";
 import { useEffect, useState } from "react";
+import { DocRefHover } from "./inline/DocRefCard";
 
 /**
  * A data point the sentence has asked for and does not have yet.
@@ -27,10 +28,10 @@ export interface DataRequestAttrs {
 }
 
 const STATE_TITLE: Record<DataRequestState, string> = {
-  asking: "The agent is looking for this. Click to open the thread.",
-  reply: "The agent wrote in the thread. Click to read it.",
-  answered: "The agent answered in the thread. Click to read it.",
-  failed: "The agent did not find this. Click to open the thread.",
+  asking: "The agent is looking for this.",
+  reply: "The agent wrote in the thread.",
+  answered: "The agent answered in the thread.",
+  failed: "The agent did not find this.",
 };
 
 /** Said beside the words, so a line never looks stalled. */
@@ -65,20 +66,29 @@ export function DataRequestView({ node }: ReactNodeViewProps) {
 
   return (
     <NodeViewWrapper as="span" className="inline" data-request-id={requestId}>
-      <span
-        className="doc-datarequest"
-        data-state={state}
-        title={STATE_TITLE[state] ?? STATE_TITLE.asking}
-      >
-        <DocMark
-          variant="agent"
-          state={markState}
-          size={11}
-          className="doc-datarequest-mark"
-        />
-        {question}
-        {note ? <span className="doc-datarequest-note">{note}</span> : null}
-      </span>
+      <DocRefHover
+        card={{
+          title: question,
+          meta: (
+            <>
+              {STATE_TITLE[state] ?? STATE_TITLE.asking} Click to open the
+              thread.
+            </>
+          ),
+        }}
+        trigger={
+          <span className="doc-datarequest" data-state={state}>
+            <DocMark
+              variant="agent"
+              state={markState}
+              size={11}
+              className="doc-datarequest-mark"
+            />
+            {question}
+            {note ? <span className="doc-datarequest-note">{note}</span> : null}
+          </span>
+        }
+      />
     </NodeViewWrapper>
   );
 }

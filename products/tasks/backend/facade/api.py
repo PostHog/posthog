@@ -8304,8 +8304,11 @@ def record_comment_activity(
     include_relationship_recipients: bool = True,
     target_owner_id: int | None = None,
     activity_at: datetime | None = None,
+    target: contracts.CommentActivityTargetDTO | None = None,
 ) -> None:
-    from products.tasks.backend.logic.services.comment_activity import project_comment_activity
+    """Tell the people a comment concerns. ``target`` names a thing that is not a task, a doc
+    page for one; the feed then shows the target's words and no task."""
+    from products.tasks.backend.logic.services.comment_activity import CommentActivityTarget, project_comment_activity
 
     project_comment_activity(
         team_id=team_id,
@@ -8314,8 +8317,18 @@ def record_comment_activity(
         include_relationship_recipients=include_relationship_recipients,
         target_owner_id=target_owner_id,
         activity_at=activity_at,
+        target=CommentActivityTarget(
+            scope=target.scope,
+            item_id=target.item_id,
+            title=target.title,
+            channel_id=target.channel_id,
+            owner_id=target.owner_id,
+        )
+        if target
+        else None,
     )
-    post_comment_thread_update(team_id=team_id, comment_id=comment_id)
+    if target is None:
+        post_comment_thread_update(team_id=team_id, comment_id=comment_id)
 
 
 def enqueue_comment_activity_retry(
@@ -8504,9 +8517,13 @@ def _task_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskActivity]:
 
 
 def _comment_activity_qs(team_id: int, user_id: int) -> QuerySet[TaskCommentActivity]:
+    """A row on a task is gated by the task's visibility. A row on something else was earned
+    by being in its thread or named in it, so it stays."""
     visible_tasks = _activity_visible_task_qs(team_id, user_id)
-    return TaskCommentActivity.objects.for_team(team_id).filter(
-        user_id=user_id, task__in=visible_tasks, comment__deleted=False
+    return (
+        TaskCommentActivity.objects.for_team(team_id)
+        .filter(user_id=user_id, comment__deleted=False)
+        .filter(Q(task__in=visible_tasks) | Q(task__isnull=True))
     )
 
 
@@ -8542,9 +8559,9 @@ def list_task_activity(
         task_qs = task_qs.filter(cursor)
         comment_qs = comment_qs.filter(cursor)
     task_rows = task_qs.select_related("task__channel", "message__author").order_by("-activity_at", "-id")[: limit + 1]
-    comment_rows = comment_qs.select_related("task__channel", "comment__created_by").order_by("-activity_at", "-id")[
-        : limit + 1
-    ]
+    comment_rows = comment_qs.select_related("task__channel", "channel", "comment__created_by").order_by(
+        "-activity_at", "-id"
+    )[: limit + 1]
     activity_rows: list[TaskActivity | TaskCommentActivity] = [*task_rows, *comment_rows]
     rows: list[TaskActivity | TaskCommentActivity] = sorted(
         activity_rows,
@@ -8560,9 +8577,9 @@ def list_task_activity(
             contracts.TaskActivityDTO(
                 id=row.id,
                 task_id=row.task_id,
-                task_title=row.task.title,
-                channel_id=row.task.channel_id,
-                channel_name=row.task.channel.name if row.task.channel else None,
+                task_title=row.task.title if row.task else _target_title(row),
+                channel_id=channel.id if (channel := _activity_channel(row)) else None,
+                channel_name=channel.name if channel else None,
                 activity_at=row.activity_at,
                 activity_kind=row.kind,
                 snippet=_bounded_activity_snippet(
@@ -8589,6 +8606,17 @@ def list_task_activity(
     )
 
 
+def _target_title(row: TaskActivity | TaskCommentActivity) -> str:
+    return row.target_title if isinstance(row, TaskCommentActivity) else ""
+
+
+def _activity_channel(row: TaskActivity | TaskCommentActivity) -> Channel | None:
+    """The space a row belongs to: the task's, or the one the target named."""
+    if row.task:
+        return row.task.channel
+    return row.channel if isinstance(row, TaskCommentActivity) else None
+
+
 def _bounded_activity_snippet(content: str, limit: int = 1024) -> str:
     return content.encode("utf-8")[:limit].decode("utf-8", errors="ignore")
 
@@ -8596,7 +8624,7 @@ def _bounded_activity_snippet(content: str, limit: int = 1024) -> str:
 def mark_task_activity_read(
     team_id: int,
     user_id: int | None,
-    activities: Sequence[tuple[UUID, datetime, UUID | None]],
+    activities: Sequence[tuple[UUID | None, datetime, UUID | None]],
 ) -> int:
     """Mark feed rows read only when their latest activity was visible to the requester."""
     if user_id is None or not activities:
@@ -8606,7 +8634,7 @@ def mark_task_activity_read(
     for task_id, seen_before, comment_activity_id in activities:
         if comment_activity_id:
             comment_activity_ids.append(comment_activity_id)
-        else:
+        elif task_id:
             activity_versions |= Q(task_id=task_id, activity_at__lte=seen_before)
     task_rows = 0
     if activity_versions:

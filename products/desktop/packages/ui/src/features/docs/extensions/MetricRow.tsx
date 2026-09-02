@@ -1,5 +1,7 @@
 import { ArrowDownRightIcon, ArrowUpRightIcon } from "@phosphor-icons/react";
 import { useInsightMetric } from "@posthog/ui/features/docs/hooks/useInsightMetric";
+import { useEvidenceUrl } from "@posthog/ui/features/editor/components/EvidenceRefChip";
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { mergeAttributes, Node } from "@tiptap/core";
 import {
   NodeViewWrapper,
@@ -7,6 +9,7 @@ import {
   ReactNodeViewRenderer,
 } from "@tiptap/react";
 import type { ReactElement } from "react";
+import { DocRefHover } from "./inline/DocRefCard";
 
 /**
  * A row of numbers the page keeps in view.
@@ -107,6 +110,8 @@ export interface MetricTileState {
   delta: number | null;
   isLoading: boolean;
   isError: boolean;
+  /** Where the insight lives in PostHog, for a tile that has nothing to show. */
+  url?: string | null;
 }
 
 /** One number in the row, with nothing to fetch. */
@@ -117,6 +122,7 @@ export function MetricTileView({
   delta,
   isLoading,
   isError,
+  url = null,
 }: MetricTileState): ReactElement {
   const empty = isError || value === "—";
   return (
@@ -129,16 +135,21 @@ export function MetricTileView({
       ) : (
         <div className="doc-metric-value">
           {empty ? (
-            <span
-              className="doc-metric-empty"
-              title={
-                isError
-                  ? "This number could not be loaded"
-                  : "This insight has no single number"
-              }
-            >
-              —
-            </span>
+            <DocRefHover
+              card={{
+                title: label,
+                meta: isError
+                  ? "This number could not be loaded."
+                  : "This insight has no single number.",
+                action: url
+                  ? {
+                      label: "Open in PostHog",
+                      onSelect: () => openExternalUrl(url),
+                    }
+                  : undefined,
+              }}
+              trigger={<span className="doc-metric-empty">—</span>}
+            />
           ) : (
             value
           )}
@@ -152,7 +163,8 @@ export function MetricTileView({
 
 function MetricTile({ item }: { item: MetricRowItem }) {
   const metric = useInsightMetric(item.shortId);
-  return <MetricTileView label={item.label} {...metric} />;
+  const url = useEvidenceUrl("insight", item.shortId);
+  return <MetricTileView label={item.label} url={url} {...metric} />;
 }
 
 export const MetricRow = Node.create({

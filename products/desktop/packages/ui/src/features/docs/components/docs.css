@@ -585,6 +585,20 @@
   overflow: visible;
 }
 
+.doc-spark--columns {
+  stroke: none;
+  fill: var(--primary);
+}
+
+/* The same series, drawn at card size. */
+.doc-card-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  stroke: var(--primary);
+  overflow: visible;
+}
+
 .doc-datavalue[data-state="error"] {
   color: var(--gray-9);
   border-bottom-style: dotted;

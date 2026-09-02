@@ -15,7 +15,8 @@ import { channelDisplayName } from "./channelName";
 
 export interface TaskActivityItem {
   id: string;
-  taskId: string;
+  /** Null for a comment on a page; `commentTarget` then says where it was. */
+  taskId: string | null;
   taskTitle: string;
   /** Backend channel (tasks product Channel UUID); null for channel-less tasks. */
   channelId: string | null;
@@ -38,7 +39,7 @@ export function toTaskActivityItems(
 ): TaskActivityItem[] {
   return activity.map((row) => ({
     id: row.id,
-    taskId: row.task_id,
+    taskId: row.task_id ?? null,
     taskTitle: row.task_title || "Untitled task",
     channelId: row.channel_id ?? null,
     channelName: channelDisplayName(row.channel_name ?? null),

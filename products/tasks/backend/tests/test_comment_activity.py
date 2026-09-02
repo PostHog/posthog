@@ -286,3 +286,37 @@ class TestCommentActivity(CommentActivityTestCase):
         assert first_activity.read_at is not None
         assert TaskCommentActivity.objects.get(comment=second, user=self.author).read_at is None
         assert TaskActivity.objects.get(team=self.team, user=self.author, task=self.task).read_at is None
+
+
+class TestTargetCommentActivity(CommentActivityTestCase):
+    def _target(self, owner: User | None = None) -> tasks_facade.contracts.CommentActivityTargetDTO:
+        return tasks_facade.contracts.CommentActivityTargetDTO(
+            scope="doc",
+            item_id="doc-1",
+            title="Launch plan",
+            channel_id=self.channel.id,
+            owner_id=owner.id if owner else None,
+        )
+
+    def test_a_thread_on_a_page_reaches_its_owner_and_a_reply_reaches_the_thread(self):
+        root = self._comment(scope="doc", item_id="doc-1", item_context={}, created_by=self.peer)
+        tasks_facade.record_comment_activity(
+            team_id=self.team.id, comment_id=root.id, mentioned_user_ids=[], target=self._target(owner=self.author)
+        )
+        reply = self._comment(scope="doc", item_id="doc-1", item_context={}, created_by=None, source_comment=root)
+        tasks_facade.record_comment_activity(
+            team_id=self.team.id, comment_id=reply.id, mentioned_user_ids=[], target=self._target(owner=self.author)
+        )
+
+        owner_rows = TaskCommentActivity.objects.filter(team=self.team, user=self.author)
+        assert [(row.kind, row.task_id, row.target_title) for row in owner_rows] == [
+            ("owned_item_comment", None, "Launch plan")
+        ]
+        peer_rows = TaskCommentActivity.objects.filter(team=self.team, user=self.peer)
+        assert [(row.kind, row.comment_id) for row in peer_rows] == [("thread_reply", reply.id)]
+
+        page = tasks_facade.list_task_activity(self.team.id, self.peer.id)
+        assert [(row.task_id, row.task_title, row.channel_id, row.latest_comment_scope) for row in page.results] == [
+            (None, "Launch plan", self.channel.id, "doc")
+        ]
+        assert page.unread_count == 1

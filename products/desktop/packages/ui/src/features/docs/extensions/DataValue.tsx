@@ -1,13 +1,29 @@
-import { Tooltip, TooltipContent, TooltipTrigger } from "@posthog/quill";
+import type { SeriesKind } from "@posthog/ui/features/docs/hooks/dataPointSeries";
 import { useDataPoint } from "@posthog/ui/features/docs/hooks/useDataPoint";
-import { useInsightMetric } from "@posthog/ui/features/docs/hooks/useInsightMetric";
+import {
+  formatMetric,
+  useInsightMetric,
+} from "@posthog/ui/features/docs/hooks/useInsightMetric";
+import {
+  dataValueToBlock,
+  replaceInlineWithBlock,
+} from "@posthog/ui/features/docs/prosemirror/dataPointShape";
+import { useEvidenceUrl } from "@posthog/ui/features/editor/components/EvidenceRefChip";
+import { HighlightedCode } from "@posthog/ui/primitives/HighlightedCode";
+import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { mergeAttributes, Node } from "@tiptap/core";
 import {
   NodeViewWrapper,
   type ReactNodeViewProps,
   ReactNodeViewRenderer,
 } from "@tiptap/react";
+import type { ReactElement } from "react";
 import { useEffect, useRef, useState } from "react";
+import {
+  DocRefCardAction,
+  DocRefCardActions,
+  DocRefHover,
+} from "./inline/DocRefCard";
 
 /**
  * A live data point in a sentence.
@@ -34,34 +50,150 @@ export interface DataValueAttrs {
 const SPARK_W = 56;
 const SPARK_H = 14;
 
-/** The line of a series, drawn small enough to sit in a sentence. */
-function Spark({ points }: { points: number[] }) {
+interface ChartSize {
+  width: number;
+  height: number;
+}
+
+const INLINE: ChartSize = { width: SPARK_W, height: SPARK_H };
+
+/** The line of a series. Small enough to sit in a sentence; larger in a card. */
+function Spark({
+  points,
+  size = INLINE,
+  className = "doc-spark",
+}: {
+  points: number[];
+  size?: ChartSize;
+  className?: string;
+}) {
+  const { width, height } = size;
   const max = Math.max(...points);
   const min = Math.min(...points);
   const range = max - min || 1;
-  const step = points.length > 1 ? SPARK_W / (points.length - 1) : 0;
+  const step = points.length > 1 ? width / (points.length - 1) : 0;
   const path = points
     .map((point, index) => {
       const x = (index * step).toFixed(1);
-      const y = (
-        SPARK_H -
-        1.5 -
-        ((point - min) / range) * (SPARK_H - 3)
-      ).toFixed(1);
+      const y = (height - 1.5 - ((point - min) / range) * (height - 3)).toFixed(
+        1,
+      );
       return `${index === 0 ? "M" : "L"}${x} ${y}`;
     })
     .join(" ");
   return (
     <svg
-      className="doc-spark"
-      viewBox={`0 0 ${SPARK_W} ${SPARK_H}`}
-      width={SPARK_W}
-      height={SPARK_H}
+      className={className}
+      viewBox={`0 0 ${width} ${height}`}
+      width={width}
+      height={height}
       role="img"
       aria-label={`${points.length} points`}
     >
       <path d={path} fill="none" strokeWidth={1.5} strokeLinejoin="round" />
     </svg>
+  );
+}
+
+/** The columns of a series of categories, one per row. */
+function Columns({
+  points,
+  size = INLINE,
+  className = "doc-spark doc-spark--columns",
+}: {
+  points: number[];
+  size?: ChartSize;
+  className?: string;
+}) {
+  const { width, height } = size;
+  const max = Math.max(...points, 0) || 1;
+  const gap = width > SPARK_W ? 4 : 1.5;
+  const column = (width - gap * (points.length - 1)) / points.length;
+  return (
+    <svg
+      className={className}
+      viewBox={`0 0 ${width} ${height}`}
+      width={width}
+      height={height}
+      role="img"
+      aria-label={`${points.length} categories`}
+    >
+      {points.map((point, index) => {
+        const bar = Math.max(1, (Math.max(point, 0) / max) * height);
+        return (
+          <rect
+            key={`${index}:${point}`}
+            x={(index * (column + gap)).toFixed(1)}
+            y={(height - bar).toFixed(1)}
+            width={column.toFixed(1)}
+            height={bar.toFixed(1)}
+          />
+        );
+      })}
+    </svg>
+  );
+}
+
+const CARD_CHART: ChartSize = { width: 256, height: 64 };
+/** Past this many columns the labels no longer fit under them. */
+const MAX_LABELLED_COLUMNS = 6;
+
+/** A day label reads as its day; a timestamp drops the time. */
+function shortLabel(label: string): string {
+  return label.replace(/[T ]\d{2}:\d{2}.*$/, "");
+}
+
+/** The chart a reader hovers into: the same points, big enough to read. */
+function SeriesChart({
+  points,
+  labels,
+  kind,
+}: {
+  points: number[];
+  labels: string[];
+  kind: SeriesKind;
+}): ReactElement {
+  const max = formatMetric(Math.max(...points));
+  return (
+    <div className="mt-2">
+      <div className="text-(--gray-10) text-[10px] leading-none">{max}</div>
+      <div className="mt-1 border-(--gray-5) border-b pb-px">
+        {kind === "categories" ? (
+          <Columns
+            points={points}
+            size={CARD_CHART}
+            className="doc-card-chart doc-spark--columns"
+          />
+        ) : (
+          <Spark points={points} size={CARD_CHART} className="doc-card-chart" />
+        )}
+      </div>
+      {kind === "categories" ? (
+        points.length <= MAX_LABELLED_COLUMNS ? (
+          <div
+            className="mt-1 grid gap-1 text-(--gray-10) text-[10px] leading-snug"
+            style={{
+              gridTemplateColumns: `repeat(${points.length}, minmax(0, 1fr))`,
+            }}
+          >
+            {labels.map((label, index) => (
+              <span
+                key={`${index}-${label}`}
+                className="truncate"
+                title={label}
+              >
+                {label}
+              </span>
+            ))}
+          </div>
+        ) : null
+      ) : (
+        <div className="mt-1 flex justify-between text-(--gray-10) text-[10px] leading-snug">
+          <span>{shortLabel(labels[0] ?? "")}</span>
+          <span>{shortLabel(labels[labels.length - 1] ?? "")}</span>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -85,63 +217,160 @@ function useLanding(query: string): boolean {
   return landing;
 }
 
+interface FigureSource {
+  /** The SQL behind the figure, or nothing for a saved insight. */
+  query: string;
+  shortId: string;
+  /** Takes the figure out of the line and puts it under it as a block. */
+  onConvert: (() => void) | null;
+}
+
+function DataValueCard({
+  label,
+  note,
+  error,
+  points,
+  labels,
+  kind,
+  source,
+  close,
+}: {
+  label: string;
+  note?: string;
+  error?: string | null;
+  points: number[];
+  labels: string[];
+  kind: SeriesKind | null;
+  source: FigureSource;
+  close: () => void;
+}): ReactElement {
+  const [showSql, setShowSql] = useState(false);
+  const url = useEvidenceUrl(
+    source.query ? "hogql" : "insight",
+    source.query || source.shortId,
+  );
+  const footer =
+    kind === "categories"
+      ? `${points.length} categories, the total shown. Runs live on every read.`
+      : kind === "time"
+        ? `${points.length} points, the last one shown. Runs live on every read.`
+        : "Runs live on every read.";
+  return (
+    <div className="w-72 p-2.5">
+      <span className="line-clamp-2 block font-semibold text-[13px] leading-snug">
+        {label}
+      </span>
+      {kind && points.length > 1 ? (
+        <SeriesChart points={points} labels={labels} kind={kind} />
+      ) : null}
+      {note ? (
+        <span className="mt-1.5 block text-(--gray-11) text-[11.5px] leading-snug">
+          {note}
+        </span>
+      ) : null}
+      {error ? (
+        <span className="mt-1.5 block text-(--red-11) text-[11.5px] leading-snug">
+          {error}
+        </span>
+      ) : null}
+      <span className="mt-1.5 block text-(--gray-10) text-[10.5px]">
+        {footer}
+      </span>
+      {showSql && source.query ? (
+        <div className="mt-2 max-h-28 overflow-hidden whitespace-pre-wrap break-words font-mono text-[11.5px] leading-[1.5]">
+          <HighlightedCode code={source.query} language="sql" />
+        </div>
+      ) : null}
+      <DocRefCardActions>
+        {source.onConvert ? (
+          <DocRefCardAction
+            onSelect={() => {
+              source.onConvert?.();
+              close();
+            }}
+          >
+            {source.query ? "Show as SQL card" : "Show as chart"}
+          </DocRefCardAction>
+        ) : null}
+        {url ? (
+          <DocRefCardAction
+            onSelect={() => {
+              openExternalUrl(url);
+              close();
+            }}
+          >
+            Open in PostHog
+          </DocRefCardAction>
+        ) : null}
+        {source.query ? (
+          <DocRefCardAction onSelect={() => setShowSql((open) => !open)}>
+            {showSql ? "Hide SQL" : "SQL"}
+          </DocRefCardAction>
+        ) : null}
+      </DocRefCardActions>
+    </div>
+  );
+}
+
 function Figure({
   value,
   points = [],
   isLoading,
   isError,
   label,
-  detail,
   note,
   error,
   landing,
+  source,
+  kind = null,
+  labels = [],
 }: {
   value: string;
   points?: number[];
+  labels?: string[];
   isLoading: boolean;
   isError: boolean;
   label: string;
-  /** The query or the insight behind the figure. */
-  detail: string;
   note?: string;
   error?: string | null;
   landing?: boolean;
+  source: FigureSource;
+  kind?: SeriesKind | null;
 }) {
   const showSpark = !isLoading && !isError && points.length > 1;
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <span
-            className={
-              landing ? "doc-datavalue doc-datavalue--new" : "doc-datavalue"
-            }
-            data-state={isError ? "error" : undefined}
+    <DocRefHover
+      card={{
+        title: label,
+        render: (close) => (
+          <DataValueCard
+            label={label}
+            note={note}
+            error={isError ? error : null}
+            points={showSpark ? points : []}
+            labels={labels}
+            kind={showSpark ? kind : null}
+            source={source}
+            close={close}
           />
-        }
-      >
-        {showSpark ? <Spark points={points} /> : null}
-        {isLoading ? "…" : isError ? "—" : value}
-      </TooltipTrigger>
-      <TooltipContent side="top" className="max-w-sm">
-        {/* The tooltip is dark whatever the theme, so its greys are picked for it. */}
-        <div className="flex flex-col gap-1.5 text-left">
-          <span className="font-medium">{label}</span>
-          {note ? <span className="text-(--gray-5)">{note}</span> : null}
-          {isError && error ? (
-            <span className="text-(--red-9)">{error}</span>
+        ),
+      }}
+      trigger={
+        <span
+          className={
+            landing ? "doc-datavalue doc-datavalue--new" : "doc-datavalue"
+          }
+          data-state={isError ? "error" : undefined}
+        >
+          {showSpark && kind === "categories" ? (
+            <Columns points={points} />
+          ) : showSpark ? (
+            <Spark points={points} />
           ) : null}
-          <code className="max-h-28 overflow-hidden whitespace-pre-wrap break-words font-mono text-(--gray-6) text-[11.5px] leading-[1.5]">
-            {detail}
-          </code>
-          <span className="text-(--gray-8) text-[11px]">
-            {showSpark
-              ? `${points.length} points, the last one shown. Runs live on every read`
-              : "Runs live on every read"}
-          </span>
-        </div>
-      </TooltipContent>
-    </Tooltip>
+          {isLoading ? "…" : isError ? "—" : value}
+        </span>
+      }
+    />
   );
 }
 
@@ -150,11 +379,13 @@ function QueryFigure({
   label,
   note,
   shape,
+  onConvert,
 }: {
   query: string;
   label: string;
   note: string;
   shape: "number" | "series";
+  onConvert: (() => void) | null;
 }) {
   const point = useDataPoint(query, shape);
   const landing = useLanding(query);
@@ -162,18 +393,28 @@ function QueryFigure({
     <Figure
       value={point.value}
       points={point.points}
+      labels={point.labels}
       isLoading={point.isLoading}
       isError={point.isError}
       error={point.error}
       label={label || "Data point"}
-      detail={query}
       note={note}
       landing={landing}
+      kind={point.seriesKind}
+      source={{ query, shortId: "", onConvert }}
     />
   );
 }
 
-function InsightFigure({ shortId, label }: { shortId: string; label: string }) {
+function InsightFigure({
+  shortId,
+  label,
+  onConvert,
+}: {
+  shortId: string;
+  label: string;
+  onConvert: (() => void) | null;
+}) {
   const { value, isLoading, isError } = useInsightMetric(shortId);
   return (
     <Figure
@@ -181,14 +422,28 @@ function InsightFigure({ shortId, label }: { shortId: string; label: string }) {
       isLoading={isLoading}
       isError={isError}
       label={label || shortId}
-      detail={`Saved insight ${shortId}`}
+      source={{ query: "", shortId, onConvert }}
     />
   );
 }
 
-export function DataValueView({ node }: ReactNodeViewProps) {
-  const { query, shortId, label, note, requestId, shape } =
-    node.attrs as DataValueAttrs;
+export function DataValueView({ node, editor, getPos }: ReactNodeViewProps) {
+  const attrs = node.attrs as DataValueAttrs;
+  const { query, shortId, label, note, requestId, shape } = attrs;
+
+  const onConvert = editor.isEditable
+    ? () => {
+        const pos = getPos();
+        const json = dataValueToBlock(attrs);
+        if (pos === undefined || !json) return;
+        const tr = replaceInlineWithBlock(
+          editor.state,
+          pos,
+          editor.schema.nodeFromJSON(json),
+        );
+        if (tr) editor.view.dispatch(tr);
+      }
+    : null;
 
   return (
     <NodeViewWrapper
@@ -202,9 +457,10 @@ export function DataValueView({ node }: ReactNodeViewProps) {
           label={label}
           note={note ?? ""}
           shape={shape === "series" ? "series" : "number"}
+          onConvert={onConvert}
         />
       ) : (
-        <InsightFigure shortId={shortId} label={label} />
+        <InsightFigure shortId={shortId} label={label} onConvert={onConvert} />
       )}
     </NodeViewWrapper>
   );
