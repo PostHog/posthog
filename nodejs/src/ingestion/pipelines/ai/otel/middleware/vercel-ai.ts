@@ -23,6 +23,7 @@ const STRIP_KEYS = [
     'ai.usage.tokens',
     'ai.usage.inputTokenDetails.noCacheTokens',
     'ai.usage.outputTokenDetails.textTokens',
+    'ai.usage.outputTokenDetails.reasoningTokens',
     'ai.response.id',
     'ai.response.model',
     'ai.response.timestamp',

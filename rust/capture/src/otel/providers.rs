@@ -45,22 +45,17 @@ const GEN_AI: SupportedProvider = SupportedProvider {
 /// `ai.*` attributes, so its namespace must be accepted by the same provider.
 const VERCEL_AI: SupportedProvider = SupportedProvider {
     prefixes: &["ai.", "eve."],
-    classify: |attrs| {
-        // AI SDK 7's gen_ai-native integration emits standard gen_ai.* semconv
-        // (including gen_ai.operation.name) plus supplemental ai.usage.* details.
-        // Those ai.* keys make this provider match first, but the span carries no
-        // ai.operationId. Prefer the standard operation name so the span keeps its
-        // generation/embedding classification instead of defaulting to $ai_span.
-        if !attrs.contains_key("ai.operationId") {
-            if let Some(op) = attrs.get("gen_ai.operation.name").and_then(|v| v.as_str()) {
-                return classify_gen_ai_operation(op);
-            }
-        }
-        classify_by_key(attrs, "ai.operationId", |op_id| match op_id {
+    classify: |attrs| match attrs.get("ai.operationId").and_then(|v| v.as_str()) {
+        Some(op_id) => match op_id {
             s if s.ends_with(".doGenerate") || s.ends_with(".doStream") => "$ai_generation",
             s if s == "ai.embed.doEmbed" || s == "ai.embedMany.doEmbed" => "$ai_embedding",
             _ => "$ai_span",
-        })
+        },
+        // AI SDK 7's gen_ai-native integration emits standard gen_ai.* semconv
+        // plus supplemental ai.usage.* details, but no ai.operationId. Those ai.*
+        // keys make this provider match first, so classify by the standard
+        // operation name instead of defaulting the span to $ai_span.
+        None => classify_by_key(attrs, "gen_ai.operation.name", classify_gen_ai_operation),
     },
 };
 
@@ -227,35 +222,32 @@ mod tests {
     }
 
     #[test]
-    fn test_ai_sdk_7_gen_ai_native_generation_with_usage_details() {
-        // AI SDK 7's @ai-sdk/otel OpenTelemetry integration emits standard
-        // gen_ai.* semconv plus supplemental ai.usage.* details, but no
-        // ai.operationId. The ai.usage.* keys make VERCEL_AI match first, so it
-        // must fall back to gen_ai.operation.name to keep the generation label.
-        let mut attrs = serde_json::Map::new();
-        attrs.insert(
-            "gen_ai.operation.name".to_string(),
-            Value::String("chat".to_string()),
-        );
-        attrs.insert(
-            "ai.usage.outputTokenDetails.reasoningTokens".to_string(),
-            Value::Number(5.into()),
-        );
-        assert_eq!(get_event_name(&attrs), Some("$ai_generation"));
-    }
-
-    #[test]
-    fn test_ai_sdk_7_gen_ai_native_embedding_with_usage_details() {
-        let mut attrs = serde_json::Map::new();
-        attrs.insert(
-            "gen_ai.operation.name".to_string(),
-            Value::String("embeddings".to_string()),
-        );
-        attrs.insert(
-            "ai.usage.inputTokenDetails.noCacheTokens".to_string(),
-            Value::Number(10.into()),
-        );
-        assert_eq!(get_event_name(&attrs), Some("$ai_embedding"));
+    fn test_ai_sdk_7_gen_ai_native_spans_classify_by_operation_name() {
+        // AI SDK 7's @ai-sdk/otel integration emits standard gen_ai.* semconv
+        // plus supplemental ai.usage.* details, but no ai.operationId. The
+        // ai.usage.* keys make VERCEL_AI match first, so it must fall back to
+        // gen_ai.operation.name. Operations that are not inference stay
+        // $ai_span, or a tool-call span becomes a second priced generation.
+        for (operation, expected) in [
+            ("chat", "$ai_generation"),
+            ("embeddings", "$ai_embedding"),
+            ("execute_tool", "$ai_span"),
+        ] {
+            let mut attrs = serde_json::Map::new();
+            attrs.insert(
+                "gen_ai.operation.name".to_string(),
+                Value::String(operation.to_string()),
+            );
+            attrs.insert(
+                "ai.usage.outputTokenDetails.reasoningTokens".to_string(),
+                Value::Number(5.into()),
+            );
+            assert_eq!(
+                get_event_name(&attrs),
+                Some(expected),
+                "gen_ai.operation.name={operation}"
+            );
+        }
     }
 
     #[test]

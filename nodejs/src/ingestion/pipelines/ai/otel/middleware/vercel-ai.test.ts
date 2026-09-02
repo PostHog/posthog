@@ -719,6 +719,7 @@ describe('vercel-ai middleware', () => {
             expect(event.properties!['$ai_framework']).toBe('vercel')
             expect(event.properties!['$ai_lib']).toBe('opentelemetry/vercel-ai')
             expect(event.properties!['ai.telemetry.metadata.$ai_session_id']).toBeUndefined()
+            expect(event.properties!['ai.usage.outputTokenDetails.reasoningTokens']).toBeUndefined()
         })
     })
 
