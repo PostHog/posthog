@@ -2040,6 +2040,10 @@ snapshots:
         hash: v1.k794b7964.de1b275c97b6eac538ac35f64bf4cf3ec79f224cf500d0078f748c063eb83601.qqYmyCsR4ryfUqltT9sX9UikOHaAkMvWoWGDrQZ164s
     components-slack-channel-picker--recently-subscribed-first--light:
         hash: v1.k794b7964.54bc88c73e7d32bbab8a32b91162eab1fb1ba78215aa188aa748b65b9fb531b8.YkOXS4kFGcgECAArUGil25uNoJVbhGKe_zYYmpzzu44
+    components-slack-channel-picker--search-dropped-on-blur--dark:
+        hash: v1.k794b7964.29203af8ae5aa26d4990eb59d3c712c80fa5b154bdb8c6ca31806e711985b82f.BbkuhaxBbHeFVYjs-OwhfeWPkE0aYhGbKdeDCekxIYo
+    components-slack-channel-picker--search-dropped-on-blur--light:
+        hash: v1.k794b7964.e43a3c7ff18ddecbe2f0aae9a1ec02f012b37a7878cc24d276c6b595868dd007.Le4wa7PaPoGGlMQMjQddH1-ucxII2N5wMBeW3yf50FE
     components-sparkline--bar-chart--dark:
         hash: v1.k794b7964.65da75bd15e9d0d9f2e575e4eb04e0aaafdb39e02dbc19ba5006cf3651cb792d.zeJ6dGjiWJ_9biIrGypyok73SsFJJ-NLmGNHZJDCJ-w
     components-sparkline--bar-chart--light:
