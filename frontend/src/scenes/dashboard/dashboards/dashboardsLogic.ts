@@ -23,6 +23,7 @@ import { ActivityScope, Breadcrumb, DashboardBasicType } from '~/types'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { UserType } from '../../../types'
+import { UNFILED_DASHBOARDS_FOLDER } from '../dashboardConstants'
 
 export enum DashboardsTab {
     All = 'all',
@@ -93,6 +94,7 @@ export interface dashboardsLogicValues {
     filedDashboardIds: Set<number>
     filteredTags: string[]
     filters: DashboardsFilters
+    folderOptions: string[]
     isFiltering: boolean
     searchedDashboards: DashboardBasicType[] | null
     searchedDashboardsLoading: boolean
@@ -209,6 +211,17 @@ export interface dashboardsLogicMeta {
         ) => DashboardBasicType[]
         dashboardsById: (dashboards: DashboardBasicType[]) => Record<string, DashboardBasicType>
         filedDashboardIds: (dashboards: DashboardBasicType[]) => Set<number>
+        folderOptions: (
+            nameSortedDashboards: (
+                | DashboardBasicType
+                | import('~/types').DashboardType<
+                      import('~/types').QueryBasedInsightModel<
+                          import('~/queries/schema/schema-general').Node<Record<string, any>>
+                      >
+                  >
+            )[],
+            filters: DashboardsFilters
+        ) => string[]
     }
 }
 
@@ -411,6 +424,29 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                     haystack = haystack.filter((d) => d.folder === filters.folder)
                 }
                 return haystack
+            },
+        ],
+
+        // Folders worth offering in the filter: the ones dashboards actually sit in. Built from the
+        // whole project rather than the filtered list, so picking a folder never empties the menu that
+        // picked it, and every option is guaranteed to return at least one row.
+        folderOptions: [
+            (s) => [dashboardsModel.selectors.nameSortedDashboards, s.filters],
+            (allDashboards: DashboardBasicType[], filters: DashboardsFilters): string[] => {
+                const folders = new Set<string>()
+                for (const dashboard of allDashboards) {
+                    // The unfiled default is where dashboards land before anyone files them, so it says
+                    // nothing about how a project is organized. The Folder column hides it for the same reason.
+                    if (dashboard.folder != null && dashboard.folder !== UNFILED_DASHBOARDS_FOLDER) {
+                        folders.add(dashboard.folder)
+                    }
+                }
+                // Keep the active folder selectable even when nothing sits in it any more, so a shared link
+                // to an emptied folder still shows what it is filtering to.
+                if (filters.folder != null) {
+                    folders.add(filters.folder)
+                }
+                return [...folders].sort((a, b) => a.localeCompare(b))
             },
         ],
 

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconFolder, IconPin, IconPinFilled, IconShare, IconX } from '@posthog/icons'
-import { LemonInput, Popover } from '@posthog/lemon-ui'
+import { IconChevronDown, IconFolder, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
+import { LemonInput, LemonSearchableSelect, Popover } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiplePopover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -12,7 +12,7 @@ interface DashboardsFiltersBarProps {
 }
 
 export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps): JSX.Element {
-    const { filters, currentTab, filteredTags, tagSearch, showTagPopover } = useValues(dashboardsLogic)
+    const { filters, currentTab, filteredTags, tagSearch, showTagPopover, folderOptions } = useValues(dashboardsLogic)
     const { setFilters, setTagSearch, setShowTagPopover, setSearch } = useActions(dashboardsLogic)
 
     const createdByIds = filters.createdBy === 'All users' ? [] : filters.createdBy
@@ -132,20 +132,31 @@ export function DashboardsFiltersBar({ extraActions }: DashboardsFiltersBarProps
                             Shared
                         </LemonButton>
                     </div>
-                    {filters.folder != null && (
-                        <LemonButton
-                            active
-                            type="secondary"
-                            size="small"
-                            className="max-w-full"
-                            icon={<IconFolder />}
-                            sideIcon={<IconX />}
-                            onClick={() => setFilters({ folder: null })}
-                            tooltip="Clear folder filter"
-                        >
-                            <span className="truncate">{filters.folder || 'Project root'}</span>
-                        </LemonButton>
-                    )}
+                    <LemonSearchableSelect<string | null>
+                        value={filters.folder ?? null}
+                        onChange={(folder) => setFilters({ folder })}
+                        options={[
+                            { value: null, label: 'All folders' },
+                            ...folderOptions.map((folder) => ({
+                                value: folder,
+                                // A dashboard sitting at the top of the project tree has an empty folder path.
+                                label: folder || 'Project root',
+                            })),
+                        ]}
+                        active={filters.folder != null}
+                        type="secondary"
+                        size="small"
+                        icon={<IconFolder />}
+                        disabledReason={
+                            folderOptions.length === 0 ? 'No dashboards are filed in a folder yet' : undefined
+                        }
+                        dropdownMatchSelectWidth={false}
+                        truncateText={{ maxWidthClass: 'max-w-60' }}
+                        searchPlaceholder="Search folders"
+                        noResultsMessage="No matching folders"
+                        searchInputDataAttr="dashboards-folder-filter-search"
+                        data-attr="dashboards-folder-filter"
+                    />
                 </div>
                 {currentTab !== DashboardsTab.Yours && (
                     <MemberSelectMultiplePopover
