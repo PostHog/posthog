@@ -12,6 +12,8 @@ from parameterized import parameterized
 
 from posthog.models.integration import Integration
 
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     OAuthMixin,
     SSHTunnelMixin,
@@ -36,6 +38,9 @@ class TestIsHostSafe(SimpleTestCase):
             ("localhost", "localhost"),
             ("link_local_imds", "169.254.169.254"),
             ("link_local", "169.254.1.1"),
+            ("cgnat_shared_address_space", "100.64.1.1"),
+            ("cgnat_upper", "100.127.255.254"),
+            ("ipv6_mapped_cgnat", "::ffff:100.64.1.1"),
             ("ipv6_mapped_loopback", "::ffff:127.0.0.1"),
             ("ipv6_mapped_imds", "::ffff:169.254.169.254"),
             ("ipv6_mapped_private", "::ffff:10.0.0.1"),
@@ -523,3 +528,22 @@ class TestDirectHostIsCheckedAtConnect(SimpleTestCase):
             with pytest.raises(Exception, match="Database host not allowed"):
                 with self._connection_cm(entrypoint, config, 999):
                     pass
+
+
+class TestDirectHostRejectionIsNonRetryable(SimpleTestCase):
+    # The rejection is a config problem only the customer can fix, so it has to stop the schedule
+    # the way its SSH counterpart does. Raising it through the real path couples the wording to the
+    # registered pattern: reword one without the other and this fails.
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_rejection_message_matches_a_registered_non_retryable_error(self):
+        config = FakeConfig(host="db.example.com", ssh_tunnel=None)
+        addrinfo = [(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("169.254.169.254", 0))]
+        with (
+            patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=addrinfo),
+            patch(f"{_MIXINS_MODULE}.logger"),
+        ):
+            with pytest.raises(Exception) as exc:
+                with open_ssh_tunnel(config, 999):
+                    pass
+
+        assert error_message_matches(str(exc.value), Any_Source_Errors.keys())

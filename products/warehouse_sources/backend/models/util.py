@@ -691,9 +691,12 @@ def _is_safe_public_ip(host: str) -> bool:
         if ip.sixtofour:
             return _is_safe_public_ip(str(ip.sixtofour))
 
-    return not (
-        ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified
-    )
+    # Require global routability rather than enumerating the families to reject. The enumeration
+    # missed shared address space (100.64.0.0/10), which is neither private nor global to
+    # `ipaddress` but is routinely internal — `posthog/security/url_validation.py` and
+    # `rust/common/dns` both already reject it. Multicast is global by this measure, so it keeps
+    # its own clause.
+    return ip.is_global and not ip.is_multicast
 
 
 # The AWS half matches the global, regional, dashed-regional, dualstack and accelerate endpoints,

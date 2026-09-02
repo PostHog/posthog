@@ -69,9 +69,9 @@ def resolve_safe_host(host: str, team_id: int | None) -> HostResolution:
     Only enforced on cloud deployments — self-hosted instances are allowed
     to connect to any host.
 
-    Resolves hostnames via DNS and checks all resolved IPs against
-    _is_safe_public_ip to block private, loopback, link-local, multicast,
-    reserved, and IPv6-mapped internal addresses.
+    Resolves hostnames via DNS and requires every resolved IP to be globally routable per
+    _is_safe_public_ip, which blocks private, loopback, link-local, multicast, reserved,
+    shared address space (CGNAT), and their IPv6-mapped forms.
 
     team whitelist: team_id 2 in US, team_id 1 in EU are allowed
     to use internal IPs.
@@ -272,12 +272,15 @@ def _check_direct_host(config, team_id: int | None) -> None:
     re-checked on any later scheduled run. A direct database connection is a raw socket, so the
     HTTP egress proxy is not in its path either.
 
-    Unlike `_pinned_ssh_host` this checks without pinning: the caller goes on to connect by
-    hostname, because the database clients downstream need it for SNI and for libpq's
-    multi-address failover (see `_resolve_hostaddr_with_timeout`). Pinning the address that is
-    actually dialed belongs in those clients, where the hostname can be kept alongside it. Until
-    it lives there, a host that answers public here and private on the connect is still reachable
-    — this closes the standing exposure, not the resolve-to-connect race.
+    Unlike `_pinned_ssh_host` this checks without pinning, so a host that answers public here and
+    private on the connect is still reachable: this closes the standing exposure, not the
+    resolve-to-connect race. Pinning belongs in the clients, and for Postgres it costs nothing —
+    `_connect_to_postgres` already builds libpq's `host`/`hostaddr` pair, so the name still
+    carries SNI and every validated address stays in the failover list. What stops it living here
+    is that the address alone is not the decision: `resolve_safe_host` also exempts self-hosted
+    instances, the internal-analytics teams, and PostHog-managed hosts. Re-checking with the bare
+    predicate at the connect would refuse all three, so the policy has to travel with the
+    addresses before the pin can move.
 
     A `team_id` of None fails closed. It changes nothing for a customer team, whose result is the
     same either way; it only costs the internal-host exemption on entry points that don't carry a
