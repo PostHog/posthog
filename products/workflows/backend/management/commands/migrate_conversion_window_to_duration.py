@@ -1,13 +1,11 @@
-import re
 import uuid
 
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from products.workflows.backend.api.hog_flow import MAX_LEGACY_WINDOW_MINUTES, duration_to_minutes
+from products.workflows.backend.api.hog_flow import MAX_LEGACY_WINDOW_MINUTES
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
-
-DURATION_RE = re.compile(r"^\d*\.?\d+[dhms]$")
+from products.workflows.backend.services.timing_reschedule import parse_delay_duration_seconds
 
 MINUTES_PER_DAY = 1440
 
@@ -129,12 +127,16 @@ def duration_string(minutes: int) -> str:
 
 
 def flow_span_days(flow: HogFlow) -> float:
-    """How long the workflow's own delay steps run, which is what says whether a window is plausible."""
-    total = 0.0
+    """Rough timescale of the workflow's fixed delay steps, each clamped per unit the way the worker
+    clamps a delay before it waits, so a step written 90d counts the 30 days it actually waits. This
+    is only a sanity signal for the review table. It sums fixed delays without following branches, so
+    mutually exclusive delays are added together, and it counts neither date-based delays nor
+    condition-wait deadlines. Treat it as approximate, not the exact span any one run follows."""
+    total_seconds = 0.0
     for action in flow.actions or []:
         if not isinstance(action, dict):
             continue
-        duration = (action.get("config") or {}).get("delay_duration")
-        if isinstance(duration, str) and DURATION_RE.match(duration):
-            total += duration_to_minutes(duration)
-    return total / MINUTES_PER_DAY
+        seconds = parse_delay_duration_seconds((action.get("config") or {}).get("delay_duration"))
+        if seconds is not None:
+            total_seconds += seconds
+    return total_seconds / (MINUTES_PER_DAY * 60)
