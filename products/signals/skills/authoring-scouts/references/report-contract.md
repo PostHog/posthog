@@ -149,7 +149,8 @@ A question the summary answers spends an agent run restating the report.
 Good ones widen the finding (who else is affected, since when, what changed), test a hypothesis you could not, or ask for the next step you did not have the standing to take.
 
 **Offer the action your report recommends, so acting on it is one click.**
-The prompt reaches an agent run that can investigate, carry out the report's recommendation, and work the report itself — its work log and its state — so a good action prompt names the concrete work and folds in the bookkeeping: "Add the retry the report recommends, then mark this report resolved".
+The prompt reaches an agent run that can investigate, carry out the report's recommendation, and work the report itself — its work log and its state — so a good action prompt names the concrete work: "Create the alert the report recommends, then mark this report resolved".
+Fold in "mark this report resolved" only when the action completes in place — an action that lands as a pull request must not resolve the report, because a caller resolve closes the report's open PR and the merge resolves the report on its own.
 Suggest only actions your report's own recommendation makes concrete; leave anything a human should weigh first (deleting data, changing a flag serving live traffic) as a question instead.
 
 **Write each prompt as the reader would send it, in their words** — a question they would ask or a request they would make — and make each one stand alone: the prompt reaches an agent that gets the report as context but not your run, so it can't point at "the above" or "the second chart".

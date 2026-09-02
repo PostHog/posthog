@@ -67,7 +67,7 @@ function buildDiscussReportPrompt(reportUrl: string, question: string): string {
     // The task is already linked to the report, but including the URL lets the agent open and read
     // the full report itself. The user's message follows after a blank line for clear separation.
     // Framed as question-or-action because a report's suggested prompts include next-step requests
-    // ("fix X, then mark this report resolved"); "answer this question" would pin the agent to
+    // ("create the alert the report recommends"); "answer this question" would pin the agent to
     // replying instead of acting.
     return `A user sent this about the PostHog Inbox report at ${reportUrl}. If it is a question, answer it; if it asks for action, carry the action out and summarize what you did:\n\n${question.trim()}`
 }
