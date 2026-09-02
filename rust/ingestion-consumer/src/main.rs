@@ -18,6 +18,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
+use ingestion_consumer::batcher::Batcher;
 use ingestion_consumer::config::Config;
 use ingestion_consumer::consumer::IngestionConsumer;
 use ingestion_consumer::debug_recorder::{DebugLoad, DebugRecorder, DebugState, WorkerStatus};
@@ -480,9 +481,19 @@ async fn async_main(config: Config) -> Result<()> {
         }
     }
 
+    // The batcher owns the dispatch orchestration; the consumer loop only
+    // submits polls to it and reads group completions back.
+    let (batcher, batcher_outputs) = Batcher::new(
+        Arc::clone(&dispatcher),
+        Arc::clone(&transport),
+        consumer_handle.clone(),
+        Duration::from_millis(config.consumer_deferred_flush_timeout_ms),
+    );
+
     let consumer = IngestionConsumer::new(
         &config,
-        Arc::clone(&dispatcher),
+        batcher,
+        batcher_outputs,
         transport,
         consumer_handle,
         debug_recorder,

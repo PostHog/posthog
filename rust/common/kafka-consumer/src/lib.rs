@@ -10,4 +10,4 @@ pub use accumulator::{Accumulator, Group, GroupMessage, PolledMessage};
 pub use charge::Charge;
 pub use config::ConsumerConfigBuilder;
 pub use ledger::{OffsetLedger, TakenFrontier};
-pub use types::{Offset, Partition};
+pub use types::{GroupCompletion, Offset, Partition};
