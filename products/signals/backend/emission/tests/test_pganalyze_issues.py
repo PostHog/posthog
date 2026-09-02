@@ -1,10 +1,21 @@
+import json
+
 import pytest
 
 from products.signals.backend.emission.pganalyze_issues import (
     EXTRA_FIELDS,
+    MAX_CITED_QUERY_CHARS,
+    PASSTHROUGH_FIELDS,
     PGANALYZE_ISSUES_CONFIG,
     pganalyze_issue_emitter,
 )
+
+
+def _citing(record: dict, *query_texts: str) -> dict:
+    record["references"] = json.dumps(
+        [{"kind": "Query", "name": f"Query #{i}", "queryText": text} for i, text in enumerate(query_texts)]
+    )
+    return record
 
 
 class TestPgAnalyzeIssueEmitter:
@@ -81,6 +92,51 @@ class TestPgAnalyzeIssueEmitter:
         assert result is not None
         assert "[unknown]" in result.description
 
+    @pytest.mark.parametrize(
+        "query_texts",
+        [
+            ("SELECT * FROM rds_get_stat_dxl_counters()",),
+            ("SELECT relname, seq_scan FROM pg_stat_user_tables WHERE schemaname = 'public'",),
+            ("SELECT table_name FROM information_schema.tables",),
+        ],
+        ids=["rds_function", "pg_stat_view", "qualified_catalog_schema"],
+    )
+    def test_skips_issue_citing_only_monitoring_queries(self, pganalyze_issue_record, query_texts):
+        record = _citing(pganalyze_issue_record, *query_texts)
+
+        assert pganalyze_issue_emitter(team_id=1, record=record) is None
+
+    @pytest.mark.parametrize(
+        "query_texts",
+        [
+            ("SELECT id FROM posthog_team WHERE api_token = $1",),
+            ("SELECT t.id FROM posthog_team t JOIN posthog_organization o ON o.id = t.organization_id",),
+            ("SELECT count(*) FROM pg_stat_activity", "SELECT id FROM posthog_team WHERE api_token = $1"),
+            ("VACUUM ANALYZE posthog_team",),
+        ],
+        ids=["app_table", "joined_app_tables", "monitoring_plus_app_query", "no_relation_parsed"],
+    )
+    def test_emits_issue_citing_any_non_monitoring_query(self, pganalyze_issue_record, query_texts):
+        record = _citing(pganalyze_issue_record, *query_texts)
+
+        assert pganalyze_issue_emitter(team_id=1, record=record) is not None
+
+    def test_cited_queries_reach_extra_bounded(self, pganalyze_issue_record):
+        long_query = "SELECT id FROM posthog_team WHERE api_token IN (" + "$1, " * 500 + "$2)"
+        record = _citing(pganalyze_issue_record, long_query)
+
+        result = pganalyze_issue_emitter(team_id=1, record=record)
+
+        assert result is not None
+        assert len(result.extra["cited_queries"]) == 1
+        assert len(result.extra["cited_queries"][0]) == MAX_CITED_QUERY_CHARS
+
+    def test_cited_queries_absent_when_no_query_is_cited(self, pganalyze_issue_record):
+        result = pganalyze_issue_emitter(team_id=1, record=pganalyze_issue_record)
+
+        assert result is not None
+        assert "cited_queries" not in result.extra
+
     def test_falls_back_when_server_name_missing(self, pganalyze_issue_record):
         pganalyze_issue_record["server_name"] = None
         result = pganalyze_issue_emitter(team_id=1, record=pganalyze_issue_record)
@@ -96,6 +152,12 @@ class TestPgAnalyzeIssuesConfig:
     def test_has_actionability_prompt(self):
         assert PGANALYZE_ISSUES_CONFIG.actionability_prompt is not None
         assert "{description}" in PGANALYZE_ISSUES_CONFIG.actionability_prompt
+
+    def test_gate_sees_the_cited_queries(self):
+        assert PGANALYZE_ISSUES_CONFIG.actionability_context_fields == ("cited_queries",)
+
+    def test_derived_fields_are_not_selected(self):
+        assert set(PGANALYZE_ISSUES_CONFIG.fields) == {"id", "description", *PASSTHROUGH_FIELDS}
 
     def test_has_summarization_prompt(self):
         assert PGANALYZE_ISSUES_CONFIG.summarization_prompt is not None
