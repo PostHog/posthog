@@ -170,6 +170,19 @@
             ],
             "description": "Workflow name."
         },
+        "origin_product": {
+            "anyOf": [
+                {
+                    "description": "* `loops` - Loops",
+                    "enum": ["loops"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set on create, immutable after. Filter the list with `?origin_product=`.\n\n* `loops` - Loops"
+        },
         "trigger_masking": {
             "anyOf": [
                 {

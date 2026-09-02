@@ -53,6 +53,9 @@ const workflowsCreate = (): ToolBase<typeof WorkflowsCreateSchema, WithPostHogUr
             if (params.status !== undefined) {
                 body['status'] = params.status
             }
+            if (params.origin_product !== undefined) {
+                body['origin_product'] = params.origin_product
+            }
             if (params.trigger_masking !== undefined) {
                 body['trigger_masking'] = params.trigger_masking
             }
@@ -187,6 +190,7 @@ const workflowsList = (): ToolBase<typeof WorkflowsListSchema, WithPostHogUrl<Sc
                     id: params.id,
                     limit: params.limit,
                     offset: params.offset,
+                    origin_product: params.origin_product,
                     search: params.search,
                     status: params.status,
                     trigger: params.trigger,
@@ -452,6 +456,9 @@ const workflowsUpdate = (): ToolBase<typeof WorkflowsUpdateSchema, WithPostHogUr
             }
             if (params.description !== undefined) {
                 body['description'] = params.description
+            }
+            if (params.origin_product !== undefined) {
+                body['origin_product'] = params.origin_product
             }
             if (params.trigger_masking !== undefined) {
                 body['trigger_masking'] = params.trigger_masking

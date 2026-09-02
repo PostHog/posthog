@@ -22,6 +22,10 @@ export const HogFlowsListQueryParams = /* @__PURE__ */ zod.object({
     id: zod.string().optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    origin_product: zod
+        .enum(['loops'])
+        .optional()
+        .describe('Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.'),
     search: zod.string().optional().describe('Case-insensitive search across workflow name and description.'),
     status: zod
         .enum(['active', 'archived', 'draft'])
@@ -78,6 +82,12 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'draft (no execution), active (live), archived (disabled).\n\n\* `draft` - Draft\n\* `active` - Active\n\* `archived` - Archived'
+            ),
+        origin_product: zod
+            .union([zod.enum(['loops']).describe('\* `loops` - Loops'), zod.null()])
+            .optional()
+            .describe(
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set on create, immutable after. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops'
             ),
         trigger_masking: zod
             .union([
@@ -467,6 +477,12 @@ export const HogFlowsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(hogFlowsPartialUpdateBodyNameMax).nullish().describe('Workflow name.'),
         description: zod.string().optional().describe('Optional description.'),
+        origin_product: zod
+            .union([zod.enum(['loops']).describe('\* `loops` - Loops'), zod.null()])
+            .optional()
+            .describe(
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set on create, immutable after. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops'
+            ),
         trigger_masking: zod
             .union([
                 zod.object({
