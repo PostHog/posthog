@@ -346,7 +346,10 @@ describe('PersonhogPersonsStore', () => {
 
         // A late prefetch response reporting absence must not erase the
         // resolved mapping.
-        ;(store as any).recordFetch(1, 'd1', null, 0, { grade: 'update', generation: (store as any).generationOf(1) })
+        ;(store as any).cacheFetchedPerson(1, 'd1', null, 0, {
+            grade: 'update',
+            generation: (store as any).generationOf(1),
+        })
         const again = await bound.fetchForUpdate(1, 'd1')
         expect(again?.id).toBe('7')
     })
@@ -787,7 +790,7 @@ describe('PersonhogPersonsStore', () => {
 
         it('an aborted fold purges the survivor projection it may have moved past', async () => {
             const bound = store.forBatch(0)
-            ;(store as any).installProjection('1:7', { ...person, version: 3 })
+            ;(store as any).setCachedPersonForUpdate('1:7', { ...person, version: 3 })
             repository.mergePersons = jest.fn().mockResolvedValue({
                 survivor: { ...person, version: 9 },
                 results: [
@@ -941,7 +944,7 @@ describe('PersonhogPersonsStore', () => {
 
             // Installing identity's lagging document instead would roll the
             // batch's own flushed write out of its view.
-            expect((store as any).lookup(1, 'd1', 'check')).toMatchObject({
+            expect((store as any).getCachedPerson(1, 'd1', 'check')).toMatchObject({
                 properties: { plan: 'free', fromBatch: 'yes' },
             })
         })
@@ -1002,7 +1005,7 @@ describe('PersonhogPersonsStore', () => {
                 { distinctId: 'd2' }
             )
 
-            expect((store as any).lookup(1, 'd1', 'check')).toMatchObject({
+            expect((store as any).getCachedPerson(1, 'd1', 'check')).toMatchObject({
                 version: 5,
                 properties: { plan: 'pro' },
             })
