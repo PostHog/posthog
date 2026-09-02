@@ -12,7 +12,9 @@ Anonymous users are controlled by widget_session_id. Verified users are controll
 """
 
 import uuid
+import hashlib
 import logging
+from typing import Literal
 
 from django.db.models import F, Q
 
@@ -50,9 +52,16 @@ from products.conversations.backend.cache import (
 )
 from products.conversations.backend.models import SigningSecret, Ticket
 from products.conversations.backend.models.constants import ChannelDetail
-from products.conversations.backend.services.identity import verify_identity_hash
+from products.conversations.backend.services.identity import (
+    canonicalize_claim_value,
+    verify_identity_claim_hash,
+    verify_identity_hash,
+)
 
 logger = logging.getLogger(__name__)
+
+IdentityClaimField = Literal["email"]
+TicketOwnershipMatch = Literal["distinct_id", "email"]
 
 IDENTITY_VERIFICATION_COUNTER = Counter(
     "conversations_identity_verification_total",
@@ -113,20 +122,31 @@ def _identity_secrets(team: Team) -> list[tuple[str, str]]:
     return secrets + legacy_secrets
 
 
-def _verify_identity(data: dict, team: Team) -> str | None:
+def _request_identity_secrets(data: dict, team: Team) -> list[tuple[str, str]] | None:
+    if not data.get("identity_distinct_id") or not data.get("identity_hash"):
+        return None
+    return _identity_secrets(team)
+
+
+def _verify_identity(
+    data: dict,
+    team: Team,
+    secrets: list[tuple[str, str]] | None = None,
+) -> str | None:
     """
     Verify HMAC identity fields against the team's signing secret, falling back to the
     legacy secret API token and its rotation backup.
     Returns the verified distinct_id, or None if identity fields not present.
     Raises IdentityVerificationFailed if identity was attempted but failed.
+    An explicit empty secrets list means no credential is configured; None resolves it here.
     """
     distinct_id = data.get("identity_distinct_id")
     hash_value = data.get("identity_hash")
     if not distinct_id or not hash_value:
         return None
 
-    secrets = _identity_secrets(team)
-    if not secrets:
+    resolved_secrets = secrets if secrets is not None else _identity_secrets(team)
+    if not resolved_secrets:
         logger.warning(
             "Identity verification attempted but team has no signing secret or legacy token",
             extra={"team_id": team.id},
@@ -134,13 +154,103 @@ def _verify_identity(data: dict, team: Team) -> str | None:
         IDENTITY_VERIFICATION_COUNTER.labels(outcome="not_configured", source="none").inc()
         raise IdentityVerificationNotConfigured("Team has no signing secret")
 
-    for source, secret in secrets:
+    for source, secret in resolved_secrets:
         if verify_identity_hash(distinct_id, hash_value, secret):
             IDENTITY_VERIFICATION_COUNTER.labels(outcome="verified", source=source).inc()
             return distinct_id
 
     IDENTITY_VERIFICATION_COUNTER.labels(outcome="invalid_hash", source="none").inc()
     raise IdentityVerificationFailed("Invalid identity hash")
+
+
+def _verify_identity_claim(
+    data: dict,
+    team: Team,
+    verified_distinct_id: str,
+    *,
+    field: IdentityClaimField = "email",
+    secrets: list[tuple[str, str]] | None = None,
+) -> str | None:
+    """Verify a signed identity claim for one named field, returning its canonical value.
+
+    The claim wire format is `identity_<field>` + `identity_hash_<field>`. The hash is verified
+    against the same secrets as the base identity, bound to the already-verified distinct_id.
+    Fail-closed: a missing, tampered, or unverifiable claim returns None so the caller falls
+    back to distinct_id-only access rather than raising. Only call with a distinct_id that was
+    already verified by `_verify_identity`.
+    """
+    value = data.get(f"identity_{field}")
+    hash_value = data.get(f"identity_hash_{field}")
+    if not value or not hash_value:
+        return None
+
+    resolved_secrets = secrets if secrets is not None else _identity_secrets(team)
+    if not resolved_secrets:
+        return None
+
+    try:
+        canonical = canonicalize_claim_value(field, value)
+    except ValueError:
+        IDENTITY_VERIFICATION_COUNTER.labels(outcome="claim_invalid", source="none").inc()
+        return None
+
+    for source, secret in resolved_secrets:
+        if verify_identity_claim_hash(verified_distinct_id, field, canonical, hash_value, secret):
+            IDENTITY_VERIFICATION_COUNTER.labels(outcome="claim_verified", source=source).inc()
+            return canonical
+
+    IDENTITY_VERIFICATION_COUNTER.labels(outcome="claim_invalid", source="none").inc()
+    return None
+
+
+# PostHog treats Zendesk as the source of record for imported requester emails. Other NULL
+# identities can be client-supplied legacy widget data and must never bridge by email.
+_EMAIL_BRIDGE_TRUSTED = Q(identity_verified=True) | (
+    Q(identity_verified__isnull=True) & Q(zendesk_ticket_id__isnull=False)
+)
+
+
+def _identity_ticket_filter(team: Team, verified_distinct_id: str, verified_email: str | None) -> Q:
+    """Q matching every ticket the verified viewer owns, across channels.
+
+    The viewer's own person distinct_ids cover widget tickets. Other channels key the
+    requester by email in distinct_id (Slack, email, Zendesk), so also match the viewer's
+    attested email against server-attested tickets only. The email is a signed claim verified
+    upstream, never a mutable analytics property.
+    """
+    all_ids = get_person_distinct_ids(team.id, verified_distinct_id)
+    match = Q(distinct_id__in=all_ids)
+    if verified_email:
+        match |= _EMAIL_BRIDGE_TRUSTED & Q(distinct_id__iexact=verified_email)
+    return match
+
+
+def _viewer_ticket_match(
+    team: Team, verified_distinct_id: str, ticket: Ticket, verified_email: str | None
+) -> TicketOwnershipMatch | None:
+    """Return how the verified viewer owns this ticket, mirroring _identity_ticket_filter."""
+    allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
+    if ticket.distinct_id in allowed_ids:
+        return "distinct_id"
+    if not verified_email or not ticket.distinct_id:
+        return None
+    is_trusted_email = ticket.identity_verified is True or (
+        ticket.identity_verified is None and ticket.zendesk_ticket_id is not None
+    )
+    if not is_trusted_email:
+        return None
+    # Keep this no wider than _identity_ticket_filter's iexact lookup, which does not trim.
+    if ticket.distinct_id.lower() == verified_email:
+        return "email"
+    return None
+
+
+def _identity_tickets_cache_key(verified_distinct_id: str, verified_email: str | None) -> str:
+    base_key = f"iv:{verified_distinct_id}"
+    if not verified_email:
+        return base_key
+    email_digest = hashlib.sha256(verified_email.encode()).hexdigest()
+    return f"{base_key}:email:{email_digest}"
 
 
 class WidgetMessageView(APIView):
@@ -207,7 +317,8 @@ class WidgetMessageView(APIView):
             )
 
         try:
-            verified_distinct_id = _verify_identity(serializer.validated_data, team)
+            identity_secrets = _request_identity_secrets(serializer.validated_data, team)
+            verified_distinct_id = _verify_identity(serializer.validated_data, team, identity_secrets)
         except IdentityVerificationFailed as e:
             return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
 
@@ -241,9 +352,13 @@ class WidgetMessageView(APIView):
             try:
                 ticket = Ticket.objects.get(id=ticket_id, team=team)
 
+                ownership_match: TicketOwnershipMatch | None = None
                 if verified_distinct_id is not None:
-                    allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
-                    if ticket.distinct_id not in allowed_ids:
+                    verified_email = _verify_identity_claim(
+                        serializer.validated_data, team, verified_distinct_id, secrets=identity_secrets
+                    )
+                    ownership_match = _viewer_ticket_match(team, verified_distinct_id, ticket, verified_email)
+                    if ownership_match is None:
                         return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
                 else:
                     # CRITICAL: Verify ticket belongs to this widget_session_id (NOT distinct_id)
@@ -252,7 +367,7 @@ class WidgetMessageView(APIView):
 
                 # Only HMAC-verified requests may (re)bind a ticket's distinct_id.
                 # Anonymous → identified continuity is still handled by person merging.
-                if verified_distinct_id is not None and ticket.distinct_id != distinct_id:
+                if ownership_match == "distinct_id" and ticket.distinct_id != distinct_id:
                     ticket.distinct_id = distinct_id
 
                 # Update traits if provided
@@ -266,7 +381,7 @@ class WidgetMessageView(APIView):
                     ticket.session_context.update(session_context)
 
                 # HMAC-verified requests are server-attested — mark the identity trusted.
-                if verified_distinct_id is not None:
+                if ownership_match == "distinct_id":
                     ticket.identity_verified = True
 
                 # Increment unread count for team (customer sent a message)
@@ -383,13 +498,16 @@ class WidgetMessagesView(APIView):
 
         # Verify ownership: identity mode uses distinct_id, legacy uses widget_session_id
         try:
-            verified_distinct_id = _verify_identity(query_serializer.validated_data, team)
+            identity_secrets = _request_identity_secrets(query_serializer.validated_data, team)
+            verified_distinct_id = _verify_identity(query_serializer.validated_data, team, identity_secrets)
         except IdentityVerificationFailed as e:
             return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
 
         if verified_distinct_id is not None:
-            allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
-            if ticket.distinct_id not in allowed_ids:
+            verified_email = _verify_identity_claim(
+                query_serializer.validated_data, team, verified_distinct_id, secrets=identity_secrets
+            )
+            if _viewer_ticket_match(team, verified_distinct_id, ticket, verified_email) is None:
                 return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         elif "widget_session_id" in query_serializer.validated_data:
             widget_session_id = str(query_serializer.validated_data["widget_session_id"])
@@ -497,12 +615,17 @@ class WidgetTicketsView(APIView):
             )
 
         try:
-            verified_distinct_id = _verify_identity(query_serializer.validated_data, team)
+            identity_secrets = _request_identity_secrets(query_serializer.validated_data, team)
+            verified_distinct_id = _verify_identity(query_serializer.validated_data, team, identity_secrets)
         except IdentityVerificationFailed as e:
             return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
 
+        verified_email: str | None = None
         if verified_distinct_id is not None:
-            cache_key_id = f"iv:{verified_distinct_id}"
+            verified_email = _verify_identity_claim(
+                query_serializer.validated_data, team, verified_distinct_id, secrets=identity_secrets
+            )
+            cache_key_id = _identity_tickets_cache_key(verified_distinct_id, verified_email)
         elif "widget_session_id" in query_serializer.validated_data:
             cache_key_id = str(query_serializer.validated_data["widget_session_id"])
         else:
@@ -524,8 +647,9 @@ class WidgetTicketsView(APIView):
 
         # Build query
         if verified_distinct_id is not None:
-            all_ids = get_person_distinct_ids(team.id, verified_distinct_id)
-            tickets_query = Ticket.objects.filter(team=team, distinct_id__in=all_ids)
+            tickets_query = Ticket.objects.filter(team=team).filter(
+                _identity_ticket_filter(team, verified_distinct_id, verified_email)
+            )
         else:
             tickets_query = Ticket.objects.filter(team=team, widget_session_id=cache_key_id)
 
@@ -603,20 +727,25 @@ class WidgetMarkReadView(APIView):
 
         # Verify ownership: identity mode uses distinct_id, legacy uses widget_session_id
         try:
-            verified_distinct_id = _verify_identity(body_serializer.validated_data, team)
+            identity_secrets = _request_identity_secrets(body_serializer.validated_data, team)
+            verified_distinct_id = _verify_identity(body_serializer.validated_data, team, identity_secrets)
         except IdentityVerificationFailed as e:
             return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
 
         if verified_distinct_id is not None:
-            allowed_ids = get_person_distinct_ids(team.id, verified_distinct_id)
-            if ticket.distinct_id not in allowed_ids:
+            verified_email = _verify_identity_claim(
+                body_serializer.validated_data, team, verified_distinct_id, secrets=identity_secrets
+            )
+            if _viewer_ticket_match(team, verified_distinct_id, ticket, verified_email) is None:
                 return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
-            cache_invalidation_key = f"iv:{verified_distinct_id}"
+            cache_invalidation_keys = [_identity_tickets_cache_key(verified_distinct_id, verified_email)]
+            if verified_email:
+                cache_invalidation_keys.append(_identity_tickets_cache_key(verified_distinct_id, None))
         elif "widget_session_id" in body_serializer.validated_data:
             widget_session_id = str(body_serializer.validated_data["widget_session_id"])
             if ticket.widget_session_id != widget_session_id:
                 return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
-            cache_invalidation_key = widget_session_id
+            cache_invalidation_keys = [widget_session_id]
         else:
             return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -624,6 +753,7 @@ class WidgetMarkReadView(APIView):
         if ticket.unread_customer_count > 0:
             ticket.unread_customer_count = 0
             ticket.save(update_fields=["unread_customer_count", "updated_at"])
-            invalidate_tickets_cache(team.id, cache_invalidation_key)
+            for cache_invalidation_key in cache_invalidation_keys:
+                invalidate_tickets_cache(team.id, cache_invalidation_key)
 
         return Response({"success": True, "unread_count": 0})

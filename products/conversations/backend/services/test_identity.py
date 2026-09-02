@@ -1,9 +1,15 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
-from products.conversations.backend.services.identity import compute_identity_hash, verify_identity_hash
+from products.conversations.backend.services.identity import (
+    canonicalize_claim_value,
+    compute_identity_claim_hash,
+    compute_identity_hash,
+    verify_identity_claim_hash,
+    verify_identity_hash,
+)
 
 
-class TestIdentityService(BaseTest):
+class TestIdentityService(SimpleTestCase):
     def test_compute_identity_hash_deterministic(self):
         h1 = compute_identity_hash("user_123", "secret")
         h2 = compute_identity_hash("user_123", "secret")
@@ -40,3 +46,40 @@ class TestIdentityService(BaseTest):
         h = compute_identity_hash("user_123", "secret")
         self.assertEqual(len(h), 64)
         int(h, 16)  # should not raise
+
+
+class TestIdentityClaimHash(SimpleTestCase):
+    def test_claim_hash_verifies(self):
+        h = compute_identity_claim_hash("user_123", "email", "a@example.com", "secret")
+        self.assertTrue(verify_identity_claim_hash("user_123", "email", "a@example.com", h, "secret"))
+
+    def test_claim_hash_bound_to_distinct_id(self):
+        h = compute_identity_claim_hash("user_123", "email", "a@example.com", "secret")
+        self.assertFalse(verify_identity_claim_hash("user_456", "email", "a@example.com", h, "secret"))
+
+    def test_claim_hash_bound_to_field(self):
+        # A hash minted for email must not verify when presented as another field.
+        h = compute_identity_claim_hash("user_123", "email", "a@example.com", "secret")
+        self.assertFalse(verify_identity_claim_hash("user_123", "phone", "a@example.com", h, "secret"))
+
+    def test_claim_hash_bound_to_version(self):
+        h = compute_identity_claim_hash("user_123", "email", "a@example.com", "secret", version="v1")
+        self.assertFalse(verify_identity_claim_hash("user_123", "email", "a@example.com", h, "secret", version="v2"))
+
+    def test_email_canonicalized_before_signing(self):
+        # Different-cased / padded input signs to the same hash as the canonical form.
+        h_raw = compute_identity_claim_hash("user_123", "email", "  A@Example.COM ", "secret")
+        h_canonical = compute_identity_claim_hash("user_123", "email", "a@example.com", "secret")
+        self.assertEqual(h_raw, h_canonical)
+        self.assertTrue(verify_identity_claim_hash("user_123", "email", "  A@Example.COM ", h_canonical, "secret"))
+
+    def test_unknown_field_cannot_be_signed(self):
+        with self.assertRaises(ValueError):
+            compute_identity_claim_hash("user_123", "org", "acme", "secret")
+
+    def test_nul_in_claim_part_cannot_be_signed(self):
+        with self.assertRaises(ValueError):
+            compute_identity_claim_hash("user_123\x00admin", "email", "a@example.com", "secret")
+
+    def test_canonicalize_email(self):
+        self.assertEqual(canonicalize_claim_value("email", "  A@Example.COM "), "a@example.com")

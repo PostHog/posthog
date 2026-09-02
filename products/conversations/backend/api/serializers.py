@@ -61,6 +61,18 @@ class WidgetAuthSerializer(serializers.Serializer):
         required=False,
         help_text="HMAC-SHA256 of identity_distinct_id using the team's signing secret",
     )
+    # Optional signed email claim. EmailField bounds and validates the value before it can
+    # reach a SQL match; the hash is a signed claim binding this email to identity_distinct_id.
+    identity_email = serializers.EmailField(
+        required=False,
+        max_length=254,
+        help_text="Verified email claim (requires identity_hash_email)",
+    )
+    identity_hash_email = serializers.RegexField(
+        r"^[0-9a-f]{64}$",
+        required=False,
+        help_text="Signed HMAC-SHA256 email claim bound to identity_distinct_id",
+    )
 
     def validate(self, data):
         has_session = "widget_session_id" in data
@@ -68,6 +80,12 @@ class WidgetAuthSerializer(serializers.Serializer):
         if not has_session and not has_identity:
             raise serializers.ValidationError(
                 "Either widget_session_id or both identity_distinct_id and identity_hash are required"
+            )
+        has_email = "identity_email" in data
+        has_email_hash = "identity_hash_email" in data
+        if has_email != has_email_hash or (has_email and not has_identity):
+            raise serializers.ValidationError(
+                "Send identity_email and identity_hash_email together with identity_distinct_id and identity_hash."
             )
         return data
 
