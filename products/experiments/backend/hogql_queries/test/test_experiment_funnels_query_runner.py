@@ -25,6 +25,7 @@ from posthog.schema import (
     ExperimentFunnelsQuery,
     ExperimentSignificanceCode,
     FunnelsQuery,
+    FunnelVizType,
     PersonsOnEventsMode,
 )
 
@@ -117,6 +118,26 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             query_runner.prepared_funnels_query.breakdownFilter.breakdown,
             f"$feature/{original_key}",
         )
+
+    @parameterized.expand([[FunnelVizType.TRENDS], [FunnelVizType.TIME_TO_CONVERT]])
+    def test_stored_non_steps_viz_type_is_forced_to_steps(self, stored_viz_type):
+        experiment = self.create_experiment(feature_flag=self.create_feature_flag())
+
+        query_runner = ExperimentFunnelsQueryRunner(
+            query=ExperimentFunnelsQuery(
+                experiment_id=experiment.id,
+                kind="ExperimentFunnelsQuery",
+                funnels_query=FunnelsQuery(
+                    series=[EventsNode(event="$pageview"), EventsNode(event="purchase")],
+                    dateRange={"date_from": "2020-01-01", "date_to": "2020-01-14"},
+                    funnelsFilter={"funnelVizType": stored_viz_type},
+                ),
+            ),
+            team=self.team,
+        )
+
+        assert query_runner.prepared_funnels_query.funnelsFilter is not None
+        self.assertEqual(query_runner.prepared_funnels_query.funnelsFilter.funnelVizType, FunnelVizType.STEPS)
 
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner(self):
