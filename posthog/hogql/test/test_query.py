@@ -1785,6 +1785,34 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.results, [(expected,)])
 
+    @parameterized.expand(
+        [
+            ("has", "SELECT has({variables.event_names}, 'pageview')"),
+            ("indexOf", "SELECT indexOf({variables.event_names}, 'pageview')"),
+            ("hasAny_second_argument", "SELECT hasAny(['pageview'], {variables.event_names})"),
+        ]
+    )
+    def test_single_select_list_variable_in_an_array_function_names_the_variable(self, _name: str, query: str) -> None:
+        insight_variable = InsightVariable.objects.create(
+            team=self.team,
+            name="Event names",
+            code_name="event_names",
+            type=InsightVariable.Type.LIST,
+            is_multi=False,
+        )
+        variables = {
+            "event_names": HogQLVariable(
+                code_name="event_names",
+                value="pageview",
+                variableId=str(insight_variable.id),
+            )
+        }
+
+        with self.assertRaises(QueryError) as e:
+            execute_hogql_query(query, team=self.team, variables=variables)
+
+        self.assertIn("Variable event_names holds a single value", str(e.exception))
+
     @freeze_time("2026-08-06 12:00:00")
     def test_relative_date_variable_is_resolved_when_the_query_runs(self):
         insight_variable = InsightVariable.objects.create(

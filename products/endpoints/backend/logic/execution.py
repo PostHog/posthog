@@ -126,8 +126,22 @@ _QUERY_PERFORMANCE_ERRORS: dict[type[Exception], tuple[str, str]] = {
 _QUERY_GUARDRAIL_ERRORS: tuple[type[Exception], ...] = (*_QUERY_PERFORMANCE_ERRORS, ClickHouseAtCapacity)
 
 
+# The classes execute() answers with a 400 and counts as status="user_error". A broken customer
+# query is not a PostHog fault, so it must not open an issue in our own error tracking.
+_USER_QUERY_ERRORS: tuple[type[Exception], ...] = (
+    ExposedHogQLError,
+    ExposedCHQueryError,
+    ResolutionError,
+    HogVMException,
+)
+
+
 def _is_query_guardrail_error(error: BaseException) -> bool:
     return isinstance(error, _QUERY_GUARDRAIL_ERRORS)
+
+
+def _is_user_query_error(error: BaseException) -> bool:
+    return isinstance(error, _USER_QUERY_ERRORS)
 
 
 def _query_performance_code_and_detail(error: BaseException) -> tuple[str, str]:
@@ -829,16 +843,17 @@ class EndpointExecutionService(PydanticModelMixin):
                 saved_query_id=saved_query.id if saved_query else None,
                 saved_query_status=saved_query.status if saved_query else None,
             )
-            capture_exception(
-                e,
-                {
-                    "product": Product.ENDPOINTS,
-                    "team_id": self.team.pk,
-                    "endpoint_name": endpoint.name,
-                    "materialized": True,
-                    "saved_query_id": saved_query.id if saved_query else None,
-                },
-            )
+            if not _is_user_query_error(e):
+                capture_exception(
+                    e,
+                    {
+                        "product": Product.ENDPOINTS,
+                        "team_id": self.team.pk,
+                        "endpoint_name": endpoint.name,
+                        "materialized": True,
+                        "saved_query_id": saved_query.id if saved_query else None,
+                    },
+                )
             _emit_endpoint_failure_signal(
                 self.team,
                 endpoint,
@@ -935,15 +950,16 @@ class EndpointExecutionService(PydanticModelMixin):
                 "Inline endpoint execution failed",
                 endpoint_name=endpoint.name,
             )
-            capture_exception(
-                e,
-                {
-                    "product": Product.ENDPOINTS,
-                    "team_id": self.team.pk,
-                    "materialized": False,
-                    "endpoint_name": endpoint.name,
-                },
-            )
+            if not _is_user_query_error(e):
+                capture_exception(
+                    e,
+                    {
+                        "product": Product.ENDPOINTS,
+                        "team_id": self.team.pk,
+                        "materialized": False,
+                        "endpoint_name": endpoint.name,
+                    },
+                )
             query_kind = strategy.query_kind if strategy else query.get("kind")
             _emit_endpoint_failure_signal(
                 self.team,

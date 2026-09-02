@@ -11,9 +11,9 @@ from rest_framework.response import Response
 
 from posthog.schema import EventsNode, TrendsQuery
 
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
-from posthog.errors import CHQueryErrorNoCommonType
+from posthog.errors import CHQueryErrorIllegalTypeOfArgument, CHQueryErrorNoCommonType
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.endpoints.backend.logic.execution import EndpointExecutionService
@@ -186,6 +186,34 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("Query execution failed.", detail)
         if forbidden_detail:
             self.assertNotIn(forbidden_detail, detail)
+
+    @parameterized.expand(
+        [
+            ("exposed_hogql_error", ExposedHogQLError("Unknown field: bad"), False),
+            ("clickhouse_query_error", CHQueryErrorIllegalTypeOfArgument("bad argument", code=43), False),
+            ("resolution_error", ResolutionError("Unable to resolve field"), False),
+            ("internal_fault", RuntimeError("synthetic failure"), True),
+        ]
+    )
+    def test_customer_query_errors_are_not_captured_as_posthog_exceptions(
+        self, _name: str, error: Exception, expect_capture: bool
+    ):
+        endpoint = create_endpoint_with_version(
+            name=f"{_name}_capture",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+            created_by=self.user,
+            is_active=True,
+        )
+
+        with (
+            mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=error),
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture,
+            mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal"),
+        ):
+            self.client.post(f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json")
+
+        self.assertEqual(mock_capture.called, expect_capture)
 
     def test_hogql_endpoint_executes_with_variable_override(self):
         endpoint = create_endpoint_with_version(

@@ -17,6 +17,17 @@ from products.product_analytics.backend.facade.enums import InsightVariableType
 
 T = TypeVar("T", bound=ast.Expr)
 
+# Argument positions that must hold an array. A single-select list variable substitutes as a
+# scalar, so ClickHouse rejects the generated SQL with a type error that never names the variable.
+_ARRAY_ARGUMENT_POSITIONS: dict[str, tuple[int, ...]] = {
+    "has": (0,),
+    "hasall": (0, 1),
+    "hasany": (0, 1),
+    "indexof": (0,),
+    "arrayelement": (0,),
+    "arrayjoin": (0,),
+}
+
 
 def replace_variables(node: T, variables: list[HogQLVariable], team: Team) -> T:
     return ReplaceVariables(variables, team).visit(node)
@@ -31,6 +42,27 @@ class ReplaceVariables(CloningVisitor):
         self.insight_variables = insight_variables_by_ids(team.pk, [v.variableId for v in variables])
         self.variables = variables
         self.team = team
+
+    def visit_call(self, node: ast.Call) -> ast.Expr:
+        for position in _ARRAY_ARGUMENT_POSITIONS.get(node.name.lower(), ()):
+            if position < len(node.args):
+                self._check_array_argument(node.args[position], node.name)
+        return super().visit_call(node)
+
+    def _check_array_argument(self, argument: ast.Expr, function_name: str) -> None:
+        chain = argument.chain if isinstance(argument, ast.Placeholder) else None
+        if not chain or len(chain) < 2 or chain[0] != "variables":
+            return
+
+        variable_code_name = str(chain[1])
+        definition = next((v for v in self.insight_variables if v.code_name == variable_code_name), None)
+        if definition is None or definition.type != InsightVariableType.LIST or definition.is_multi:
+            return
+
+        raise QueryError(
+            f"Variable {variable_code_name} holds a single value, but {function_name}() needs a list. "
+            f"Set the variable to allow multiple values, or pass an array instead."
+        )
 
     def visit_placeholder(self, node):
         if node.chain and node.chain[0] == "variables":
