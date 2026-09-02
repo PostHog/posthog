@@ -10,10 +10,16 @@ import type { MetricTopMoverRow } from '../metricsAnomaly'
 import { type MetricsAnomalyBadge, metricsViewerLogic } from './metricsViewerLogic'
 
 const MoverRow = ({ mover, onClick }: { mover: MetricTopMoverRow; onClick: () => void }): JSX.Element => (
-    <LemonButton fullWidth size="small" onClick={onClick} data-attr="metrics-anomaly-mover">
+    <LemonButton
+        fullWidth
+        size="small"
+        onClick={mover.isFilterable ? onClick : undefined}
+        disabledReason={mover.isFilterable ? undefined : 'These series report no value for this attribute'}
+        data-attr="metrics-anomaly-mover"
+    >
         <div className="flex items-center justify-between gap-2 w-full min-w-0">
             <span className="truncate font-mono text-xs">
-                {mover.key}={mover.label}
+                {mover.key}={mover.isFilterable ? mover.label : <span className="italic">(none)</span>}
             </span>
             <span className="shrink-0 text-xs text-secondary">
                 {mover.isNew ? (
@@ -69,7 +75,7 @@ export function MetricsAnomalyPanel({ anomaly }: { anomaly: MetricsAnomalyBadge 
                                     }}
                                 />
                             ))}
-                            <div className="px-2 py-1 text-xs text-secondary">Pick one to filter the chart to it.</div>
+                            <div className="px-2 py-1 text-xs text-secondary">Pick one to narrow the chart to it.</div>
                         </>
                     ) : (
                         <div className="px-2 py-1 text-xs text-secondary">

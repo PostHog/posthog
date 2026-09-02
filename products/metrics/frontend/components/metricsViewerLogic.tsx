@@ -617,33 +617,38 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             }
         },
         addAttributeFilter: ({ key, value }) => {
-            const alreadyFiltered = flattenFilterValues(values.filterGroup).some(
+            const inner = values.filterGroup.values[0] as UniversalFiltersGroup
+            const existingIndex = inner.values.findIndex(
                 (filter) =>
+                    !isUniversalGroupFilterLike(filter) &&
                     'key' in filter &&
                     filter.key === key &&
                     'operator' in filter &&
-                    filter.operator === PropertyOperator.Exact &&
-                    toValueStrings('value' in filter ? filter.value : null).includes(value)
+                    filter.operator === PropertyOperator.Exact
             )
-            if (alreadyFiltered) {
+            const existing = existingIndex >= 0 ? (inner.values[existingIndex] as UniversalFilterValue) : null
+            const existingValues = existing ? toValueStrings('value' in existing ? existing.value : null) : []
+            if (existingValues.includes(value)) {
                 return
             }
-            const inner = values.filterGroup.values[0] as UniversalFiltersGroup
+            // Two chips on one key are ANDed, and no series equals both values, so a second pick of
+            // the same key widens the chip it already has instead of adding another.
+            const chip = {
+                type: PropertyFilterType.MetricAttribute,
+                key,
+                value: [...existingValues, value],
+                operator: PropertyOperator.Exact,
+            }
+            const nextValues = [...inner.values]
+            if (existingIndex >= 0) {
+                nextValues[existingIndex] = chip as UniversalFilterValue
+            } else {
+                nextValues.push(chip as UniversalFilterValue)
+            }
             actions.setFilterGroup({
                 ...values.filterGroup,
                 values: [
-                    {
-                        ...inner,
-                        values: [
-                            ...inner.values,
-                            {
-                                type: PropertyFilterType.MetricAttribute,
-                                key,
-                                value: [value],
-                                operator: PropertyOperator.Exact,
-                            },
-                        ] as UniversalFiltersGroup['values'],
-                    },
+                    { ...inner, values: nextValues as UniversalFiltersGroup['values'] },
                     ...values.filterGroup.values.slice(1),
                 ],
             })

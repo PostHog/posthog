@@ -11,30 +11,34 @@ export interface MetricTopMoverRow {
     direction: 'up' | 'down'
     /** Absent from the baseline window, so there is no ratio to quote — it simply appeared. */
     isNew: boolean
+    /** Whether clicking it can narrow the chart. False for a mover whose label value is empty. */
+    isFilterable: boolean
 }
 
 /**
- * Rank the label values behind a metric's move, largest change first.
+ * Shape the label values behind a metric's move for display.
  *
- * The backend already computes this attribution (`anomaly.py`); this only turns it into
- * something readable. A value with no baseline is reported as new rather than as a huge
- * percentage: the backend yields the anomaly value itself for a zero baseline, so a ratio
- * there says nothing, and "appeared" is the finding anyway.
+ * Order comes from the backend and is preserved. `anomaly.py` ranks by a magnitude that blends
+ * ratio with scale, precisely so a tiny series that tripled does not outrank a large one that
+ * moved a lot — re-sorting on percentage here would undo that and put noise at the top.
+ *
+ * A value with no baseline is reported as new rather than as a huge percentage: the backend
+ * yields the anomaly value itself for a zero baseline, so a ratio there says nothing.
  */
 export const topMoverRows = (movers: _MetricAnomalyDimensionApi[]): MetricTopMoverRow[] =>
-    movers
-        .map((mover) => {
-            const isNew = mover.baseline_value === 0
-            return {
-                key: mover.key,
-                label: mover.label,
-                baselineValue: mover.baseline_value,
-                anomalyValue: mover.anomaly_value,
-                percent: isNew ? 0 : Math.abs(Math.round((mover.change_ratio - 1) * 100)),
-                direction: (mover.anomaly_value >= mover.baseline_value ? 'up' : 'down') as 'up' | 'down',
-                isNew,
-            }
-        })
-        // A value that appeared out of nothing outranks any percentage change, which is why it
-        // cannot share the percentage ordering.
-        .sort((a, b) => Number(b.isNew) - Number(a.isNew) || b.percent - a.percent)
+    movers.map((mover) => {
+        const isNew = mover.baseline_value === 0
+        return {
+            key: mover.key,
+            label: mover.label,
+            baselineValue: mover.baseline_value,
+            anomalyValue: mover.anomaly_value,
+            percent: isNew ? 0 : Math.abs(Math.round((mover.change_ratio - 1) * 100)),
+            // Read off the raw values rather than the ratio, which inverts on a negative baseline.
+            direction: (mover.anomaly_value >= mover.baseline_value ? 'up' : 'down') as 'up' | 'down',
+            isNew,
+            // A group-by on a key some series lack reports an empty label. No equality filter
+            // expresses that, so the row stays informative but is not offered as a drilldown.
+            isFilterable: mover.label !== '',
+        }
+    })
