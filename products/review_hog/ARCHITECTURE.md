@@ -161,9 +161,15 @@ Check these four things before a local `run_review`; don't re-derive them from c
 2. **ngrok tunnels up** (only the user can start ngrok): `curl -s http://localhost:4040/api/tunnels`
    must list all three — `django` → :8010, `gateway` → :3308 (LLM gateway), `mcp` → :8787.
    Without them the Modal sandboxes can't reach the local backend / gateway / MCP.
+   A tunnel can be up while its local service is down: the `llm-gateway` process can crash at stack
+   boot (exit 127), which shows as HTTP 502 on the gateway tunnel while django/mcp answer 200.
+   Probe all three from Modal's network, and on a 502 check the process in phrocs and restart it —
+   the tunnel itself is fine.
 3. **Target PR is reviewable** — non-fork (fork PRs are rejected at fetch) and open. Drafts ARE
    reviewed and published (there is no draft gate) — warn the user before publishing on someone's
-   draft. The PR's reviewable additions count picks the chunking path: ≤400 single chunk (no
+   draft. Private repos outside PostHog work: fetch, clone, and publish all resolve the team's
+   GitHub App installation token per repo server-side, so any repo the integration's installation
+   can access is reviewable. The PR's reviewable additions count picks the chunking path: ≤400 single chunk (no
    chunking LLM), ≤5000 one-shot LLM chunking, above that sandbox chunking (slowest).
 4. **Prior state** — check for an existing report so you know whether this is a fresh r1 or a
    re-review (same-SHA re-runs no-op at publish via the marker + `published_head_sha`):
@@ -189,6 +195,16 @@ Verify a run: `review_hog_reviewreport.run_count` bumps once per finalized turn 
 docker exec posthog-temporal-1 tctl --address temporal:7233 --ns default workflow show \
   --workflow_id "review-pr:<team>:<owner>/<repo>:<pr>"
 ```
+
+**Stall check — confirm the sandboxes are alive after the fan-out.** Within ~15–20 minutes of the
+perspective wave starting, the ngrok request log (`curl -s "http://localhost:4040/api/requests/http?limit=5"`,
+or the ngrok terminal dashboard) must show task fetches from the sandboxes. Open `issues-review`
+process-task workflows with **zero** tunnel traffic means the sandboxes never started — the worker
+can wedge before sandbox provisioning while its heartbeat signals keep flowing, so Temporal looks
+alive and artefact-count polling can't tell "slow agents" from "nothing running" (perspective units
+normally finish in ~8–15 min). A run in that state does not recover on its own: restart the
+temporal worker (via phrocs). The fresh worker retries the stuck activities, and the
+head_sha-scoped DB resume makes the redo cheap.
 
 ---
 

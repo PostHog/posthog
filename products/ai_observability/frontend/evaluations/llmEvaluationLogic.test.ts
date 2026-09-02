@@ -1080,6 +1080,27 @@ return result`,
                 })
             })
         })
+
+        // Without this the failed query keeps the default empty list, and the table shows "no runs
+        // yet" instead of a failure state — the bug this fix addresses.
+        describe('evaluationRunsError', () => {
+            it('records the failure so the table can show an error state', async () => {
+                logic.actions.loadEvaluationRunsFailure('boom')
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationRunsError: true,
+                })
+            })
+
+            it('clears the error on the next successful load', async () => {
+                logic.actions.loadEvaluationRunsFailure('boom')
+                logic.actions.loadEvaluationRunsSuccess(mockRuns)
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationRunsError: false,
+                })
+            })
+        })
     })
 
     describe('hog evaluation type', () => {

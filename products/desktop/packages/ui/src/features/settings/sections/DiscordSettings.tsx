@@ -1,3 +1,4 @@
+import { ArrowSquareOutIcon } from "@phosphor-icons/react";
 import { useService } from "@posthog/di/react";
 import { Switch } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared";
@@ -12,8 +13,12 @@ import {
   SettingsSection,
 } from "@posthog/ui/features/settings/components/SettingsCard";
 import { track } from "@posthog/ui/shell/analytics";
+import { openUrlInBrowser } from "@posthog/ui/utils/browser";
 import { useEffect, useState } from "react";
 import { DiscordPresencePreview } from "./DiscordPresencePreview";
+
+const DISCORD_DOCS_URL =
+  "https://posthog.com/docs/libraries/discord?tab=Desktop";
 
 // Fallback used for optimistic toggle updates that fire before the initial
 // getState resolves, so the Switch reflects the change immediately instead of
@@ -112,7 +117,7 @@ export function DiscordSettings() {
       {enabled ? (
         <SettingsSection
           label="Privacy"
-          description="What the Rich Presence card reveals about your session."
+          description="What the Rich Presence card reveals about your session"
         >
           <SettingsCard>
             <SettingsCardRow
@@ -144,6 +149,17 @@ export function DiscordSettings() {
         showTaskTitle={state?.showTaskTitle ?? false}
         showRepoName={state?.showRepoName ?? false}
       />
+
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => void openUrlInBrowser(DISCORD_DOCS_URL)}
+          className="inline-flex cursor-pointer items-center gap-1 border-0 bg-transparent p-0 text-muted-foreground text-xs no-underline hover:text-foreground"
+        >
+          Learn about the Discord integration
+          <ArrowSquareOutIcon size={11} />
+        </button>
+      </div>
     </div>
   );
 }

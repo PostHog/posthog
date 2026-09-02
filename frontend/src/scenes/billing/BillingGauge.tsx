@@ -7,7 +7,12 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
-import { createProductValueFormatter, formatDisplayUsage, hasDisplayFormatting } from './billing-utils'
+import {
+    createProductValueFormatter,
+    formatDisplayUsage,
+    hasDisplayFormatting,
+    isUsageAtOrOverLimit,
+} from './billing-utils'
 import { BillingGaugeItemType } from './types'
 
 /*
@@ -74,7 +79,7 @@ export function BillingGauge({ items, product }: BillingGaugeProps): JSX.Element
     const maxValue = useMemo(() => {
         return Math.max(100, ...items.map((item) => item.value)) * 1.3
     }, [items])
-    const isWithinUsageLimit = (product.percentage_usage ?? 0) <= 1
+    const isWithinUsageLimit = !isUsageAtOrOverLimit(product.percentage_usage)
 
     const sortedItems = useMemo(() => {
         return [...items].sort((a, b) => a.value - b.value)

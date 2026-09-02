@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Any, cast
 
 from django.conf import settings
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Count, Model, OuterRef, Prefetch, Q, Subquery, TextField
 from django.db.models.functions import Cast
 
@@ -154,11 +154,16 @@ class SyncFrequencyBoundSerializer(serializers.Serializer):
     )
 
 
+class SyncFrequencyBlockedBy(models.TextChoices):
+    SOURCE = "source", "source"
+    CONSUMER = "consumer", "consumer"
+
+
 class SyncFrequencyOptionSerializer(serializers.Serializer):
     cadence = serializers.ChoiceField(choices=MATERIALIZE_SYNC_FREQUENCY_CHOICES, help_text="A `sync_frequency` value.")
     allowed = serializers.BooleanField(help_text="False when writing this cadence would be rejected.")
     blocked_by = serializers.ChoiceField(
-        choices=[("source", "source"), ("consumer", "consumer")],
+        choices=SyncFrequencyBlockedBy.choices,
         allow_null=True,
         help_text="Which side withholds this cadence: 'source' when no upstream source syncs that "
         "often, 'consumer' when a downstream view or endpoint refreshes more often than this. "

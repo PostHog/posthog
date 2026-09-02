@@ -10,11 +10,25 @@
 import * as zod from 'zod'
 
 /**
+ * Run the named checks now, or every enabled check in the project when none are named. Returns the suite run to poll for the report.
+ */
+export const DataQualityRunsCreateBody = /* @__PURE__ */ zod
+    .object({
+        check_ids: zod
+            .array(zod.uuid())
+            .optional()
+            .describe('Ids of the checks to run. Omit to run every enabled check in the project.'),
+    })
+    .describe('What to run in a project-wide suite run.')
+
+/**
  * Create a check on this table or view, or refine the one already carrying the same fingerprint. Re-creating a semantically identical check returns 200 and the existing row, never a duplicate.
  */
-export const warehouseSavedQueriesChecksCreateBodyNameMax = 128
+export const warehouseSavedQueriesChecksCreateBodyNameOneMax = 128
 
-export const warehouseSavedQueriesChecksCreateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
+export const warehouseSavedQueriesChecksCreateBodyNameOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
+export const warehouseSavedQueriesChecksCreateBodyNameTwoMax = 0
+
 export const warehouseSavedQueriesChecksCreateBodyColumnNameMax = 400
 
 export const warehouseSavedQueriesChecksCreateBodyAiModelMax = 128
@@ -25,9 +39,13 @@ export const warehouseSavedQueriesChecksCreateBodyConfidenceMax = 1
 export const WarehouseSavedQueriesChecksCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod
-            .string()
-            .max(warehouseSavedQueriesChecksCreateBodyNameMax)
-            .regex(warehouseSavedQueriesChecksCreateBodyNameRegExp)
+            .union([
+                zod
+                    .string()
+                    .max(warehouseSavedQueriesChecksCreateBodyNameOneMax)
+                    .regex(warehouseSavedQueriesChecksCreateBodyNameOneRegExp),
+                zod.string().max(warehouseSavedQueriesChecksCreateBodyNameTwoMax),
+            ])
             .optional()
             .describe('Optional identifier-safe handle, unique per project. Omit to address the check by id.'),
         description: zod.string().optional().describe('Why this check exists and what a failure means.'),
@@ -80,11 +98,13 @@ export const WarehouseSavedQueriesChecksCreateBody = /* @__PURE__ */ zod
     .describe('The subject is implied by the URL (the parent saved query or table), never part of the body.')
 
 /**
- * CRUD for one subject's checks, plus the actions that run them and report on them.
+ * Edit this check in place, including what it asserts (check_type, column_name, config). The table or view it audits is fixed, and the check keeps its id, run history, latest status, and latest run time. A definition or name already held by another active check comes back as a field error, with nothing written.
  */
-export const warehouseSavedQueriesChecksUpdateBodyNameMax = 128
+export const warehouseSavedQueriesChecksUpdateBodyNameOneMax = 128
 
-export const warehouseSavedQueriesChecksUpdateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
+export const warehouseSavedQueriesChecksUpdateBodyNameOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
+export const warehouseSavedQueriesChecksUpdateBodyNameTwoMax = 0
+
 export const warehouseSavedQueriesChecksUpdateBodyColumnNameMax = 400
 
 export const warehouseSavedQueriesChecksUpdateBodyAiModelMax = 128
@@ -95,9 +115,13 @@ export const warehouseSavedQueriesChecksUpdateBodyConfidenceMax = 1
 export const WarehouseSavedQueriesChecksUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod
-            .string()
-            .max(warehouseSavedQueriesChecksUpdateBodyNameMax)
-            .regex(warehouseSavedQueriesChecksUpdateBodyNameRegExp)
+            .union([
+                zod
+                    .string()
+                    .max(warehouseSavedQueriesChecksUpdateBodyNameOneMax)
+                    .regex(warehouseSavedQueriesChecksUpdateBodyNameOneRegExp),
+                zod.string().max(warehouseSavedQueriesChecksUpdateBodyNameTwoMax),
+            ])
             .optional()
             .describe('Optional identifier-safe handle, unique per project. Omit to address the check by id.'),
         description: zod.string().optional().describe('Why this check exists and what a failure means.'),
@@ -150,11 +174,13 @@ export const WarehouseSavedQueriesChecksUpdateBody = /* @__PURE__ */ zod
     .describe('The subject is implied by the URL (the parent saved query or table), never part of the body.')
 
 /**
- * CRUD for one subject's checks, plus the actions that run them and report on them.
+ * Edit this check in place, including what it asserts (check_type, column_name, config). The table or view it audits is fixed, and the check keeps its id, run history, latest status, and latest run time. A definition or name already held by another active check comes back as a field error, with nothing written.
  */
-export const warehouseSavedQueriesChecksPartialUpdateBodyNameMax = 128
+export const warehouseSavedQueriesChecksPartialUpdateBodyNameOneMax = 128
 
-export const warehouseSavedQueriesChecksPartialUpdateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
+export const warehouseSavedQueriesChecksPartialUpdateBodyNameOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
+export const warehouseSavedQueriesChecksPartialUpdateBodyNameTwoMax = 0
+
 export const warehouseSavedQueriesChecksPartialUpdateBodyColumnNameMax = 400
 
 export const warehouseSavedQueriesChecksPartialUpdateBodyAiModelMax = 128
@@ -165,9 +191,13 @@ export const warehouseSavedQueriesChecksPartialUpdateBodyConfidenceMax = 1
 export const WarehouseSavedQueriesChecksPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod
-            .string()
-            .max(warehouseSavedQueriesChecksPartialUpdateBodyNameMax)
-            .regex(warehouseSavedQueriesChecksPartialUpdateBodyNameRegExp)
+            .union([
+                zod
+                    .string()
+                    .max(warehouseSavedQueriesChecksPartialUpdateBodyNameOneMax)
+                    .regex(warehouseSavedQueriesChecksPartialUpdateBodyNameOneRegExp),
+                zod.string().max(warehouseSavedQueriesChecksPartialUpdateBodyNameTwoMax),
+            ])
             .optional()
             .describe('Optional identifier-safe handle, unique per project. Omit to address the check by id.'),
         description: zod.string().optional().describe('Why this check exists and what a failure means.'),
@@ -223,9 +253,11 @@ export const WarehouseSavedQueriesChecksPartialUpdateBody = /* @__PURE__ */ zod
 /**
  * Create a check on this table or view, or refine the one already carrying the same fingerprint. Re-creating a semantically identical check returns 200 and the existing row, never a duplicate.
  */
-export const warehouseTablesChecksCreateBodyNameMax = 128
+export const warehouseTablesChecksCreateBodyNameOneMax = 128
 
-export const warehouseTablesChecksCreateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
+export const warehouseTablesChecksCreateBodyNameOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
+export const warehouseTablesChecksCreateBodyNameTwoMax = 0
+
 export const warehouseTablesChecksCreateBodyColumnNameMax = 400
 
 export const warehouseTablesChecksCreateBodyAiModelMax = 128
@@ -236,9 +268,13 @@ export const warehouseTablesChecksCreateBodyConfidenceMax = 1
 export const WarehouseTablesChecksCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod
-            .string()
-            .max(warehouseTablesChecksCreateBodyNameMax)
-            .regex(warehouseTablesChecksCreateBodyNameRegExp)
+            .union([
+                zod
+                    .string()
+                    .max(warehouseTablesChecksCreateBodyNameOneMax)
+                    .regex(warehouseTablesChecksCreateBodyNameOneRegExp),
+                zod.string().max(warehouseTablesChecksCreateBodyNameTwoMax),
+            ])
             .optional()
             .describe('Optional identifier-safe handle, unique per project. Omit to address the check by id.'),
         description: zod.string().optional().describe('Why this check exists and what a failure means.'),
@@ -291,11 +327,13 @@ export const WarehouseTablesChecksCreateBody = /* @__PURE__ */ zod
     .describe('The subject is implied by the URL (the parent saved query or table), never part of the body.')
 
 /**
- * CRUD for one subject's checks, plus the actions that run them and report on them.
+ * Edit this check in place, including what it asserts (check_type, column_name, config). The table or view it audits is fixed, and the check keeps its id, run history, latest status, and latest run time. A definition or name already held by another active check comes back as a field error, with nothing written.
  */
-export const warehouseTablesChecksUpdateBodyNameMax = 128
+export const warehouseTablesChecksUpdateBodyNameOneMax = 128
 
-export const warehouseTablesChecksUpdateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
+export const warehouseTablesChecksUpdateBodyNameOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
+export const warehouseTablesChecksUpdateBodyNameTwoMax = 0
+
 export const warehouseTablesChecksUpdateBodyColumnNameMax = 400
 
 export const warehouseTablesChecksUpdateBodyAiModelMax = 128
@@ -306,9 +344,13 @@ export const warehouseTablesChecksUpdateBodyConfidenceMax = 1
 export const WarehouseTablesChecksUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod
-            .string()
-            .max(warehouseTablesChecksUpdateBodyNameMax)
-            .regex(warehouseTablesChecksUpdateBodyNameRegExp)
+            .union([
+                zod
+                    .string()
+                    .max(warehouseTablesChecksUpdateBodyNameOneMax)
+                    .regex(warehouseTablesChecksUpdateBodyNameOneRegExp),
+                zod.string().max(warehouseTablesChecksUpdateBodyNameTwoMax),
+            ])
             .optional()
             .describe('Optional identifier-safe handle, unique per project. Omit to address the check by id.'),
         description: zod.string().optional().describe('Why this check exists and what a failure means.'),
@@ -361,11 +403,13 @@ export const WarehouseTablesChecksUpdateBody = /* @__PURE__ */ zod
     .describe('The subject is implied by the URL (the parent saved query or table), never part of the body.')
 
 /**
- * CRUD for one subject's checks, plus the actions that run them and report on them.
+ * Edit this check in place, including what it asserts (check_type, column_name, config). The table or view it audits is fixed, and the check keeps its id, run history, latest status, and latest run time. A definition or name already held by another active check comes back as a field error, with nothing written.
  */
-export const warehouseTablesChecksPartialUpdateBodyNameMax = 128
+export const warehouseTablesChecksPartialUpdateBodyNameOneMax = 128
 
-export const warehouseTablesChecksPartialUpdateBodyNameRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
+export const warehouseTablesChecksPartialUpdateBodyNameOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_]\*$')
+export const warehouseTablesChecksPartialUpdateBodyNameTwoMax = 0
+
 export const warehouseTablesChecksPartialUpdateBodyColumnNameMax = 400
 
 export const warehouseTablesChecksPartialUpdateBodyAiModelMax = 128
@@ -376,9 +420,13 @@ export const warehouseTablesChecksPartialUpdateBodyConfidenceMax = 1
 export const WarehouseTablesChecksPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod
-            .string()
-            .max(warehouseTablesChecksPartialUpdateBodyNameMax)
-            .regex(warehouseTablesChecksPartialUpdateBodyNameRegExp)
+            .union([
+                zod
+                    .string()
+                    .max(warehouseTablesChecksPartialUpdateBodyNameOneMax)
+                    .regex(warehouseTablesChecksPartialUpdateBodyNameOneRegExp),
+                zod.string().max(warehouseTablesChecksPartialUpdateBodyNameTwoMax),
+            ])
             .optional()
             .describe('Optional identifier-safe handle, unique per project. Omit to address the check by id.'),
         description: zod.string().optional().describe('Why this check exists and what a failure means.'),

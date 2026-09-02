@@ -88,9 +88,13 @@ describe("DesktopPiRpcClientFactory", () => {
 
     await expect(
       factory.create({
-        taskId: "task-1",
-        cwd: "/workspace",
-        projectTrusted: true,
+        taskContext: {
+          taskId: "task-1",
+          cwd: "/workspace",
+          customInstructions: "Keep the patch small.",
+          additionalDirectories: ["/tmp/shared"],
+          channelMode: true,
+        },
       }),
     ).resolves.toBe(client);
     expect(authProxy.start).toHaveBeenCalledWith(
@@ -103,7 +107,6 @@ describe("DesktopPiRpcClientFactory", () => {
     );
     expect(authProxy.start).toHaveBeenCalledWith("https://eu.posthog.com");
     expect(createPiRpcClient).toHaveBeenCalledWith({
-      cwd: "/workspace",
       enrichment: {
         apiUrl: "http://127.0.0.1:5678",
         publicApiUrl: "https://eu.posthog.com",
@@ -121,7 +124,16 @@ describe("DesktopPiRpcClientFactory", () => {
           url: "http://127.0.0.1:4321/posthog",
         },
       },
-      projectTrusted: true,
+      taskContext: {
+        projectId: 1,
+        apiHost: "https://eu.posthog.com",
+        taskId: "task-1",
+        cwd: "/workspace",
+        environment: "local",
+        customInstructions: "Keep the patch small.",
+        additionalDirectories: ["/tmp/shared"],
+        channelMode: true,
+      },
       providerOptions: {
         region: "eu",
         baseUrl: "http://127.0.0.1:1234",

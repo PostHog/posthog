@@ -1,5 +1,7 @@
 from collections import defaultdict
 
+import structlog
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -9,7 +11,7 @@ from posthog.hogql.database.models import (
     LazyJoinToAdd,
     LazyTable,
     LazyTableToAdd,
-    StringDatabaseField,
+    UUIDDatabaseField,
 )
 from posthog.hogql.database.schema.util.revenue_analytics import get_table_kind, is_event_view
 from posthog.hogql.errors import ResolutionError
@@ -17,14 +19,18 @@ from posthog.hogql.errors import ResolutionError
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION
 from posthog.schema_enums import DatabaseSchemaManagedViewTableKind
 
+logger = structlog.get_logger(__name__)
+
 ZERO_DECIMAL = ast.Call(
     name="toDecimal", args=[ast.Constant(value=0), ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION)]
 )
 
 FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id"),
-    "person_id": StringDatabaseField(
-        name="person_id", description="Person these revenue figures are aggregated for; join target for `persons.id`."
+    "person_id": UUIDDatabaseField(
+        name="person_id",
+        nullable=True,
+        description="Person these revenue figures are aggregated for; join target for `persons.id`.",
     ),
     "revenue": DecimalDatabaseField(
         name="revenue",
@@ -40,6 +46,8 @@ FIELDS: dict[str, FieldOrTable] = {
 
 
 def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.SelectQuery | ast.SelectSetQuery:
+    from posthog.hogql.database.schema.persons import PersonsTable  # noqa: PLC0415 — circular import
+
     from products.revenue_analytics.backend.views import RevenueAnalyticsCustomerView, RevenueAnalyticsRevenueItemView
 
     if not context.database:
@@ -72,9 +80,24 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
         if is_event_view(customer_view.name):
             person_id_chain = [RevenueAnalyticsCustomerView.get_generic_view_alias(), "id"]
         else:
+            # The `persons` field comes from a user-defined warehouse join, so its name does not
+            # guarantee its target. Reading `id` off some other table casts to NULL below, which would
+            # hide that source's revenue in one unlabeled row, so require the real persons table.
             persons_lazy_join = customer_view.fields.get("persons")
-            if persons_lazy_join is not None and isinstance(persons_lazy_join, ast.LazyJoin):
+            persons_join_target = (
+                persons_lazy_join.resolve_table(context) if isinstance(persons_lazy_join, ast.LazyJoin) else None
+            )
+            if isinstance(persons_join_target, PersonsTable):
                 person_id_chain = [RevenueAnalyticsCustomerView.get_generic_view_alias(), "persons", "id"]
+            else:
+                # Skipping the source drops its revenue from this table with no other signal, so say
+                # so here. Otherwise a mistyped join name reads as "this source earned nothing".
+                logger.warning(
+                    "persons_revenue_analytics_skipped_source",
+                    team_id=context.team_id,
+                    customer_view=customer_view.name,
+                    persons_join_target=type(persons_join_target).__name__ if persons_join_target else None,
+                )
 
         if person_id_chain is not None:
             # Get the aggregated revenue by customer_id
@@ -112,7 +135,12 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
                     # and those views are, on their own, safe to query "without a `team_id` filter"
                     # since they're getting data from either the data warehouse (safe) or the events table (safe)
                     ast.Alias(alias="team_id", expr=ast.Constant(value=context.team_id)),
-                    ast.Alias(alias="person_id", expr=ast.Field(chain=person_id_chain)),
+                    # Event views give a String id, warehouse views a UUID. A Variant cannot be a GROUP BY
+                    # key, so both legs cast to the UUID that each of them ultimately holds.
+                    ast.Alias(
+                        alias="person_id",
+                        expr=ast.Call(name="toUUID", args=[ast.Field(chain=person_id_chain)]),
+                    ),
                     ast.Alias(
                         alias="revenue",
                         expr=ast.Call(
@@ -177,6 +205,15 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
             ast.Alias(alias="mrr", expr=ast.Call(name="sum", args=[ast.Field(chain=["mrr"])])),
         ],
         select_from=ast.JoinExpr(table=inner_query),
+        # A warehouse customer with no matching person gets the all-zeros UUID, because the LEFT JOIN
+        # fills the non-nullable `persons.id` with its type default rather than NULL. Dropping that
+        # key keeps unattributable revenue from reporting as one synthetic person that outranks every
+        # real one. A NULL from the cast compares to NULL here, so it is dropped too.
+        where=ast.CompareOperation(
+            op=ast.CompareOperationOp.NotEq,
+            left=ast.Field(chain=["person_id"]),
+            right=ast.Call(name="toUUID", args=[ast.Constant(value="00000000-0000-0000-0000-000000000000")]),
+        ),
         group_by=[ast.Field(chain=["person_id"])],
     )
 
@@ -218,11 +255,8 @@ def join_with_persons_revenue_analytics_table(
         constraint=ast.JoinConstraint(
             expr=ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
-                left=ast.Call(
-                    name="toString",
-                    args=[ast.Field(chain=[join_to_add.from_table, *join_to_add.lazy_join.from_field])],
-                ),
-                right=ast.Call(name="toString", args=[ast.Field(chain=[join_to_add.to_table, "person_id"])]),
+                left=ast.Field(chain=[join_to_add.from_table, *join_to_add.lazy_join.from_field]),
+                right=ast.Field(chain=[join_to_add.to_table, "person_id"]),
             ),
             constraint_type="ON",
         ),

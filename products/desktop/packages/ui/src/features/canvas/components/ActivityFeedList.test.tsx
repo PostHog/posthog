@@ -1,5 +1,7 @@
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
+import type { SignalReport } from "@posthog/shared/types";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactElement, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,10 +11,14 @@ const mocks = vi.hoisted(() => ({
   isFetchingNextPage: false,
   items: [] as TaskActivityItem[],
   markRead: vi.fn(),
+  inboxReportCount: 0,
+  inboxReports: [] as SignalReport[],
+  reportOpened: vi.fn(),
   unreadCount: 0,
 }));
 
-vi.mock("@posthog/quill", () => ({
+vi.mock("@posthog/quill", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@posthog/quill")>()),
   cn: (...args: unknown[]) => args.filter(Boolean).join(" "),
   Button: ({
     children,
@@ -90,19 +96,112 @@ vi.mock("@posthog/ui/features/auth/authClient", () => ({
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
   useCurrentUser: () => ({ data: null }),
 }));
-vi.mock("@posthog/ui/features/canvas/components/ActivityRow", () => ({
-  ActivityRow: ({
-    item,
-    onMarkRead,
-  }: {
-    item: TaskActivityItem;
-    onMarkRead: (item: TaskActivityItem) => void;
-  }) => (
-    <button type="button" onClick={() => onMarkRead(item)}>
-      Activity row
-    </button>
+vi.mock("@posthog/ui/features/canvas/components/ActivityActionsMenu", () => ({
+  ActivityActionsMenu: ({ onMarkAllRead }: { onMarkAllRead: () => void }) => (
+    <>
+      <button type="button" aria-label="Activity actions" />
+      <button type="button" onClick={onMarkAllRead}>
+        Mark all as read
+      </button>
+    </>
   ),
 }));
+vi.mock("@posthog/ui/features/canvas/components/ActivityRow", async () => {
+  const { ActivityRowSurface } = await import(
+    "@posthog/ui/features/canvas/components/ActivityRowSurface"
+  );
+  return {
+    ActivityRow: ({
+      item,
+      onMarkRead,
+      onActivate,
+      asOption,
+      optionValue,
+    }: {
+      item: TaskActivityItem;
+      onMarkRead: (item: TaskActivityItem) => void;
+      onActivate: (item: TaskActivityItem) => void;
+      asOption?: boolean;
+      optionValue?: string;
+    }) => (
+      <ActivityRowSurface
+        asOption={asOption}
+        optionValue={optionValue}
+        onClick={() => {
+          onMarkRead(item);
+          onActivate(item);
+        }}
+      >
+        <span>Activity row</span>
+        <span>{item.taskTitle}</span>
+      </ActivityRowSurface>
+    ),
+  };
+});
+vi.mock(
+  "@posthog/ui/features/canvas/components/InboxActivityOverflowRow",
+  async () => {
+    const { ActivityRowSurface } = await import(
+      "@posthog/ui/features/canvas/components/ActivityRowSurface"
+    );
+    return {
+      InboxActivityOverflowRow: ({
+        count,
+        onOpened,
+        asOption,
+        optionValue,
+      }: {
+        count: number;
+        onOpened?: () => void;
+        asOption?: boolean;
+        optionValue?: string;
+      }) => (
+        <ActivityRowSurface
+          asOption={asOption}
+          optionValue={optionValue}
+          onClick={onOpened}
+        >
+          View {count} more reports
+        </ActivityRowSurface>
+      ),
+    };
+  },
+);
+vi.mock("@posthog/ui/features/canvas/components/InboxActivityRow", async () => {
+  const { ActivityRowSurface } = await import(
+    "@posthog/ui/features/canvas/components/ActivityRowSurface"
+  );
+  return {
+    InboxActivityRow: ({
+      report,
+      onOpened,
+      asOption,
+      optionValue,
+      onActivate,
+    }: {
+      report: SignalReport;
+      onOpened?: () => void;
+      asOption?: boolean;
+      optionValue?: string;
+      onActivate?: (report: SignalReport) => void;
+    }) => (
+      <ActivityRowSurface
+        asOption={asOption}
+        optionValue={optionValue}
+        onClick={() => {
+          if (onActivate) {
+            onActivate(report);
+          } else {
+            mocks.reportOpened();
+          }
+          onOpened?.();
+        }}
+      >
+        Report row {report.id}
+      </ActivityRowSurface>
+    ),
+  };
+});
 vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
   useChannels: () => ({ channels: [] }),
 }));
@@ -125,6 +224,17 @@ vi.mock("@posthog/ui/features/canvas/hooks/useTaskActivity", () => ({
     fetchNextPage: mocks.fetchNextPage,
   }),
 }));
+vi.mock("@posthog/ui/features/canvas/hooks/useInboxActivityPreview", () => ({
+  useInboxActivityPreview: () => ({
+    reports: mocks.inboxReports,
+    totalCount: mocks.inboxReportCount,
+    isLoading: false,
+    isIncluded: true,
+  }),
+}));
+vi.mock("@posthog/ui/features/inbox/hooks/useInboxSourceFilterOptions", () => ({
+  useInboxSourceFilterOptions: () => [],
+}));
 vi.mock("@posthog/ui/primitives/hooks/useInView", () => ({
   useInView: () => [vi.fn(), true],
 }));
@@ -139,8 +249,13 @@ describe("ActivityFeedList", () => {
     mocks.hasNextPage = true;
     mocks.isFetchingNextPage = false;
     mocks.items = [];
+    mocks.inboxReportCount = 0;
+    mocks.inboxReports = [];
     mocks.unreadCount = 0;
-    useActivityFilterStore.setState({ unreadsOnly: false });
+    useActivityFilterStore.setState({
+      unreadsOnly: false,
+      mentionsEnabled: true,
+    });
   });
 
   it("loads the next page when the bottom sentinel is visible", async () => {
@@ -228,13 +343,168 @@ describe("ActivityFeedList", () => {
         isUnread: true,
       } as TaskActivityItem,
     ];
+    mocks.inboxReportCount = 1;
+    mocks.inboxReports = [
+      {
+        id: "report-1",
+        updated_at: "2026-08-07T00:02:00Z",
+      } as SignalReport,
+    ];
 
     render(<ActivityFeedList />);
     expect(screen.getAllByText("Activity row")).toHaveLength(2);
+    expect(screen.getByText("Report row report-1")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("switch"));
 
     expect(screen.getAllByText("Activity row")).toHaveLength(1);
+    expect(screen.queryByText("Report row report-1")).toBeNull();
+  });
+
+  it("hides task activity when mentions are excluded", () => {
+    useActivityFilterStore.setState({ mentionsEnabled: false });
+    mocks.items = [
+      {
+        id: "mention-1",
+        taskId: "task-1",
+        activityAt: "2026-08-07T00:00:00Z",
+        activityKind: "mention",
+        isUnread: true,
+      } as TaskActivityItem,
+    ];
+    mocks.inboxReportCount = 1;
+    mocks.inboxReports = [
+      {
+        id: "report-1",
+        updated_at: "2026-08-07T00:01:00Z",
+      } as SignalReport,
+    ];
+
+    render(<ActivityFeedList />);
+
+    expect(screen.queryByText("Activity row")).toBeNull();
+    expect(screen.getByText("Report row report-1")).toBeInTheDocument();
+    expect(mocks.fetchNextPage).not.toHaveBeenCalled();
+  });
+
+  it("interleaves the inbox preview by date and links to the remaining reports", () => {
+    mocks.hasNextPage = false;
+    mocks.items = [
+      {
+        id: "task-1",
+        taskId: "task-1",
+        activityAt: new Date(2026, 7, 25, 9).toISOString(),
+        activityKind: "completed",
+        isUnread: false,
+      } as TaskActivityItem,
+    ];
+    mocks.inboxReportCount = 5;
+    mocks.inboxReports = [
+      {
+        id: "report-newer",
+        updated_at: new Date(2026, 7, 25, 10).toISOString(),
+      } as SignalReport,
+      {
+        id: "report-older",
+        updated_at: new Date(2026, 7, 25, 8).toISOString(),
+      } as SignalReport,
+    ];
+
+    render(<ActivityFeedList />);
+
+    const newerReport = screen.getByText("Report row report-newer");
+    const task = screen.getByText("Activity row");
+    const olderReport = screen.getByText("Report row report-older");
+    expect(newerReport.compareDocumentPosition(task)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(task.compareDocumentPosition(olderReport)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(screen.getByText("View 3 more reports")).toBeInTheDocument();
+  });
+
+  it("filters tasks and reports from the activity search", () => {
+    mocks.hasNextPage = false;
+    mocks.items = [
+      {
+        id: "task-billing",
+        taskId: "task-billing",
+        taskTitle: "Fix billing dashboard",
+        channelName: "growth",
+        activityAt: "2026-08-25T10:00:00Z",
+        activityKind: "completed",
+        isUnread: false,
+      } as TaskActivityItem,
+      {
+        id: "task-onboarding",
+        taskId: "task-onboarding",
+        taskTitle: "Update onboarding",
+        channelName: "product",
+        activityAt: "2026-08-25T09:00:00Z",
+        activityKind: "completed",
+        isUnread: false,
+      } as TaskActivityItem,
+    ];
+    mocks.inboxReportCount = 1;
+    mocks.inboxReports = [
+      {
+        id: "report-checkout",
+        title: "Checkout conversion dropped",
+        updated_at: "2026-08-25T11:00:00Z",
+      } as SignalReport,
+    ];
+
+    render(<ActivityFeedList />);
+    fireEvent.change(screen.getByLabelText("Search activity"), {
+      target: { value: "billing" },
+    });
+
+    expect(screen.getByText("Fix billing dashboard")).toBeInTheDocument();
+    expect(screen.queryByText("Update onboarding")).toBeNull();
+    expect(screen.queryByText("Report row report-checkout")).toBeNull();
+  });
+
+  it("walks every activity row from the search input and opens the highlighted row", async () => {
+    const user = userEvent.setup();
+    const onActivate = vi.fn();
+    const onReportActivate = vi.fn();
+    const onOpened = vi.fn();
+    mocks.hasNextPage = false;
+    mocks.items = [
+      {
+        id: "task-keyboard",
+        taskId: "task-keyboard",
+        taskTitle: "Keyboard task",
+        activityAt: "2026-08-25T10:00:00Z",
+        activityKind: "completed",
+        isUnread: false,
+      } as TaskActivityItem,
+    ];
+    mocks.inboxReportCount = 2;
+    mocks.inboxReports = [
+      {
+        id: "report-keyboard",
+        title: "Keyboard report",
+        updated_at: "2026-08-25T09:00:00Z",
+      } as SignalReport,
+    ];
+
+    render(
+      <ActivityFeedList
+        onActivate={onActivate}
+        onReportActivate={onReportActivate}
+        onOpened={onOpened}
+      />,
+    );
+
+    expect(screen.getAllByRole("option")).toHaveLength(3);
+    await user.click(screen.getByLabelText("Search activity"));
+    await user.keyboard("{ArrowDown}{ArrowDown}{Enter}");
+
+    expect(onActivate).not.toHaveBeenCalled();
+    expect(onReportActivate).toHaveBeenCalledWith(mocks.inboxReports[0]);
+    expect(mocks.reportOpened).not.toHaveBeenCalled();
   });
 
   it("groups the panel rows by local calendar day", () => {

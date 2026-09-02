@@ -8,15 +8,19 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
+import { VISION_ROOT_BREADCRUMB } from '../utils/breadcrumbs'
+
 export enum ReplayScannerTab {
     Overview = 'overview',
     Observations = 'observations',
+    Search = 'search',
     Calibration = 'calibration',
     OnDemand = 'on-demand',
     Backfills = 'backfills',
     Configuration = 'configuration',
     Actions = 'actions',
     Scouts = 'scouts',
+    Alerts = 'alerts',
 }
 
 const SCANNER_TABS: ReplayScannerTab[] = Object.values(ReplayScannerTab)
@@ -91,12 +95,7 @@ export const replayScannerSceneLogic = kea<replayScannerSceneLogicType>([
         breadcrumbs: [
             (s) => [s.scannerId],
             (scannerId: string): Breadcrumb[] => [
-                {
-                    key: 'replay-vision',
-                    name: 'Replay vision',
-                    path: urls.replayVision(),
-                    iconType: 'replay_vision',
-                },
+                VISION_ROOT_BREADCRUMB,
                 {
                     key: scannerId === 'new' ? 'new-scanner' : `scanner-${scannerId}`,
                     name: scannerId === 'new' ? 'New scanner' : 'Scanner',
@@ -129,6 +128,18 @@ export const replayScannerSceneLogic = kea<replayScannerSceneLogicType>([
             // `?tab=scouts` URL (a shared link, a stale bookmark) would otherwise select a tab with
             // no content and show a blank pane. Fall back to the default tab when the flag is off.
             if (tab === ReplayScannerTab.Scouts && !values.featureFlags[FEATURE_FLAGS.REPLAY_VISION_SCOUT_DIGESTS]) {
+                tab = DEFAULT_TAB
+            }
+            if (tab === ReplayScannerTab.Alerts && !values.featureFlags[FEATURE_FLAGS.REPLAY_VISION_ALERTS]) {
+                tab = DEFAULT_TAB
+            }
+            // With both flags on the Actions tab is hidden entirely, so a stale
+            // `?tab=actions` URL would select a tab with no content.
+            if (
+                tab === ReplayScannerTab.Actions &&
+                values.featureFlags[FEATURE_FLAGS.REPLAY_VISION_ALERTS] &&
+                values.featureFlags[FEATURE_FLAGS.REPLAY_VISION_SCOUT_DIGESTS]
+            ) {
                 tab = DEFAULT_TAB
             }
             if (tab !== values.activeTab) {

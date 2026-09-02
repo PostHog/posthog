@@ -67,7 +67,7 @@ export function SpendKnobValue({
       <input
         aria-label={`${name} in dollars. Click to type an amount`}
         inputMode="decimal"
-        className={`${BOX} absolute inset-0 cursor-pointer bg-(--color-panel-solid) text-(--gray-12) shadow-sm outline-none focus:cursor-text ${border} ${
+        className={`${BOX} absolute inset-0 cursor-pointer bg-card text-(--gray-12) shadow-sm outline-none focus:cursor-text ${border} ${
           editing ? "" : "hover:border-(--gray-8) hover:bg-(--gray-2)"
         }`}
         value={draft}
@@ -97,7 +97,7 @@ export function SpendKnobValue({
           callout points at the knob it belongs to. */}
       <span
         aria-hidden="true"
-        className={`-bottom-[4px] -translate-x-1/2 absolute left-1/2 size-[7px] rotate-45 border-r border-b bg-(--color-panel-solid) ${border}`}
+        className={`-bottom-[4px] -translate-x-1/2 absolute left-1/2 size-[7px] rotate-45 border-r border-b bg-card ${border}`}
       />
     </span>
   );

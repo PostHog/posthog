@@ -197,6 +197,12 @@ async function slotWaiters(): Promise<number> {
     return value ?? 0
 }
 
+async function metricValue(name: string): Promise<number> {
+    const metric = register.getSingleMetric(name)
+    const value = (await metric!.get()).values[0]?.value
+    return value ?? 0
+}
+
 describe('WorkerIngestServer', () => {
     let server: WorkerIngestServer
     let driver: FakeDriver
@@ -459,6 +465,45 @@ describe('WorkerIngestServer', () => {
         } finally {
             await laneServer.stop()
         }
+    })
+
+    it('records an accepted sub-batch in the shared in-flight metrics until it settles', async () => {
+        // Regression: the processor autoscaler reads ingestion_api_events_in_flight
+        // and ingestion_api_event_seconds_in_flight_total, which only the HTTP
+        // handler recorded — so pods serving the gRPC transport looked idle to
+        // KEDA and the worker HPA metric read 0.
+        // The metrics are process-global, so assert deltas against a baseline.
+        const baseline = {
+            batches: await metricValue('ingestion_api_batches_in_flight'),
+            events: await metricValue('ingestion_api_events_in_flight'),
+            eventSeconds: await metricValue('ingestion_api_event_seconds_in_flight_total'),
+            processed: await metricValue('ingestion_api_batches_processed_total'),
+            messages: await metricValue('ingestion_api_messages_processed_total'),
+        }
+        const source = new FrameSource()
+        const collected = collect(server, source)
+
+        source.push(hello())
+        source.push(subBatch(1, [10, 11, 12]))
+        await until(() => driver.feeds.length === 1)
+        const streamId = driver.feeds[0].streamId
+        expect(await metricValue('ingestion_api_batches_in_flight')).toBe(baseline.batches + 1)
+        expect(await metricValue('ingestion_api_events_in_flight')).toBe(baseline.events + 3)
+
+        // Completion alone is not settlement: the batch stays in flight until
+        // its side effects are done, matching the HTTP path's response barrier.
+        const settled = new Deferred<void>()
+        driver.complete({ streamId, seq: 1, accepted: 3 }, settled.promise)
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        expect(await metricValue('ingestion_api_events_in_flight')).toBe(baseline.events + 3)
+
+        settled.resolve()
+        await until(() => collected.acks.length === 1)
+        expect(await metricValue('ingestion_api_batches_in_flight')).toBe(baseline.batches)
+        expect(await metricValue('ingestion_api_events_in_flight')).toBe(baseline.events)
+        expect(await metricValue('ingestion_api_event_seconds_in_flight_total')).toBeGreaterThan(baseline.eventSeconds)
+        expect(await metricValue('ingestion_api_batches_processed_total')).toBe(baseline.processed + 1)
+        expect(await metricValue('ingestion_api_messages_processed_total')).toBe(baseline.messages + 3)
     })
 
     it('a slow batch settlement does not block another sub-batch ack', async () => {

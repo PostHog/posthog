@@ -64,7 +64,8 @@ from products.signals.backend.scout_harness.config_registry import live_scout_sk
 from products.signals.backend.scout_harness.profile.schema import Inventory
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataJobStatus
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = logging.getLogger(__name__)
@@ -246,7 +247,7 @@ def _external_data_sources(team: Team) -> list[dict[str, Any]]:
     rows = (
         ExternalDataSource.objects.filter(team=team, deleted=False)
         .annotate(
-            last_run_at=Max("jobs__created_at", filter=Q(jobs__status=ExternalDataJob.Status.COMPLETED)),
+            last_run_at=Max("jobs__created_at", filter=Q(jobs__status=ExternalDataJobStatus.COMPLETED)),
             latest_error=latest_error,
         )
         .order_by("source_type", "id")

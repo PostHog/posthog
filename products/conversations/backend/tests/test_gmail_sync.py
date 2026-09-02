@@ -20,7 +20,7 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.services import gmail_sync
 from products.customer_analytics.backend.facade.email_matching import recalculate_email_thread_links
-from products.customer_analytics.backend.models import Account
+from products.customer_analytics.backend.facade.testing import create_account
 
 
 def _response(payload: dict, status_code: int = 200) -> MagicMock:
@@ -86,7 +86,7 @@ class TestGmailSync(BaseTest):
         self.user.save(update_fields=["email"])
         self.integration.config["email"] = self.user.email
         self.integration.save(update_fields=["config"])
-        account = Account.objects.for_team(self.team.id).create(team=self.team, name="Example", external_id="example")
+        account = create_account(team_id=self.team.id, name="Example", external_id="example")
         account.properties = {"email_domains": ["example.com"]}
         account.save()
 

@@ -8,6 +8,7 @@ union: a new check type must not need a serializer change.
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
+from rest_framework.exceptions import ErrorDetail
 
 from posthog.api.shared import UserBasicSerializer
 
@@ -60,6 +61,12 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Outcome of the newest run: passed, failed, errored, skipped, or empty if never run.",
     )
+    last_succeeded_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the check last passed, so a failing check can say how long it has been failing. "
+        "Null means it has not passed within the run retention window.",
+    )
     subject_status = serializers.CharField(
         read_only=True,
         help_text="'orphaned' once the subject stops resolving. Orphaned checks are skipped, not deleted.",
@@ -86,6 +93,7 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
             "owner",
             "last_run_at",
             "last_status",
+            "last_succeeded_at",
             "fingerprint",
             "created_source",
             "ai_model",
@@ -101,6 +109,7 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
             "subject_status",
             "last_run_at",
             "last_status",
+            "last_succeeded_at",
             "fingerprint",
             "created_by",
             "created_at",
@@ -139,26 +148,7 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
     def get_subject_uuid(self, obj: DataQualityCheck) -> str | None:
         return str(obj.subject_uuid) if obj.subject_uuid else None
 
-    # The assertion is the check's identity: it is what the fingerprint hashes and what the runner
-    # compiles. Editing it in place would leave a fingerprint describing a different check, so
-    # subsequent identical creates would duplicate instead of upserting. Re-create instead. The
-    # subject needs no entry: it comes from the URL, and moving a check means re-creating it there.
-    IMMUTABLE_AFTER_CREATE = ("check_type", "column_name", "config")
-
     def validate(self, attrs: dict) -> dict:
-        if self.instance is not None:
-            changed = [
-                field
-                for field in self.IMMUTABLE_AFTER_CREATE
-                if field in attrs and attrs[field] != getattr(self.instance, field)
-            ]
-            if changed:
-                raise serializers.ValidationError(
-                    dict.fromkeys(
-                        changed, "A check's assertion cannot be edited. Create a new check and delete this one."
-                    )
-                )
-
         def resolved(field: str) -> str:
             return attrs.get(field) or getattr(self.instance, field, None) or ""
 
@@ -179,11 +169,66 @@ class DataQualityCheckSerializer(serializers.ModelSerializer):
         return attrs
 
     def update(self, instance: DataQualityCheck, validated_data: dict) -> DataQualityCheck:
-        # Routed through update_check so writes stay restricted to the mutable field allowlist.
-        name = validated_data.get("name")
-        if name and name != instance.name:
-            api.ensure_name_available(instance.team_id, name, exclude_id=instance.id)
-        return api.update_check(instance, **validated_data)
+        request = self.context.get("request")
+        try:
+            return api.edit_check(
+                team=self.context["get_team"](),
+                check=instance,
+                editor=getattr(request, "user", None) if request else None,
+                **validated_data,
+            )
+        except api.CheckEditConflict as conflict:
+            # Rendered beside the offending fields rather than as a status code, so the editor can
+            # keep the draft open and point at what to change.
+            raise serializers.ValidationError(
+                {field: ErrorDetail(str(conflict), code=conflict.code) for field in conflict.fields}
+            )
+
+
+@extend_schema_serializer(component_name="DataQualityOverviewCheck")
+class DataQualityOverviewCheckSerializer(DataQualityCheckSerializer):
+    """A check plus where its subject can be opened, for the project-wide list.
+
+    The per-subject surfaces already know their parent; only this one lists checks across every
+    table and view, so only this one needs to say where each subject lives. The ids are resolved
+    for a whole page at once and handed in through ``subject_locations`` in the context.
+    """
+
+    subject_node_id = serializers.SerializerMethodField(
+        help_text="Data modeling node of the view this check audits, or null when it is on no DAG "
+        "or the subject is a table."
+    )
+    subject_source_id = serializers.SerializerMethodField(
+        help_text="Warehouse source of the table this check audits, or null when the subject is a view."
+    )
+    subject_schema_id = serializers.SerializerMethodField(
+        help_text="Warehouse source schema of the table this check audits, or null when the subject is a view."
+    )
+
+    class Meta(DataQualityCheckSerializer.Meta):
+        fields = [
+            *DataQualityCheckSerializer.Meta.fields,
+            "subject_node_id",
+            "subject_source_id",
+            "subject_schema_id",
+        ]
+
+    def _location(self, obj: DataQualityCheck) -> api.SubjectLocation:
+        locations: dict[api.SubjectKey, api.SubjectLocation] = self.context.get("subject_locations") or {}
+        key = api.SubjectKey(subject_type=SubjectType(obj.subject_type), subject_uuid=str(obj.subject_uuid))
+        return locations.get(key) or api.SubjectLocation()
+
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_subject_node_id(self, obj: DataQualityCheck) -> str | None:
+        return self._location(obj).node_id
+
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_subject_source_id(self, obj: DataQualityCheck) -> str | None:
+        return self._location(obj).source_id
+
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_subject_schema_id(self, obj: DataQualityCheck) -> str | None:
+        return self._location(obj).schema_id
 
 
 @extend_schema_serializer(component_name="DataQualityCheckRun")
@@ -195,6 +240,18 @@ class DataQualityCheckRunSerializer(serializers.ModelSerializer):
         choices=[(t.value, t.value) for t in CheckType],
         read_only=True,
         help_text="Which assertion this run made.",
+    )
+    check_config = CheckConfigField(
+        read_only=True,
+        allow_null=True,
+        help_text="Config this run executed, snapshotted so an edit to the check cannot rewrite history. "
+        "Null for runs recorded before snapshots existed -- unknown, not 'same as the check has now'.",
+    )
+    check_severity = serializers.ChoiceField(
+        choices=[(s.value, s.value) for s in CheckSeverity],
+        read_only=True,
+        allow_null=True,
+        help_text="Severity this run was judged at. Null for runs recorded before snapshots existed.",
     )
 
     class Meta:
@@ -208,6 +265,8 @@ class DataQualityCheckRunSerializer(serializers.ModelSerializer):
             "subject_name",
             "check_type",
             "column_name",
+            "check_config",
+            "check_severity",
             "status",
             "failed_row_count",
             "observed_value",
@@ -277,6 +336,17 @@ class SubjectHealthSerializer(serializers.Serializer):
     )
     checks_total = serializers.IntegerField(help_text="How many enabled, non-deleted checks cover this subject.")
     checks_failing = serializers.IntegerField(help_text="How many of those checks last reported a failure.")
+
+
+@extend_schema_serializer(component_name="DataQualityRunRequest")
+class DataQualityRunRequestSerializer(serializers.Serializer):
+    """What to run in a project-wide suite run."""
+
+    check_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        help_text="Ids of the checks to run. Omit to run every enabled check in the project.",
+    )
 
 
 @extend_schema_serializer(component_name="DataQualityGateConfig")

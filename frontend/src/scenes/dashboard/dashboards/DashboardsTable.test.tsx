@@ -21,7 +21,11 @@ jest.mock('lib/lemon-ui/LemonTable', () => ({
         <div>
             {bulkSelection ? bulkSelection.renderActions(mockCtx) : null}
             {dataSource.map((row: any) => (
-                <div key={row.id}>{columns.at(-1).render(undefined, row)}</div>
+                <div key={row.id}>
+                    {columns.map((column: any, index: number) =>
+                        column.render ? <span key={index}>{column.render(row[column.dataIndex], row)}</span> : null
+                    )}
+                </div>
             ))}
         </div>
     ),
@@ -98,5 +102,44 @@ describe('DashboardsTable move to folder', () => {
         renderTable([1, 2], [1, 2], [])
         fireEvent.click(screen.getByText('Move to folder'))
         expect(moveDashboardsToFolder).not.toHaveBeenCalled()
+    })
+
+    it('filters dashboards by a clicked tag', () => {
+        const setFilters = jest.fn()
+        ;(useActions as jest.Mock).mockReturnValue({
+            unpinDashboard: jest.fn(),
+            pinDashboard: jest.fn(),
+            tableSortingChanged: jest.fn(),
+            setFilters,
+            showDuplicateDashboardModal: jest.fn(),
+            showDeleteDashboardModal: jest.fn(),
+            moveDashboardsToFolder,
+        })
+        ;(useValues as jest.Mock).mockReturnValue({
+            tableSorting: null,
+            filters: { search: '' },
+            currentTeam: { id: 1 },
+            filedDashboardIds: new Set([1]),
+        })
+
+        render(
+            <DashboardsTable
+                dashboards={
+                    [
+                        {
+                            id: 1,
+                            name: 'Dashboard 1',
+                            tags: ['finance'],
+                            user_access_level: AccessControlLevel.Editor,
+                        },
+                    ] as any
+                }
+                dashboardsLoading={false}
+            />
+        )
+
+        fireEvent.click(screen.getByText('finance'))
+
+        expect(setFilters).toHaveBeenCalledWith({ tags: ['finance'] })
     })
 })

@@ -33,8 +33,10 @@ from django.db.models import Q
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 from prometheus_client import Counter, Gauge, Histogram
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.scoping import team_scope
@@ -68,6 +70,33 @@ logger = structlog.get_logger(__name__)
 MAX_ACTIVE_CANVAS_BUILDS_PER_TEAM = 20
 MAX_PINNED_BUILDS_PER_CANVAS = 10
 MAX_BUILD_ATTEMPTS = 3
+
+
+@frozen
+class SourceProjectUpload:
+    key: str
+    digest: str
+    size: int
+
+
+@frozen
+class PreparedSourceProjectPublish:
+    project: dict[str, Any]
+    source_upload: SourceProjectUpload
+    legacy_upload: SourceProjectUpload | None
+
+
+@frozen
+class SourceProjectPublishResult:
+    canvas: Canvas
+    version: CanvasSourceVersion
+    build: CanvasBuild
+    first_publish: bool
+
+
+# Rollout gate: flagged-in teams dispatch builds to Temporal instead of the shared
+# long_running Celery queue. Evaluation failure keeps the Celery path.
+CANVAS_BUILDS_ON_TEMPORAL_FLAG = "canvas-builds-on-temporal"
 
 CANVAS_BUILD_OUTCOMES = Counter(
     "posthog_canvas_build_outcomes_total", "Canvas build terminal outcomes", ["outcome", "code"]
@@ -403,30 +432,51 @@ def _enqueue_build(build: CanvasBuild) -> None:
     from products.canvas.backend.tasks import process_canvas_build  # noqa: PLC0415 — avoids a task/service import cycle
 
     CanvasBuild.objects.unscoped().filter(id=build.id).update(enqueued_at=timezone.now())
+    if _dispatch_build_to_temporal(build):
+        return
     process_canvas_build.delay(build.team_id, str(build.id))
 
 
-def publish_source_project(
+def _dispatch_build_to_temporal(build: CanvasBuild) -> bool:
+    """Hand the build to Temporal when the team is flagged in; False falls back to Celery.
+
+    Any failure (flag evaluation or workflow start) falls back, so a Temporal or
+    flag-service outage degrades to the Celery path instead of dropping builds.
+    """
+    try:
+        if not posthoganalytics.feature_enabled(
+            CANVAS_BUILDS_ON_TEMPORAL_FLAG,
+            str(build.team.uuid),
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        ):
+            return False
+    except Exception:
+        logger.exception("canvas_build_temporal_flag_check_failed", build_id=str(build.id))
+        return False
+    # Deferred so the Temporal client stays off the web/Celery import path when the flag is off.
+    from products.canvas.backend.temporal.client import execute_canvas_build_workflow  # noqa: PLC0415
+
+    try:
+        execute_canvas_build_workflow(build.team_id, str(build.id))
+    except Exception:
+        logger.exception("canvas_build_temporal_dispatch_failed", build_id=str(build.id))
+        return False
+    return True
+
+
+def prepare_source_project_publish(
     canvas: Canvas,
     *,
     project: dict[str, Any],
-    prompt: str | None,
-    name: str | None,
     has_expected_version: bool,
     expected_version_id: str | None,
-    task_id: UUID | None,
-    created_by: User | None,
-    was_impersonated: bool = False,
-) -> tuple[Canvas, CanvasSourceVersion, CanvasBuild, bool]:
-    """Publish a validated project as the canvas's new head version.
+) -> PreparedSourceProjectPublish:
+    """Upload a source project before the metadata transaction begins.
 
-    Upload-then-commit: the immutable source object goes up before the
-    transaction, so a conflicting publish leaves at most an unreferenced
-    upload. Writes the "published" activity-log entry here (not in the API
-    layer) so every caller is audited and the capabilities diff is computed
-    against the head this publish actually replaced. Returns (canvas,
-    version, build, first_publish). Raises CanvasVersionConflict,
-    CanvasBuildCapacityExceeded, or ObjectStorageError.
+    The commit path rechecks version and capacity constraints under locks, so
+    callers can stage storage work before entering a wider transaction without
+    weakening concurrency guarantees.
     """
     # Lock-free fail-fast: reject a doomed publish before paying for the
     # upload. Its answer can go stale before the commit transaction re-checks
@@ -441,14 +491,39 @@ def publish_source_project(
         _assert_build_capacity(canvas.team_id)
 
     key, digest, size = upload_source_project(canvas.team_id, canvas.id, project)
+    source_upload = SourceProjectUpload(key=key, digest=digest, size=size)
 
     # A migrated canvas's pre-relational source must survive its first publish:
     # it becomes a real parent version here so history (undo/revert) can reach
     # it — otherwise nulling legacy_code below would discard the only copy.
     # Same upload-then-commit posture as the main project.
-    legacy_upload: tuple[str, str, int] | None = None
+    legacy_upload: SourceProjectUpload | None = None
     if current_id is None and (canvas.legacy_code or "").strip():
-        legacy_upload = upload_source_project(canvas.team_id, canvas.id, synthetic_source_project(canvas.legacy_code))
+        legacy_key, legacy_digest, legacy_size = upload_source_project(
+            canvas.team_id, canvas.id, synthetic_source_project(canvas.legacy_code)
+        )
+        legacy_upload = SourceProjectUpload(key=legacy_key, digest=legacy_digest, size=legacy_size)
+
+    return PreparedSourceProjectPublish(
+        project=project,
+        source_upload=source_upload,
+        legacy_upload=legacy_upload,
+    )
+
+
+def commit_source_project_publish(
+    canvas: Canvas,
+    *,
+    prepared: PreparedSourceProjectPublish,
+    prompt: str | None,
+    name: str | None,
+    has_expected_version: bool,
+    expected_version_id: str | None,
+    task_id: UUID | None,
+    created_by: User | None,
+    was_impersonated: bool = False,
+) -> SourceProjectPublishResult:
+    """Commit a prepared source project and advance the canvas head."""
 
     with transaction.atomic(), team_scope(canvas.team_id):
         canvas = _claim_canvas_head(
@@ -456,31 +531,30 @@ def publish_source_project(
         )
         first_publish = canvas.current_source_version_id is None and not (canvas.legacy_code or "").strip()
         if (
-            legacy_upload is not None
+            prepared.legacy_upload is not None
             and canvas.current_source_version_id is None
             and (canvas.legacy_code or "").strip()
         ):
-            legacy_key, legacy_digest, legacy_size = legacy_upload
             canvas.current_source_version = CanvasSourceVersion.objects.create(
                 team_id=canvas.team_id,
                 canvas=canvas,
-                source_hash=legacy_digest,
-                source_object_key=legacy_key,
-                source_size=legacy_size,
+                source_hash=prepared.legacy_upload.digest,
+                source_object_key=prepared.legacy_upload.key,
+                source_size=prepared.legacy_upload.size,
                 prompt="Imported source",
             )
         version = CanvasSourceVersion.objects.create(
             team_id=canvas.team_id,
             canvas=canvas,
             parent_version_id=canvas.current_source_version_id,
-            source_hash=digest,
-            source_object_key=key,
-            source_size=size,
+            source_hash=prepared.source_upload.digest,
+            source_object_key=prepared.source_upload.key,
+            source_size=prepared.source_upload.size,
             task_id=task_id,
             prompt=prompt or None,
             created_by=created_by,
-            capabilities=project.get("capabilities") or {},
-            component_meta=project.get("component"),
+            capabilities=prepared.project.get("capabilities") or {},
+            component_meta=prepared.project.get("component"),
         )
         build = _queue_build(version)
 
@@ -507,7 +581,45 @@ def publish_source_project(
         detail=Detail(name=canvas.name, changes=changes),
     )
 
-    return canvas, version, build, first_publish
+    return SourceProjectPublishResult(
+        canvas=canvas,
+        version=version,
+        build=build,
+        first_publish=first_publish,
+    )
+
+
+def publish_source_project(
+    canvas: Canvas,
+    *,
+    project: dict[str, Any],
+    prompt: str | None,
+    name: str | None,
+    has_expected_version: bool,
+    expected_version_id: str | None,
+    task_id: UUID | None,
+    created_by: User | None,
+    was_impersonated: bool = False,
+) -> tuple[Canvas, CanvasSourceVersion, CanvasBuild, bool]:
+    """Upload and publish a validated project as the canvas's new head version."""
+    prepared = prepare_source_project_publish(
+        canvas,
+        project=project,
+        has_expected_version=has_expected_version,
+        expected_version_id=expected_version_id,
+    )
+    result = commit_source_project_publish(
+        canvas,
+        prepared=prepared,
+        prompt=prompt,
+        name=name,
+        has_expected_version=has_expected_version,
+        expected_version_id=expected_version_id,
+        task_id=task_id,
+        created_by=created_by,
+        was_impersonated=was_impersonated,
+    )
+    return result.canvas, result.version, result.build, result.first_publish
 
 
 def publish_grid_layout(
@@ -973,7 +1085,16 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
         manifest=manifest,
         diagnostics=diagnostics,
     ):
-        object_storage.delete_objects(uploaded_keys)
+        # A lost race can mean another attempt of this SAME build finalized READY first
+        # (its lease lapsed mid-upload and a redelivery overtook it). The artifact prefix
+        # is deterministic per build id, so the winner's manifest references exactly these
+        # keys — deleting them would break the ready build. Only clean up when the build
+        # ended in a non-ready state (cancelled or superseded by a newer version).
+        current_status = (
+            CanvasBuild.objects.for_team(build.team_id).filter(id=build.id).values_list("status", flat=True).first()
+        )
+        if current_status != CanvasBuild.STATUS_READY:
+            object_storage.delete_objects(uploaded_keys)
         CANVAS_BUILD_OUTCOMES.labels(outcome="failed", code="superseded_during_build").inc()
         return
     CANVAS_BUILD_OUTCOMES.labels(outcome="ready", code="").inc()

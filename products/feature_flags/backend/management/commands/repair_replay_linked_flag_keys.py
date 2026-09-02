@@ -15,17 +15,17 @@ still wants a recording gate at all.
 import json
 from collections import Counter
 from collections.abc import Iterator
-from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 from django.db.models import QuerySet
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.feature_flags.backend.session_recording_links import update_linked_flag_key
+from products.feature_flags.backend.session_recording_links import linked_flag_id, update_linked_flag_key
 
 
 class Outcome(StrEnum):
@@ -37,7 +37,7 @@ class Outcome(StrEnum):
     MALFORMED = "malformed"
 
 
-@dataclass(frozen=True, kw_only=True)
+@frozen
 class _FlagRow:
     key: str
     deleted: bool
@@ -55,19 +55,6 @@ def _iter_team_chunks(queryset: QuerySet[Team], chunk_size: int) -> Iterator[lis
             return
         yield chunk
         last_id = chunk[-1].id
-
-
-def _linked_flag_id(linked_flag: Any) -> int | None:
-    if not isinstance(linked_flag, dict):
-        return None
-    stored_id = linked_flag.get("id")
-    # The column is schemaless, so anything an API client or the admin's JSON widget sent can be
-    # here. Only an int is acted on; every other shape is reported as malformed for a human to
-    # look at rather than coerced. `bool` is excluded explicitly because it subclasses `int`, so
-    # `{"id": true}` would otherwise repair against flag 1.
-    if isinstance(stored_id, bool) or not isinstance(stored_id, int):
-        return None
-    return stored_id
 
 
 class Command(BaseCommand):
@@ -121,7 +108,7 @@ class Command(BaseCommand):
 
     def _load_flags(self, teams: list[Team]) -> dict[int, _FlagRow]:
         flag_ids = {
-            flag_id for team in teams if (flag_id := _linked_flag_id(team.session_recording_linked_flag)) is not None
+            flag_id for team in teams if (flag_id := linked_flag_id(team.session_recording_linked_flag)) is not None
         }
         if not flag_ids:
             return {}
@@ -139,7 +126,7 @@ class Command(BaseCommand):
         linked_flag = team.session_recording_linked_flag
         detail: dict[str, Any] = {"team_id": team.id, "project_id": team.project_id, "linked_flag": linked_flag}
 
-        stored_id = _linked_flag_id(linked_flag)
+        stored_id = linked_flag_id(linked_flag)
         if stored_id is None:
             return Outcome.MALFORMED, detail
 

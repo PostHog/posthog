@@ -1,0 +1,12 @@
+{
+    "id": "LA23",
+    "file": "products/tasks/backend/facade/api.py",
+    "lines": "504-515",
+    "priority": "must_fix",
+    "title": "Preserve the source environment during re-review lookup",
+    "problem": "StamphogRepoConfig stores the canonical parent team ID. TaskRun.team_id keeps the source environment ID. The raw comparison returns None for valid child-environment runs. The caller also needs the source ID to find environment-scoped SignalReportArtefact rows. Initial reviews can succeed, but later pushes dismiss the approval without queueing a replacement.",
+    "suggestion": "Compare resolve_effective_team_id(run.team_id) with the requested team ID. Add the source environment ID to SignalImplementationRunDTO and pass it to the reviewer resolver. Add a child-environment regression test.",
+    "cluster": null,
+    "cluster_issue": null,
+    "cluster_verified": null
+}

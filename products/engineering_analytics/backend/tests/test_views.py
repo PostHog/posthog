@@ -14,13 +14,15 @@ from products.engineering_analytics.backend.logic.sources import (
     list_github_sources,
     resolve_trunk_merge_queue_table,
 )
-from products.engineering_analytics.backend.logic.views import pull_requests, workflow_runs
+from products.engineering_analytics.backend.logic.views import pull_requests, trunk_quarantined_tests, workflow_runs
 from products.engineering_analytics.backend.logic.views.source_schema import (
     PULL_REQUESTS_COLUMNS,
+    TRUNK_QUARANTINED_TESTS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
 from products.engineering_analytics.backend.tests._github_fixtures import (
     _pr_row,
+    _quarantined_row,
     _run_row,
     create_github_source,
     create_github_warehouse_table,
@@ -42,9 +44,9 @@ class TestListGithubSourcesAccessControl(BaseTest):
         self.organization.save()
 
     def test_none_resource_access_fails_closed_to_self_created_sources(self) -> None:
-        # filter_queryset_by_access_level returns the queryset UNFILTERED for a user with "none"
-        # resource access and no object grants — without the guard, such a user enumerates every
-        # GitHub source on the team.
+        # A user with "none" resource access and no object grants must not enumerate the
+        # team's sources. The product surface relies on filter_queryset_by_access_level to
+        # fail closed here.
         mine = create_github_source(self.team, prefix="mine_", source_id="gh-mine")
         mine.created_by = self.user
         mine.save()
@@ -59,9 +61,14 @@ class TestListGithubSourcesAccessControl(BaseTest):
         )
         assert [source.id for source in visible] == [str(mine.id)]
 
-        # An explicit object grant survives the fail-closed guard.
+        # An explicit object grant survives the fail-closed guard. The filter counts only member
+        # and role rows as grants. A default ("everyone") object row does not count.
         AccessControl.objects.create(
-            team=self.team, resource="external_data_source", resource_id=str(theirs.id), access_level="editor"
+            team=self.team,
+            resource="external_data_source",
+            resource_id=str(theirs.id),
+            access_level="editor",
+            organization_member=self.organization_membership,
         )
         visible = list_github_sources(
             team=self.team, user_access_control=UserAccessControl(user=self.user, team=self.team)
@@ -234,7 +241,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             "(SELECT 100 AS id, 5 AS number, 'PR 5' AS title, 'open' AS state, false AS draft, "
             f"nullIf('', '') AS user, '{head_json}' AS head, '{base_json}' AS base, '[]' AS labels, "
             "'2026-01-10 10:00:00' AS created_at, '2026-01-10 10:00:00' AS updated_at, "
-            "nullIf('', '') AS merged_at, nullIf('', '') AS closed_at)"
+            "nullIf('', '') AS merged_at, nullIf('', '') AS closed_at, nullIf('', '') AS merge_commit_sha)"
         )
         rows = self._select(
             f"SELECT author_handle, author_avatar_url, is_bot FROM ({pull_requests.build_query(raw)}) AS pr"
@@ -407,3 +414,40 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             f"FROM ({workflow_runs.build_query(table_name)}) AS r"
         )
         assert rows[0] == ("completed", None, None, "", "", 0, None)
+
+    def test_trunk_quarantined_tests_view_labels_runners_and_reconstructs_paths(self) -> None:
+        # Trunk overloads `parent` per uploader, and ownership is resolved from the source_path and
+        # crate this view reads out of it, so getting either wrong unattributes the whole board.
+        table_name = self._create_table(
+            "trunkio_quarantinedtests",
+            TRUNK_QUARANTINED_TESTS_COLUMNS,
+            [
+                _quarantined_row(
+                    file="posthog/api/test/test_person.py",
+                    name="test_merge",
+                    classname="posthog.api.test.test_person.TestPerson",
+                    parent="pytest",
+                ),
+                _quarantined_row(
+                    file="",
+                    name="k3s_integration",
+                    classname="personhog-coordination",
+                    parent="personhog-coordination::k3s_integration",
+                ),
+                _quarantined_row(file="src/cdp/cdp.test.ts", name="routes", classname="", parent="src/cdp/cdp.test.ts"),
+            ],
+        )
+        rows = self._select(
+            f"SELECT runner, nodeid, source_path, crate FROM ({trunk_quarantined_tests.build_query(table_name)}) AS q "
+            "ORDER BY runner"
+        )
+        assert rows == [
+            ("jest", "src/cdp/cdp.test.ts::routes", "src/cdp/cdp.test.ts", ""),
+            (
+                "pytest",
+                "posthog/api/test/test_person.py::TestPerson::test_merge",
+                "posthog/api/test/test_person.py",
+                "",
+            ),
+            ("rust", "personhog-coordination::k3s_integration", "", "personhog-coordination"),
+        ]

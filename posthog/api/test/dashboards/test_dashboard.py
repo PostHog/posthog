@@ -4,9 +4,8 @@ import datetime
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
-from unittest.mock import ANY, MagicMock, call, patch
+from unittest.mock import ANY, MagicMock, patch
 
-from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
 from django.utils.timezone import now
@@ -674,11 +673,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             Dashboard.objects.get(id=copied_id).customization, {"show_legend": False, "tile_spacing": "wide"}
         )
 
-    @patch(
-        "products.dashboards.backend.feature_flags.get_flags_from_service",
-        return_value={"flags": {"dashboard-customization": {"enabled": True}}},
-    )
-    def test_dashboard_customization_uses_remote_flag_evaluation(self, mock_get_flags: MagicMock) -> None:
+    @patch("products.dashboards.backend.feature_flags.posthoganalytics.feature_enabled", return_value=True)
+    def test_dashboard_customization_evaluates_flag_against_posthog_project(
+        self, mock_feature_enabled: MagicMock
+    ) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
         _, updated = self.dashboard_api.update_dashboard(
@@ -690,31 +688,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             updated["customization"],
             {"tile_spacing": "condensed", "layout_compaction": "horizontal"},
         )
-        expected_flag_call = call(
-            self.team.api_token,
-            self.user.distinct_id,
-            groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
-            flag_keys=["dashboard-customization"],
-            internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
-            evaluation_runtime="all",
+        # The flag must resolve through posthoganalytics (our project), not the customer team token.
+        self.assertIn(
+            "dashboard-customization",
+            [flag_call.args[0] for flag_call in mock_feature_enabled.call_args_list],
         )
-        self.assertGreater(len(mock_get_flags.call_args_list), 0)
-        self.assertTrue(all(flag_call == expected_flag_call for flag_call in mock_get_flags.call_args_list))
-
-    @patch("products.dashboards.backend.feature_flags.get_flags_from_service", side_effect=ConnectionError)
-    def test_dashboard_customization_fails_closed_when_remote_evaluation_fails(
-        self, _mock_get_flags: MagicMock
-    ) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
-
-        _, response = self.dashboard_api.update_dashboard(
-            dashboard_id,
-            {"grid_spacing": "condensed"},
-            expected_status=status.HTTP_400_BAD_REQUEST,
-        )
-
-        self.assertEqual(response["attr"], "grid_spacing")
-        self.assertEqual(response["detail"], "Tile density isn't available.")
 
     @parameterized.expand([("horizontal",), ("stable",)])
     @patch("products.dashboards.backend.api.dashboard.dashboard_customization_enabled", return_value=True)
@@ -831,7 +809,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         insight = Insight.objects.create(
             team=self.team,
             created_by=self.user,
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            query={"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["*"]}},
         )
         DashboardTile.objects.create(dashboard=dashboard, insight=insight)
         mock_calculate.return_value = InsightResult(
@@ -961,6 +939,16 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             delta=datetime.timedelta(seconds=5),
         )
         self.assertEqual(response["tiles"][0]["insight"]["result"][0]["count"], 0)
+
+    def test_impersonated_view_does_not_bump_last_accessed_at(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="dashboard", created_by=self.user)
+
+        with patch("products.dashboards.backend.api.dashboard.is_impersonated", return_value=True):
+            response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        dashboard.refresh_from_db()
+        self.assertIsNone(dashboard.last_accessed_at)
 
     # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.
     @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
@@ -3670,8 +3658,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {
                 "dashboards": [dashboard_id],
                 "query": {
-                    "kind": "InsightVizNode",
-                    "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                    "kind": "DataVisualizationNode",
+                    "source": {"kind": "HogQLQuery", "query": "select count() from events"},
                 },
             }
         )
@@ -3688,7 +3676,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             name="tile alert",
             threshold=threshold,
             condition={"type": "absolute_value"},
-            config={"type": "TrendsAlertConfig", "series_index": 0},
+            config={"type": "HogQLAlertConfig", "evaluation": "last_row"},
         )
 
         regular_response = self.dashboard_api.get_dashboard(dashboard_id)
@@ -3715,7 +3703,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard with broken tile", created_by=self.user)
         insight = Insight.objects.create(
             team=self.team,
-            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            query={"kind": "DataTableNode", "source": {"kind": "EventsQuery", "select": ["*"]}},
         )
         DashboardTile.objects.create(dashboard=dashboard, insight=insight)
 

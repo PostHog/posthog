@@ -73,6 +73,12 @@ class GooglePlayConsoleSource(ResumableSource[GooglePlayConsoleSourceConfig, Goo
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            # The Reporting API answers a malformed or unsupported query with a deterministic 400,
+            # so retrying replays the identical rejection until the activity budget runs out.
+            "400 Client Error": (
+                "Google rejected a Play Console report query as invalid. "
+                "Contact PostHog support if this happens again on the next sync."
+            ),
             "401 Client Error": "Google rejected the service account credentials. Please upload a current JSON key file.",
             "403 Client Error": (
                 "The service account cannot read Play Console reporting data. Enable the Play Developer Reporting "

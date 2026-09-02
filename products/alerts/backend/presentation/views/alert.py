@@ -33,6 +33,7 @@ from posthog.api.fields import OptionalBooleanField
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
+from posthog.email import is_email_available
 from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.trigram_search import (
@@ -75,7 +76,7 @@ from products.alerts.backend.insight_alert_state_machine import (
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, AlertSubscription, Threshold
 from products.alerts.backend.presentation.views.alert_schedule_restriction import AlertScheduleRestriction
-from products.product_analytics.backend.facade.models import Insight
+from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
 
@@ -182,6 +183,26 @@ class DetectorConfigField(serializers.JSONField):
     pass
 
 
+@extend_schema_field(
+    {
+        "oneOf": [{"type": "integer"}, {"type": "string"}],
+        "description": "Numeric insight ID or saved insight short ID.",
+    }
+)
+class TeamScopedInsightReferenceField(TeamScopedPrimaryKeyRelatedField):
+    """Resolve an insight by its database ID or its user-facing short ID."""
+
+    def to_internal_value(self, data: object) -> Insight:
+        if isinstance(data, bool) or not isinstance(data, (str, int)):
+            self.fail("incorrect_type", data_type=type(data).__name__)
+
+        insight = resolve_insight_by_id_or_short_id(self.get_queryset(), data)
+        if insight is not None:
+            return insight
+
+        self.fail("does_not_exist", pk_value=data)
+
+
 @extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
 class ScheduleRestrictionField(serializers.JSONField):
     pass
@@ -251,6 +272,7 @@ class AlertDeliverySerializer(serializers.Serializer):
 
 class AlertCheckSerializer(serializers.ModelSerializer):
     targets_notified = serializers.SerializerMethodField()
+    error = serializers.SerializerMethodField(allow_null=True)
     investigation_notebook_short_id = serializers.SerializerMethodField(
         help_text="Short ID of the Notebook produced by the investigation agent, when the agent ran for this check."
     )
@@ -268,6 +290,7 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "created_at",
             "calculated_value",
             "state",
+            "error",
             "targets_notified",
             "anomaly_scores",
             "triggered_points",
@@ -286,6 +309,16 @@ class AlertCheckSerializer(serializers.ModelSerializer):
 
     def get_targets_notified(self, instance: AlertCheck) -> bool:
         return instance.targets_notified != {}
+
+    def get_error(self, instance: AlertCheck) -> dict[str, str] | None:
+        if not isinstance(instance.error, dict):
+            return None
+        message = instance.error.get("message")
+        if not isinstance(message, str):
+            return None
+        if instance.error.get("code") == "email_unavailable":
+            return {"code": "email_unavailable", "message": message}
+        return {"message": "This alert encountered an error. Check the alert configuration and try again."}
 
     def get_investigation_notebook_short_id(self, instance: AlertCheck) -> str | None:
         notebook = instance.investigation_notebook
@@ -862,12 +895,22 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
 
 
 class AlertSimulateSerializer(serializers.Serializer):
-    insight = TeamScopedPrimaryKeyRelatedField(
+    insight = TeamScopedInsightReferenceField(
         queryset=Insight.objects.all(),
-        help_text="Insight ID to simulate the detector on.",
+        help_text="Numeric insight ID or saved insight short ID to simulate the detector on.",
     )
     detector_config = DetectorConfigField(
-        help_text="Detector configuration to simulate.",
+        required=False,
+        default=lambda: {
+            "type": "zscore",
+            "threshold": 0.95,
+            "window": 90,
+            "preprocessing": {"diffs_n": 1},
+        },
+        help_text=(
+            "Detector configuration to simulate. Omit it to use the default daily z-score detector "
+            "(threshold 0.95, window 90, first-difference preprocessing)."
+        ),
     )
     # TODO: fold series_index and date_from into a per-kind range on `config` once a second insight
     # kind needs a range knob. They stay flat today because date_from is a preview-only range with
@@ -901,9 +944,6 @@ class AlertSimulateSerializer(serializers.Serializer):
         return value
 
     def validate_detector_config(self, value):
-        if value is None:
-            raise ValidationError("detector_config is required.")
-
         import pydantic
 
         try:
@@ -1257,6 +1297,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         failed_delivery_channels: list[str] = []
         successful_email_count = 0
         successful_destination_count = 0
+        email_delivery_unavailable = bool(email_targets) and not is_email_available()
         if email_targets:
             try:
                 send_test_alert_email(alert, recipients=email_targets, idempotency_key=str(uuid.uuid4()))
@@ -1280,8 +1321,13 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             failed_delivery_channels.append("destination")
 
         if successful_email_count == 0 and successful_destination_count == 0:
+            detail = (
+                "Email delivery is unavailable for this instance. Configure email settings before trying again."
+                if email_delivery_unavailable
+                else "Unable to start the test delivery. Check the configured channels and try again."
+            )
             return Response(
-                {"detail": "Unable to start the test delivery. Check the configured channels and try again."},
+                {"detail": detail},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         posthoganalytics.capture(

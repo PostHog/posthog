@@ -1,6 +1,6 @@
 import type { Counter } from 'prom-client'
 
-import { DEFAULT_PATTERN_MAX_INPUT_CHARS } from './config'
+import { PATTERN_CAPS, PATTERN_VERSION } from './log-pattern-mask'
 import {
     logsPatternBodyKindCounter,
     logsPatternInputCappedCounter,
@@ -40,13 +40,13 @@ describe('log-pattern-stage', () => {
         return Object.fromEntries(metric.values.map((v) => [Object.values(v.labels)[0] ?? '', v.value]))
     }
 
-    it('tallies body kinds, rule fires, and input caps across a batch without touching the records', async () => {
-        const stage = makePatternMaskingStage(20, 1024)
+    it('tallies body kinds, rule fires, and input caps across a batch without touching the body', async () => {
+        const stage = makePatternMaskingStage()
         const records = [
             makeRecord(null),
             makeRecord('plain 5'),
             makeRecord('{"message":"hi"}'),
-            makeRecord('a long body over the input cap 123'),
+            makeRecord('x'.repeat(PATTERN_CAPS.maxInputChars + 1)),
         ]
         const bodiesBefore = records.map((r) => r.body)
 
@@ -55,21 +55,32 @@ describe('log-pattern-stage', () => {
         expect(records.map((r) => r.body)).toEqual(bodiesBefore)
         expect(await counterValues(logsPatternBodyKindCounter)).toEqual({
             empty: 1,
-            invalid_json: 2,
+            plaintext: 2,
             json_object_or_array: 1,
         })
         expect(await counterValues(logsPatternRuleFiredCounter)).toEqual({ num: 1 })
         expect((await logsPatternInputCappedCounter.get()).values[0].value).toEqual(1)
     })
 
-    it('falls back to the default caps when a configured cap is not a positive integer', async () => {
-        const stage = makePatternMaskingStage(Number.NaN, -1)
-        await stage.run([makeRecord('x'.repeat(DEFAULT_PATTERN_MAX_INPUT_CHARS + 1))])
-        expect((await logsPatternInputCappedCounter.get()).values[0].value).toEqual(1)
+    it.each([
+        [
+            'the masked body, not the raw one',
+            'request 0f2d6faf-07e3-4cff-bf47-7efa1024aee2 took 7141ms',
+            'request <UUID> took <N>ms',
+        ],
+        ['a plain body', 'retry 5', 'retry <N>'],
+        ['an empty body, which must still carry a version or it reads as written before masking', null, ''],
+    ])('stamps pattern and version onto the record: %s', async (_name, body, expected) => {
+        const stage = makePatternMaskingStage()
+        const record = makeRecord(body)
+
+        await stage.run([record])
+
+        expect(record).toMatchObject({ pattern: expected, pattern_version: PATTERN_VERSION })
     })
 
     it('keeps the batch when masking throws, so a measurement fault cannot DLQ customer logs', async () => {
-        const stage = makePatternMaskingStage(1024, 1024)
+        const stage = makePatternMaskingStage()
         const record = makeRecord(null)
         Object.defineProperty(record, 'body', {
             get: () => {

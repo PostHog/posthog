@@ -36,6 +36,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.property_planner import (
     PropertyComparisonPlan,
     PropertyLiteralConversion,
@@ -298,7 +299,7 @@ class TestPropertyTypes(BaseTest):
     def _plan_where_comparison(
         self,
         select: str,
-        restricted_properties: set[tuple[str, int]] | None = None,
+        restricted_properties: set[RestrictedProperty] | None = None,
     ) -> PropertyComparisonPlan:
         context, resolved = self._resolve_select(select, restricted_properties=restricted_properties)
         comparison = cast(ast.CompareOperation, resolved.where)
@@ -309,7 +310,7 @@ class TestPropertyTypes(BaseTest):
     def _resolve_select(
         self,
         select: str,
-        restricted_properties: set[tuple[str, int]] | None = None,
+        restricted_properties: set[RestrictedProperty] | None = None,
     ) -> tuple[HogQLContext, ast.SelectQuery]:
         """Resolve types and build the property-swapper registry without preparing further.
 
@@ -329,7 +330,7 @@ class TestPropertyTypes(BaseTest):
     def _prepare_select(
         self,
         select: str,
-        restricted_properties: set[tuple[str, int]] | None = None,
+        restricted_properties: set[RestrictedProperty] | None = None,
     ) -> tuple[HogQLContext, ast.SelectQuery]:
         expr = parse_select(select)
         context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
@@ -503,7 +504,9 @@ class TestPropertyTypes(BaseTest):
         with materialized("events", "$browser", is_nullable=True, create_minmax_index=True):
             plan = self._plan_where_comparison(
                 "select count() from events where properties.$browser < 'm'",
-                restricted_properties={("$browser", PropertyDefinition.Type.EVENT)},
+                restricted_properties={
+                    RestrictedProperty(name="$browser", property_type=PropertyDefinition.Type.EVENT)
+                },
             )
 
         assert plan.access.source.kind == PropertySourceKind.JSON
@@ -756,7 +759,7 @@ class TestPropertyTypes(BaseTest):
 
 
 class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
-    def _print_select(self, select: str, restricted_properties: set[tuple[str, int]] | None = None):
+    def _print_select(self, select: str, restricted_properties: set[RestrictedProperty] | None = None):
         expr = parse_select(select)
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         if restricted_properties is not None:
@@ -951,8 +954,8 @@ class TestJSONExtractToMaterializedColumn(ClickhouseTestMixin, BaseTest):
             "JSONHas(properties, 'secret') "
             "from events",
             restricted_properties={
-                ("secret", PropertyDefinition.Type.EVENT),
-                ("email", PropertyDefinition.Type.EVENT),
+                RestrictedProperty(name="secret", property_type=PropertyDefinition.Type.EVENT),
+                RestrictedProperty(name="email", property_type=PropertyDefinition.Type.EVENT),
             },
         )
 

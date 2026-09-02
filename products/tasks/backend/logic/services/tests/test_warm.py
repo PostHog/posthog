@@ -5,7 +5,7 @@ from rest_framework.exceptions import PermissionDenied, Throttled
 
 from posthog.exceptions import QuotaLimitExceeded
 
-from products.tasks.backend.logic.services.warm import SandboxWarmer
+from products.tasks.backend.logic.services.warm import SandboxWarmer, WarmSourceChanged
 from products.tasks.backend.models import Task, TaskRun
 
 WARM = "products.tasks.backend.logic.services.warm"
@@ -92,6 +92,38 @@ class TestSandboxWarmerWarm(APIBaseTest):
         # Snapshot carried forward so the warm session reuses the prior Run's filesystem.
         assert result.run.state["snapshot_external_id"] == "snap-1"
         m_workflow.assert_called_once()
+
+    def test_expected_resume_source_is_idempotent_and_rejects_a_stale_selection(self):
+        task = self._task()
+        terminal = task.create_run(mode="interactive")
+        terminal.status = TaskRun.Status.CANCELLED
+        terminal.save(update_fields=["status"])
+
+        with (
+            patch(f"{WARM}.execute_task_processing_workflow"),
+            patch(f"{WARM}.is_team_limited", return_value=False),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            first = SandboxWarmer(task, user=self.user).warm(
+                extra_state={"model": "claude-sonnet-5"},
+                expected_resume_from_run_id=terminal.id,
+                required_existing_state={"model": "claude-sonnet-5"},
+            )
+            repeated = SandboxWarmer(task, user=self.user).warm(
+                extra_state={"model": "claude-sonnet-5"},
+                expected_resume_from_run_id=terminal.id,
+                required_existing_state={"model": "claude-sonnet-5"},
+            )
+
+            with self.assertRaises(WarmSourceChanged):
+                SandboxWarmer(task, user=self.user).warm(
+                    extra_state={"model": "claude-opus-5"},
+                    expected_resume_from_run_id=terminal.id,
+                    required_existing_state={"model": "claude-opus-5"},
+                )
+
+        assert repeated.run.id == first.run.id
+        assert task.runs.count() == 2
 
     def test_dispatch_is_deferred_to_commit(self):
         # No captureOnCommitCallbacks: the test transaction never commits, so the on_commit dispatch

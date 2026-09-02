@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     _is_host_safe,
     make_ssh_tunnel_factory,
     open_ssh_tunnel,
+    resolve_safe_host,
 )
 
 _MIXINS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
@@ -126,6 +127,24 @@ class TestIsHostSafe(SimpleTestCase):
         ):
             valid, _ = _is_host_safe("good.example.com", team_id=999)
             assert valid
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_a_dual_stack_host_pins_an_address_the_worker_can_route_to(self):
+        # A dual-stack name resolves IPv6-first, and the pinned address is the only one anything
+        # connects to — so on an IPv4-only worker, pinning the resolver's choice can never connect.
+        with (
+            patch(
+                f"{_MIXINS_MODULE}.socket.getaddrinfo",
+                return_value=[
+                    (None, None, None, None, ("2600:1f16:1c4:661c:d148:b481:5246:e29d", 0)),
+                    (None, None, None, None, ("52.1.2.3", 0)),
+                ],
+            ),
+            patch("posthog.psycopg_helpers.has_ipv6_route", return_value=False),
+        ):
+            resolution = resolve_safe_host("dual-stack.example.com", team_id=999)
+
+        assert resolution.connect_host == "52.1.2.3"
 
     @override_settings(CLOUD_DEPLOYMENT="US")
     def test_unresolvable_host_blocked(self):

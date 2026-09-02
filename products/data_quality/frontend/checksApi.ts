@@ -1,4 +1,4 @@
-import { ApiConfig } from 'lib/api'
+import { ApiConfig, ApiError } from 'lib/api'
 
 import {
     warehouseSavedQueriesCheckSuiteRunsCheckRunsList,
@@ -35,6 +35,10 @@ import type {
     PaginatedDataQualityCheckListApi,
     PaginatedDataQualitySuiteRunListApi,
 } from './generated/api.schemas'
+
+export function apiErrorDetail(error: unknown): string | null {
+    return error instanceof ApiError ? error.detail : null
+}
 
 export type DataQualitySubjectType = 'table' | 'view'
 

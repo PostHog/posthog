@@ -50,8 +50,13 @@ def _configured_artifact_host() -> str | None:
     return origin.netloc.lower()
 
 
+def _artifact_signing_keys() -> list[str]:
+    configured = settings.CANVAS_ARTIFACT_SIGNING_KEYS
+    return configured or [settings.SECRET_KEY, *settings.SECRET_KEY_FALLBACKS]
+
+
 def create_canvas_artifact_token(build: CanvasBuild) -> str | None:
-    keys = settings.CANVAS_ARTIFACT_SIGNING_KEYS
+    keys = _artifact_signing_keys()
     if not keys or (not settings.CANVAS_ARTIFACT_ORIGIN and not (settings.DEBUG or settings.TEST)):
         return None
     if not (settings.DEBUG or settings.TEST) and (len(keys[0]) < 32 or _configured_artifact_host() is None):
@@ -86,7 +91,7 @@ def create_canvas_artifact_url(build: CanvasBuild, artifact_path: str) -> str | 
 
 def _read_token(token: str) -> dict[str, Any]:
     current_bucket = int(time.time() // ARTIFACT_TOKEN_BUCKET_SECONDS)
-    for key in settings.CANVAS_ARTIFACT_SIGNING_KEYS:
+    for key in _artifact_signing_keys():
         try:
             value = signing.Signer(key=key, salt=ARTIFACT_TOKEN_SALT).unsign_object(token)
         except signing.BadSignature:

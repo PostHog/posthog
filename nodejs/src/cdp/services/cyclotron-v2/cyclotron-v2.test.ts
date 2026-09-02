@@ -1,4 +1,5 @@
 import { Pool } from 'pg'
+import { register } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
 import { parseJSON } from '~/common/utils/json-parse'
@@ -106,6 +107,16 @@ async function queryJob(id: string): Promise<RawJobRow> {
     return res.rows[0]
 }
 
+// Compares in the database: `scheduled` and Date.now() are different clocks and skew.
+async function jobIsDue(id: string): Promise<boolean> {
+    const res = await assertPool.query<{ due: boolean }>(
+        'SELECT scheduled <= now() AS due FROM cyclotron_jobs WHERE id = $1',
+        [id]
+    )
+    expect(res.rows).toHaveLength(1)
+    return res.rows[0].due
+}
+
 async function countByStatus(status: string): Promise<number> {
     const res = await assertPool.query('SELECT COUNT(*)::int AS c FROM cyclotron_jobs WHERE status = $1', [status])
     return res.rows[0].c
@@ -147,6 +158,12 @@ async function dequeueOneBatch(worker: CyclotronV2Worker, timeoutMs = 2000): Pro
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
+
+async function gaugeValueForQueue(queue: string): Promise<number | null> {
+    const metric = await register.getSingleMetricAsString('cdp_cyclotron_v2_queue_depth')
+    const line = metric.split('\n').find((l) => l.includes(`queue="${queue}"`))
+    return line ? Number(line.trim().split(' ').pop()) : null
+}
 
 describe('Cyclotron V2', () => {
     jest.setTimeout(3000)
@@ -790,13 +807,13 @@ describe('Cyclotron V2', () => {
                 // instead of after the remaining (potentially days-long) delay.
                 const parked = await queryJob(parkedId)
                 expect(parked.cancel_requested_at).not.toBeNull()
-                expect(new Date(parked.scheduled).getTime()).toBeLessThanOrEqual(Date.now())
+                expect(await jobIsDue(parkedId)).toBe(true)
 
                 // Running row: flagged only. Its wake is pulled forward by the
                 // worker's release, never by an external write racing the lock.
                 const running = await queryJob(runningId)
                 expect(running.cancel_requested_at).not.toBeNull()
-                expect(new Date(running.scheduled).getTime()).toBeGreaterThan(Date.now())
+                expect(await jobIsDue(runningId)).toBe(false)
 
                 // Terminal row: untouched, so a later rerun doesn't inherit a flag.
                 const completed = await queryJob(completedId)
@@ -847,7 +864,7 @@ describe('Cyclotron V2', () => {
                 // flagged in place, its wake pulled forward by the worker's release.
                 const resolver = await queryJob(resolverId)
                 expect(resolver.cancel_requested_at).not.toBeNull()
-                expect(new Date(resolver.scheduled).getTime()).toBeLessThanOrEqual(Date.now())
+                expect(await jobIsDue(resolverId)).toBe(true)
                 expect((await queryJob(parkedChildId)).cancel_requested_at).not.toBeNull()
                 expect((await queryJob(runningChildId)).cancel_requested_at).not.toBeNull()
                 expect((await queryJob(otherRunId)).cancel_requested_at).toBeNull()
@@ -913,7 +930,7 @@ describe('Cyclotron V2', () => {
 
                 const row = await queryJob(id)
                 expect(row.status).toBe('available')
-                expect(new Date(row.scheduled).getTime()).toBeLessThanOrEqual(Date.now())
+                expect(await jobIsDue(id)).toBe(true)
             })
 
             it('dequeued jobs expose cancelRequestedAt so consumers can terminate instead of executing', async () => {
@@ -1311,18 +1328,36 @@ describe('Cyclotron V2', () => {
                 // ever consulting the rate limiter. Keeps the bucket at
                 // capacity and the limiter's metrics silent during idle.
                 let hookCalls = 0
-                const worker = createRateLimitedWorker(() => {
-                    hookCalls += 1
-                    return Promise.resolve({ limit: 5 })
+                let resolveFirstPoll!: () => void
+                const firstPoll = new Promise<void>((resolve) => {
+                    resolveFirstPoll = resolve
                 })
 
+                class ObservedRateLimitedWorker extends CyclotronV2RateLimitedWorker {
+                    protected override countWork(limit: number): Promise<number> {
+                        resolveFirstPoll()
+                        return super.countWork(limit)
+                    }
+                }
+                const worker = new ObservedRateLimitedWorker(
+                    {
+                        pool: { dbUrl: DB_URL },
+                        queueName: QUEUE,
+                        batchMaxSize: 100,
+                        pollDelayMs: 10,
+                        includeEmptyBatches: true,
+                    },
+                    () => {
+                        hookCalls += 1
+                        return Promise.resolve({ limit: 5 })
+                    }
+                )
+
                 await worker.connect(async () => {})
-                // Let the loop poll several times (pollDelayMs is 10ms in tests).
-                await new Promise((resolve) => setTimeout(resolve, 200))
+                await firstPoll
                 await worker.stopConsuming()
 
-                // Many poll cycles ran (~20 at 10ms cadence) but no jobs exist,
-                // so the limiter hook is never invoked.
+                // The worker completed an idle poll, so the limiter hook is never invoked.
                 expect(hookCalls).toBe(0)
             })
 
@@ -2460,6 +2495,24 @@ describe('Cyclotron V2', () => {
                 await expect(queryJob(id)).rejects.toThrow()
             }
         )
+
+        it('measureQueueDepths reports 0 for a queue that drains', async () => {
+            // GROUP BY returns no row for an empty queue. Without the zero write the gauge
+            // keeps the last depth, and a depth alert then fires on an idle queue.
+            const jobId = uuidv7()
+            await insertRawJob({ id: jobId, queue_name: 'queue-drains', status: 'available' })
+
+            const janitor = createJanitor({ stallTimeoutMs: 60_000 })
+            const before = await janitor.runOnce()
+            expect(before.depths.get('queue-drains')).toBe(1)
+            expect(await gaugeValueForQueue('queue-drains')).toBe(1)
+
+            await assertPool.query('DELETE FROM cyclotron_jobs WHERE id = $1', [jobId])
+            await janitor.runOnce()
+            await janitor.stop()
+
+            expect(await gaugeValueForQueue('queue-drains')).toBe(0)
+        })
 
         it('measureQueueDepths returns correct counts per queue', async () => {
             await insertRawJob({ id: uuidv7(), queue_name: 'queue-a', status: 'available' })

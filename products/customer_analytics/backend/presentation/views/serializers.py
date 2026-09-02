@@ -250,6 +250,16 @@ _FEATURE_REQUEST_ORDERING_CHOICES = [
     ("priority", "Priority: low to high"),
     ("title", "Title: A to Z"),
     ("-title", "Title: Z to A"),
+    ("account", "Accounts: A to Z"),
+    ("-account", "Accounts: Z to A"),
+    ("product_area", "Product areas: A to Z"),
+    ("-product_area", "Product areas: Z to A"),
+    ("status", "Status: A to Z"),
+    ("-status", "Status: Z to A"),
+    ("created_by", "Created by: A to Z"),
+    ("-created_by", "Created by: Z to A"),
+    ("evidence_count", "Evidence: low to high"),
+    ("-evidence_count", "Evidence: high to low"),
 ]
 
 
@@ -411,6 +421,11 @@ class FeatureRequestSerializer(DataclassSerializer):
         read_only=True,
         help_text="Active account links visible to the caller, with account-specific evidence.",
     )
+    evidence_count = serializers.IntegerField(
+        read_only=True,
+        min_value=0,
+        help_text="Total evidence items recorded across visible account links.",
+    )
     product_areas = FeatureRequestProductAreaSerializer(
         many=True,
         read_only=True,
@@ -441,6 +456,7 @@ class FeatureRequestSerializer(DataclassSerializer):
             "can_update",
             "account",
             "account_links",
+            "evidence_count",
             "product_areas",
             "created_by",
             "updated_by",
@@ -989,12 +1005,20 @@ class AccountOrganizationMemberSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Basic profile of the member's user (uuid, distinct_id, first_name, last_name, email).",
     )
+    last_login = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="When the member last signed in, or null if they have never signed in.",
+    )
 
     class Meta:
         model = OrganizationMembership
-        fields = ["id", "user"]
-        read_only_fields = ["id", "user"]
-        extra_kwargs = {"id": {"help_text": "Organization membership ID."}}
+        fields = ["id", "user", "level", "last_login"]
+        read_only_fields = ["id", "user", "level"]
+        extra_kwargs = {
+            "id": {"help_text": "Organization membership ID."},
+            "level": {"help_text": "Organization access level: member, admin, or owner."},
+        }
 
 
 class AccountNotebookSerializer(DataclassSerializer):
@@ -1391,6 +1415,11 @@ class MeetingSerializer(DataclassSerializer):
 
     id = serializers.UUIDField(read_only=True, help_text="UUID of the meeting.")
     title = serializers.CharField(read_only=True, allow_blank=True, help_text="Meeting title; may be empty.")
+    gong_url = serializers.URLField(
+        read_only=True,
+        allow_null=True,
+        help_text="Gong call URL matched through the calendar event id; null when no Gong call is available.",
+    )
     start_time = serializers.DateTimeField(read_only=True, help_text="When the meeting starts.")
     end_time = serializers.DateTimeField(read_only=True, allow_null=True, help_text="When the meeting ends.")
     organizer_email = serializers.CharField(
@@ -1404,7 +1433,7 @@ class MeetingSerializer(DataclassSerializer):
     class Meta:
         dataclass = MeetingView
         ref_name = "Meeting"
-        fields = ["id", "title", "start_time", "end_time", "organizer_email", "status", "participants"]
+        fields = ["id", "title", "gong_url", "start_time", "end_time", "organizer_email", "status", "participants"]
 
 
 class CustomPropertyReferenceSerializer(DataclassSerializer):
@@ -1437,11 +1466,60 @@ class CustomPropertySyncTriggerResponseSerializer(serializers.Serializer):
     )
 
 
+class CustomPropertySyncRunListQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Match run IDs, workflow IDs, job IDs, statuses, segments, triggers, or errors.",
+    )
+
+
 class CustomPropertySyncRunSerializer(DataclassSerializer):
-    """One person- or group-property sync or backfill run. Read-only: runs are created by the
-    sync/backfill pipeline, never through the API."""
+    """One warehouse-backed custom property sync run."""
 
     id = serializers.UUIDField(read_only=True)
+    job_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Warehouse import or materialization job associated with the run, if any.",
+    )
+    account_segment = serializers.ChoiceField(
+        choices=[("tracked", "tracked"), ("ignored", "ignored")],
+        read_only=True,
+        allow_null=True,
+        help_text="Account segment processed by this run. Person and group property runs return null.",
+    )
+    sync_phase = serializers.ChoiceField(
+        choices=[
+            ("staging", "staging"),
+            ("dispatching", "dispatching"),
+            ("syncing", "syncing"),
+            ("completed", "completed"),
+        ],
+        read_only=True,
+        allow_null=True,
+        help_text="Current account sync phase. Person and group property runs return null.",
+    )
+    attempt = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="Latest Temporal activity attempt for the current account sync phase.",
+    )
+    workflow_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Temporal workflow identifier associated with the current account sync phase.",
+    )
+    workflow_run_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Temporal run identifier associated with the current account sync phase.",
+    )
+    temporal_url = serializers.URLField(
+        read_only=True,
+        allow_null=True,
+        help_text="Staff-only link to this run in Temporal. Null for non-staff users and runs without a Temporal ID.",
+    )
     trigger = serializers.CharField(
         read_only=True,
         help_text=(
@@ -1459,14 +1537,14 @@ class CustomPropertySyncRunSerializer(DataclassSerializer):
     changed = serializers.IntegerField(read_only=True, help_text="Rows whose mapped values changed since the last run.")
     existing = serializers.IntegerField(
         read_only=True,
-        help_text="Person or group profiles updated (changed rows that matched an existing person/group).",
+        help_text="Changed rows that matched an existing account, person, or group.",
     )
     produced = serializers.IntegerField(
-        read_only=True, help_text="Property-update intents produced to the ingestion pipeline."
+        read_only=True, help_text="Property updates written or produced to the ingestion pipeline."
     )
     skipped_missing_person = serializers.IntegerField(
         read_only=True,
-        help_text="Changed rows dropped because no existing person/group matched the key column value.",
+        help_text="Changed rows skipped because no existing account, person, or group matched the key column value.",
     )
     error = serializers.CharField(
         read_only=True, allow_null=True, help_text="Error summary if the run failed, else null."
@@ -1478,6 +1556,13 @@ class CustomPropertySyncRunSerializer(DataclassSerializer):
         ref_name = "CustomPropertySyncRun"
         fields = [
             "id",
+            "job_id",
+            "account_segment",
+            "sync_phase",
+            "attempt",
+            "workflow_id",
+            "workflow_run_id",
+            "temporal_url",
             "trigger",
             "status",
             "started_at",
@@ -1693,8 +1778,8 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
     display_type = serializers.ChoiceField(
         choices=CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES,
         help_text=(
-            "How the property is interpreted and rendered: 'text', 'number', 'currency', "
-            "'percent', 'date', 'datetime', 'boolean', or 'select'."
+            "How the property is interpreted and rendered: 'text', 'link', 'number', 'currency', "
+            "'percent', 'date', 'datetime', 'boolean', or 'select'. Links require an HTTP or HTTPS URL."
         ),
     )
     target_type = serializers.ChoiceField(
@@ -1749,7 +1834,11 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
     references = CustomPropertyReferenceSerializer(
         many=True,
         read_only=True,
-        help_text="Workflows that use this property, resolved by definition id.",
+        help_text="Workflows that use this property, resolved by definition id when the caller can view workflows.",
+    )
+    has_workflow_reference = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether a workflow updates this property. Always returned, even when workflow details are hidden.",
     )
 
     def validate(self, attrs):
@@ -1784,6 +1873,7 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
             "created_by",
             "updated_at",
             "references",
+            "has_workflow_reference",
         ]
 
 
@@ -1826,7 +1916,8 @@ class CustomPropertyValueWriteSerializer(serializers.Serializer):
     value = CustomPropertyValueField(
         help_text=(
             "Value to store, matching the definition's type: a number for number/currency/percent, a "
-            "boolean for boolean, an ISO-8601 string for date/datetime, or text for text properties."
+            "boolean for boolean, an ISO-8601 string for date/datetime, an HTTP or HTTPS URL for link properties, "
+            "or text for text properties."
         )
     )
 

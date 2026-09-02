@@ -301,6 +301,8 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         arrowOffset={tooltipArrowOffset}
                         docLink={tooltipDocLink}
                         visible={tooltipForceMount}
+                        // A click on a blocked button must surface the reason, since hover is unavailable on touch
+                        openOnClick={!!disabledReason}
                         interactive={disabledReasonInteractive}
                         closeDelayMs={disabledReasonInteractive ? INTERACTIVE_CLOSE_DELAY_MS : undefined}
                     >

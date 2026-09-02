@@ -718,6 +718,18 @@ describe('sqlLineGraphAdapter', () => {
             expect(config.legend).toEqual({ show: expected, position: 'top', interactive: true })
         })
 
+        it.each([
+            ['defaults to the top', undefined, 'top'],
+            ['follows legendPosition', 'bottom', 'bottom'],
+        ] as const)('%s for the legend position', (_name, legendPosition, expected) => {
+            const config = buildLineChartConfig({
+                xData: dateXData,
+                chartSettings: { showLegend: true, legendPosition },
+                timezone: 'UTC',
+            })
+            expect(config.legend?.position).toBe(expected)
+        })
+
         it('forwards legendRenderItem, which carries the row right-click menu', () => {
             const legendRenderItem = jest.fn()
             const config = buildLineChartConfig({

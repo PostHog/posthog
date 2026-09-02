@@ -48,11 +48,12 @@ class TraceEventEmitter:
         experiment_id: str,
         experiment_name: str,
         case_name: str,
+        namespace: str,
     ):
         self._client = client
         self._trace_id = trace_id
         self._experiment_id = experiment_id
-        self._formatted_experiment_name = f"sandboxed-agent/{experiment_name}"
+        self._formatted_experiment_name = f"{namespace}/{experiment_name}"
         self._case_name = case_name
 
     @property
@@ -239,12 +240,14 @@ def emit_trace_events(
     experiment_name: str,
     case_name: str,
     parsed: ParsedLog,
+    *,
+    namespace: str,
 ) -> None:
     """Emit one ``$ai_generation`` per turn, plus ``$ai_span`` events.
 
     Thin wrapper over ``TraceEventEmitter.emit_parsed_events``.
     """
-    TraceEventEmitter(client, trace_id, experiment_id, experiment_name, case_name).emit_parsed_events(parsed)
+    TraceEventEmitter(client, trace_id, experiment_id, experiment_name, case_name, namespace).emit_parsed_events(parsed)
 
 
 def emit_trace_root(
@@ -253,6 +256,8 @@ def emit_trace_root(
     experiment_id: str,
     experiment_name: str,
     case_name: str,
+    *,
+    namespace: str,
     prompt: str,
     duration: float,
     first_timestamp: str,
@@ -262,7 +267,7 @@ def emit_trace_root(
     token_usage: dict[str, int] | None = None,
 ) -> None:
     """Thin wrapper over ``TraceEventEmitter.emit_root``."""
-    TraceEventEmitter(client, trace_id, experiment_id, experiment_name, case_name).emit_root(
+    TraceEventEmitter(client, trace_id, experiment_id, experiment_name, case_name, namespace).emit_root(
         prompt=prompt,
         duration=duration,
         first_timestamp=first_timestamp,
@@ -278,6 +283,8 @@ def emit_evaluation_events(
     experiment_id: str,
     experiment_name: str,
     eval_results: list[CaseResult],
+    *,
+    namespace: str,
     scorer_traces: dict[tuple[str, str], str] | None = None,
 ) -> None:
     """Emit ``$ai_evaluation`` events for each scorer result in each eval case.
@@ -286,7 +293,7 @@ def emit_evaluation_events(
     the scorer's LLM call. If available, ``$ai_trace_id`` on the event
     points to the scorer trace (for inspecting the scorer's reasoning).
     """
-    formatted_name = f"sandboxed-agent/{experiment_name}"
+    formatted_name = f"{namespace}/{experiment_name}"
 
     for result in eval_results:
         case_name = result.input.get("name", "unknown") if isinstance(result.input, dict) else "unknown"
@@ -306,7 +313,7 @@ def emit_evaluation_events(
             trace_id = scorer_trace_id or agent_trace_id
 
             properties: dict[str, Any] = {
-                "$ai_eval_source": "sandboxed-agent",
+                "$ai_eval_source": namespace,
                 "$ai_evaluation_type": "offline",
                 "$ai_experiment_id": experiment_id,
                 "$ai_experiment_name": formatted_name,

@@ -85,4 +85,36 @@ database "posthog" {
     }
   }
 
+  # The metrics ingest chain (roles/logs/metrics) is declared in the local shape
+  # (noshard ZK paths, posthog_single_shard reader); the cloud envs keep their
+  # per-shard logs-cluster paths and read through the logs cluster.
+  patch_table "metrics" {
+    engine "distributed" {
+      cluster_name    = "logs"
+      remote_database = "posthog"
+      remote_table    = "metrics1"
+    }
+  }
+
+  patch_table "metrics1" {
+    engine "replicated_merge_tree" {
+      zoo_path     = "/clickhouse/tables/logs/{shard}/posthog.metrics1"
+      replica_name = "{replica}"
+    }
+  }
+
+  patch_table "metric_attributes" {
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/logs/{shard}/posthog.metric_attributes"
+      replica_name = "{replica}"
+    }
+  }
+
+  patch_table "metrics_kafka_metrics" {
+    engine "replicated_aggregating_merge_tree" {
+      zoo_path     = "/clickhouse/tables/logs/{shard}/posthog.metrics_kafka_metrics"
+      replica_name = "{replica}"
+    }
+  }
+
 }

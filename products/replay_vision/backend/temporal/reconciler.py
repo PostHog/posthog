@@ -1,8 +1,9 @@
 """Syncs per-scanner schedules with the ReplayScanner table on every tick, and reaps orphaned observations."""
 
 import asyncio
+import datetime as dt
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from temporalio import workflow
@@ -12,14 +13,17 @@ from temporalio.exceptions import ApplicationError
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.replay_vision.backend.temporal.constants import (
-    INLINE_SCANNER_REAP_TIMEOUT,
     LIST_ENABLED_SCANNERS_TIMEOUT,
     LIST_SCANNER_SCHEDULES_TIMEOUT,
+    REAP_BACKFILL_SCHEDULES_HEARTBEAT_TIMEOUT,
+    REAP_BACKFILL_SCHEDULES_SCHEDULE_TO_CLOSE,
     REAP_BACKFILL_SCHEDULES_TIMEOUT,
     REAP_ORPHANED_OBSERVATIONS_HEARTBEAT_TIMEOUT,
-    REAP_ORPHANED_OBSERVATIONS_TIMEOUT,
-    REAP_STUCK_VISION_ACTION_RUNS_TIMEOUT,
+    REAPER_MAX_ATTEMPTS,
+    REAPER_OP_SCHEDULE_TO_CLOSE,
+    REAPER_OP_TIMEOUT,
     RECONCILE_SCHEDULE_OP_TIMEOUT,
+    RECONCILER_ACTIVITY_PRIORITY,
     RECONCILER_EXECUTION_TIMEOUT,
     RECONCILER_INTERVAL,
     RECONCILER_SCHEDULE_ID,
@@ -57,60 +61,73 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: ReconcileScannerSchedulesInputs) -> ReconcileScannerSchedulesResult:
-        # Best-effort and first: a schedule-sync failure below must not starve the reapers, and vice versa.
+        if workflow.patched("sync-schedules-before-reapers-2026-08"):
+            # Schedule sync goes first because it is the only phase a user feels: an enabled scanner
+            # that never gets a sweep schedule silently never scans. The reapers only settle rows that
+            # are already wrong, so a skipped pass costs one tick. The reapers' combined start-to-close
+            # budget is larger than the workflow execution timeout, so running them first lets one slow
+            # reaper starve the sync on every tick.
+            result, systemic_failure = await self._sync_schedules()
+            await self._run_reapers()
+        else:
+            await self._run_reapers()
+            result, systemic_failure = await self._sync_schedules()
+        if systemic_failure is not None:
+            raise systemic_failure
+        return result
+
+    async def _run_reapers(self) -> None:
+        # Each reaper is best-effort and isolated: one failure must not stop the others, and none of
+        # them may stop schedule sync.
         try:
-            await workflow.execute_activity(
+            await self._run_reaper(
                 reap_orphaned_observations_activity,
-                start_to_close_timeout=REAP_ORPHANED_OBSERVATIONS_TIMEOUT,
-                # The activity heartbeats between phases, so a stalled pass is cut loose before it burns
-                # the whole tick budget.
                 heartbeat_timeout=REAP_ORPHANED_OBSERVATIONS_HEARTBEAT_TIMEOUT,
-                retry_policy=RetryPolicy(maximum_attempts=1),
             )
         except Exception:
             workflow.logger.exception("replay_vision.reap_orphaned_observations_failed")
 
         if workflow.patched("reap-stuck-vision-action-runs-2026-07"):
             try:
-                await workflow.execute_activity(
-                    reap_stuck_vision_action_runs_activity,
-                    start_to_close_timeout=REAP_STUCK_VISION_ACTION_RUNS_TIMEOUT,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
+                await self._run_reaper(reap_stuck_vision_action_runs_activity)
             except Exception:
                 workflow.logger.exception("replay_vision.reap_stuck_vision_action_runs_failed")
 
         if workflow.patched("reap-childless-inline-scanners-2026-08"):
             try:
-                await workflow.execute_activity(
-                    reap_childless_inline_scanners_activity,
-                    start_to_close_timeout=INLINE_SCANNER_REAP_TIMEOUT,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
+                await self._run_reaper(reap_childless_inline_scanners_activity)
             except Exception:
                 workflow.logger.exception("replay_vision.reap_childless_inline_scanners_failed")
 
         if workflow.patched("reap-backfill-schedules-2026-08"):
             try:
-                await workflow.execute_activity(
+                # A full schedule listing outlives the short reaper attempt, so this one keeps a long
+                # attempt and leans on heartbeats to detect a dead worker.
+                await self._run_reaper(
                     reap_backfill_schedules_activity,
+                    heartbeat_timeout=REAP_BACKFILL_SCHEDULES_HEARTBEAT_TIMEOUT,
                     start_to_close_timeout=REAP_BACKFILL_SCHEDULES_TIMEOUT,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    schedule_to_close_timeout=REAP_BACKFILL_SCHEDULES_SCHEDULE_TO_CLOSE,
                 )
             except Exception:
                 workflow.logger.exception("replay_vision.reap_backfill_schedules_failed")
 
+    async def _sync_schedules(self) -> tuple[ReconcileScannerSchedulesResult, ApplicationError | None]:
+        """Converge per-scanner schedules with the table. Returns the result plus a systemic failure to
+        raise once the rest of the tick is done."""
         # A scanner toggled between the two listings recovers on the next tick.
         enabled_entries, existing_entries = await asyncio.gather(
             workflow.execute_activity(
                 list_enabled_scanners_activity,
                 start_to_close_timeout=LIST_ENABLED_SCANNERS_TIMEOUT,
                 retry_policy=RetryPolicy(maximum_attempts=3),
+                priority=RECONCILER_ACTIVITY_PRIORITY,
             ),
             workflow.execute_activity(
                 list_scanner_schedules_activity,
                 start_to_close_timeout=LIST_SCANNER_SCHEDULES_TIMEOUT,
                 retry_policy=RetryPolicy(maximum_attempts=3),
+                priority=RECONCILER_ACTIVITY_PRIORITY,
             ),
         )
         enabled = {entry.scanner_id: entry for entry in enabled_entries}
@@ -128,6 +145,7 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
                     UpsertScannerScheduleActivityInputs(scanner_id=sid, team_id=enabled[sid].team_id),
                     start_to_close_timeout=RECONCILE_SCHEDULE_OP_TIMEOUT,
                     retry_policy=RetryPolicy(maximum_attempts=3),
+                    priority=RECONCILER_ACTIVITY_PRIORITY,
                 ),
             ),
             self._fan_out(
@@ -137,6 +155,7 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
                     DeleteScannerScheduleActivityInputs(scanner_id=sid),
                     start_to_close_timeout=RECONCILE_SCHEDULE_OP_TIMEOUT,
                     retry_policy=RetryPolicy(maximum_attempts=3),
+                    priority=RECONCILER_ACTIVITY_PRIORITY,
                 ),
             ),
         )
@@ -158,8 +177,25 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
         attempted = len(to_upsert) + len(to_delete)
         succeeded = len(result.upserted) + len(result.deleted)
         if attempted > 0 and succeeded == 0:
-            raise ApplicationError(f"reconciler: all {attempted} fan-out activities failed")
-        return result
+            return result, ApplicationError(f"reconciler: all {attempted} fan-out activities failed")
+        return result, None
+
+    async def _run_reaper(
+        self,
+        reaper_activity: Callable[[], Any],
+        *,
+        heartbeat_timeout: dt.timedelta | None = None,
+        start_to_close_timeout: dt.timedelta = REAPER_OP_TIMEOUT,
+        schedule_to_close_timeout: dt.timedelta = REAPER_OP_SCHEDULE_TO_CLOSE,
+    ) -> None:
+        await workflow.execute_activity(
+            reaper_activity,
+            start_to_close_timeout=start_to_close_timeout,
+            schedule_to_close_timeout=schedule_to_close_timeout,
+            heartbeat_timeout=heartbeat_timeout,
+            retry_policy=RetryPolicy(maximum_attempts=REAPER_MAX_ATTEMPTS),
+            priority=RECONCILER_ACTIVITY_PRIORITY,
+        )
 
     async def _fan_out(self, scanner_ids: list[UUID], make_coro: Callable[[UUID], Awaitable[None]]) -> list[bool]:
         if not scanner_ids:

@@ -183,6 +183,14 @@ def slack_integration_belongs_to_team(*, integration_id: int, team_id: int) -> b
     ).exists()
 
 
+def _raise_if_billing_alert_already_has_this_destination_type(
+    alert: BillingAlertConfiguration, destination_type: DestinationType
+) -> None:
+    existing_types = {destination["type"] for destination in destinations_for_alerts([alert]).get(str(alert.id), [])}
+    if destination_type.value in existing_types:
+        raise DRFValidationError({"type": f"A {destination_type.label} destination already exists."})
+
+
 def create_destination(alert: BillingAlertConfiguration, *, request: Any, data: dict[str, Any]) -> list[UUID]:
     destination_data = cast(AlertDestinationData, data)
     validate_destination_data(destination_data, allowed_destination_types=BILLING_DESTINATION_TYPES)
@@ -204,11 +212,7 @@ def create_destination(alert: BillingAlertConfiguration, *, request: Any, data: 
             raise DRFValidationError(
                 {"slack_workspace_id": "Slack integration does not belong to this billing alert execution team."}
             )
-        existing_types = {
-            destination["type"] for destination in destinations_for_alerts([locked_alert]).get(str(locked_alert.id), [])
-        }
-        if destination_data["type"].value in existing_types:
-            raise DRFValidationError({"type": f"A {destination_data['type'].label} destination already exists."})
+        _raise_if_billing_alert_already_has_this_destination_type(locked_alert, destination_data["type"])
         configs = [
             build_alert_destination_config(
                 team=locked_alert.team,
@@ -220,7 +224,12 @@ def create_destination(alert: BillingAlertConfiguration, *, request: Any, data: 
             )
             for kind in EVENT_KINDS
         ]
-        hog_functions = create_alert_destination_hog_functions(configs, request=request)
+        hog_functions = create_alert_destination_hog_functions(
+            configs,
+            request=request,
+            alert_id=str(locked_alert.id),
+            allowed_event_ids=BILLING_ALERT_EVENT_IDS,
+        )
         return [hog_function.id for hog_function in hog_functions]
 
 

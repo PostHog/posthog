@@ -20,6 +20,7 @@ from products.signals.backend.artefact_schemas import (
 
 # Dependency-light on purpose (see its module docstring): safe to import here without dragging
 # `posthog.schema` onto the research path.
+from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
 
 # Deferred: importing temporal.types here runs the signals temporal package __init__, which
@@ -483,6 +484,7 @@ def build_initial_research_prompt(
     has_business_knowledge: bool = False,
     resolved_report_title: str | None = None,
     resolved_report_summary: str | None = None,
+    steering_section: str = "",
 ) -> str:
     """Build the opening prompt for the first signal in a multi-turn research session."""
     signal_block = _render_signal_for_research(first_signal, 1, total_signals)
@@ -511,6 +513,9 @@ def build_initial_research_prompt(
     )
 
     bk_block = f"\n{_BUSINESS_KNOWLEDGE_BLOCK}\n" if has_business_knowledge else ""
+    # Rendered by `report_steering.load_research_steering`, which reads the notes the team left the
+    # scout fleet. Empty for a team that left none, so a quiet project pays nothing for the section.
+    steering_block = f"\n{steering_section}\n" if steering_section else ""
 
     return f"""{_RESEARCH_PREAMBLE}
 
@@ -521,7 +526,7 @@ def build_initial_research_prompt(
 ---
 
 {_RESEARCH_PROTOCOL}
-{bk_block}
+{bk_block}{steering_block}
 ---
 
 ## Signal 1 of {total_signals}
@@ -753,6 +758,7 @@ async def run_multi_turn_research(
     resolved_report_title: str | None = None,
     resolved_report_summary: str | None = None,
     charts_enabled: bool = False,
+    steering_section: str = "",
 ) -> ReportResearchOutput:
     """Orchestrate a multi-turn sandbox session that investigates each signal individually."""
     from products.tasks.backend.facade import api as tasks_facade
@@ -786,6 +792,7 @@ async def run_multi_turn_research(
         has_business_knowledge=has_business_knowledge,
         resolved_report_title=resolved_report_title,
         resolved_report_summary=resolved_report_summary,
+        steering_section=steering_section,
     )
     session, first_response = await MultiTurnSession.start(
         prompt=initial_prompt,
@@ -797,7 +804,7 @@ async def run_multi_turn_research(
         output_fn=output_fn,
         origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
         signal_report_id=signal_report_id,
-        ai_stage="research",
+        ai_stage=AI_STAGE_RESEARCH,
         internal=True,
     )
 

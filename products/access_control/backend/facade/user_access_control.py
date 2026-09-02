@@ -9,11 +9,14 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
 from django.db.models import Case, CharField, Exists, F, ForeignKey, Model, OuterRef, Q, QuerySet, Value, When
 from django.db.models.functions import Cast
 
+import posthoganalytics
 from opentelemetry import trace
 
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.organization_caching import get_cached_organization_membership
 from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
 from posthog.settings import EE_AVAILABLE
 
@@ -77,6 +80,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "revenue_analytics",
     "session_recording",
     "sharing_configuration",
+    "stamphog",
     "survey",
     "ticket",
     "web_analytics",
@@ -117,6 +121,8 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     # scanner's "and then…" automations) — configured via the same single
     # replay_scanner rule rather than a separate resource.
     "vision_action": "replay_scanner",
+    # Vision alerts follow the same rule: configured via the scanner's access level.
+    "vision_alert": "replay_scanner",
 }
 
 # Unlike RESOURCE_INHERITANCE_MAP above, where the child has no access of its own and just uses the
@@ -161,13 +167,16 @@ def get_field_access_control_map(model_class: type[Model]) -> dict[str, tuple[AP
     Dynamically retrieve field-level access control requirements from model fields.
     This function looks for fields decorated with @requires_access.
     """
-    field_access_map = {}
+    field_access_map: dict[str, tuple[APIScopeObject, AccessControlLevel]] = {}
 
     # Iterate through all fields in the model
     for field in model_class._meta.get_fields():
         # Check if the field has access control metadata
         if hasattr(field, "_access_control_resource") and hasattr(field, "_access_control_level"):
-            field_access_map[field.name] = (field._access_control_resource, field._access_control_level)
+            field_access_map[field.name] = (
+                cast(APIScopeObject, field._access_control_resource),
+                cast(AccessControlLevel, field._access_control_level),
+            )
 
     return field_access_map
 
@@ -189,6 +198,9 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
     if resource == "llm_playground":
         # The playground is a single page, not a collection of objects
         return "LLM playground"
+    if resource == "stamphog":
+        # Product name: a proper noun, and it does not take a plural
+        return "Stamphog"
 
     # Default: replace underscores and add 's' for plural
     return f"{resource.replace('_', ' ')}s"
@@ -273,6 +285,9 @@ class ResolvedAccess:
     # (the source a table inherited from), so a display can name it. None when the rule is
     # resource-wide or no rule decided.
     source_resource_id: Optional[str] = None
+    # Display name of the member or role whose row decided. Enforcement never sets or reads
+    # it; the resolution preview fills it so explanations can name the deciding subject.
+    subject_name: Optional[str] = None
 
 
 def model_to_resource(model: Model) -> Optional[APIScopeObject]:
@@ -329,6 +344,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "replay_scanner"
     if name in ("visionaction", "visionactionrun"):
         return "vision_action"
+    if name in ("visionalertconfiguration", "visionalertevent"):
+        return "vision_alert"
 
     if name not in API_SCOPE_OBJECTS or name in INTERNAL_API_SCOPE_OBJECTS:
         return None
@@ -394,6 +411,11 @@ class UserAccessControl:
         self._team = team
         self._cache: dict[str, list[AccessControl]] = {}
         self._sibling_team_access_controls: dict[int, UserAccessControl] = {}
+        # Divergences this instance already reported. An instance lives for one request, and one
+        # request resolves the same rules many times: project access several times, and each
+        # object in a list response. The events carry no object id, so these repeats are
+        # identical events. Report each distinct divergence once per request.
+        self._reported_resolved_access_divergences: set[tuple] = set()
 
         if not organization_id and team:
             organization_id = str(team.organization_id)
@@ -450,15 +472,9 @@ class UserAccessControl:
 
     @cached_property
     def _organization_membership(self) -> Optional[OrganizationMembership]:
-        # NOTE: This is optimized to reduce queries - we get the users membership _with_ the organization
-        try:
-            if not self._organization_id:
-                return None
-            return OrganizationMembership.objects.select_related("organization").get(
-                organization_id=self._organization_id, user=self._user
-            )
-        except OrganizationMembership.DoesNotExist:
+        if not self._organization_id:
             return None
+        return get_cached_organization_membership(self._organization_id, self._user)
 
     @cached_property
     def _organization(self) -> Optional[Organization]:
@@ -493,12 +509,9 @@ class UserAccessControl:
         """
         if not EE_AVAILABLE or not self._team:
             return []
-        # Annotate with team.organization_id only — avoids fetching the full ~150-column posthog_team row.
-        return list(
-            AccessControl.objects.annotate(_team_organization_id=F("team__organization_id")).filter(
-                self._filter_options({"team_id": self._team.id})
-            )
-        )
+        # No org-id annotation: this team-scoped pool is only ever matched on team_id (never
+        # team__organization_id), so `_row_matches` never reads that attribute off these rows.
+        return list(AccessControl.objects.filter(self._filter_options({"team_id": self._team.id})))
 
     @property
     def user(self) -> User:
@@ -548,6 +561,7 @@ class UserAccessControl:
         """
         Adds the 3 main filter options to the query
         """
+        filters = self._db_filters(filters)
         return (
             Q(  # Access controls applying to this team
                 **filters, organization_member=None, role=None
@@ -565,6 +579,18 @@ class UserAccessControl:
                 **filters, organization_member=None, role__in=self._user_role_ids
             )
         )
+
+    @staticmethod
+    def _db_filters(filters: dict[str, Any]) -> dict[str, Any]:
+        """Replace `team__organization_id` with `team_id__in` (the org's teams) for the DB query.
+        The org id is a posthog_team column, so as a join predicate it forces a scan over every
+        org's rows. A team_id predicate uses the index on ee_accesscontrol."""
+        organization_id = filters.get("team__organization_id")
+        if organization_id is None:
+            return filters
+        db_filters = {k: v for k, v in filters.items() if k != "team__organization_id"}
+        db_filters["team_id__in"] = Team.objects.filter(organization_id=organization_id).values("id")
+        return db_filters
 
     def _can_serve_from_preload(self, filters: dict) -> bool:
         """The preloaded set is `WHERE team_id = self._team.id` (+ the OR-3 precedence), so it
@@ -602,11 +628,9 @@ class UserAccessControl:
                 if isinstance(resource, str):
                     span.set_attribute("rbac.resource", resource)
                 span.set_attribute("rbac.has_resource_id", filters.get("resource_id") is not None)
-                self._cache[key] = list(
-                    AccessControl.objects.annotate(_team_organization_id=F("team__organization_id")).filter(
-                        self._filter_options(filters)
-                    )
-                )
+                # No org-id annotation here: these rows return straight to the caller and never
+                # reach `_row_matches`, so joining posthog_team for it would be wasted work.
+                self._cache[key] = list(AccessControl.objects.filter(self._filter_options(filters)))
                 span.set_attribute("rbac.row_count", len(self._cache[key]))
 
         return self._cache[key]
@@ -949,12 +973,16 @@ class UserAccessControl:
             )
 
         row = self._highest_access_from_rows(resource, access_controls)
-        return ResolvedAccess(
+        access = ResolvedAccess(
             access_level=row.access_level,
             source="resource",
             source_subject=self._row_subject(row),
             source_resource=resource,
         )
+        self._report_resolved_access_divergence(
+            "resource", resource, access, lambda: self.resolve_most_specific_resource_access(resource)
+        )
+        return access
 
     def has_access_levels_for_resource(self, resource: APIScopeObject) -> bool:
         if not self._team:
@@ -1113,9 +1141,10 @@ class UserAccessControl:
         decision = self._blocked_and_allowed_object_ids(access_controls)
 
         # Apply filtering logic based on resource-level access
-        if not self.has_resource_access(resource) and decision.allowed_ids:
-            # User has "none" resource access but specific object access
-            # Only show objects they have explicit access to (plus created objects)
+        if not self.has_resource_access(resource):
+            # Resource-level "none": show only granted objects and the user's own objects, also
+            # when there are no grants at all. Logic-layer and background callers reach this
+            # filter with no permission layer above it, so it must fail closed on its own.
             if model_has_creator:
                 queryset = queryset.filter(Q(id__in=decision.allowed_ids) | Q(created_by=self._user))
             else:
@@ -1557,6 +1586,12 @@ class UserAccessControl:
             explicit=explicit,
             fallback_parent_id=self._fallback_parent_id(obj, resource),
         )
+        if not explicit:
+            # explicit=True changes the enforced answer but not the future one, so comparing
+            # there would report divergence that is really just the flag
+            self._report_resolved_access_divergence(
+                "object", resource, access, lambda: self.resolve_most_specific_object_access(obj)
+            )
         return access.access_level if access else None
 
     def bulk_object_access_levels(
@@ -1598,6 +1633,199 @@ class UserAccessControl:
             results[object_id] = access.access_level if access else None
 
         return results
+
+    # ------------------------------------------------------------
+    # Most-specific-wins resolution (RFC 557). Not enforced.
+    #
+    # These methods resolve access by specificity:
+    # - Most specific subject first: member override -> max(role overrides) -> the object's
+    #   own default.
+    # - When the resource is in RESOURCE_FALLBACK_MAP (e.g. `warehouse_table` ->
+    #   `external_data_source`), access resolves as: rules on the object -> its parent ->
+    #   the resource -> the parent's resource.
+    # The first rule found in this order decides, even when it gives a lower level.
+    # The enforced methods resolve differently: they take the highest level across the
+    # member and role overrides, and rules on the resource win over the object's own default.
+    #
+    # DO NOT CALL THESE METHODS FOR ENFORCEMENT YET.
+    # Call `get_user_access_level`, `check_access_level_for_object`, or
+    # `access_level_for_resource` instead.
+    # ------------------------------------------------------------
+
+    def _rows_by_subject(self, rows: list[_AccessControl]) -> list[list[_AccessControl]]:
+        """Group one scope's rows by subject, most specific first: the member's own rows, then
+        the rows of their roles, then the rows that apply to everyone. Empty groups are removed."""
+        by_subject: dict[str, list[_AccessControl]] = {"member": [], "role": [], "default": []}
+        for ac in rows:
+            by_subject[self._row_subject(ac)].append(ac)
+        return [group for group in by_subject.values() if group]
+
+    def resolve_most_specific_object_access(self, obj: Model) -> Optional[ResolvedAccess]:
+        """Future source of truth for object access — NOT enforced yet, see the section comment.
+
+        This method has no `explicit` parameter. It always returns the full answer. For the
+        `explicit=True` behavior of the enforced methods, check
+        `resolved.source != "system_default"`.
+        """
+        resource = model_to_resource(obj)
+        if not resource:
+            return None
+
+        resolved, access = self._object_access_level_precheck(resource, self._is_creator(obj))
+        if resolved:
+            return access
+
+        fallback_parent_id = self._fallback_parent_id(obj, resource)
+        parent = RESOURCE_FALLBACK_MAP.get(resource) if fallback_parent_id else None
+
+        object_rows = self._get_access_controls(self._access_controls_filters_for_object(resource, str(obj.id)))  # type: ignore
+        for subject_rows in self._rows_by_subject(object_rows):
+            row = self._highest_access_from_rows(resource, subject_rows)
+            return ResolvedAccess(
+                access_level=row.access_level,
+                source="object",
+                source_subject=self._row_subject(row),
+                source_resource=resource,
+                source_resource_id=row.resource_id,
+            )
+
+        if parent:
+            parent_rows = self._get_access_controls(
+                self._access_controls_filters_for_object(parent, cast(str, fallback_parent_id))
+            )
+            for subject_rows in self._rows_by_subject(parent_rows):
+                row = self._highest_access_from_rows(parent, subject_rows)
+                return ResolvedAccess(
+                    access_level=row.access_level,
+                    source="parent_object",
+                    source_subject=self._row_subject(row),
+                    source_resource=parent,
+                    source_resource_id=row.resource_id,
+                )
+
+        if self.has_access_levels_for_resource(resource):
+            access_for_resource = self.resolve_most_specific_resource_access(resource)
+            if access_for_resource:
+                return access_for_resource
+
+        if parent and self.has_access_levels_for_resource(parent):
+            access_for_parent = self.resolve_most_specific_resource_access(parent)
+            if access_for_parent:
+                return replace(access_for_parent, source="parent_resource")
+
+        return ResolvedAccess(
+            access_level=default_access_level(resource),
+            source="system_default",
+            source_subject=None,
+            source_resource=RESOURCE_INHERITANCE_MAP.get(resource, resource),
+        )
+
+    def resolve_most_specific_resource_access(self, resource: APIScopeObject) -> Optional[ResolvedAccess]:
+        """Future source of truth for resource access — NOT enforced yet, see the section comment.
+
+        The guards are the same as in `access_level_for_resource`. Only the row step differs:
+        the most specific subject that has a row decides.
+        """
+        parent_resource = RESOURCE_INHERITANCE_MAP.get(resource)
+        if parent_resource:
+            return self.resolve_most_specific_resource_access(parent_resource)
+
+        if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
+            return ResolvedAccess(
+                access_level=default_access_level(resource),
+                source="system_default",
+                source_subject=None,
+                source_resource=resource,
+            )
+
+        if not resource or not self._organization_membership:
+            return None
+
+        if self.is_organization_admin:
+            return ResolvedAccess(
+                access_level=highest_access_level(resource),
+                source="org_admin",
+                source_subject=None,
+                source_resource=resource,
+            )
+
+        if not self.access_controls_supported:
+            return ResolvedAccess(
+                access_level=default_access_level(resource),
+                source="system_default",
+                source_subject=None,
+                source_resource=resource,
+            )
+
+        rows = self._get_access_controls(self._access_controls_filters_for_resource(resource))
+        for subject_rows in self._rows_by_subject(rows):
+            row = self._highest_access_from_rows(resource, subject_rows)
+            return ResolvedAccess(
+                access_level=row.access_level,
+                source="resource",
+                source_subject=self._row_subject(row),
+                source_resource=resource,
+            )
+
+        return ResolvedAccess(
+            access_level=default_access_level(resource),
+            source="system_default",
+            source_subject=None,
+            source_resource=resource,
+        )
+
+    def _report_resolved_access_divergence(
+        self,
+        kind: Literal["object", "resource"],
+        resource: APIScopeObject,
+        current: Optional[ResolvedAccess],
+        proposed_fn: Callable[[], Optional[ResolvedAccess]],
+    ) -> None:
+        """Capture a PostHog event when the enforced resolution and the most-specific one disagree.
+
+        This is read-only telemetry for the resolution migration. It does not change the enforced
+        answer. `proposed_fn` runs only after the guards pass, so a skipped call does not pay
+        for the second resolution. Subclasses are skipped: SubjectAccessControl resolves
+        another subject's access for display, and those divergences do not describe this user.
+        """
+        if type(self) is not UserAccessControl or current is None:
+            return
+        try:
+            proposed = proposed_fn()
+            if proposed is None or current.access_level == proposed.access_level:
+                return
+
+            key = (kind, resource, current.access_level, proposed.access_level, current.source, proposed.source)
+            if key in self._reported_resolved_access_divergences:
+                return
+            self._reported_resolved_access_divergences.add(key)
+
+            order = ordered_access_levels(resource)
+            direction = (
+                "widens" if order.index(proposed.access_level) > order.index(current.access_level) else "narrows"
+            )
+            # The event carries no object ids and no emails. Aggregate counts are enough for the migration.
+            posthoganalytics.capture(
+                distinct_id=self._user.distinct_id,
+                event="most specific access control decision diverged",
+                properties={
+                    "kind": kind,
+                    "resource": resource,
+                    "direction": direction,
+                    "current_level": current.access_level,
+                    "current_source": current.source,
+                    "current_source_subject": current.source_subject,
+                    "proposed_level": proposed.access_level,
+                    "proposed_source": proposed.source,
+                    "proposed_source_subject": proposed.source_subject,
+                    "team_id": self._team.id if self._team else None,
+                    "organization_id": str(self._organization_id) if self._organization_id else None,
+                },
+            )
+        except Exception as e:
+            # Shadow code must never break the enforced answer. Failures surface in error
+            # tracking instead of disappearing, so a broken shadow resolver gets noticed.
+            capture_exception(e)
 
 
 def visible_teams_for_user(

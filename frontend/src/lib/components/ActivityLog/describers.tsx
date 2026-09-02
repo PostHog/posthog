@@ -46,6 +46,7 @@ import { ticketActivityDescriber } from 'products/conversations/frontend/activit
 import { externalDataSourceActivityDescriber } from 'products/data_warehouse/frontend/shared/components/activityDescriptions'
 import { endpointActivityDescriber } from 'products/endpoints/frontend/activityDescriber'
 import { signalScoutConfigActivityDescriber } from 'products/signals/frontend/activityDescriber'
+import { stamphogRepoConfigActivityDescriber } from 'products/stamphog/frontend/activityDescriber'
 import { workflowActivityDescriber } from 'products/workflows/frontend/Workflows/misc/workflowActivityDescriber'
 
 export const describerFor = (logItem?: ActivityLogItem): Describer | undefined => {
@@ -138,6 +139,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return promptActivityDescriber
         case ActivityScope.LLM_PROMPT_LABEL:
             return promptLabelActivityDescriber
+        case ActivityScope.STAMPHOG_REPO_CONFIG:
+            return stamphogRepoConfigActivityDescriber
         default:
             return defaultDescriber
     }

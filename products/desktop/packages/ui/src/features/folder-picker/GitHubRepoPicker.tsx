@@ -18,6 +18,7 @@ import {
   Spinner,
   Text,
 } from "@posthog/quill";
+import { Spin } from "@posthog/ui/primitives/Spinner";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { FIELD_TRIGGER_CLASS } from "@posthog/ui/styles/fieldTrigger";
 import { defaultFilter } from "cmdk";
@@ -290,10 +291,9 @@ export function GitHubRepoPicker({
                     onRefresh();
                   }}
                 >
-                  <ArrowClockwise
-                    size={14}
-                    className={isRefreshing ? "animate-spin" : undefined}
-                  />
+                  <Spin spinning={isRefreshing}>
+                    <ArrowClockwise size={14} />
+                  </Spin>
                 </InputGroupButton>
               </InputGroupAddon>
             ) : null}

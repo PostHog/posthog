@@ -84,10 +84,12 @@ REPLAY_VISION_SWEEP_OUTCOMES = Counter(
     ["outcome"],
 )
 
-REPLAY_VISION_SCANNER_ADMISSION_LOCK_WAIT = Histogram(
-    "replay_vision_scanner_admission_lock_wait_seconds",
-    "Time spent acquiring the scanner row lock that serializes capped admissions",
-    buckets=(0.005, 0.025, 0.1, 0.5, 1.0, 2.5, 5.0, 10.0),
+# The admission lock gives up after a 2s lock_timeout, so waits are capped, not worth a histogram;
+# here instead, as attempts that found the row held and deferred to the activity's retry policy.
+REPLAY_VISION_SCANNER_ADMISSION_BUSY = Counter(
+    "replay_vision_scanner_admission_busy_total",
+    "Capped-scanner admissions that found the row lock held and were deferred to the activity retry",
+    ["scanner_type"],
 )
 
 REPLAY_VISION_SCANNER_LIMIT_REACHED = Counter(
@@ -203,9 +205,9 @@ def record_quota_exhausted_skip(scanner_type: str) -> None:
     _otel.record_counter_twin(REPLAY_VISION_QUOTA_EXHAUSTED_SKIPS, 1, {"scanner_type": scanner_type})
 
 
-def record_scanner_admission_lock_wait(seconds: float) -> None:
-    REPLAY_VISION_SCANNER_ADMISSION_LOCK_WAIT.observe(seconds)
-    _otel.record_histogram_twin(REPLAY_VISION_SCANNER_ADMISSION_LOCK_WAIT, seconds, {})
+def record_scanner_admission_busy(scanner_type: str) -> None:
+    REPLAY_VISION_SCANNER_ADMISSION_BUSY.labels(scanner_type=scanner_type).inc()
+    _otel.record_counter_twin(REPLAY_VISION_SCANNER_ADMISSION_BUSY, 1, {"scanner_type": scanner_type})
 
 
 def record_scanner_limit_reached(surface: str) -> None:

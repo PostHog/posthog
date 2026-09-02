@@ -160,7 +160,7 @@ class LazyFinder(TraversingVisitor):
     def visit_lazy_join_type(self, node: ast.LazyJoinType):
         self.found_lazy = True
 
-    def visit_lazy_table_type(self, node: ast.TableType):
+    def visit_lazy_table_type(self, node: ast.LazyTableType):
         self.found_lazy = True
 
     def visit_field_type(self, node: ast.FieldType):

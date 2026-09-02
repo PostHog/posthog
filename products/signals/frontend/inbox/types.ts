@@ -3,6 +3,7 @@ import type { UserBasicType } from '~/types'
 import {
     type ReportChartApi,
     type SignalReportRefundApi,
+    type SignalReportStateRequestApi,
     type SignalScoutRunSummaryApi,
     SignalSourceProductApi as SignalSourceProduct,
     SignalSourceTypeApi as SignalSourceType,
@@ -41,13 +42,15 @@ export interface EnrichedReviewer {
 /** P0 (highest) – P4 (lowest). Mirrors desktop `SignalReportPriority`. */
 export type SignalReportPriority = 'P0' | 'P1' | 'P2' | 'P3' | 'P4'
 
-/** Threshold options over SignalReportPriority, strictest first. Shared by the auto-start and Slack min-priority selects. */
+/** Threshold options over SignalReportPriority, strictest first. Shared by the auto-start and Slack min-priority selects.
+ * Labels name the range a threshold covers, because the priority digits descend as urgency rises,
+ * so a directional word ("and above") reads either way. */
 export const PRIORITY_THRESHOLD_OPTIONS: { value: SignalReportPriority; label: string }[] = [
     { value: 'P0', label: 'P0 only' },
-    { value: 'P1', label: 'P1 and above' },
-    { value: 'P2', label: 'P2 and above' },
-    { value: 'P3', label: 'P3 and above' },
-    { value: 'P4', label: 'P4 and above' },
+    { value: 'P1', label: 'P0-P1' },
+    { value: 'P2', label: 'P0-P2' },
+    { value: 'P3', label: 'P0-P3' },
+    { value: 'P4', label: 'P0-P4' },
 ]
 
 /** Actionability judgment outcome. Mirrors desktop `SignalReportActionability`. */
@@ -169,11 +172,30 @@ export const SOURCE_STEERING_KEY = 'steering'
 export const SOURCE_DEFAULT_NOT_ACTIONABLE_KEY = 'default_not_actionable'
 export const SOURCE_STEERING_MAX_LENGTH = 2000
 
-// ── Inbox 2.0 IA: tabs + scope ──────────────────────────────────────────────
+// ── Inbox IA: page tabs, report sections, scope ──────────────────────────────
 
-export type InboxTabKey = 'pulls' | 'reports' | 'scouts' | 'not-actionable' | 'runs' | 'archived' | 'config'
+/**
+ * The inbox's page-level tabs. Each is a URL segment (`/inbox/<tab>`), so the keys are pinned.
+ * The union covers both inbox layouts: the redesign (`INBOX_TAB_KEYS`, behind
+ * `FEATURE_FLAGS.INBOX_REDESIGN`) and the layout it replaces (`INBOX_LEGACY_TAB_KEYS`). Each
+ * layout redirects the other's segments (see `inboxTabRedirectPath`), so a link made under one
+ * layout still opens under the other.
+ */
+export type InboxTabKey =
+    | 'reports'
+    | 'scouts'
+    | 'settings'
+    | 'pulls'
+    | 'not-actionable'
+    | 'runs'
+    | 'archived'
+    | 'config'
 
-export const INBOX_TAB_KEYS: InboxTabKey[] = [
+/** The redesign's page tabs. */
+export const INBOX_TAB_KEYS: InboxTabKey[] = ['reports', 'scouts', 'settings']
+
+/** The page tabs with the redesign flag off: one tab per report list, plus Runs and Configuration. */
+export const INBOX_LEGACY_TAB_KEYS: InboxTabKey[] = [
     'pulls',
     'reports',
     'scouts',
@@ -184,9 +206,10 @@ export const INBOX_TAB_KEYS: InboxTabKey[] = [
 ]
 
 export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
-    pulls: 'Pull requests',
     reports: 'Reports',
     scouts: 'Scouts',
+    settings: 'Settings',
+    pulls: 'Pull requests',
     'not-actionable': 'Not actionable',
     runs: 'Runs',
     archived: 'Archive',
@@ -195,15 +218,78 @@ export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
 
 /** What each tab holds, surfaced as the scene description while that tab is active so new users can orient themselves. */
 export const INBOX_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
-    pulls: 'Pull requests agents opened to resolve reports. Review and merge them on GitHub.',
-    reports: 'Issues and opportunities agents found in your product data, researched and prioritized for your review.',
+    reports: 'Issues and opportunities found in your product, ready to review.',
     scouts: 'Scheduled agents that sweep this project and file what they find.',
+    settings: 'Signal sources, PR generation, code access, and notifications.',
+    pulls: 'Pull requests agents opened to resolve reports. Review and merge them on GitHub.',
     'not-actionable':
         'Reports judged not actionable because they are too vague, lack supporting evidence, or describe expected behavior.',
     runs: 'Project-wide list of agent runs, for debugging.',
     archived: 'Reports you archived. You can restore them to the inbox at any time.',
     config: 'Set up signal sources, scouts, and how autonomously agents can act.',
 }
+
+/** With the redesign flag off, the Reports tab is only the researched reports, and its description says so. */
+export const INBOX_LEGACY_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
+    ...INBOX_TAB_DESCRIPTION,
+    reports: 'Issues and opportunities agents found in your product data, researched and prioritized for your review.',
+}
+
+/**
+ * The report states of the Reports list, in filter order: work waiting on you first, then work
+ * waiting on an agent, then the closed states. Each has its own fixed server filter (see
+ * `INBOX_REPORT_SECTION_LIST_PARAMS`), keyed `reportListLogic` instance, count, and pagination;
+ * the flat list merges the rows of the states the state filter selects.
+ * pinned: these keys are the `tab` property on the inbox analytics events and the values of the
+ * `state` URL filter param, so they outlive renames of the labels above them (`monitoring` is
+ * now "Review and merge").
+ */
+export const INBOX_REPORT_SECTION_KEYS = [
+    'monitoring',
+    'needs-decision',
+    'resolved',
+    'dismissed',
+    'not-actionable',
+] as const
+export type InboxReportSectionKey = (typeof INBOX_REPORT_SECTION_KEYS)[number]
+
+/**
+ * The section the inbox is fundamentally about: what triage mode walks, and the one whose For-you
+ * count decides the default scope.
+ */
+export const INBOX_PRIMARY_REPORT_SECTION_KEY: InboxReportSectionKey = 'needs-decision'
+
+export const INBOX_REPORT_SECTION_LABEL: Record<InboxReportSectionKey, string> = {
+    monitoring: 'Review and merge',
+    'needs-decision': 'Needs decision',
+    resolved: 'Resolved',
+    dismissed: 'Dismissed',
+    'not-actionable': 'Not actionable',
+}
+
+/** One line per state, shown as a tooltip on its state-filter option. */
+export const INBOX_REPORT_SECTION_DESCRIPTION: Record<InboxReportSectionKey, string> = {
+    monitoring: 'Reports with a pull request open, ready for you to review and merge on GitHub.',
+    'needs-decision': 'Reports an agent can act on that have no pull request yet.',
+    resolved: 'Reports fixed by a merged pull request, or marked resolved.',
+    dismissed:
+        'Reports you dismissed, and reports whose pull request was closed without merging. Most can be restored to your inbox.',
+    'not-actionable':
+        'Reports judged not actionable because they are too vague, lack supporting evidence, or describe expected behavior.',
+}
+
+/**
+ * States only rendered for staff users (internal). Not actionable is an internal triage surface;
+ * every other state is public to any team member.
+ */
+export const INBOX_STAFF_ONLY_REPORT_SECTION_KEYS: InboxReportSectionKey[] = ['not-actionable']
+
+/** Small tag rendered next to a state's label in the state filter. */
+export const INBOX_REPORT_SECTION_TAG: Partial<Record<InboxReportSectionKey, 'Staff'>> = {
+    'not-actionable': 'Staff',
+}
+
+// ── Legacy inbox IA (redesign flag off): one tab per report list ─────────────
 
 /**
  * The Configuration tab holds the agent-setup widgets. It only appears when the scene is too
@@ -212,13 +298,7 @@ export const INBOX_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
  */
 export const INBOX_CONFIG_TAB_KEY: InboxTabKey = 'config'
 
-/** Tabs that show a report-count chip. */
-export const INBOX_REPORT_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'not-actionable', 'runs', 'archived']
-
-/**
- * Tabs only visible to staff users (internal). The Not-actionable reports view is an internal
- * triage surface; everything else (including Runs) is public to any team member.
- */
+/** Tabs only visible to staff users (internal), mirroring `INBOX_STAFF_ONLY_REPORT_SECTION_KEYS`. */
 export const INBOX_STAFF_ONLY_TAB_KEYS: InboxTabKey[] = ['not-actionable']
 
 /** Small tag rendered next to a tab's label in the tab bar. */
@@ -226,19 +306,38 @@ export const INBOX_TAB_TAG: Partial<Record<InboxTabKey, 'Staff' | 'Alpha'>> = {
     'not-actionable': 'Staff',
 }
 
-/** The flat report-list tabs that share the keyed reportListLogic + InboxReportList primitive. */
+/** The flat report-list tabs that share the keyed `reportListLogic` + `InboxReportList` primitive. */
 export const INBOX_FLAT_LIST_TAB_KEYS = ['pulls', 'reports', 'not-actionable', 'archived'] as const
 export type InboxFlatListTabKey = (typeof INBOX_FLAT_LIST_TAB_KEYS)[number]
 
-export interface InboxTabCounts {
-    pulls: number
-    reports: number
-    'not-actionable': number
-    runs: number
-    archived: number
+/**
+ * Each legacy report tab shows one of the redesign's sections. Both layouts share the keyed
+ * `reportListLogic` instances through this map, so a report loaded under one layout is found by the
+ * other and the mount-time count loaders are not duplicated. The Archive tab is the exception: it
+ * lists the Resolved and Dismissed sections together, through the `resolved` instance with its own
+ * filter (see `legacyTabListLogicProps`).
+ */
+export const INBOX_LEGACY_TAB_SECTION: Record<InboxFlatListTabKey, InboxReportSectionKey> = {
+    pulls: 'monitoring',
+    reports: 'needs-decision',
+    'not-actionable': 'not-actionable',
+    archived: 'resolved',
 }
 
-export const EMPTY_TAB_COUNTS: InboxTabCounts = { pulls: 0, reports: 0, 'not-actionable': 0, runs: 0, archived: 0 }
+/** The inverse of `INBOX_LEGACY_TAB_SECTION`: the legacy tab that lists a section's reports. */
+export const INBOX_SECTION_LEGACY_TAB: Record<InboxReportSectionKey, InboxFlatListTabKey> = {
+    monitoring: 'pulls',
+    'needs-decision': 'reports',
+    'not-actionable': 'not-actionable',
+    resolved: 'archived',
+    dismissed: 'archived',
+}
+
+/**
+ * The legacy counterpart of `INBOX_PRIMARY_REPORT_SECTION_KEY`: the Pull requests tab is the one
+ * whose For-you count decides the default scope with the flag off.
+ */
+export const INBOX_LEGACY_PRIMARY_REPORT_SECTION_KEY: InboxReportSectionKey = 'monitoring'
 
 /** `for-you` (suggested-reviewer reports), `entire-project` (all), or `teammate:<uuid>`. */
 export type InboxScope = 'for-you' | 'entire-project' | `teammate:${string}`
@@ -358,12 +457,8 @@ export interface SignalScoutEmissionReportLink {
     report: LinkedSignalReport | null
 }
 
-// ── Report state transitions (backend `state` action: dismiss / snooze) ──────
+// ── Report state transitions (backend `state` action: dismiss / snooze / resolve) ──────
 
-export interface SignalReportStateRequest {
-    state: 'suppressed' | 'potential'
-    dismissal_reason?: string
-    dismissal_note?: string
-    /** Only honored for state === 'potential' (snooze): re-promote after N more signals. */
-    snooze_for?: number
-}
+// Generated from the serializer, so the state and reason enums stay in sync with the backend.
+// Re-exported under the domain name so consumers don't carry the `Api` suffix.
+export type SignalReportStateRequest = SignalReportStateRequestApi

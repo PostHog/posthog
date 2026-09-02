@@ -554,6 +554,45 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
 
         assert usage.seconds == [(self.team.id, 6 * 3600)]
 
+    @parameterized.expand([("hogland", 9 * 3600), (None, 6 * 3600)])
+    def test_ttl_clamp_skips_hogland_but_holds_for_modal(self, sandbox_backend, expected_seconds):
+        # Hogland's ttl_seconds is an idle timeout that every request extends, so a box can
+        # end well after created_at + ttl_seconds; its billed window must keep the true end.
+        # Modal's hard TTL is a kill deadline, so a Modal row still clamps to it.
+        self._session(
+            created_at=datetime(2026, 1, 2, 1, tzinfo=UTC),
+            user_attributed_at=datetime(2026, 1, 2, 1, tzinfo=UTC),
+            ended_at=datetime(2026, 1, 2, 10, tzinfo=UTC),
+            ttl_seconds=6 * 60 * 60,
+            sandbox_backend=sandbox_backend,
+        )
+
+        usage = get_task_sandbox_usage_by_team(self.BEGIN, self.END)
+
+        assert usage.seconds == [(self.team.id, expected_seconds)]
+
+    @parameterized.expand([("hogland", 24 * 3600), (None, None)])
+    def test_open_session_past_its_ttl_bills_for_hogland_but_not_modal(self, sandbox_backend, expected_seconds):
+        # An open hogland box keeps extending its idle TTL, so ttl_expires_at can fall before
+        # the period while the box still runs. The open-arm TTL bound would drop it, so a
+        # hogland arm keeps it and bills the whole period. A Modal row with the same
+        # expired-TTL shape stays excluded, since its TTL is a hard kill deadline.
+        self._session(
+            created_at=datetime(2025, 12, 20, 1, tzinfo=UTC),
+            user_attributed_at=datetime(2025, 12, 20, 1, tzinfo=UTC),
+            ended_at=None,
+            ttl_seconds=6 * 60 * 60,
+            sandbox_backend=sandbox_backend,
+        )
+
+        with freeze_time("2026-01-05T00:00:00Z"):
+            usage = get_task_sandbox_usage_by_team(self.BEGIN, self.END)
+
+        if expected_seconds is None:
+            assert usage.seconds == []
+        else:
+            assert usage.seconds == [(self.team.id, expected_seconds)]
+
     def test_live_session_clamps_to_now(self):
         self._session(
             created_at=datetime(2026, 1, 2, 1, tzinfo=UTC),

@@ -6,6 +6,8 @@ import { LemonCard } from 'lib/lemon-ui/LemonCard'
 
 import { ExperimentStatus } from '~/types'
 
+import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
+
 import {
     getExperimentChangeDescription,
     getHoldoutChangeDescription,
@@ -13,7 +15,6 @@ import {
     nameOrLinkToExperiment,
     nameOrLinkToSharedMetric,
 } from './activity-descriptions'
-import { StatusTag } from './ExperimentView/StatusTag'
 
 //exporting so the linter doesn't complain about this not being used
 export const ExperimentDetails = ({

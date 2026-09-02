@@ -8,6 +8,8 @@ from parameterized import parameterized
 from products.signals.backend.facade.api import InboxReportSummary
 from products.tasks.backend.facade.domain_research import DomainResearch
 from products.tasks.backend.facade.onboarding_brief import (
+    INSTRUMENT_OFFER,
+    NO_RESEARCH_QUESTION,
     NOTHING_YET,
     TOP_OF_MIND,
     OnboardingFacts,
@@ -24,6 +26,7 @@ from products.tasks.backend.facade.onboarding_prompt import (
 )
 
 SCRAPED = DomainResearch(outcome="scraped", url="northwind.example", markdown="# Northwind")
+UNREACHABLE = DomainResearch(outcome="unreachable", url="northwind.example", markdown=None)
 
 
 def _setup_facts(**overrides: object) -> OnboardingFacts:
@@ -116,7 +119,7 @@ class TestOpeningBrief(SimpleTestCase):
 
     def test_joining_a_workspace_with_no_findings_yet_promises_none(self) -> None:
         brief = build_opening_brief(
-            OnboardingFacts(org_has_context=True, signal_reports_waiting=0, other_members="Dana")
+            OnboardingFacts(org_has_context=True, has_events=True, signal_reports_waiting=0, other_members="Dana")
         )
 
         joined = " ".join(brief)
@@ -126,16 +129,70 @@ class TestOpeningBrief(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("no events offers to instrument, asking which repo", False, 0, "add PostHog to their codebase"),
-            ("findings waiting offers to walk through one", True, 4, "walk them through"),
+            ("no events offers to instrument, asking which repo", False, False, 0, "add PostHog to their codebase"),
+            ("findings waiting offers to walk through one", False, True, 4, "walk them through"),
+            ("joining with no events still offers to instrument", True, False, 0, "add PostHog to their codebase"),
+            ("joining with findings offers to walk through one", True, True, 4, "walk them through"),
         ]
     )
-    def test_the_offer_matches_the_situation(self, _name: str, has_events: bool, reports: int, expected: str) -> None:
-        brief = build_opening_brief(_setup_facts(has_events=has_events, signal_reports_waiting=reports))
+    def test_the_offer_matches_the_situation(
+        self, _name: str, joining: bool, has_events: bool, reports: int, expected: str
+    ) -> None:
+        brief = build_opening_brief(
+            _setup_facts(
+                has_events=has_events,
+                signal_reports_waiting=reports,
+                org_has_context=joining,
+                other_members="Dana" if joining else None,
+            )
+        )
 
         offers = [line for line in brief if line.startswith("Offer to")]
         assert len(offers) == 1
         assert expected in offers[0]
+
+    # Every ask the message can end on. The prompt tells the agent to write exactly the
+    # questions the brief carries, so a brief holding two of these gets two questions.
+    ASKS = (TOP_OF_MIND, NOTHING_YET, NO_RESEARCH_QUESTION, INSTRUMENT_OFFER)
+
+    @parameterized.expand(
+        [
+            ("first, no events, 0 findings, scraped", False, False, 0, "scraped"),
+            ("first, no events, 0 findings, unreachable", False, False, 0, "unreachable"),
+            ("first, no events, 0 findings, none", False, False, 0, "none"),
+            ("first, events, 0 findings, scraped", False, True, 0, "scraped"),
+            ("first, events, 0 findings, unreachable", False, True, 0, "unreachable"),
+            ("first, events, 0 findings, none", False, True, 0, "none"),
+            ("first, events, 4 findings, scraped", False, True, 4, "scraped"),
+            ("first, events, 4 findings, unreachable", False, True, 4, "unreachable"),
+            ("first, events, 4 findings, none", False, True, 4, "none"),
+            ("joining, no events, 0 findings, scraped", True, False, 0, "scraped"),
+            ("joining, no events, 0 findings, unreachable", True, False, 0, "unreachable"),
+            ("joining, no events, 0 findings, none", True, False, 0, "none"),
+            ("joining, events, 0 findings, scraped", True, True, 0, "scraped"),
+            ("joining, events, 0 findings, unreachable", True, True, 0, "unreachable"),
+            ("joining, events, 0 findings, none", True, True, 0, "none"),
+            ("joining, events, 4 findings, scraped", True, True, 4, "scraped"),
+            ("joining, events, 4 findings, unreachable", True, True, 4, "unreachable"),
+            ("joining, events, 4 findings, none", True, True, 4, "none"),
+        ]
+    )
+    def test_every_branch_ends_on_exactly_one_ask(
+        self, _name: str, joining: bool, has_events: bool, reports: int, research: str
+    ) -> None:
+        brief = build_opening_brief(
+            _setup_facts(
+                org_has_context=joining,
+                other_members="Dana" if joining else None,
+                has_events=has_events,
+                signal_reports_waiting=reports,
+                research={"scraped": SCRAPED, "unreachable": UNREACHABLE, "none": None}[research],
+            )
+        )
+
+        asks = [line for line in brief if line in self.ASKS]
+        assert len(asks) == 1, brief
+        assert brief[-1] == asks[0], brief
 
     def test_a_quiet_project_ends_on_an_open_question_rather_than_a_bare_one(self) -> None:
         brief = build_opening_brief(_setup_facts(has_events=True, signal_reports_waiting=0))

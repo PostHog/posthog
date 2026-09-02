@@ -854,12 +854,12 @@ function AccessSection({
           >
             <div>
               <Text as="div" className="font-medium text-sm">
-                Available to team members
+                Enabled for your organization
               </Text>
               <Text as="div" color="gray" className="text-[13px]">
                 {server.is_team_enabled
-                  ? `Members can connect their own ${server.name} account.`
-                  : `Turned off — members can't see or call ${server.name}.`}
+                  ? `Anyone in your organization can find and use ${server.name}. Each person connects with their own account.`
+                  : `${server.name} is turned off for everyone in your organization.`}
               </Text>
             </div>
             <Switch

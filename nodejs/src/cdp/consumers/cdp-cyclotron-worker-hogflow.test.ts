@@ -8,7 +8,7 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
-import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
+import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 
 import { Hub, InternalPerson, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
@@ -108,10 +108,10 @@ describe('CdpCyclotronWorkerHogFlow', () => {
     }
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub.postgres)
-        const team2Id = await createTeam(hub.postgres, team.organization_id)
+        const { organizationId, team: fixtureTeam } = await createTestTeamFixture(hub.postgres)
+        team = fixtureTeam
+        const team2Id = await createTeam(hub.postgres, organizationId)
         team2 = (await getTeam(hub.postgres, team2Id))!
 
         const testPersons: TestPerson[] = [
@@ -219,6 +219,28 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                             { from: 'wait', to: 'exit', type: 'continue' },
                         ],
                     } as any)
+                    .build()
+            )
+        )
+
+        hogFlows.push(
+            await insertHogFlow(
+                hub.postgres,
+                new FixtureHogFlowBuilder()
+                    .withName('Test GitHub Hog Flow')
+                    .withTeamId(team.id)
+                    .withStatus('active')
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'internal-event',
+                            filters: {
+                                source: 'internal-events',
+                                events: [{ id: '$github_event_received', type: 'events' }],
+                                properties: [],
+                                bytecode: ['_h', 29],
+                            },
+                        } as any,
+                    })
                     .build()
             )
         )
@@ -349,6 +371,26 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                   },
                 ]
             `)
+        })
+
+        it('does not resolve a person for a row-scoped trigger, even when distinct_id matches one', async () => {
+            // github-event (like slack-message and the warehouse triggers) is row-scoped: the
+            // delivery is the unit of work, and its "distinct_id" is a GitHub login or Slack user
+            // id, not a PostHog person. Resolving it anyway would attach whichever person happens
+            // to share that distinct_id - here, one that genuinely exists - to an unrelated run.
+            const personManagerSpy = jest.spyOn(processor['personsManager'] as any, 'fetchPersonsByDistinctIds')
+            const invocation = createSerializedHogFlowInvocation(hogFlows[3], {
+                event: { distinct_id: 'distinct_A_1', properties: { repository: 'PostHog/posthog' } } as any,
+            })
+
+            const results = (await processor.processInvocations([
+                invocation,
+            ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+            expect(results).toHaveLength(1)
+            expect(results[0].invocation.person).toBeUndefined()
+            expect(results[0].invocation.filterGlobals?.person).toBeNull()
+            expect(personManagerSpy).not.toHaveBeenCalled()
         })
 
         it('should make minimal calls to the person manager', async () => {

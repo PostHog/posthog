@@ -3,7 +3,6 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import { UserProductListReason } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { customProductsLogic } from './customProductsLogic'
@@ -34,14 +33,12 @@ describe('projectTreeDataLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('shows Replay vision to anyone who pinned Session replay', () => {
+    it('shows only the products the user added, with nothing injected alongside them', () => {
         customProductsLogic.actions.loadCustomProductsSuccess([
             {
                 id: 'abc',
                 product_path: 'Session replay',
                 enabled: true,
-                reason: UserProductListReason.PRODUCT_INTENT,
-                reason_text: null,
                 created_at: '2026-01-01T00:00:00Z',
                 updated_at: '2026-01-01T00:00:00Z',
             },
@@ -49,8 +46,7 @@ describe('projectTreeDataLogic', () => {
 
         const paths = logic.values.getCustomProductTreeItems('').map((item) => item.record?.path)
 
-        expect(paths).toContain('Session replay')
-        expect(paths).toContain('Replay vision')
+        expect(paths).toEqual(['Session replay'])
     })
 
     it('handles null unfiled item responses', async () => {

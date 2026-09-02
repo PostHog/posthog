@@ -16,6 +16,7 @@ from posthog.models.utils import (
     build_unique_relationship_check,
 )
 from posthog.utils import generate_short_id
+from posthog.uuidt import uuid7
 
 
 class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
@@ -44,6 +45,10 @@ class Notebook(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     kernel_cpu_cores = models.FloatField(null=True, blank=True)
     kernel_memory_gb = models.FloatField(null=True, blank=True)
     kernel_idle_timeout_seconds = models.IntegerField(null=True, blank=True)
+    # Notebook-level variables, as [{name, type, value}]: a SQL cell reads one as a `{name}`
+    # placeholder and a Python cell as a global. A property of the notebook rather than a block
+    # in `content`, so editing prose can never delete it. Null until the notebook declares one.
+    variables: JSONField = JSONField(default=None, null=True, blank=True)
 
     class Meta:
         unique_together = ("team", "short_id")
@@ -255,4 +260,159 @@ class NotebookNodeRun(TeamScopedRootMixin, UUIDModel):
         db_table = "posthog_notebooknoderun"
         indexes = [
             models.Index(fields=["team", "notebook", "node_id"]),
+        ]
+
+
+class GeneratedWidget(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    name = models.CharField(max_length=400)
+    canvas_id = models.UUIDField(unique=True)
+    current_version = models.ForeignKey(
+        "notebooks.GeneratedWidgetVersion", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posthog_generated_widget"
+
+
+class GeneratedWidgetVersion(TeamScopedRootMixin, UUIDModel):
+    class Operation(models.TextChoices):
+        INITIAL = "initial", "initial"
+        REGENERATE = "regenerate", "regenerate"
+        IMPROVE = "improve", "improve"
+        REVERT = "revert", "revert"
+
+    class SecurityReviewSeverity(models.TextChoices):
+        NONE = "none", "none"
+        LOW = "low", "low"
+        MEDIUM = "medium", "medium"
+        HIGH = "high", "high"
+        CRITICAL = "critical", "critical"
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    widget = models.ForeignKey("notebooks.GeneratedWidget", on_delete=models.CASCADE, related_name="versions")
+    canvas_source_version_id = models.UUIDField()
+    parent_version = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    reverted_from_version = models.ForeignKey(
+        "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    title = models.CharField(max_length=80, blank=True, default="")
+    operation = models.CharField(choices=Operation, max_length=16)
+    prompt_delta = models.TextField()
+    prompt_history: JSONField = JSONField(default=list)
+    model = models.CharField(max_length=64, blank=True, default="")
+    generator_version = models.CharField(max_length=32)
+    input_contract: JSONField = JSONField(default=list)
+    schema_hash = models.CharField(max_length=64)
+    security_review_severity = models.CharField(
+        choices=SecurityReviewSeverity,
+        max_length=16,
+        null=True,
+        blank=True,
+    )
+    security_review_summary = models.TextField(null=True, blank=True)
+    security_review_findings: JSONField = JSONField(null=True, blank=True)
+    security_review_model = models.CharField(max_length=64, null=True, blank=True)
+    security_review_version = models.CharField(max_length=32, null=True, blank=True)
+    security_reviewed_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posthog_generated_widget_version"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "widget", "canvas_source_version_id"],
+                name="generated_widget_canvas_uniq",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["team", "widget", "-created_at"], name="generated_widget_ver_recent"),
+        ]
+
+
+MAX_WIDGET_NODE_ID_LENGTH = 128
+
+
+class NotebookWidgetInstance(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    notebook = models.ForeignKey("notebooks.Notebook", on_delete=models.CASCADE, related_name="widget_instances")
+    node_id = models.CharField(max_length=MAX_WIDGET_NODE_ID_LENGTH)
+    widget = models.ForeignKey("notebooks.GeneratedWidget", on_delete=models.CASCADE, related_name="notebook_instances")
+    pinned_version = models.ForeignKey(
+        "notebooks.GeneratedWidgetVersion",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="pinned_instances",
+    )
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posthog_notebook_widget_instance"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "notebook", "node_id"], name="notebook_widget_instance_node_unique"
+            ),
+        ]
+
+
+class GeneratedWidgetGenerationJob(TeamScopedRootMixin, UUIDModel):
+    class Status(models.TextChoices):
+        QUEUED = "queued", "queued"
+        GENERATING = "generating", "generating"
+        PUBLISHING = "publishing", "publishing"
+        COMPLETED = "completed", "completed"
+        FAILED = "failed", "failed"
+        CANCELED = "canceled", "canceled"
+
+    ACTIVE_STATUSES = (Status.QUEUED, Status.GENERATING, Status.PUBLISHING)
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    idempotency_key = models.UUIDField(default=uuid7)
+    widget = models.ForeignKey("notebooks.GeneratedWidget", on_delete=models.CASCADE, related_name="generation_jobs")
+    instance = models.ForeignKey(
+        "notebooks.NotebookWidgetInstance", on_delete=models.CASCADE, related_name="generation_jobs"
+    )
+    requested_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
+    )
+    operation = models.CharField(choices=GeneratedWidgetVersion.Operation, max_length=16)
+    prompt = models.TextField()
+    model = models.CharField(max_length=64)
+    base_version = models.ForeignKey(
+        "notebooks.GeneratedWidgetVersion", on_delete=models.SET_NULL, null=True, blank=True, related_name="based_jobs"
+    )
+    result_version = models.ForeignKey(
+        "notebooks.GeneratedWidgetVersion", on_delete=models.SET_NULL, null=True, blank=True, related_name="result_jobs"
+    )
+    status = models.CharField(choices=Status, default=Status.QUEUED, max_length=16)
+    phase = models.CharField(max_length=32, blank=True, default="queued")
+    input_contract: JSONField = JSONField(default=list)
+    schema_hash = models.CharField(max_length=64)
+    error_code = models.CharField(max_length=64, null=True, blank=True)
+    error_detail = models.TextField(null=True, blank=True)
+    cancel_requested_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    heartbeat_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "posthog_generated_widget_generation_job"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "idempotency_key"], name="generated_widget_job_idempotency_uniq"),
+        ]
+        indexes = [
+            models.Index(fields=["team", "status", "-created_at"], name="generated_widget_job_status"),
+            models.Index(fields=["team", "instance", "-created_at"], name="generated_widget_job_inst"),
         ]

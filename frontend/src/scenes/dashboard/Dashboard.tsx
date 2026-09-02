@@ -29,6 +29,7 @@ import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
 import { DashboardPublicAccessBanner } from './DashboardPublicAccessBanner'
+import { DashboardRetentionBanner } from './DashboardRetentionBanner'
 import { dashboardSubscribeNudgeLogic } from './dashboardSubscribeNudgeLogic'
 import { DashboardZoomControl } from './DashboardZoomControl'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
@@ -49,7 +50,14 @@ interface DashboardProps {
     showCreateAnomalyAlertButton?: boolean
 }
 
-const parseDashboardId = (id: string | undefined): number => (typeof id === 'string' ? parseInt(id, 10) : NaN)
+export const parseDashboardId = (id: string | undefined): number => {
+    if (!id || !/^\d+$/.test(id)) {
+        return NaN
+    }
+    // Reject "0" and all-zero variants: id 0 is the reserved internal sentinel, never a real dashboard.
+    const dashboardId = Number(id)
+    return dashboardId > 0 ? dashboardId : NaN
+}
 
 // Wrapper needed because SceneComponent<DashboardLogicProps> requires the component to accept
 // DashboardLogicProps, but DashboardScene takes { backTo? } (logic props are bound separately).
@@ -99,6 +107,7 @@ function DashboardScene({
         dashboardFailedToLoad,
         accessDeniedToDashboard,
         error404,
+        hasInvalidDashboardId,
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
@@ -129,7 +138,9 @@ function DashboardScene({
                 object="dashboard"
                 caption={
                     <>
-                        It may have been deleted, or the link is out of date.{' '}
+                        {hasInvalidDashboardId
+                            ? 'This dashboard link is not valid.'
+                            : 'It may have been deleted, or the link is out of date.'}{' '}
                         <Link to={urls.dashboards()}>Go to your dashboards</Link>.
                     </>
                 }
@@ -172,6 +183,7 @@ function DashboardScene({
                     })}
                 >
                     <DashboardOverridesBanner />
+                    <DashboardRetentionBanner />
 
                     <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">
                         <DashboardFilterBar backTo={backTo} />

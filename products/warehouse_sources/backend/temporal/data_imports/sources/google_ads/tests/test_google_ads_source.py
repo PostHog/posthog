@@ -325,6 +325,33 @@ class TestGoogleAdsNonRetryableErrors:
         assert "admin" in friendly.lower()
 
 
+class TestGoogleAdsRetryableErrors:
+    def setup_method(self):
+        self.source = GoogleAdsSource()
+        self.retryable = self.source.get_retryable_errors()
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # str(google.api_core.exceptions.ResourceExhausted) as it propagates once
+            # `_call_with_transient_retry`'s in-process retry budget (see google_ads.py) is
+            # exhausted on a quota/rate-limit RESOURCE_EXHAUSTED.
+            "Resource has been exhausted (e.g. check quota).",
+        ],
+    )
+    def test_quota_exhausted_is_retryable(self, error_msg):
+        # If this pattern drops out of get_retryable_errors(), a quota window that outlasts the
+        # in-process retry budget starts polluting error tracking even though Temporal's activity
+        # retry still recovers once the quota clears.
+        assert any(pattern in error_msg for pattern in self.retryable)
+
+    def test_receive_limit_exhausted_is_not_retryable(self):
+        # The client-side "Received message larger than max" abort is deterministic (see
+        # `_is_transient_grpc_error`) — it must not be swallowed as benign noise here.
+        error_msg = "Received message larger than max (90000000 vs. 67108864)"
+        assert not any(pattern in error_msg for pattern in self.retryable)
+
+
 class TestGoogleAdsLookbackDefault:
     _SCHEMAS_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.get_schemas"
 
@@ -555,6 +582,20 @@ def _single_row_table() -> GoogleAdsTable:
         parents=None,
         requires_filter=False,
         primary_key=[],
+        should_sync_default=True,
+        description=None,
+    )
+
+
+def _stats_table() -> GoogleAdsTable:
+    # A report table (requires_filter=True) whose only incremental field is ever segments.date.
+    return GoogleAdsTable(
+        name="campaign_stats",
+        alias="campaign_stats",
+        columns=[_string_column("campaign.id"), _string_column("segments.date")],
+        parents=None,
+        requires_filter=True,
+        primary_key=["campaign.id", "segments.date"],
         should_sync_default=True,
         description=None,
     )
@@ -1818,6 +1859,37 @@ class TestVersionDeclaration:
         # A present pin is honored verbatim so an existing v23/v24 source is never silently moved; an
         # empty/missing pin falls back to the new v25 default that new sources are stamped with.
         assert GoogleAdsSource().resolve_api_version(pin) == expected
+
+
+class TestReportTableMissingIncrementalField:
+    def test_incremental_report_table_without_incremental_field_defaults_to_segments_date(self):
+        # A report table's schema can arrive flagged incremental but with no incremental field
+        # (a config inconsistency). Its only valid field is always segments.date, so the sync must
+        # default to it and run rather than crashing with "incremental_field ... can't be None".
+        table = _stats_table()
+        assert table.alias is not None
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        with (
+            mock.patch(f"{_GOOGLE_ADS_MODULE}.get_schemas", return_value={table.alias: table}),
+            mock.patch(f"{_GOOGLE_ADS_MODULE}.google_ads_client", return_value=mock.Mock()),
+            mock.patch(f"{_GOOGLE_ADS_MODULE}._search_as_arrow_tables", return_value=iter([])) as search,
+        ):
+            response = google_ads_source(
+                config,
+                table.alias,
+                team_id=1,
+                resumable_source_manager=mock.Mock(),
+                api_version="v25",
+                should_use_incremental_field=True,
+                incremental_field=None,
+                incremental_field_type=None,
+                db_incremental_field_last_value=dt.date.today(),
+            )
+            list(typing.cast(collections.abc.Iterable, response.items()))
+
+        # The windowed drain ran (no crash) and queried on the defaulted segments.date field.
+        assert search.call_count >= 1
+        assert "segments.date" in search.call_args_list[0].args[2]
 
 
 class TestApiVersionDispatch:

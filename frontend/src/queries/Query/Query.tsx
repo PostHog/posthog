@@ -148,6 +148,7 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
                 context={queryContext}
                 readOnly={readOnly}
                 embedded={embedded}
+                inSharedMode={inSharedMode}
                 editMode={!!editMode}
                 variablesOverride={props.variablesOverride}
             />

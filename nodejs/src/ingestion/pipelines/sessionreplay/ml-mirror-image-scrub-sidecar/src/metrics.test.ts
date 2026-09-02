@@ -40,6 +40,13 @@ async function sourceFormatLabels(): Promise<string[]> {
     return (metric as { values: { labels: Record<string, string> }[] }).values.map((value) => value.labels.format)
 }
 
+async function undecodableReasonLabels(): Promise<string[]> {
+    const metric = (await register.getMetricsAsJSON()).find(
+        (candidate) => candidate.name === 'ml_mirror_image_scrub_undecodable_total'
+    )
+    return (metric as { values: { labels: Record<string, string> }[] }).values.map((value) => value.labels.reason)
+}
+
 describe('observeScrubOutcome', () => {
     beforeEach(() => register.resetMetrics())
 
@@ -72,4 +79,11 @@ describe('observeScrubOutcome', () => {
             expect(await sourceFormatLabels()).toEqual(['other'])
         }
     )
+
+    it('records bounded undecodable reasons', async () => {
+        ScrubMetrics.incUndecodable('decode_failed')
+        ScrubMetrics.incUndecodable('unsupported_format')
+
+        expect(await undecodableReasonLabels()).toEqual(['decode_failed', 'unsupported_format'])
+    })
 })

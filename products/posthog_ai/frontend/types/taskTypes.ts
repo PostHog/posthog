@@ -1,9 +1,9 @@
 import { Optional } from 'lib/utils/types'
 
-import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-export function isPiTaskRuntime(runtime: RuntimeEnumApi | undefined): boolean {
-    return runtime === RuntimeEnumApi.Pi
+export function isPiTaskRuntime(runtime: TaskRuntimeEnumApi | undefined): boolean {
+    return runtime === TaskRuntimeEnumApi.Pi
 }
 
 export interface RepositoryConfig {
@@ -88,7 +88,7 @@ export interface Task {
     title: string
     description: string
     origin_product: OriginProduct
-    runtime: RuntimeEnumApi
+    runtime: TaskRuntimeEnumApi
     repository: string | null
     github_integration: number | null
     /** For signal-report-origin tasks: the inbox `SignalReport` this task ran for (set-once at creation). */

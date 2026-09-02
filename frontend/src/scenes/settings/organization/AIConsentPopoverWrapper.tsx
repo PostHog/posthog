@@ -1,11 +1,12 @@
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { useCallback } from 'react'
 
-import { IconArrowRight, IconCheck, IconLock } from '@posthog/icons'
+import { IconArrowRight, IconLock } from '@posthog/icons'
 import { LemonButton, Popover, PopoverProps, Tooltip } from '@posthog/lemon-ui'
 
 import { organizationLogic } from 'scenes/organizationLogic'
 
+import { AIAccessRequest } from './AIAccessRequest'
 import { getExternalAIProvidersTooltipTitle, openAIConsentLegalDialog } from './aiConsentCopy'
 import { aiConsentLogic } from './aiConsentLogic'
 
@@ -57,9 +58,6 @@ export function AIConsentPopoverContent({
 }
 
 function AIAccessRequestPopoverContent(): JSX.Element {
-    const { requestingAiAccess, aiAccessRequested } = useValues(aiConsentLogic)
-    const { requestAiAccess } = useActions(aiConsentLogic)
-
     return (
         <div className="flex flex-col gap-2 m-1.5 max-w-prose">
             <p className="font-medium text-pretty">
@@ -67,17 +65,7 @@ function AIAccessRequestPopoverContent(): JSX.Element {
                 organization owner or admin.
             </p>
             <div className="flex self-end">
-                <LemonButton
-                    data-attr="ai-access-request"
-                    type="primary"
-                    size="xsmall"
-                    onClick={() => requestAiAccess()}
-                    loading={requestingAiAccess}
-                    disabledReason={aiAccessRequested ? 'Your request has been sent' : undefined}
-                    sideIcon={aiAccessRequested ? <IconCheck /> : <IconArrowRight />}
-                >
-                    {aiAccessRequested ? 'Request sent' : 'Request access'}
-                </LemonButton>
+                <AIAccessRequest />
             </div>
         </div>
     )

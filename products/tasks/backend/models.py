@@ -2,8 +2,6 @@ import os
 import re
 import json
 import uuid
-import string
-import secrets
 from collections.abc import Callable, Iterable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal, Optional
@@ -22,7 +20,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, connection, models, transaction
+from django.db import connection, models, transaction
 from django.db.models.fields.json import KeyTransform
 from django.utils import timezone as django_timezone
 
@@ -42,10 +40,12 @@ from posthog.storage import object_storage
 from posthog.temporal.oauth import PosthogMcpScopes
 from posthog.uuidt import uuid7
 
-from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
+from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS, PR_LOOP_ENABLED_STATE_KEY
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.feature_flags import is_task_run_stream_presence_gated, run_stream_presence_gated
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_task_run_created, observe_task_run_dispatch_callback
+from products.tasks.backend.pr_urls import read_pr_urls
 from products.tasks.backend.redis import evaluate_dedicated_stream_flag, run_uses_dedicated_stream
 from products.tasks.backend.storage import append_jsonl_object
 
@@ -61,7 +61,7 @@ def execute_after_commit(callback: Callable[[], object]) -> None:
 
 
 LogLevel = Literal["debug", "info", "warn", "error"]
-MCPBuiltInAgentKey = Literal["support", "scout"]
+MCPBuiltInAgentKey = Literal["support", "scout", "workflow"]
 MCP_BUILT_IN_AGENT_STATE_KEY = "mcp_builtin_agent_key"
 MCP_CREDENTIAL_OWNER_STATE_KEY = "mcp_credential_owner_id"
 MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY = "mcp_gateway_server_ids"
@@ -69,6 +69,8 @@ TASK_OWNERSHIP_VERSION_STATE_KEY = "task_ownership_version"
 MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN: dict[str, MCPBuiltInAgentKey] = {
     "support_reply": "support",
     "signals_scout": "scout",
+    "scout_suggestions": "scout",
+    "workflow": "workflow",
 }
 
 
@@ -96,7 +98,63 @@ def stamp_pending_user_message_id(state: dict[str, Any], *, refresh: bool = Fals
     state["pending_user_message_id"] = str(uuid.uuid4())
 
 
+PENDING_FOLLOWUP_MESSAGES_STATE_KEY = "pending_followup_messages"
+MAX_PENDING_FOLLOWUP_MESSAGES = 20
+MAX_PENDING_FOLLOWUP_CONTENT_CHARS = 10_000
+MAX_PENDING_FOLLOWUP_MESSAGE_ID_CHARS = 128
+
+
+def _read_pending_followup_messages(state: dict[str, Any] | None) -> list[dict[str, Any]]:
+    entries = (state or {}).get(PENDING_FOLLOWUP_MESSAGES_STATE_KEY)
+    if not isinstance(entries, list):
+        return []
+    return [
+        entry
+        for entry in entries
+        if isinstance(entry, dict) and isinstance(entry.get("content"), str) and entry["content"].strip()
+    ]
+
+
+def _is_hidden_prompt_block(block: dict[str, Any]) -> bool:
+    meta = block.get("_meta")
+    ui = meta.get("ui") if isinstance(meta, dict) else None
+    return bool(ui.get("hidden")) if isinstance(ui, dict) else False
+
+
+def _session_prompt_texts(entries: list[dict]) -> list[str]:
+    texts: list[str] = []
+    for entry in entries:
+        notification = entry.get("notification")
+        if not isinstance(notification, dict) or notification.get("method") != "session/prompt":
+            continue
+        params = notification.get("params")
+        blocks = params.get("prompt") if isinstance(params, dict) else None
+        if not isinstance(blocks, list):
+            continue
+        visible = "\n".join(
+            block["text"]
+            for block in blocks
+            if isinstance(block, dict)
+            and block.get("type") == "text"
+            and isinstance(block.get("text"), str)
+            and not _is_hidden_prompt_block(block)
+        ).strip()
+        if visible:
+            texts.append(visible)
+    return texts
+
+
+def _followup_matches_prompt(content: str, prompt_text: str) -> bool:
+    if content == prompt_text:
+        return True
+    return len(content) >= MAX_PENDING_FOLLOWUP_CONTENT_CHARS and prompt_text.startswith(content)
+
+
 class TaskOwnershipChangedError(RuntimeError):
+    pass
+
+
+class InvalidTaskOriginError(ValueError):
     pass
 
 
@@ -171,6 +229,11 @@ class Channel(TeamScopedRootMixin):
         blank=True,
         help_text="GitHub repositories inherited by new tasks in this channel",
     )
+    auto_archive_after_days = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        help_text="Archive inactive tasks in this channel after this many days. Null disables automatic archiving.",
+    )
     deleted = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=django_timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
@@ -242,6 +305,10 @@ class Task(DeletedMetaFields, models.Model):
         SIGNAL_REPORT = "signal_report", "Signal Report"
         # Headless Signals scout — proactively explores a project and emits signals.
         SIGNALS_SCOUT = "signals_scout", "Signals Scout"
+        # Headless scan that pre-computes the "Suggested for this project" scout batch
+        # (products/signals/backend/scout_harness/suggestions.py). Reserved: the origin is what
+        # routes the run to the Signals OAuth app and its read-only posture.
+        SIGNALS_SCOUT_SUGGESTIONS = "scout_suggestions", "Signals Scout Suggestions"
         # Conversations support reply pipeline — autonomous grounded draft replies.
         SUPPORT_REPLY = "support_reply", "Support Reply"
         # HogDesk — the internal support desk client. Tasks it creates from a
@@ -411,10 +478,23 @@ class Task(DeletedMetaFields, models.Model):
         managed = True
         indexes = [
             models.Index(fields=["signal_report"], name="posthog_task_signal_report_idx"),
-            models.Index(fields=["archived"], name="posthog_task_archived_idx"),
+            # The default task list pins `team`, `deleted`, `internal` and `archived` before it
+            # sorts, so the partial indexes below avoid scanning deleted rows and put both boolean
+            # filters ahead of the sort keys. The broad indexes remain for callers that leave
+            # either boolean unconstrained while still needing the results in timestamp order.
+            models.Index(
+                fields=["team", "internal", "archived", "-created_at", "-id"],
+                condition=models.Q(deleted=False),
+                name="posthog_task_team_live_crt_idx",
+            ),
             models.Index(fields=["team", "-created_at", "-id"], name="posthog_task_team_created_idx"),
             models.Index(fields=["team", "created_by", "-created_at", "-id"], name="posthog_task_team_creator_idx"),
             models.Index(fields=["channel", "-created_at"], name="posthog_task_channel_feed_idx"),
+            models.Index(
+                fields=["team", "internal", "archived", "-last_activity_at", "-id"],
+                condition=models.Q(deleted=False),
+                name="posthog_task_team_live_act_idx",
+            ),
             models.Index(fields=["team", "-last_activity_at", "-id"], name="posthog_task_team_activity_idx"),
             models.Index(fields=["channel", "-last_activity_at"], name="posthog_task_chan_activity_idx"),
             models.Index(fields=["loop"], name="posthog_task_loop_idx"),
@@ -504,6 +584,8 @@ class Task(DeletedMetaFields, models.Model):
                 "repository": self.repository,
                 "repositories": self.repositories or ([self.repository] if self.repository else []),
             }
+            if self.origin_key:
+                all_properties["origin_key"] = self.origin_key
             if properties:
                 all_properties.update(properties)
             (capture_fn or posthoganalytics.capture)(
@@ -578,6 +660,15 @@ class Task(DeletedMetaFields, models.Model):
             if task.created_by_id != expected_created_by_id or task.ownership_version != expected_ownership_version:
                 raise TaskOwnershipChangedError("Task ownership changed before the run was created")
 
+            effective_environment = environment or TaskRun.Environment.CLOUD
+            if (
+                effective_environment == TaskRun.Environment.CLOUD
+                and task.origin_product not in Task.OriginProduct.values
+            ):
+                raise InvalidTaskOriginError(
+                    "This task uses an unsupported origin. Start it locally or create a new task to run it in the cloud."
+                )
+
             state: dict = {} if task.runtime == Task.Runtime.PI else {"mode": mode}
             if extra_state:
                 state.update({k: v for k, v in extra_state.items() if k != "mode"})
@@ -599,6 +690,7 @@ class Task(DeletedMetaFields, models.Model):
 
             # Pin the stream-routing decision once so every reader/writer agrees for this run's life.
             state.setdefault("use_dedicated_stream", dedicated_stream)
+            state.setdefault("stream_presence_gated", is_task_run_stream_presence_gated(task.origin_product))
             is_resume = bool(resume_from_run_id)
             has_pending = _has_pending_user_input(extra_state or {})
             stamp_pending_user_message_id(state)
@@ -777,8 +869,16 @@ class Task(DeletedMetaFields, models.Model):
             user_github_integration_is_usable,
         )
 
+        # A repo-less signals task must carry no GitHub credential at all — team or personal.
+        # Provisioning injects whatever integration is attached, and these runs read text any
+        # member can write, so an attached token turns planted text into repository access.
+        github_resolution_allowed = bool(repository) or origin_product not in (
+            Task.OriginProduct.SIGNALS_CHAT,
+            Task.OriginProduct.SIGNAL_REPORT,
+            Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
+        )
         github_integration = None
-        if repository or origin_product not in (Task.OriginProduct.SIGNALS_CHAT, Task.OriginProduct.SIGNAL_REPORT):
+        if github_resolution_allowed:
             github_integration = (
                 Integration.objects.filter(team=team, kind="github")
                 .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
@@ -801,7 +901,9 @@ class Task(DeletedMetaFields, models.Model):
             if origin_product == Task.OriginProduct.SIGNAL_REPORT
             else None,
         )
-        if authorship_mode == PrAuthorshipMode.USER:
+        if not github_resolution_allowed:
+            pass
+        elif authorship_mode == PrAuthorshipMode.USER:
             user_github_integration = resolve_user_github_integration_for_task(
                 task_stub,
                 repository=repository,
@@ -1910,6 +2012,16 @@ class TaskRun(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="runs")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    # Copy of the parent task's origin_product, populated on creation and never changed.
+    # It lets the per-minute monitoring gauges group by origin_product without joining
+    # posthog_task on every run row. See `collect_task_run_state_metrics`.
+    origin_product = models.CharField(
+        max_length=20,
+        choices=task_origin_product_choices,
+        blank=True,
+        default="",
+        db_default="",
+    )
     active_task_session = models.ForeignKey(
         TaskSession,
         on_delete=models.SET_NULL,
@@ -1981,7 +2093,7 @@ class TaskRun(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     # When the run last entered QUEUED. `created_at` can't stand in for it because
-    # `prepare_for_cloud_handoff` re-queues an existing run without resetting it, and
+    # `prepare_for_cloud_resume` re-queues an existing run without resetting it, and
     # `updated_at` can't either because any unrelated write to a still-queued run would
     # move it. Null on rows queued before this field existed; readers fall back to
     # `created_at`, which is exact for a run that was only ever queued once.
@@ -2038,10 +2150,29 @@ class TaskRun(models.Model):
                 name="task_run_team_stage_task_idx",
                 condition=models.Q(stage__isnull=False),
             ),
+            # Open statuses remain selective, so status leads the index for untimed gauges.
+            models.Index(
+                fields=["status", "environment", "origin_product"],
+                name="task_run_status_env_origin_idx",
+            ),
+            # Terminal rows dominate over time, so the recency range must lead this partial index.
+            models.Index(
+                fields=["updated_at"],
+                include=["status", "environment", "origin_product"],
+                name="task_run_terminal_updated_idx",
+                condition=models.Q(status__in=["completed", "failed", "cancelled"]),
+            ),
         ]
 
     def __str__(self):
         return f"Run for {self.task.title} - {self.get_status_display()}"
+
+    def save(self, *args, **kwargs):
+        # Mirror the parent task's origin_product onto the run once, at creation, so the
+        # monitoring gauges can group by it locally.
+        if self._state.adding and not self.origin_product and self.task_id:
+            self.origin_product = self.task.origin_product
+        super().save(*args, **kwargs)
 
     @property
     def mode(self) -> str:
@@ -2064,11 +2195,11 @@ class TaskRun(models.Model):
             task_created_by_id=self.task.created_by_id,
         )
 
-    def prepare_for_cloud_handoff(self) -> None:
+    def prepare_for_cloud_resume(self) -> None:
         """
-        Restart this run in the cloud, resuming from its existing log/checkpoints.
+        Restart this cloud run from its existing log and sandbox snapshot.
 
-        The `handoff_resumed` flag tells the workflow and sandbox provisioning
+        The `same_run_resume` flag tells the workflow and sandbox provisioning
         to treat this as a resume of the same run (skip initial prompt, hydrate
         from the existing log) without overloading `resume_from_run_id`, which
         means "continue from a different run".
@@ -2083,7 +2214,7 @@ class TaskRun(models.Model):
         prior_snapshot_external_id = state.get("snapshot_external_id")
         prior_snapshot_kind = state.get("snapshot_kind")
         prior_snapshot_mount_path = state.get("snapshot_mount_path")
-        state["handoff_resumed"] = True
+        state["same_run_resume"] = True
         state["mode"] = "interactive"
         state.pop("pending_user_message", None)
         state.pop("pending_user_artifact_ids", None)
@@ -2092,10 +2223,15 @@ class TaskRun(models.Model):
         state.pop("sandbox_id", None)
         state.pop("sandbox_url", None)
         state.pop("sandbox_jwt_kid", None)
+        state.pop("sandbox_connect_token", None)
+        # Drop the provider stamp because the resumed run re-resolves its backend from
+        # scratch, so a stale `hogland` must not survive to outrank the EU guard, the
+        # Modal-only fallbacks, or the flag kill switch on the next context resolution.
+        state.pop("sandbox_backend", None)
         self.state = state
 
         logger.info(
-            "prepare_for_cloud_handoff",
+            "prepare_for_cloud_resume",
             run_id=str(self.id),
             task_id=str(self.task_id),
             prior_snapshot_external_id=prior_snapshot_external_id,
@@ -2193,7 +2329,7 @@ class TaskRun(models.Model):
             if state.get("sandbox_id") != sandbox_id:
                 return
 
-            for key in ("sandbox_id", "sandbox_url", "sandbox_connect_token", "sandbox_jwt_kid"):
+            for key in ("sandbox_id", "sandbox_url", "sandbox_connect_token", "sandbox_jwt_kid", "sandbox_backend"):
                 state.pop(key, None)
 
         return cls.mutate_state_atomic(run_id, _mutator)
@@ -2241,6 +2377,27 @@ class TaskRun(models.Model):
             asyncio.run(handle.signal(ProcessTaskWorkflow.heartbeat, arg=agent_active))
         except Exception as e:
             logger.warning("task_run.heartbeat_failed", task_run_id=str(self.id), error=str(e))
+
+    def signal_agent_boot_milestone(
+        self, milestone: Literal["agent_command_dispatched", "agent_activity_observed"]
+    ) -> bool:
+        import asyncio
+
+        from posthog.temporal.common.client import sync_connect
+
+        try:
+            client = sync_connect()
+            handle = client.get_workflow_handle(self.workflow_id)
+            asyncio.run(handle.signal(milestone))
+            return True
+        except Exception as e:
+            logger.warning(
+                "task_run.agent_boot_milestone_failed",
+                task_run_id=str(self.id),
+                milestone=milestone,
+                error=str(e),
+            )
+            return False
 
     def signal_client_activity(self) -> None:
         from products.tasks.backend.redis import get_tasks_cache
@@ -2376,6 +2533,47 @@ class TaskRun(models.Model):
                     error=str(e),
                 )
 
+    def record_pending_followup_message(self, message_id: str, content: str, *, accepted_at: datetime) -> None:
+        record = {
+            "id": message_id[:MAX_PENDING_FOLLOWUP_MESSAGE_ID_CHARS],
+            "content": content[:MAX_PENDING_FOLLOWUP_CONTENT_CHARS],
+            "ts": accepted_at.isoformat(),
+        }
+
+        def _mutator(state: dict[str, Any]) -> None:
+            entries = [entry for entry in _read_pending_followup_messages(state) if entry.get("id") != record["id"]]
+            entries.append(record)
+            state[PENDING_FOLLOWUP_MESSAGES_STATE_KEY] = entries[-MAX_PENDING_FOLLOWUP_MESSAGES:]
+
+        self.state = TaskRun.mutate_state_atomic(self.id, _mutator)
+
+    def clear_echoed_followup_messages(self, entries: list[dict]) -> None:
+        if not _read_pending_followup_messages(self.state):
+            return
+        echoed = _session_prompt_texts(entries)
+        if not echoed:
+            return
+
+        def _mutator(state: dict[str, Any]) -> None:
+            unclaimed = list(echoed)
+            remaining = []
+            for entry in _read_pending_followup_messages(state):
+                content = entry["content"].strip()
+                claimed = next(
+                    (index for index, text in enumerate(unclaimed) if _followup_matches_prompt(content, text)),
+                    None,
+                )
+                if claimed is None:
+                    remaining.append(entry)
+                else:
+                    unclaimed.pop(claimed)
+            if remaining:
+                state[PENDING_FOLLOWUP_MESSAGES_STATE_KEY] = remaining
+            else:
+                state.pop(PENDING_FOLLOWUP_MESSAGES_STATE_KEY, None)
+
+        self.state = TaskRun.mutate_state_atomic(self.id, _mutator)
+
     def _mirror_logs_to_posthog_logs(self, entries: list[dict]) -> None:
         """Mirror persisted entries into the PostHog Logs product via stdout (dogfooding).
 
@@ -2411,12 +2609,18 @@ class TaskRun(models.Model):
                 error=str(e),
             )
 
-    def effective_rtk(self) -> bool | None:
-        """rtk posture for analytics: the launch-persisted effective value, falling
+    def _effective_toggle(self, name: str) -> bool | None:
+        """Toggle posture for analytics: the launch-persisted effective value, falling
         back to the user's explicit override for runs that never launched."""
         state = self.state if isinstance(self.state, dict) else {}
-        rtk = state.get("rtk_effective", state.get("rtk_enabled"))
-        return rtk if isinstance(rtk, bool) else None
+        value = state.get(f"{name}_effective", state.get(f"{name}_enabled"))
+        return value if isinstance(value, bool) else None
+
+    def effective_rtk(self) -> bool | None:
+        return self._effective_toggle("rtk")
+
+    def effective_benjamin(self) -> bool | None:
+        return self._effective_toggle("benjamin")
 
     def _analytics_usage_properties(self) -> dict:
         """Token usage and rtk posture for analytics events.
@@ -2443,6 +2647,12 @@ class TaskRun(models.Model):
         rtk = self.effective_rtk()
         if rtk is not None:
             props["rtk_enabled"] = rtk
+        benjamin = self.effective_benjamin()
+        if benjamin is not None:
+            props["benjamin_enabled"] = benjamin
+        benjamin_version = state.get("benjamin_version")
+        if isinstance(benjamin_version, str) and benjamin_version:
+            props["benjamin_version"] = benjamin_version
         return props
 
     def capture_event(
@@ -2578,7 +2788,13 @@ class TaskRun(models.Model):
         }
 
     def publish_stream_event(self, event: dict[str, Any]) -> None:
-        publish_task_run_stream_event(str(self.id), event, run_uses_dedicated_stream(self.state))
+        publish_task_run_stream_event(
+            str(self.id),
+            event,
+            run_uses_dedicated_stream(self.state),
+            presence_gated=run_stream_presence_gated(self.state),
+            origin_product=self.task.origin_product,
+        )
 
     def publish_stream_state_event(self) -> None:
         self.publish_stream_event(self.build_stream_state_event())
@@ -2609,7 +2825,7 @@ class TaskRun(models.Model):
         clear it would cost a whole run, so the marker is written straight to the log.
         Resume reads a chain's logs concatenated and rebuilds only the turns after the
         marker, so the next run continues the task with an empty conversation while its
-        checkpoints, artifacts, and visible history stay intact.
+        artifacts and visible history stay intact.
 
         The `/clear` message is recorded ahead of the marker, matching the agent, so the
         transcript shows what the user typed and rehydration drops it with everything
@@ -2691,6 +2907,20 @@ class TaskRun(models.Model):
         event = self.build_progress_event(step, status, label, group, detail)
         self.append_log([event])
         self.publish_stream_event(event)
+
+    def ci_progress_step_announced(self) -> bool:
+        """Whether this run has a "Keeping CI green" step waiting to be closed."""
+        state = self.state if isinstance(self.state, dict) else {}
+        return bool(state.get(PR_LOOP_ENABLED_STATE_KEY)) and bool(read_pr_urls(self.output))
+
+    def close_ci_progress_step(self) -> None:
+        """Complete the "Keeping CI green" step so a finished run shows no spinning CI row."""
+        if not self.ci_progress_step_announced():
+            return
+        try:
+            self.emit_progress_event("ci", "completed", "Keeping CI green", "setup")
+        except Exception:
+            logger.warning("task_run.ci_progress_close_failed", run_id=str(self.id), exc_info=True)
 
     def build_progress_event(
         self,
@@ -3000,6 +3230,12 @@ class SandboxSession(TeamScopedRootMixin, UUIDModel):
     vm_runtime = models.BooleanField(
         default=False, help_text="Modal VM runtime rather than gVisor (billed differently)"
     )
+    sandbox_backend = models.CharField(
+        max_length=32,
+        null=True,
+        blank=True,
+        help_text="Provider backend (e.g. hogland); NULL for Modal. Hogland's TTL is idle, not absolute",
+    )
 
     # Resource shape at creation, already clamped by SandboxConfig. Limits are what the
     # sandbox may consume — raw usage metrics derive from these; the burstable request
@@ -3160,6 +3396,9 @@ class SandboxSnapshot(UUIDModel):
 
             if os.environ.get("MODAL_TOKEN_ID") and os.environ.get("MODAL_TOKEN_SECRET") and not settings.TEST:
                 try:
+                    # Modal-only: hogland runs never create SandboxSnapshot rows today. When
+                    # hogland resume snapshots land, this needs a backend branch keyed on the
+                    # snapshot's provider rather than the MODAL_TOKEN_* env gate above.
                     Sandbox.delete_snapshot(self.external_id)
                 except Exception as e:
                     raise Exception(
@@ -3400,79 +3639,6 @@ class SandboxCustomImage(TeamScopedRootMixin):
     def modal_publish_name(self) -> str:
         # One stable tag per image — Modal has no image-deletion API, so per-version tags would accumulate.
         return f"posthog-sandbox-custom-{self.team_id}-{self.id.hex}:latest"
-
-
-class CodeInviteQuerySet(models.QuerySet["CodeInvite"]):
-    def unexpired(self, at: datetime | None = None) -> "CodeInviteQuerySet":
-        at = at or django_timezone.now()
-        return self.filter(models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=at))
-
-    def expire(self, at: datetime | None = None) -> int:
-        at = at or django_timezone.now()
-        return self.unexpired(at).update(expires_at=at)
-
-
-class CodeInvite(UUIDModel):
-    """Invite codes for PostHog Desktop access."""
-
-    objects = CodeInviteQuerySet.as_manager()
-
-    code = models.CharField(max_length=50, unique=True, db_index=True, blank=True)
-    max_redemptions = models.PositiveIntegerField(default=1, help_text="Maximum number of redemptions. 0 = unlimited.")
-    redemption_count = models.PositiveIntegerField(default=0)
-    is_active = models.BooleanField(default=True)
-    expires_at = models.DateTimeField(null=True, blank=True, help_text="Optional expiration date.")
-    description = models.TextField(blank=True, help_text="Internal admin note.")
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="created_code_invites"
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = "posthog_code_invite"
-
-    def __str__(self):
-        return self.code
-
-    def save(self, *args, **kwargs):
-        if not self.code:
-            alphabet = string.ascii_uppercase + string.digits
-            for attempt in range(10):
-                self.code = "".join(secrets.choice(alphabet) for _ in range(8))
-                try:
-                    with transaction.atomic():
-                        return super().save(*args, **kwargs)
-                except IntegrityError:
-                    if attempt == 9:
-                        raise
-            return
-        super().save(*args, **kwargs)
-
-    @property
-    def is_redeemable(self) -> bool:
-        if not self.is_active:
-            return False
-        if self.expires_at and self.expires_at <= django_timezone.now():
-            return False
-        if self.max_redemptions > 0 and self.redemption_count >= self.max_redemptions:
-            return False
-        return True
-
-
-class CodeInviteRedemption(UUIDModel):
-    """Tracks each redemption of a PostHog Desktop invite."""
-
-    invite_code = models.ForeignKey(CodeInvite, on_delete=models.CASCADE, related_name="redemptions")
-    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE)
-    organization = models.ForeignKey("posthog.Organization", on_delete=models.SET_NULL, null=True, blank=True)
-    redeemed_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        db_table = "posthog_code_invite_redemption"
-        unique_together = [("invite_code", "user")]
-
-    def __str__(self):
-        return f"{self.user} redeemed {self.invite_code}"
 
 
 class DesktopBetaTermsAcceptance(models.Model):

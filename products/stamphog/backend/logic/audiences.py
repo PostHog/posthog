@@ -54,7 +54,8 @@ _TEAM_SLUG_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 @frozen
 class _OwnerTeam:
-    """One team's stake in a PR: its slug, a capped sample of its changed paths, and the true count."""
+    """One team's stake in a PR: its slug, a capped sample of its changed paths, and how many
+    source files it owns in the PR."""
 
     slug: str
     files: list[str]
@@ -67,7 +68,7 @@ class ResolvedAudience:
     reason: AudienceReason
     # Capped sample of this team's changed paths; empty unless reason is OWNED.
     owned_files: list[str] = field(default_factory=list)
-    # How many files this team owns in the PR, uncapped.
+    # How many files this team owns in the PR, uncapped, and counting only what a person edited.
     owned_file_count: int = 0
 
 
@@ -82,10 +83,13 @@ def _owner_teams(gate_result: dict[str, Any] | None) -> list[_OwnerTeam]:
     unexpected in the blob resolves to "no owners" rather than raising: a merge must still be
     captured when the ownership section is missing or an older engine never wrote it.
 
-    A team whose changed files were all written by a build step is dropped here rather than left to
-    the digest prompt. The prompt carries the same rule in words, and it did not hold to it. The
-    engine counts those files per team (gates.detect_ownership), so a run recorded before it did
-    that carries no count and drops nobody.
+    The count is the team's source files: the files a build step wrote are subtracted from it, so a
+    team that owns one real file plus a regenerated one reads as owning one. Both the graze rule in
+    logic/digest.py and the prompt read that count, and a build artifact inflating it hid a sweep
+    from both. A team left with no source file is dropped here rather than passed to the digest
+    prompt, which carried the same rule in words and did not hold to it. The engine counts the
+    generated files per team (gates.detect_ownership), so a run recorded before it did that carries
+    no count, subtracts nothing, and drops nobody.
     """
     ownership = ((gate_result or {}).get("classification") or {}).get("ownership") or {}
     teams = ownership.get("teams")
@@ -115,12 +119,13 @@ def _owner_teams(gate_result: dict[str, Any] | None) -> list[_OwnerTeam]:
         # Fall back to the sample size when the count is missing or nonsense; never below it.
         file_count = max(count, len(sample)) if isinstance(count, int) else len(sample)
         generated_count = generated_by_team.get(team)
-        # Compared with >= rather than ==: file_count falls back to the capped sample size when the
-        # count is missing, and the generated tally is uncapped, so it can legitimately exceed it.
-        if file_count > 0 and isinstance(generated_count, int) and generated_count >= file_count:
+        # Clamped at zero: file_count falls back to the capped sample size when the count is
+        # missing, and the generated tally is uncapped, so it can legitimately exceed it.
+        source_count = max(file_count - generated_count, 0) if isinstance(generated_count, int) else file_count
+        if file_count > 0 and source_count == 0:
             logger.info("stamphog_owner_team_generated_only", team=team, file_count=file_count)
             continue
-        owners[slug] = (sample, file_count)
+        owners[slug] = (sample, source_count)
     return [_OwnerTeam(slug=slug, files=sample, file_count=count) for slug, (sample, count) in sorted(owners.items())]
 
 

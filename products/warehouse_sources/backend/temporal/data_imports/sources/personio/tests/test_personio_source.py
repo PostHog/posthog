@@ -7,7 +7,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.personio import (
     PersonioSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.personio.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.personio.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.personio.source import PersonioSource
 
 
@@ -49,9 +52,14 @@ class TestPersonioSource:
         schemas = self.source.get_schemas(self.config, self.team_id)
 
         assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        # All shipped endpoints expose a server-side updated_at filter.
-        assert all(schema.supports_incremental for schema in schemas)
-        assert all(schema.supports_append for schema in schemas)
+        # Incremental support tracks the settings catalog: only endpoints with a server-side
+        # updated_at filter expose it. The salary-bands and cost-centers dimension lookups have no
+        # timestamp field, so they must stay full-refresh — marking them incremental would emit an
+        # updated_at param the API ignores while claiming to have filtered.
+        for schema in schemas:
+            expected_incremental = schema.name in INCREMENTAL_FIELDS
+            assert schema.supports_incremental is expected_incremental
+            assert schema.supports_append is expected_incremental
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",

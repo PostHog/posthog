@@ -22,6 +22,7 @@ import { useExternalAppAction } from "@posthog/ui/features/external-apps/useExte
 import { useFolders } from "@posthog/ui/features/folders/useFolders";
 import { StopCloudRunDialog } from "@posthog/ui/features/sessions/components/StopCloudRunDialog";
 import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
+import { withSidebarPeekHeld } from "@posthog/ui/features/sidebar/sidebarPeekStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
 import { useBulkArchiveConfirm } from "@posthog/ui/features/sidebar/useBulkArchiveConfirm";
@@ -240,8 +241,8 @@ function SidebarMenuComponent() {
       e.stopPropagation();
       const allPinned = bulkActions.pinDirection === "unpin";
       try {
-        const result =
-          await hostClient.contextMenu.showBulkTaskContextMenu.mutate({
+        const result = await withSidebarPeekHeld(() =>
+          hostClient.contextMenu.showBulkTaskContextMenu.mutate({
             taskCount: bulkActions.selectedCount,
             allPinned,
             runningCount: bulkActions.runningCount,
@@ -254,7 +255,8 @@ function SidebarMenuComponent() {
                 starred,
               }),
             ),
-          });
+          }),
+        );
         if (!result.action) return;
 
         const intent = resolveBulkTaskContextMenuIntent(result.action, {
@@ -290,11 +292,12 @@ function SidebarMenuComponent() {
       const folder = findGroupFolder(folders, groupId);
       if (!folder) return;
       try {
-        const result =
-          await hostClient.contextMenu.showFolderContextMenu.mutate({
+        const result = await withSidebarPeekHeld(() =>
+          hostClient.contextMenu.showFolderContextMenu.mutate({
             folderName: folder.name,
             folderPath: folder.path,
-          });
+          }),
+        );
         if (result.action?.type === "remove") {
           await removeFolder(folder.id);
         } else if (result.action?.type === "external-app") {
@@ -354,32 +357,34 @@ function SidebarMenuComponent() {
         currentUser.data?.id != null &&
         taskMap.get(taskId)?.created_by?.id === currentUser.data.id;
 
-      showContextMenu(task, e, {
-        worktreePath: workspace?.worktreePath ?? undefined,
-        folderPath: workspace?.folderPath ?? undefined,
-        isPinned,
-        isSuspended: taskData?.isSuspended,
-        canStop:
-          taskData?.taskRunEnvironment === "cloud" &&
-          isTaskActivelyRunning(taskData),
-        runId,
-        isInCommandCenter,
-        hasEmptyCommandCenterCell: true,
-        canHandoff,
-        onHandoff: () => setHandoffTaskId(task.id),
-        onTogglePin: () => handleTaskTogglePin(taskId),
-        onStop: (stopTaskId, taskTitle, stopRunId) =>
-          setStopConfirm({
-            taskId: stopTaskId,
-            taskTitle,
-            runId: stopRunId,
-          }),
-        onArchive: handleTaskArchive,
-        onArchivePrior: handleArchivePrior,
-        onAddToCommandCenter: () => {
-          placeTaskInCommandCenter(taskId, task.title);
-        },
-      });
+      void withSidebarPeekHeld(() =>
+        showContextMenu(task, e, {
+          worktreePath: workspace?.worktreePath ?? undefined,
+          folderPath: workspace?.folderPath ?? undefined,
+          isPinned,
+          isSuspended: taskData?.isSuspended,
+          canStop:
+            taskData?.taskRunEnvironment === "cloud" &&
+            isTaskActivelyRunning(taskData),
+          runId,
+          isInCommandCenter,
+          hasEmptyCommandCenterCell: true,
+          canHandoff,
+          onHandoff: () => setHandoffTaskId(task.id),
+          onTogglePin: () => handleTaskTogglePin(taskId),
+          onStop: (stopTaskId, taskTitle, stopRunId) =>
+            setStopConfirm({
+              taskId: stopTaskId,
+              taskTitle,
+              runId: stopRunId,
+            }),
+          onArchive: handleTaskArchive,
+          onArchivePrior: handleArchivePrior,
+          onAddToCommandCenter: () => {
+            placeTaskInCommandCenter(taskId, task.title);
+          },
+        }),
+      );
     }
   };
 

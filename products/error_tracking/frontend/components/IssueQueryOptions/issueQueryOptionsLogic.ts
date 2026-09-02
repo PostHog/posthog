@@ -6,7 +6,11 @@ import posthog from 'posthog-js'
 import { isUUIDLike } from 'lib/utils/guards'
 import { Params } from 'scenes/sceneTypes'
 
-import { ErrorTrackingIssue, ErrorTrackingQuery } from '~/queries/schema/schema-general'
+import {
+    ErrorTrackingIssue,
+    ErrorTrackingQuery,
+    ErrorTrackingQueryIssueSeverity,
+} from '~/queries/schema/schema-general'
 
 import type {
     ErrorTrackingIssueAssignee,
@@ -18,6 +22,7 @@ export type ErrorTrackingQueryOrderBy = ErrorTrackingQuery['orderBy']
 export type ErrorTrackingQueryOrderDirection = ErrorTrackingQuery['orderDirection']
 export type ErrorTrackingQueryAssignee = ErrorTrackingQuery['assignee']
 export type ErrorTrackingQueryStatus = ErrorTrackingQuery['status']
+export type ErrorTrackingQuerySeverity = ErrorTrackingQueryIssueSeverity | null
 
 export const ORDER_BY_OPTIONS: Record<ErrorTrackingQueryOrderBy, string> = {
     last_seen: 'Last seen',
@@ -38,6 +43,7 @@ export function isValidOrderBy(orderBy: unknown): orderBy is ErrorTrackingQueryO
 const DEFAULT_ORDER_DIRECTION = 'DESC'
 const DEFAULT_ASSIGNEE = null
 const DEFAULT_STATUS = 'active'
+const DEFAULT_SEVERITY = null
 
 // Like isValidOrderBy, but the assignee is an object, so it can be malformed in more ways: a bare
 // string, a missing or null id, a type outside user/role, or a resolved {id, type, user} object.
@@ -77,6 +83,17 @@ export function isValidStatus(status: unknown): status is FilterableStatus {
     return typeof status === 'string' && Object.hasOwn(VALID_STATUSES, status)
 }
 
+const VALID_SEVERITIES: Record<ErrorTrackingQueryIssueSeverity, true> = {
+    low: true,
+    medium: true,
+    high: true,
+    critical: true,
+}
+
+export function isValidSeverity(severity: unknown): severity is ErrorTrackingQueryIssueSeverity {
+    return typeof severity === 'string' && Object.hasOwn(VALID_SEVERITIES, severity)
+}
+
 export interface IssueQueryOptionsLogicProps {
     logicKey: string
 }
@@ -86,6 +103,7 @@ export interface issueQueryOptionsLogicValues {
     assignee: ErrorTrackingQueryAssignee | null
     orderBy: ErrorTrackingQueryOrderBy
     orderDirection: ErrorTrackingQueryOrderDirection
+    severity: ErrorTrackingQuerySeverity
     status: ErrorTrackingQueryStatus
 }
 
@@ -99,6 +117,9 @@ export interface issueQueryOptionsLogicActions {
     }
     setOrderDirection: (orderDirection: ErrorTrackingQueryOrderDirection) => {
         orderDirection: 'ASC' | 'DESC' | undefined
+    }
+    setSeverity: (severity: ErrorTrackingQuerySeverity) => {
+        severity: ErrorTrackingQuerySeverity
     }
     setStatus: (status: ErrorTrackingQueryStatus) => {
         status: ErrorTrackingQueryStatus | undefined
@@ -126,6 +147,7 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
         setOrderBy: (orderBy: ErrorTrackingQueryOrderBy) => ({ orderBy }),
         setOrderDirection: (orderDirection: ErrorTrackingQueryOrderDirection) => ({ orderDirection }),
         setAssignee: (assignee: ErrorTrackingIssue['assignee']) => ({ assignee }),
+        setSeverity: (severity: ErrorTrackingQuerySeverity) => ({ severity }),
         setStatus: (status: ErrorTrackingQueryStatus) => ({ status }),
     }),
 
@@ -158,6 +180,13 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
                 setStatus: (_, { status }) => (isValidStatus(status) ? status : DEFAULT_STATUS),
             },
         ],
+        severity: [
+            DEFAULT_SEVERITY as ErrorTrackingQuerySeverity,
+            { persist: true },
+            {
+                setSeverity: (_, { severity }) => (isValidSeverity(severity) ? severity : DEFAULT_SEVERITY),
+            },
+        ],
     }),
 
     listeners(({ values }) => ({
@@ -187,6 +216,7 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
             return syncSearchParams(router, (params: Params) => {
                 updateSearchParams(params, 'assignee', values.assignee, DEFAULT_ASSIGNEE)
                 updateSearchParams(params, 'status', values.status, DEFAULT_STATUS)
+                updateSearchParams(params, 'severity', values.severity, DEFAULT_SEVERITY)
                 updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
                 updateSearchParams(params, 'orderDirection', values.orderDirection, DEFAULT_ORDER_DIRECTION)
                 return params
@@ -196,6 +226,7 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
         return {
             setOrderBy: () => buildURL(),
             setStatus: () => buildURL(),
+            setSeverity: () => buildURL(),
             setAssignee: () => buildURL(),
             setOrderDirection: () => buildURL(),
         }
@@ -219,6 +250,10 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
             if ('assignee' in params && !equal(params.assignee, values.assignee)) {
                 actions.setAssignee(params.assignee)
             }
+            const severity = isValidSeverity(params.severity) ? params.severity : DEFAULT_SEVERITY
+            if (!equal(severity, values.severity)) {
+                actions.setSeverity(severity)
+            }
             if (params.orderDirection && !equal(params.orderDirection, values.orderDirection)) {
                 actions.setOrderDirection(params.orderDirection)
             }
@@ -236,6 +271,9 @@ export const issueQueryOptionsLogic = kea<issueQueryOptionsLogicType>([
         }
         if (!isValidStatus(values.status)) {
             actions.setStatus(DEFAULT_STATUS)
+        }
+        if (values.severity !== null && !isValidSeverity(values.severity)) {
+            actions.setSeverity(DEFAULT_SEVERITY)
         }
         const sanitizedAssignee = sanitizeAssignee(values.assignee)
         if (!equal(values.assignee, sanitizedAssignee)) {

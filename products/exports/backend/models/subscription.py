@@ -5,6 +5,7 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast
+from urllib.parse import urlparse
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -105,6 +106,7 @@ class Subscription(ModelActivityMixin, models.Model):
     class SubscriptionTarget(models.TextChoices):
         EMAIL = "email"
         SLACK = "slack"
+        TEAMS = "teams", "Microsoft Teams"
 
     class SubscriptionFrequency(models.TextChoices):
         DAILY = "daily"
@@ -210,6 +212,7 @@ class Subscription(ModelActivityMixin, models.Model):
 
     summary_enabled = models.BooleanField(default=False)
     summary_prompt_guide = models.CharField(max_length=500, blank=True, default="")
+    delivery_config = models.JSONField(default=dict)
 
     class Meta:
         indexes = [
@@ -441,6 +444,20 @@ class Subscription(ModelActivityMixin, models.Model):
         return self.title or "Subscription"
 
     @property
+    def recipient_label(self) -> str:
+        """Names the destination in `RecipientResult.recipient` and in the
+        `SubscriptionDelivery.target_value` snapshot, both of which the API returns. A webhook URL
+        authorizes a post to the channel on its own, so only its host is recorded.
+        """
+        if self.target_type != self.SubscriptionTarget.TEAMS:
+            return self.target_value
+        try:
+            host = (urlparse(self.target_value).hostname or "").lower()
+        except ValueError:
+            host = ""
+        return host or "webhook"
+
+    @property
     def summary(self):
         try:
             human_frequency = {
@@ -501,6 +518,7 @@ class Subscription(ModelActivityMixin, models.Model):
             "bysetpos": self.bysetpos,
             "prompt_length": len(self.prompt or ""),
             "ai_window_mode": self.ai_window_mode if self.resource_type == self.ResourceType.AI_PROMPT else None,
+            "post_all_insights_in_main_message": self.delivery_config.get("post_all_insights_in_main_message", False),
         }
         # For insight subscriptions, attribute the subscribed insight's query type (e.g. TrendsQuery,
         # FunnelsQuery) using the same keys as the "insight created/updated" events, so subscriptions

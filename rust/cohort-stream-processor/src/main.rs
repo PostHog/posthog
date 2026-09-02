@@ -178,7 +178,7 @@ async fn async_main(config: Config) -> Result<()> {
             config.cohort_membership_changed_topic.clone(),
         )
         .await
-        .context("creating shadow producer")?,
+        .context("creating membership producer")?,
     );
 
     // The transfer and marker sinks get the shorter `message.timeout.ms`: both produce inline on a

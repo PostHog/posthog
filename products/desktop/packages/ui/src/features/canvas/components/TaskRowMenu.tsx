@@ -1,5 +1,6 @@
 import {
   ArchiveIcon,
+  ArrowSquareOutIcon,
   CaretRightIcon,
   DotsThreeIcon,
   FolderSimpleIcon,
@@ -30,9 +31,12 @@ import {
 } from "@posthog/quill";
 import { PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
+import { useOpenBrowserTab } from "@posthog/ui/features/browser-tabs/useOpenBrowserTab";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
 import { useFileTaskToChannel } from "@posthog/ui/features/canvas/hooks/useFileTaskToChannel";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { useSidebarPeekStore } from "@posthog/ui/features/sidebar/sidebarPeekStore";
+import { useHoldSidebarPeek } from "@posthog/ui/features/sidebar/useHoldSidebarPeek";
 import type { SidebarBulkActions } from "@posthog/ui/features/sidebar/useSidebarBulkActions";
 import { useTaskAnalysis } from "@posthog/ui/features/task-detail/components/TaskAnalysisButton";
 import {
@@ -44,6 +48,7 @@ import {
   type ComponentType,
   type ReactElement,
   type ReactNode,
+  useCallback,
   useMemo,
   useState,
 } from "react";
@@ -147,6 +152,7 @@ function TaskRowMenuItems({
   const analysisTask = isTask && menu.task?.latest_run ? menu.task : null;
   const { channels } = useChannels({ enabled: bluebirdEnabled });
   const fileToChannel = useFileTaskToChannel();
+  const openBrowserTab = useOpenBrowserTab();
 
   const channelItems: MenuFlyoutItem[] = channels.map((channel) => ({
     id: channel.id,
@@ -155,8 +161,27 @@ function TaskRowMenuItems({
     starred: channel.starred,
   }));
 
+  // A canvas lives in one space, so its new-tab URL needs that space's id; a
+  // task has a channel-independent route, so it opens even when the row is
+  // listed outside its own space (activity, saved search).
+  const newTabHref = isTask
+    ? `/tasks/${menu.id}`
+    : menu.channelId
+      ? `/spaces/${menu.channelId}/dashboards/${menu.id}`
+      : null;
+  const canOpenInNewTab = newTabHref !== null;
+
   return (
     <>
+      <Item
+        disabled={!canOpenInNewTab}
+        onClick={() => {
+          if (newTabHref) openBrowserTab(newTabHref);
+        }}
+      >
+        <ArrowSquareOutIcon size={14} />
+        Open in new tab
+      </Item>
       <Item onClick={menu.onTogglePin}>
         {menu.isPinned ? (
           <PushPinSlashIcon size={14} />
@@ -412,8 +437,19 @@ export function TaskRowContextMenu({
   onOpenChange?: (open: boolean) => void;
   children: ReactNode;
 }) {
+  const holdSidebarPeek = useHoldSidebarPeek();
+  const handleOpenChange = useCallback(
+    (open: boolean): void => {
+      if (!open || useSidebarPeekStore.getState().peek) {
+        holdSidebarPeek(open);
+      }
+      onOpenChange?.(open);
+    },
+    [holdSidebarPeek, onOpenChange],
+  );
+
   return (
-    <ContextMenu onOpenChange={onOpenChange}>
+    <ContextMenu onOpenChange={handleOpenChange}>
       <ContextMenuTrigger render={<div className="min-w-0" />}>
         {children}
       </ContextMenuTrigger>

@@ -1,4 +1,4 @@
-import { AdminClient, CODES, KafkaConsumer, LibrdKafkaError } from 'node-rdkafka'
+import { AdminClient, CODES, LibrdKafkaError } from 'node-rdkafka'
 
 import { defaultConfig, overrideWithEnv } from '~/common/config/config'
 import {
@@ -105,28 +105,16 @@ export const TEST_KAFKA_TOPICS = [
     KAFKA_CLICKHOUSE_TOPHOG,
 ]
 
-export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig>): Promise<void> {
-    const kafkaConfig = buildKafkaConfig(extraServerConfig)
-    await createTopics(kafkaConfig, TEST_KAFKA_TOPICS)
-}
-
 // Builds a unique topic name for a test so each test can produce to and consume from an
 // isolated input topic without deleting the shared topics ClickHouse subscribes to.
 export function createKafkaTestTopicName(baseTopic: string): string {
     return `${baseTopic}_${Date.now()}_${Math.random().toString(16).slice(2)}`
 }
 
-export async function createTopics(kafkaConfig: any, topics: string[]): Promise<void> {
-    const client = AdminClient.create(kafkaConfig)
-    await deleteAllTopics(kafkaConfig)
-    await createTopicsWithClient(client, topics)
-    client.disconnect()
-}
-
 /**
  * Create Kafka topics if they don't already exist, without deleting existing topics.
- * Unlike resetKafka, this preserves ClickHouse Kafka engine consumer connections,
- * avoiding the slow reconnection cycle that causes flaky tests.
+ * The broker is shared across parallel jest workers, so anything that deletes topics
+ * wholesale pulls the output topics out from under whatever else is mid-test.
  */
 export async function ensureKafkaTopics(
     topics: string[],
@@ -136,61 +124,4 @@ export async function ensureKafkaTopics(
     const client = AdminClient.create(kafkaConfig)
     await createTopicsWithClient(client, topics)
     client.disconnect()
-}
-
-export async function deleteAllTopics(kafkaConfig: any): Promise<void> {
-    // Use a consumer to get metadata
-    const consumer = new KafkaConsumer(
-        {
-            ...kafkaConfig,
-            'group.id': 'temp-metadata-group',
-        },
-        {}
-    )
-
-    await new Promise<void>((resolve, reject) => {
-        consumer.on('ready', () => resolve())
-        consumer.on('event.error', (err) => reject(err))
-        consumer.connect()
-    })
-
-    // Get list of topics first
-    const metadata = await new Promise<any>((resolve, reject) => {
-        consumer.getMetadata({}, (err: any, metadata: any) => {
-            if (err) {
-                reject(err)
-            } else {
-                resolve(metadata)
-            }
-        })
-    })
-
-    consumer.disconnect()
-
-    const topicsToDelete = metadata.topics.map((t: any) => t.name).filter((name: string) => !name.startsWith('__')) // skip internal topics
-
-    if (topicsToDelete.length === 0) {
-        console.log('No topics to delete.')
-        return
-    }
-
-    // Use AdminClient to delete topics
-    const adminClient = AdminClient.create(kafkaConfig)
-    const timeout = 10000
-
-    // Delete topics one by one
-    for (const topic of topicsToDelete) {
-        await new Promise<void>((resolve, reject) => {
-            adminClient.deleteTopic(topic, timeout, (error: LibrdKafkaError) => {
-                if (error) {
-                    console.error(`Failed to delete topic ${topic}:`, error)
-                    reject(error)
-                } else {
-                    resolve()
-                }
-            })
-        })
-    }
-
-    adminClient.disconnect()
 }

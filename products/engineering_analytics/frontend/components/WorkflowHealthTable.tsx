@@ -28,8 +28,8 @@ function formatRate(rate: number | null): string {
     return rate == null ? '—' : `${humanFriendlyNumber(rate * 100)}%`
 }
 
-/** Color only what needs attention — red rare, amber occasional, everything else plain. A low rate
- *  without any decisive failure (skip/cancel-heavy workflows) stays plain: nothing is broken. */
+/** Color only rates backed by a decisive failure in the visible buckets; anything else is plain.
+ *  Red rare, amber occasional, so color means "needs attention", not "below a number". */
 function successRateClass(rate: number | null, hasFailures: boolean): string {
     if (rate == null) {
         return 'text-secondary'
@@ -211,7 +211,7 @@ export function WorkflowHealthTable({
             key: 'p50Seconds',
             width: 88,
             align: 'right',
-            tooltip: 'Median run duration (wall-clock) over completed runs.',
+            tooltip: 'Median run duration (wall-clock) over successful runs.',
             sorter: (a, b) => (a.p50Seconds ?? -1) - (b.p50Seconds ?? -1),
             render: (_, row) => (
                 <span className="text-xs tabular-nums whitespace-nowrap">{formatSeconds(row.p50Seconds)}</span>
@@ -222,7 +222,7 @@ export function WorkflowHealthTable({
             key: 'p95Seconds',
             width: 88,
             align: 'right',
-            tooltip: '95th-percentile run duration (wall-clock) over completed runs.',
+            tooltip: '95th-percentile run duration (wall-clock) over successful runs.',
             sorter: (a, b) => (a.p95Seconds ?? -1) - (b.p95Seconds ?? -1),
             render: (_, row) => (
                 <span className="text-xs tabular-nums whitespace-nowrap text-secondary">

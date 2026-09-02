@@ -8,7 +8,7 @@ from datetime import datetime
 from uuid import UUID
 
 import pytest
-from posthog.test.base import reset_clickhouse_database
+from posthog.test.base import reset_clickhouse_database, reset_clickhouse_database_if_dirty
 from unittest.mock import patch
 
 from django.conf import settings
@@ -94,6 +94,9 @@ def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
     Cluster fixture with macOS Docker-compatible hostname resolution.
     Patches ClickhouseCluster to use host_name instead of host_address.
     """
+    # Setup reset stays unconditional (Kafka-engine arrivals don't advance the
+    # dirty counter, so a late row would leak into the next test); teardown can
+    # skip when nothing checked out a ClickHouse client.
     reset_clickhouse_database()
     try:
         with patch.object(
@@ -103,4 +106,4 @@ def cluster(django_db_setup) -> Iterator[ClickhouseCluster]:
         ):
             yield get_cluster()
     finally:
-        reset_clickhouse_database()
+        reset_clickhouse_database_if_dirty()

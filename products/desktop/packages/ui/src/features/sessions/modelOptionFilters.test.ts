@@ -19,12 +19,14 @@ describe("modelOptionFilters", () => {
     },
     { flag: "glm", id: "@cf/zai-org/glm-5.2", name: "GLM-5.2" },
     { flag: "glm53", id: "zai-org/glm-5.3", name: "GLM-5.3" },
+    { flag: "glm53Flash", id: "zai-org/glm-5.3-flash", name: "GLM-5.3 Flash" },
     { flag: "kimi", id: "moonshotai/kimi-k3", name: "Kimi K3" },
   ];
   const enabledFlags: ModelRolloutFlags = {
     deepseek: true,
     glm: true,
     glm53: true,
+    glm53Flash: true,
     kimi: true,
   };
 
@@ -49,6 +51,34 @@ describe("modelOptionFilters", () => {
       });
     },
   );
+
+  it("drops a group emptied by a disabled flag, heading and all", () => {
+    const option: SessionConfigOption = {
+      type: "select",
+      id: "model",
+      name: "Model",
+      currentValue: "claude-opus-5",
+      options: [
+        {
+          group: "anthropic",
+          name: "Anthropic",
+          options: [{ value: "claude-opus-5", name: "Claude Opus 5" }],
+        },
+        {
+          group: "moonshotai",
+          name: "Moonshot AI",
+          options: [{ value: "moonshotai/kimi-k3", name: "Kimi K3" }],
+        },
+      ],
+    };
+
+    expect(
+      stripDisabledModelOption(option, { ...enabledFlags, kimi: false }),
+    ).toMatchObject({
+      currentValue: "claude-opus-5",
+      options: [{ group: "anthropic" }],
+    });
+  });
 
   it.each(rolloutModels)(
     "removes only $flag models when its flag is disabled",

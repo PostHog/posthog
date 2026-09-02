@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { getRecentSlackChannelIds } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -12,7 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { InsightShortId, SubscriptionType } from '~/types'
+import { InsightShortId, IntegrationType, SubscriptionType } from '~/types'
 
 import { subscriptionLogic } from './subscriptionLogic'
 
@@ -26,6 +27,9 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
 }))
 
 const Insight1 = '1' as InsightShortId
+
+const TEAMS_WEBHOOK_URL =
+    'https://prod-12.westeurope.logic.azure.com/workflows/00000000/triggers/manual/paths/invoke?api-version=2016-06-01&sig=not-a-real-signature'
 
 export const fixtureSubscriptionResponse = (id: number, args: Partial<SubscriptionType> = {}): SubscriptionType =>
     ({
@@ -238,6 +242,34 @@ describe('subscriptionLogic', () => {
         })
     })
 
+    it('records successful wizard-created subscriptions separately from the editor', async () => {
+        const wizardLogic = subscriptionLogic({
+            insightShortId: Insight1,
+            insightName: 'Feature flag evaluations',
+            id: 'new',
+            creationSource: 'wizard',
+        })
+        wizardLogic.mount()
+
+        router.actions.push('/insights/123/subscriptions/new')
+        await expectLogic(wizardLogic).toFinishListeners()
+        expect(wizardLogic.values.subscription.title).toBe('Weekly report: Feature flag evaluations')
+
+        wizardLogic.actions.setSubscriptionValues({
+            title: 'Weekly report: Feature flag evaluations',
+            target_type: 'email',
+            target_value: 'ben@posthog.com',
+        })
+        wizardLogic.actions.submitSubscription()
+        await expectLogic(wizardLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'subscription created',
+            expect.objectContaining({ creation_source: 'wizard' })
+        )
+        wizardLogic.unmount()
+    })
+
     it('preselects an AI prompt report from the new-subscription URL', async () => {
         router.actions.push('/insights/123/subscriptions/new?resource_type=ai_prompt')
 
@@ -246,12 +278,76 @@ describe('subscriptionLogic', () => {
         expect(newLogic.values.subscription.resource_type).toBe('ai_prompt')
     })
 
+    it('keeps the analysis window when selecting an example question', async () => {
+        router.actions.push('/insights/123/subscriptions/new?resource_type=ai_prompt')
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({
+            ai_prompt_config: { window: { mode: 'days_ago_range', start_days_ago: 14, end_days_ago: 7 } },
+        })
+
+        newLogic.actions.selectAiExamplePrompt(
+            'Top 5 events by volume, with counts and unique users for each.',
+            'Top events'
+        )
+        await expectLogic(newLogic).toFinishListeners()
+
+        expect(newLogic.values.subscription.ai_prompt_config?.window).toEqual({
+            mode: 'days_ago_range',
+            start_days_ago: 14,
+            end_days_ago: 7,
+        })
+    })
+
+    it('prefills seven days when selecting the last-N-days analysis window', async () => {
+        router.actions.push('/insights/123/subscriptions/new?resource_type=ai_prompt')
+        await expectLogic(newLogic).toFinishListeners()
+
+        newLogic.actions.selectAiAnalysisWindow('last_n_days')
+        await expectLogic(newLogic).toFinishListeners()
+
+        expect(newLogic.values.subscription.ai_prompt_config?.window).toEqual({
+            mode: 'last_n_days',
+            start_days_ago: 7,
+        })
+    })
+
+    it('prefills a two-week range ending today when selecting the range analysis window', async () => {
+        router.actions.push('/insights/123/subscriptions/new?resource_type=ai_prompt')
+        await expectLogic(newLogic).toFinishListeners()
+
+        newLogic.actions.selectAiAnalysisWindow('days_ago_range')
+        await expectLogic(newLogic).toFinishListeners()
+
+        expect(newLogic.values.subscription.ai_prompt_config?.window).toEqual({
+            mode: 'days_ago_range',
+            start_days_ago: 14,
+            end_days_ago: 0,
+        })
+    })
+
     it('sets the type from query params', async () => {
         router.actions.push('/insights/123/subscriptions/new?target_type=slack')
         await expectLogic(newLogic).toFinishListeners()
         expect(newLogic.values.subscription).toMatchObject({
             target_type: 'slack',
         })
+    })
+
+    it('prefills the current user email for a new email subscription', async () => {
+        router.actions.push('/insights/123/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+
+        expect(newLogic.values.subscription).toMatchObject({
+            target_type: 'email',
+            target_value: MOCK_DEFAULT_USER.email,
+        })
+        expect(newLogic.values.subscriptionChanged).toBe(false)
+
+        newLogic.actions.setSubscriptionValue('target_type', 'slack')
+        newLogic.actions.setSubscriptionValue('target_type', 'email')
+        await expectLogic(newLogic).toFinishListeners()
+
+        expect(newLogic.values.subscription.target_value).toBe(MOCK_DEFAULT_USER.email)
     })
 
     // Products deep-link here with a ready-made report (the MCP analytics recurring-report cards),
@@ -653,6 +749,106 @@ describe('subscriptionLogic', () => {
         expect(capturedBody?.insight).toBeUndefined()
     })
 
+    it.each<[string, string, string | undefined]>([
+        ['accepts a webhook URL', TEAMS_WEBHOOK_URL, undefined],
+        ['accepts a webhook URL pasted with stray whitespace', `  ${TEAMS_WEBHOOK_URL}\n`, undefined],
+        ['rejects a channel name', 'reports', 'The webhook URL must start with https://'],
+        [
+            'rejects a plain-HTTP URL',
+            'http://prod-12.westeurope.logic.azure.com/workflows/1',
+            'The webhook URL must start with https://',
+        ],
+        ['rejects an empty value', '', 'A webhook URL is required'],
+        ['rejects a whitespace-only value', '   ', 'A webhook URL is required'],
+    ])('%s for a Microsoft Teams subscription', async (_label, targetValue, expectedError) => {
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({ target_type: 'teams', target_value: targetValue })
+        await expectLogic(newLogic).toFinishListeners()
+
+        // subscriptionErrors is gated on submit or touch; the validation output is what we assert.
+        expect(newLogic.values.subscriptionValidationErrors.target_value).toBe(expectedError)
+        expect(newLogic.values.subscriptionValidationErrors.target_type).toBeUndefined()
+    })
+
+    it('saves a Microsoft Teams subscription with the webhook URL trimmed', async () => {
+        let capturedBody: Partial<SubscriptionType> | undefined
+        useMocks({
+            post: {
+                '/api/environments/:team/subscriptions': async ({ request }) => {
+                    capturedBody = (await request.json()) as Partial<SubscriptionType>
+                    return [200, { id: 44, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        router.actions.push('/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({
+            resource_type: 'insight',
+            title: 'Teams test',
+            target_type: 'teams',
+            target_value: `  ${TEAMS_WEBHOOK_URL}\n`,
+        })
+        newLogic.actions.submitSubscription()
+        await expectLogic(newLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+
+        expect(capturedBody?.target_type).toBe('teams')
+        expect(capturedBody?.target_value).toBe(TEAMS_WEBHOOK_URL)
+        // Without target_type on the create event, Teams adoption is invisible in analytics.
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'subscription created',
+            expect.objectContaining({ target_type: 'teams', subscription_id: 44 })
+        )
+    })
+
+    it('saves an existing Microsoft Teams subscription without resending the hidden URL', async () => {
+        // The API only ever returns the host, so sending it back would replace the stored URL with
+        // something nothing could deliver to. Omitting it tells the backend to keep what it has.
+        let capturedBody: Partial<SubscriptionType> | undefined
+        useMocks({
+            get: {
+                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                    target_type: 'teams',
+                    target_value: 'prod-12.westeurope.logic.azure.com',
+                }),
+            },
+            patch: {
+                '/api/environments/:team/subscriptions/1': async ({ request }) => {
+                    capturedBody = (await request.json()) as Partial<SubscriptionType>
+                    return [200, fixtureSubscriptionResponse(1, { target_type: 'teams' })]
+                },
+            },
+        })
+        existingLogic.actions.loadSubscription()
+        await expectLogic(existingLogic).toFinishListeners()
+
+        expect(existingLogic.values.storedTeamsWebhookHost).toBe('prod-12.westeurope.logic.azure.com')
+        existingLogic.actions.setSubscriptionValue('title', 'Renamed')
+        existingLogic.actions.submitSubscription()
+        await expectLogic(existingLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+
+        expect(capturedBody?.target_value).toBeUndefined()
+    })
+
+    it('asks for a URL again once the Teams webhook is being replaced', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team/subscriptions/1': fixtureSubscriptionResponse(1, {
+                    target_type: 'teams',
+                    target_value: 'prod-12.westeurope.logic.azure.com',
+                }),
+            },
+        })
+        existingLogic.actions.loadSubscription()
+        await expectLogic(existingLogic).toFinishListeners()
+
+        existingLogic.actions.replaceTeamsWebhook()
+        await expectLogic(existingLogic).toFinishListeners()
+
+        expect(existingLogic.values.storedTeamsWebhookHost).toBeNull()
+        expect(existingLogic.values.subscription.target_value).toBe('')
+        expect(existingLogic.values.subscriptionValidationErrors.target_value).toBe('A webhook URL is required')
+    })
+
     it('drops a stale prompt when saving a non-AI subscription', async () => {
         // Toggling resource_type back to insight after typing a prompt leaves it in form state;
         // it must not be sent, else the backend rejects a non-AI sub that carries a prompt.
@@ -677,5 +873,37 @@ describe('subscriptionLogic', () => {
         newLogic.actions.submitSubscription()
         await expectLogic(newLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
         expect(capturedBody?.prompt).toBeUndefined()
+    })
+
+    it.each([
+        ['removes the gallery flag when files:write is missing', 'chat:write,channels:read', false],
+        ['keeps the gallery flag when files:write is granted', 'chat:write,files:write', true],
+    ] as const)('%s on submit', async (_label, scope, expected) => {
+        const integrations = integrationsLogic()
+        integrations.mount()
+        await expectLogic(integrations).toFinishListeners()
+        integrations.actions.loadIntegrationsSuccess([{ id: 7, kind: 'slack', config: { scope } } as IntegrationType])
+
+        let capturedBody: Partial<SubscriptionType> | undefined
+        useMocks({
+            post: {
+                '/api/environments/:team/subscriptions': async ({ request }) => {
+                    capturedBody = (await request.json()) as Partial<SubscriptionType>
+                    return [200, { id: 51, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        router.actions.push('/insights/123/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({
+            target_type: 'slack',
+            target_value: 'C123|#general',
+            integration_id: 7,
+            title: 'Gallery test',
+            delivery_config: { post_all_insights_in_main_message: true },
+        })
+        newLogic.actions.submitSubscription()
+        await expectLogic(newLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+        expect(capturedBody?.delivery_config?.post_all_insights_in_main_message).toBe(expected)
     })
 })

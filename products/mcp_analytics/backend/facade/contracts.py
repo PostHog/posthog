@@ -4,6 +4,8 @@ from uuid import UUID
 
 from .enums import SubmissionKind
 
+MCP_ANALYTICS_INTENT_ROUTING_FEATURE_FLAG = "mcp-analytics-intent-routing"
+
 
 class IntentGenerationUnavailable(RuntimeError):
     """Raised when session-intent generation can't complete (LLM unconfigured or request failed).

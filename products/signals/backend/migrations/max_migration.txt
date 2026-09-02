@@ -1,1 +1,1 @@
-0105_signalscratchpad_expires_at
+0110_signalreportartefact_team_type_recent_idx

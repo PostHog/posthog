@@ -16,7 +16,8 @@ interface EnvironmentEditFormProps {
   images: readonly SandboxCustomImage[];
   /** The name shown in the heading, which a rename must not change mid-edit. */
   environmentName: string;
-  variablesAlreadySet: boolean;
+  /** Names of the variables already saved, whose values are never returned. */
+  savedVariableKeys: readonly string[];
   saving: boolean;
   deleting: boolean;
   onCancel: () => void;
@@ -38,7 +39,7 @@ export function EnvironmentEditForm({
   onChange,
   images,
   environmentName,
-  variablesAlreadySet,
+  savedVariableKeys,
   saving,
   deleting,
   onCancel,
@@ -47,10 +48,10 @@ export function EnvironmentEditForm({
   onBuildNewImage,
   dirty,
 }: EnvironmentEditFormProps) {
-  const error =
-    stepError(plan, "environment") ??
-    stepError(plan, "access") ??
-    stepError(plan, "image");
+  const environmentError = stepError(plan, "environment");
+  const accessError = stepError(plan, "access");
+  const imageError = stepError(plan, "image");
+  const error = environmentError ?? accessError ?? imageError;
 
   return (
     <div className="flex flex-col gap-5">
@@ -73,20 +74,22 @@ export function EnvironmentEditForm({
         </Text>
       </div>
 
-      <div className="flex flex-col gap-5 rounded-(--radius-4) border border-(--gray-5) bg-(--color-panel-solid) px-5 py-4">
+      <div className="flex flex-col gap-5 rounded-(--radius-4) border border-border bg-card px-5 py-4">
         <Section>
           <EnvironmentStep
             editing
             plan={plan}
             environments={[]}
             onChange={onChange}
+            error={environmentError}
           />
         </Section>
         <Section>
           <AccessStep
             plan={plan}
             onChange={onChange}
-            variablesAlreadySet={variablesAlreadySet}
+            savedVariableKeys={savedVariableKeys}
+            error={accessError}
           />
         </Section>
         {plan.customImages && (
@@ -99,6 +102,7 @@ export function EnvironmentEditForm({
               buildNewDisabledReason={
                 dirty ? "Save your changes first, then build one." : null
               }
+              error={imageError}
             />
           </Section>
         )}

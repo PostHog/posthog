@@ -1,3 +1,4 @@
+import posthoganalytics
 from prometheus_client import Counter, Gauge, Histogram
 
 from posthog.otel_metrics import OtelInstrumentFactory
@@ -54,15 +55,22 @@ _ACCOUNT_PROPERTY_SYNC_PHASE_DURATION_SECONDS = Histogram(
 )
 
 _otel = OtelInstrumentFactory("customer-analytics-account-track-rules")
-_account_property_sync_otel = OtelInstrumentFactory("customer-analytics-account-property-sync")
 
 
 def record_account_property_sync_phase_duration(*, phase: str, segment: str, duration_seconds: float) -> None:
     labels = {"phase": phase, "segment": segment}
     _ACCOUNT_PROPERTY_SYNC_PHASE_DURATION_SECONDS.labels(**labels).observe(duration_seconds)
-    _account_property_sync_otel.record_histogram_twin(
-        _ACCOUNT_PROPERTY_SYNC_PHASE_DURATION_SECONDS, duration_seconds, labels
-    )
+    client = posthoganalytics.default_client
+    if client is not None:
+        try:
+            client.metrics.histogram(
+                "customer_analytics_account_property_sync_phase_duration_seconds",
+                duration_seconds,
+                unit="s",
+                attributes=labels,
+            )
+        except Exception:
+            pass
 
 
 def record_account_track_rule_run(
@@ -130,3 +138,8 @@ def record_account_track_rule_coordinator(
     _otel.record_gauge_twin(_ACCOUNT_TRACK_RULE_ENABLED_TEAMS, enabled_teams)
     _otel.record_gauge_twin(_ACCOUNT_TRACK_RULE_OVERDUE_TEAMS, overdue_teams)
     _otel.record_gauge_twin(_ACCOUNT_TRACK_RULE_OLDEST_SUCCESS_AGE_SECONDS, oldest_success_age_seconds)
+
+
+# Cutover observability for #82564: the CDP worker's account actions move from
+# secret_api_token on the external routes to scoped JWTs on the internal routes.
+# The legacy worker path can be removed once auth_method="secret_api_token" stays at zero.

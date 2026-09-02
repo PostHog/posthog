@@ -5,7 +5,6 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { INBOX_FLAT_TAB_LIST_PARAMS } from '../logics/reportListLogic'
 import { SignalReport, SignalReportStatus } from '../types'
 import { InboxReportList, InboxReportCardProps } from './InboxReportList'
 
@@ -89,14 +88,7 @@ describe('InboxReportList', () => {
     afterEach(cleanup)
 
     it('keeps paging once the sentinel scrolls into view', async () => {
-        render(
-            <InboxReportList
-                tabKey="reports"
-                listParams={INBOX_FLAT_TAB_LIST_PARAMS.reports}
-                Card={StubCard}
-                emptyState={{ content: <div>empty</div> }}
-            />
-        )
+        render(<InboxReportList tabKey="reports" Card={StubCard} emptyState={{ content: <div>empty</div> }} />)
 
         await screen.findByText('Report page-1')
         // The sentinel only enters the DOM after the first page lands, so the observer has to

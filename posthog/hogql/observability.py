@@ -120,6 +120,25 @@ TYPE_SIMPLIFICATION_TOTAL = PromCounter(
 )
 
 
+INDEX_ELIGIBILITY_TOTAL = PromCounter(
+    "hogql_index_eligibility_total",
+    "Index-eligibility analysis runs by result. 'failed' counts swallowed analysis errors, which are "
+    "invisible to the user: a query that compiles still returns, just with no index report.",
+    labelnames=["result"],
+)
+INDEX_ELIGIBILITY_DURATION_SECONDS = Histogram(
+    "hogql_index_eligibility_duration_seconds",
+    "Wall-clock duration of the index-eligibility pass, which re-resolves a clone of the query.",
+    buckets=(0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),
+)
+INDEX_ELIGIBILITY_VERDICT_TOTAL = PromCounter(
+    "hogql_index_eligibility_verdict_total",
+    "Property-filter predicates by index verdict. Property names are deliberately absent: they are "
+    "user-supplied and unbounded, so they can be neither a label value nor a label name.",
+    labelnames=["verdict", "source_kind"],
+)
+
+
 def _log_observability_error(stage: str) -> None:
     """Record and log a swallowed observability failure. Must never raise."""
     try:

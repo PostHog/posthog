@@ -44,6 +44,7 @@ import { SidebarItem } from "@posthog/ui/features/sidebar/components/SidebarItem
 import { writeTaskDragData } from "@posthog/ui/features/sidebar/taskDrag";
 import { SESSION_ROW_ATTRIBUTE } from "@posthog/ui/features/sidebar/useMarqueeSelection";
 import { HandoffTaskDialog } from "@posthog/ui/features/task-detail/components/HandoffTaskDialog";
+import { useMountedOnceOpened } from "@posthog/ui/hooks/useMountedOnceOpened";
 import {
   type DragEvent,
   type ReactNode,
@@ -62,9 +63,8 @@ export interface ChannelItemActions {
   /** Pins or unpins a whole batch, which a drag over the pinned run applies. */
   setPinned: (items: ChannelItemModel[], pinned: boolean) => void;
   archive: (item: ChannelItemModel) => void;
-  /** Canvases only — a task is archived, not deleted. */
-  remove: (item: ChannelItemModel) => void;
-  fileCanvas: (item: ChannelItemModel, channelId: string) => void;
+  remove?: (item: ChannelItemModel) => void;
+  fileCanvas?: (item: ChannelItemModel, channelId: string) => void;
 }
 
 // The channel sidebar's own chrome. Deliberately not shared with the Code
@@ -296,6 +296,7 @@ export function ChannelItemRow({
   const subtitle = useChannelItemMetadata(item);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [handoffOpen, setHandoffOpen] = useState(false);
+  const handoffMounted = useMountedOnceOpened(handoffOpen);
   const currentUser = useCurrentUser();
   const canHandoff =
     item.kind === "task" &&
@@ -304,8 +305,9 @@ export function ChannelItemRow({
     currentUser.data?.id === item.authorUser.id;
   const canFileCanvas =
     item.kind === "canvas" &&
-    item.authorUser?.id != null &&
-    currentUser.data?.id === item.authorUser.id;
+    actions.fileCanvas !== undefined &&
+    item.authorUuid != null &&
+    currentUser.data?.uuid === item.authorUuid;
   const handleDragStart = useCallback(
     (event: DragEvent) => {
       if (item.kind === "canvas") {
@@ -341,7 +343,7 @@ export function ChannelItemRow({
             ...(canFileCanvas
               ? {
                   onFile: (targetChannelId: string) =>
-                    actions.fileCanvas(item, targetChannelId),
+                    actions.fileCanvas?.(item, targetChannelId),
                 }
               : {}),
             onTogglePin: () => actions.togglePin(item),
@@ -363,7 +365,7 @@ export function ChannelItemRow({
             onArchive: () => actions.archive(item),
             ...(canHandoff ? { onHandoff: () => setHandoffOpen(true) } : {}),
           },
-    // canHandoff rides on the currentUser query, so it belongs in deps for a
+    // Ownership rides on the currentUser query, so these belong in deps for a
     // sign-in refresh to re-evaluate.
     [
       item,
@@ -446,7 +448,7 @@ export function ChannelItemRow({
               size="sm"
               onClick={() => {
                 setConfirmDeleteOpen(false);
-                actions.remove(item);
+                actions.remove?.(item);
               }}
             >
               Delete
@@ -454,7 +456,7 @@ export function ChannelItemRow({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-      {canHandoff && item.task ? (
+      {canHandoff && item.task && handoffMounted ? (
         <HandoffTaskDialog
           task={item.task}
           open={handoffOpen}

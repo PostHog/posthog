@@ -15,6 +15,7 @@ from posthog.test.base import (
 from unittest.mock import patch
 
 from django.db import transaction
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -34,13 +35,36 @@ from posthog.test.persons import create_person
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role
 from products.conversations.backend.api.ticket_filters import query_params_to_view_filters
-from products.conversations.backend.api.tickets import TicketReplyRequestSerializer
+from products.conversations.backend.api.tickets import ComposeTicketSerializer, TicketReplyRequestSerializer
 from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, TicketAssignment, TicketView
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.person_lookup import PERSON_EMAIL_LOOKUP_QUERY, _get_persons_by_email
 from products.conversations.backend.reply_dedupe import REPLY_IN_PROGRESS_ERROR_TYPE, ReplyFingerprint, reserve
 
 from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
+
+
+class TestComposeTicketSerializer(SimpleTestCase):
+    def _payload(self, **overrides):
+        data = {
+            "recipient_email": "someone@example.com",
+            "email_config_id": "00000000-0000-0000-0000-000000000000",
+            "message": "Hello!",
+        }
+        data.update(overrides)
+        return data
+
+    def test_rejects_more_than_100_tags(self):
+        # The compose write applies each tag inside the ticket-creation transaction, which
+        # holds a team-row lock. An unbounded list would fan out that work under the lock, so
+        # the field is capped at 100 before any DB work starts.
+        serializer = ComposeTicketSerializer(data=self._payload(tags=[f"t{i}" for i in range(101)]))
+        assert not serializer.is_valid()
+        assert set(serializer.errors) == {"tags"}
+
+    def test_accepts_up_to_100_tags(self):
+        serializer = ComposeTicketSerializer(data=self._payload(tags=[f"t{i}" for i in range(100)]))
+        assert serializer.is_valid(), serializer.errors
 
 
 # Patch on_commit to execute immediately in tests
@@ -229,28 +253,46 @@ class TestTicketAPI(APIBaseTest):
         self.ticket.refresh_from_db()
         self.assertIsNotNone(self.ticket.sla_due_at)
 
-    def test_update_sla_due_at_logs_activity(self, mock_on_commit):
-        sla_time = timezone.now() + timedelta(hours=5)
+    @parameterized.expand(
+        [
+            (
+                "sla_due_at",
+                {"sla_due_at": "2030-01-01T00:00:00+00:00"},
+                {"sla_due_at": (None, "2030-01-01T00:00:00+00:00")},
+            ),
+            (
+                "status_and_priority",
+                {"status": Status.RESOLVED, "priority": Priority.HIGH},
+                {"status": (Status.NEW, Status.RESOLVED), "priority": (None, Priority.HIGH)},
+            ),
+        ]
+    )
+    def test_update_logs_every_changed_field_in_one_activity_entry(
+        self, mock_on_commit, _name, payload, expected_changes
+    ):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
-            {"sla_due_at": sla_time.isoformat()},
+            payload,
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        activity = ActivityLog.objects.filter(
-            team_id=self.team.id,
-            scope="Ticket",
-            item_id=str(self.ticket.id),
-            activity="updated",
-        ).first()
+        entries = list(
+            ActivityLog.objects.filter(
+                team_id=self.team.id,
+                scope="Ticket",
+                item_id=str(self.ticket.id),
+                activity="updated",
+            )
+        )
+        self.assertEqual(len(entries), 1)
 
-        assert activity is not None
-        assert activity.detail is not None
-        changes = activity.detail.get("changes", [])
-        sla_change = next((c for c in changes if c["field"] == "sla_due_at"), None)
-        assert sla_change is not None
-        self.assertIsNone(sla_change["before"])
-        self.assertIsNotNone(sla_change["after"])
+        detail = entries[0].detail
+        assert detail is not None
+        changes = detail.get("changes", [])
+        self.assertEqual(
+            {change["field"]: (change["before"], change["after"]) for change in changes},
+            expected_changes,
+        )
 
     @parameterized.expand(
         [
@@ -1248,30 +1290,29 @@ class TestTicketAssignment(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(expected_error, str(response.json()))
 
-    def test_assign_to_user_not_in_organization(self):
-        other_user = User.objects.create(email="other@example.com")
+    @parameterized.expand(
+        [
+            ("user", "not a member of this organization"),
+            ("role", "does not belong to this organization"),
+        ]
+    )
+    def test_invalid_assignee_membership_does_not_update_ticket(self, assignee_type: str, expected_error: str) -> None:
+        if assignee_type == "user":
+            assignee_id: int | str = User.objects.create(email="other@example.com").id
+        else:
+            other_org = Organization.objects.create(name="Other Org")
+            assignee_id = str(Role.objects.create(name="Other Role", organization=other_org).id)
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
-            {"assignee": {"id": other_user.id, "type": "user"}},
+            {"assignee": {"id": assignee_id, "type": assignee_type}, "status": Status.PENDING},
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("not a member of this organization", str(response.json()))
+        self.assertIn(expected_error, str(response.json()))
         self.assertEqual(TicketAssignment.objects.count(), 0)
-
-    def test_assign_to_role_not_in_organization(self):
-        other_org = Organization.objects.create(name="Other Org")
-        other_role = Role.objects.create(name="Other Role", organization=other_org)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/",
-            {"assignee": {"id": str(other_role.id), "type": "role"}},
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("does not belong to this organization", str(response.json()))
-        self.assertEqual(TicketAssignment.objects.count(), 0)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.status, Status.NEW)
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
@@ -1972,6 +2013,23 @@ class TestComposeTicketAPI(APIBaseTest):
         )
         assert search.status_code == status.HTTP_200_OK
         assert [t["id"] for t in search.json()["results"]] == [str(ticket.id)]
+
+    def test_compose_applies_tags_to_the_new_ticket(self, mock_on_commit):
+        # Tags let support filter composed tickets by source (e.g. roadmap pitches). If compose
+        # drops the field, the ticket lands untagged and that filtering breaks.
+        response = self._compose(
+            {
+                "recipient_email": "pitch@test.com",
+                "email_config_id": str(self.email_config.id),
+                "message": "Great idea, we logged it.",
+                "tags": ["roadmap_pitch"],
+            }
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        detail = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{response.json()['id']}/")
+        assert detail.status_code == status.HTTP_200_OK
+        assert detail.json()["tags"] == ["roadmap_pitch"]
 
 
 class TestTicketPersonalAPIKeyScopes(APIBaseTest):

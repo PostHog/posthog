@@ -25,7 +25,7 @@ use tokio::sync::broadcast;
 pub struct SubBatchInfo {
     pub worker: String,
     pub messages: usize,
-    pub distinct_ids: usize,
+    pub routing_keys: usize,
 }
 
 /// A topic-partition and the batch's max offset there, with observed lag.
@@ -54,10 +54,10 @@ pub enum DebugEventKind {
         messages: usize,
         partitions: Vec<PartitionOffset>,
     },
-    /// The dispatcher grouped a batch by routing key and assigned sub-batches.
+    /// The dispatcher grouped a batch by Kafka key and assigned sub-batches.
     BatchAssigned {
         batch_id: String,
-        distinct_ids: usize,
+        routing_keys: usize,
         sub_batches: Vec<SubBatchInfo>,
         deferred_groups: u64,
         unroutable_groups: u64,
@@ -66,7 +66,7 @@ pub enum DebugEventKind {
     SubBatchResolved {
         worker: String,
         messages: usize,
-        distinct_ids: usize,
+        routing_keys: usize,
         cleared_deferral: bool,
     },
     /// Messages were stashed rather than sent
@@ -91,30 +91,6 @@ pub enum DebugEventKind {
     /// Batch processing failed; the process will exit and restart.
     BatchFailed {
         batch_id: Option<String>,
-        error: String,
-    },
-    /// A send to a worker was retried (`reason`: busy/error).
-    SendRetry {
-        worker: String,
-        batch_id: String,
-        attempt: u32,
-        reason: &'static str,
-    },
-    /// A sub-batch was split into size-bounded chunks before sending
-    /// (`reason`: size_estimate — the pre-send estimate exceeded the body cap —
-    /// or http_413 — the worker rejected a chunk and it was halved).
-    SendSplit {
-        worker: String,
-        batch_id: String,
-        reason: &'static str,
-        chunks: usize,
-        messages: usize,
-    },
-    /// A send exhausted its retries; the messages are deferred for replay.
-    SendExhausted {
-        worker: String,
-        batch_id: String,
-        messages: usize,
         error: String,
     },
     /// A worker moved between health states.

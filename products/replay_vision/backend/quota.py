@@ -307,10 +307,11 @@ def compute_scanner_budgets(
     if period is None:
         period = current_period_bounds(organization_id)
     # Limits are read here, not passed in: a caller that forgot them would silently disable enforcement.
+    # `all_origins`: a capped inline scanner must resolve its limit here, or its budget reads as uncapped.
     # nosemgrep: idor-lookup-without-team (org-level aggregation, the pk__in list is co-filtered by team__organization_id, so a scanner id outside this org matches nothing)
-    scanner_rows = ReplayScanner.objects.filter(team__organization_id=organization_id, pk__in=scanner_ids).values_list(
-        "id", "credit_limit", "model"
-    )
+    scanner_rows = ReplayScanner.all_origins.filter(
+        team__organization_id=organization_id, pk__in=scanner_ids
+    ).values_list("id", "credit_limit", "model")
     configs = {scanner_id: (limit, model) for scanner_id, limit, model in scanner_rows}
     # Almost every scanner is uncapped, so the spend aggregates run only for the capped ones; the
     # rest report zero usage, and `blocked` is always False without a limit.

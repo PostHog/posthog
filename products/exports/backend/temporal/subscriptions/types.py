@@ -105,6 +105,7 @@ AI_REPORT_DIAGNOSTICS_KEY = "ai_report_diagnostics"
 # The analysis window's end for this run, as a UTC ISO instant. The next run anchors its window here
 # (exactly gap-free); rows written before this key existed fall back to finished_at.
 AI_REPORT_WINDOW_END_KEY = "ai_report_window_end"
+AI_REPORT_CHARTS_KEY = "ai_report_charts"
 
 
 class SubscriptionTriggerType:

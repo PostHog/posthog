@@ -13,6 +13,7 @@ import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { cn } from 'lib/utils/css-classes'
 import {
     POSTHOG_WAREHOUSE,
     connectionSelectorLogic,
@@ -356,15 +357,17 @@ export const DateField = ({
     variable,
     updateVariable,
     onApply,
+    className,
 }: DirectFieldProps<DateVariable> & {
     /** Called when the calendar's own Apply button is pressed, so a caller can treat it as the commit. */
     onApply?: (value: string) => void
+    className?: string
 }): JSX.Element => {
     const isRelative = isRelativeDateValue(variable.default_value)
     const relativeValue = parseRelativeDateValue(variable.default_value) ?? { amount: 0, unit: 'd' as RelativeDateUnit }
 
     return (
-        <div className="flex flex-col gap-2">
+        <div className={cn('flex flex-col gap-2', className)}>
             <LemonSegmentedButton
                 className="w-full"
                 value={isRelative ? 'relative' : 'fixed'}

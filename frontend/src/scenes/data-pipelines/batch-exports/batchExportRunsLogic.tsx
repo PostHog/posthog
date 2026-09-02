@@ -14,6 +14,7 @@ import type { BatchExportConfiguration } from '../../../types'
 import { batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
 import { batchExportDataLogic } from './batchExportDataLogic'
 import { BatchExportContext } from './types'
+import { BatchExportRunStatusGroup, BatchExportStatus, batchExportRunStatusesForGroups } from './utils'
 
 const DEFAULT_DATE_FROM = '-2d'
 export interface BatchExportRunsLogicProps {
@@ -36,6 +37,9 @@ export interface batchExportRunsLogicValues {
     recordLabel: string
     runsPaginatedResponse: PaginatedResponse<RawBatchExportRun> | null
     runsPaginatedResponseLoading: boolean
+    statusFilter: BatchExportRunStatusGroup[]
+    statusFilterActive: boolean
+    statusFilterStatuses: BatchExportStatus[]
     usingLatestRuns: boolean
 }
 
@@ -104,6 +108,9 @@ export interface batchExportRunsLogicActions {
         from: string | null
         to: string | null
     }
+    setStatusFilter: (statuses: BatchExportRunStatusGroup[]) => {
+        statuses: BatchExportRunStatusGroup[]
+    }
     switchLatestRuns: (enabled: boolean) => {
         enabled: boolean
     }
@@ -121,6 +128,8 @@ export interface batchExportRunsLogicMeta {
             runsPaginatedResponse: PaginatedResponse<RawBatchExportRun> | null,
             usingLatestRuns: boolean
         ) => GroupedBatchExportRuns[]
+        statusFilterActive: (statusFilter: BatchExportRunStatusGroup[]) => boolean
+        statusFilterStatuses: (statusFilter: BatchExportRunStatusGroup[]) => BatchExportStatus[]
     }
 }
 
@@ -141,6 +150,7 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
     })),
     actions({
         setDateRange: (from: string | null, to: string | null) => ({ from, to }),
+        setStatusFilter: (statuses: BatchExportRunStatusGroup[]) => ({ statuses }),
         switchLatestRuns: (enabled: boolean) => ({ enabled }),
         loadRuns: true,
         retryRun: (run: BatchExportRun) => ({ run }),
@@ -151,15 +161,21 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
             null as PaginatedResponse<RawBatchExportRun> | null,
             {
                 loadRuns: async () => {
+                    // Leave the key out entirely when nothing is selected, as a blank status is rejected.
+                    const statusParams = values.statusFilterStatuses.length
+                        ? { status: values.statusFilterStatuses }
+                        : {}
+
                     // TODO: loading and combining the data could be more efficient
                     if (values.usingLatestRuns) {
-                        return await api.batchExports.listRuns(props.id, {})
+                        return await api.batchExports.listRuns(props.id, statusParams)
                     }
 
                     return await api.batchExports.listRuns(props.id, {
                         start: values.dateRange.from,
                         end: values.dateRange.to, // TODO: maybe add 1 day
                         ordering: '-data_interval_start',
+                        ...statusParams,
                     })
                 },
                 loadOlderRuns: async () => {
@@ -181,6 +197,14 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
             { from: DEFAULT_DATE_FROM, to: null } as { from: string; to: string | null },
             {
                 setDateRange: (_, { from, to }) => ({ from: from ?? DEFAULT_DATE_FROM, to: to }),
+            },
+        ],
+        // TODO: move this, the date range, and the latest-runs toggle into the URL together, so a
+        // filtered view can be shared.
+        statusFilter: [
+            [] as BatchExportRunStatusGroup[],
+            {
+                setStatusFilter: (_, { statuses }) => statuses,
             },
         ],
         usingLatestRuns: [
@@ -265,9 +289,21 @@ export const batchExportRunsLogic = kea<batchExportRunsLogicType>([
                 return Object.values(groupedRuns)
             },
         ],
+        statusFilterActive: [
+            (s) => [s.statusFilter],
+            (statusFilter: BatchExportRunStatusGroup[]): boolean => statusFilter.length > 0,
+        ],
+        statusFilterStatuses: [
+            (s) => [s.statusFilter],
+            (statusFilter: BatchExportRunStatusGroup[]): BatchExportStatus[] =>
+                batchExportRunStatusesForGroups(statusFilter),
+        ],
     }),
     listeners(({ actions, props }) => ({
         setDateRange: () => {
+            actions.loadRuns()
+        },
+        setStatusFilter: () => {
             actions.loadRuns()
         },
         switchLatestRuns: () => {

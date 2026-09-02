@@ -2,6 +2,7 @@ import os
 from typing import Any
 
 import pytest
+from unittest import mock
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
@@ -352,3 +353,143 @@ class TestMintedToken(SimpleTestCase):
         jwt.decode(token, "signing-key-new", audience=audience, algorithms=["HS256"])
         with pytest.raises(jwt.InvalidSignatureError):
             jwt.decode(token, "signing-key-old", audience=audience, algorithms=["HS256"])
+
+
+@override_settings(**SERVICE_SETTINGS)
+class TestResolveLogging(SimpleTestCase):
+    """The credential read is otherwise the one invisible hop in a job's HTTP traffic."""
+
+    def setUp(self) -> None:
+        self.secrets = IntegrationSecretsClient()
+        flag = patch(FLAG, return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
+
+    @staticmethod
+    def _response(payload: dict[str, Any], status_code: int = 200) -> Any:
+        response = FakeResponse(payload)
+        response.status_code = status_code  # type: ignore[attr-defined]
+        return response
+
+    def test_logs_the_request_with_the_shared_http_field_names(self) -> None:
+        # Same names as data_imports.http.request, so a credential read shows up in the same
+        # query as the rest of a job's traffic rather than needing its own.
+        with patch(POST, return_value=self._response(body({KEY: steady("sec")}))):
+            with patch("posthog.integration_secrets.client.logger") as log:
+                self.secrets.get(KEY, CALLER)
+
+        fields = log.debug.call_args.kwargs
+        assert log.debug.call_args.args[0] == "integration_secrets.resolve"
+        assert fields["method"] == "POST"
+        assert fields["status_code"] == 200
+        assert fields["host"] == "integration-service.posthog.svc.cluster.local"
+        assert fields["error_class"] is None
+        assert fields["caller"] == str(CALLER)
+        assert fields["keys"] == [KEY]
+        assert isinstance(fields["latency_ms"], int)
+
+    # The rotation questions this exists to answer: which value did this pod get, and has it
+    # changed? Nothing about the value itself may be logged, so state and version carry it.
+    def test_logs_per_key_state_and_version_at_info_when_a_rotation_is_in_flight(self) -> None:
+        rotating = {
+            "state": "rotating",
+            "value": "live",
+            "previous": "staged",
+            "version_id": "v9",
+            "fetched_at": "now",
+        }
+        with patch(POST, return_value=self._response(body({KEY: rotating}))):
+            with patch("posthog.integration_secrets.client.logger") as log:
+                self.secrets.get(KEY, CALLER)
+
+        # info, not debug: a value changing under a caller that did nothing differently is the
+        # thing you want visible without having turned debug on first.
+        log.debug.assert_not_called()
+        fields = log.info.call_args.kwargs
+        assert fields["states"] == {KEY: "rotating"}
+        assert fields["version_ids"] == {KEY: "v9"}
+
+    @parameterized.expand(
+        [
+            ("a missing key", {"missing": [KEY]}, SecretMissingError),
+            (
+                "a key in recovery",
+                {"secrets": {KEY: {"state": "recovery", "version_id": "v1", "fetched_at": "now"}}},
+                SecretInRecoveryError,
+            ),
+        ]
+    )
+    def test_logs_at_info_for(self, _name: str, payload: dict[str, Any], expected: type[Exception]) -> None:
+        with patch(POST, return_value=self._response(body(**payload))):
+            with patch("posthog.integration_secrets.client.logger") as log:
+                with pytest.raises(expected):
+                    self.secrets.get(KEY, CALLER)
+
+        log.info.assert_called_once()
+        log.debug.assert_not_called()
+
+    def test_logs_a_transport_failure_at_warning_with_the_error_class(self) -> None:
+        with patch(POST, side_effect=requests.ConnectionError("connection refused")):
+            with patch("posthog.integration_secrets.client.logger") as log:
+                with pytest.raises(IntegrationServiceUnreachableError):
+                    self.secrets.get(KEY, CALLER)
+
+        fields = log.warning.call_args.kwargs
+        assert fields["error_class"] == "ConnectionError"
+        assert fields["status_code"] is None
+
+    # The property that matters most here, and the reason nothing is scrubbed: fields are chosen
+    # by name from the response, and no value field is among them. A scrubber would be a thing to
+    # get wrong; selecting is a thing that cannot be.
+    def test_no_credential_value_can_reach_a_log_line(self) -> None:
+        secret_value = "sk-live-do-not-log-me"
+        rotating = {
+            "state": "rotating",
+            "value": secret_value,
+            "previous": "staged-do-not-log-me",
+            "version_id": "v1",
+            "fetched_at": "now",
+        }
+        with patch(POST, return_value=self._response(body({KEY: rotating}))):
+            with patch("posthog.integration_secrets.client.logger") as log:
+                assert self.secrets.get(KEY, CALLER) == secret_value
+
+        emitted = repr([c.kwargs for c in log.info.call_args_list + log.debug.call_args_list])
+        assert secret_value not in emitted
+        assert "staged-do-not-log-me" not in emitted
+        # The bearer token lives in a header the logger never touches.
+        assert "Authorization" not in emitted
+        assert "signing-key-new" not in emitted
+
+    def test_a_broken_logger_cannot_fail_a_credential_read(self) -> None:
+        # Same contract as the warehouse observer: telemetry must never become an outage.
+        with patch(POST, return_value=self._response(body({KEY: steady("sec")}))):
+            with patch("posthog.integration_secrets.client.logger") as log:
+                log.debug.side_effect = [RuntimeError("log pipeline is down"), None]
+                assert self.secrets.get(KEY, CALLER) == "sec"
+
+
+@override_settings(**SERVICE_SETTINGS)
+class TestInjectedSession(SimpleTestCase):
+    def setUp(self) -> None:
+        flag = patch(FLAG, return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
+
+    # Warehouse sources already meter and log every outbound request through a tracked adapter.
+    # Passing that session in puts credential reads in the same place as the rest of the job's
+    # traffic, instead of leaving a silent gap where the read was.
+    def test_uses_the_session_it_was_given(self) -> None:
+        session = mock.MagicMock()
+        session.post.return_value = FakeResponse(body({KEY: steady("sec")}))
+
+        with patch(POST) as shared_post:
+            assert IntegrationSecretsClient(session=session).get(KEY, CALLER) == "sec"
+
+        session.post.assert_called_once()
+        shared_post.assert_not_called()
+
+    def test_defaults_to_the_shared_internal_session(self) -> None:
+        with patch(POST, return_value=FakeResponse(body({KEY: steady("sec")}))) as shared_post:
+            assert IntegrationSecretsClient().get(KEY, CALLER) == "sec"
+        shared_post.assert_called_once()

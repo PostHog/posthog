@@ -155,11 +155,37 @@ def _build_ticket(team: Team, user: User, model_cls: type[models.Model]) -> mode
     )
 
 
+def _build_vision_alert(team: Team, user: User, model_cls: type[models.Model]) -> models.Model:
+    # kind drives cross-field CHECK constraints (a metric alert needs a threshold, a
+    # match alert must stay stateless) and is a 10-char choices column, so the generic
+    # field-filler can neither pick a valid kind nor satisfy the constraints.
+    from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+
+    scanner = ReplayScanner.objects.create(
+        team=team,
+        name=f"pbt-scanner-{next(_unique_counter)}",
+        scanner_type="monitor",
+        scanner_config={},
+        model="gemini-3.7-flash",
+    )
+    manager: Any = model_cls._default_manager
+    if hasattr(manager, "for_team"):
+        manager = manager.for_team(team.id)
+    return manager.create(
+        team=team,
+        scanner=scanner,
+        name=f"pbt-vision-alert-{next(_unique_counter)}",
+        kind="match",
+        created_by=user,
+    )
+
+
 # resource -> factory for models whose validation the generic build_instance can't
 # satisfy. Preferred over EXCLUSIONS so the resource keeps coverage.
 FACTORY_OVERRIDES: dict[APIScopeObject, Callable[[Team, User, type[models.Model]], models.Model]] = {
     "evaluation": _build_evaluation,
     "ticket": _build_ticket,
+    "vision_alert": _build_vision_alert,
 }
 
 
@@ -390,6 +416,43 @@ def oracle_resource_access_level(resource: APIScopeObject, specs: list[RowSpec],
     return _max_level(matching, ordered_access_levels(effective)) or default_access_level(effective)
 
 
+def _most_specific_tier(
+    specs: list[RowSpec], scope: str, order: list[AccessControlLevel]
+) -> Optional[AccessControlLevel]:
+    # One scope's rows by subject, most specific first; the first subject with any row decides
+    matching = [s for s in specs if s.target in MATCHING and s.scope == scope]
+    for subject in ("self_member", "role_a", "team_default"):
+        tier = [s.level for s in matching if s.target == subject]
+        if tier:
+            return _max_level(tier, order)
+    return None
+
+
+def oracle_most_specific_object_level(
+    specs: list[RowSpec], order: list[AccessControlLevel]
+) -> Optional[AccessControlLevel]:
+    # Mirrors resolve_most_specific_object_access, restated from the rules rather than the code:
+    # the nearest scope with any rule decides (object rows before resource rows), and inside a
+    # scope the most specific subject decides: member -> max(roles) -> the everyone-row. A more
+    # specific rule wins even when it gives a lower level. None when no rule matches.
+    return _most_specific_tier(specs, "object", order) or _most_specific_tier(specs, "resource", order)
+
+
+def oracle_most_specific_object_access(
+    resource: APIScopeObject, specs: list[RowSpec], is_creator: bool, is_org_admin: bool
+) -> AccessControlLevel:
+    if is_creator or is_org_admin:
+        return highest_access_level(resource)
+    return oracle_most_specific_object_level(specs, ordered_access_levels(resource)) or default_access_level(resource)
+
+
+def oracle_most_specific_resource_access(resource: APIScopeObject, specs: list[RowSpec], is_org_admin: bool) -> str:
+    effective = RESOURCE_INHERITANCE_MAP.get(resource, resource)
+    if is_org_admin:
+        return highest_access_level(effective)
+    return _most_specific_tier(specs, "resource", ordered_access_levels(effective)) or default_access_level(effective)
+
+
 def oracle_blocked_and_allowed_object_ids(
     object_specs_by_id: dict[str, list[RowSpec]],
 ) -> tuple[set[str], set[str]]:
@@ -429,7 +492,7 @@ def oracle_visible_object_ids(
     has_resource_access = oracle_resource_access_level(resource, resource_specs, is_org_admin) != NO_ACCESS_LEVEL
     creators = creator_ids if model_has_creator else set()
 
-    if not has_resource_access and allowed:
+    if not has_resource_access:
         return (allowed | creators) & all_ids
     if blocked:
         return all_ids - (blocked - creators)
@@ -704,8 +767,13 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         allowlisted = uac.allowlisted_resource_ids_by_scope.get(resource)
         blocked = uac.blocked_resource_ids_by_scope.get(resource, frozenset())
         model_has_creator = model_has_created_by(model_cls)
+        has_resource_access = uac.has_resource_access(resource)
 
         def guard_admits(object_id: str) -> bool:
+            # No resource access and no allowlist: Database.create_for drops the table, so
+            # nothing is readable.
+            if not has_resource_access and not allowlisted:
+                return False
             if model_has_creator and object_id in creator_ids:
                 return True
             if allowlisted:
@@ -713,7 +781,7 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
             return object_id not in blocked
 
         visible = {object_id for object_id in object_specs_by_id if guard_admits(object_id)}
-        assert visible == oracle_visible_object_ids(
+        expected = oracle_visible_object_ids(
             resource,
             resource_specs,
             object_specs_by_id,
@@ -721,6 +789,12 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
             model_has_creator=model_has_creator,
             is_org_admin=False,
         )
+        if has_resource_access or allowlisted:
+            assert visible == expected
+        else:
+            # REST still shows the user's own rows here. HogQL has no table to show them from.
+            assert visible == set()
+            assert expected <= creator_ids
 
     @given(
         data=object_resource_and_rows(),
@@ -854,3 +928,80 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
             is_org_admin=membership_level >= OrganizationMembership.Level.ADMIN,
         )
         assert self._fresh_uac().check_can_modify_access_levels_for_object(obj) is expected
+
+
+class TestMostSpecificResolverProperties(BaseAccessControlPropertyTest):
+    # The most-specific resolvers are shadow code: read-only until the migration
+    # repoints enforcement onto them. These properties pin their semantics to an independent
+    # oracle so the migration flips onto tested behavior, and pin the two laws the migration
+    # relies on: the explicit-equivalence and the single widening cause.
+
+    @given(data=object_resource_and_rows(), membership_level=membership_levels_st, own=st.booleans())
+    @settings(max_examples=100, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
+    def test_resolve_most_specific_object_access_matches_oracle(self, data, membership_level, own):
+        resource, model_cls, specs = data
+        self._set_membership_level(membership_level)
+        creator = self.user if own else self.other_user
+        obj = build_instance(model_cls, self.team, creator)
+        self._materialize(specs, resource, obj)
+
+        expected = oracle_most_specific_object_access(
+            resource,
+            specs,
+            is_creator=own and model_has_created_by(model_cls),
+            is_org_admin=membership_level >= OrganizationMembership.Level.ADMIN,
+        )
+        resolved = self._fresh_uac().resolve_most_specific_object_access(obj)
+        assert resolved is not None and resolved.access_level == expected
+
+    @given(data=resource_level_rows(), membership_level=membership_levels_st)
+    @settings(max_examples=100, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
+    def test_resolve_most_specific_resource_access_matches_oracle(self, data, membership_level):
+        resource, specs = data
+        self._set_membership_level(membership_level)
+        self._materialize(specs, resource, obj=None)
+
+        expected = oracle_most_specific_resource_access(
+            resource, specs, is_org_admin=membership_level >= OrganizationMembership.Level.ADMIN
+        )
+        resolved = self._fresh_uac().resolve_most_specific_resource_access(resource)
+        assert resolved is not None and resolved.access_level == expected
+
+    @given(data=object_resource_and_rows(), membership_level=membership_levels_st, own=st.booleans())
+    @settings(max_examples=100, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
+    def test_explicit_true_is_equivalent_to_source_system_default(self, data, membership_level, own):
+        # The new resolvers have no `explicit` parameter: on the enforced method, explicit=True
+        # returns None exactly when the new answer has source="system_default". The future
+        # adapter in get_user_access_level relies on this equivalence.
+        resource, model_cls, specs = data
+        self._set_membership_level(membership_level)
+        creator = self.user if own else self.other_user
+        obj = build_instance(model_cls, self.team, creator)
+        self._materialize(specs, resource, obj)
+
+        uac = self._fresh_uac()
+        legacy_explicit = uac.get_user_access_level(obj, explicit=True)
+        resolved = uac.resolve_most_specific_object_access(obj)
+
+        assert resolved is not None
+        assert (legacy_explicit is None) == (resolved.source == "system_default")
+
+    @given(data=object_resource_and_rows())
+    @settings(max_examples=100, deadline=None, suppress_health_check=SUPPRESSED_HEALTH_CHECKS)
+    def test_widening_divergence_has_exactly_one_cause(self, data):
+        # The migration comms promise that most-specific-wins can only widen access one way:
+        # an object's own default row outranking the resource level. Every other reordering
+        # narrows. A tier added or reordered later must fail here before the preview page
+        # starts telling customers something untrue.
+        resource, model_cls, specs = data
+        obj = build_instance(model_cls, self.team, self.other_user)
+        self._materialize(specs, resource, obj)
+
+        uac = self._fresh_uac()
+        current = uac.get_user_access_level(obj)
+        proposed = uac.resolve_most_specific_object_access(obj)
+        assert current is not None and proposed is not None
+
+        order = ordered_access_levels(resource)
+        if order.index(proposed.access_level) > order.index(cast(AccessControlLevel, current)):
+            assert proposed.source == "object" and proposed.source_subject == "default"

@@ -60,6 +60,7 @@ fn main() {
         zombie_window,
         hold_pods: 0,
         cancels: 0,
+        chunked_plans: false,
         probes: false,
     };
     println!("exploring {:?} at http://localhost:3000 …", args.scenario);

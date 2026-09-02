@@ -6,6 +6,7 @@ from products.replay_vision.backend.api.scanner_scouts import ScannerScoutViewSe
 from products.replay_vision.backend.api.scanners import ReplayScannerViewSet
 from products.replay_vision.backend.api.scout_reports import ScannerScoutReportViewSet
 from products.replay_vision.backend.api.vision_actions import VisionActionRunViewSet, VisionActionViewSet
+from products.replay_vision.backend.api.vision_alerts import VisionAlertViewSet
 
 __all__ = [
     "ReplayObservationViewSet",
@@ -17,5 +18,6 @@ __all__ = [
     "SessionReplayObservationViewSet",
     "VisionActionRunViewSet",
     "VisionActionViewSet",
+    "VisionAlertViewSet",
     "VisionQuotaViewSet",
 ]

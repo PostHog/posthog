@@ -7,7 +7,7 @@ export function ErrorTrackingConfigurationMovedBanner(): JSX.Element {
         <LemonBanner type="info">
             <p>
                 <strong>Error tracking configuration has moved.</strong> Configurations for alerting, suppression rules,
-                spike detection, auto assignment, custom grouping, symbol sets, and releases are now on the{' '}
+                spike detection, assignment rules, grouping rules, symbol sets, and releases are now on the{' '}
                 <Link to={urls.errorTrackingConfiguration()}>Error tracking configuration</Link> page.
             </p>
             <p>

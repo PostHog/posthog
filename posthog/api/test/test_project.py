@@ -16,6 +16,8 @@ from posthog.models.project import Project
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person, delete_person
 
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+
 
 class TestProjectAPI(team_api_test_factory()):  # type: ignore
     """
@@ -891,3 +893,24 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         response = self.client.get(f"/api/projects/{self.project.id}/experiments_config/")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertIn("default_experiment_stats_method", response.json())
+
+    def test_experiments_config_precomputation_toggle_stamps_manual_provenance(self):
+        # A missing stamp would let the auto-enrollment job override a human's disable
+        # on its next run. Other settings must not stamp it.
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/experiments_config/",
+            {"default_cuped_enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        config = TeamExperimentsConfig.objects.get(team_id=self.project.id)
+        self.assertIsNone(config.precomputation_enabled_set_by)
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/experiments_config/",
+            {"experiment_precomputation_enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        config.refresh_from_db()
+        self.assertEqual(config.precomputation_enabled_set_by, TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL)

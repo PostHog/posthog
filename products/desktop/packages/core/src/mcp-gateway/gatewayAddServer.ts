@@ -1,4 +1,5 @@
 import type {
+  McpAgentGrantScope,
   McpAuthType,
   McpGatewayInstallSharingOptions,
 } from "@posthog/api-client/posthog-client";
@@ -12,9 +13,9 @@ export interface GatewayAddServerValues {
   apiKey: string;
   clientId: string;
   clientSecret: string;
-  /** Team sharing options are admin-only; agentIds follows the team setting. */
+  /** Team sharing options are admin-only; agentScope follows the team setting. */
   teamEnabled: boolean;
-  agentIds: string[];
+  agentScope: McpAgentGrantScope;
 }
 
 export const GATEWAY_ADD_SERVER_DEFAULTS: GatewayAddServerValues = {
@@ -26,7 +27,7 @@ export const GATEWAY_ADD_SERVER_DEFAULTS: GatewayAddServerValues = {
   clientId: "",
   clientSecret: "",
   teamEnabled: true,
-  agentIds: [],
+  agentScope: "personal",
 };
 
 export function canSubmitGatewayServer(
@@ -48,8 +49,8 @@ export interface GatewayInstallRequest extends McpGatewayInstallSharingOptions {
 /**
  * install_custom payload for registering a server with the gateway. The
  * credential is always personal to the installer. Team-wide options are
- * attached only for admins; agent grants are attached whenever the team
- * allows this member to manage agent access.
+ * attached only for admins; the agent grant scope is attached whenever the
+ * team allows this member to manage agent access.
  */
 export function buildGatewayInstallRequest(
   values: GatewayAddServerValues,
@@ -70,8 +71,6 @@ export function buildGatewayInstallRequest(
       ? { client_secret: values.clientSecret.trim() }
       : {}),
     ...(options.isAdmin ? { team_enabled: values.teamEnabled } : {}),
-    ...(options.canManageAgentAccess && values.agentIds.length
-      ? { agent_ids: values.agentIds }
-      : {}),
+    ...(options.canManageAgentAccess ? { agent_scope: values.agentScope } : {}),
   };
 }

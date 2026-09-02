@@ -167,46 +167,53 @@ describe('sentimentQueries', () => {
         expect(mockApi.queryHogQL.mock.calls[1][0]).toContain('FROM events')
     })
 
-    it('builds sentiment tab rows from evaluated generations and ai_events input', async () => {
-        mockApi.queryHogQL
-            .mockResolvedValueOnce({
-                columns: candidateColumns,
-                results: [['evaluation-0', 'trace-0', 'generation-0']],
+    it.each<[string, boolean]>([
+        ['excluding test accounts', true],
+        ['including test accounts', false],
+    ])(
+        'builds sentiment tab rows from evaluated generations and ai_events input (%s)',
+        async (_, shouldFilterTestAccounts) => {
+            mockApi.queryHogQL
+                .mockResolvedValueOnce({
+                    columns: candidateColumns,
+                    results: [['evaluation-0', 'trace-0', 'generation-0']],
+                })
+                .mockResolvedValueOnce({
+                    columns: generationColumns,
+                    results: [generationRow(0)],
+                })
+
+            const page = await fetchSentimentGenerationsPage({ ...queryValues, shouldFilterTestAccounts }, 0)
+
+            expect(page.rawCount).toBe(1)
+            expect(page.hasMore).toBe(false)
+            expect(page.generations).toHaveLength(1)
+            expect(page.generations[0]).toMatchObject({
+                uuid: 'generation-0',
+                traceId: 'trace-0',
+                aiInput: JSON.stringify([{ role: 'user', content: 'this was great' }]),
+                sentiment: {
+                    label: 'positive',
+                    score: 0.91,
+                },
             })
-            .mockResolvedValueOnce({
-                columns: generationColumns,
-                results: [generationRow(0)],
+
+            expect(mockApi.queryHogQL).toHaveBeenCalledTimes(2)
+            const [candidateQuery, , candidateOptions] = mockApi.queryHogQL.mock.calls[0]
+            expect(candidateQuery).toContain("JSONExtractFloat(scores, 'positive')")
+            expect(candidateQuery).toContain("JSONExtractFloat(scores, 'negative')")
+            expect(candidateQuery).toContain('toIntOrZero(message_count) > 0')
+            expect(candidateOptions?.queryParams?.filters).toEqual({
+                dateRange: { date_from: '-7d', date_to: null },
+                filterTestAccounts: shouldFilterTestAccounts,
             })
 
-        const page = await fetchSentimentGenerationsPage(queryValues, 0)
-
-        expect(page.rawCount).toBe(1)
-        expect(page.hasMore).toBe(false)
-        expect(page.generations).toHaveLength(1)
-        expect(page.generations[0]).toMatchObject({
-            uuid: 'generation-0',
-            traceId: 'trace-0',
-            aiInput: JSON.stringify([{ role: 'user', content: 'this was great' }]),
-            sentiment: {
-                label: 'positive',
-                score: 0.91,
-            },
-        })
-
-        expect(mockApi.queryHogQL).toHaveBeenCalledTimes(2)
-        const [candidateQuery, , candidateOptions] = mockApi.queryHogQL.mock.calls[0]
-        expect(candidateQuery).toContain("JSONExtractFloat(scores, 'positive')")
-        expect(candidateQuery).toContain("JSONExtractFloat(scores, 'negative')")
-        expect(candidateQuery).toContain('toIntOrZero(message_count) > 0')
-        expect(candidateOptions?.queryParams?.filters).toEqual({
-            dateRange: { date_from: '-7d', date_to: null },
-        })
-
-        const [, , hydrationOptions] = mockApi.queryHogQL.mock.calls[1]
-        expect(hydrationOptions?.queryParams?.filters).toEqual({
-            filterTestAccounts: false,
-        })
-    })
+            // Project filters belong on the candidate query above. A person property filter here
+            // would join ai_events back to the main cluster.
+            const [, , hydrationOptions] = mockApi.queryHogQL.mock.calls[1]
+            expect(hydrationOptions?.queryParams).toBeUndefined()
+        }
+    )
 
     it('restricts the candidate query to a single evaluation when one is selected', async () => {
         mockApi.queryHogQL

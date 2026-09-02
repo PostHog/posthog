@@ -63,6 +63,7 @@
     'survey',
     'tagger',
     'ticket',
+    'warehouse_objects',
     'warehouse_table',
     'warehouse_view',
   ])

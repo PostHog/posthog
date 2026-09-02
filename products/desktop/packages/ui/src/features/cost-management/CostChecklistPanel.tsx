@@ -11,6 +11,7 @@ interface CostChecklistPanelProps {
   items: CostChecklistItem[];
   onSwitchModel: (toModelId: string) => void;
   onCreateImage: () => void;
+  onSte100Toggle: (enabled: boolean) => void;
   onInstallSkill: (skillId: string) => void;
   onUninstallSkill: (skillId: string) => void;
   /** Opens one skill's details, with its links. */
@@ -28,6 +29,7 @@ export function CostChecklistPanel({
   items,
   onSwitchModel,
   onCreateImage,
+  onSte100Toggle,
   onInstallSkill,
   onUninstallSkill,
   onOpenSkill,
@@ -60,6 +62,7 @@ export function CostChecklistPanel({
             {...rowContent(item, {
               onSwitchModel,
               onCreateImage,
+              onSte100Toggle,
               onInstallSkill,
               onUninstallSkill,
               onOpenSkill,
@@ -80,6 +83,7 @@ export function CostChecklistPanel({
 interface RowHandlers {
   onSwitchModel: (toModelId: string) => void;
   onCreateImage: () => void;
+  onSte100Toggle: (enabled: boolean) => void;
   onInstallSkill: (skillId: string) => void;
   onUninstallSkill: (skillId: string) => void;
   onOpenSkill: (skillId: string) => void;
@@ -160,6 +164,32 @@ function rowContent(item: CostChecklistItem, h: RowHandlers): RowContent {
               </Button>
             ),
           };
+
+    case "ste100":
+      return {
+        title: "Simplified Technical English (ASD-STE100)",
+        detail:
+          "Uses clear and consistent technical language in agent sessions.",
+        action: item.done ? (
+          <Button
+            variant="link-muted"
+            size="sm"
+            data-attr="cost-management-disable-ste100"
+            onClick={() => h.onSte100Toggle(false)}
+          >
+            Disable
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            data-attr="cost-management-inject-ste100"
+            onClick={() => h.onSte100Toggle(true)}
+          >
+            Inject
+          </Button>
+        ),
+      };
 
     case "install-skill": {
       const skill = leanSkillById(item.skillId);

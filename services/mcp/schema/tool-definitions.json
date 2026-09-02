@@ -430,6 +430,20 @@
             "readOnlyHint": true
         }
     },
+    "event-definition-create": {
+        "description": "Create an event definition for an event that has not been ingested yet. Use this to define the event name, description, tags, verified state, and hidden state before the first event arrives. Fails if a definition with the same name already exists (use event-definition-update instead). Use exact event name like 'user_signed_up'.",
+        "category": "Events & properties",
+        "feature": "events",
+        "summary": "Create an event definition.",
+        "title": "Create event definition",
+        "required_scopes": ["event_definition:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "event-definition-update": {
         "description": "Update event definition metadata. Can update description, tags, mark status as verified or hidden. Use exact event name like '$pageview' or 'user_signed_up'.",
         "category": "Events & properties",

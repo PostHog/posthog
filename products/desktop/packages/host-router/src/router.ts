@@ -14,6 +14,7 @@ import { connectivityRouter } from "./routers/connectivity.router";
 import { contextMenuRouter } from "./routers/context-menu.router";
 import { dashboardsRouter } from "./routers/dashboards.router";
 import { deepLinkRouter } from "./routers/deep-link.router";
+import { diskCacheRouter } from "./routers/disk-cache.router";
 import { enrichmentRouter } from "./routers/enrichment.router";
 import { environmentRouter } from "./routers/environment.router";
 import { externalAppsRouter } from "./routers/external-apps.router";
@@ -23,7 +24,6 @@ import { foldersRouter } from "./routers/folders.router";
 import { fsRouter } from "./routers/fs.router";
 import { gitRouter } from "./routers/git.router";
 import { githubIntegrationRouter } from "./routers/github-integration.router";
-import { handoffRouter } from "./routers/handoff.router";
 import { integrationRouter } from "./routers/integration.router";
 import { linearIntegrationRouter } from "./routers/linear-integration.router";
 import { llmGatewayRouter } from "./routers/llm-gateway.router";
@@ -67,6 +67,7 @@ export const hostRouter = router({
   contextMenu: contextMenuRouter,
   dashboards: dashboardsRouter,
   deepLink: deepLinkRouter,
+  diskCache: diskCacheRouter,
   enrichment: enrichmentRouter,
   environment: environmentRouter,
   externalApps: externalAppsRouter,
@@ -75,7 +76,6 @@ export const hostRouter = router({
   folders: foldersRouter,
   fs: fsRouter,
   git: gitRouter,
-  handoff: handoffRouter,
   integration: integrationRouter,
   githubIntegration: githubIntegrationRouter,
   releaseFeed: releaseFeedRouter,

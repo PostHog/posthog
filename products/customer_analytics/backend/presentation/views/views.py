@@ -29,6 +29,7 @@ from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
+from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
@@ -44,6 +45,8 @@ from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.permissions import (
     PostHogFeatureFlagPermission,
+    TeamMemberAccessPermission,
+    TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
     get_authenticator_scopes,
     is_service_auth,
@@ -79,6 +82,7 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     CustomPropertyDefinitionSerializer,
     CustomPropertySourceSerializer,
     CustomPropertySourceUpdateSerializer,
+    CustomPropertySyncRunListQuerySerializer,
     CustomPropertySyncRunSerializer,
     CustomPropertySyncTriggerResponseSerializer,
     CustomPropertyValueSerializer,
@@ -116,20 +120,18 @@ _OBJECT_WRITE_LEVEL = "editor"
 _ICON_DOMAIN_VALIDATOR = DomainNameValidator(accept_idna=False)
 
 
-# The warehouse resources a person/group-property source can bind to: the import source behind a
-# table, or a materialized view. Each needs its own API-token scope folded into the object check.
-_WAREHOUSE_SCOPE_GATED_RESOURCES = frozenset({"external_data_source", "warehouse_view"})
+# Custom-property responses can include metadata from these resources. Token scopes must apply even
+# though the endpoint itself is authorized as an account resource.
+_SCOPE_GATED_RESOURCES = frozenset({"external_data_source", "warehouse_view", "hog_flow"})
 
 
-class _WarehouseScopeGatedAccessControl:
-    """Wraps ``UserAccessControl`` so object-level warehouse access additionally requires the request
-    token to carry the matching scope for that resource (``read`` for viewer, ``write`` for editor) —
-    ``external_data_source`` for a table binding, ``warehouse_view`` for a view binding.
-    Person-property sources gate all warehouse read/write through ``check_access_level_for_object`` on
-    the bound warehouse object, so folding the token scope in here enforces the cross-resource scope on
-    every path without threading it through the facade. Session auth (no token scopes) and ``*`` tokens
-    are unaffected — API scopes never gate session requests, which stay RBAC-only. Everything else
-    delegates to the wrapped instance."""
+class _ScopeGatedAccessControl:
+    """Wraps ``UserAccessControl`` so cross-resource reads require the matching token scope.
+
+    Custom-property sources and workflow references resolve through object access checks and queryset
+    filtering. Applying token scopes here keeps those secondary resources from leaking through an
+    account-scoped endpoint. Session auth and ``*`` tokens keep the wrapped access-control behavior.
+    """
 
     def __init__(self, inner: UserAccessControl, token_scopes: list[str]) -> None:
         self._inner = inner
@@ -139,27 +141,31 @@ class _WarehouseScopeGatedAccessControl:
         return getattr(self._inner, name)
 
     def check_access_level_for_object(self, obj: Any, required_level: Any, *args: Any, **kwargs: Any) -> bool:
-        if self._token_lacks_scope_for(obj, required_level):
+        if self._token_lacks_scope_for_resource(model_to_resource(obj), required_level):
             return False
         return self._inner.check_access_level_for_object(obj, required_level, *args, **kwargs)
 
-    def _token_lacks_scope_for(self, obj: Any, required_level: Any) -> bool:
+    def filter_queryset_by_access_level(self, queryset: Any, *args: Any, **kwargs: Any) -> Any:
+        resource = kwargs.get("resource") or model_to_resource(queryset.model)
+        if self._token_lacks_scope_for_resource(resource, "viewer"):
+            return queryset.none()
+        return self._inner.filter_queryset_by_access_level(queryset, *args, **kwargs)
+
+    def _token_lacks_scope_for_resource(self, resource: str | None, required_level: Any) -> bool:
         scopes = self._token_scopes
-        resource = model_to_resource(obj)
-        if "*" in scopes or resource not in _WAREHOUSE_SCOPE_GATED_RESOURCES:
+        if "*" in scopes or resource not in _SCOPE_GATED_RESOURCES:
             return False
         if f"{resource}:write" in scopes:
-            return False  # write implies read, so it satisfies both viewer and editor
+            return False
         return not (required_level == "viewer" and f"{resource}:read" in scopes)
 
 
 def _warehouse_scoped_uac(view: Any) -> UserAccessControl:
-    """The view's ``UserAccessControl``, additionally gating warehouse object access on the request
-    token's scope for that resource. A no-op for session/other non-token auth (no token scopes)."""
+    """The view's ``UserAccessControl``, with token scopes applied to secondary resource reads."""
     scopes = get_authenticator_scopes(getattr(view.request, "successful_authenticator", None))
     if scopes is None:
         return view.user_access_control
-    return cast(UserAccessControl, _WarehouseScopeGatedAccessControl(view.user_access_control, scopes))
+    return cast(UserAccessControl, _ScopeGatedAccessControl(view.user_access_control, scopes))
 
 
 # drf-spectacular auto-describes the pk path param for a model-backed viewset as
@@ -606,7 +612,7 @@ class FeatureRequestViewSet(
         return self.update(request, *args, **kwargs)
 
     @extend_schema(request=FeatureRequestAddAccountSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def add_account(self, request: Request, *args, **kwargs) -> Response:
         serializer = FeatureRequestAddAccountSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -633,7 +639,7 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestSerializer(instance=feature_request).data)
 
     @extend_schema(request=FeatureRequestEvidenceCreateSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def add_evidence(self, request: Request, *args, **kwargs) -> Response:
         serializer = FeatureRequestEvidenceCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -664,7 +670,7 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestSerializer(instance=feature_request).data)
 
     @extend_schema(request=FeatureRequestEvidenceUpdateSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def update_evidence(self, request: Request, *args, **kwargs) -> Response:
         serializer = FeatureRequestEvidenceUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -695,7 +701,7 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestSerializer(instance=feature_request).data)
 
     @extend_schema(request=FeatureRequestEvidenceDeleteSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def remove_evidence(self, request: Request, *args, **kwargs) -> Response:
         serializer = FeatureRequestEvidenceDeleteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -738,17 +744,17 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestSerializer(instance=feature_request).data)
 
     @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def archive(self, request: Request, *args, **kwargs) -> Response:
         return self._set_archived(request, archived=True)
 
     @extend_schema(request=FeatureRequestVersionSerializer, responses={200: FeatureRequestSerializer})
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, required_scopes=["customer_analytics:write"])
     def restore(self, request: Request, *args, **kwargs) -> Response:
         return self._set_archived(request, archived=False)
 
     @extend_schema(responses={200: FeatureRequestHistorySerializer(many=True)})
-    @action(methods=["GET"], detail=True, pagination_class=None)
+    @action(methods=["GET"], detail=True, pagination_class=None, required_scopes=["customer_analytics:read"])
     def history(self, request: Request, *args, **kwargs) -> Response:
         history = api.list_feature_request_history(
             team_id=self.team_id,
@@ -760,7 +766,7 @@ class FeatureRequestViewSet(
         return Response(FeatureRequestHistorySerializer(instance=history, many=True).data)
 
     @extend_schema(responses={200: FeatureRequestStatusHistorySerializer(many=True)})
-    @action(methods=["GET"], detail=True, pagination_class=None)
+    @action(methods=["GET"], detail=True, pagination_class=None, required_scopes=["customer_analytics:read"])
     def status_history(self, request: Request, *args, **kwargs) -> Response:
         history = api.list_feature_request_status_history(
             team_id=self.team_id,
@@ -873,6 +879,7 @@ class CustomPropertyDefinitionViewSet(
     viewsets.GenericViewSet,
 ):
     scope_object = "account"
+    permission_classes = [TeamMemberLightManagementPermission]
     # ``values`` is a custom read action; without listing it here it carries no required scope and
     # rejects token auth outright ("does not support personal API key access") before the group gate runs.
     scope_object_read_actions = ["list", "retrieve", "values"]
@@ -975,10 +982,7 @@ class CustomPropertyDefinitionViewSet(
 
     def _guard_group_definition(self, request: Request, definition_id) -> None:
         # Group-target definitions gate the group-writing pipeline, so mutating one needs group scope.
-        definition = api.get_custom_property_definition(
-            self.team_id, definition_id, user_access_control=self.user_access_control
-        )
-        if definition is not None and definition.target_type == _GROUP_TARGET_TYPE:
+        if api.get_custom_property_definition_target_type(self.team_id, definition_id) == _GROUP_TARGET_TYPE:
             _assert_group_scope(request, write=True)
 
     def update(self, request: Request, *args, **kwargs) -> Response:
@@ -1335,13 +1339,13 @@ class CustomPropertySourceViewSet(
 
     @extend_schema(
         operation_id="custom_property_sources_runs_list",
+        parameters=[CustomPropertySyncRunListQuerySerializer],
         responses={200: CustomPropertySyncRunSerializer(many=True)},
     )
     @action(methods=["GET"], detail=True)
     def runs(self, request: Request, *args, **kwargs) -> Response:
-        """Person and group sources only: the source's sync/backfill run history, newest first. Gated
-        on the caller's warehouse-source viewer access, since the runs expose its row counts and sync
-        errors."""
+        """The source's sync history, newest first. Person and group runs require viewer access to
+        their warehouse source because the response includes row counts and sync errors."""
         # Hide the run history of a group-target source from callers without group read authorization.
         source = api.get_custom_property_source(self.team_id, self.kwargs["pk"])
         if (
@@ -1350,6 +1354,11 @@ class CustomPropertySourceViewSet(
             and not _has_group_scope(request, write=False)
         ):
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        if source is not None and self._definition_target_type(source.definition) == "account":
+            self._report_usage(request, "account property sync history viewed")
+        query = CustomPropertySyncRunListQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        search = query.validated_data.get("search", "").strip() or None
         try:
             return self._paginate_via_facade(
                 request,
@@ -1359,6 +1368,8 @@ class CustomPropertySourceViewSet(
                     offset=offset,
                     limit=limit,
                     user_access_control=_warehouse_scoped_uac(self),
+                    include_temporal_urls=bool(request.user.is_staff or is_impersonated(request)),
+                    search=search,
                 ),
                 CustomPropertySyncRunSerializer,
             )
@@ -1520,7 +1531,11 @@ class AccountViewSet(
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Case-insensitive substring search across account name and external ID.",
+                description=(
+                    "Case-insensitive substring search across account name and external ID. "
+                    "A query holding an email address also matches accounts that list it as a known "
+                    "email, and a query holding a domain matches accounts that own that email domain."
+                ),
             ),
             OpenApiParameter(
                 name="tags",
@@ -2178,6 +2193,13 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         return Response(CustomPropertyValueSerializer(value).data, status=status.HTTP_201_CREATED)
 
 
+class AccountRelationshipDeletePermission(BasePermission):
+    message = TeamMemberStrictManagementPermission.message
+
+    def has_permission(self, request: Request, view: Any) -> bool:
+        return request.method != "DELETE" or TeamMemberStrictManagementPermission().has_permission(request, view)
+
+
 @extend_schema(
     tags=["customer_analytics"],
     parameters=[
@@ -2192,6 +2214,7 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
 class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
     scope_object = "account"
     serializer_class = AccountRelationshipSerializer
+    permission_classes = [AccountRelationshipDeletePermission]
     pagination_class = None
 
     def _accessible_account_id(self) -> str | None:
@@ -2260,6 +2283,23 @@ class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
         if relationship is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(AccountRelationshipSerializer(relationship).data)
+
+    @extend_schema(request=None, responses={204: None})
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        account_id = api.get_editable_account_id(
+            self.team_id, self.parents_query_dict["account_id"], user_access_control=self.user_access_control
+        )
+        if account_id is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        deleted = api.delete_account_relationship(
+            team_id=self.team_id,
+            account_id=account_id,
+            relationship_id=self.kwargs["pk"],
+            actor=cast(User, request.user),
+        )
+        if not deleted:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 _EVENT_STREAM_ID_PARAM = OpenApiParameter(
@@ -2439,8 +2479,7 @@ class CalendarSyncViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
 
     scope_object = "account"
     scope_object_read_actions = ["list"]
-    # Same gate as IntegrationViewSet: any member can read status, starting a run needs admin.
-    permission_classes = [TeamMemberStrictManagementPermission]
+    permission_classes = [TeamMemberAccessPermission]
     serializer_class = CalendarSyncTriggerSerializer
     pagination_class = None  # a team connects a handful of calendars — nothing to paginate
     queryset = None  # no model — state lives in integration config, reached through the facade
@@ -2458,7 +2497,17 @@ class CalendarSyncViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vie
     )
     @action(methods=["POST"], detail=False, url_path="sync_now")
     def sync_now(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        result = api.trigger_calendar_sync(self.team_id, request.validated_data["integration_id"])
+        requesting_level = self.user_permissions.current_team.effective_membership_level
+        has_management_access = requesting_level is not None and requesting_level >= OrganizationMembership.Level.ADMIN
+        try:
+            result = api.trigger_calendar_sync(
+                self.team_id,
+                request.validated_data["integration_id"],
+                user_id=getattr(request.user, "id", None),
+                has_management_access=has_management_access,
+            )
+        except api.ResourceForbiddenError:
+            raise PermissionDenied("Only the person who connected this Google account or a project admin can sync it.")
         if result is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(CalendarSyncTriggerResponseSerializer({"status": result}).data)
