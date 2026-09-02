@@ -120,6 +120,7 @@ HANDLED_EVENT_TYPES = [
     "assistant_thread_context_changed",
     "app_home_opened",
     "app_uninstalled",
+    "reaction_added",
 ]
 
 # The notifications Slack app (`slack`) install carries every scope the coding-agent flow
@@ -2043,6 +2044,44 @@ def _route_app_home_opened(
     return ROUTE_HANDLED_LOCALLY
 
 
+def _route_reaction_added(
+    request: HttpRequest,
+    event: dict,
+    slack_team_id: str,
+    *,
+    proxied: bool,
+    other_domain: str,
+) -> str:
+    """Turn a thumbs reaction on an agent reply into turn feedback, in the owning region.
+
+    The event names only a channel and a message ts, so which region owns the run is not
+    known until the handler reads the message back and finds the reply's own integration
+    id. The gate here is therefore two-step: no local integration for the workspace defers
+    the whole event, and a fetched integration id belonging to the other region defers it
+    after the fetch. The US-precedence rule for dual-owned workspaces does not apply,
+    because the embedded integration id is definitive.
+    """
+    if turn_feedback.reaction_sentiment(event.get("reaction")) is None:
+        return ROUTE_HANDLED_LOCALLY
+
+    workspace_integration = Integration.objects.filter(
+        kind=SLACK_INTEGRATION_KIND, integration_id=slack_team_id
+    ).first()
+    if workspace_integration is None:
+        return _route_to_other_region_or_drop(request, slack_team_id, proxied=proxied, other_domain=other_domain)
+
+    outcome = turn_feedback.handle_reaction_added(event, slack_team_id, workspace_integration)
+    if outcome == turn_feedback.REACTION_NOT_LOCAL:
+        if not proxied and cross_region_routing_enabled():
+            return _proxy_event_and_return_route(request, other_domain)
+        logger.warning(
+            "slack_app_reaction_feedback_not_local",
+            slack_team_id=slack_team_id,
+            incoming_host=request.get_host(),
+        )
+    return ROUTE_HANDLED_LOCALLY
+
+
 def _handle_app_uninstalled(request: HttpRequest, slack_team_id: str) -> str:
     """Drop the workspace's cached Slack profiles so a reinstall resolves users from
     fresh ``users.info`` data instead of emails cached under the previous install.
@@ -2091,6 +2130,15 @@ def route_posthog_code_event_to_relevant_region(
 
     if event_type == "app_uninstalled":
         return _handle_app_uninstalled(request, slack_team_id)
+
+    if event_type == "reaction_added":
+        return _route_reaction_added(
+            request,
+            event,
+            slack_team_id,
+            proxied=proxied,
+            other_domain=other_domain,
+        )
 
     # App Home tab: published per-user when they open the Home tab. The view is
     # rendered against the workspace's integration row, which only the owning

@@ -65,6 +65,9 @@ class TestTurnFeedback(TestCase):
         analytics = patch("products.slack_app.backend.services.turn_feedback.posthoganalytics")
         self.mock_analytics = analytics.start()
         self.addCleanup(analytics.stop)
+        bot_id = patch("products.slack_app.backend.services.turn_feedback.get_cached_bot_user_id", return_value="U_BOT")
+        bot_id.start()
+        self.addCleanup(bot_id.stop)
 
     def _post(self, payload: dict):
         body = f"payload={json.dumps(payload)}"
@@ -121,6 +124,7 @@ class TestTurnFeedback(TestCase):
         assert properties["task_id"] == str(self.task.id)
         # The rated answer's own message, so a thread of answers stays separable.
         assert properties["turn_id"] == "222.1"
+        assert properties["feedback_source"] == "button"
         assert self.mock_slack.return_value.client.views_open.called is asks_for_a_reason
 
     def test_a_run_from_another_project_is_not_rated(self):
@@ -173,4 +177,84 @@ class TestTurnFeedback(TestCase):
         response = self._submit_reason("   ")
 
         assert response.json()["response_action"] == "errors"
+        self.mock_analytics.capture.assert_not_called()
+
+    def _react(self, reaction: str, item_user: str = "U_BOT"):
+        body = json.dumps(
+            {
+                "type": "event_callback",
+                "team_id": self.slack_team_id,
+                "event_id": "Ev123",
+                "event": {
+                    "type": "reaction_added",
+                    "user": "U_ALICE",
+                    "reaction": reaction,
+                    "item_user": item_user,
+                    "item": {"type": "message", "channel": "C_SOURCE", "ts": "222.1"},
+                },
+            }
+        ).encode()
+        signed = sign_slack_request(body, self.signing_secret)
+        return self.client.post(
+            "/slack/event-callback/",
+            data=body,
+            content_type="application/json",
+            HTTP_X_SLACK_SIGNATURE=signed.signature,
+            HTTP_X_SLACK_REQUEST_TIMESTAMP=signed.timestamp,
+        )
+
+    def _reacted_message(self, blocks: list[dict]) -> None:
+        self.mock_slack.return_value.client.conversations_replies.return_value = {
+            "messages": [{"ts": "222.1", "blocks": blocks}]
+        }
+
+    @parameterized.expand(
+        [
+            ("+1", "good"),
+            ("+1::skin-tone-3", "good"),
+            ("thumbsup", "good"),
+            ("-1", "bad"),
+            ("-1::skin-tone-5", "bad"),
+            ("thumbsdown", "bad"),
+        ]
+    )
+    def test_a_thumb_reaction_reports_a_rating(self, reaction, rating):
+        self._reacted_message([turn_feedback_block(self.integration.id, str(self.task_run.id))])
+
+        response = self._react(reaction)
+
+        assert response.status_code == 202
+        self.mock_analytics.capture.assert_called_once()
+        kwargs = self.mock_analytics.capture.call_args.kwargs
+        assert kwargs["event"] == "$ai_metric"
+        properties = kwargs["properties"]
+        assert properties["$ai_metric_name"] == "quality"
+        assert properties["$ai_metric_value"] == rating
+        assert properties["feedback_source"] == "reaction"
+        assert properties["reaction"] == reaction
+        assert properties["task_run_id"] == str(self.task_run.id)
+        assert properties["turn_id"] == "222.1"
+        # A reaction carries no trigger_id, so a bad rating cannot be asked for a reason.
+        assert not self.mock_slack.return_value.client.views_open.called
+
+    def test_a_non_thumb_reaction_costs_no_slack_fetch(self):
+        response = self._react("eyes")
+
+        assert response.status_code == 202
+        assert not self.mock_slack.return_value.client.conversations_replies.called
+        self.mock_analytics.capture.assert_not_called()
+
+    def test_a_thumb_on_a_human_message_costs_no_slack_fetch(self):
+        response = self._react("+1", item_user="U_SOMEONE_ELSE")
+
+        assert response.status_code == 202
+        assert not self.mock_slack.return_value.client.conversations_replies.called
+        self.mock_analytics.capture.assert_not_called()
+
+    def test_a_thumb_on_a_bot_message_without_thumbs_is_not_a_rating(self):
+        self._reacted_message([{"type": "section", "text": {"type": "mrkdwn", "text": "Working on it"}}])
+
+        response = self._react("+1")
+
+        assert response.status_code == 202
         self.mock_analytics.capture.assert_not_called()
