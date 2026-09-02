@@ -244,7 +244,7 @@ class TestUserAuthSessionAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 200, response.content)
         self.user.refresh_from_db()
-        self.assertTrue(self.user.has_seen_product_intro_for["posthog_ai_onboarding"])
+        self.assertEqual(self.user.has_seen_product_intro_for, {"posthog_ai_onboarding": True})
 
     def test_stale_session_still_allows_allowlisted_field_write(self):
         # Without a step-up, the allow-list still relaxes the time-based freshness window — guards that
