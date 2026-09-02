@@ -2,59 +2,24 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
-import {
-    ExternalDataDestinationsListQueryParams,
-    ExternalDataDestinationsRetrieveParams,
-    ExternalDataSchemasCancelCreateParams,
-    ExternalDataSchemasDeleteDataDestroyParams,
-    ExternalDataSchemasDestinationsRetrieveParams,
-    ExternalDataSchemasIncrementalFieldsCreateBody,
-    ExternalDataSchemasIncrementalFieldsCreateParams,
-    ExternalDataSchemasListQueryParams,
-    ExternalDataSchemasPartialUpdateBody,
-    ExternalDataSchemasPartialUpdateParams,
-    ExternalDataSchemasReloadCreateParams,
-    ExternalDataSchemasResyncCreateParams,
-    ExternalDataSchemasRetrieveParams,
-    ExternalDataSourcesConnectLinkRetrieveQueryParams,
-    ExternalDataSourcesCreateBody,
-    ExternalDataSourcesCreateWebhookCreateBody,
-    ExternalDataSourcesCreateWebhookCreateParams,
-    ExternalDataSourcesDeleteWebhookCreateBody,
-    ExternalDataSourcesDeleteWebhookCreateParams,
-    ExternalDataSourcesDestinationsRetrieveParams,
-    ExternalDataSourcesDestroyParams,
-    ExternalDataSourcesListQueryParams,
-    ExternalDataSourcesPartialUpdateBody,
-    ExternalDataSourcesPartialUpdateParams,
-    ExternalDataSourcesRefreshSchemasCreateBody,
-    ExternalDataSourcesRefreshSchemasCreateParams,
-    ExternalDataSourcesReloadCreateBody,
-    ExternalDataSourcesReloadCreateParams,
-    ExternalDataSourcesRepairCdcCreateParams,
-    ExternalDataSourcesRetrieveParams,
-    ExternalDataSourcesSetupCreateBody,
-    ExternalDataSourcesStoredCredentialsListQueryParams,
-    ExternalDataSourcesUpdateWebhookInputsCreateBody,
-    ExternalDataSourcesUpdateWebhookInputsCreateParams,
-    ExternalDataSourcesWebhookInfoRetrieveParams,
-    ExternalDataSourcesWizardRetrieveQueryParams,
-} from '@/generated/warehouse_sources/api'
+import * as orvalSchemas from '@/generated/warehouse_sources/api'
 import { ExternalDataSourcePayloadSchema, ExternalDataSourceTypeSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const DataWarehouseSourceConnectLinkSchema = ExternalDataSourcesConnectLinkRetrieveQueryParams.extend({
-    source_type: ExternalDataSourceTypeSchema,
-})
+const DataWarehouseSourceConnectLinkSchema = () => {
+    const ExternalDataSourcesConnectLinkRetrieveQueryParams =
+        orvalSchemas.ExternalDataSourcesConnectLinkRetrieveQueryParams()
+    return ExternalDataSourcesConnectLinkRetrieveQueryParams.extend({ source_type: ExternalDataSourceTypeSchema })
+}
 
 const dataWarehouseSourceConnectLink = (): ToolBase<
-    typeof DataWarehouseSourceConnectLinkSchema,
+    ReturnType<typeof DataWarehouseSourceConnectLinkSchema>,
     Schemas.SourceConnectLink
 > => ({
     name: 'data-warehouse-source-connect-link',
-    schema: DataWarehouseSourceConnectLinkSchema,
-    handler: async (context: Context, params: z.infer<typeof DataWarehouseSourceConnectLinkSchema>) => {
+    schema: DataWarehouseSourceConnectLinkSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataWarehouseSourceConnectLinkSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SourceConnectLink>({
             method: 'GET',
@@ -67,14 +32,18 @@ const dataWarehouseSourceConnectLink = (): ToolBase<
     },
 })
 
-const DataWarehouseSourceSetupSchema = ExternalDataSourcesSetupCreateBody.extend({
-    source_type: ExternalDataSourceTypeSchema,
-})
+const DataWarehouseSourceSetupSchema = () => {
+    const ExternalDataSourcesSetupCreateBody = orvalSchemas.ExternalDataSourcesSetupCreateBody()
+    return ExternalDataSourcesSetupCreateBody.extend({ source_type: ExternalDataSourceTypeSchema })
+}
 
-const dataWarehouseSourceSetup = (): ToolBase<typeof DataWarehouseSourceSetupSchema, Schemas.SourceSetupResponse> => ({
+const dataWarehouseSourceSetup = (): ToolBase<
+    ReturnType<typeof DataWarehouseSourceSetupSchema>,
+    Schemas.SourceSetupResponse
+> => ({
     name: 'data-warehouse-source-setup',
-    schema: DataWarehouseSourceSetupSchema,
-    handler: async (context: Context, params: z.infer<typeof DataWarehouseSourceSetupSchema>) => {
+    schema: DataWarehouseSourceSetupSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataWarehouseSourceSetupSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.source_type !== undefined) {
@@ -101,15 +70,19 @@ const dataWarehouseSourceSetup = (): ToolBase<typeof DataWarehouseSourceSetupSch
     },
 })
 
-const DataWarehouseStoredCredentialsListSchema = ExternalDataSourcesStoredCredentialsListQueryParams
+const DataWarehouseStoredCredentialsListSchema = () => {
+    const ExternalDataSourcesStoredCredentialsListQueryParams =
+        orvalSchemas.ExternalDataSourcesStoredCredentialsListQueryParams()
+    return ExternalDataSourcesStoredCredentialsListQueryParams
+}
 
 const dataWarehouseStoredCredentialsList = (): ToolBase<
-    typeof DataWarehouseStoredCredentialsListSchema,
+    ReturnType<typeof DataWarehouseStoredCredentialsListSchema>,
     WithPostHogUrl<Schemas.SourceCredential[]>
 > => ({
     name: 'data-warehouse-stored-credentials-list',
-    schema: DataWarehouseStoredCredentialsListSchema,
-    handler: async (context: Context, params: z.infer<typeof DataWarehouseStoredCredentialsListSchema>) => {
+    schema: DataWarehouseStoredCredentialsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof DataWarehouseStoredCredentialsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SourceCredential[]>({
             method: 'GET',
@@ -123,15 +96,18 @@ const dataWarehouseStoredCredentialsList = (): ToolBase<
     },
 })
 
-const ExternalDataDestinationsListSchema = ExternalDataDestinationsListQueryParams
+const ExternalDataDestinationsListSchema = () => {
+    const ExternalDataDestinationsListQueryParams = orvalSchemas.ExternalDataDestinationsListQueryParams()
+    return ExternalDataDestinationsListQueryParams
+}
 
 const externalDataDestinationsList = (): ToolBase<
-    typeof ExternalDataDestinationsListSchema,
+    ReturnType<typeof ExternalDataDestinationsListSchema>,
     Schemas.PaginatedExternalDataDestinationList
 > => ({
     name: 'external-data-destinations-list',
-    schema: ExternalDataDestinationsListSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataDestinationsListSchema>) => {
+    schema: ExternalDataDestinationsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataDestinationsListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedExternalDataDestinationList>({
             method: 'GET',
@@ -145,15 +121,18 @@ const externalDataDestinationsList = (): ToolBase<
     },
 })
 
-const ExternalDataDestinationsRetrieveSchema = ExternalDataDestinationsRetrieveParams.omit({ project_id: true })
+const ExternalDataDestinationsRetrieveSchema = () => {
+    const ExternalDataDestinationsRetrieveParams = orvalSchemas.ExternalDataDestinationsRetrieveParams()
+    return ExternalDataDestinationsRetrieveParams.omit({ project_id: true })
+}
 
 const externalDataDestinationsRetrieve = (): ToolBase<
-    typeof ExternalDataDestinationsRetrieveSchema,
+    ReturnType<typeof ExternalDataDestinationsRetrieveSchema>,
     WithPostHogUrl<Schemas.ExternalDataDestination>
 > => ({
     name: 'external-data-destinations-retrieve',
-    schema: ExternalDataDestinationsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataDestinationsRetrieveSchema>) => {
+    schema: ExternalDataDestinationsRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataDestinationsRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ExternalDataDestination>({
             method: 'GET',
@@ -163,12 +142,15 @@ const externalDataDestinationsRetrieve = (): ToolBase<
     },
 })
 
-const ExternalDataSchemasCancelSchema = ExternalDataSchemasCancelCreateParams.omit({ project_id: true })
+const ExternalDataSchemasCancelSchema = () => {
+    const ExternalDataSchemasCancelCreateParams = orvalSchemas.ExternalDataSchemasCancelCreateParams()
+    return ExternalDataSchemasCancelCreateParams.omit({ project_id: true })
+}
 
-const externalDataSchemasCancel = (): ToolBase<typeof ExternalDataSchemasCancelSchema, unknown> => ({
+const externalDataSchemasCancel = (): ToolBase<ReturnType<typeof ExternalDataSchemasCancelSchema>, unknown> => ({
     name: 'external-data-schemas-cancel',
-    schema: ExternalDataSchemasCancelSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasCancelSchema>) => {
+    schema: ExternalDataSchemasCancelSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSchemasCancelSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -178,12 +160,18 @@ const externalDataSchemasCancel = (): ToolBase<typeof ExternalDataSchemasCancelS
     },
 })
 
-const ExternalDataSchemasDeleteDataSchema = ExternalDataSchemasDeleteDataDestroyParams.omit({ project_id: true })
+const ExternalDataSchemasDeleteDataSchema = () => {
+    const ExternalDataSchemasDeleteDataDestroyParams = orvalSchemas.ExternalDataSchemasDeleteDataDestroyParams()
+    return ExternalDataSchemasDeleteDataDestroyParams.omit({ project_id: true })
+}
 
-const externalDataSchemasDeleteData = (): ToolBase<typeof ExternalDataSchemasDeleteDataSchema, unknown> => ({
+const externalDataSchemasDeleteData = (): ToolBase<
+    ReturnType<typeof ExternalDataSchemasDeleteDataSchema>,
+    unknown
+> => ({
     name: 'external-data-schemas-delete-data',
-    schema: ExternalDataSchemasDeleteDataSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasDeleteDataSchema>) => {
+    schema: ExternalDataSchemasDeleteDataSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSchemasDeleteDataSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
@@ -193,17 +181,21 @@ const externalDataSchemasDeleteData = (): ToolBase<typeof ExternalDataSchemasDel
     },
 })
 
-const ExternalDataSchemasDestinationsRetrieveSchema = ExternalDataSchemasDestinationsRetrieveParams.omit({
-    project_id: true,
-})
+const ExternalDataSchemasDestinationsRetrieveSchema = () => {
+    const ExternalDataSchemasDestinationsRetrieveParams = orvalSchemas.ExternalDataSchemasDestinationsRetrieveParams()
+    return ExternalDataSchemasDestinationsRetrieveParams.omit({ project_id: true })
+}
 
 const externalDataSchemasDestinationsRetrieve = (): ToolBase<
-    typeof ExternalDataSchemasDestinationsRetrieveSchema,
+    ReturnType<typeof ExternalDataSchemasDestinationsRetrieveSchema>,
     Schemas.SchemaDestinations
 > => ({
     name: 'external-data-schemas-destinations-retrieve',
-    schema: ExternalDataSchemasDestinationsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasDestinationsRetrieveSchema>) => {
+    schema: ExternalDataSchemasDestinationsRetrieveSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSchemasDestinationsRetrieveSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SchemaDestinations>({
             method: 'GET',
@@ -213,17 +205,25 @@ const externalDataSchemasDestinationsRetrieve = (): ToolBase<
     },
 })
 
-const ExternalDataSchemasIncrementalFieldsCreateSchema = ExternalDataSchemasIncrementalFieldsCreateParams.omit({
-    project_id: true,
-}).extend(ExternalDataSchemasIncrementalFieldsCreateBody.shape)
+const ExternalDataSchemasIncrementalFieldsCreateSchema = () => {
+    const ExternalDataSchemasIncrementalFieldsCreateBody = orvalSchemas.ExternalDataSchemasIncrementalFieldsCreateBody()
+    const ExternalDataSchemasIncrementalFieldsCreateParams =
+        orvalSchemas.ExternalDataSchemasIncrementalFieldsCreateParams()
+    return ExternalDataSchemasIncrementalFieldsCreateParams.omit({ project_id: true }).extend(
+        ExternalDataSchemasIncrementalFieldsCreateBody.shape
+    )
+}
 
 const externalDataSchemasIncrementalFieldsCreate = (): ToolBase<
-    typeof ExternalDataSchemasIncrementalFieldsCreateSchema,
+    ReturnType<typeof ExternalDataSchemasIncrementalFieldsCreateSchema>,
     unknown
 > => ({
     name: 'external-data-schemas-incremental-fields-create',
-    schema: ExternalDataSchemasIncrementalFieldsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasIncrementalFieldsCreateSchema>) => {
+    schema: ExternalDataSchemasIncrementalFieldsCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSchemasIncrementalFieldsCreateSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.should_sync !== undefined) {
@@ -271,15 +271,18 @@ const externalDataSchemasIncrementalFieldsCreate = (): ToolBase<
     },
 })
 
-const ExternalDataSchemasListSchema = ExternalDataSchemasListQueryParams
+const ExternalDataSchemasListSchema = () => {
+    const ExternalDataSchemasListQueryParams = orvalSchemas.ExternalDataSchemasListQueryParams()
+    return ExternalDataSchemasListQueryParams
+}
 
 const externalDataSchemasList = (): ToolBase<
-    typeof ExternalDataSchemasListSchema,
+    ReturnType<typeof ExternalDataSchemasListSchema>,
     WithPostHogUrl<Schemas.PaginatedExternalDataSchemaList>
 > => ({
     name: 'external-data-schemas-list',
-    schema: ExternalDataSchemasListSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasListSchema>) => {
+    schema: ExternalDataSchemasListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSchemasListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedExternalDataSchemaList>({
             method: 'GET',
@@ -300,17 +303,21 @@ const externalDataSchemasList = (): ToolBase<
     },
 })
 
-const ExternalDataSchemasPartialUpdateSchema = ExternalDataSchemasPartialUpdateParams.omit({ project_id: true }).extend(
-    ExternalDataSchemasPartialUpdateBody.shape
-)
+const ExternalDataSchemasPartialUpdateSchema = () => {
+    const ExternalDataSchemasPartialUpdateBody = orvalSchemas.ExternalDataSchemasPartialUpdateBody()
+    const ExternalDataSchemasPartialUpdateParams = orvalSchemas.ExternalDataSchemasPartialUpdateParams()
+    return ExternalDataSchemasPartialUpdateParams.omit({ project_id: true }).extend(
+        ExternalDataSchemasPartialUpdateBody.shape
+    )
+}
 
 const externalDataSchemasPartialUpdate = (): ToolBase<
-    typeof ExternalDataSchemasPartialUpdateSchema,
+    ReturnType<typeof ExternalDataSchemasPartialUpdateSchema>,
     Schemas.ExternalDataSchema
 > => ({
     name: 'external-data-schemas-partial-update',
-    schema: ExternalDataSchemasPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasPartialUpdateSchema>) => {
+    schema: ExternalDataSchemasPartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSchemasPartialUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.should_sync !== undefined) {
@@ -358,12 +365,15 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
     },
 })
 
-const ExternalDataSchemasReloadSchema = ExternalDataSchemasReloadCreateParams.omit({ project_id: true })
+const ExternalDataSchemasReloadSchema = () => {
+    const ExternalDataSchemasReloadCreateParams = orvalSchemas.ExternalDataSchemasReloadCreateParams()
+    return ExternalDataSchemasReloadCreateParams.omit({ project_id: true })
+}
 
-const externalDataSchemasReload = (): ToolBase<typeof ExternalDataSchemasReloadSchema, unknown> => ({
+const externalDataSchemasReload = (): ToolBase<ReturnType<typeof ExternalDataSchemasReloadSchema>, unknown> => ({
     name: 'external-data-schemas-reload',
-    schema: ExternalDataSchemasReloadSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasReloadSchema>) => {
+    schema: ExternalDataSchemasReloadSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSchemasReloadSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -373,12 +383,15 @@ const externalDataSchemasReload = (): ToolBase<typeof ExternalDataSchemasReloadS
     },
 })
 
-const ExternalDataSchemasResyncSchema = ExternalDataSchemasResyncCreateParams.omit({ project_id: true })
+const ExternalDataSchemasResyncSchema = () => {
+    const ExternalDataSchemasResyncCreateParams = orvalSchemas.ExternalDataSchemasResyncCreateParams()
+    return ExternalDataSchemasResyncCreateParams.omit({ project_id: true })
+}
 
-const externalDataSchemasResync = (): ToolBase<typeof ExternalDataSchemasResyncSchema, unknown> => ({
+const externalDataSchemasResync = (): ToolBase<ReturnType<typeof ExternalDataSchemasResyncSchema>, unknown> => ({
     name: 'external-data-schemas-resync',
-    schema: ExternalDataSchemasResyncSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasResyncSchema>) => {
+    schema: ExternalDataSchemasResyncSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSchemasResyncSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -388,15 +401,18 @@ const externalDataSchemasResync = (): ToolBase<typeof ExternalDataSchemasResyncS
     },
 })
 
-const ExternalDataSchemasRetrieveSchema = ExternalDataSchemasRetrieveParams.omit({ project_id: true })
+const ExternalDataSchemasRetrieveSchema = () => {
+    const ExternalDataSchemasRetrieveParams = orvalSchemas.ExternalDataSchemasRetrieveParams()
+    return ExternalDataSchemasRetrieveParams.omit({ project_id: true })
+}
 
 const externalDataSchemasRetrieve = (): ToolBase<
-    typeof ExternalDataSchemasRetrieveSchema,
+    ReturnType<typeof ExternalDataSchemasRetrieveSchema>,
     Schemas.ExternalDataSchema
 > => ({
     name: 'external-data-schemas-retrieve',
-    schema: ExternalDataSchemasRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSchemasRetrieveSchema>) => {
+    schema: ExternalDataSchemasRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSchemasRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ExternalDataSchema>({
             method: 'GET',
@@ -406,17 +422,19 @@ const externalDataSchemasRetrieve = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesCheckCdcPrerequisitesCreateSchema = z
-    .object({})
-    .extend({ source_type: ExternalDataSourceTypeSchema })
+const ExternalDataSourcesCheckCdcPrerequisitesCreateSchema = () =>
+    z.object({}).extend({ source_type: ExternalDataSourceTypeSchema })
 
 const externalDataSourcesCheckCdcPrerequisitesCreate = (): ToolBase<
-    typeof ExternalDataSourcesCheckCdcPrerequisitesCreateSchema,
+    ReturnType<typeof ExternalDataSourcesCheckCdcPrerequisitesCreateSchema>,
     unknown
 > => ({
     name: 'external-data-sources-check-cdc-prerequisites-create',
-    schema: ExternalDataSourcesCheckCdcPrerequisitesCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesCheckCdcPrerequisitesCreateSchema>) => {
+    schema: ExternalDataSourcesCheckCdcPrerequisitesCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSourcesCheckCdcPrerequisitesCreateSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.source_type !== undefined) {
@@ -431,16 +449,18 @@ const externalDataSourcesCheckCdcPrerequisitesCreate = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesConnectionsListSchema = z.object({})
+const ExternalDataSourcesConnectionsListSchema = () => z.object({})
 
 const externalDataSourcesConnectionsList = (): ToolBase<
-    typeof ExternalDataSourcesConnectionsListSchema,
+    ReturnType<typeof ExternalDataSourcesConnectionsListSchema>,
     WithPostHogUrl<Schemas.ExternalDataSourceConnectionOption[]>
 > => ({
     name: 'external-data-sources-connections-list',
-    schema: ExternalDataSourcesConnectionsListSchema,
-    // eslint-disable-next-line no-unused-vars
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesConnectionsListSchema>) => {
+    schema: ExternalDataSourcesConnectionsListSchema(),
+    handler: async (
+        context: Context,
+        _params: z.infer<ReturnType<typeof ExternalDataSourcesConnectionsListSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ExternalDataSourceConnectionOption[]>({
             method: 'GET',
@@ -450,18 +470,21 @@ const externalDataSourcesConnectionsList = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesCreateSchema = ExternalDataSourcesCreateBody.extend({
-    source_type: ExternalDataSourceTypeSchema,
-    payload: ExternalDataSourcePayloadSchema,
-})
+const ExternalDataSourcesCreateSchema = () => {
+    const ExternalDataSourcesCreateBody = orvalSchemas.ExternalDataSourcesCreateBody()
+    return ExternalDataSourcesCreateBody.extend({
+        source_type: ExternalDataSourceTypeSchema,
+        payload: ExternalDataSourcePayloadSchema,
+    })
+}
 
 const externalDataSourcesCreate = (): ToolBase<
-    typeof ExternalDataSourcesCreateSchema,
+    ReturnType<typeof ExternalDataSourcesCreateSchema>,
     Schemas.ExternalDataSourceCreateResponse
 > => ({
     name: 'external-data-sources-create',
-    schema: ExternalDataSourcesCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesCreateSchema>) => {
+    schema: ExternalDataSourcesCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.source_type !== undefined) {
@@ -495,17 +518,24 @@ const externalDataSourcesCreate = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesCreateWebhookCreateSchema = ExternalDataSourcesCreateWebhookCreateParams.omit({
-    project_id: true,
-}).extend(ExternalDataSourcesCreateWebhookCreateBody.shape)
+const ExternalDataSourcesCreateWebhookCreateSchema = () => {
+    const ExternalDataSourcesCreateWebhookCreateBody = orvalSchemas.ExternalDataSourcesCreateWebhookCreateBody()
+    const ExternalDataSourcesCreateWebhookCreateParams = orvalSchemas.ExternalDataSourcesCreateWebhookCreateParams()
+    return ExternalDataSourcesCreateWebhookCreateParams.omit({ project_id: true }).extend(
+        ExternalDataSourcesCreateWebhookCreateBody.shape
+    )
+}
 
 const externalDataSourcesCreateWebhookCreate = (): ToolBase<
-    typeof ExternalDataSourcesCreateWebhookCreateSchema,
+    ReturnType<typeof ExternalDataSourcesCreateWebhookCreateSchema>,
     unknown
 > => ({
     name: 'external-data-sources-create-webhook-create',
-    schema: ExternalDataSourcesCreateWebhookCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesCreateWebhookCreateSchema>) => {
+    schema: ExternalDataSourcesCreateWebhookCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSourcesCreateWebhookCreateSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.created_via !== undefined) {
@@ -544,17 +574,24 @@ const externalDataSourcesCreateWebhookCreate = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesDeleteWebhookCreateSchema = ExternalDataSourcesDeleteWebhookCreateParams.omit({
-    project_id: true,
-}).extend(ExternalDataSourcesDeleteWebhookCreateBody.shape)
+const ExternalDataSourcesDeleteWebhookCreateSchema = () => {
+    const ExternalDataSourcesDeleteWebhookCreateBody = orvalSchemas.ExternalDataSourcesDeleteWebhookCreateBody()
+    const ExternalDataSourcesDeleteWebhookCreateParams = orvalSchemas.ExternalDataSourcesDeleteWebhookCreateParams()
+    return ExternalDataSourcesDeleteWebhookCreateParams.omit({ project_id: true }).extend(
+        ExternalDataSourcesDeleteWebhookCreateBody.shape
+    )
+}
 
 const externalDataSourcesDeleteWebhookCreate = (): ToolBase<
-    typeof ExternalDataSourcesDeleteWebhookCreateSchema,
+    ReturnType<typeof ExternalDataSourcesDeleteWebhookCreateSchema>,
     unknown
 > => ({
     name: 'external-data-sources-delete-webhook-create',
-    schema: ExternalDataSourcesDeleteWebhookCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesDeleteWebhookCreateSchema>) => {
+    schema: ExternalDataSourcesDeleteWebhookCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSourcesDeleteWebhookCreateSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.created_via !== undefined) {
@@ -593,17 +630,21 @@ const externalDataSourcesDeleteWebhookCreate = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesDestinationsRetrieveSchema = ExternalDataSourcesDestinationsRetrieveParams.omit({
-    project_id: true,
-})
+const ExternalDataSourcesDestinationsRetrieveSchema = () => {
+    const ExternalDataSourcesDestinationsRetrieveParams = orvalSchemas.ExternalDataSourcesDestinationsRetrieveParams()
+    return ExternalDataSourcesDestinationsRetrieveParams.omit({ project_id: true })
+}
 
 const externalDataSourcesDestinationsRetrieve = (): ToolBase<
-    typeof ExternalDataSourcesDestinationsRetrieveSchema,
+    ReturnType<typeof ExternalDataSourcesDestinationsRetrieveSchema>,
     Schemas.SourceDestinations
 > => ({
     name: 'external-data-sources-destinations-retrieve',
-    schema: ExternalDataSourcesDestinationsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesDestinationsRetrieveSchema>) => {
+    schema: ExternalDataSourcesDestinationsRetrieveSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSourcesDestinationsRetrieveSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.SourceDestinations>({
             method: 'GET',
@@ -613,12 +654,15 @@ const externalDataSourcesDestinationsRetrieve = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesDestroySchema = ExternalDataSourcesDestroyParams.omit({ project_id: true })
+const ExternalDataSourcesDestroySchema = () => {
+    const ExternalDataSourcesDestroyParams = orvalSchemas.ExternalDataSourcesDestroyParams()
+    return ExternalDataSourcesDestroyParams.omit({ project_id: true })
+}
 
-const externalDataSourcesDestroy = (): ToolBase<typeof ExternalDataSourcesDestroySchema, unknown> => ({
+const externalDataSourcesDestroy = (): ToolBase<ReturnType<typeof ExternalDataSourcesDestroySchema>, unknown> => ({
     name: 'external-data-sources-destroy',
-    schema: ExternalDataSourcesDestroySchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesDestroySchema>) => {
+    schema: ExternalDataSourcesDestroySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesDestroySchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'DELETE',
@@ -628,15 +672,18 @@ const externalDataSourcesDestroy = (): ToolBase<typeof ExternalDataSourcesDestro
     },
 })
 
-const ExternalDataSourcesListSchema = ExternalDataSourcesListQueryParams
+const ExternalDataSourcesListSchema = () => {
+    const ExternalDataSourcesListQueryParams = orvalSchemas.ExternalDataSourcesListQueryParams()
+    return ExternalDataSourcesListQueryParams
+}
 
 const externalDataSourcesList = (): ToolBase<
-    typeof ExternalDataSourcesListSchema,
+    ReturnType<typeof ExternalDataSourcesListSchema>,
     WithPostHogUrl<Schemas.PaginatedExternalDataSourceSerializersList>
 > => ({
     name: 'external-data-sources-list',
-    schema: ExternalDataSourcesListSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesListSchema>) => {
+    schema: ExternalDataSourcesListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedExternalDataSourceSerializersList>({
             method: 'GET',
@@ -651,17 +698,21 @@ const externalDataSourcesList = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesPartialUpdateSchema = ExternalDataSourcesPartialUpdateParams.omit({ project_id: true }).extend(
-    ExternalDataSourcesPartialUpdateBody.shape
-)
+const ExternalDataSourcesPartialUpdateSchema = () => {
+    const ExternalDataSourcesPartialUpdateBody = orvalSchemas.ExternalDataSourcesPartialUpdateBody()
+    const ExternalDataSourcesPartialUpdateParams = orvalSchemas.ExternalDataSourcesPartialUpdateParams()
+    return ExternalDataSourcesPartialUpdateParams.omit({ project_id: true }).extend(
+        ExternalDataSourcesPartialUpdateBody.shape
+    )
+}
 
 const externalDataSourcesPartialUpdate = (): ToolBase<
-    typeof ExternalDataSourcesPartialUpdateSchema,
+    ReturnType<typeof ExternalDataSourcesPartialUpdateSchema>,
     Schemas.ExternalDataSourceSerializers
 > => ({
     name: 'external-data-sources-partial-update',
-    schema: ExternalDataSourcesPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesPartialUpdateSchema>) => {
+    schema: ExternalDataSourcesPartialUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesPartialUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.created_via !== undefined) {
@@ -700,14 +751,21 @@ const externalDataSourcesPartialUpdate = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesRefreshSchemasSchema = ExternalDataSourcesRefreshSchemasCreateParams.omit({
-    project_id: true,
-}).extend(ExternalDataSourcesRefreshSchemasCreateBody.shape)
+const ExternalDataSourcesRefreshSchemasSchema = () => {
+    const ExternalDataSourcesRefreshSchemasCreateBody = orvalSchemas.ExternalDataSourcesRefreshSchemasCreateBody()
+    const ExternalDataSourcesRefreshSchemasCreateParams = orvalSchemas.ExternalDataSourcesRefreshSchemasCreateParams()
+    return ExternalDataSourcesRefreshSchemasCreateParams.omit({ project_id: true }).extend(
+        ExternalDataSourcesRefreshSchemasCreateBody.shape
+    )
+}
 
-const externalDataSourcesRefreshSchemas = (): ToolBase<typeof ExternalDataSourcesRefreshSchemasSchema, unknown> => ({
+const externalDataSourcesRefreshSchemas = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesRefreshSchemasSchema>,
+    unknown
+> => ({
     name: 'external-data-sources-refresh-schemas',
-    schema: ExternalDataSourcesRefreshSchemasSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesRefreshSchemasSchema>) => {
+    schema: ExternalDataSourcesRefreshSchemasSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesRefreshSchemasSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.created_via !== undefined) {
@@ -731,14 +789,18 @@ const externalDataSourcesRefreshSchemas = (): ToolBase<typeof ExternalDataSource
     },
 })
 
-const ExternalDataSourcesReloadSchema = ExternalDataSourcesReloadCreateParams.omit({ project_id: true }).extend(
-    ExternalDataSourcesReloadCreateBody.shape
-)
+const ExternalDataSourcesReloadSchema = () => {
+    const ExternalDataSourcesReloadCreateBody = orvalSchemas.ExternalDataSourcesReloadCreateBody()
+    const ExternalDataSourcesReloadCreateParams = orvalSchemas.ExternalDataSourcesReloadCreateParams()
+    return ExternalDataSourcesReloadCreateParams.omit({ project_id: true }).extend(
+        ExternalDataSourcesReloadCreateBody.shape
+    )
+}
 
-const externalDataSourcesReload = (): ToolBase<typeof ExternalDataSourcesReloadSchema, unknown> => ({
+const externalDataSourcesReload = (): ToolBase<ReturnType<typeof ExternalDataSourcesReloadSchema>, unknown> => ({
     name: 'external-data-sources-reload',
-    schema: ExternalDataSourcesReloadSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesReloadSchema>) => {
+    schema: ExternalDataSourcesReloadSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesReloadSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.created_via !== undefined) {
@@ -762,12 +824,18 @@ const externalDataSourcesReload = (): ToolBase<typeof ExternalDataSourcesReloadS
     },
 })
 
-const ExternalDataSourcesRepairCdcCreateSchema = ExternalDataSourcesRepairCdcCreateParams.omit({ project_id: true })
+const ExternalDataSourcesRepairCdcCreateSchema = () => {
+    const ExternalDataSourcesRepairCdcCreateParams = orvalSchemas.ExternalDataSourcesRepairCdcCreateParams()
+    return ExternalDataSourcesRepairCdcCreateParams.omit({ project_id: true })
+}
 
-const externalDataSourcesRepairCdcCreate = (): ToolBase<typeof ExternalDataSourcesRepairCdcCreateSchema, unknown> => ({
+const externalDataSourcesRepairCdcCreate = (): ToolBase<
+    ReturnType<typeof ExternalDataSourcesRepairCdcCreateSchema>,
+    unknown
+> => ({
     name: 'external-data-sources-repair-cdc-create',
-    schema: ExternalDataSourcesRepairCdcCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesRepairCdcCreateSchema>) => {
+    schema: ExternalDataSourcesRepairCdcCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesRepairCdcCreateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -777,15 +845,18 @@ const externalDataSourcesRepairCdcCreate = (): ToolBase<typeof ExternalDataSourc
     },
 })
 
-const ExternalDataSourcesRetrieveSchema = ExternalDataSourcesRetrieveParams.omit({ project_id: true })
+const ExternalDataSourcesRetrieveSchema = () => {
+    const ExternalDataSourcesRetrieveParams = orvalSchemas.ExternalDataSourcesRetrieveParams()
+    return ExternalDataSourcesRetrieveParams.omit({ project_id: true })
+}
 
 const externalDataSourcesRetrieve = (): ToolBase<
-    typeof ExternalDataSourcesRetrieveSchema,
+    ReturnType<typeof ExternalDataSourcesRetrieveSchema>,
     Schemas.ExternalDataSourceSerializers
 > => ({
     name: 'external-data-sources-retrieve',
-    schema: ExternalDataSourcesRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesRetrieveSchema>) => {
+    schema: ExternalDataSourcesRetrieveSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesRetrieveSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.ExternalDataSourceSerializers>({
             method: 'GET',
@@ -799,17 +870,26 @@ const externalDataSourcesRetrieve = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesUpdateWebhookInputsCreateSchema = ExternalDataSourcesUpdateWebhookInputsCreateParams.omit({
-    project_id: true,
-}).extend(ExternalDataSourcesUpdateWebhookInputsCreateBody.shape)
+const ExternalDataSourcesUpdateWebhookInputsCreateSchema = () => {
+    const ExternalDataSourcesUpdateWebhookInputsCreateBody =
+        orvalSchemas.ExternalDataSourcesUpdateWebhookInputsCreateBody()
+    const ExternalDataSourcesUpdateWebhookInputsCreateParams =
+        orvalSchemas.ExternalDataSourcesUpdateWebhookInputsCreateParams()
+    return ExternalDataSourcesUpdateWebhookInputsCreateParams.omit({ project_id: true }).extend(
+        ExternalDataSourcesUpdateWebhookInputsCreateBody.shape
+    )
+}
 
 const externalDataSourcesUpdateWebhookInputsCreate = (): ToolBase<
-    typeof ExternalDataSourcesUpdateWebhookInputsCreateSchema,
+    ReturnType<typeof ExternalDataSourcesUpdateWebhookInputsCreateSchema>,
     unknown
 > => ({
     name: 'external-data-sources-update-webhook-inputs-create',
-    schema: ExternalDataSourcesUpdateWebhookInputsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesUpdateWebhookInputsCreateSchema>) => {
+    schema: ExternalDataSourcesUpdateWebhookInputsCreateSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSourcesUpdateWebhookInputsCreateSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
         if (params.created_via !== undefined) {
@@ -848,17 +928,21 @@ const externalDataSourcesUpdateWebhookInputsCreate = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesWebhookInfoRetrieveSchema = ExternalDataSourcesWebhookInfoRetrieveParams.omit({
-    project_id: true,
-})
+const ExternalDataSourcesWebhookInfoRetrieveSchema = () => {
+    const ExternalDataSourcesWebhookInfoRetrieveParams = orvalSchemas.ExternalDataSourcesWebhookInfoRetrieveParams()
+    return ExternalDataSourcesWebhookInfoRetrieveParams.omit({ project_id: true })
+}
 
 const externalDataSourcesWebhookInfoRetrieve = (): ToolBase<
-    typeof ExternalDataSourcesWebhookInfoRetrieveSchema,
+    ReturnType<typeof ExternalDataSourcesWebhookInfoRetrieveSchema>,
     unknown
 > => ({
     name: 'external-data-sources-webhook-info-retrieve',
-    schema: ExternalDataSourcesWebhookInfoRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesWebhookInfoRetrieveSchema>) => {
+    schema: ExternalDataSourcesWebhookInfoRetrieveSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ExternalDataSourcesWebhookInfoRetrieveSchema>>
+    ) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
@@ -868,20 +952,23 @@ const externalDataSourcesWebhookInfoRetrieve = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesWizardSchema = ExternalDataSourcesWizardRetrieveQueryParams.extend({
-    fields: z
-        .array(z.enum(['*.name', '*.caption', '*.docsUrl', '*.featured', '*.unreleasedSource', '*.fields']))
-        .min(1)
-        .optional()
-        .describe(
-            'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'
-        ),
-})
+const ExternalDataSourcesWizardSchema = () => {
+    const ExternalDataSourcesWizardRetrieveQueryParams = orvalSchemas.ExternalDataSourcesWizardRetrieveQueryParams()
+    return ExternalDataSourcesWizardRetrieveQueryParams.extend({
+        fields: z
+            .array(z.enum(['*.name', '*.caption', '*.docsUrl', '*.featured', '*.unreleasedSource', '*.fields']))
+            .min(1)
+            .optional()
+            .describe(
+                'Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.'
+            ),
+    })
+}
 
-const externalDataSourcesWizard = (): ToolBase<typeof ExternalDataSourcesWizardSchema, unknown> => ({
+const externalDataSourcesWizard = (): ToolBase<ReturnType<typeof ExternalDataSourcesWizardSchema>, unknown> => ({
     name: 'external-data-sources-wizard',
-    schema: ExternalDataSourcesWizardSchema,
-    handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesWizardSchema>) => {
+    schema: ExternalDataSourcesWizardSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSourcesWizardSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',

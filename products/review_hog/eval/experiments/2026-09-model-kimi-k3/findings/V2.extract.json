@@ -1,0 +1,280 @@
+[
+    {
+        "type": "issue_finding",
+        "content": {
+            "body": "`bool()` treats every non-empty string and object as true. A malformed value such as `\"false\"` therefore disables the bot-author and draft gates. This flag controls an approval security boundary, so invalid input must fail closed.",
+            "file": "tools/pr-approval-agent/review_local.py",
+            "lines": [{ "end": 321, "start": 316 }],
+            "title": "The privileged flag accepts non-boolean values",
+            "priority": "must_fix",
+            "issue_key": "r1:tools/pr-approval-agent/review_local.py:316:review-hog-perspective-contracts-security:1-3-1",
+            "run_index": 1,
+            "suggestion": "Require a JSON boolean. Use `context.get(\"self_driving_review\") is True`. Reject other present types if the caller needs a clear contract error.",
+            "source_perspective": "review-hog-perspective-contracts-security",
+            "is_directly_related_to_changes": true
+        }
+    },
+    {
+        "type": "issue_finding",
+        "content": {
+            "body": "The prompt renders `familiarity_block` before the self-driving provenance block. A self-driving classification can still contain familiarity data. The prompt then presents author history as trusted evidence while also saying that this history carries no signal. This breaks the stated trust contract and can bias the review of machine-authored code.",
+            "file": "tools/pr-approval-agent/reviewer.py",
+            "lines": [
+                { "end": null, "start": 506 },
+                { "end": null, "start": 568 }
+            ],
+            "title": "The prompt does not enforce removal of author familiarity",
+            "priority": "should_fix",
+            "issue_key": "r1:tools/pr-approval-agent/reviewer.py:506:review-hog-perspective-contracts-security:1-3-2",
+            "run_index": 1,
+            "suggestion": "Do not render familiarity when `cl.get(\"self_driving\")` is true. Enforce this in `_build_review_prompt` so every caller gets the same security invariant.",
+            "source_perspective": "review-hog-perspective-contracts-security",
+            "is_directly_related_to_changes": true
+        }
+    },
+    {
+        "type": "issue_finding",
+        "content": {
+            "body": "The deferred import runs before the try block. An import error will escape the on-commit callback. The caller can then report a failure after the database commit succeeds.",
+            "file": "products/review_hog/backend/receivers.py",
+            "lines": [{ "end": 224, "start": 222 }],
+            "title": "Deferred import can escape the error handler",
+            "priority": "should_fix",
+            "issue_key": "r1:products/review_hog/backend/receivers.py:222:review-hog-perspective-performance-reliability:3-1-1",
+            "run_index": 1,
+            "suggestion": "Move the `queue_inbox_pr_review` import inside the try block. This keeps all dispatch failures within the documented fire-and-forget boundary.",
+            "source_perspective": "review-hog-perspective-performance-reliability",
+            "is_directly_related_to_changes": true
+        }
+    },
+    {
+        "type": "issue_finding",
+        "content": {
+            "body": "The row lock does not serialize calls when no matching ReviewRun exists. Concurrent receiver tasks can both create runs and start costly workflows for one head.",
+            "file": "products/stamphog/backend/tasks/tasks.py",
+            "lines": [{ "end": 1229, "start": 1202 }],
+            "title": "Concurrent receiver tasks can create duplicate reviews",
+            "priority": "must_fix",
+            "issue_key": "r1:products/stamphog/backend/tasks/tasks.py:1202:review-hog-perspective-performance-reliability:3-2-1",
+            "run_index": 1,
+            "suggestion": "Add a database uniqueness constraint for pull_request and head_sha. Catch IntegrityError and restart or reuse the winning run, as the webhook path does.",
+            "source_perspective": "review-hog-perspective-performance-reliability",
+            "is_directly_related_to_changes": true
+        }
+    },
+    {
+        "type": "issue_finding",
+        "content": {
+            "body": "The Celery publish is the only handoff for the initial review. The caller catches publish failures, so a broker outage can lose the review permanently.",
+            "file": "products/stamphog/backend/facade/api.py",
+            "lines": [{ "end": 156, "start": 149 }],
+            "title": "A broker failure permanently loses the initial review",
+            "priority": "should_fix",
+            "issue_key": "r1:products/stamphog/backend/facade/api.py:149:review-hog-perspective-performance-reliability:3-2-2",
+            "run_index": 1,
+            "suggestion": "Use a durable outbox or a persisted dispatch state with retries. Do not depend on another TaskRun save to repeat the publish.",
+            "source_perspective": "review-hog-perspective-performance-reliability",
+            "is_directly_related_to_changes": true
+        }
+    },
+    {
+        "type": "issue_finding",
+        "content": {
+            "body": "The carve-out accepts every GitHub bot. It can also identify a run by its branch when the run has no saved PR URL. An unrelated bot can create a repository-native PR with the same branch name. This match bypasses the draft, author, review mode, and write-permission gates. StampHog can then approve a PR that the implementation run did not create.",
+            "file": "products/stamphog/backend/tasks/tasks.py",
+            "lines": [{ "end": 197, "start": 179 }],
+            "title": "Branch fallback can authorize a PR from an unrelated bot",
+            "priority": "must_fix",
+            "issue_key": "r1:products/stamphog/backend/tasks/tasks.py:179:review-hog-blind-spots-general:1000-2-1",
+            "run_index": 1,
+            "suggestion": "Require an exact saved PR URL before this code grants the carve-out. If the branch fallback must remain, verify the expected PostHog Code bot identity and bind the fetched PR URL to the TaskRun before review.",
+            "source_perspective": "review-hog-blind-spots-general",
+            "is_directly_related_to_changes": true
+        }
+    },
+    {
+        "type": "issue_finding",
+        "content": {
+            "body": "The document says that both trigger paths verify task linkage before they set `ReviewRun.output[\"inbox_review\"]`. The webhook path calls `find_signal_implementation_run`, but `process_inbox_pr_review` trusts its IDs. It does not load `task_run_id` or verify its team, signal report, repository, or PR. A new caller of the public facade can therefore mark an unrelated bot draft as trusted self-driving work. This mark bypasses the bot, draft, review-mode, and author-permission gates.",
+            "file": "products/stamphog/AGENTS.md",
+            "lines": [{ "end": 101, "start": 97 }],
+            "title": "Initial review path does not verify the documented task linkage",
+            "priority": "should_fix",
+            "issue_key": "r1:products/stamphog/AGENTS.md:97:review-hog-blind-spots-general:1000-4-1",
+            "run_index": 1,
+            "suggestion": "Make `process_inbox_pr_review` load the task run through the tasks facade. Verify the team, signal report, repository, and PR URL before it creates the review run. Alternatively, change the document so it does not claim that the initial path verifies this linkage, but that leaves a weak trust boundary.",
+            "source_perspective": "review-hog-blind-spots-general",
+            "is_directly_related_to_changes": true
+        }
+    },
+    {
+        "type": "issue_finding",
+        "content": {
+            "body": "The task trusts `team_id`, `task_run_id`, `signal_report_id`, `acting_user_id`, and `pr_url`. It only checks for a repository configuration and an open PR. A forged or stale call can mark any open PR in that repository as an inbox review. This mark bypasses the bot, draft, review mode, and author permission gates. An untrusted task agent can also record an unrelated PR URL in its output. The resulting run can post an approval to code that did not come from the claimed implementation run.",
+            "file": "products/stamphog/backend/tasks/tasks.py",
+            "lines": [{ "end": 1179, "start": 1110 }],
+            "title": "Initial review trusts unverified task provenance",
+            "priority": "must_fix",
+            "issue_key": "r1:products/stamphog/backend/tasks/tasks.py:1110:review-hog-perspective-contracts-security:1-2-1",
+            "run_index": 1,
+            "suggestion": "Load the `TaskRun` by `task_run_id` and `team_id` before the GitHub request. Check its signal report, repository, non-internal status, and saved PR URL. Resolve the acting reviewer and toggle again. After the GitHub request, require the expected bot author and a repository-native head. Create the inbox provenance only after all checks pass.",
+            "source_perspective": "review-hog-perspective-contracts-security",
+            "is_directly_related_to_changes": true
+        }
+    },
+    {
+        "type": "issue_finding",
+        "content": {
+            "body": "`find_task_run` searches all teams and selects one row before this facade checks `team_id`. Two teams can have tasks for the same repository, PR URL, or branch. A row from another team can win the query and cause this function to return `None`, even when the requested team has a valid run. This does not implement the documented team-scoped lookup contract.",
+            "file": "products/tasks/backend/facade/api.py",
+            "lines": [{ "end": 509, "start": 507 }],
+            "title": "Team scope is applied after an unscoped run selection",
+            "priority": "should_fix",
+            "issue_key": "r1:products/tasks/backend/facade/api.py:507:review-hog-perspective-contracts-security:1-2-2",
+            "run_index": 1,
+            "suggestion": "Apply `team_id` inside the query before `.first()`. For example, add an optional `team_id` argument to `find_task_run` and filter `TaskRun.objects` with it in each lookup path. Keep the final team check as a fail-closed guard.",
+            "source_perspective": "review-hog-perspective-contracts-security",
+            "is_directly_related_to_changes": true
+        }
+    },
+    {
+        "type": "issue_finding",
+        "content": {
+            "body": "The PR requires a Stamphog review when any assigned reviewer opts in. This code selects one acting reviewer before it checks the toggle. If the task creator or first reviewer opts out, the code skips the review even when another assigned reviewer opts in.",
+            "file": "products/review_hog/backend/receivers.py",
+            "lines": [{ "end": 126, "start": 111 }],
+            "title": "The toggle check ignores other assigned reviewers",
+            "priority": "must_fix",
+            "issue_key": "r1:products/review_hog/backend/receivers.py:111:review-hog-perspective-logic-correctness:2-1-1",
+            "run_index": 1,
+            "suggestion": "Resolve all assigned reviewers for the Stamphog gate. Select an opted-in reviewer from that set. Keep the task creator as the first choice when that user opts in. Use the same selection rule in resolve_stamphog_acting_reviewer so initial reviews and webhook reviews agree.",
+            "source_perspective": "review-hog-perspective-logic-correctness",
+            "is_directly_related_to_changes": true
+        }
+    },
+    {
+        "type": "issue_finding",
+        "content": {
+            "body": "The task trusts the `acting_user_id` selected before the Celery message was published. A user can disable inbox reviews while the message waits in the queue. The delayed task still creates a review with self-driving provenance.",
+            "file": "products/stamphog/backend/tasks/tasks.py",
+            "lines": [{ "end": 1181, "start": 1176 }],
+            "title": "The queued task does not recheck the review toggle",
+            "priority": "should_fix",
+            "issue_key": "r1:products/stamphog/backend/tasks/tasks.py:1176:review-hog-perspective-logic-correctness:2-2-2",
+            "run_index": 1,
+            "suggestion": "Resolve the acting reviewer again immediately before run creation. Use the registered resolver with the verified signal report and task creator. Stop when the resolver returns `None`, and store the newly resolved user ID in the provenance.",
+            "source_perspective": "review-hog-perspective-logic-correctness",
+            "is_directly_related_to_changes": true
+        }
+    },
+    {
+        "type": "validation_verdict",
+        "content": {
+            "category": "security",
+            "is_valid": false,
+            "issue_key": "r1:products/stamphog/AGENTS.md:97:review-hog-blind-spots-general:1000-4-1",
+            "argumentation": "- **Checked:** the stamping code `process_inbox_pr_review` (products/stamphog/backend/tasks/tasks.py:1110-1181), its facade `queue_inbox_pr_review` (facade/api.py:128-155), the webhook leg `_inbox_rereview_carve_out` (tasks.py:144-215), and every caller of the facade.\n- **Found:** the code claim is correct. `process_inbox_pr_review` builds `inbox_review` from its parameters at tasks.py:1176-1181 and never loads `task_run_id` to re-check the team, signal report, repository, or PR. The webhook leg does verify, through `find_signal_implementation_run` at tasks.py:189-200.\n- **Found:** the only production caller is review_hog's `handle_task_run_saved` (products/review_hog/backend/receivers.py:72-139). It reads `pr_url`, `signal_report_id` (`task.signal_report_id`), and `task_run_id` (`instance.id`) from the one saved `TaskRun`, and it gates on `task.signal_report_id is not None` and `not task.internal`. The linkage is real; the caller establishes it. The facade has no DRF route, so no external actor reaches it.\n- **Found:** the document does not claim the path self-verifies. AGENTS.md:100-101 states the initial path is entered \"after review_hog checked the toggle\", and the engine comment at temporal/activities.py:448-450 says both paths stamp \"only after positively linking the PR\". Both place the initial leg's check in review_hog. The doc is accurate about where the check lives.\n- **Found:** `team_id` scopes the repo-config lookup at tasks.py:1141 (`for_team(team_id)` plus enabled and synced filters), so tenant isolation does not depend on the provenance IDs.\n- **Impact:** no bug is reachable now. The single caller passes IDs from one `TaskRun`. The described attack needs \"a new caller of the public facade\" that does not exist — a speculative future caller plus defensive hardening of an internal, non-exposed boundary. This is the speculative-what-if and defensive-coding drop category. Precision over recall applies: drop.",
+            "adjusted_priority": null
+        }
+    },
+    {
+        "type": "validation_verdict",
+        "content": {
+            "category": "bug",
+            "is_valid": true,
+            "issue_key": "r1:products/stamphog/backend/tasks/tasks.py:1202:review-hog-perspective-performance-reliability:3-2-1",
+            "argumentation": "- **Checked:** The flagged dedupe in `process_inbox_pr_review` (products/stamphog/backend/tasks/tasks.py:1202-1234), the lock behavior of `_upsert_pull_request` (products/stamphog/backend/tasks/tasks.py:319-363), `_supersede_prior_runs` (products/stamphog/backend/tasks/tasks.py:415-432), the `ReviewRun` model constraints (products/stamphog/backend/models.py:140-173), the webhook path's `IntegrityError` handling (products/stamphog/backend/tasks/tasks.py:1074-1087), and the receiver trigger that fires this task (products/review_hog/backend/receivers.py:126-139).\n- **Found:** The claim is mechanically correct. The `select_for_update()` at products/stamphog/backend/tasks/tasks.py:1205 locks rows of the `SELECT`, and when no run exists at this head it matches zero rows and locks nothing. `_supersede_prior_runs` at line 1222 locks only existing non-terminal runs; with no runs yet there is nothing to lock. `_upsert_pull_request` takes the PR row lock only when it performs the conditional refresh `UPDATE` — when the payload is not newer, `refreshed` is 0 and the code path does only `refresh_from_db`, a plain `SELECT` (products/stamphog/backend/tasks/tasks.py:349-363). So two concurrent receiver fires at the same head can interleave as: both find `existing is None`, both run supersede, both `create()` a QUEUED run (products/stamphog/backend/tasks/tasks.py:1223-1230), and each registers an `on_commit` workflow start. `ReviewRun` has no uniqueness on `(pull_request, head_sha)` — only `delivery_id` is unique, and the inbox leg always creates with `delivery_id=None` (line 1227), so no constraint stops the duplicate.\n- **Found:** The trigger genuinely re-fires: `handle_task_run_saved` fires on every `TaskRun` save whose `output` carries a `pr_url` (products/review_hog/backend/receivers.py:72-139), and `queue_inbox_pr_review` is a fire-and-forget Celery dispatch, so overlapping `process_inbox_pr_review` executions for the same PR are a realistic concurrency shape, not a hypothetical one. The concurrent-webhook-fanout scenario the code already defends against (`stamphog_pr_event_stale_payload_locked`, lines 1037-1053) is the same shape.\n- **Found:** The consequence is two ReviewRun rows for the same PR at the same head, each with its own Temporal workflow (workflow ids are per-run: `stamphog-review-{review_run_id}`, products/stamphog/backend/temporal/client.py:43), so the per-run idempotency of `_start_review_workflow` does not collapse them. The fix mirrors exactly what the webhook path already does: catch `IntegrityError` and resume the winner (products/stamphog/backend/tasks/tasks.py:1074-1087) — the suggested change is aligned with an established pattern in the same file, and the model already uses `UniqueConstraint` for `PullRequest` (products/stamphog/backend/models.py:119-123).\n- **Impact:** A raced refire duplicates the sandbox + LLM review for one head — the exact cost the run-level dedupe exists to prevent — and can post duplicate GitHub review artifacts. Likelihood is moderate (requires near-simultaneous saves), impact is wasted spend and duplicate PR noise on a code path whose whole purpose is head-keyed dedupe.",
+            "adjusted_priority": "should_fix"
+        }
+    },
+    {
+        "type": "validation_verdict",
+        "content": {
+            "category": "security",
+            "is_valid": false,
+            "issue_key": "r1:tools/pr-approval-agent/review_local.py:316:review-hog-perspective-contracts-security:1-3-1",
+            "argumentation": "- **Checked:** I traced every producer of the `self_driving_review` key in the context JSON. Producers: `products/stamphog/backend/logic/reviewer.py:131` (builds the context dict) and `products/stamphog/backend/temporal/activities.py:451` (passes the value in). Consumers: `tools/pr-approval-agent/review_local.py:321` and `tools/pr-approval-agent/test_review_local.py:278`.\n- **Found:** The single production producer writes a strict Python bool. `products/stamphog/backend/temporal/activities.py:451` sets `self_driving_review=bool(output.get(\"inbox_review\"))`. `output.get(\"inbox_review\")` is a dict written by `products/stamphog/backend/tasks/tasks.py:1176`, so the coerced value is always `True` or `False`. `products/stamphog/backend/logic/reviewer.py:131` then serializes the dict with `json.dumps`, which emits JSON `true`/`false`. `json.loads` in `review_local.py:396` restores them as Python bools.\n- **Found:** The string `\"false\"` cannot cross this boundary from any real input. The context file is not attacker-reachable: the docstring in `review_local.py:12-21` states the server assembles the context from the GitHub API, the sandbox has no GitHub token, and the server overwrites trusted paths before the run. A value other than a JSON bool requires a bug in the single trusted producer, which `bool(...)` at the producer already prevents.\n- **Impact:** The named trigger (a malformed `\"false\"` string in the context) is unreachable given the call sites. This is defensive-coding paranoia under the validation criteria: the only producer already coerces to bool, the Action runtime never sends the key, and the absent-key path already fails closed (`context.get(...)` returns `None`, and `bool(None)` is `False`). The strict `is True` check and the current `bool()` check return the same result for every input the system can produce.\n- **Impact:** The risk that remains (a hypothetical future producer sending a truthy string) is speculative hardening, not a defect in this PR. That does not meet the keep bar for a real, reachable correctness or security problem.",
+            "adjusted_priority": null
+        }
+    },
+    {
+        "type": "validation_verdict",
+        "content": {
+            "category": null,
+            "is_valid": false,
+            "issue_key": "r1:products/stamphog/backend/facade/api.py:149:review-hog-perspective-performance-reliability:3-2-2",
+            "argumentation": "- **Checked:** The flagged publish in `queue_inbox_pr_review` (products/stamphog/backend/facade/api.py:149-155), its caller `_start_stamphog_review` (products/review_hog/backend/receivers.py:210-234), the queued task `process_inbox_pr_review` (products/stamphog/backend/tasks/tasks.py:1109-1245), and the sibling ReviewHog leg `_start_review` (products/review_hog/backend/receivers.py:246-273).\n- **Found:** The mechanism the issue describes is real: `process_inbox_pr_review.delay()` publishes to the broker, the caller wraps it in `try/except Exception` and only logs (products/review_hog/backend/receivers.py:233-234), so a publish failure leaves no trace to retry from.\n- **Found:** But the premise that the publish is 'the only handoff' is wrong. `process_inbox_pr_review` runs with `max_retries=3` and re-fetches the PR head from GitHub on every entry (products/stamphog/backend/tasks/tasks.py:1155-1170), and the docstring documents that 'the receiver re-fires on every TaskRun output save carrying the PR URL' with the head-keyed dedupe making refires no-ops (products/stamphog/backend/tasks/tasks.py:1125-1128). TaskRun output is saved repeatedly as the agent works (products/review_hog/backend/receivers.py:72-139 fires on every output-carrying save), so one dropped publish is recovered by the next save — this is the deliberate design, not an accident.\n- **Found:** The suggestion's own alternative — 'do not depend on another TaskRun save to repeat the publish' — asks to remove a recovery mechanism that already exists and works. A durable outbox table plus a relay would be a new subsystem to close a sub-second-to-minutes broker-outage window in a brand-new, per-user-toggle-gated experimental feature.\n- **Found:** The same fire-and-forget shape with `except Exception: logger.exception` is the established pattern for this exact receiver: the ReviewHog inbox leg `_start_review` swallows Temporal start failures identically (products/review_hog/backend/receivers.py:246, 272-273), and the save path explicitly must never raise into `TaskRun.save()` (products/review_hog/backend/receivers.py:213). The PR follows the surrounding convention rather than introducing a new reliability gap.\n- **Impact:** The loss scenario requires a broker outage exactly at publish time AND no subsequent TaskRun output save for that run AND no later head-changing webhook (which re-reviews through the carve-out). That is a narrow, self-healing window, and the suggested fix is disproportionate infrastructure for it — overengineering against a rare edge case, per the validation bar.",
+            "adjusted_priority": null
+        }
+    },
+    {
+        "type": "validation_verdict",
+        "content": {
+            "category": "security",
+            "is_valid": false,
+            "issue_key": "r1:tools/pr-approval-agent/reviewer.py:506:review-hog-perspective-contracts-security:1-3-2",
+            "argumentation": "- **Checked:** I traced whether a self-driving classification can carry a populated `familiarity` value through to the prompt at `reviewer.py:568`. Paths: the Action path `review_pr.py:251` (`_maybe_compute_familiarity`) and the hosted sandbox path `review_local.py:292-311` (`_attach_familiarity`), plus what data each receives for an inbox run.\n- **Found:** The hosted inbox path is the only path that runs self-driving reviews, and it structurally cannot produce familiarity data. `products/stamphog/backend/temporal/activities.py:237-238` skips the author's merged-PR fetch for inbox runs (`author_pr_numbers = ... if author and not is_inbox_review else []`), with a comment stating the intent: a bot author's familiarity must not read as human trust context. With no injected numbers, `_attach_familiarity` at `review_local.py:301-303` returns early and leaves the signal `None`. `_format_familiarity` at `reviewer.py:644-646` then renders the empty string. The block the issue objects to never appears for a self-driving run.\n- **Found:** The `_format_self_driving` docstring at `reviewer.py:687-688` asserts exactly this invariant (\"familiarity is deliberately absent, the author is a machine user\"), and the code enforces it one layer up by withholding the input data, not by chance.\n- **Found:** The remaining exposure is theoretical, not real: the Action path (`review_pr.py:523-534`) computes familiarity without checking `self_driving`. But no Action workflow sets `self_driving` (the flag exists only as a `Pipeline.__init__` kwarg, default `False`, at `review_pr.py:196`), and even if one did, a bot author's `search commits author:<bot-login>` fetch returns an empty merged-PR set, so the band lands `NONE` (`familiarity.py:408-425`), which `_format_familiarity` suppresses to at most a suggested-reviewers line (`reviewer.py:647-658`).\n- **Impact:** The named trigger (a self-driving prompt that simultaneously shows author-familiarity facts and says they carry no signal) is unreachable in the shipped system. The ask is a redundant belt-and-suspenders guard against a state the data flow already prevents. That is defensive-coding paranoia under the validation criteria: the invariant is already enforced at the data source with a stated rationale, and no caller can violate it today.",
+            "adjusted_priority": null
+        }
+    },
+    {
+        "type": "validation_verdict",
+        "content": {
+            "category": "best_practice",
+            "is_valid": false,
+            "issue_key": "r1:products/review_hog/backend/receivers.py:222:review-hog-perspective-performance-reliability:3-1-1",
+            "argumentation": "- **Checked:** Read `products/review_hog/backend/receivers.py:210-234` in full, the import target `products/stamphog/backend/facade/api.py:128-155`, the hook module `products/stamphog/backend/facade/inbox_hooks.py`, Django's `transaction.on_commit` semantics in `django/db/backends/base/base.py:727` (called here without `robust=True`), and every path that imports the facade module.\n- **Found:** The same process that would run `_start_stamphog_review` imports `products.stamphog.backend.facade.api` unconditionally at startup: `posthog/api/rest_router.py:669` imports `products/review_hog/backend/routes.py` → `products/review_hog/backend/api/__init__.py` → `products/review_hog/backend/api/settings.py:16` (`from products.stamphog.backend.facade.api import has_reviewable_repo_config`, a top-level import). `products.stamphog.backend.apps.StamphogConfig` is also in `INSTALLED_APPS` unconditionally (`posthog/settings/web.py:45`). Any web request, Celery task, or Temporal activity that saves a `TaskRun` runs in a process where the facade module was already imported successfully; the deferred import at `receivers.py:222` then resolves from `sys.modules` and cannot raise ImportError.\n- **Found:** The deferred import's stated purpose (comment at `receivers.py:219-221`) is keeping heavy model imports off the `django.setup()` path, not guarding against the module being absent. In every process type that can reach the callback, that cost is already paid at startup via the serializer import chain above.\n- **Impact:** For the ImportError to fire, the facade module would have to be unimportable, which crashes the process at startup (rest_router import loop) before any TaskRun save occurs. The scenario is theoretically possible but practically unreachable, which the validation criteria lists under drop: never-gonna-happen edge cases. The proposed fix is trivially cheap, but there is no realistic failure to contain.",
+            "adjusted_priority": null
+        }
+    },
+    {
+        "type": "validation_verdict",
+        "content": {
+            "category": "security",
+            "is_valid": true,
+            "issue_key": "r1:products/stamphog/backend/tasks/tasks.py:179:review-hog-blind-spots-general:1000-2-1",
+            "argumentation": "- **Checked:** The carve-out identification in `_inbox_rereview_carve_out` (products/stamphog/backend/tasks/tasks.py:144-215), the facade lookup `find_signal_implementation_run` (products/tasks/backend/facade/api.py:484-516), the underlying matcher `find_task_run` (products/tasks/backend/webhooks.py:29-98), the bot pre-filter `_is_bot_authored` (products/stamphog/backend/tasks/tasks.py:124-127), and the verdict head guard (products/stamphog/backend/temporal/activities.py:674-684).\n- **Found:** The branch fallback is real and reachable. `find_task_run` matches on `branch=<head.ref>, task__repository__iexact=<repo>` alone when the run's `output.pr_url` is unset (products/tasks/backend/webhooks.py:64-78) — no ordering, no creation-time tiebreak, `.first()` on an unordered queryset. The carve-out passes `head_branch=(pr.get(\"head\") or {}).get(\"ref\")` into it (products/stamphog/backend/tasks/tasks.py:191-196), and the only identity checks are: bot-authored (products/stamphog/backend/tasks/tasks.py:169), repo-native head (lines 176-178), and a synced+enabled config (lines 180-186). `_is_bot_authored` accepts ANY `type==\"Bot\"` or `[bot]` login (line 127) — dependabot, renovate, or any GitHub App qualifies; there is no check that the author is the team's own PostHog App machine user, though the docstring at line 170 assumes authorship is forced to it.\n- **Found:** The carve-out then bypasses exactly the gates the issue lists: draft/bot pre-filters (products/stamphog/backend/tasks/tasks.py:881), review mode (line 944), and the write-permission check (lines 966-968) — and the resulting run posts a real GitHub APPROVE review pinned to the PR's current head (products/stamphog/backend/temporal/activities.py:745), which can satisfy required reviews on a private repo.\n- **Found:** The concrete attack/misattribution shape: any GitHub App bot opens a repo-native draft PR whose head branch equals a signals-implementation TaskRun's `branch` that has no `output.pr_url` yet (the receiver leg explicitly fires on saves carrying `head_branch` without `pr_url`, products/review_hog/backend/receivers.py:92-96). Bot branches are frequently predictable (`dependabot/...`, `renovate/...`), and a malicious org member or compromised token can choose the name outright. The branch name is the ONLY binding — the task that will run on that branch is a PostHog Code implementation, but the PR being approved is the attacker's.\n- **Found:** The parallel tasks-webhook path acknowledges this exact hazard class: it guards merge handling with `run_output.get(\"pr_url\") == pr_url` precisely because 'a same-branch webhook for a different PR' must not act on the run (products/tasks/backend/webhooks.py:191-197). The stamphog carve-out grants a strictly stronger privilege (auto-approval bypassing every trust gate) on the weaker branch-only binding.\n- **Impact:** An auto-posted GitHub approval on a PR the implementation run did not create — a trust/authorization boundary violation, not a theoretical one, gated only by the acting reviewer's opt-in toggle. The fix (require the exact saved PR URL, or verify the App's machine-user identity before branch-matching) is small and local. This is PostHog-internal infrastructure, so the pool of who could exploit it is limited to org members/apps on an opted-in repo — real but not internet-facing, so `should_fix` rather than `must_fix`.\n- **Priority:** Lowered from must_fix to should_fix: exploitation requires write access to the team's own private repo (or control of a bot installed on it) plus a colliding branch name and an opted-in reviewer — an insider-threat/edge case, not a remotely triggerable hole.",
+            "adjusted_priority": "should_fix"
+        }
+    },
+    {
+        "type": "validation_verdict",
+        "content": {
+            "category": "security",
+            "is_valid": false,
+            "issue_key": "r1:products/stamphog/backend/tasks/tasks.py:1110:review-hog-perspective-contracts-security:1-2-1",
+            "argumentation": "- **Checked:** The flagged receiver leg `process_inbox_pr_review` (products/stamphog/backend/tasks/tasks.py:1110-1230), its only caller `queue_inbox_pr_review` (products/stamphog/backend/facade/api.py:128-155) and the review_hog receiver that fires it (products/review_hog/backend/receivers.py:72-141), the provenance consumption `self_driving_review` (products/stamphog/backend/temporal/activities.py:451, products/stamphog/backend/logic/reviewer.py:113-131), and the approval posting path (products/stamphog/backend/temporal/activities.py:723-756).\n- **Found:** The 'forged or stale call' half of the claim targets the Celery broker as a trust boundary. It is not one: `process_inbox_pr_review.delay(...)` is reachable only from inside the deployment (products/stamphog/backend/facade/api.py:149), and a caller with broker access can already enqueue ANY task with ANY args — re-verifying args inside this one task adds no protection against that attacker. That half is defensive-coding paranoia against trusted infrastructure.\n- **Found:** The 'agent records an unrelated PR URL' half is partially accurate on mechanics: `process_inbox_pr_review` indeed never loads the `TaskRun`, never checks the PR author is the team's App bot, and never checks a repo-native head (products/stamphog/backend/tasks/tasks.py:1130-1230) — unlike the webhook carve-out, which does all three (products/stamphog/backend/tasks/tasks.py:169-186). A run created this way does stamp `inbox_review` provenance, which flips `self_driving_review=True` and waives the engine's bot/draft refusal (products/stamphog/backend/temporal/activities.py:451, products/stamphog/backend/logic/reviewer.py:113-117), and an APPROVE verdict posts a real GitHub approval (products/stamphog/backend/temporal/activities.py:745).\n- **Found:** But the blast radius is much narrower than claimed. The task no-ops unless the PR's repository has a synced+enabled `StamphogRepoConfig` for the given `team_id` (products/stamphog/backend/tasks/tasks.py:1140-1153) — i.e. only the team's own connected repos, the same repos the agent already has push access to (it opened its own PR there). A malicious or prompt-injected agent capable of writing a foreign `pr_url` into its output could equally push the same commits to its own PR branch, which the system would legitimately review and approve — the claimed escalation adds no capability the agent lacks.\n- **Found:** The trust placed in agent-written `output.pr_url` is also the pre-existing, deliberate contract: the same receiver fires the whole ReviewHog workflow off the identical field with no re-verification (products/review_hog/backend/receivers.py:115-125), and the tasks webhook backstop persists agent-observed PR URLs (products/tasks/backend/webhooks.py:203-225). The PR follows the established trust boundary rather than weakening it.\n- **Impact:** The exploitable core reduces to 'PostHog's own sandboxed agent can nominate a same-repo open PR for an auto-approval it could obtain anyway through its own branch' — a theoretical insider/agent-abuse edge with no new capability, and the suggested defense (full re-verification of TaskRun, toggle, bot author, head) duplicates checks the webhook carve-out needs precisely because THAT path faces untrusted external input, which this path never sees. Does not meet the bar for a real, reachable security problem.",
+            "adjusted_priority": null
+        }
+    },
+    {
+        "type": "validation_verdict",
+        "content": {
+            "category": "bug",
+            "is_valid": true,
+            "issue_key": "r1:products/tasks/backend/facade/api.py:507:review-hog-perspective-contracts-security:1-2-2",
+            "argumentation": "- **Checked:** The flagged facade `find_signal_implementation_run` (products/tasks/backend/facade/api.py:484-516), the matcher it delegates to `find_task_run` (products/tasks/backend/webhooks.py:29-98), the `TaskRun.branch` field (products/tasks/backend/models.py:1081), and the consuming carve-out (products/stamphog/backend/tasks/tasks.py:191-200).\n- **Found:** The claim is mechanically correct. `find_task_run` queries `TaskRun.objects` with NO team filter in every leg: pr_url (products/tasks/backend/webhooks.py:41), branch (lines 68-76), wizard head branch (lines 85-93) — then `.first()` picks one row. `find_signal_implementation_run` only afterwards discards the winner when `run.team_id != team_id` (products/tasks/backend/facade/api.py:505) and returns `None`, without ever looking for the requested team's own matching run.\n- **Found:** Cross-team collision is realistic, not hypothetical: `TaskRun.branch` is a free-form, caller-supplied string (products/tasks/backend/models.py:1081, no uniqueness), and `Task.repository` is likewise unconstrained — two PostHog teams can both run implementation tasks against the same GitHub repository, and branch names like `main`-adjacent or conventional `fix/...` names collide. The branch leg's queryset has no ORDER BY (products/tasks/backend/webhooks.py:68-76), so which team's row wins `.first()` is arbitrary. The pre-existing comment in the same function already acknowledges cross-repo branch collisions (lines 61-63) — the same hazard exists cross-team.\n- **Found:** The consequence is a silently lost re-review, fail-closed: when another team's row shadows the match, the carve-out resolves empty (products/stamphog/backend/tasks/tasks.py:199-200) and the self-driving PR is treated as a plain bot draft — the PR's own Case 2 (re-review on new commits) never runs. No approval leaks to the wrong team (the `run.team_id != repo_config.team_id` recheck holds), so this is a correctness bug against the documented contract — 'answers only for the self-driving shape... team scoping is enforced here' (products/tasks/backend/facade/api.py:491-495) — not a security hole.\n- **Impact:** Missed reviews in exactly the multi-team-same-repo dogfooding setup this feature targets. The fix is small (thread `team_id` into `find_task_run`'s filters, keeping the post-check as fail-closed guard), matching how other facade functions already take `team_id` (e.g. `get_task_run`, products/tasks/backend/facade/api.py:473-476).",
+            "adjusted_priority": null
+        }
+    },
+    {
+        "type": "validation_verdict",
+        "content": {
+            "category": null,
+            "is_valid": false,
+            "issue_key": "r1:products/stamphog/backend/tasks/tasks.py:1176:review-hog-perspective-logic-correctness:2-2-2",
+            "argumentation": "- **Checked:** The flagged provenance block (products/stamphog/backend/tasks/tasks.py:1176-1181), the publish-time toggle gate in the receiver (products/review_hog/backend/receivers.py:114-139), what `acting_user_id` actually drives downstream (products/stamphog/backend/temporal/activities.py:451, 745), and the retry profile of the task (products/stamphog/backend/tasks/tasks.py:1109, 1162-1165).\n- **Found:** The toggle is re-checked fresh at EVERY publish: `handle_task_run_saved` loads `ReviewUserSettings` and requires `settings.stamphog_review_inbox_prs` in the same save handling that enqueues the task, on every TaskRun save that refires the receiver (products/review_hog/backend/receivers.py:114-139). The only un-gated span is broker latency between publish and execution — seconds normally, minutes at worst under retries (products/stamphog/backend/tasks/tasks.py:1109).\n- **Found:** `acting_user_id` is attribution-only on this leg. The review posts as the stamphog GitHub App under the installation token (products/stamphog/backend/temporal/activities.py:660, 745); the provenance dict feeds analytics segmentation and UI labeling (products/stamphog/backend/temporal/activities.py:175-176), not any authorization decision. A stale value grants nothing the toggle-off user could not have received moments earlier.\n- **Found:** The asymmetry with the webhook leg is deliberate, not an oversight: the webhook path re-resolves the toggle per delivery (products/stamphog/backend/tasks/tasks.py:201-205) because each webhook event is a new trigger arriving arbitrarily long after opt-in — hours or days later. The receiver leg's opt-in check happens in the same request that publishes the task; the race the issue describes needs the user to disable the setting inside a seconds-to-minutes queue window, and the consequence is one review of their own agent's draft PR — code that IS reviewed, head-pinned, and retracted by the opted-out dismissal path on the next push (products/stamphog/backend/tasks/tasks.py:894-898).\n- **Found:** Re-resolving inside the task is also not free of its own semantics: the resolver re-derives the acting reviewer from the report's LATEST suggested_reviewers artefact (products/review_hog/backend/receivers.py:159-207), so a mid-queue artefact update could silently swap the governing reviewer — the publish-time value is the canonical resolution the receiver already made.\n- **Impact:** A preference-staleness race with a seconds-to-minutes window whose worst case is one automated review of reviewed code on the team's own PR — rare, low-impact, self-limiting. This does not meet the bar for a correctness bug that real inputs will hit; it is a theoretical timing edge on a user preference, not a safety or trust boundary.",
+            "adjusted_priority": null
+        }
+    },
+    {
+        "type": "validation_verdict",
+        "content": {
+            "category": "bug",
+            "is_valid": true,
+            "issue_key": "r1:products/review_hog/backend/receivers.py:111:review-hog-perspective-logic-correctness:2-1-1",
+            "argumentation": "- **Checked:** products/review_hog/backend/receivers.py:111-139 (TaskRun trigger), receivers.py:144-156 (`resolve_stamphog_acting_reviewer`), receivers.py:159-207 (`_resolve_assigned_reviewer`), products/stamphog/backend/tasks/tasks.py:195-215 (webhook leg consuming the registered resolver), products/stamphog/backend/facade/inbox_hooks.py:20-33 (hook contract).\n- **Found:** `_resolve_assigned_reviewer` (receivers.py:206) collapses the full resolved reviewer set to exactly one user: the task creator if assigned, else `resolved[0]`. Both toggle checks then read only that one user's settings: `settings.stamphog_review_inbox_prs` at receivers.py:126 (initial review) and receivers.py:154 (webhook re-review). If the picked user has the toggle off, both paths return without checking any other assigned reviewer.\n- **Found:** The single-user gate directly contradicts the feature's own stated contract. The PR description says the review runs when \"at least one of the assigned users has `stamphog_review_inbox_prs` enabled,\" and Case 3 says \"nobody is opted in, so no review runs\" — both describe an any-reviewer opt-in, not a single-reviewer one.\n- **Found:** The concrete failure: user A (toggle on) and user B (toggle off) are both assigned reviewers; the task creator is not in the assigned set and B sorts first in `resolved` (or B is the creator). The Stamphog review never runs despite A opting in. The same selection is used in `resolve_stamphog_acting_reviewer`, so the webhook leg agrees with the initial leg — the bug is consistent, not a divergence, and the suggestion's demand for a shared selection rule is already structurally satisfied.\n- **Impact:** A user who explicitly opted in to Stamphog reviews gets silently no reviews whenever a non-opted-in reviewer wins the deterministic first slot — a realistic multi-reviewer assignment, not a contrived edge case. Wrong gating outcome on the feature's core toggle = correctness bug; it also contradicts the feature's documented behavior.\n- **Priority:** Keeping `must_fix` — the gate fails for the primary use case the PR ships (any assigned reviewer opting in should trigger the review) and the fix (scan the resolved set for an opted-in reviewer, preferring the creator) is small and local.",
+            "adjusted_priority": null
+        }
+    }
+]

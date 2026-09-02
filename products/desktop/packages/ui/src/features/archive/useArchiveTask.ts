@@ -83,7 +83,7 @@ export function getCachedArchiveTask(
       .flatMap(([, tasks]) => tasks ?? [])
       .find((item) => item.id === taskId) ??
     queryClient
-      .getQueriesData<Schemas.TaskSummary[]>({
+      .getQueriesData<Schemas.TaskSummaryDTO[]>({
         queryKey: taskKeys.allSummaries(),
       })
       .flatMap(([, tasks]) => tasks ?? [])

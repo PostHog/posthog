@@ -156,8 +156,9 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               # Skipped on master push and on the hourly schedule: every output then
-              # defaults to true. On schedule the action would otherwise diff only the
-              # last commit and could turn the full-matrix run into a no-op.
+              # defaults to true. See "The hourly master lane" in
+              # .agents/skills/authoring-ci-workflows/SKILL.md for why a cron cannot
+              # diff, and what breaks if this guard is dropped.
               if: github.event_name != 'push' && github.event_name != 'schedule'
               id: filter
               with:
@@ -1064,7 +1065,8 @@ jobs:
                   set -e
                   exit $overall
 
-            # Excluded reports bypass Trunk quarantine, so this step owns their verdict.
+            # Stages every product's report under a per-product filename. Pass a report path to
+            # exclude a product from Trunk quarantine; this step then owns that product's verdict.
             - name: Prepare product JUnit for Trunk
               id: prepare_product_junit
               if: always()
@@ -1074,8 +1076,7 @@ jobs:
               run: |
                   bash .github/scripts/prepare-product-junit-for-trunk.sh \
                       trunk-junit \
-                      "$PRODUCT_FILTERS" \
-                      products/warehouse_sources/junit-product.xml
+                      "$PRODUCT_FILTERS"
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the

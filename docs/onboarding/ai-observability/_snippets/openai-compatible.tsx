@@ -1,6 +1,7 @@
 import { OnboardingComponentsContext } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../../steps'
+import { GO_OTEL_TAB } from './go-otel-tab'
 
 export interface OpenAICompatibleConfig {
     /** Display name, e.g. 'DeepSeek' */
@@ -58,6 +59,7 @@ export const getOpenAICompatibleSteps = (
                                     npm install @posthog/ai posthog-node openai
                                 `,
                             },
+                            GO_OTEL_TAB,
                         ]}
                     />
                 </>

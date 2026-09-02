@@ -1,9 +1,12 @@
 import re
+from collections.abc import Collection, Mapping
 from datetime import UTC, datetime, time, timedelta
 from typing import cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from django.db.models import Exists, OuterRef, Q, QuerySet
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone
@@ -51,6 +54,35 @@ ACCOUNT_DIRECT_FIELDS = {
     contracts.AccountTableField.CHURNED_AT: "churned_at",
     contracts.AccountTableField.IGNORED_AT: "ignored_at",
 }
+
+
+def parse_email_search(query: str) -> str | None:
+    normalized = query.strip().lower()
+    local_part, separator, domain = normalized.partition("@")
+    if not separator or not local_part or "." not in domain:
+        return None
+    try:
+        validate_email(normalized)
+    except DjangoValidationError:
+        return None
+    return normalized
+
+
+def account_search_q(query: str, *, member_external_ids: Collection[str] = ()) -> Q:
+    """Free-text account search over account identity and matching properties."""
+    predicate = Q(name__icontains=query) | Q(external_id__icontains=query)
+    normalized = query.strip().lower()
+    email = parse_email_search(normalized)
+    if email is not None:
+        predicate |= Q(_properties__known_emails__contains=[email])
+        if member_external_ids:
+            predicate |= Q(external_id__in=member_external_ids)
+        domain = email.rsplit("@", 1)[-1]
+    else:
+        domain = normalized if "@" not in normalized else ""
+    if "." in domain:
+        predicate |= Q(_properties__email_domains__contains=[domain])
+    return predicate
 
 
 def _coerce_datetime_filter_value(value: float | bool | str, *, timezone_info: ZoneInfo) -> datetime:
@@ -260,6 +292,7 @@ def apply_account_filters(
     filters: tuple[contracts.AccountTableFilter, ...],
     custom_property_display_types: dict[UUID, DisplayType],
     timezone_info: ZoneInfo | None = None,
+    member_external_ids_by_query: Mapping[str, Collection[str]] | None = None,
 ) -> QuerySet[Account]:
     effective_timezone_info = timezone_info or UTC_TIMEZONE
     active_relationships = AccountRelationship.objects.for_team(team_id).filter(
@@ -269,7 +302,10 @@ def apply_account_filters(
         if isinstance(filter_, contracts.AccountTableSearchFilter):
             query = filter_.query.strip()
             if query:
-                queryset = queryset.filter(Q(name__icontains=query) | Q(external_id__icontains=query))
+                member_external_ids = (
+                    member_external_ids_by_query.get(query, ()) if member_external_ids_by_query is not None else ()
+                )
+                queryset = queryset.filter(account_search_q(query, member_external_ids=member_external_ids))
         elif isinstance(filter_, contracts.AccountTableTagsFilter):
             if filter_.tag_names:
                 matching_tags = TaggedItem.objects.filter(
