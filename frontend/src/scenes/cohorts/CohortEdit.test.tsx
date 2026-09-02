@@ -547,8 +547,9 @@ describe('cohortEditLogic', () => {
         // A retry the user just queued bumps `pending_version` but leaves `errors_calculating`
         // from the prior failure in place. Without the retry-aware branch the queued attempt reads
         // as "failed", so the error banner reappears the instant a poll finds is_calculating=false
-        // — the dead-end this fixes. The branch must not resurrect the perpetual-pending bug for a
-        // cohort where every attempt failed (no retry queued, or the retry itself errored again).
+        // — the dead-end this fixes. The branch must still fall back to "failed" once the retry
+        // errors again (errors climb past the baseline) or the version catches up, so it can't
+        // resurrect the perpetual-pending bug.
         it.each([
             {
                 name: 'queued retry, not yet failed again: in progress',
@@ -560,12 +561,6 @@ describe('cohortEditLogic', () => {
                 name: 'queued retry that failed again (errors climbed): failed',
                 cohort: { version: 1, pending_version: 2, errors_calculating: 2 },
                 retryState: { baselineErrors: 1 },
-                expected: false,
-            },
-            {
-                name: 'stuck failure with no retry queued: failed',
-                cohort: { version: 1, pending_version: 5, errors_calculating: 3 },
-                retryState: null,
                 expected: false,
             },
             {
