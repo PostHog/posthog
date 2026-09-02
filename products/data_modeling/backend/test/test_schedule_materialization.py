@@ -84,7 +84,7 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         self.sq.save(update_fields=["is_materialized"])
         with (
             mock.patch(GET_V2_DAG_IDS, return_value=set()),
-            mock.patch(f"{RECONCILE}.schedule_exists", return_value=True),
+            mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=False),
             mock.patch(f"{MODEL}.capture_exception") as capture,
         ):
             self.sq.schedule_materialization()
@@ -94,14 +94,12 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         assert isinstance(capture.call_args.args[0], V1SchedulingPathReached)
         assert capture.call_args.args[1]["team_id"] == self.team.pk
 
-    def test_virgin_dag_is_born_on_tiers_instead_of_minting_a_v1_schedule(self):
-        # a brand-new team's DAG has no v2 schedule *and* no v1 schedules, so the v2 lookup says
-        # "not on v2" and the query would get a per-query v1 schedule — that is how every new team
-        # lands on v1 and why the v1 population grows on its own
+    def test_virgin_dag_is_born_on_tiers(self):
+        # a brand-new team's DAG has no schedule at all, so the v2 lookup says "not on v2" and
+        # nothing would ever materialize the query — the bootstrap is what gives it a schedule
         node = Node.objects.get(saved_query=self.sq)
         with (
             mock.patch(GET_V2_DAG_IDS, return_value=set()),
-            mock.patch(f"{RECONCILE}.schedule_exists", return_value=False),
             mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=True),
             mock.patch(f"{RECONCILE}.sync_connect"),
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_no_schedules())),
@@ -174,7 +172,6 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         self.sq.save(update_fields=["sync_frequency_interval"])
         with (
             mock.patch(GET_V2_DAG_IDS, return_value=set()),
-            mock.patch(f"{RECONCILE}.schedule_exists", return_value=False),
             mock.patch(f"{RECONCILE}.feature_enabled_or_false", return_value=True),
             mock.patch(f"{RECONCILE}.sync_connect"),
             mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=_no_schedules())),

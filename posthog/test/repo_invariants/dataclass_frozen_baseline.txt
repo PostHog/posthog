@@ -1364,7 +1364,6 @@
 1 products/web_analytics/backend/test/test_digest_notification_workflows.py
 1 products/web_analytics/backend/test/test_weekly_digest_workflows.py
 10 posthog/temporal/ai_observability/trace_summarization/models.py
-10 posthog/temporal/data_modeling/run_workflow.py
 10 posthog/temporal/sync_person_distinct_ids/activities.py
 10 products/signals/backend/temporal/grouping.py
 10 products/signals/backend/temporal/summary.py
