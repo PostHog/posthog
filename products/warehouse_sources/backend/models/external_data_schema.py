@@ -167,6 +167,12 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     source = models.ForeignKey("warehouse_sources.ExternalDataSource", related_name="schemas", on_delete=models.CASCADE)
     table = models.ForeignKey("warehouse_sources.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
     should_sync = models.BooleanField(default=True)
+    auto_disabled_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When PostHog stopped syncing this schema itself, after an error that retrying would not fix. "
+        "Null while syncing is on, and while syncing is off because the user turned it off.",
+    )
     latest_error = models.TextField(
         null=True, blank=True, help_text="The latest error that occurred when syncing this schema."
     )
@@ -242,6 +248,30 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             return "disabled"
         return None
 
+    def _apply_auto_disabled_marker(self, teardown_kind: str | None, update_fields: Iterable[str] | None) -> bool:
+        """Record whether PostHog stopped this schema itself. Returns whether the value changed.
+
+        The failure digest emails a team about a schema PostHog halted, and stays quiet about one
+        the user switched off, so which of the two happened must outlive the write that stopped
+        the schema. Only the auto-disable path supplies an error message through
+        ``sync_disable_context``, and that is what tells the two apart. A save that leaves
+        ``should_sync`` False without performing the disable transition keeps the existing stamp,
+        so the pipeline's frequent bookkeeping saves cannot erase it.
+        """
+        if update_fields is not None and "should_sync" not in update_fields:
+            return False
+        if self.should_sync:
+            marker = None
+        elif teardown_kind == "disabled":
+            context = _sync_disable_context.get()
+            marker = timezone.now() if context is not None and context.error_message else None
+        else:
+            return False
+        if marker == self.auto_disabled_at:
+            return False
+        self.auto_disabled_at = marker
+        return True
+
     def save(self, *args: Any, skip_activity_log: bool = False, **kwargs: Any) -> None:
         # Populate the S3 folder on first write so the column is always authoritative for new rows.
         # Legacy/qualified rows set it explicitly before renaming (see `_qualify_legacy_row`); this
@@ -256,6 +286,11 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         # `.update()` twin lives on ExternalDataSchemaQuerySet. Detected before the write,
         # dispatched only after it succeeds.
         teardown_kind = self._sync_teardown_kind(kwargs.get("update_fields"))
+
+        if self._apply_auto_disabled_marker(teardown_kind, kwargs.get("update_fields")):
+            scoped_fields = kwargs.get("update_fields")
+            if scoped_fields is not None:
+                kwargs["update_fields"] = {*scoped_fields, "auto_disabled_at"}
 
         if skip_activity_log:
             # Internal pipeline-driven bookkeeping saves (sync_type_config / xmin state) don't need

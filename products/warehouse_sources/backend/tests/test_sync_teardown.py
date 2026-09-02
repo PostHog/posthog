@@ -153,6 +153,52 @@ class TestDisableChokepointDispatch:
             exclude_workflow_id=job.workflow_id,
         )
 
+    @pytest.mark.parametrize(
+        "halted_by_posthog",
+        [False, True],
+        ids=["user_switched_it_off", "posthog_halted_it"],
+    )
+    def test_disable_records_who_stopped_the_sync(self, halted_by_posthog, team, django_capture_on_commit_callbacks):
+        schema, _job = _create_schema_with_running_job(team)
+
+        with (
+            patch(TASK_DELAY),
+            patch(
+                "products.data_warehouse.backend.logic.data_load.service.external_data_workflow_exists",
+                return_value=False,
+            ),
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            if halted_by_posthog:
+                update_should_sync(
+                    schema_id=str(schema.id),
+                    team_id=team.pk,
+                    should_sync=False,
+                    disable_error_message="Your account does not have access to this table",
+                )
+            else:
+                schema.should_sync = False
+                schema.save()
+
+        schema.refresh_from_db()
+        assert (schema.auto_disabled_at is not None) is halted_by_posthog
+
+    def test_re_enabling_clears_the_record_of_an_earlier_halt(self, team):
+        # A record left behind by an earlier halt survives a later bulk disable, which bypasses
+        # save(), and puts a schema nobody halted back into the failure digest.
+        schema, _job = _create_schema_with_running_job(team)
+        with patch(TASK_DELAY):
+            ExternalDataSchema.objects.filter(pk=schema.pk).update(should_sync=False, auto_disabled_at=timezone.now())
+            schema.refresh_from_db()
+
+            schema.should_sync = True
+            schema.save()
+
+            ExternalDataSchema.objects.filter(pk=schema.pk).update(should_sync=False)
+
+        schema.refresh_from_db()
+        assert schema.auto_disabled_at is None
+
 
 class TestSweepStoppedSchemaSyncs:
     @pytest.mark.parametrize("deleted", [False, True], ids=["disabled", "deleted"])
