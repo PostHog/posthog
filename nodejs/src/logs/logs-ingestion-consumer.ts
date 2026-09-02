@@ -78,13 +78,6 @@ export interface LogsIngestionConsumerDeps {
 /** Ingestion default when `logs_settings.retention_days` is unset; must be in `TeamSerializer.VALID_RETENTION_DAYS`. */
 export const DEFAULT_LOGS_RETENTION_DAYS = 14
 
-/** Retention tiers that get their own per-tier usage metric; total = sum across all tiers. */
-const RETENTION_USAGE_TIERS = new Set([14, 30, 90])
-
-function retentionBytesMetricName(retentionDays: number): string | null {
-    return RETENTION_USAGE_TIERS.has(retentionDays) ? `bytes_ingested_retention_${retentionDays}d` : null
-}
-
 export type UsageStats = {
     bytesReceived: number
     recordsReceived: number
@@ -889,7 +882,7 @@ export class LogsIngestionConsumer {
                         const jsonParse = logsSettings.json_parse_logs ?? false
                         const retentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
 
-                        // Retention is uniform per team; stash for retention-bucketed usage emit
+                        // Retention is uniform per team; stash it to weight the byte-days usage metric.
                         const teamStats = usageStats.get(message.teamId)
                         if (teamStats) {
                             teamStats.retentionDays = retentionDays
@@ -1120,10 +1113,11 @@ export class LogsIngestionConsumer {
             this.queueUsageMetric(teamId, 'records_dropped', stats.recordsDropped)
             this.queueUsageMetric(teamId, 'pii_replacements', stats.piiReplacements)
 
-            const retentionMetric = retentionBytesMetricName(stats.retentionDays)
-            if (retentionMetric) {
-                this.queueUsageMetric(teamId, retentionMetric, stats.bytesAllowed)
-            }
+            // Byte-days: ingested bytes weighted by how long they are retained. Summed over a period
+            // this is total storage-duration; average retention = retention_byte_days / bytes_ingested.
+            // Uses the credit-adjusted `bytesAllowed` so it reconciles with `bytes_ingested`, and scales
+            // to any retention day count instead of a fixed set of tiers.
+            this.queueUsageMetric(teamId, 'retention_byte_days', stats.bytesAllowed * stats.retentionDays)
             const source = this.appSource === 'traces' ? 'apm_traces' : 'logs'
             // These records are per-flush aggregates, not one per billed thing, so there is no
             // stable identity to reproduce. A fresh ID per flush is what keeps two pods flushing
