@@ -651,7 +651,9 @@ export function CodeEditor({
                 key={queryKey}
                 theme={isDarkModeOn ? 'vs-dark' : 'vs-light'}
                 loading={<Spinner />}
-                value={value}
+                // Monaco expects a string; a non-string `value` throws `t.create is not a function`
+                // deep in its model setup. Keep null/undefined as-is so the editor stays uncontrolled.
+                value={value == null || typeof value === 'string' ? value : String(value)}
                 options={editorOptions}
                 onMount={editorOnMount}
                 {...editorProps}

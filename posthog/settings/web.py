@@ -575,8 +575,6 @@ SPECTACULAR_SETTINGS = {
             "RecurrenceIntervalEnum": "products.reminders.backend.models.reminder.Reminder.RecurrenceInterval",
             # Matches the messaging email channel setup provider list.
             "ScannerProviderEnum": "products.replay_vision.backend.models.replay_scanner.ScannerProvider",
-            # vision_action and vision_alert both define AlertDirection.
-            "VisionAlertDirectionEnum": "products.replay_vision.backend.models.vision_action.AlertDirection",
             # Matches replay_vision's VisionAlertState.
             "LogsAlertConfigurationStateEnum": "products.logs.backend.models.LogsAlertConfiguration.State",
             #
