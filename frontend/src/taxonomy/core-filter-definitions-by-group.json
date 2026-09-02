@@ -2424,6 +2424,15 @@
             ],
             "label": "MCP transport"
         },
+        "$mcp_vendor_client": {
+            "description": "Vendor client header the MCP client sent on the transport (x-anthropic-client), captured raw. The strongest harness signal: clientInfo.name can't tell one vendor surface from another, but this header can.",
+            "examples": [
+                "ClaudeCode",
+                "ClaudeAI",
+                "Cowork"
+            ],
+            "label": "MCP vendor client"
+        },
         "$mcp_version": {
             "description": "Server-resolved MCP version. May differ from the version the client reported because of the mcp-version-2 feature flag.",
             "examples": [
@@ -3739,12 +3748,12 @@
             "label": "MCP transport (unprefixed)"
         },
         "mcp_vendor_client": {
-            "description": "Vendor/client identity derived from the request context for the MCP call (e.g. the coding agent or app behind the request).",
+            "description": "Older unprefixed variant of $mcp_vendor_client, stamped only by PostHog's hosted MCP server. Coalesce both keys when querying vendor identity directly; the harness resolution in MCP analytics already does.",
             "examples": [
                 "ClaudeCode",
                 "ClaudeAI"
             ],
-            "label": "MCP vendor client"
+            "label": "MCP vendor client (legacy)"
         },
         "mcp_version": {
             "description": "Older unprefixed variant of $mcp_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_version for new dashboards.",
@@ -4679,6 +4688,15 @@
                 "streamable-http"
             ],
             "label": "MCP transport"
+        },
+        "$mcp_vendor_client": {
+            "description": "Vendor client header the MCP client sent on the transport (x-anthropic-client), captured raw. The strongest harness signal: clientInfo.name can't tell one vendor surface from another, but this header can.",
+            "examples": [
+                "ClaudeCode",
+                "ClaudeAI",
+                "Cowork"
+            ],
+            "label": "MCP vendor client"
         },
         "$mcp_version": {
             "description": "Server-resolved MCP version. May differ from the version the client reported because of the mcp-version-2 feature flag.",
@@ -7493,6 +7511,15 @@
             ],
             "label": "MCP transport"
         },
+        "$mcp_vendor_client": {
+            "description": "Vendor client header the MCP client sent on the transport (x-anthropic-client), captured raw. The strongest harness signal: clientInfo.name can't tell one vendor surface from another, but this header can.",
+            "examples": [
+                "ClaudeCode",
+                "ClaudeAI",
+                "Cowork"
+            ],
+            "label": "MCP vendor client"
+        },
         "$mcp_version": {
             "description": "Server-resolved MCP version. May differ from the version the client reported because of the mcp-version-2 feature flag.",
             "examples": [
@@ -8803,12 +8830,12 @@
             "label": "MCP transport (unprefixed)"
         },
         "mcp_vendor_client": {
-            "description": "Vendor/client identity derived from the request context for the MCP call (e.g. the coding agent or app behind the request).",
+            "description": "Older unprefixed variant of $mcp_vendor_client, stamped only by PostHog's hosted MCP server. Coalesce both keys when querying vendor identity directly; the harness resolution in MCP analytics already does.",
             "examples": [
                 "ClaudeCode",
                 "ClaudeAI"
             ],
-            "label": "MCP vendor client"
+            "label": "MCP vendor client (legacy)"
         },
         "mcp_version": {
             "description": "Older unprefixed variant of $mcp_version. Emitted on events from the pre-@posthog/mcp code paths; prefer $mcp_version for new dashboards.",
