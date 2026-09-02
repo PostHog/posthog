@@ -184,7 +184,14 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         # from the persistent "Topology Description:" server-selection failures above. Match the
         # fixed "connection pool paused" phrase pymongo always uses for this state, not the
         # surrounding host/timeout values.
-        return {"The resolution lifetime expired", "connection pool paused"}
+        #
+        # mongo.py resumes a killed read cursor after the last document it saw, so the only
+        # CursorNotFound that reaches us is one that killed a cursor before it read anything —
+        # MONGO_CURSOR_LOST_ERROR. That is a cluster-side event (an expired logical session, a
+        # failover, a mongos restart), not a source misconfiguration, so a later run reads the same
+        # collection successfully. Keeping it out of get_non_retryable_errors matters: a match there
+        # disables the schema, which would stop a healthy sync over one lost cursor.
+        return {"The resolution lifetime expired", "connection pool paused", "lost its read cursor"}
 
     def get_schemas(
         self,

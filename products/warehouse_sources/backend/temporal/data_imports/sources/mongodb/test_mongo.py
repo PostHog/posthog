@@ -17,6 +17,7 @@ from pymongo.server_description import ServerDescription
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import DEFAULT_CHUNK_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
+    MONGO_CURSOR_LOST_ERROR,
     MONGO_DOCUMENT_MISSING_ID_ERROR,
     MONGO_MAX_CHUNK_ROWS,
     MONGO_MIN_CHUNK_ROWS,
@@ -448,6 +449,9 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "cluster0.example.mongodb.net:27017: connection closed (configured timeouts: "
                 "socketTimeoutMS: 20000.0ms, connectTimeoutMS: 20000.0ms)",
             ),
+            # A cursor killed before it read anything is a cluster-side event a later run recovers
+            # from. Matching it non-retryable would disable a healthy schema over one lost cursor.
+            ("cursor_lost_before_any_progress", MONGO_CURSOR_LOST_ERROR),
         ]
     )
     def test_transient_errors_are_retryable(self, _name, error_msg):
@@ -503,6 +507,12 @@ class TestGetRetryableErrors(SimpleTestCase):
         assert any(pattern in error_msg for pattern in self.retryable), (
             f"MongoDB connection pool paused should be classified retryable: {error_msg}"
         )
+
+    def test_lost_cursor_message_is_classified_retryable(self):
+        # get_rows resumes a killed cursor after the last _id it saw, so this reaches the activity
+        # only for a cursor killed before it read anything. Guards the message and the pattern
+        # against drift: without a match, Temporal reports a cluster-side event as a PostHog bug.
+        assert any(pattern in MONGO_CURSOR_LOST_ERROR for pattern in self.retryable)
 
 
 class TestGetRowsToSync(SimpleTestCase):
@@ -595,11 +605,17 @@ class _FakeCursor:
         self.closed = True
 
 
+# A `$gt: null` resume predicate still resumes: null sorts before every other _id, so the predicate
+# selects every non-null document. This marker keeps it distinct from "no resume predicate at all".
+_RESUME_FROM_NULL = object()
+
+
 def _resume_after(query: dict[str, Any]) -> Any:
     for clause in query.get("$and", [query]):
         predicate = clause.get("_id")
         if isinstance(predicate, dict) and "$gt" in predicate:
-            return predicate["$gt"]
+            value = predicate["$gt"]
+            return _RESUME_FROM_NULL if value is None else value
     return None
 
 
@@ -608,12 +624,18 @@ class _FakeCollection:
         self,
         docs: list[dict[str, Any]],
         error: Exception | None = None,
+        error_after: int = 0,
+        error_once: bool = False,
         fallback_docs: list[dict[str, Any]] | None = None,
         fallback_error: Exception | None = None,
         fallback_error_after: int = 0,
     ) -> None:
         self._docs = docs
         self._error = error
+        self._error_after = error_after
+        # Raised by the first no_cursor_timeout cursor only, so a resumed read can be asserted on.
+        self._error_once = error_once
+        self._error_raised = False
         # Docs returned by a second find() call made without no_cursor_timeout, simulating the
         # fallback path taken when the tier rejects that option.
         self._fallback_docs = fallback_docs
@@ -634,17 +656,23 @@ class _FakeCollection:
         self.find_calls.append(kwargs)
         self.find_queries.append(query)
         if kwargs.get("no_cursor_timeout"):
-            cursor = _FakeCursor(self._docs, self._error)
+            docs = self._docs
+            error, error_after = self._error, self._error_after
+            if self._error_once and self._error_raised:
+                error, error_after = None, 0
+            self._error_raised = True
         else:
             docs = self._fallback_docs if self._fallback_docs is not None else self._docs
-            resume_after = _resume_after(query)
-            if resume_after is not None:
-                docs = [doc for doc in docs if doc["_id"] > resume_after]
+            error, error_after = None, 0
             if self._fallback_error is not None and not self._fallback_error_raised:
                 self._fallback_error_raised = True
-                cursor = _FakeCursor(docs, self._fallback_error, self._fallback_error_after)
-            else:
-                cursor = _FakeCursor(docs)
+                error, error_after = self._fallback_error, self._fallback_error_after
+        resume_after = _resume_after(query)
+        if resume_after is _RESUME_FROM_NULL:
+            docs = [doc for doc in docs if doc["_id"] is not None]
+        elif resume_after is not None:
+            docs = [doc for doc in docs if doc["_id"] is not None and doc["_id"] > resume_after]
+        cursor = _FakeCursor(docs, error, error_after)
         self.cursors.append(cursor)
         self.last_cursor = cursor
         return cursor
@@ -688,6 +716,9 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
         assert len(rows) == 2
         assert collection.find_kwargs is not None
         assert collection.find_kwargs["no_cursor_timeout"] is True
+        # The first read must be _id-ordered too, or resuming it after the last _id we saw would
+        # skip every unread document that sorts before it.
+        assert collection.cursors[0].sorted_by == ["_id", 1]
 
     def test_cursor_closed_after_exhausting_all_rows(self):
         collection = _FakeCollection([{"_id": "1"}])
@@ -702,11 +733,51 @@ class TestMongoSourceCursorLifecycle(SimpleTestCase):
         # CursorNotFound this guards against) must still close it or it leaks server-side.
         collection = _FakeCollection([], error=CursorNotFound("cursor id 123 not found"))
 
-        with self.assertRaises(CursorNotFound):
+        with self.assertRaises(CursorNotFound) as ctx:
             self._run_get_rows(collection)
 
+        # pymongo appends the whole server response (clusterTime, signature bytes) to its own
+        # message, and latest_error shows that to the customer, so the raw text must not survive.
+        assert str(ctx.exception) == MONGO_CURSOR_LOST_ERROR
         assert collection.last_cursor is not None
         assert collection.last_cursor.closed is True
+
+    def test_no_timeout_cursor_killed_mid_read_resumes_after_the_last_document(self):
+        # no_cursor_timeout only disables the idle-cursor timeout. MongoDB still reaps a cursor
+        # whose logical session expires, and a failover or a mongos restart kills one too.
+        # Regression: the resume was gated on the option having been dropped first, so a killed
+        # no_cursor_timeout cursor aborted the whole sync instead of resuming.
+        collection = _FakeCollection(
+            [{"_id": "1"}, {"_id": "2"}, {"_id": "3"}],
+            error=CursorNotFound("cursor id 123 not found"),
+            error_after=2,
+            error_once=True,
+        )
+
+        rows = self._run_get_rows(collection)
+
+        assert [row["_id"] for row in rows] == ["1", "2", "3"]
+        assert collection.find_queries[-1] == {"_id": {"$gt": "2"}}
+        # The resumed read keeps the option, so it doesn't reintroduce the idle timeout.
+        assert collection.find_calls[-1]["no_cursor_timeout"] is True
+
+    def test_null_first_id_resumes_with_a_predicate_rather_than_restarting(self):
+        # MongoDB allows a BSON null `_id`. Reading it still counts as progress, so a cursor killed
+        # right after must resume with an `_id > null` predicate (which selects every non-null
+        # document) rather than reopen with no predicate and re-read from the start. Regression: the
+        # "nothing read yet" sentinel used to be `last_id is None`, which a null `_id` collides with,
+        # so the resume dropped its predicate and re-emitted the first document.
+        collection = _FakeCollection(
+            [{"_id": None}, {"_id": "1"}, {"_id": "2"}],
+            error=CursorNotFound("cursor id 123 not found"),
+            error_after=1,
+            error_once=True,
+        )
+
+        rows = self._run_get_rows(collection)
+
+        assert [row["_id"] for row in rows] == ["None", "1", "2"]
+        assert collection.find_queries[-1] == {"_id": {"$gt": None}}
 
     @parameterized.expand(
         [
