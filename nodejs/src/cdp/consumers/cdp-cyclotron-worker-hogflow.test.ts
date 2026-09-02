@@ -109,7 +109,13 @@ describe('CdpCyclotronWorkerHogFlow', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        const { organizationId, team: fixtureTeam } = await createTestTeamFixture(hub.postgres)
+        // The default fixture leaves this empty, which makes every person display name fall back to
+        // the distinct id. Set it so the tests can tell which properties a display name came from.
+        // Written as a Postgres array literal because the fixture helper sends a non-empty JS array
+        // as JSON, which this text[] column rejects.
+        const { organizationId, team: fixtureTeam } = await createTestTeamFixture(hub.postgres, {
+            person_display_name_properties: '{email,name}',
+        })
         team = fixtureTeam
         const team2Id = await createTeam(hub.postgres, organizationId)
         team2 = (await getTeam(hub.postgres, team2Id))!
@@ -427,6 +433,62 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                 email: 'batch@posthog.com',
             })
             expect(results[0].invocation.filterGlobals?.person?.id).toBe(personUuid)
+        })
+
+        it.each([
+            ['recently captured', new Date().toISOString(), 'fresh@example.com'],
+            [
+                'captured longer ago than the person cache can lag',
+                new Date(Date.now() - 3600_000).toISOString(),
+                undefined,
+            ],
+        ])(
+            'overlays the trigger event $set onto the resolved person when the event was %s',
+            async (_label, capturedAt, expectedEmail) => {
+                // Person A 1 is cached with no email. When the trigger is the very event that sets one,
+                // the cached copy can predate that write, so a message step reads no recipient and the
+                // send fails. Once the event is older than the cache can lag, the person read is
+                // authoritative and the trigger's values must not win over it.
+                const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
+                    event: {
+                        distinct_id: 'distinct_A_1',
+                        captured_at: capturedAt,
+                        properties: { $set: { email: 'fresh@example.com' } },
+                    } as any,
+                })
+
+                const results = (await processor.processInvocations([
+                    invocation,
+                ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+                expect(results[0].invocation.person?.properties.email).toBe(expectedEmail)
+            }
+        )
+
+        it('lets $set_once fill only gaps, and recomputes the display name from the merged properties', async () => {
+            const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
+                event: {
+                    distinct_id: 'distinct_A_1',
+                    captured_at: new Date().toISOString(),
+                    properties: {
+                        $set: { email: 'fresh@example.com' },
+                        $set_once: { name: 'Should not overwrite', signup_source: 'ad' },
+                    },
+                } as any,
+            })
+
+            const results = (await processor.processInvocations([
+                invocation,
+            ])) as CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>[]
+
+            expect(results[0].invocation.person?.properties).toEqual({
+                name: 'Person A 1',
+                email: 'fresh@example.com',
+                signup_source: 'ad',
+            })
+            // 'email' comes before 'name' in the default display-name properties, so the name follows
+            // the new email. A template must not greet one address in a message sent to another.
+            expect(results[0].invocation.person?.name).toBe('fresh@example.com')
         })
 
         it('persists the resolved person UUID into state so a re-parked wait keeps its person_id', async () => {
