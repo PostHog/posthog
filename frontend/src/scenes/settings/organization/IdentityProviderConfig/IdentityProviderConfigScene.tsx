@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconArrowLeft, IconShieldLock } from '@posthog/icons'
+import { IconShieldLock } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, Spinner } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -84,17 +84,7 @@ export function IdentityProviderConfigScene(): JSX.Element | null {
         <SceneContent className="pb-8">
             <SceneTitleSection
                 name={`Configure ${feature.name}`}
-                description={feature.description}
                 resourceType={{ type: 'identity_provider', forceIcon: <IconShieldLock /> }}
-                actions={
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconArrowLeft />}
-                        to={urls.settings('organization-authentication')}
-                    >
-                        Back to authentication settings
-                    </LemonButton>
-                }
             />
             <TimeSensitiveAuthenticationArea>
                 <PayGateMini feature={feature.availableFeature} featureDetail={`${configScope}-configuration`}>
