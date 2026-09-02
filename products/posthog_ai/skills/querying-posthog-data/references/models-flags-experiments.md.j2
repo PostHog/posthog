@@ -8,15 +8,7 @@ Feature flags control rollouts of new features and are used for A/B testing.
 
 These are the only columns exposed via HogQL — the full flag model (e.g. `active`, `ensure_experience_continuity`, `last_called_at`, rollback settings) is not queryable here; fetch the flag via the feature flag API tools instead.
 
-Column | Type | Nullable | Description
-`id` | integer | NOT NULL | Primary key (auto-generated)
-`team_id` | integer | NOT NULL | Project scope
-`key` | varchar(400) | NOT NULL | Unique flag key per team
-`name` | text | NOT NULL | Flag description (not the display name)
-`filters` | jsonb | NOT NULL | Targeting conditions and variants
-`rollout_percentage` | integer | NULL | Overall rollout percentage
-`created_at` | timestamp with tz | NOT NULL | Creation timestamp
-`deleted` | integer (0/1) | NOT NULL | Soft delete flag
+{{ schema_columns('system.feature_flags') }}
 
 ### Filters Structure
 
@@ -64,19 +56,7 @@ Experiments are A/B tests that compare variants against a control group.
 
 These are the only columns exposed via HogQL — the full experiment model (e.g. `deleted`, `conclusion`, `metrics`, `metrics_secondary`, `stats_config`, `exposure_criteria`, `holdout_id`, `type`) is not queryable here; fetch the experiment via the experiment API tools instead.
 
-Column | Type | Nullable | Description
-`id` | integer | NOT NULL | Primary key (auto-generated)
-`team_id` | integer | NOT NULL | Project scope
-`name` | varchar(400) | NOT NULL | Experiment name
-`description` | varchar(400) | NULL | Experiment description
-`filters` | jsonb | NOT NULL | Legacy target metric definition
-`parameters` | jsonb | NULL | Experiment configuration (variants, MDE, sample size)
-`start_date` | timestamp with tz | NULL | When experiment started (NULL = draft)
-`end_date` | timestamp with tz | NULL | When experiment ended
-`created_at` | timestamp with tz | NOT NULL | Creation timestamp
-`updated_at` | timestamp with tz | NOT NULL | Last update timestamp
-`archived` | integer (0/1) | NOT NULL | Whether experiment is archived
-`feature_flag_id` | integer | NOT NULL | FK to `system.feature_flags.id`
+{{ schema_columns('system.experiments') }}
 
 ### Parameters Structure
 
