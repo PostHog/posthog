@@ -14,9 +14,9 @@
  * * `teams` - Microsoft Teams
  * * `github` - GitHub
  */
-export type ChannelSourceEnumApi = (typeof ChannelSourceEnumApi)[keyof typeof ChannelSourceEnumApi]
+export type ChannelEnumApi = (typeof ChannelEnumApi)[keyof typeof ChannelEnumApi]
 
-export const ChannelSourceEnumApi = {
+export const ChannelEnumApi = {
     Widget: 'widget',
     Email: 'email',
     Slack: 'slack',
@@ -128,7 +128,7 @@ export interface TicketPersonApi {
 export interface TicketApi {
     readonly id: string
     readonly ticket_number: number
-    readonly channel_source: ChannelSourceEnumApi
+    readonly channel_source: ChannelEnumApi
     readonly channel_detail: ChannelDetailEnumApi | null
     readonly distinct_id: string
     /** Ticket status: new, open, pending, on_hold, or resolved
@@ -533,6 +533,12 @@ export interface ComposeTicketApi {
     message: string
     /** TipTap rich content JSON for formatted messages. */
     rich_content?: unknown
+    /**
+     * Tags to apply to the new ticket, e.g. to mark its source. Each is normalized (lowercased, trimmed). Up to 100.
+     * @maxItems 100
+     * @items.maxLength 255
+     */
+    tags?: string[]
 }
 
 export interface ComposeTicketResponseApi {

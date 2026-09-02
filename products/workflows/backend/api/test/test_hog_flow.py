@@ -273,6 +273,34 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?type=campaign")
         assert response.status_code == 400
 
+    def test_list_filter_by_origin_product(self):
+        HogFlow.objects.create(team=self.team, name="Loop", created_by=self.user, origin_product="loops")
+        HogFlow.objects.create(team=self.team, name="Hand built", created_by=self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?origin_product=loops")
+        assert response.status_code == 200, response.json()
+        assert {flow["name"] for flow in response.json()["results"]} == {"Loop"}
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?origin_product=spreadsheets")
+        assert response.status_code == 400
+
+    def test_origin_product_is_set_on_create_and_immutable(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "origin_product": "loops"})
+        assert response.status_code == 201, response.json()
+        flow_id = response.json()["id"]
+        assert response.json()["origin_product"] == "loops"
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"origin_product": None})
+        assert response.status_code == 400
+        assert response.json()["attr"] == "origin_product"
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"name": "Renamed"})
+        assert response.status_code == 200, response.json()
+        assert response.json()["origin_product"] == "loops"
+
     def test_mcp_list_is_metadata_only_and_hides_action_secrets(self):
         # A webhook action whose headers carry a bearer token — the kind of credential-like value
         # that must not leak from a workflow *listing*.
@@ -2518,7 +2546,6 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("replay_vision", "$replay_vision_action_ready"),
             ("activity_log", "$activity_log_entry_created"),
             ("error_tracking", "$error_tracking_issue_created"),
             ("discussion", "$discussion_mention_created"),
@@ -2558,7 +2585,7 @@ class TestHogFlowAPI(APIBaseTest):
                     "source": "internal-events",
                     "events": [
                         {"id": "$slack_message_received", "type": "events"},
-                        {"id": "$replay_vision_action_ready", "type": "events"},
+                        {"id": "$error_tracking_issue_created", "type": "events"},
                     ],
                     "properties": [{"key": "channel", "value": ["C0ALERTS"], "operator": "exact", "type": "event"}],
                 },
@@ -2569,7 +2596,7 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
 
         assert response.status_code == 400, response.json()
-        assert "$replay_vision_action_ready" in response.json()["detail"]
+        assert "$error_tracking_issue_created" in response.json()["detail"]
 
     def test_hog_flow_internal_event_trigger_requires_an_explicit_event_even_when_draft(self):
         trigger_action = {
@@ -5479,8 +5506,8 @@ class TestCreateTaskActionValidation(APIBaseTest):
     def test_accepts_a_connector_the_workflow_owner_can_mount(self):
         # products.workflows may not depend on products.mcp_store's models directly (tach
         # boundary) - mocking at the same seam the model-catalogue tests below use.
-        with patch("products.workflows.backend.api.hog_flow.validate_connectors", return_value=None):
-            response = self._post_flow({"connectors": {"value": ["some-installation-id"]}})
+        with patch("products.workflows.backend.api.hog_flow.resolve_connectors", return_value=["some-server-id"]):
+            response = self._post_flow({"connectors": {"value": ["some-server-id"]}})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 

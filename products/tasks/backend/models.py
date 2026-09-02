@@ -42,6 +42,7 @@ from posthog.uuidt import uuid7
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS, PR_LOOP_ENABLED_STATE_KEY
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.feature_flags import is_task_run_stream_presence_gated, run_stream_presence_gated
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_task_run_created, observe_task_run_dispatch_callback
 from products.tasks.backend.pr_urls import read_pr_urls
@@ -60,7 +61,7 @@ def execute_after_commit(callback: Callable[[], object]) -> None:
 
 
 LogLevel = Literal["debug", "info", "warn", "error"]
-MCPBuiltInAgentKey = Literal["support", "scout"]
+MCPBuiltInAgentKey = Literal["support", "scout", "workflow"]
 MCP_BUILT_IN_AGENT_STATE_KEY = "mcp_builtin_agent_key"
 MCP_CREDENTIAL_OWNER_STATE_KEY = "mcp_credential_owner_id"
 MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY = "mcp_gateway_server_ids"
@@ -69,6 +70,7 @@ MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN: dict[str, MCPBuiltInAgentKey] = {
     "support_reply": "support",
     "signals_scout": "scout",
     "scout_suggestions": "scout",
+    "workflow": "workflow",
 }
 
 
@@ -476,10 +478,23 @@ class Task(DeletedMetaFields, models.Model):
         managed = True
         indexes = [
             models.Index(fields=["signal_report"], name="posthog_task_signal_report_idx"),
-            models.Index(fields=["archived"], name="posthog_task_archived_idx"),
+            # The default task list pins `team`, `deleted`, `internal` and `archived` before it
+            # sorts, so the partial indexes below avoid scanning deleted rows and put both boolean
+            # filters ahead of the sort keys. The broad indexes remain for callers that leave
+            # either boolean unconstrained while still needing the results in timestamp order.
+            models.Index(
+                fields=["team", "internal", "archived", "-created_at", "-id"],
+                condition=models.Q(deleted=False),
+                name="posthog_task_team_live_crt_idx",
+            ),
             models.Index(fields=["team", "-created_at", "-id"], name="posthog_task_team_created_idx"),
             models.Index(fields=["team", "created_by", "-created_at", "-id"], name="posthog_task_team_creator_idx"),
             models.Index(fields=["channel", "-created_at"], name="posthog_task_channel_feed_idx"),
+            models.Index(
+                fields=["team", "internal", "archived", "-last_activity_at", "-id"],
+                condition=models.Q(deleted=False),
+                name="posthog_task_team_live_act_idx",
+            ),
             models.Index(fields=["team", "-last_activity_at", "-id"], name="posthog_task_team_activity_idx"),
             models.Index(fields=["channel", "-last_activity_at"], name="posthog_task_chan_activity_idx"),
             models.Index(fields=["loop"], name="posthog_task_loop_idx"),
@@ -675,6 +690,7 @@ class Task(DeletedMetaFields, models.Model):
 
             # Pin the stream-routing decision once so every reader/writer agrees for this run's life.
             state.setdefault("use_dedicated_stream", dedicated_stream)
+            state.setdefault("stream_presence_gated", is_task_run_stream_presence_gated(task.origin_product))
             is_resume = bool(resume_from_run_id)
             has_pending = _has_pending_user_input(extra_state or {})
             stamp_pending_user_message_id(state)
@@ -2772,7 +2788,13 @@ class TaskRun(models.Model):
         }
 
     def publish_stream_event(self, event: dict[str, Any]) -> None:
-        publish_task_run_stream_event(str(self.id), event, run_uses_dedicated_stream(self.state))
+        publish_task_run_stream_event(
+            str(self.id),
+            event,
+            run_uses_dedicated_stream(self.state),
+            presence_gated=run_stream_presence_gated(self.state),
+            origin_product=self.task.origin_product,
+        )
 
     def publish_stream_state_event(self) -> None:
         self.publish_stream_event(self.build_stream_state_event())

@@ -43,10 +43,10 @@ export const BlankEnumApi = {
  * * `NoOp` - Noop
  * * `FileDownload` - File Download
  */
-export type BatchExportDestinationTypeEnumApi =
-    (typeof BatchExportDestinationTypeEnumApi)[keyof typeof BatchExportDestinationTypeEnumApi]
+export type BatchExportDestinationDestinationEnumApi =
+    (typeof BatchExportDestinationDestinationEnumApi)[keyof typeof BatchExportDestinationDestinationEnumApi]
 
-export const BatchExportDestinationTypeEnumApi = {
+export const BatchExportDestinationDestinationEnumApi = {
     S3: 'S3',
     AwsS3: 'AwsS3',
     S3Compatible: 'S3Compatible',
@@ -468,7 +468,7 @@ export interface BatchExportDestinationApi {
      * * `HTTP` - Http
      * * `NoOp` - Noop
      * * `FileDownload` - File Download */
-    type: BatchExportDestinationTypeEnumApi
+    type: BatchExportDestinationDestinationEnumApi
     /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible, Snowflake, Redshift) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
     config: BatchExportDestinationConfigApi
     /**
@@ -1425,8 +1425,8 @@ export const RedshiftDestinationRequestApiType = {
  */
 export interface RedshiftDestinationRequestApi {
     type: RedshiftDestinationRequestApiType
-    /** ID of an aws-redshift-kind Integration providing connection credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
-    integration_id?: number
+    /** ID of an aws-redshift-kind Integration providing connection credentials. Use the integrations-list MCP tool to find one. */
+    integration_id: number
     config: RedshiftDestinationConfigApi
 }
 

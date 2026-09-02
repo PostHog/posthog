@@ -1,3 +1,5 @@
+import { register } from 'prom-client'
+
 import { HogFlow } from '~/cdp/schema/hogflow'
 
 import { createExampleHogFlowInvocation } from '../../_tests/fixtures-hogflows'
@@ -83,6 +85,21 @@ describe('buildConversionWatcher', () => {
         const minutes = (watcher!.expires_at.getTime() - before) / 60_000
         expect(minutes).toBeGreaterThanOrEqual(expectedMinutes)
         expect(minutes).toBeLessThan(expectedMinutes + 1)
+    })
+
+    it('counts a run whose window was shortened to the cap, and only then', async () => {
+        // The clamp changes what the workflow's conversion rate measures. Without this counter the
+        // substitution leaves no trace anywhere, which is how it went unnoticed in the first place.
+        const clamped = async (): Promise<number> =>
+            ((await register.getSingleMetric('cdp_conversion_window_clamped')?.get())?.values[0]?.value as number) ?? 0
+
+        const before = await clamped()
+
+        buildConversionWatcher(invocationFor({ ...propertyGoal, window_minutes: MAX_CONVERSION_WINDOW_MINUTES + 1 }))
+        expect(await clamped()).toBe(before + 1)
+
+        buildConversionWatcher(invocationFor({ ...propertyGoal, window_minutes: MAX_CONVERSION_WINDOW_MINUTES }))
+        expect(await clamped()).toBe(before + 1)
     })
 
     it('does not build a watcher for a run that has already started', () => {

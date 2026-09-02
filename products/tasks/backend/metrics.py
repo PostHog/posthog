@@ -23,6 +23,7 @@ DevStackImageBakeOutcome = Literal["succeeded", "bake_failed", "failed", "dispat
 #   client_disconnect — client went away (GeneratorExit) before completion
 #   rotated           — per-connection cap reached; clean EOF, client resumes
 StreamConnectionOutcome = Literal["completed", "stream_error", "unavailable", "client_disconnect", "rotated"]
+StreamWriteSkippedPath = Literal["ingest", "mirror", "relay"]
 _ALLOWED_MODES = {"background", "interactive"}
 _ALLOWED_RUN_SOURCES = {"manual", "signal_report"}
 _ALLOWED_RUNTIME_ADAPTERS = {"claude", "codex"}
@@ -243,6 +244,12 @@ TASK_RUN_STREAM_RESUME_GAP_TOTAL = Counter(
     "posthog_tasks_task_run_stream_resume_gap_total",
     "SSE reconnects whose Last-Event-ID was already trimmed from Redis (events lost for that client)",
     labelnames=["origin_product"],
+)
+
+TASK_RUN_STREAM_WRITE_SKIPPED_TOTAL = Counter(
+    "posthog_tasks_task_run_stream_write_skipped_total",
+    "Task-run events not mirrored into Redis because presence gating found no attached reader",
+    labelnames=["path", "origin_product"],
 )
 
 TASK_RUN_AGENT_FAILURE_TOTAL = Counter(
@@ -584,6 +591,10 @@ def observe_stream_length_on_connect(length: int) -> None:
 
 def observe_stream_resume_gap(origin_product: str) -> None:
     TASK_RUN_STREAM_RESUME_GAP_TOTAL.labels(origin_product=origin_product).inc()
+
+
+def observe_stream_write_skipped(path: StreamWriteSkippedPath, origin_product: str | None = None) -> None:
+    TASK_RUN_STREAM_WRITE_SKIPPED_TOTAL.labels(path=path, origin_product=_metric_label(origin_product)).inc()
 
 
 def observe_task_run_failed(properties: dict[str, object]) -> None:

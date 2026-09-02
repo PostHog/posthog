@@ -192,6 +192,37 @@ export interface PatchedOrganizationDomainApi {
     readonly scim_base_url?: string | null
 }
 
+export interface SCIMRequestLogApi {
+    readonly id: string
+    readonly request_method: string
+    readonly request_path: string
+    readonly request_headers: unknown
+    readonly request_body: unknown
+    readonly response_status: number
+    readonly response_body: unknown
+    readonly identity_provider: string
+    /** @nullable */
+    readonly duration_ms: number | null
+    readonly created_at: string
+}
+
+export interface PaginatedSCIMRequestLogApi {
+    /** Total number of matching SCIM requests. */
+    count: number
+    /**
+     * URL for the next page, or null on the last page.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL for the previous page, or null on the first page.
+     * @nullable
+     */
+    previous: string | null
+    /** SCIM requests on this page. */
+    results: SCIMRequestLogApi[]
+}
+
 /**
  * * `all` - All
  * * `selected` - Selected
@@ -263,6 +294,8 @@ export interface IdentityProviderConfigApi {
     readonly has_scim: boolean
     /** Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token. */
     scim_enabled?: boolean
+    /** SCIM base URL for this identity provider configuration. */
+    readonly scim_base_url: string
     /**
      * Plaintext SCIM bearer token. Only returned once, immediately after SCIM is enabled or the token is regenerated; null otherwise.
      * @nullable
@@ -345,6 +378,8 @@ export interface PatchedIdentityProviderConfigApi {
     readonly has_scim?: boolean
     /** Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token. */
     scim_enabled?: boolean
+    /** SCIM base URL for this identity provider configuration. */
+    readonly scim_base_url?: string
     /**
      * Plaintext SCIM bearer token. Only returned once, immediately after SCIM is enabled or the token is regenerated; null otherwise.
      * @nullable
@@ -3495,9 +3530,9 @@ export const RestrictionTypeEnumApi = {
  * * `clientwarnings` - Clientwarnings
  * * `ai` - Ai
  */
-export type PipelinesEnumApi = (typeof PipelinesEnumApi)[keyof typeof PipelinesEnumApi]
+export type IngestionPipelineEnumApi = (typeof IngestionPipelineEnumApi)[keyof typeof IngestionPipelineEnumApi]
 
-export const PipelinesEnumApi = {
+export const IngestionPipelineEnumApi = {
     Analytics: 'analytics',
     SessionRecordings: 'session_recordings',
     Errortracking: 'errortracking',
@@ -3523,7 +3558,7 @@ export interface EventIngestionRestrictionApi {
     /** Event UUIDs the restriction applies to. Empty means it is not filtered by event UUID. */
     event_uuids: string[]
     /** Ingestion pipelines the restriction applies to. Filters combine with AND; values within a filter combine with OR. */
-    pipelines: PipelinesEnumApi[]
+    pipelines: IngestionPipelineEnumApi[]
 }
 
 export interface SharePasswordApi {
@@ -3916,10 +3951,9 @@ export interface PatchedProjectSecretAPIKeyApi {
  * * `Boolean` - Boolean
  * * `Duration` - Duration
  */
-export type PropertyDefinitionTypeEnumApi =
-    (typeof PropertyDefinitionTypeEnumApi)[keyof typeof PropertyDefinitionTypeEnumApi]
+export type PropertyTypeEnumApi = (typeof PropertyTypeEnumApi)[keyof typeof PropertyTypeEnumApi]
 
-export const PropertyDefinitionTypeEnumApi = {
+export const PropertyTypeEnumApi = {
     DateTime: 'DateTime',
     String: 'String',
     Numeric: 'Numeric',
@@ -3941,7 +3975,7 @@ export interface EnterprisePropertyDefinitionApi {
     readonly updated_by: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events: boolean | null
-    property_type?: PropertyDefinitionTypeEnumApi | BlankEnumApi | null
+    property_type?: PropertyTypeEnumApi | BlankEnumApi | null
     verified?: boolean
     /** @nullable */
     readonly verified_at: string | null
@@ -3975,7 +4009,7 @@ export interface PatchedEnterprisePropertyDefinitionApi {
     readonly updated_by?: UserBasicApi
     /** @nullable */
     readonly is_seen_on_filtered_events?: boolean | null
-    property_type?: PropertyDefinitionTypeEnumApi | BlankEnumApi | null
+    property_type?: PropertyTypeEnumApi | BlankEnumApi | null
     verified?: boolean
     /** @nullable */
     readonly verified_at?: string | null
@@ -4159,9 +4193,10 @@ export interface TeamBasicApi {
  * * `6` - install
  * * `9` - root
  */
-export type PluginsAccessLevelEnumApi = (typeof PluginsAccessLevelEnumApi)[keyof typeof PluginsAccessLevelEnumApi]
+export type OrganizationPluginsAccessLevelEnumApi =
+    (typeof OrganizationPluginsAccessLevelEnumApi)[keyof typeof OrganizationPluginsAccessLevelEnumApi]
 
-export const PluginsAccessLevelEnumApi = {
+export const OrganizationPluginsAccessLevelEnumApi = {
     Number0: 0,
     Number3: 3,
     Number6: 6,
@@ -4172,10 +4207,10 @@ export const PluginsAccessLevelEnumApi = {
  * * `bayesian` - Bayesian
  * * `frequentist` - Frequentist
  */
-export type DefaultExperimentStatsMethodEnumApi =
-    (typeof DefaultExperimentStatsMethodEnumApi)[keyof typeof DefaultExperimentStatsMethodEnumApi]
+export type OrganizationDefaultExperimentStatsMethodEnumApi =
+    (typeof OrganizationDefaultExperimentStatsMethodEnumApi)[keyof typeof OrganizationDefaultExperimentStatsMethodEnumApi]
 
-export const DefaultExperimentStatsMethodEnumApi = {
+export const OrganizationDefaultExperimentStatsMethodEnumApi = {
     Bayesian: 'bayesian',
     Frequentist: 'frequentist',
 } as const
@@ -4197,7 +4232,7 @@ export interface OrganizationApi {
     readonly created_at: string
     readonly updated_at: string
     readonly membership_level: OrganizationMembershipLevelEnumApi
-    readonly plugins_access_level: PluginsAccessLevelEnumApi
+    readonly plugins_access_level: OrganizationPluginsAccessLevelEnumApi
     readonly teams: readonly OrganizationApiTeamsItem[]
     readonly projects: readonly OrganizationApiProjectsItem[]
     /** @nullable */
@@ -4254,7 +4289,7 @@ export interface OrganizationApi {
      *
      * * `bayesian` - Bayesian
      * * `frequentist` - Frequentist */
-    default_experiment_stats_method?: DefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
+    default_experiment_stats_method?: OrganizationDefaultExperimentStatsMethodEnumApi | BlankEnumApi | null
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -4721,10 +4756,10 @@ export interface GitHubReposRefreshResponseApi {
  * * `approved` - Approved
  * * `unidentified` - Unidentified
  */
-export type GitHubInstallRequestItemStatusEnumApi =
-    (typeof GitHubInstallRequestItemStatusEnumApi)[keyof typeof GitHubInstallRequestItemStatusEnumApi]
+export type GitHubInstallRequestStatusEnumApi =
+    (typeof GitHubInstallRequestStatusEnumApi)[keyof typeof GitHubInstallRequestStatusEnumApi]
 
-export const GitHubInstallRequestItemStatusEnumApi = {
+export const GitHubInstallRequestStatusEnumApi = {
     Pending: 'pending',
     Approved: 'approved',
     Unidentified: 'unidentified',
@@ -4740,7 +4775,7 @@ export interface GitHubInstallRequestItemApi {
      * * `pending` - Pending
      * * `approved` - Approved
      * * `unidentified` - Unidentified */
-    status: GitHubInstallRequestItemStatusEnumApi
+    status: GitHubInstallRequestStatusEnumApi
     /**
      * GitHub App installation id, set once the request is approved.
      * @nullable
@@ -4909,9 +4944,10 @@ export interface OnboardingSkipRequestApi {
  * * `android` - Android
  * * `web` - Web
  */
-export type PushTokenPlatformEnumApi = (typeof PushTokenPlatformEnumApi)[keyof typeof PushTokenPlatformEnumApi]
+export type UserPushTokenPlatformEnumApi =
+    (typeof UserPushTokenPlatformEnumApi)[keyof typeof UserPushTokenPlatformEnumApi]
 
-export const PushTokenPlatformEnumApi = {
+export const UserPushTokenPlatformEnumApi = {
     Ios: 'ios',
     Android: 'android',
     Web: 'web',
@@ -4928,7 +4964,7 @@ export interface UserPushTokenRegisterRequestApi {
      * * `ios` - iOS
      * * `android` - Android
      * * `web` - Web */
-    platform: PushTokenPlatformEnumApi
+    platform: UserPushTokenPlatformEnumApi
 }
 
 export interface UserPushTokenItemApi {
@@ -4939,7 +4975,7 @@ export interface UserPushTokenItemApi {
      * * `ios` - iOS
      * * `android` - Android
      * * `web` - Web */
-    platform: PushTokenPlatformEnumApi
+    platform: UserPushTokenPlatformEnumApi
     /** When this token was first registered. */
     created_at: string
     /** Last time the mobile app re-registered this token. */
@@ -4986,6 +5022,41 @@ export type DomainsListParams = {
     offset?: number
 }
 
+export type DomainsScimLogsRetrieveParams = {
+    /**
+     * Include requests at or after this time.
+     */
+    after?: string
+    /**
+     * Include requests at or before this time.
+     */
+    before?: string
+    /**
+     * Page number to return.
+     * @minimum 1
+     */
+    page?: number
+    /**
+     * Number of requests to return per page.
+     * @minimum 1
+     * @maximum 100
+     */
+    page_size?: number
+    /**
+     * Search request paths and masked request bodies.
+     * @minLength 1
+     */
+    search?: string
+    /**
+     * Maximum HTTP response status to include, such as 499.
+     */
+    status_max?: number
+    /**
+     * Minimum HTTP response status to include, such as 400.
+     */
+    status_min?: number
+}
+
 export type IdentityProviderConfigsListParams = {
     /**
      * Number of results to return per page.
@@ -4995,6 +5066,41 @@ export type IdentityProviderConfigsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type IdentityProviderConfigsScimLogsRetrieveParams = {
+    /**
+     * Include requests at or after this time.
+     */
+    after?: string
+    /**
+     * Include requests at or before this time.
+     */
+    before?: string
+    /**
+     * Page number to return.
+     * @minimum 1
+     */
+    page?: number
+    /**
+     * Number of requests to return per page.
+     * @minimum 1
+     * @maximum 100
+     */
+    page_size?: number
+    /**
+     * Search request paths and masked request bodies.
+     * @minLength 1
+     */
+    search?: string
+    /**
+     * Maximum HTTP response status to include, such as 499.
+     */
+    status_max?: number
+    /**
+     * Minimum HTTP response status to include, such as 400.
+     */
+    status_min?: number
 }
 
 export type InvitesListParams = {
@@ -5192,6 +5298,7 @@ export type UploadedMediaListParams = {
 export type UploadedMediaListPurpose = (typeof UploadedMediaListPurpose)[keyof typeof UploadedMediaListPurpose]
 
 export const UploadedMediaListPurpose = {
+    Canvas: 'canvas',
     Email: 'email',
 } as const
 
@@ -5203,6 +5310,7 @@ export type UploadedMediaCreateBodyPurpose =
 
 export const UploadedMediaCreateBodyPurpose = {
     Email: 'email',
+    Canvas: 'canvas',
 } as const
 
 export type UploadedMediaCreateBody = {

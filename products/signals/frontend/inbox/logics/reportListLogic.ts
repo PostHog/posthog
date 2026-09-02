@@ -24,7 +24,7 @@ import {
     SignalReport,
 } from '../types'
 import type { SignalReportPriority } from '../types'
-import { DismissalReasonValue, ResolveReasonValue } from '../utils/dismissalReasons'
+import { DismissalFeedback, ResolveReasonValue, suppressDismissalPayload } from '../utils/dismissalReasons'
 import { isInboxRedesignEnabled } from '../utils/inboxRedesign'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { buildSignalReportListOrdering, inboxFiltersLogic } from './inboxFiltersLogic'
@@ -202,17 +202,9 @@ export interface reportListLogicActions {
     } // inboxFiltersLogic
     dismissReport: (
         reportId: string,
-        reason: DismissalReasonValue,
-        note: string
+        dismissal: DismissalFeedback
     ) => {
-        note: string
-        reason:
-            | 'already_fixed'
-            | 'analysis_wrong'
-            | 'other'
-            | 'report_unclear'
-            | 'wontfix_intentional'
-            | 'wontfix_irrelevant'
+        dismissal: DismissalFeedback
         reportId: string
     }
     ensureLoaded: () => {
@@ -379,7 +371,7 @@ export const reportListLogic = kea<reportListLogicType>([
     actions({
         ensureLoaded: true,
         loadMore: true,
-        dismissReport: (reportId: string, reason: DismissalReasonValue, note: string) => ({ reportId, reason, note }),
+        dismissReport: (reportId: string, dismissal: DismissalFeedback) => ({ reportId, dismissal }),
         resolveReport: (reportId: string, reason: ResolveReasonValue, note: string) => ({ reportId, reason, note }),
         restoreReport: (reportId: string, surface: InboxReportActionSurface) => ({ reportId, surface }),
         removeReport: (reportId: string) => ({ reportId }),
@@ -619,13 +611,12 @@ export const reportListLogic = kea<reportListLogicType>([
                 actions.refresh()
             }
         },
-        dismissReport: async ({ reportId, reason, note }) => {
+        dismissReport: async ({ reportId, dismissal }) => {
             actions.removeReport(reportId)
             try {
                 await api.signalReports.setState(reportId, {
                     state: 'suppressed',
-                    dismissal_reason: reason,
-                    ...(note ? { dismissal_note: note } : {}),
+                    ...suppressDismissalPayload(dismissal),
                 })
                 // Reconcile every mounted section against the server so the Dismissed target gains the
                 // row and count, not just this source section (which already dropped it optimistically).

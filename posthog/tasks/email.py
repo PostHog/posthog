@@ -801,6 +801,36 @@ def send_email_sending_unsuspended(team_id: int, unsuspended_at: str) -> None:
     message.send()
 
 
+@shared_task(**EMAIL_TASK_KWARGS)
+@with_team_scope()
+def send_email_sending_tier_demoted(team_id: int, per_day: int, per_hour: int, demoted_at: str) -> None:
+    """
+    Tell a project's admins that its workflow email sending limit was lowered for deliverability
+    problems. Admin+ recipients and no notification-setting gate, matching the suspension emails:
+    the limit stays down until someone acts on the list quality.
+    """
+    if not is_email_available(with_absolute_urls=True):
+        return
+    team = Team.objects.get(id=team_id)
+    memberships_to_email = _get_project_admins_to_notify_of_email_sending_suspension(team)
+    if not memberships_to_email:
+        return
+    message = EmailMessage(
+        campaign_key=f"email_sending_tier_demoted_{team_id}_{demoted_at}",
+        subject=f"Workflow email sending limit lowered for project '{team}'",
+        template_name="email_sending_tier_demoted",
+        template_context={
+            "team": team,
+            "per_day": f"{per_day:,}",
+            "per_hour": f"{per_hour:,}",
+            "reputation_path": f"/project/{team.id}/workflows/reputation",
+        },
+    )
+    for membership in memberships_to_email:
+        message.add_user_recipient(membership.user)
+    message.send()
+
+
 def send_batch_export_run_failure(
     batch_export_run_id: str | UUIDT,
     failure_rate: float = 1.0,

@@ -2,8 +2,9 @@ from typing import Optional
 
 from opentelemetry import trace
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models.team import Team
-from posthog.queries.insight import insight_sync_execute
 
 tracer = trace.get_tracer(__name__)
 
@@ -34,10 +35,10 @@ def get_event_property_values_from_aggregated_table(key: str, team: Team, value:
             value_filter = "AND lower(property_value) LIKE %(value)s"
             params["value"] = f"%{escaped.lower()}%"
 
-        result = insight_sync_execute(
+        tag_queries(team_id=team.pk, query_type="get_event_property_values_from_aggregated_table")
+        result = sync_execute(
             SELECT_EVENT_PROPERTY_VALUES_FROM_AGGREGATED_TABLE_SQL.format(value_filter=value_filter),
             params,
-            query_type="get_event_property_values_from_aggregated_table",
             team_id=team.pk,
         )
         span.set_attribute("result_count", len(result))

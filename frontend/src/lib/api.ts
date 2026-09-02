@@ -1729,6 +1729,10 @@ export class ApiRequest {
         return apiRequest
     }
 
+    public accountsTableQuery(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('accounts_table_query')
+    }
+
     public queryStatus(queryId: string, showProgress: boolean, teamId?: TeamType['id']): ApiRequest {
         const apiRequest = this.query(teamId).addPathComponent(queryId)
         if (showProgress) {
@@ -3634,7 +3638,7 @@ const api = {
         async listForOrg(
             organizationId: OrganizationType['id'],
             params: { limit?: number; offset?: number; search?: string } = {}
-        ): Promise<CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user' | 'level'>>> {
+        ): Promise<CountedPaginatedResponse<Pick<OrganizationMemberType, 'id' | 'user' | 'level' | 'last_login'>>> {
             return await new ApiRequest()
                 .organizationMembersForAccount()
                 .withQueryString({ organization_id: organizationId, ...params })
@@ -6856,7 +6860,12 @@ const api = {
             throw new Error(`Query kind mismatch: path kind "${pathKind}" does not match body kind "${bodyKind}".`)
         }
 
-        return await new ApiRequest().query(undefined, bodyKind).create({
+        const apiRequest =
+            bodyKind === NodeKind.AccountsTableQuery
+                ? new ApiRequest().accountsTableQuery()
+                : new ApiRequest().query(undefined, bodyKind)
+
+        return await apiRequest.create({
             ...queryOptions?.requestOptions,
             data: {
                 query,

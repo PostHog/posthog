@@ -10,7 +10,7 @@ from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
-from posthog.api.oauth.cimd import enqueue_cimd_refresh_if_stale, is_cimd_client_id, is_cimd_url_blocked
+from posthog.api.oauth.cimd import enqueue_cimd_refresh_if_stale
 from posthog.api.oauth.client_assertion import (
     ClientAssertionError,
     ResolvedClientAssertion,
@@ -194,8 +194,6 @@ class ProvisioningAuthentication(BaseAuthentication):
         explicit call to client_registration, so an unknown client_id simply does not resolve
         and the caller is pointed there.
         """
-        if is_cimd_client_id(client_id) and is_cimd_url_blocked(client_id):
-            return None
         return self._resolve_partner(client_id)
 
 

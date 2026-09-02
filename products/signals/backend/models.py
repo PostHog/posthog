@@ -853,6 +853,9 @@ class SignalReportArtefact(UUIDModel):
             # Latest-wins lookups: artefacts are append-only, so deriving the current status / log
             # tail is `WHERE report=? AND type=? ORDER BY created_at DESC` — this makes it a seek.
             models.Index(fields=["report", "type", "-created_at"], name="signals_sig_rpt_type_ct_idx"),
+            # The corrections feed reads team-wide — a team's recent wrong-repo dismissals across
+            # all reports (`repo_corrections`) — which no report-anchored index can serve.
+            models.Index(fields=["team", "type", "-created_at"], name="signals_sig_team_type_ct_idx"),
             models.Index(fields=["channel"], name="signals_sig_channel_idx"),
         ]
 
