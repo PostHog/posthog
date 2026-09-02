@@ -839,11 +839,9 @@ class SignalReportViewSet(
             # report: only visibility matters here, so skip the rendering annotations and
             # prefetches every other action's serializer needs.
             qs = queryset.filter(team=self.team)
-            qs = self._exclude_deleted_signal_reports(qs)
             return self._apply_signal_report_status_filter(qs)
         if self.action in {"retrieve", "signals"}:
             qs = self._scope_signal_report_queryset(queryset)
-            qs = self._exclude_deleted_signal_reports(qs)
             qs = self._apply_signal_report_status_filter(qs)
             qs = self._annotate_latest_actionability_value(qs)
             qs = self._prefetch_signal_report_priority_artefacts(qs)
@@ -851,7 +849,6 @@ class SignalReportViewSet(
             return annotate_first_billable_pr_run_at(qs)
         qs = queryset
         qs = self._scope_signal_report_queryset(qs)
-        qs = self._exclude_deleted_signal_reports(qs)
         qs = self._apply_signal_report_status_filter(qs)
         qs = self._apply_signal_report_search_filter(qs)
         qs = self._apply_signal_report_source_product_filter(qs)
@@ -911,13 +908,12 @@ class SignalReportViewSet(
             )
         )
 
-    def _exclude_deleted_signal_reports(self, queryset):
-        # Deleted reports are terminal -- exclude from all endpoints (detail, list, actions)
-        return queryset.exclude(status=SignalReport.Status.DELETED)
-
-    # `deleted` is in the model but always stripped upstream by `_exclude_deleted_signal_reports`,
-    # so it is never a valid filter target.
+    # `deleted` is in the model but stripped from every status set below, so it is never a valid
+    # filter target.
     _FILTERABLE_STATUSES = frozenset(SignalReport.Status.values) - {SignalReport.Status.DELETED}
+    # Sorted so the generated SQL is stable, which keeps Postgres grouping the statement.
+    _NON_DELETED_STATUSES = sorted(_FILTERABLE_STATUSES)
+    _DEFAULT_STATUSES = sorted(_FILTERABLE_STATUSES - {SignalReport.Status.SUPPRESSED})
 
     # Actions allowed to resolve a suppressed report by ID even without an explicit
     # `status` filter. These are the read/reopen paths the inbox's Dismissed tab needs:
@@ -944,6 +940,13 @@ class SignalReportViewSet(
     }
 
     def _apply_signal_report_status_filter(self, queryset):
+        # Always a positive `status IN (...)`. Postgres cannot put a negated status predicate in
+        # the index condition of `(team, status, promoted_at)`, so an excluded status makes the
+        # read scan every report the team owns and filter after. That cost grows with the team's
+        # report count.
+        return queryset.filter(status__in=self._visible_signal_report_statuses())
+
+    def _visible_signal_report_statuses(self) -> list[str]:
         status_filter = self.request.query_params.get("status")
         if status_filter:
             statuses = [s.strip() for s in status_filter.split(",") if s.strip()]
@@ -955,7 +958,7 @@ class SignalReportViewSet(
                         "status": f"Invalid status value(s): {', '.join(sorted(set(invalid)))}. Accepted values: {accepted}."
                     }
                 )
-            return queryset.filter(status__in=statuses)
+            return statuses
         # A few read/reopen actions must be able to reach a suppressed report by ID
         # (e.g. `state` reopens a dismissed report, `retrieve`/`signals` back the
         # inbox's Dismissed-tab detail view). Everywhere else — including the list and
@@ -964,11 +967,9 @@ class SignalReportViewSet(
         # the default exclusions with `include_all_statuses=true` (agents deduping
         # against the full inbox state, human dismissals included, without enumerating
         # every status — and without breaking if the status set evolves).
-        if self.action in self._SUPPRESSED_VISIBLE_ACTIONS:
-            return queryset
-        if self._include_all_statuses_requested():
-            return queryset
-        return queryset.exclude(status=SignalReport.Status.SUPPRESSED)
+        if self.action in self._SUPPRESSED_VISIBLE_ACTIONS or self._include_all_statuses_requested():
+            return self._NON_DELETED_STATUSES
+        return self._DEFAULT_STATUSES
 
     def _include_all_statuses_requested(self) -> bool:
         # List-only: the flag widens the *list* for full-inbox-state scans (agent dedup). By-ID

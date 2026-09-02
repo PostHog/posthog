@@ -1255,6 +1255,28 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert str(suppressed.id) not in {r["id"] for r in response.json()["results"]}
 
+    @parameterized.expand(
+        [
+            ("count_only", {"count_only": "true"}),
+            ("include_all_statuses", {"include_all_statuses": "true"}),
+            ("explicit_status", {"status": "ready,pending_input"}),
+        ]
+    )
+    def test_list_filters_status_positively(self, _name, query):
+        # Postgres cannot put a negated status predicate in the index condition of
+        # (team, status, promoted_at), so it reads every report the team owns and filters after.
+        self._create_report(status=SignalReport.Status.READY)
+
+        with CaptureQueriesContext(connection) as captured:
+            response = self.client.get(self._list_url(**query))
+
+        assert response.status_code == status.HTTP_200_OK
+        report_queries = [q["sql"] for q in captured.captured_queries if 'FROM "signals_signalreport" ' in q["sql"]]
+        assert report_queries
+        for sql in report_queries:
+            assert '"signals_signalreport"."status" IN (' in sql
+            assert 'NOT ("signals_signalreport"."status"' not in sql
+
     def test_list_include_all_statuses_invalid_value_returns_400(self):
         response = self.client.get(self._list_url(include_all_statuses="maybe"))
 
