@@ -40,6 +40,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import (
     CORRUPTED_PARQUET_METADATA_MESSAGE,
+    RAGGED_ROWS_MESSAGE,
     QueryErrorCategory,
     classify_query_error,
     wrap_clickhouse_query_error,
@@ -98,7 +99,7 @@ ExtractErrors = {
     "S3 exception: `NoSuchBucket`, message: 'The specified bucket does not exist.'": "The provided bucket doesn't exist",
     "Either the file is corrupted or this is not a parquet file": "The provided file is not in Parquet format",
     "deserialize thrift": CORRUPTED_PARQUET_METADATA_MESSAGE,
-    "Rows have different amount of values": "The provided file has rows with different amount of values",
+    "Rows have different amount of values": RAGGED_ROWS_MESSAGE,
     "The operation is not valid for the object's storage class": "Some files in the bucket are archived (e.g. Glacier or S3 Intelligent-Tiering archive). Restore them to Standard storage or narrow the URL pattern to exclude archived files.",
 }
 
