@@ -520,6 +520,29 @@ class TestDataQualityCheckAPI(APIBaseTest):
         check_runs = self.client.get(f"{base}/{mine.id}/check_runs/")
         assert [row["subject_name"] for row in check_runs.json()] == ["orders"]
 
+    def test_check_runs_name_the_check_each_row_ran(self) -> None:
+        named = self._create_check(name="orders_customer_id_not_null")
+        suite = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger="manual", subject_type=SubjectType.VIEW, subject_uuid=self.view.id
+        )
+        for quality_check in (named, None):
+            DataQualityCheckRun.objects.for_team(self.team.id).create(
+                team=self.team,
+                suite_run=suite,
+                quality_check=quality_check,
+                subject_type=SubjectType.VIEW,
+                subject_uuid=self.view.id,
+                subject_name="orders",
+                check_type=CheckType.NOT_NULL,
+                check_fingerprint=uuid4().hex,
+                status=CheckRunStatus.PASSED,
+            )
+
+        response = self.client.get(f"{self._suite_runs_url()}/{suite.id}/check_runs/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["check_name"] for row in response.json()} == {"orders_customer_id_not_null", None}
+
     def test_listing_a_subjects_checks_leaves_out_the_ones_reading_a_denied_subject(self) -> None:
         # The parent gate cleared "customers", but a check under it names the denied "orders" in its
         # config, which the routes that address one check already refuse to serve.
