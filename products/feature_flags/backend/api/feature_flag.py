@@ -3067,9 +3067,13 @@ def apply_encrypted_payload_response_form(request: Any, feature_flag_data: dict)
     """
     if not feature_flag_data.get("has_encrypted_payloads", False):
         return
-    feature_flag_data["filters"]["payloads"] = get_decrypted_flag_payloads_protected(
-        request, feature_flag_data["filters"]["payloads"]
-    )
+    filters = feature_flag_data.get("filters")
+    if not isinstance(filters, dict) or "payloads" not in filters:
+        # `default_filters()` has no `payloads` key, so the flag can carry the boolean without
+        # one. Indexing here raised after the write had committed, leaving the caller a 500 for
+        # a change that had already landed and 500ing again on every retry.
+        return
+    filters["payloads"] = get_decrypted_flag_payloads_protected(request, filters["payloads"])
 
 
 class FlagLifecycleWriteRequest(ServiceRequest):
@@ -3381,8 +3385,13 @@ class FeatureFlagViewSet(
 
     @staticmethod
     def _deleted_flag_rejection(feature_flag: FeatureFlag, restore_hint: str) -> Response | None:
-        """Dashboard-generating actions refuse soft-deleted flags: they would recreate the
-        auto-generated insights that the delete_feature_flag_usage_insights sweep deletes."""
+        """Refuse a soft-deleted flag.
+
+        Dashboard-generating actions use this because they would recreate the auto-generated
+        insights that the delete_feature_flag_usage_insights sweep deletes. The lifecycle
+        actions use it because evaluation reads through a manager that excludes deleted rows,
+        so reporting a state change on one would be a success for a flag that serves nobody.
+        """
         if not feature_flag.deleted:
             return None
         return Response(
@@ -3523,8 +3532,10 @@ class FeatureFlagViewSet(
     # stale-write conflict check does not run: it compares a caller-supplied `version`, and
     # these endpoints take no body.
     #
-    # A flag already in the requested state is a successful no-op with no write, so a retry
-    # cannot bump the version or log a change that did not happen.
+    # A flag already in the requested state is returned with no write, so a caller retrying in
+    # order cannot bump the version or log a change that did not happen. Two calls racing still
+    # both write: the state check runs before the lock, so each bumps the version and the second
+    # logs a version-only change.
     #
     # The facade is imported inside each action because it imports this module's serializer.
 
@@ -3539,6 +3550,9 @@ class FeatureFlagViewSet(
         from products.feature_flags.backend.facade.api import set_flag_active
 
         feature_flag: FeatureFlag = self.get_object()
+        rejection = self._deleted_flag_rejection(feature_flag, "enabling it" if active else "disabling it")
+        if rejection is not None:
+            return rejection
         if feature_flag.active != active:
             feature_flag = set_flag_active(
                 feature_flag,
@@ -3607,6 +3621,9 @@ class FeatureFlagViewSet(
         from products.feature_flags.backend.facade.api import archive_flag
 
         feature_flag: FeatureFlag = self.get_object()
+        rejection = self._deleted_flag_rejection(feature_flag, "archiving it")
+        if rejection is not None:
+            return rejection
         if feature_flag.archived:
             return self._lifecycle_response(feature_flag)
         updated = archive_flag(
@@ -3635,6 +3652,9 @@ class FeatureFlagViewSet(
         from products.feature_flags.backend.facade.api import unarchive_flag
 
         feature_flag: FeatureFlag = self.get_object()
+        rejection = self._deleted_flag_rejection(feature_flag, "unarchiving it")
+        if rejection is not None:
+            return rejection
         if not feature_flag.archived:
             return self._lifecycle_response(feature_flag)
         updated = unarchive_flag(

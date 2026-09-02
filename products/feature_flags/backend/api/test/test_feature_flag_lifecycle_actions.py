@@ -179,6 +179,40 @@ class TestFeatureFlagLifecycleActions(APIBaseTest):
         flag.refresh_from_db()
         assert flag.filters == legacy
 
+    @parameterized.expand(LIFECYCLE_ACTIONS)
+    def test_action_survives_encrypted_payloads_with_no_payloads_key(self, action):
+        # `default_filters()` has no `payloads` key, so a flag can carry
+        # `has_encrypted_payloads` without one. The response step indexed it directly and raised
+        # after the write had committed: the caller got a 500 for a change that had landed, and
+        # every retry 500d again on the no-op path.
+        flag = self._flag(
+            active=(action == "disable" or action == "archive"),
+            archived=(action == "unarchive"),
+            filters={"groups": []},
+        )
+        flag.is_remote_configuration = True
+        flag.has_encrypted_payloads = True
+        flag.save()
+
+        response = self._act(flag, action)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+    @parameterized.expand(LIFECYCLE_ACTIONS)
+    def test_action_refuses_a_soft_deleted_flag(self, action):
+        # Detail routes resolve soft-deleted flags on purpose, so `get_object()` returns one.
+        # Evaluation reads through a manager that excludes them, so a 200 here would report a
+        # state change on a flag that serves nobody, and unarchive would claim to have restored
+        # it to a list that still hides it.
+        flag = self._flag(active=(action == "disable" or action == "archive"), archived=(action == "unarchive"))
+        flag.deleted = True
+        flag.save()
+
+        response = self._act(flag, action)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "has been deleted" in response.json()["error"]
+
     def test_enable_refuses_an_archived_flag(self):
         flag = self._flag(active=False, archived=True)
 

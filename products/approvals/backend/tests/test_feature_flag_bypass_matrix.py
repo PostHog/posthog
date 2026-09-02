@@ -40,6 +40,7 @@ from rest_framework.test import APIRequestFactory
 from posthog.constants import AvailableFeature
 from posthog.tasks.process_scheduled_changes import process_scheduled_changes
 
+from products.approvals.backend.actions.feature_flags import DisableFeatureFlagAction
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, ChangeRequestState
 from products.approvals.backend.services import ChangeRequestService
@@ -153,6 +154,45 @@ class TestDirectAndCreateBypassMatrix(FeatureFlagBypassMatrixBase):
         assert flag.active is active
         assert flag.archived is False
         self._assert_one_pending_zero_applied()
+
+    @parameterized.expand([("disable", True), ("archive", True), ("enable", False)])
+    def test_approved_lifecycle_change_preserves_legacy_filter_keys(self, _mock_enabled, action, active):
+        # The direct path is exempt from the serializer's opportunistic legacy-key cleanup, but
+        # the exemption has to survive into the replay. It travels in the intent: inferring it
+        # at apply time would also exempt an approved ordinary update, which should still clean.
+        _enable_policy_for(self, "feature_flag.disable" if active else "feature_flag.enable")
+        legacy = {
+            "groups": [{"properties": [], "rollout_percentage": 30}],
+            "holdout_groups": [{"properties": [], "rollout_percentage": 5}],
+            "super_groups": [{"properties": [], "rollout_percentage": 15}],
+        }
+        flag = FeatureFlag.objects.create(
+            team=self.team, key=f"legacy-{action}", active=active, filters=dict(legacy), created_by=self.user
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/{action}/", {}, format="json"
+        )
+        assert response.status_code == 409
+        cr = ChangeRequest.objects.get(id=response.json()["change_request_id"])
+        assert ChangeRequestService(cr, self.user).approve().status == "applied"
+
+        flag.refresh_from_db()
+        assert flag.filters == legacy
+
+    def test_archive_change_request_shows_the_approver_both_fields(self, _mock_enabled):
+        # Only `active` is gated, so `gated_changes` carries only that. Approving applies
+        # `archived` too, so a display built from the gated subset asked for consent to a
+        # disable and then archived the flag.
+        _enable_policy_for(self, "feature_flag.disable")
+        flag = self._flag(active=True)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/feature_flags/{flag.id}/archive/", {}, format="json")
+        assert response.status_code == 409
+
+        cr = ChangeRequest.objects.get(id=response.json()["change_request_id"])
+        after = DisableFeatureFlagAction.get_display_data(cr.intent)["after"]
+        assert after == {"active": False, "archived": True}
 
     def test_approving_an_archive_applies_both_state_fields(self, _mock_enabled):
         # Archiving an enabled flag writes `archived` and `active` together, but only `active`
