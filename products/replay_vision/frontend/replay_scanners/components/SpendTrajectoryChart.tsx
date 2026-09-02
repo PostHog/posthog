@@ -61,7 +61,12 @@ export function SpendTrajectoryChart({
         runningTotal += daily
         cumulative.push(runningTotal)
     }
-    const spentTotal = cumulative.length > 0 ? runningTotal : quota.credits_used
+    // The quota ledger is authoritative: it counts reserved in-flight credits the event series
+    // has not emitted yet, so the today point lifts to it rather than disagreeing with the tiles.
+    const spentTotal = Math.max(cumulative.length > 0 ? runningTotal : 0, quota.credits_used)
+    if (cumulative.length > 0 && spentTotal > runningTotal) {
+        cumulative[cumulative.length - 1] = spentTotal
+    }
 
     // A zero or missing limit draws no cap; spend stops at a real one, so the drawn end never
     // exceeds it and demand only decides the slope.
@@ -140,7 +145,7 @@ export function SpendTrajectoryChart({
     return (
         <svg
             viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-            style={{ width: '100%', height: 'auto', display: 'block' }}
+            className="block h-auto w-full"
             role="img"
             aria-label={`Cumulative spend this period: ${formatCreditCount(spentTotal)} so far, projected ${formatCreditCount(endValue)} by ${periodEnd.format('MMMM D')}${cap !== null ? `, limit ${formatCreditCount(cap)}` : ''}`}
         >
