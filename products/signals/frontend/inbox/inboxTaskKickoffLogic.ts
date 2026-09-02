@@ -77,9 +77,17 @@ const ACTION_CAPABLE_STATUSES: readonly SignalReportStatus[] = [
  * The Ask AI copy and suggestion rows key off this too, so the UI never invites an action the
  * wrapper would refuse. Beyond the status allowlist, an already-addressed report answers only:
  * a fix is already in flight, so acting on its recommendations would duplicate that work (the
- * same reason autostart and Create PR eligibility exclude it). */
+ * same reason autostart and Create PR eligibility exclude it). A report the actionability judge
+ * classified `not_actionable` answers only too — the product's own judgment says it holds no work
+ * to act on (`canCreateImplementationPr` hides Create PR for the same reason), and resolving it
+ * has its own button. A missing judgment stays action-capable: most such reports predate the
+ * judge, and their stored prompts were still safety-judged. */
 export function isActionCapableReport(report: SignalReport): boolean {
-    return ACTION_CAPABLE_STATUSES.includes(report.status) && report.already_addressed !== true
+    return (
+        ACTION_CAPABLE_STATUSES.includes(report.status) &&
+        report.already_addressed !== true &&
+        report.actionability !== 'not_actionable'
+    )
 }
 
 export function buildDiscussReportPrompt(report: SignalReport | null, reportUrl: string, question: string): string {

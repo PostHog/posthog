@@ -78,6 +78,9 @@ class ReviewerContent(TypedDict):
     # True when a scout's own reviewer pick matches a current `LLMSkillOwner` (editor-controlled) and
     # was stamped for it. These route the report but are never eligible to select the autostart task identity.
     is_skill_owner: bool
+    # The scout skill whose run wrote this entry (None when no scout did). Carried so the live owner
+    # exclusion still knows the writing scout when the run's best-effort edit tally was lost.
+    source_skill: str | None
 
 
 _PRIORITY_RANK: dict[Priority, int] = {
@@ -461,7 +464,7 @@ def _create_implementation_task_if_absent(
     return True
 
 
-def _live_skill_owner_logins(team: Team, report_id: str) -> set[str]:
+def _live_skill_owner_logins(team: Team, report_id: str, reviewers_content: list[ReviewerContent]) -> set[str]:
     """GitHub logins (lowercased) of the *current* owners of every scout that touched the report.
 
     The `is_skill_owner` stamp on a stored reviewer entry is a write-time snapshot: an owner added
@@ -472,8 +475,15 @@ def _live_skill_owner_logins(team: Team, report_id: str) -> set[str]:
     scout last wrote them — a later editing scout's owner must be excluded too, and over-exclusion
     only sends the report to the trusted reviewer-less fallback. Empty for reports no scout touched
     (pipeline / custom agent) — their reviewers are commit-authorship-derived and carry no owner
-    exposure."""
+    exposure.
+
+    Touching scouts come from two sources, unioned: the run tallies (`emitted_report_ids` /
+    `edited_report_ids`) and each entry's own `source_skill` stamp. The tallies are best-effort
+    writes that swallow failures, so an identity guard cannot rest on them alone — the entry stamp
+    commits atomically with the pick it guards, and covers the entries that actually stand for
+    selection even when a tally write was lost."""
     skill_names = resolve_touching_scout_skills(team.id, report_id)
+    skill_names |= {str(r["source_skill"]) for r in reviewers_content if r.get("source_skill")}
     owner_uuids: set[str] = set()
     for skill_name in skill_names:
         owner_uuids.update(resolve_skill_owner_user_uuids(team, skill_name))
@@ -761,7 +771,9 @@ async def maybe_autostart_implementation_task(
         # `is_skill_owner` stamp is a write-time snapshot and can be stale (see
         # `_live_skill_owner_logins`). Skipped when no reviewer is up for selection.
         live_owner_logins = (
-            await database_sync_to_async(_live_skill_owner_logins, thread_sensitive=False)(team, report_id)
+            await database_sync_to_async(_live_skill_owner_logins, thread_sensitive=False)(
+                team, report_id, reviewers_content
+            )
             if reviewers_content
             else set()
         )
@@ -861,6 +873,7 @@ async def _latest_reviewers_content(report_id: str) -> tuple[list[ReviewerConten
     reviewers: list[ReviewerContent] = []
     for entry in data:
         if isinstance(entry, dict) and entry.get("github_login"):
+            source_skill = entry.get("source_skill")
             reviewers.append(
                 ReviewerContent(
                     github_login=str(entry["github_login"]),
@@ -868,6 +881,7 @@ async def _latest_reviewers_content(report_id: str) -> tuple[list[ReviewerConten
                     relevant_commits=entry.get("relevant_commits") or [],
                     reason=entry.get("reason"),
                     is_skill_owner=bool(entry.get("is_skill_owner")),
+                    source_skill=str(source_skill) if source_skill else None,
                 )
             )
     return reviewers, editor_user_id

@@ -113,9 +113,15 @@ def _suggested_prompts_signal(suggested_prompts: Sequence[str]) -> SignalData | 
     """
     if not suggested_prompts:
         return None
+    # The label is part of the content because the judge's rendering shows source product/type but
+    # not `source_id` — without it the judge reads an action prompt ("add the null check and open a
+    # PR") as an anonymous signal containing instructions directed at an agent, which its system
+    # prompt treats as an injection marker, and benign action suggestions get reports suppressed.
+    # The system prompt (`REPORT_SAFETY_JUDGE_SYSTEM_PROMPT`) tells the judge what this label means.
     return SignalData(
         signal_id=str(uuid.uuid4()),
-        content="\n\n".join(suggested_prompts),
+        content="Suggested prompts (each is a request a reader can click to send to the coding agent):\n\n"
+        + "\n\n".join(suggested_prompts),
         source_product=SOURCE_PRODUCT,
         source_type=SOURCE_TYPE,
         source_id="report_suggested_prompts",
@@ -134,9 +140,11 @@ def _reviewer_reasons_signal(reviewer_reasons: Sequence[str]) -> SignalData | No
     produces a judge prompt byte-identical to before."""
     if not reviewer_reasons:
         return None
+    # Labeled for the same reason as `_suggested_prompts_signal`: the rendering drops `source_id`,
+    # and the judge needs to know these are routing rationales, not free-standing signals.
     return SignalData(
         signal_id=str(uuid.uuid4()),
-        content="\n\n".join(reviewer_reasons),
+        content="Reviewer-routing reasons (why the report suggests each reviewer):\n\n" + "\n\n".join(reviewer_reasons),
         source_product=SOURCE_PRODUCT,
         source_type=SOURCE_TYPE,
         source_id="report_reviewer_reasons",

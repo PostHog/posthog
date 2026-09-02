@@ -468,7 +468,7 @@ def _build_suggested_reviewers(
 
 
 def _stamp_owner_provenance(team: Team, reviewers: SuggestedReviewers, *, skill_name: str | None) -> SuggestedReviewers:
-    """Stamp `is_skill_owner` on picks that match a current skill owner, from the live owner set.
+    """Stamp `is_skill_owner` and `source_skill` on the entries, from the live owner set.
 
     Recomputed on every call, in both directions: a fresh owner gets the stamp and a former owner
     picked as a plain reviewer loses it (a stale True would keep excluding them from autostart
@@ -476,10 +476,17 @@ def _stamp_owner_provenance(team: Team, reviewers: SuggestedReviewers, *, skill_
     Applied at build time AND re-applied at the write inside `_do_edit_report`'s transaction — the
     safety-judge call sits between the two, and autostart trusts the stored stamp, so an owner added
     during that wait must not slip through as an identity candidate.
+
+    `source_skill` names the writing scout on every entry, committing the provenance atomically with
+    the pick: autostart's live owner exclusion also resolves the touching scouts from the run's
+    edit/emit tallies, but those writes are best-effort — a lost tally must not lose the exclusion.
     """
     owners = _owner_logins(team, skill_name) if skill_name else set()
-    # model_copy keeps every other field (name, commit evidence) exactly as the entry carries it.
-    entries = [e.model_copy(update={"is_skill_owner": e.github_login in owners}) for e in reviewers.root]
+    entries = [
+        # model_copy keeps every other field (name, commit evidence) exactly as the entry carries it.
+        e.model_copy(update={"is_skill_owner": e.github_login in owners, "source_skill": skill_name or None})
+        for e in reviewers.root
+    ]
     return SuggestedReviewers(root=entries)
 
 

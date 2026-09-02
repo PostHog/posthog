@@ -39,6 +39,12 @@ describe('buildDiscussReportPrompt', () => {
         // A fix is already in flight, so acting on the recommendations would duplicate it — the same
         // reason autostart and Create PR eligibility exclude already-addressed reports.
         ['an already-addressed report', makeReport({ status: SignalReportStatus.READY, already_addressed: true })],
+        // The actionability judge said there is no work to act on, so an action framing would invite
+        // acting anyway — the same judgment that hides Create PR.
+        [
+            'a report judged not actionable',
+            makeReport({ status: SignalReportStatus.READY, actionability: 'not_actionable' }),
+        ],
         // null = the kickoff refetch could not confirm the report's current state; fail closed.
         ['an unconfirmed report state', null],
     ])('pins the agent to answering for %s', (_name, report) => {

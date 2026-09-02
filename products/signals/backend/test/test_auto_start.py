@@ -79,9 +79,14 @@ def _create_org_member_with_github(email: str, organization: Organization, login
     return user
 
 
-def _reviewer(login: str, *, is_skill_owner: bool = False) -> ReviewerContent:
+def _reviewer(login: str, *, is_skill_owner: bool = False, source_skill: str | None = None) -> ReviewerContent:
     return ReviewerContent(
-        github_login=login, github_name=None, relevant_commits=[], reason=None, is_skill_owner=is_skill_owner
+        github_login=login,
+        github_name=None,
+        relevant_commits=[],
+        reason=None,
+        is_skill_owner=is_skill_owner,
+        source_skill=source_skill,
     )
 
 
@@ -200,7 +205,24 @@ def test_live_owner_logins_span_every_scout_that_touched_the_report(organization
             )
         LLMSkillOwner.objects.create(team=team, skill_name=editing_skill, user=owner)
 
-    assert _live_skill_owner_logins(team, str(report.id)) == {"editorowner"}
+    assert _live_skill_owner_logins(team, str(report.id), []) == {"editorowner"}
+
+
+@pytest.mark.django_db
+def test_live_owner_logins_survive_a_lost_edit_tally(organization, team):
+    # The run tallies are best-effort writes that swallow failures, so a scout whose tally write was
+    # lost leaves no `edited_report_ids` trace — the entry's own `source_skill` stamp (committed
+    # atomically with the pick) must still bring that scout's current owners into the exclusion.
+    owner = _create_org_member_with_github("owner@example.com", organization, "TallylessOwner")
+    LLMSkillOwner = apps.get_model("skills", "LLMSkillOwner")
+    report = SignalReport.objects.create(
+        team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+    )
+    with team_scope(team.id, canonical=True):
+        LLMSkillOwner.objects.create(team=team, skill_name="signals-scout-tallyless", user=owner)
+
+    reviewers = [_reviewer("tallylessowner", source_skill="signals-scout-tallyless")]
+    assert _live_skill_owner_logins(team, str(report.id), reviewers) == {"tallylessowner"}
 
 
 @pytest.mark.parametrize(
