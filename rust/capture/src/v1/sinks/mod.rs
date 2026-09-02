@@ -131,8 +131,15 @@ impl Sinks {
             self.default,
         );
         for (&name, cfg) in &self.configs {
-            cfg.validate(capture_mode)
-                .map_err(|e| anyhow::anyhow!("sink {}: {e}", name))?;
+            // The per-sink hints in the inner error are suffixes; only the
+            // caller knows which sink's namespace they hang off, so the prefix
+            // is named here rather than leaving an operator to guess it.
+            cfg.validate(capture_mode).map_err(|e| {
+                anyhow::anyhow!(
+                    "sink {name}: {e} (per-sink variables are prefixed {})",
+                    name.env_prefix()
+                )
+            })?;
         }
         Ok(())
     }
@@ -524,6 +531,33 @@ mod tests {
         assert!(
             err.to_string().contains("sink msk"),
             "expected sink name in error: {err}"
+        );
+    }
+
+    /// A missing topic must tell an operator the whole variable to set. The
+    /// inner error carries the suffix and the wrapper carries the sink's
+    /// prefix, so the two have to concatenate into the real name.
+    #[test]
+    fn sinks_validate_error_names_the_full_env_var() {
+        let mut env = test_env_for(SinkName::Ws);
+        env.insert("CAPTURE_V1_SINK_WS_KAFKA_TOPIC_MAIN".into(), "".into());
+        let cfg = load_sink_config(SinkName::Ws, &env).unwrap();
+        let sinks = Sinks {
+            default: SinkName::Ws,
+            configs: [(SinkName::Ws, cfg)].into_iter().collect(),
+        };
+
+        let msg = format!("{:#}", sinks.validate(CaptureMode::Events).unwrap_err());
+
+        assert!(msg.contains("KAFKA_TOPIC_MAIN"), "missing suffix: {msg}");
+        assert!(
+            msg.contains(SinkName::Ws.env_prefix()),
+            "missing prefix: {msg}"
+        );
+        let full = format!("{}KAFKA_TOPIC_MAIN", SinkName::Ws.env_prefix());
+        assert_eq!(
+            full, "CAPTURE_V1_SINK_WS_KAFKA_TOPIC_MAIN",
+            "the two halves must concatenate to the variable charts actually sets"
         );
     }
 }

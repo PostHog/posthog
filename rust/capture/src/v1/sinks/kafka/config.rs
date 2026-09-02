@@ -128,9 +128,11 @@ const VALID_ACKS: &[&str] = &["0", "1", "-1", "all"];
 const VALID_COMPRESSION: &[&str] = &["none", "gzip", "snappy", "lz4", "zstd"];
 
 impl Config {
-    /// Every topic this deployment's pipeline can route an event to, paired
-    /// with the env var that sets it, so `validate` can refuse to boot with one
-    /// missing instead of failing at first produce.
+    /// The topics `validate` requires for this capture mode, paired with a hint
+    /// naming the variable that sets each, so a missing one refuses the boot
+    /// instead of failing at first produce. Per-sink hints are suffixes -- the
+    /// caller prepends the sink's `env_prefix` -- except the AI topic, which is
+    /// injected from a deployment-level variable and so names it in full.
     ///
     /// An analytics deployment can reach every lane, since `Destination` is
     /// assigned from the event name. `CaptureMode::Ai` drops non-AI events
@@ -139,32 +141,53 @@ impl Config {
     /// which carries its own name on the event. `CaptureMode::Recordings`
     /// registers no v1 route at all; it is grouped with Ai because both are
     /// "not an analytics deployment".
+    ///
+    /// This is deliberately *not* every destination a running pipeline can
+    /// produce. Two are reachable and not required here, each closed by its own
+    /// invariant rather than by this check:
+    ///
+    /// - `AiEventsOverflow`: only ever assigned when `ai_events_overflow_enabled`,
+    ///   which `setup::ai_events_overflow_valve` arms only when the deployment's
+    ///   AI overflow topic is set and non-empty. Topic set is the precondition
+    ///   for the destination existing, so requiring it here would be redundant.
+    /// - `Custom(topic)`: carries its own topic name, and an empty
+    ///   `redirect_to_topic` is discarded when restrictions load.
+    ///
+    /// Requiring either would also make it impossible to run a deployment that
+    /// simply does not want AI overflow. `KafkaSink` reports an unmapped
+    /// destination as a fatal result, so a future break in one of those
+    /// invariants surfaces as a drop with a counter, not a silent skip.
     fn reachable_topics(&self, capture_mode: CaptureMode) -> Vec<(&'static str, &str)> {
         let mut topics = vec![
-            ("TOPIC_DLQ", self.topic_dlq.as_str()),
-            ("TOPIC_AI", self.topic_ai.as_str()),
+            ("KAFKA_TOPIC_DLQ", self.topic_dlq.as_str()),
+            // Injected by setup from the deployment-level variable; it is not
+            // settable per sink, so the hint names what an operator can set.
+            ("CAPTURE_ANALYTICS_AI_EVENTS_TOPIC", self.topic_ai.as_str()),
         ];
         match capture_mode {
             CaptureMode::Events | CaptureMode::Import => topics.extend([
-                ("TOPIC_MAIN", self.topic_main.as_deref().unwrap_or_default()),
                 (
-                    "TOPIC_HISTORICAL",
+                    "KAFKA_TOPIC_MAIN",
+                    self.topic_main.as_deref().unwrap_or_default(),
+                ),
+                (
+                    "KAFKA_TOPIC_HISTORICAL",
                     self.topic_historical.as_deref().unwrap_or_default(),
                 ),
                 (
-                    "TOPIC_OVERFLOW",
+                    "KAFKA_TOPIC_OVERFLOW",
                     self.topic_overflow.as_deref().unwrap_or_default(),
                 ),
                 (
-                    "TOPIC_EXCEPTION",
+                    "KAFKA_TOPIC_EXCEPTION",
                     self.topic_exception.as_deref().unwrap_or_default(),
                 ),
                 (
-                    "TOPIC_HEATMAP",
+                    "KAFKA_TOPIC_HEATMAP",
                     self.topic_heatmap.as_deref().unwrap_or_default(),
                 ),
                 (
-                    "TOPIC_CLIENT_INGESTION_WARNING",
+                    "KAFKA_TOPIC_CLIENT_INGESTION_WARNING",
                     self.topic_client_ingestion_warning
                         .as_deref()
                         .unwrap_or_default(),
@@ -518,9 +541,14 @@ mod tests {
 
     /// The two topics every mode can reach: the AI lane by event name, the DLQ
     /// by a `redirect_to_dlq` restriction on any pipeline's slice.
+    ///
+    /// Each case asserts the message names a variable an operator can actually
+    /// set. For the AI topic that is the deployment-level
+    /// `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`, not the per-sink `TOPIC_AI` that
+    /// setup overwrites on every sink config.
     #[rstest]
-    #[case("TOPIC_DLQ", |c: &mut Config| c.topic_dlq.clear())]
-    #[case("TOPIC_AI", |c: &mut Config| c.topic_ai.clear())]
+    #[case("KAFKA_TOPIC_DLQ", |c: &mut Config| c.topic_dlq.clear())]
+    #[case("CAPTURE_ANALYTICS_AI_EVENTS_TOPIC", |c: &mut Config| c.topic_ai.clear())]
     fn universally_reachable_topics_are_required_on_every_mode(
         #[case] env_key: &str,
         #[case] blank: fn(&mut Config),
