@@ -1,10 +1,8 @@
 from typing import cast
 
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.documentation import PostHogAutoSchema, _FallbackSerializer
@@ -14,7 +12,6 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.scoping.manager import TeamScopedQuerySet
 from posthog.models.user import User
-from posthog.utils import str_to_bool
 
 from ..instrumentation_checklist.grading import CheckKey, CheckStatus, grade_checklist
 from ..instrumentation_checklist.stats import WINDOW_DAYS, fetch_checklist_stats
@@ -57,6 +54,17 @@ class InstrumentationChecklistSerializer(serializers.Serializer):
     checks = InstrumentationCheckSerializer(
         many=True,
         help_text="Every check, graded. Checks are always all returned, including the ones that pass.",
+    )
+
+
+class InstrumentationChecklistQuerySerializer(serializers.Serializer):
+    refresh = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Grade the checks against a fresh read instead of a recent cached one. Use it after "
+            "changing instrumentation, when a cached verdict would still describe the old code."
+        ),
     )
 
 
@@ -115,26 +123,16 @@ class AIObservabilityInstrumentationChecklistViewSet(TeamAndOrgViewSetMixin, vie
         serializer = InstrumentationChecklistSerializer({"window_days": WINDOW_DAYS, "checks": checks})
         return Response(serializer.data)
 
-    @extend_schema(
+    @validated_request(
+        query_serializer=InstrumentationChecklistQuerySerializer,
+        responses={200: OpenApiResponse(response=InstrumentationChecklistSerializer)},
         operation_id="ai_observability_instrumentation_checklist_retrieve",
-        parameters=[
-            OpenApiParameter(
-                name="refresh",
-                type=OpenApiTypes.BOOL,
-                location=OpenApiParameter.QUERY,
-                description=(
-                    "Grade the checks against a fresh read instead of a recent cached one. Use it after "
-                    "changing instrumentation, when a cached verdict would still describe the old code."
-                ),
-            )
-        ],
-        responses={200: InstrumentationChecklistSerializer},
     )
     @llma_track_latency("llma_instrumentation_checklist_list")
     @monitor(feature=None, endpoint="llma_instrumentation_checklist_list", method="GET")
-    def list(self, request: Request, **kwargs) -> Response:
+    def list(self, request: ValidatedRequest, **kwargs) -> Response:
         """Grade every instrumentation check for this project."""
-        return self._graded_checklist(force_refresh=str_to_bool(request.query_params.get("refresh")))
+        return self._graded_checklist(force_refresh=request.validated_query_data["refresh"])
 
     @validated_request(
         request_serializer=InstrumentationCheckActionSerializer,

@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 
 from posthog.hogql import ast
@@ -8,7 +9,7 @@ from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.models.team import Team
 from posthog.utils import generate_cache_key, get_safe_cache, safe_cache_set
 
-from .grading import ChecklistStats
+from .grading import VOLUME_FLOOR, ChecklistStats
 
 # Matches ai_events' `retention_days Int16 DEFAULT 30`, so the window never asks for rows the
 # table has already dropped.
@@ -69,9 +70,11 @@ FROM (
 )
 """
 
-# `tools` is the widest column this table stores per row, so reading it costs about as much as
-# every other column the checklist touches put together. Only one warning sentence reads it, so it
-# gets its own query and `LIMIT 1` stops the scan at the first row that answers the question.
+# `tools` is the widest column the checklist reads, and costs about as much as every other column
+# it touches put together. Only one warning sentence reads it, so it gets its own query rather than
+# a term in the aggregate every project pays for. `LIMIT 1` ends the scan at the first row that
+# declares tools; a project that declares none is still read in full, so the caller skips this
+# entirely unless the answer can change what someone sees.
 #
 # Tool definitions come from the native `tools` column, never `properties.$ai_tools`: the ai_events
 # materialized view strips heavy properties out of the JSON blob, so a properties read returns a
@@ -134,28 +137,43 @@ def _cache_key(team_id: int) -> str:
     return generate_cache_key(team_id, f"ai_observability_instrumentation_checklist_{CACHE_VERSION}_{WINDOW_DAYS}d")
 
 
+def _stats_from_cache(cached: object) -> ChecklistStats | None:
+    """Rebuild a cached entry by field name, or discard it.
+
+    A frozen slots dataclass pickles its fields positionally, so an entry written before a field was
+    added or removed would unpickle with every later value shifted onto the wrong field, and
+    `__post_init__` does not run to catch it. Reconstructing from a plain dict makes that a cache
+    miss instead. CACHE_VERSION still exists to avoid throwing away a whole team's entry on deploy.
+    """
+    if not isinstance(cached, dict):
+        return None
+    try:
+        return ChecklistStats(**cached)
+    except (TypeError, ValueError):
+        return None
+
+
 def _compute_checklist_stats(team: Team) -> ChecklistStats:
     counts = _query_counts(team)
-    # A project that records tool calls needs no second sentence about definitions, so the wide read
-    # is skipped entirely for it. `None` says the question was never asked, which is what keeps a
-    # skipped probe from reading as "this project declares nothing".
-    tools_declared = _query_tools_declared(team) if counts["generations_with_tool_calls"] == 0 else None
-    return ChecklistStats(**counts, tools_declared=tools_declared)
+    # Only the tool-calls warning reads this, and only once that check clears its volume floor with
+    # no call recorded. Anywhere else the answer is discarded, so the wide read is skipped. `None`
+    # says the question was never asked, which keeps a skipped read from reading as "declares none".
+    asks_about_definitions = counts["generations"] >= VOLUME_FLOOR and counts["generations_with_tool_calls"] == 0
+    return ChecklistStats(**counts, tools_declared=_query_tools_declared(team) if asks_about_definitions else None)
 
 
 def fetch_checklist_stats(team: Team, *, force_refresh: bool = False) -> ChecklistStats:
     """Count the instrumentation signals the checklist grades, over the last WINDOW_DAYS days."""
     cache_key = _cache_key(team.pk)
     if not force_refresh:
-        cached = get_safe_cache(cache_key)
-        # A dataclass written by an older deploy unpickles into whatever fields it had, so the type
-        # guard is what stops a renamed field reaching grading as a missing attribute.
-        if isinstance(cached, ChecklistStats):
+        cached = _stats_from_cache(get_safe_cache(cache_key))
+        if cached is not None:
             return cached
 
     stats = _compute_checklist_stats(team)
-    # Caching an empty verdict would hold a project that is sending its first events at "still
-    # collecting" for the whole TTL, which is the one moment someone watches this card closely.
-    if stats.total_events > 0:
-        safe_cache_set(cache_key, stats, timeout=CACHE_TTL_SECONDS)
+    # Below the floor every check grades pending, which is the card someone watches while their first
+    # events land. Holding that verdict for the whole TTL is the wrong answer to look at, and a
+    # project with that few events is cheap to count again.
+    if stats.total_events >= VOLUME_FLOOR:
+        safe_cache_set(cache_key, asdict(stats), timeout=CACHE_TTL_SECONDS)
     return stats

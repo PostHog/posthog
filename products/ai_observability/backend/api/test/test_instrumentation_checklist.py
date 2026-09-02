@@ -124,6 +124,11 @@ class TestInstrumentationChecklist(ClickhouseTestMixin, APIBaseTest):
         assert refreshed.status_code == status.HTTP_200_OK, refreshed.content
         assert check(refreshed.json(), "sessions")["stats"]["generations"] == VOLUME_FLOOR + 3
 
+    def test_an_unreadable_refresh_is_rejected_rather_than_read_as_false(self) -> None:
+        response = self.client.get(f"{endpoint(self.team.pk)}?refresh=banana")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
     def test_get_returns_every_check_graded_over_the_teams_events(self) -> None:
         response = self.client.get(endpoint(self.team.pk))
 

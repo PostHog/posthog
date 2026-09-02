@@ -11,7 +11,7 @@ from parameterized import parameterized
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.team import Team
 
-from products.ai_observability.backend.instrumentation_checklist.grading import ChecklistStats
+from products.ai_observability.backend.instrumentation_checklist.grading import VOLUME_FLOOR, ChecklistStats
 from products.ai_observability.backend.instrumentation_checklist.stats import (
     _COUNTS_SQL,
     _TOOLS_DECLARED_SQL,
@@ -20,6 +20,8 @@ from products.ai_observability.backend.instrumentation_checklist.stats import (
 )
 
 NOW = datetime(2026, 8, 19, 12, 0, tzinfo=UTC)
+
+_TOOL = {"type": "function", "function": {"name": "search"}}
 
 
 def _ai_event(
@@ -40,6 +42,10 @@ def _ai_event(
         "timestamp": timestamp or NOW - timedelta(days=1),
         "properties": {"$ai_trace_id": trace_id, **(properties or {})},
     }
+
+
+def _generations(team: Team, count: int) -> list[dict[str, Any]]:
+    return [_ai_event(team=team, event="$ai_generation", trace_id=f"trace-{index}") for index in range(count)]
 
 
 class TestFetchChecklistStats(ClickhouseTestMixin, BaseTest):
@@ -78,8 +84,8 @@ class TestFetchChecklistStats(ClickhouseTestMixin, BaseTest):
             events_with_session=1,
             events_declining_session=0,
             generations_with_tool_calls=1,
-            # Not False: a project already recording calls never needs the definitions question
-            # answered, so the wide read behind it is skipped rather than run.
+            # Not False: nothing asked about definitions, because only the tool-calls warning reads
+            # the answer and this project is nowhere near raising it.
             tools_declared=None,
             sdk_generations=2,
             sdk_generations_identified=1,
@@ -98,7 +104,7 @@ class TestFetchChecklistStats(ClickhouseTestMixin, BaseTest):
             events_with_session=0,
             events_declining_session=0,
             generations_with_tool_calls=0,
-            tools_declared=False,
+            tools_declared=None,
             sdk_generations=0,
             sdk_generations_identified=0,
             spans=0,
@@ -168,13 +174,24 @@ class TestFetchChecklistStats(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("an_empty_array_is_not_a_declaration", [], False),
-            ("a_real_definition_is", [{"type": "function", "function": {"name": "search"}}], True),
+            ("an_empty_array_is_not_a_declaration", [], None, False),
+            ("a_real_definition_is", [_TOOL], None, True),
+            # The read behind this is the widest in the checklist, and its answer only picks between
+            # two warning sentences. A project already recording calls never raises that warning.
+            ("a_recorded_call_leaves_the_question_unasked", [_TOOL], "search", None),
         ]
     )
-    def test_declared_tool_definitions(self, _name: str, tools: list[dict[str, Any]], expected: bool) -> None:
+    def test_declared_tool_definitions(
+        self, _name: str, tools: list[dict[str, Any]], tools_called: str | None, expected: bool | None
+    ) -> None:
+        properties: dict[str, Any] = {"$ai_tools": tools}
+        if tools_called is not None:
+            properties["$ai_tools_called"] = tools_called
         bulk_create_ai_events(
-            [_ai_event(team=self.team, event="$ai_generation", trace_id="trace-1", properties={"$ai_tools": tools})]
+            [
+                _ai_event(team=self.team, event="$ai_generation", trace_id=f"trace-{index}", properties=properties)
+                for index in range(VOLUME_FLOOR)
+            ]
         )
 
         assert fetch_checklist_stats(self.team).tools_declared is expected
@@ -239,25 +256,30 @@ class TestFetchChecklistStats(ClickhouseTestMixin, BaseTest):
         assert stats.sdk_generations_identified == 0
 
     def test_a_verdict_is_reused_until_a_refresh_asks_for_a_new_one(self) -> None:
-        bulk_create_ai_events([_ai_event(team=self.team, event="$ai_generation", trace_id="trace-1")])
-        assert fetch_checklist_stats(self.team).total_events == 1
+        bulk_create_ai_events(_generations(self.team, VOLUME_FLOOR))
+        assert fetch_checklist_stats(self.team).total_events == VOLUME_FLOOR
 
-        bulk_create_ai_events([_ai_event(team=self.team, event="$ai_span", trace_id="trace-1")])
+        bulk_create_ai_events([_ai_event(team=self.team, event="$ai_span", trace_id="trace-extra")])
 
-        assert fetch_checklist_stats(self.team).total_events == 1
-        assert fetch_checklist_stats(self.team, force_refresh=True).total_events == 2
+        assert fetch_checklist_stats(self.team).total_events == VOLUME_FLOOR
+        assert fetch_checklist_stats(self.team, force_refresh=True).total_events == VOLUME_FLOOR + 1
 
-    def test_a_project_that_has_sent_nothing_is_not_held_at_zero(self) -> None:
+    def test_a_project_below_the_volume_floor_is_never_held_at_its_first_counts(self) -> None:
+        # Every check grades pending down here, which is the card someone watches while their first
+        # events land. A cached verdict would answer them with the counts from before they started.
         assert fetch_checklist_stats(self.team).total_events == 0
 
-        bulk_create_ai_events([_ai_event(team=self.team, event="$ai_generation", trace_id="trace-1")])
+        bulk_create_ai_events(_generations(self.team, VOLUME_FLOOR - 1))
 
-        assert fetch_checklist_stats(self.team).total_events == 1
+        assert fetch_checklist_stats(self.team).total_events == VOLUME_FLOOR - 1
 
-    def test_the_aggregate_stays_ungrouped(self) -> None:
+    @parameterized.expand([("counts", _COUNTS_SQL), ("tools_declared", _TOOLS_DECLARED_SQL)])
+    def test_every_aggregate_stays_ungrouped(self, _name: str, sql: str) -> None:
         # An ungrouped aggregate always returns exactly one row, so query_ai_events' empty-result
-        # probe never fires and the stripped events table stays unreachable. A GROUP BY or HAVING
-        # would let an empty project raise AIEventsNotFoundError instead of grading at zero.
-        normalized = " ".join(_COUNTS_SQL.split()).upper()
+        # probe never fires and the stripped events table stays unreachable. A GROUP BY, a HAVING,
+        # or dropping the outer count() would let a project with no matching row raise
+        # AIEventsNotFoundError instead of grading.
+        normalized = " ".join(sql.split()).upper()
+        assert "COUNT()" in normalized
         assert "GROUP BY" not in normalized
         assert "HAVING" not in normalized
