@@ -373,7 +373,11 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
         """
         All teams the user has access to on any organization, taking into account project based permissioning
         """
-        teams = Team.objects.filter(organization__members=self)
+        # Membership rows already carry organization_id, so posthog_organization is only a bridge here.
+        # Filtering through the memberships keeps it out of the plan, which matters once the
+        # access-control branch below adds a large pk__in and the planner switches to a scan.
+        member_organization_ids = OrganizationMembership.objects.filter(user=self).values("organization_id")
+        teams = Team.objects.filter(organization_id__in=member_organization_ids)
         org_available_product_features = (
             Organization.objects.filter(members=self).values_list("available_product_features", flat=True).first()
         )
@@ -439,14 +443,14 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
                 all_accessible_team_ids: set[int] = set()
 
                 # Add teams from organizations where user is admin
-                admin_teams = Team.objects.filter(
-                    organization__pk__in=organizations_where_user_is_admin, organization__members=self
-                ).values_list("pk", flat=True)
+                admin_teams = Team.objects.filter(organization_id__in=organizations_where_user_is_admin).values_list(
+                    "pk", flat=True
+                )
                 all_accessible_team_ids.update(admin_teams)
 
                 # Add teams that are not private
                 non_private_teams = (
-                    Team.objects.filter(organization__members=self)
+                    Team.objects.filter(organization_id__in=member_organization_ids)
                     .exclude(pk__in=private_team_ids)
                     .values_list("pk", flat=True)
                 )

@@ -356,6 +356,12 @@ class TestUserTeamsAccessControl(BaseTest):
         team_ids = [team.id for team in user_teams]
         self.assertEqual(team_ids, sorted(team_ids))
 
+    def test_user_teams_does_not_join_organization(self):
+        # The join reads no organization column, and it pushes the planner onto a posthog_team scan.
+        Team.objects.create(organization=self.organization, name="Team A")
+
+        self.assertNotIn('INNER JOIN "posthog_organization"', str(self.user.teams.query))
+
     def test_user_teams_caching(self):
         """Test that the teams property is cached correctly."""
         # Get teams once
