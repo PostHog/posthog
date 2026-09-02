@@ -951,10 +951,12 @@ def _disable_installation_repos(
         .filter(id__in=config_ids)
         .update(enabled=False, digest_enabled=False, updated_at=timezone.now())
     )
+    # Supersede first: an in-flight run must stop before anything that can fail, or a retry
+    # finds it terminal and the approval it posted meanwhile stands.
+    _supersede_runs_for_configs(team_id, config_ids)
     log_repo_configs_disabled_by_webhook(
         team_id, before_rows, delivery_id=delivery_id, action=action, installation_id=installation_id
     )
-    _supersede_runs_for_configs(team_id, config_ids)
     event = (
         "stamphog_installation_repos_removed" if repository_names is not None else "stamphog_installation_uninstalled"
     )

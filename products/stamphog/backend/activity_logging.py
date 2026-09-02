@@ -109,38 +109,46 @@ def log_repo_config_bulk_update(
     `repository`, and the updated fields. `after_values` holds what the update set on all of
     them. A row whose values did not move produces no log row.
     """
-    entries: list[LogActivityEntry] = []
+    # Same rule as the receiver: the rows are already written, so a failed audit write must not
+    # escape into the caller.
+    try:
+        entries: list[LogActivityEntry] = []
 
-    for row in before_rows:
-        changes = dict_changes_between(
-            "StamphogRepoConfig",
-            previous={field: row.get(field) for field in after_values},
-            new=after_values,
-        )
-        if not changes:
-            continue
-        entries.append(
-            LogActivityEntry(
-                organization_id=None,
-                team_id=team_id,
-                user=user,
-                item_id=row["id"],
-                scope="StamphogRepoConfig",
-                activity="updated",
-                detail=Detail(changes=changes, name=row["repository"], trigger=trigger),
-                was_impersonated=was_impersonated,
+        for row in before_rows:
+            changes = dict_changes_between(
+                "StamphogRepoConfig",
+                previous={field: row.get(field) for field in after_values},
+                new=after_values,
             )
-        )
+            if not changes:
+                continue
+            entries.append(
+                LogActivityEntry(
+                    organization_id=None,
+                    team_id=team_id,
+                    user=user,
+                    item_id=row["id"],
+                    scope="StamphogRepoConfig",
+                    activity="updated",
+                    detail=Detail(changes=changes, name=row["repository"], trigger=trigger),
+                    was_impersonated=was_impersonated,
+                )
+            )
 
-    if not entries:
-        return
+        if not entries:
+            return
 
-    # One lookup for the batch, and only when there is a row to write.
-    organization_id = _organization_id_for_team(team_id)
-    for entry in entries:
-        entry["organization_id"] = organization_id
+        # One lookup for the batch, and only when there is a row to write.
+        organization_id = _organization_id_for_team(team_id)
+        for entry in entries:
+            entry["organization_id"] = organization_id
 
-    bulk_log_activity(entries, using=router.db_for_write(StamphogRepoConfig))
+        bulk_log_activity(entries, using=router.db_for_write(StamphogRepoConfig))
+    except Exception as e:
+        logger.warning("stamphog_activity_log_failed", team_id=team_id, exception=e)
+        capture_exception(e)
+        if settings.TEST:
+            raise
 
 
 def log_repo_configs_disabled_by_webhook(
