@@ -9,15 +9,14 @@ bare string would replace the preset entirely. Project context, groups, billing,
 reachable via the PostHog MCP server, so they are not duplicated here; per-turn context is delivered
 separately via the ``<posthog_context>`` wrapper.
 
-The service reads the team's approved metrics once while creating a Run, and keeps that catalog
-lookup fail-open when the catalog is temporarily unavailable.
+The metric catalog is inspected through its MCP tools at the moment it is needed, so this service
+does not embed a partial catalog snapshot in a Run's system prompt.
 """
 
 from typing import Literal
 
 from typing_extensions import TypedDict
 
-from products.data_catalog.backend.facade.api import approved_metric_names_for_team
 from products.posthog_ai.backend.helpers import BaseSandboxService
 from products.posthog_ai.backend.services.system_prompt.prompt import (
     POSTHOG_AI_SYSTEM_PROMPT,
@@ -47,9 +46,5 @@ class PromptService(BaseSandboxService):
         ``clientConnection.newSession({ _meta: { systemPrompt } })``; the sandbox appends ``append``
         after Claude Code's own system prompt rather than replacing it.
         """
-        try:
-            approved_metric_names = approved_metric_names_for_team(self.team, self.user)
-        except Exception:
-            approved_metric_names = None
-        prompt = POSTHOG_AI_SYSTEM_PROMPT + governed_metrics_catalog_prompt(approved_metric_names)
+        prompt = POSTHOG_AI_SYSTEM_PROMPT + governed_metrics_catalog_prompt()
         return {"type": "preset", "preset": "claude_code", "append": prompt}
