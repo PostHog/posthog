@@ -81,7 +81,7 @@ function getErrorLabelForMaterializedView(error: string | null): JSX.Element | n
     return (
         <span>
             Please{' '}
-            <Link to="https://posthog.com/support" target="_blank">
+            <Link to="https://posthog.com/docs/support-options" target="_blank">
                 contact support
             </Link>{' '}
             for help resolving this issue.
