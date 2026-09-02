@@ -168,8 +168,10 @@ describe('notebookKernelInfoLogic', () => {
         expect(logic.values.computeBlockedReason).toBeNull()
     })
 
-    test('an unchanged shape keeps the price the status endpoint already quoted', async () => {
-        // Losing the rates should not blank a price we were already told.
+    test('shows no price at all when the rates are unavailable', async () => {
+        // The status endpoint's hourly_price describes the running sandbox, while the sliders
+        // show the configured shape. Reusing it here would print a price for a shape that is not
+        // on screen, so the panel shows none and blocks configuration instead.
         jest.mocked(notebooksKernelComputeOptionsRetrieve).mockRejectedValue(new Error('boom'))
         kernelStatusSpy.mockResolvedValue({
             backend: 'modal',
@@ -178,15 +180,12 @@ describe('notebookKernelInfoLogic', () => {
             memory_gb: 8,
             hourly_price: 1,
         })
-        logic = notebookKernelInfoLogic({ shortId: 'price-fallback-01890abc', mode: 'notebook' })
+        logic = notebookKernelInfoLogic({ shortId: 'no-price-01890abc', mode: 'notebook' })
         logic.mount()
         await jest.advanceTimersByTimeAsync(0)
 
-        expect(logic.values.selectedHourlyPrice).toBe(1)
-
-        // Move it, and we can no longer honestly quote anything.
-        logic.actions.setMemoryGb(16)
         expect(logic.values.selectedHourlyPrice).toBeNull()
+        expect(logic.values.computeBlockedReason).not.toBeNull()
     })
 
     test('does not restart again when the server already did', async () => {
