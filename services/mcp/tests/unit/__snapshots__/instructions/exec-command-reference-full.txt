@@ -53,7 +53,7 @@ Always run `info read-data-schema` first — the recipes below are common cases,
 
 - Events: `call read-data-schema {"query": {"kind": "events"}}` (paginate with `limit`/`offset` if needed). Actions come from `actions-get-all` instead.
 - Event properties: `call read-data-schema {"query": {"kind": "event_properties", "event_name": "<event>"}}`
-- Person, session, and group properties: `call read-data-schema {"query": {"kind": "entity_properties", "entity": "person"}}`
+- Person, session, and group properties: `call read-data-schema {"query": {"kind": "entity_properties", "entity": "<entity>"}}` (`entity` is `person`, `session`, or a group type name)
 - Values: `call read-data-schema {"query": {"kind": "event_property_values", "event_name": "<event>", "property_name": "<prop>"}}`
 
 **CORRECT usage pattern:**
@@ -229,7 +229,7 @@ renamed, or filtered per team.
 Every `read-data-schema` call takes one `query` object, so send the whole payload under `query`.
 
 1. **Discover events** - `{"query": {"kind": "events"}}` to find events matching the user's intent.
-2. **Discover properties** - `{"query": {"kind": "event_properties", "event_name": "<event>"}}` for an event, or `{"query": {"kind": "entity_properties", "entity": "person"}}` for a person, session, or group type.
+2. **Discover properties** - `{"query": {"kind": "event_properties", "event_name": "<event>"}}` for an event, or `{"query": {"kind": "entity_properties", "entity": "<entity>"}}` for a person, session, or group type (use the group type name for a group).
 3. **Verify property values** - `{"query": {"kind": "event_property_values", "event_name": "<event>", "property_name": "<property>"}}` when the value must match (e.g., "US" vs "United States").
 4. **Then construct the query** using the appropriate `query-*` tool.
 
