@@ -552,6 +552,7 @@ describe('gatewayServerLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(toast).toHaveBeenCalledWith('Server connected')
+        expect(toast).toHaveBeenCalledTimes(1)
         expect(router.values.searchParams).toEqual({ scope: 'team', keep: 'value' })
         expect(router.values.hashParams).toEqual({ panel: 'open' })
         expect(logic.values.scope).toEqual({ scopeType: 'team', label: 'Team default' })

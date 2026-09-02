@@ -24,6 +24,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { MCPToolApprovalStateEnumApi, ResolvedToolPolicyApi } from '../generated/api.schemas'
 import { ServerIcon } from '../scene/icons'
+import { GatewayConnectionModal } from './GatewayConnectionModal'
 import { isPolicyStateAllowedByCeiling } from './gatewayPolicyUtils'
 import { GatewayRouteGuard } from './GatewayRouteGuard'
 import { GatewayAccessSection } from './GatewayServerAccess'
@@ -115,6 +116,8 @@ export function GatewayServerScene({
 
     return (
         <SceneContent className="mx-auto w-full max-w-[1200px]">
+            <GatewayConnectionModal />
+
             <LemonButton size="small" type="tertiary" icon={<IconArrowLeft />} onClick={goBack}>
                 Back to servers
             </LemonButton>
@@ -203,7 +206,11 @@ export function GatewayServerScene({
                             size="small"
                             loading={connectingServerId === server.id}
                             disabledReason={
-                                server.is_team_enabled ? undefined : 'This server is turned off for the team.'
+                                !server.is_team_enabled
+                                    ? 'This server is turned off for the team.'
+                                    : server.is_revoked_for_you
+                                      ? 'Ask an admin to restore your access first.'
+                                      : undefined
                             }
                             onClick={() => connectServer(server.id)}
                         >

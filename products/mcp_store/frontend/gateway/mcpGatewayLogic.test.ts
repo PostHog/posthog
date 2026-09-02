@@ -524,6 +524,18 @@ describe('mcpGatewayLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
     })
 
+    it('reports a connect on a server it does not hold and reloads the list', async () => {
+        const toast = jest.spyOn(lemonToast, 'error')
+        logic.actions.loadServersSuccess([])
+
+        await expectLogic(logic, () => {
+            logic.actions.connectServer('missing-server')
+        }).toDispatchActions(['loadServers'])
+
+        expect(toast).toHaveBeenCalledWith('Could not load this MCP server. Try again.')
+        expect(logic.values.connectionModalServerId).toBeNull()
+    })
+
     it('surfaces access update failures and clears the loading state', async () => {
         const server = gatewayServer({ is_team_enabled: true })
         const toast = jest.spyOn(lemonToast, 'error')

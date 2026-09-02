@@ -1385,6 +1385,8 @@ export const mcpGatewayLogic = kea<mcpGatewayLogicType>([
 
             const server = values.mergedServers.find((candidate) => candidate.id === serverId)
             if (!server) {
+                lemonToast.error('Could not load this MCP server. Try again.')
+                actions.loadServers()
                 return
             }
 
