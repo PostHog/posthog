@@ -90,7 +90,7 @@ export function Cohorts(): JSX.Element {
         {
             title: 'Last calculated',
             tooltip:
-                'PostHog calculates what users belong to each cohort. This is then used when filtering on cohorts in the Trends page etc. Calculating happens every 24 hours, or whenever a cohort is updated',
+                'PostHog calculates which people belong to each cohort, and uses that membership when you filter by the cohort. Recalculation runs on a rolling schedule, typically about once a day, and again as soon as you edit the cohort.',
             render: function RenderCalculation(_: any, cohort: CohortType) {
                 if (cohort.is_static) {
                     return <>N/A</>
