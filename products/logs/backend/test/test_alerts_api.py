@@ -2516,3 +2516,206 @@ class TestLogsAlertAPIPersonalAPIKeyScopes(APIBaseTest):
         url = f"{self.base_url}{uuid4()}/reset/"
         response = self.client.post(url, {}, format="json", **self._auth(key))
         assert response.status_code == 403, response.json()
+
+
+class TestPatternTriggerValidation(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.base_url = f"/api/projects/{self.team.pk}/logs/alerts/"
+        self._ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        self._ff_patcher.start()
+        self.addCleanup(self._ff_patcher.stop)
+        self._masking_patcher = patch(
+            "products.logs.backend.presentation.views.alerts_api.PATTERN_MASKING_ENABLED_TEAM_IDS",
+            frozenset({self.team.id}),
+        )
+        self._masking_patcher.start()
+        self.addCleanup(self._masking_patcher.stop)
+
+    def _payload(self, **overrides) -> dict:
+        defaults: dict[str, Any] = {
+            "name": "New pattern alert",
+            "trigger_type": "new_pattern",
+            "threshold_count": 1,
+            "filters": {"severityLevels": ["error"]},
+        }
+        defaults.update(overrides)
+        return defaults
+
+    def test_create_pattern_trigger_requires_feature_flag(self):
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            response = self.client.post(self.base_url, self._payload(), format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "trigger_type"
+        assert "not enabled for this team" in response.json()["detail"]
+
+    def test_create_pattern_trigger_requires_stamping_allowlist(self):
+        with patch("products.logs.backend.presentation.views.alerts_api.PATTERN_MASKING_ENABLED_TEAM_IDS", frozenset()):
+            response = self.client.post(self.base_url, self._payload(), format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "pattern stamping" in response.json()["detail"]
+
+    def test_create_pattern_trigger_succeeds_when_flag_and_allowlist_pass(self):
+        response = self.client.post(self.base_url, self._payload(), format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["trigger_type"] == "new_pattern"
+
+    def test_create_pattern_trigger_forces_evaluation_periods_and_datapoints_to_one(self):
+        response = self.client.post(
+            self.base_url, self._payload(evaluation_periods=5, datapoints_to_alarm=3), format="json"
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["evaluation_periods"] == 1
+        assert response.json()["datapoints_to_alarm"] == 1
+
+    def test_create_pattern_threshold_trigger_rejects_trigger_config(self):
+        response = self.client.post(
+            self.base_url,
+            self._payload(trigger_type="pattern_threshold", trigger_config={"seed_lookback_days": 3}),
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "trigger_config"
+
+    def test_count_trigger_rejects_trigger_config(self):
+        response = self.client.post(
+            self.base_url,
+            {
+                "name": "count alert",
+                "threshold_count": 5,
+                "filters": {"severityLevels": ["error"]},
+                "trigger_config": {"seed_lookback_days": 3},
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "trigger_config"
+
+    def test_create_new_pattern_accepts_trigger_config(self):
+        response = self.client.post(
+            self.base_url, self._payload(trigger_config={"seed_lookback_days": 3}), format="json"
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["trigger_config"]["seed_lookback_days"] == 3
+
+    def test_updating_an_existing_pattern_trigger_alert_is_not_regated(self):
+        created = self.client.post(self.base_url, self._payload(), format="json").json()
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=False),
+            patch("products.logs.backend.presentation.views.alerts_api.PATTERN_MASKING_ENABLED_TEAM_IDS", frozenset()),
+        ):
+            response = self.client.patch(f"{self.base_url}{created['id']}/", {"name": "renamed"}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["name"] == "renamed"
+
+    def test_converting_a_count_trigger_to_a_pattern_trigger_is_gated(self):
+        created = self.client.post(
+            self.base_url,
+            {"name": "count alert", "threshold_count": 5, "filters": {"severityLevels": ["error"]}},
+            format="json",
+        ).json()
+
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            response = self.client.patch(
+                f"{self.base_url}{created['id']}/", {"trigger_type": "new_pattern"}, format="json"
+            )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+
+class TestSimulatePatternTrigger(ClickhouseTestMixin, APIBaseTest):
+    BASE_TIME = datetime(2025, 6, 1, 0, 0, 0, tzinfo=UTC)
+    SERVICE = "pattern_simulate_service"
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.base_url = f"/api/projects/{self.team.pk}/logs/alerts/"
+        self._ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        self._ff_patcher.start()
+        self.addCleanup(self._ff_patcher.stop)
+
+    def _insert(self, rows: list[dict]) -> None:
+        sync_execute("INSERT INTO logs FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
+
+    def _stamped_row(self, *, ts: datetime, pattern: str, row_uuid: str) -> dict:
+        row = _make_log_row(team_id=self.team.id, service=self.SERVICE, uuid=row_uuid, ts=ts, body=pattern)
+        row["pattern"] = pattern
+        row["pattern_version"] = 3
+        return row
+
+    @freeze_time("2025-06-01T01:00:00Z")
+    def test_pattern_threshold_simulate_reports_a_breaching_bucket(self) -> None:
+        # 5 occurrences of the same pattern within one 5-minute bucket, comfortably
+        # inside the "-2h" simulate range.
+        rows = [
+            self._stamped_row(
+                ts=self.BASE_TIME + timedelta(minutes=30, seconds=i * 10),
+                pattern="Error in Foo.bar",
+                row_uuid=f"pt-{i}",
+            )
+            for i in range(5)
+        ]
+        self._insert(rows)
+
+        response = self.client.post(
+            f"{self.base_url}simulate/",
+            {
+                "filters": {"serviceNames": [self.SERVICE]},
+                "trigger_type": "pattern_threshold",
+                "threshold_count": 3,
+                "threshold_operator": "above",
+                "window_minutes": 5,
+                "check_interval_minutes": 5,
+                "date_from": "-2h",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["approximate"] is False
+
+        breaching_buckets = [b for b in data["buckets"] if b["threshold_breached"]]
+        assert len(breaching_buckets) == 1
+        assert breaching_buckets[0]["breaching_patterns"] == [
+            {"service_name": self.SERVICE, "pattern": "Error in Foo.bar", "occurrences": 5}
+        ]
+        assert data["fire_count"] == 1
+
+    @freeze_time("2025-06-01T01:00:00Z")
+    def test_new_pattern_simulate_only_flags_the_fingerprint_outside_the_seed_window(self) -> None:
+        # Seeded well before the simulated range: never breaches.
+        self._insert(
+            [self._stamped_row(ts=self.BASE_TIME - timedelta(days=1), pattern="Known error", row_uuid="seed-1")]
+        )
+        # Inside the simulated range, and not in the seed window: flagged as new.
+        self._insert(
+            [
+                self._stamped_row(
+                    ts=self.BASE_TIME + timedelta(minutes=40), pattern="Panic in Checkout.pay", row_uuid="novel-1"
+                )
+            ]
+        )
+
+        response = self.client.post(
+            f"{self.base_url}simulate/",
+            {
+                "filters": {"serviceNames": [self.SERVICE]},
+                "trigger_type": "new_pattern",
+                "trigger_config": {"seed_lookback_days": 3},
+                "threshold_count": 1,
+                "threshold_operator": "above",
+                "window_minutes": 5,
+                "check_interval_minutes": 5,
+                "date_from": "-2h",
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["approximate"] is True
+
+        breaching_buckets = [b for b in data["buckets"] if b["threshold_breached"]]
+        assert len(breaching_buckets) == 1
+        assert breaching_buckets[0]["breaching_patterns"] == [
+            {"service_name": self.SERVICE, "pattern": "Panic in Checkout.pay", "occurrences": 1}
+        ]

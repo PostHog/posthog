@@ -48,6 +48,12 @@ const logsAlertsCreate = (): ToolBase<typeof LogsAlertsCreateSchema, Schemas.Log
         if (params.filters !== undefined) {
             body['filters'] = params.filters
         }
+        if (params.trigger_type !== undefined) {
+            body['trigger_type'] = params.trigger_type
+        }
+        if (params.trigger_config !== undefined) {
+            body['trigger_config'] = params.trigger_config
+        }
         if (params.threshold_count !== undefined) {
             body['threshold_count'] = params.threshold_count
         }
@@ -83,6 +89,8 @@ const logsAlertsCreate = (): ToolBase<typeof LogsAlertsCreateSchema, Schemas.Log
             'enabled',
             'state',
             'filters',
+            'trigger_type',
+            'trigger_config',
             'threshold_count',
             'threshold_operator',
             'window_minutes',
@@ -262,6 +270,7 @@ const logsAlertsList = (): ToolBase<
                     'name',
                     'enabled',
                     'state',
+                    'trigger_type',
                     'threshold_count',
                     'threshold_operator',
                     'window_minutes',
@@ -293,6 +302,12 @@ const logsAlertsPartialUpdate = (): ToolBase<typeof LogsAlertsPartialUpdateSchem
         }
         if (params.filters !== undefined) {
             body['filters'] = params.filters
+        }
+        if (params.trigger_type !== undefined) {
+            body['trigger_type'] = params.trigger_type
+        }
+        if (params.trigger_config !== undefined) {
+            body['trigger_config'] = params.trigger_config
         }
         if (params.threshold_count !== undefined) {
             body['threshold_count'] = params.threshold_count
@@ -329,6 +344,8 @@ const logsAlertsPartialUpdate = (): ToolBase<typeof LogsAlertsPartialUpdateSchem
             'enabled',
             'state',
             'filters',
+            'trigger_type',
+            'trigger_config',
             'threshold_count',
             'threshold_operator',
             'window_minutes',
@@ -367,6 +384,8 @@ const logsAlertsRetrieve = (): ToolBase<typeof LogsAlertsRetrieveSchema, Schemas
             'enabled',
             'state',
             'filters',
+            'trigger_type',
+            'trigger_config',
             'threshold_count',
             'threshold_operator',
             'window_minutes',
@@ -401,6 +420,12 @@ const logsAlertsSimulateCreate = (): ToolBase<
         const body: Record<string, unknown> = {}
         if (params.filters !== undefined) {
             body['filters'] = params.filters
+        }
+        if (params.trigger_type !== undefined) {
+            body['trigger_type'] = params.trigger_type
+        }
+        if (params.trigger_config !== undefined) {
+            body['trigger_config'] = params.trigger_config
         }
         if (params.threshold_count !== undefined) {
             body['threshold_count'] = params.threshold_count
@@ -438,6 +463,7 @@ const logsAlertsSimulateCreate = (): ToolBase<
             'total_buckets',
             'threshold_count',
             'threshold_operator',
+            'approximate',
         ]) as typeof result
         return filtered
     },

@@ -9,6 +9,7 @@ from django.db.models import F, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
+import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, viewsets
@@ -68,6 +69,13 @@ from products.logs.backend.alert_state_machine import (
 )
 from products.logs.backend.facade.api import next_allowed_check_at
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
+from products.logs.backend.pattern_alert_check_query import (
+    MAX_SIMULATE_PATTERN_ROWS,
+    BucketedPatternGroups,
+    GroupedPatternCheckQuery,
+    PatternGroupCount,
+)
+from products.logs.backend.pattern_alert_evaluator import DEFAULT_SEED_LOOKBACK_DAYS, MAX_SEED_LOOKBACK_DAYS
 
 ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20
@@ -79,6 +87,14 @@ LOGS_ALERT_EVENT_IDS: Final = tuple(spec.event_id for spec in EVENT_KIND_CONFIG.
 # not in this set.
 UNCAPPED_ALERT_TEAM_IDS: frozenset[int] = frozenset(
     int(t) for x in os.environ.get("LOGS_ALERTS_UNCAPPED_TEAM_IDS", "").split(",") if (t := x.strip()).isdigit()
+)
+LOGS_PATTERN_ALERTS_FEATURE_FLAG = "logs-pattern-alerts"
+# Same env var the Node ingestion worker reads (nodejs/src/logs/config.ts) to decide
+# whether it stamps `pattern`/`pattern_version` on a team's logs. A pattern-trigger
+# alert can never fire for a team outside this allowlist, so creation is gated on it
+# here too. Coordinate both services' argocd config when growing the allowlist.
+PATTERN_MASKING_ENABLED_TEAM_IDS: frozenset[int] = frozenset(
+    int(t) for x in os.environ.get("LOGS_PATTERN_MASKING_ENABLED_TEAMS", "").split(",") if (t := x.strip()).isdigit()
 )
 MAX_SIMULATE_LOOKBACK_DAYS = 30
 MAX_SIMULATE_BUCKETS = 15_000
@@ -161,6 +177,36 @@ class ScheduleRestrictionField(serializers.JSONField):
     pass
 
 
+class LogsAlertTriggerConfigSerializer(serializers.Serializer):
+    seed_lookback_days = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=MAX_SEED_LOOKBACK_DAYS,
+        default=DEFAULT_SEED_LOOKBACK_DAYS,
+        help_text=(
+            "Only used with trigger_type=new_pattern. Days of history the alert's first check scans "
+            "to seed its seen-set before it starts alerting, so pre-existing error shapes never fire."
+        ),
+    )
+
+
+@extend_schema_field(LogsAlertTriggerConfigSerializer)
+class LogsAlertTriggerConfigField(serializers.JSONField):
+    """JSONField typed against `LogsAlertTriggerConfigSerializer`.
+
+    Only meaningful for trigger_type=new_pattern; cross-field consistency with
+    trigger_type is enforced in `LogsAlertConfigurationSerializer.validate`.
+    """
+
+    def to_internal_value(self, data: dict | list) -> dict:
+        value = super().to_internal_value(data)
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Must be a JSON object.")
+        config_serializer = LogsAlertTriggerConfigSerializer(data=value)
+        config_serializer.is_valid(raise_exception=True)
+        return config_serializer.validated_data
+
+
 class LogsAlertDestinationResponseSerializer(serializers.Serializer):
     hog_function_ids = serializers.ListField(child=serializers.UUIDField())
 
@@ -203,10 +249,28 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         "severityLevels (list of severity strings), serviceNames (list of service name strings), "
         "or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).",
     )
+    trigger_type = serializers.ChoiceField(
+        choices=LogsAlertConfiguration.TriggerType.choices,
+        default=LogsAlertConfiguration.TriggerType.COUNT,
+        help_text=(
+            "What the alert evaluates. 'count': threshold_count matching logs in the window (the "
+            "default). 'new_pattern': the first time a distinct (service, pattern) error shape "
+            "appears. 'pattern_threshold': a single error shape reaching threshold_count occurrences "
+            "in the window. The pattern trigger types require log pattern stamping to be enabled for "
+            "this team, and force evaluation_periods and datapoints_to_alarm to 1."
+        ),
+    )
+    trigger_config = LogsAlertTriggerConfigField(
+        required=False,
+        allow_null=True,
+        help_text="Trigger-specific settings. Only used with trigger_type=new_pattern.",
+    )
     threshold_count = serializers.IntegerField(
         min_value=0,
         default=100,
-        help_text="Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.",
+        help_text="Number of matching log entries (or, for a pattern trigger, occurrences of one error "
+        "shape) that constitutes a threshold breach within the evaluation window. Defaults to 100. "
+        "Use 0 with the 'above' operator to fire on any match.",
     )
     first_enabled_at = serializers.DateTimeField(
         read_only=True,
@@ -444,6 +508,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             "name",
             "enabled",
             "filters",
+            "trigger_type",
+            "trigger_config",
             "threshold_count",
             "threshold_operator",
             "window_minutes",
@@ -498,6 +564,25 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         window = attrs.get("window_minutes", getattr(self.instance, "window_minutes", None))
         if window is not None and window not in ALLOWED_WINDOW_MINUTES:
             raise ValidationError({"window_minutes": f"Must be one of {sorted(ALLOWED_WINDOW_MINUTES)}."})
+
+        trigger_type = attrs.get(
+            "trigger_type", getattr(self.instance, "trigger_type", LogsAlertConfiguration.TriggerType.COUNT)
+        )
+        is_pattern_trigger = trigger_type != LogsAlertConfiguration.TriggerType.COUNT
+
+        trigger_config = attrs.get("trigger_config", _SENTINEL)
+        if trigger_config not in (_SENTINEL, None) and trigger_type != LogsAlertConfiguration.TriggerType.NEW_PATTERN:
+            raise ValidationError({"trigger_config": "Only used with trigger_type=new_pattern."})
+
+        if is_pattern_trigger:
+            # Pattern triggers evaluate 1-of-1: a fingerprint is new, or breaches, exactly
+            # once per check, so an N-of-M rolling window has no meaning for them.
+            attrs["evaluation_periods"] = 1
+            attrs["datapoints_to_alarm"] = 1
+
+            previous_trigger_type = getattr(self.instance, "trigger_type", LogsAlertConfiguration.TriggerType.COUNT)
+            if previous_trigger_type != trigger_type:
+                _validate_pattern_trigger_allowed(self.context["get_team"]())
 
         evaluation_periods = attrs.get("evaluation_periods", getattr(self.instance, "evaluation_periods", 1))
         datapoints_to_alarm = attrs.get("datapoints_to_alarm", getattr(self.instance, "datapoints_to_alarm", 1))
@@ -638,6 +723,35 @@ def _validate_filters(filters: dict) -> None:
         )
 
 
+def _validate_pattern_trigger_allowed(team: Team) -> None:
+    """Gate turning an alert into a pattern trigger (new_pattern / pattern_threshold).
+
+    Only checked on the transition into a pattern trigger, not on every save of an
+    alert that already has one. An alert already using a pattern trigger keeps
+    working, and can still be edited, if the flag or allowlist changes later.
+    """
+    if not posthoganalytics.feature_enabled(
+        LOGS_PATTERN_ALERTS_FEATURE_FLAG,
+        str(team.uuid),
+        groups={"organization": str(team.organization_id)},
+        group_properties={
+            "organization": {
+                "id": str(team.organization_id),
+                "created_at": team.organization.created_at,
+            }
+        },
+        send_feature_flag_events=False,
+    ):
+        raise ValidationError({"trigger_type": "Pattern-based alerting is not enabled for this team."})
+    if team.id not in PATTERN_MASKING_ENABLED_TEAM_IDS:
+        raise ValidationError(
+            {
+                "trigger_type": "Pattern-based alerting requires log pattern stamping, which is not "
+                "enabled for this team. Contact support to enable it."
+            }
+        )
+
+
 class LogsAlertConfigurationDetailSerializer(LogsAlertConfigurationSerializer):
     """One alert, with the destinations attached to it. The list endpoint leaves them out:
     reading a destination pulls its stored inputs, which run to several KB per row."""
@@ -688,17 +802,42 @@ class LogsAlertEventSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class LogsAlertSimulateBreachingPatternSerializer(serializers.Serializer):
+    service_name = serializers.CharField(help_text="Service the breaching log pattern belongs to.")
+    pattern = serializers.CharField(help_text="The masked log pattern template that breached.")
+    occurrences = serializers.IntegerField(help_text="Occurrences of this pattern counted toward the breach.")
+
+
 class LogsAlertSimulateBucketSerializer(serializers.Serializer):
     timestamp = serializers.DateTimeField(help_text="Bucket start timestamp.")
-    count = serializers.IntegerField(help_text="Number of matching logs in this bucket.")
+    count = serializers.IntegerField(
+        help_text="Number of matching logs in this bucket (count trigger), or the number of breaching "
+        "patterns (pattern trigger)."
+    )
     threshold_breached = serializers.BooleanField(help_text="Whether the count crossed the threshold in this bucket.")
     state = serializers.CharField(help_text="Alert state after evaluating this bucket.")
     notification = serializers.CharField(help_text="Notification action: none, fire, or resolve.")
     reason = serializers.CharField(help_text="Human-readable explanation of the state transition.")
+    breaching_patterns = LogsAlertSimulateBreachingPatternSerializer(
+        many=True,
+        required=False,
+        help_text="Patterns that breached in this bucket. Only populated for a pattern trigger.",
+    )
 
 
 class LogsAlertSimulateRequestSerializer(serializers.Serializer):
     filters = LogsAlertFiltersField(help_text="Filter criteria — same format as LogsAlertConfiguration.filters.")
+    trigger_type = serializers.ChoiceField(
+        choices=LogsAlertConfiguration.TriggerType.choices,
+        default=LogsAlertConfiguration.TriggerType.COUNT,
+        help_text="Same meaning as LogsAlertConfiguration.trigger_type. Forces evaluation_periods and "
+        "datapoints_to_alarm to 1 for a pattern trigger.",
+    )
+    trigger_config = LogsAlertTriggerConfigField(
+        required=False,
+        allow_null=True,
+        help_text="Same meaning as LogsAlertConfiguration.trigger_config. Only used with trigger_type=new_pattern.",
+    )
     threshold_count = serializers.IntegerField(
         min_value=0,
         help_text="Threshold count to evaluate against.",
@@ -757,6 +896,13 @@ class LogsAlertSimulateRequestSerializer(serializers.Serializer):
         return value
 
     def validate(self, attrs: dict) -> dict:
+        if (
+            attrs.get("trigger_type", LogsAlertConfiguration.TriggerType.COUNT)
+            != LogsAlertConfiguration.TriggerType.COUNT
+        ):
+            # Same 1-of-1 override as LogsAlertConfigurationSerializer.
+            attrs["evaluation_periods"] = 1
+            attrs["datapoints_to_alarm"] = 1
         if attrs.get("datapoints_to_alarm", 1) > attrs.get("evaluation_periods", 1):
             raise ValidationError({"datapoints_to_alarm": "Cannot exceed evaluation_periods."})
         if attrs["check_interval_minutes"] > attrs["window_minutes"]:
@@ -775,6 +921,12 @@ class LogsAlertSimulateResponseSerializer(serializers.Serializer):
     total_buckets = serializers.IntegerField(help_text="Total number of buckets in the simulation window.")
     threshold_count = serializers.IntegerField(help_text="Threshold count used for evaluation.")
     threshold_operator = serializers.CharField(help_text="Threshold operator used for evaluation.")
+    approximate = serializers.BooleanField(
+        default=False,
+        help_text="True for a new_pattern trigger: the seen-set this preview builds only covers the "
+        "simulated range, unlike the real evaluator's persisted seen-set, so early buckets can "
+        "under- or over-count new patterns relative to production.",
+    )
 
 
 class LogsAlertCreateDestinationSerializer(serializers.Serializer):
@@ -902,6 +1054,79 @@ def _fill_empty_buckets(
             result.append(BucketedCount(timestamp=cursor, count=0))
         cursor += interval
     return result
+
+
+def _fill_empty_pattern_buckets(
+    sparse: list[BucketedPatternGroups],
+    date_from: datetime,
+    date_to: datetime,
+    interval_minutes: int,
+) -> list[BucketedPatternGroups]:
+    """Pattern-trigger analog of `_fill_empty_buckets`: fills gaps with empty group lists."""
+    if interval_minutes <= 0:
+        return sparse
+
+    expected_buckets = int((date_to - date_from).total_seconds() / (interval_minutes * 60)) + 1
+    if expected_buckets > MAX_SIMULATE_BUCKETS:
+        raise ValidationError(
+            f"Simulation would produce {expected_buckets} buckets (max {MAX_SIMULATE_BUCKETS}). "
+            "Use a shorter date range or larger window."
+        )
+
+    existing = {(b.timestamp.replace(tzinfo=UTC) if b.timestamp.tzinfo is None else b.timestamp): b for b in sparse}
+    interval = dt.timedelta(minutes=interval_minutes)
+
+    epoch = datetime(2000, 1, 1, tzinfo=UTC)
+    seconds = int((date_from - epoch).total_seconds())
+    interval_seconds = interval_minutes * 60
+    aligned_seconds = (seconds // interval_seconds) * interval_seconds
+    cursor = epoch + dt.timedelta(seconds=aligned_seconds)
+
+    result: list[BucketedPatternGroups] = []
+    while cursor <= date_to:
+        if cursor in existing:
+            result.append(existing[cursor])
+        elif cursor >= date_from:
+            result.append(BucketedPatternGroups(timestamp=cursor, groups=[]))
+        cursor += interval
+    return result
+
+
+def _rolling_group_totals(
+    buckets: list[BucketedPatternGroups], buckets_per_window: int, i: int
+) -> dict[tuple[str, str, int], int]:
+    """Sum occurrences per (service_name, pattern, pattern_version) across the
+    `buckets_per_window` cadence buckets ending just before bucket `i`. This is the
+    pattern analog of the count trigger's rolling sum in `simulate()`. Bucket `i`
+    itself is excluded because it holds data at-or-after the simulated check time.
+    """
+    totals: dict[tuple[str, str, int], int] = {}
+    window_start = max(0, i - buckets_per_window)
+    for bucket in buckets[window_start:i]:
+        for group in bucket.groups:
+            key = (group.service_name, group.pattern, group.pattern_version)
+            totals[key] = totals.get(key, 0) + group.occurrences
+    return totals
+
+
+def _build_pattern_reason(outcome: AlertCheckOutcome, breaching: list[PatternGroupCount]) -> str:
+    """Human-readable explanation of a simulated pattern-trigger check, analogous to
+    `_build_reason` for count triggers."""
+    if breaching:
+        names = ", ".join(f"{g.service_name}: {g.pattern}" for g in breaching[:3])
+        if len(breaching) > 3:
+            names += f", and {len(breaching) - 3} more"
+        desc = f"{len(breaching)} breaching pattern(s): {names}"
+    else:
+        desc = "no breaching patterns"
+
+    if outcome.notification == NotificationAction.FIRE:
+        return f"{desc}, fired"
+    if outcome.notification == NotificationAction.RESOLVE:
+        return f"{desc}, resolved"
+    if outcome.new_state == AlertState.FIRING:
+        return f"{desc}, still firing"
+    return desc
 
 
 @extend_schema_view(list=extend_schema(parameters=[LogsAlertListQuerySerializer]))
@@ -1174,6 +1399,11 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        trigger_type = data.get("trigger_type", LogsAlertConfiguration.TriggerType.COUNT)
+        if trigger_type != LogsAlertConfiguration.TriggerType.COUNT:
+            response_data = self._simulate_pattern_trigger(data, trigger_type)
+            return Response(LogsAlertSimulateResponseSerializer(response_data).data)
+
         date_from_dt = relative_date_parse(data["date_from"], ZoneInfo("UTC"))
         date_to_dt = datetime.now(UTC)
         window_minutes = data["window_minutes"]
@@ -1302,10 +1532,132 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "total_buckets": len(result_buckets),
             "threshold_count": threshold,
             "threshold_operator": data["threshold_operator"],
+            "approximate": False,
         }
 
         response_serializer = LogsAlertSimulateResponseSerializer(response_data)
         return Response(response_serializer.data)
+
+    def _simulate_pattern_trigger(self, data: dict, trigger_type: str) -> dict:
+        """Pattern-trigger counterpart of the count-trigger simulation above.
+
+        `pattern_threshold` runs the same grouped query the real evaluator uses,
+        bucketed and rolled up the same way the count path rolls up `AlertCheckQuery`
+        buckets. `new_pattern` is an approximation: it seeds from a lookback window
+        like the real evaluator, then re-derives its own seen-set as it walks the
+        simulated range, instead of reading the alert's actual persisted seen-set
+        (this alert does not exist yet, or the caller is previewing a change).
+        """
+        date_from_dt = relative_date_parse(data["date_from"], ZoneInfo("UTC"))
+        date_to_dt = datetime.now(UTC)
+        window_minutes = data["window_minutes"]
+        cadence_minutes = data["check_interval_minutes"]
+        threshold = data["threshold_count"]
+        cooldown_minutes = data.get("cooldown_minutes", 0)
+
+        fake_alert = LogsAlertConfiguration(
+            team=self.team,
+            filters=data["filters"],
+            threshold_count=threshold,
+            window_minutes=window_minutes,
+            trigger_type=trigger_type,
+        )
+
+        seen: set[tuple[str, str, int]] = set()
+        if trigger_type == LogsAlertConfiguration.TriggerType.NEW_PATTERN:
+            seed_lookback_days = (data.get("trigger_config") or {}).get(
+                "seed_lookback_days", DEFAULT_SEED_LOOKBACK_DAYS
+            )
+            seed_from = date_from_dt - dt.timedelta(days=seed_lookback_days)
+            seed_result = GroupedPatternCheckQuery(
+                team=self.team, alert=fake_alert, date_from=seed_from, date_to=date_from_dt
+            ).execute_groups(limit=MAX_SIMULATE_PATTERN_ROWS)
+            seen = {(g.service_name, g.pattern, g.pattern_version) for g in seed_result.groups}
+
+        bucketed = GroupedPatternCheckQuery(
+            team=self.team, alert=fake_alert, date_from=date_from_dt, date_to=date_to_dt
+        ).execute_bucketed_groups(interval_minutes=cadence_minutes, limit=MAX_SIMULATE_PATTERN_ROWS)
+        cadence_buckets = _fill_empty_pattern_buckets(bucketed.buckets, date_from_dt, date_to_dt, cadence_minutes)
+
+        # ALLOWED_WINDOW_MINUTES is bounded below by the configured cadence, so
+        # integer division here is always >= 1 (same contract as the count path).
+        buckets_per_window = window_minutes // cadence_minutes
+
+        snapshot = AlertSnapshot(
+            state=AlertState.NOT_FIRING,
+            evaluation_periods=1,
+            datapoints_to_alarm=1,
+            cooldown_minutes=cooldown_minutes,
+            last_notified_at=None,
+            snooze_until=None,
+            consecutive_failures=0,
+            recent_events_breached=(),
+        )
+
+        result_buckets = []
+        fire_count = 0
+        resolve_count = 0
+
+        for i, bucket in enumerate(cadence_buckets):
+            totals = _rolling_group_totals(cadence_buckets, buckets_per_window, i)
+
+            if trigger_type == LogsAlertConfiguration.TriggerType.NEW_PATTERN:
+                new_keys = [key for key in totals if key not in seen]
+                seen.update(new_keys)
+                breaching_keys = [key for key in new_keys if totals[key] >= threshold]
+            else:
+                breaching_keys = [key for key, total in totals.items() if total >= threshold]
+
+            breaching = [
+                PatternGroupCount(service_name=key[0], pattern=key[1], pattern_version=key[2], occurrences=totals[key])
+                for key in breaching_keys
+            ]
+            window_count = len(breaching)
+            breached = window_count > 0
+
+            check = CheckResult(result_count=window_count, threshold_breached=breached)
+            outcome: AlertCheckOutcome = evaluate_alert_check(snapshot, check, bucket.timestamp)
+
+            if outcome.notification == NotificationAction.FIRE:
+                fire_count += 1
+            elif outcome.notification == NotificationAction.RESOLVE:
+                resolve_count += 1
+
+            result_buckets.append(
+                {
+                    "timestamp": bucket.timestamp.isoformat(),
+                    "count": window_count,
+                    "threshold_breached": breached,
+                    "state": outcome.new_state.value,
+                    "notification": outcome.notification.value,
+                    "reason": _build_pattern_reason(outcome, breaching),
+                    "breaching_patterns": [
+                        {"service_name": g.service_name, "pattern": g.pattern, "occurrences": g.occurrences}
+                        for g in breaching
+                    ],
+                }
+            )
+
+            snapshot = AlertSnapshot(
+                state=outcome.new_state,
+                evaluation_periods=1,
+                datapoints_to_alarm=1,
+                cooldown_minutes=cooldown_minutes,
+                last_notified_at=bucket.timestamp if outcome.update_last_notified_at else snapshot.last_notified_at,
+                snooze_until=None,
+                consecutive_failures=outcome.consecutive_failures,
+                recent_events_breached=(breached,),
+            )
+
+        return {
+            "buckets": result_buckets,
+            "fire_count": fire_count,
+            "resolve_count": resolve_count,
+            "total_buckets": len(result_buckets),
+            "threshold_count": threshold,
+            "threshold_operator": data["threshold_operator"],
+            "approximate": trigger_type == LogsAlertConfiguration.TriggerType.NEW_PATTERN,
+        }
 
     def _track(self, action: Literal["created", "updated", "deleted"], instance: LogsAlertConfiguration) -> None:
         report_user_action(

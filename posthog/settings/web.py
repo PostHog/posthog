@@ -608,6 +608,9 @@ SPECTACULAR_SETTINGS = {
         # (`OriginProductEnumApi`) so naming it doesn't rename the type its consumers import.
         "OriginProductEnum": "products.tasks.backend.models.Task.OriginProduct",
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
+        # Shared by LogsAlertConfiguration.trigger_type, LogsAlertConfigurationDetail.trigger_type,
+        # and LogsAlertSimulateRequest.trigger_type.
+        "TriggerTypeEnum": "products.logs.backend.models.LogsAlertConfiguration.TriggerType",
         "EmailChannelKindEnum": "products.conversations.backend.models.team_conversations_email_config.EmailChannelKind",
         "EmailThreadMessageDirectionEnum": "products.conversations.backend.models.email_thread.EmailThreadMessageDirection",
         "EmailThreadParticipantKindEnum": "products.conversations.backend.models.email_thread.EmailThreadParticipantKind",

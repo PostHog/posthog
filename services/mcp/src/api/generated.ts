@@ -47865,6 +47865,29 @@ export namespace Schemas {
     }
 
     /**
+     * * `count` - Count threshold
+     * * `new_pattern` - New pattern
+     * * `pattern_threshold` - Pattern threshold
+     */
+    export type TriggerTypeEnum = typeof TriggerTypeEnum[keyof typeof TriggerTypeEnum];
+
+
+    export const TriggerTypeEnum = {
+      Count: 'count',
+      NewPattern: 'new_pattern',
+      PatternThreshold: 'pattern_threshold',
+    } as const;
+
+    export interface LogsAlertTriggerConfig {
+      /**
+         * Only used with trigger_type=new_pattern. Days of history the alert's first check scans to seed its seen-set before it starts alerting, so pre-existing error shapes never fire.
+         * @minimum 1
+         * @maximum 30
+         */
+      seed_lookback_days?: number;
+    }
+
+    /**
      * * `above` - Above
      * * `below` - Below
      */
@@ -47926,8 +47949,16 @@ export namespace Schemas {
       enabled?: boolean;
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
       filters?: LogsAlertFilters;
+      /** What the alert evaluates. 'count': threshold_count matching logs in the window (the default). 'new_pattern': the first time a distinct (service, pattern) error shape appears. 'pattern_threshold': a single error shape reaching threshold_count occurrences in the window. The pattern trigger types require log pattern stamping to be enabled for this team, and force evaluation_periods and datapoints_to_alarm to 1.
+       *
+       * * `count` - Count threshold
+       * * `new_pattern` - New pattern
+       * * `pattern_threshold` - Pattern threshold */
+      trigger_type?: TriggerTypeEnum;
+      /** Trigger-specific settings. Only used with trigger_type=new_pattern. */
+      trigger_config?: LogsAlertTriggerConfig | null;
       /**
-         * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.
+         * Number of matching log entries (or, for a pattern trigger, occurrences of one error shape) that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any match.
          * @minimum 0
          */
       threshold_count?: number;
@@ -48046,8 +48077,16 @@ export namespace Schemas {
       enabled?: boolean;
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
       filters?: LogsAlertFilters;
+      /** What the alert evaluates. 'count': threshold_count matching logs in the window (the default). 'new_pattern': the first time a distinct (service, pattern) error shape appears. 'pattern_threshold': a single error shape reaching threshold_count occurrences in the window. The pattern trigger types require log pattern stamping to be enabled for this team, and force evaluation_periods and datapoints_to_alarm to 1.
+       *
+       * * `count` - Count threshold
+       * * `new_pattern` - New pattern
+       * * `pattern_threshold` - Pattern threshold */
+      trigger_type?: TriggerTypeEnum;
+      /** Trigger-specific settings. Only used with trigger_type=new_pattern. */
+      trigger_config?: LogsAlertTriggerConfig | null;
       /**
-         * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.
+         * Number of matching log entries (or, for a pattern trigger, occurrences of one error shape) that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any match.
          * @minimum 0
          */
       threshold_count?: number;
@@ -48204,10 +48243,19 @@ export namespace Schemas {
       readonly query_duration_ms: number | null;
     }
 
+    export interface LogsAlertSimulateBreachingPattern {
+      /** Service the breaching log pattern belongs to. */
+      service_name: string;
+      /** The masked log pattern template that breached. */
+      pattern: string;
+      /** Occurrences of this pattern counted toward the breach. */
+      occurrences: number;
+    }
+
     export interface LogsAlertSimulateBucket {
       /** Bucket start timestamp. */
       timestamp: string;
-      /** Number of matching logs in this bucket. */
+      /** Number of matching logs in this bucket (count trigger), or the number of breaching patterns (pattern trigger). */
       count: number;
       /** Whether the count crossed the threshold in this bucket. */
       threshold_breached: boolean;
@@ -48217,11 +48265,21 @@ export namespace Schemas {
       notification: string;
       /** Human-readable explanation of the state transition. */
       reason: string;
+      /** Patterns that breached in this bucket. Only populated for a pattern trigger. */
+      breaching_patterns?: LogsAlertSimulateBreachingPattern[];
     }
 
     export interface LogsAlertSimulateRequest {
       /** Filter criteria — same format as LogsAlertConfiguration.filters. */
       filters: LogsAlertFilters;
+      /** Same meaning as LogsAlertConfiguration.trigger_type. Forces evaluation_periods and datapoints_to_alarm to 1 for a pattern trigger.
+       *
+       * * `count` - Count threshold
+       * * `new_pattern` - New pattern
+       * * `pattern_threshold` - Pattern threshold */
+      trigger_type?: TriggerTypeEnum;
+      /** Same meaning as LogsAlertConfiguration.trigger_config. Only used with trigger_type=new_pattern. */
+      trigger_config?: LogsAlertTriggerConfig | null;
       /**
          * Threshold count to evaluate against.
          * @minimum 0
@@ -48274,6 +48332,8 @@ export namespace Schemas {
       threshold_count: number;
       /** Threshold operator used for evaluation. */
       threshold_operator: string;
+      /** True for a new_pattern trigger: the seen-set this preview builds only covers the simulated range, unlike the real evaluator's persisted seen-set, so early buckets can under- or over-count new patterns relative to production. */
+      approximate?: boolean;
     }
 
     export type LogsAlertStateChangeSignalExtraFilters = { [key: string]: unknown };
@@ -63493,8 +63553,16 @@ export namespace Schemas {
       enabled?: boolean;
       /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false). */
       filters?: LogsAlertFilters;
+      /** What the alert evaluates. 'count': threshold_count matching logs in the window (the default). 'new_pattern': the first time a distinct (service, pattern) error shape appears. 'pattern_threshold': a single error shape reaching threshold_count occurrences in the window. The pattern trigger types require log pattern stamping to be enabled for this team, and force evaluation_periods and datapoints_to_alarm to 1.
+       *
+       * * `count` - Count threshold
+       * * `new_pattern` - New pattern
+       * * `pattern_threshold` - Pattern threshold */
+      trigger_type?: TriggerTypeEnum;
+      /** Trigger-specific settings. Only used with trigger_type=new_pattern. */
+      trigger_config?: LogsAlertTriggerConfig | null;
       /**
-         * Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log.
+         * Number of matching log entries (or, for a pattern trigger, occurrences of one error shape) that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any match.
          * @minimum 0
          */
       threshold_count?: number;

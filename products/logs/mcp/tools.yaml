@@ -20,8 +20,11 @@ tools:
             idempotent: false
         title: Create log alert
         description: >
-            Create a threshold-based alert on log streams. The alert periodically counts log entries matching the given
-            filters and fires when the count crosses the threshold. Maximum 20 alerts per project.
+            Create an alert on log streams. The default trigger_type "count" periodically counts log entries matching
+            the given filters and fires when the count crosses the threshold. Two pattern-based trigger types are also
+            available: "new_pattern" fires the first time a distinct (service, error shape) fingerprint appears;
+            "pattern_threshold" fires when a single error shape reaches threshold_count occurrences. Pattern triggers
+            require log pattern stamping to be enabled for the team. Maximum 20 alerts per project.
         exclude_params:
             - id
             - state
@@ -40,6 +43,8 @@ tools:
                 - enabled
                 - state
                 - filters
+                - trigger_type
+                - trigger_config
                 - threshold_count
                 - threshold_operator
                 - window_minutes
@@ -151,14 +156,16 @@ tools:
         list: true
         title: List log alerts
         description: >
-            List log alert configurations in the current project, newest first. Returns alert name, state, threshold,
-            filters, and scheduling details. Use this to review existing alerts before creating or modifying them.
+            List log alert configurations in the current project, newest first. Returns alert name, state, trigger
+            type, threshold, and scheduling details. Use this to review existing alerts before creating or modifying
+            them.
         response:
             include:
                 - id
                 - name
                 - enabled
                 - state
+                - trigger_type
                 - threshold_count
                 - threshold_operator
                 - window_minutes
@@ -177,7 +184,8 @@ tools:
         title: Update log alert
         description: >
             Update a log alert configuration by ID. Only the fields you provide are changed. Use this to adjust
-            thresholds, filters, quiet hours, enable/disable alerts, or snooze them.
+            thresholds, filters, quiet hours, trigger_type, enable/disable alerts, or snooze them. Switching
+            trigger_type to a pattern-based type requires log pattern stamping to be enabled for the team.
         exclude_params:
             - id
             - state
@@ -196,6 +204,8 @@ tools:
                 - enabled
                 - state
                 - filters
+                - trigger_type
+                - trigger_config
                 - threshold_count
                 - threshold_operator
                 - window_minutes
@@ -226,8 +236,8 @@ tools:
             idempotent: true
         title: Get log alert
         description: >
-            Get a log alert configuration by ID. Returns full details including current state, threshold settings,
-            filters, and scheduling information.
+            Get a log alert configuration by ID. Returns full details including current state, trigger type,
+            threshold settings, filters, and scheduling information.
         response:
             include:
                 - id
@@ -235,6 +245,8 @@ tools:
                 - enabled
                 - state
                 - filters
+                - trigger_type
+                - trigger_config
                 - threshold_count
                 - threshold_operator
                 - window_minutes
@@ -263,9 +275,12 @@ tools:
         title: Simulate log alert
         description: >
             Run a draft alert configuration against historical logs and return per-bucket results from the full state
-            machine — count, threshold_breached, state, notification (none/fire/resolve), reason. Use to validate
-            threshold + N-of-M settings before creating an alert. Read-only; no alert records are written. Aim for
-            fire_count between 0 and 3 over a `-7d` lookback for a healthy threshold.
+            machine — count, threshold_breached, state, notification (none/fire/resolve), reason. For a pattern-based
+            trigger_type, count is the number of breaching error shapes and each bucket lists them under
+            breaching_patterns. new_pattern simulations are approximate: the response's approximate field is true,
+            since the seen-set is rebuilt from the simulated range rather than read from a persisted alert. Use to
+            validate settings before creating an alert. Read-only; no alert records are written. Aim for fire_count
+            between 0 and 3 over a `-7d` lookback for a healthy threshold.
         response:
             include:
                 - buckets
@@ -274,6 +289,7 @@ tools:
                 - total_buckets
                 - threshold_count
                 - threshold_operator
+                - approximate
     logs-alerts-update:
         operation: logs_alerts_update
         enabled: false

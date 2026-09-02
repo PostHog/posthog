@@ -65,6 +65,10 @@ export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwo
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault = `feature`
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault = `hogql`
 export const logsAlertsCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveTypeDefault = `behavioral`
+export const logsAlertsCreateBodyTriggerTypeDefault = `count`
+export const logsAlertsCreateBodyTriggerConfigOneSeedLookbackDaysDefault = 7
+export const logsAlertsCreateBodyTriggerConfigOneSeedLookbackDaysMax = 30
+
 export const logsAlertsCreateBodyThresholdCountDefault = 100
 export const logsAlertsCreateBodyThresholdCountMin = 0
 
@@ -1735,12 +1739,37 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).'
         ),
+    trigger_type: zod
+        .enum(['count', 'new_pattern', 'pattern_threshold'])
+        .describe(
+            '\* `count` - Count threshold\n\* `new_pattern` - New pattern\n\* `pattern_threshold` - Pattern threshold'
+        )
+        .default(logsAlertsCreateBodyTriggerTypeDefault)
+        .describe(
+            "What the alert evaluates. 'count': threshold_count matching logs in the window (the default). 'new_pattern': the first time a distinct (service, pattern) error shape appears. 'pattern_threshold': a single error shape reaching threshold_count occurrences in the window. The pattern trigger types require log pattern stamping to be enabled for this team, and force evaluation_periods and datapoints_to_alarm to 1.\n\n\* `count` - Count threshold\n\* `new_pattern` - New pattern\n\* `pattern_threshold` - Pattern threshold"
+        ),
+    trigger_config: zod
+        .union([
+            zod.object({
+                seed_lookback_days: zod
+                    .number()
+                    .min(1)
+                    .max(logsAlertsCreateBodyTriggerConfigOneSeedLookbackDaysMax)
+                    .default(logsAlertsCreateBodyTriggerConfigOneSeedLookbackDaysDefault)
+                    .describe(
+                        "Only used with trigger_type=new_pattern. Days of history the alert's first check scans to seed its seen-set before it starts alerting, so pre-existing error shapes never fire."
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Trigger-specific settings. Only used with trigger_type=new_pattern.'),
     threshold_count: zod
         .number()
         .min(logsAlertsCreateBodyThresholdCountMin)
         .default(logsAlertsCreateBodyThresholdCountDefault)
         .describe(
-            "Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log."
+            "Number of matching log entries (or, for a pattern trigger, occurrences of one error shape) that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any match."
         ),
     threshold_operator: zod
         .enum(['above', 'below'])
@@ -1856,6 +1885,9 @@ export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValues
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault = `feature`
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault = `hogql`
 export const logsAlertsPartialUpdateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveTypeDefault = `behavioral`
+export const logsAlertsPartialUpdateBodyTriggerConfigOneSeedLookbackDaysDefault = 7
+export const logsAlertsPartialUpdateBodyTriggerConfigOneSeedLookbackDaysMax = 30
+
 export const logsAlertsPartialUpdateBodyThresholdCountMin = 0
 
 export const logsAlertsPartialUpdateBodyEvaluationPeriodsMax = 10
@@ -3520,12 +3552,37 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). May be empty on draft alerts (enabled=false).'
         ),
+    trigger_type: zod
+        .enum(['count', 'new_pattern', 'pattern_threshold'])
+        .describe(
+            '\* `count` - Count threshold\n\* `new_pattern` - New pattern\n\* `pattern_threshold` - Pattern threshold'
+        )
+        .optional()
+        .describe(
+            "What the alert evaluates. 'count': threshold_count matching logs in the window (the default). 'new_pattern': the first time a distinct (service, pattern) error shape appears. 'pattern_threshold': a single error shape reaching threshold_count occurrences in the window. The pattern trigger types require log pattern stamping to be enabled for this team, and force evaluation_periods and datapoints_to_alarm to 1.\n\n\* `count` - Count threshold\n\* `new_pattern` - New pattern\n\* `pattern_threshold` - Pattern threshold"
+        ),
+    trigger_config: zod
+        .union([
+            zod.object({
+                seed_lookback_days: zod
+                    .number()
+                    .min(1)
+                    .max(logsAlertsPartialUpdateBodyTriggerConfigOneSeedLookbackDaysMax)
+                    .default(logsAlertsPartialUpdateBodyTriggerConfigOneSeedLookbackDaysDefault)
+                    .describe(
+                        "Only used with trigger_type=new_pattern. Days of history the alert's first check scans to seed its seen-set before it starts alerting, so pre-existing error shapes never fire."
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Trigger-specific settings. Only used with trigger_type=new_pattern.'),
     threshold_count: zod
         .number()
         .min(logsAlertsPartialUpdateBodyThresholdCountMin)
         .optional()
         .describe(
-            "Number of matching log entries that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any matching log."
+            "Number of matching log entries (or, for a pattern trigger, occurrences of one error shape) that constitutes a threshold breach within the evaluation window. Defaults to 100. Use 0 with the 'above' operator to fire on any match."
         ),
     threshold_operator: zod
         .enum(['above', 'below'])
@@ -3703,6 +3760,10 @@ export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValue
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFourTypeDefault = `feature`
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveEventFiltersOneItemFiveTypeDefault = `hogql`
 export const logsAlertsSimulateCreateBodyFiltersOneFilterGroupOneValuesItemValuesItemTwofiveTypeDefault = `behavioral`
+export const logsAlertsSimulateCreateBodyTriggerTypeDefault = `count`
+export const logsAlertsSimulateCreateBodyTriggerConfigOneSeedLookbackDaysDefault = 7
+export const logsAlertsSimulateCreateBodyTriggerConfigOneSeedLookbackDaysMax = 30
+
 export const logsAlertsSimulateCreateBodyThresholdCountMin = 0
 
 export const logsAlertsSimulateCreateBodyCheckIntervalMinutesDefault = 5
@@ -5361,6 +5422,31 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                 .optional(),
         })
         .describe('Filter criteria — same format as LogsAlertConfiguration.filters.'),
+    trigger_type: zod
+        .enum(['count', 'new_pattern', 'pattern_threshold'])
+        .describe(
+            '\* `count` - Count threshold\n\* `new_pattern` - New pattern\n\* `pattern_threshold` - Pattern threshold'
+        )
+        .default(logsAlertsSimulateCreateBodyTriggerTypeDefault)
+        .describe(
+            'Same meaning as LogsAlertConfiguration.trigger_type. Forces evaluation_periods and datapoints_to_alarm to 1 for a pattern trigger.\n\n\* `count` - Count threshold\n\* `new_pattern` - New pattern\n\* `pattern_threshold` - Pattern threshold'
+        ),
+    trigger_config: zod
+        .union([
+            zod.object({
+                seed_lookback_days: zod
+                    .number()
+                    .min(1)
+                    .max(logsAlertsSimulateCreateBodyTriggerConfigOneSeedLookbackDaysMax)
+                    .default(logsAlertsSimulateCreateBodyTriggerConfigOneSeedLookbackDaysDefault)
+                    .describe(
+                        "Only used with trigger_type=new_pattern. Days of history the alert's first check scans to seed its seen-set before it starts alerting, so pre-existing error shapes never fire."
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Same meaning as LogsAlertConfiguration.trigger_config. Only used with trigger_type=new_pattern.'),
     threshold_count: zod
         .number()
         .min(logsAlertsSimulateCreateBodyThresholdCountMin)

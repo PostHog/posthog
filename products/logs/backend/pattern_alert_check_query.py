@@ -25,13 +25,23 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
-from products.logs.backend.alert_check_query import AlertCheckQuery, _tag_alert_query, build_alert_where_expr
+from products.logs.backend.alert_check_query import (
+    AlertCheckQuery,
+    _tag_alert_query,
+    build_alert_where_expr,
+    is_projection_eligible,
+)
 from products.logs.backend.models import LogsAlertConfiguration
 
 # Per-check cap on distinct (service_name, pattern) groups. Past this, the alert's
 # filters are too broad for per-fingerprint semantics and the check errors with an
 # actionable message instead of silently dropping groups.
 MAX_PATTERN_GROUPS = 1_000
+
+# Per-simulation cap on total (bucket, group) rows. A simulate preview covers up to
+# MAX_SIMULATE_LOOKBACK_DAYS of history, so this bounds query cost independently of
+# the per-bucket MAX_PATTERN_GROUPS cap.
+MAX_SIMULATE_PATTERN_ROWS = 50_000
 
 
 @dataclass(frozen=True)
@@ -54,6 +64,21 @@ class PatternGroupsResult:
 class StampingProbeResult:
     total: int
     stamped: int
+    query_duration_ms: int
+
+
+@dataclass(frozen=True)
+class BucketedPatternGroups:
+    timestamp: dt.datetime
+    groups: list[PatternGroupCount]
+
+
+@dataclass(frozen=True)
+class BucketedPatternGroupsResult:
+    buckets: list[BucketedPatternGroups]
+    # True when the query hit its row cap and dropped groups. The caller decides how
+    # to surface it (the simulate preview reports this as a warning, not an error).
+    truncated: bool
     query_duration_ms: int
 
 
@@ -117,6 +142,71 @@ class GroupedPatternCheckQuery:
             for row in rows[:limit]
         ]
         return PatternGroupsResult(groups=groups, truncated=truncated, query_duration_ms=duration_ms)
+
+    def execute_bucketed_groups(
+        self, *, interval_minutes: int, limit: int = MAX_SIMULATE_PATTERN_ROWS
+    ) -> BucketedPatternGroupsResult:
+        """Occurrence counts per (bucket, service_name, pattern) across the window, for
+        the simulate preview. Buckets with no stamped rows are omitted; the caller fills
+        gaps the same way `AlertCheckQuery.execute_bucketed` does for count triggers.
+
+        Buckets are ASC (oldest-first), matching `execute_bucketed`'s contract.
+        """
+        self._tag()
+        time_field = (
+            ast.Call(name="toStartOfMinute", args=[ast.Field(chain=["timestamp"])])
+            if is_projection_eligible(self.alert.filters)
+            else ast.Field(chain=["timestamp"])
+        )
+        query = parse_select(
+            """
+            SELECT
+                toStartOfInterval({time_field}, toIntervalMinute({bucket_minutes})) AS bucket,
+                service_name,
+                pattern,
+                max(pattern_version) AS pattern_version,
+                count() AS occurrences
+            FROM logs
+            WHERE {where} AND pattern != ''
+            GROUP BY bucket, service_name, pattern
+            ORDER BY bucket ASC
+            LIMIT {row_limit}
+            """,
+            placeholders={
+                "time_field": time_field,
+                "bucket_minutes": ast.Constant(value=interval_minutes),
+                "where": self.where_expr,
+                # +1 so the caller can tell "exactly limit rows" from "truncated".
+                "row_limit": ast.Constant(value=limit + 1),
+            },
+        )
+
+        start_ms = time.monotonic_ns() // 1_000_000
+        response = self._run_query(query)
+        duration_ms = time.monotonic_ns() // 1_000_000 - start_ms
+
+        rows = response.results or []
+        truncated = len(rows) > limit
+        rows = rows[:limit]
+
+        buckets: list[BucketedPatternGroups] = []
+        current_bucket: dt.datetime | None = None
+        current_groups: list[PatternGroupCount] = []
+        for bucket, service_name, pattern, pattern_version, occurrences in rows:
+            if bucket != current_bucket:
+                if current_bucket is not None:
+                    buckets.append(BucketedPatternGroups(timestamp=current_bucket, groups=current_groups))
+                current_bucket = bucket
+                current_groups = []
+            current_groups.append(
+                PatternGroupCount(
+                    service_name=service_name, pattern=pattern, pattern_version=pattern_version, occurrences=occurrences
+                )
+            )
+        if current_bucket is not None:
+            buckets.append(BucketedPatternGroups(timestamp=current_bucket, groups=current_groups))
+
+        return BucketedPatternGroupsResult(buckets=buckets, truncated=truncated, query_duration_ms=duration_ms)
 
     def execute_stamping_probe(self) -> StampingProbeResult:
         """Total vs pattern-stamped row counts for the window.
