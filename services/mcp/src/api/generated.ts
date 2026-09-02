@@ -57050,9 +57050,9 @@ export namespace Schemas {
          * @nullable
          */
       readonly scheduled_at: string | null;
-      /** Channel snapshot at send time (email or slack). */
+      /** Channel snapshot at send time: email, slack, or teams. */
       readonly target_type: string;
-      /** Destination snapshot at send time (emails, channel id, URL). */
+      /** Destination snapshot at send time: the email list, the Slack channel id, or the host of the Microsoft Teams webhook. The webhook URL itself is never returned. */
       readonly target_value: string;
       /**
          * ExportedAsset ids generated for this send.
@@ -57134,6 +57134,7 @@ export namespace Schemas {
     /**
      * * `email` - Email
      * * `slack` - Slack
+     * * `teams` - Microsoft Teams
      */
     export type SubscriptionTargetEnum = typeof SubscriptionTargetEnum[keyof typeof SubscriptionTargetEnum];
 
@@ -57141,6 +57142,7 @@ export namespace Schemas {
     export const SubscriptionTargetEnum = {
       Email: 'email',
       Slack: 'slack',
+      Teams: 'teams',
     } as const;
 
     /**
@@ -57199,12 +57201,13 @@ export namespace Schemas {
       prompt?: string | null;
       /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
       ai_prompt_config?: AIPromptConfig;
-      /** Delivery channel: email or slack.
+      /** Delivery channel: email, slack, or teams.
        *
        * * `email` - Email
-       * * `slack` - Slack */
+       * * `slack` - Slack
+       * * `teams` - Microsoft Teams */
       target_type: SubscriptionTargetEnum;
-      /** Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack. */
+      /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it. */
       target_value: string;
       /** How often to deliver: daily, weekly, monthly, or yearly.
        *
@@ -66177,12 +66180,13 @@ export namespace Schemas {
       prompt?: string | null;
       /** Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes. */
       ai_prompt_config?: AIPromptConfig;
-      /** Delivery channel: email or slack.
+      /** Delivery channel: email, slack, or teams.
        *
        * * `email` - Email
-       * * `slack` - Slack */
+       * * `slack` - Slack
+       * * `teams` - Microsoft Teams */
       target_type?: SubscriptionTargetEnum;
-      /** Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack. */
+      /** Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or a Microsoft Teams webhook URL for teams. A Teams webhook URL is only ever returned as its host, because the URL authorizes a post to the channel by itself. On update, omit the field to keep the stored URL, or send a full URL to replace it. */
       target_value?: string;
       /** How often to deliver: daily, weekly, monthly, or yearly.
        *
@@ -98764,7 +98768,7 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * Filter by delivery channel (email or Slack).
+     * Filter by delivery channel: email, Slack, or Microsoft Teams.
      */
     target_type?: SubscriptionsListTargetType;
     };
@@ -98784,6 +98788,7 @@ export namespace Schemas {
     export const SubscriptionsListTargetType = {
       Email: 'email',
       Slack: 'slack',
+      Teams: 'teams',
     } as const;
 
     export type SubscriptionsDeliveriesListParams = {
