@@ -101,12 +101,6 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
     team = await aretry_on_db_connection_drop(
         lambda: Team.objects.select_related("organization").aget(pk=input.team_id)
     )
-    _capture_repo_research_event(
-        "signals_repo_research_started",
-        team,
-        team.organization,
-        input.report_id,
-    )
     try:
         async with Heartbeater():
             # Check for a previous selection from an earlier run, if any
@@ -127,6 +121,20 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                     result="reused",
                 )
                 return previous
+
+            # Emit the start event once per research job. The short circuit above only
+            # silences a reuse; this activity persists no durable selection of its own (the
+            # repo_selection artefact is written by the next activity), so an activity retry or
+            # worker restart finds no previous choice and reaches here again. Temporal increments
+            # `attempt` on each re-run, so gate the capture on the first attempt.
+            attempt = temporalio.activity.info().attempt if temporalio.activity.in_activity() else 1
+            if attempt == 1:
+                _capture_repo_research_event(
+                    "signals_repo_research_started",
+                    team,
+                    team.organization,
+                    input.report_id,
+                )
 
             user_id = await database_sync_to_async(_resolve_sandbox_user_id, thread_sensitive=False)(input.team_id)
             if user_id is None:

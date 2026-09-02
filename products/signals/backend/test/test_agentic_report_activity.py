@@ -1,5 +1,6 @@
 import json
 import random
+import dataclasses
 from datetime import UTC, datetime
 
 import pytest
@@ -9,6 +10,7 @@ from django.db import OperationalError
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
+from temporalio.testing import ActivityEnvironment
 
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
@@ -211,6 +213,12 @@ async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
         fake_select_repo,
     )
 
+    captured_events: list[str] = []
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository._capture_repo_research_event",
+        lambda event, *args, **kwargs: captured_events.append(event),
+    )
+
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
             SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
@@ -218,6 +226,52 @@ async def test_select_repository_activity_returns_repo(monkeypatch, ateam):
 
     assert result.repository == "posthog/posthog"
     assert "Single repository" in result.reason
+    # A fresh research job emits the start event exactly once.
+    assert captured_events.count("signals_repo_research_started") == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_select_repository_activity_retry_does_not_re_emit_start(monkeypatch, ateam):
+    # This activity persists no durable selection of its own, so a retry (RetryPolicy allows a
+    # second attempt) or worker restart finds no previous choice and does not short-circuit.
+    # Gating the start event on the first attempt keeps a re-run from re-emitting it, which is
+    # the retry over-count the once-per-job change set out to remove.
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
+        lambda report_id: None,
+    )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository._resolve_sandbox_user_id",
+        lambda team_id: 1,
+    )
+
+    async def fake_select_repo(*args, **kwargs):
+        return RepoSelectionResult(repository="posthog/posthog", reason="Single repository connected: posthog/posthog")
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository.select_repository_for_report",
+        fake_select_repo,
+    )
+
+    captured_events: list[str] = []
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository._capture_repo_research_event",
+        lambda event, *args, **kwargs: captured_events.append(event),
+    )
+
+    env = ActivityEnvironment()
+    env.info = dataclasses.replace(env.info, attempt=2)
+    with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
+        result = await env.run(
+            select_repository_activity,
+            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals()),
+        )
+
+    assert result.repository == "posthog/posthog"
+    # The retry still runs selection and emits completion, but never re-emits the start event.
+    assert "signals_repo_research_started" not in captured_events
+    assert "signals_repo_research_completed" in captured_events
 
 
 @pytest.mark.asyncio
@@ -242,6 +296,12 @@ async def test_select_repository_activity_reuses_previous_selection(monkeypatch,
         fake_select_repo,
     )
 
+    captured_events: list[str] = []
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository._capture_repo_research_event",
+        lambda event, *args, **kwargs: captured_events.append(event),
+    )
+
     with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
         result = await select_repository_activity(
             SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
@@ -249,6 +309,8 @@ async def test_select_repository_activity_reuses_previous_selection(monkeypatch,
 
     assert result is previous
     assert not select_repo_called
+    # A retry that reuses an earlier run's selection must not re-emit the start event.
+    assert "signals_repo_research_started" not in captured_events
 
 
 @pytest.mark.asyncio
