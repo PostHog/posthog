@@ -333,6 +333,7 @@ export interface metricsViewerLogicValues {
     activeClause: MetricsViewerClause
     activeClauseIndex: number
     aggregation: MetricAggregation
+    anomalyAbortController: AbortController | null
     anomalyBadge: MetricsAnomalyBadge | null
     anomalyFingerprint: string
     anomalyQuery: MetricsAnomalyRequestBody | null
@@ -418,6 +419,9 @@ export interface metricsViewerLogicActions {
     }
     backfillClauses: (updates: MetricsViewerClauseBackfill[]) => {
         updates: MetricsViewerClauseBackfill[]
+    }
+    cancelInProgressAnomaly: (controller: AbortController | null) => {
+        controller: AbortController | null
     }
     cancelInProgressQuery: (controller: AbortController | null) => {
         controller: AbortController | null
@@ -523,6 +527,9 @@ export interface metricsViewerLogicActions {
     }
     setAggregation: (aggregation: MetricAggregation) => {
         aggregation: MetricAggregation
+    }
+    setAnomalyAbortController: (controller: AbortController | null) => {
+        controller: AbortController | null
     }
     setClauses: (
         clauses: MetricsViewerClause[],
@@ -680,6 +687,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // action aborts the previous controller before storing the new one.
         setQueryAbortController: (controller: AbortController | null) => ({ controller }),
         cancelInProgressQuery: (controller: AbortController | null) => ({ controller }),
+        setAnomalyAbortController: (controller: AbortController | null) => ({ controller }),
+        cancelInProgressAnomaly: (controller: AbortController | null) => ({ controller }),
         // Chart presentation. These ride along on the saved query node but never reach the query
         // engine, so changing one re-renders without refetching.
         setDisplayType: (displayType: MetricsDisplayType) => ({ displayType }),
@@ -802,6 +811,10 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         queryAbortController: [
             null as AbortController | null,
             { setQueryAbortController: (_, { controller }) => controller },
+        ],
+        anomalyAbortController: [
+            null as AbortController | null,
+            { setAnomalyAbortController: (_, { controller }) => controller },
         ],
         displayType: [
             DEFAULT_DISPLAY_TYPE as MetricsDisplayType,
@@ -1007,6 +1020,12 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 }
                 actions.setQueryAbortController(controller)
             },
+            cancelInProgressAnomaly: ({ controller }) => {
+                if (values.anomalyAbortController !== null) {
+                    values.anomalyAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
+                }
+                actions.setAnomalyAbortController(controller)
+            },
             setLiveRefresh: ({ liveRefresh }) => {
                 if (!liveRefresh) {
                     cache.disposables.dispose(LIVE_REFRESH_KEY)
@@ -1140,14 +1159,21 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                         .subtract(spanMs * ANOMALY_WINDOW_FRACTION, 'ms')
                         .toISOString()
                     await breakpoint(300)
-                    const report = await metricsCharacterizeCreate(String(values.currentTeamId), {
-                        query: {
-                            ...anomalyQuery,
-                            anomalyFrom,
-                            anomalyTo: toISO,
+                    const controller = new AbortController()
+                    actions.cancelInProgressAnomaly(controller)
+                    const report = await metricsCharacterizeCreate(
+                        String(values.currentTeamId),
+                        {
+                            query: {
+                                ...anomalyQuery,
+                                anomalyFrom,
+                                anomalyTo: toISO,
+                            },
                         },
-                    })
+                        { signal: controller.signal }
+                    )
                     breakpoint()
+                    actions.setAnomalyAbortController(null)
                     return report
                 },
             },

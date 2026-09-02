@@ -247,6 +247,24 @@ describe('metricsViewerLogic', () => {
         expect(logic.values.anomalyReport).toBeNull()
     })
 
+    // Without an AbortController, a superseded characterize call keeps running server-side
+    // after a newer one starts — this pins that the stale request is actually cancelled,
+    // not just ignored client-side once it resolves.
+    it('aborts a superseded characterize request when a newer one starts', async () => {
+        jest.mocked(metricsCharacterizeCreate).mockImplementation(() => new Promise(() => {}))
+        logic.actions.setMetricName('requests_total')
+
+        logic.actions.fetchAnomaly({})
+        await new Promise((resolve) => setTimeout(resolve, 310))
+        expect(metricsCharacterizeCreate).toHaveBeenCalledTimes(1)
+        const firstSignal = jest.mocked(metricsCharacterizeCreate).mock.calls[0][2]?.signal
+        expect(firstSignal?.aborted).toBe(false)
+
+        logic.actions.fetchAnomaly({})
+        await new Promise((resolve) => setTimeout(resolve, 310))
+        expect(firstSignal?.aborted).toBe(true)
+    })
+
     it('names a formula insight after the formula and its inputs', async () => {
         jest.mocked(insightsApi.create).mockImplementation(
             async (insight: any) => ({ id: 1, short_id: 'abc123', ...insight }) as any

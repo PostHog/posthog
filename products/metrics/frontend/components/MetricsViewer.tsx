@@ -10,6 +10,7 @@ import {
     LemonSelect,
     LemonSwitch,
     SpinnerOverlay,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
