@@ -300,6 +300,12 @@ test.describe('Trends insights', () => {
             await insight.trends.waitForChart()
             await insight.trends.selectEvent(0, customEventsWithBreakdown.eventName)
             await insight.trends.waitForChart()
+            // Switching the series refetches on a debounce, so waitForChart can return while the
+            // previous event is still on screen. Every seeded event carries $browser Chrome, so
+            // that stale chart holds one series and the tooltip never shows Firefox. The details
+            // table reads the same results as the chart, so wait for its Firefox row first.
+            await insight.trends.waitForDetailsTable()
+            await expect(insight.trends.detailsLabels.filter({ hasText: 'Firefox' })).toHaveCount(1)
             await insight.trends.hoverChartAt(0.5, 0.5)
             const multiText = await insight.trends.tooltip.textContent()
             expect(multiText).toContain('Chrome')
