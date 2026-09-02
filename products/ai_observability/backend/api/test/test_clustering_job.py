@@ -306,6 +306,14 @@ class TestClusteringJobViewSet(APIBaseTest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_list_still_serializes_a_row_holding_a_malformed_shape(self):
+        # The column is an unvalidated JSONField and the config writer only checks for a
+        # list, so an existing row can hold a shape the write path now rejects.
+        self._create_job(name="Legacy", event_filters="$ai_model")
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"][0]["event_filters"], "$ai_model")
+
     def test_partial_update_rejects_missing_cohort_filter(self):
         job = self._create_job(name="Will be broken")
         response = self.client.patch(
