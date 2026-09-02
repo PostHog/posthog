@@ -54,13 +54,15 @@ describe('isGroupCardFilterKey()', () => {
 })
 
 describe('labelWithGroupName()', () => {
-    const groupKeyNames = { 'org-abc-123': 'Fjellride AB' }
+    const groupKeyNames = { 'org-abc-123': 'Fjellride AB', 'org-123': 'org-123' }
 
     it.each([
         // The id is kept alongside the name so it stays available to copy or to compare.
         { groupKey: 'org-abc-123', fallback: undefined, expected: '(Fjellride AB) org-abc-123' },
         // An unresolved key must not gain empty parentheses.
         { groupKey: 'org-unresolved', fallback: undefined, expected: 'org-unresolved' },
+        // A nameless group arrives as `{key: key}` from the API; show the id once, not `(org-123) org-123`.
+        { groupKey: 'org-123', fallback: undefined, expected: 'org-123' },
         // A caller that already formatted the value keeps its formatting on both paths.
         {
             groupKey: 'org-abc-123',
