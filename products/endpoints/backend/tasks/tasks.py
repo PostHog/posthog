@@ -70,8 +70,6 @@ def deactivate_stale_materializations() -> None:
     twenty_four_hours_ago = now - timedelta(hours=24)
     stale_threshold = now - timedelta(days=STALE_THRESHOLD_DAYS)
 
-    # DAG-scheduled materializations record each run on DataModelingJob and never
-    # write saved_query.last_run_at, so "ran recently" has to accept either source.
     recent_job = DataModelingJob.objects.filter(
         saved_query_id=OuterRef("saved_query_id"),
         status=DataModelingJobStatus.COMPLETED,
@@ -79,9 +77,6 @@ def deactivate_stale_materializations() -> None:
     )
     ran_recently = Q(saved_query__last_run_at__gte=twenty_four_hours_ago) | Q(Exists(recent_job))
 
-    # A superseded version keeps its own last_executed_at, so an active endpoint
-    # does not shield its old versions. Versions that predate the field fall back
-    # to the endpoint's timestamp.
     version_stale = Q(last_executed_at__lt=stale_threshold) | Q(
         last_executed_at__isnull=True, endpoint__last_executed_at__lt=stale_threshold
     )
