@@ -92,6 +92,8 @@ export function SpendTrajectoryChart({
         crossing = { x: xForDay(todayDay + t * (periodDays - todayDay)), y: yForCredits(cap) }
     }
     const pausedAtLimit = cap !== null && spentTotal >= cap
+    // ~200 viewBox units fits the crossing annotation at this type size.
+    const crossingLabelRight = crossing !== null && crossing.x + 208 <= WIDTH - PAD_X
 
     // Round tick steps (1/2/2.5/5 per decade) so the y labels land on friendly numbers.
     const rawStep = maxValue / 4
@@ -254,12 +256,15 @@ export function SpendTrajectoryChart({
                         opacity={0.7}
                     />
                     <circle cx={crossing.x} cy={crossing.y} r={3} fill={dangerVar} />
+                    {/* Above the limit line nothing is ever drawn, so the annotation always sits there;
+                        it starts clear of the limit label and flips left of the dot near the right edge. */}
                     <text
-                        x={Math.min(Math.max(crossing.x + 8, 140), WIDTH - 230)}
-                        y={Math.min(crossing.y + BELOW, BASE - 6)}
+                        x={crossingLabelRight ? Math.max(crossing.x + 8, 160) : crossing.x - 8}
+                        y={crossing.y - 6}
                         fontSize={FONT}
                         fontWeight={600}
                         fill={dangerVar}
+                        textAnchor={crossingLabelRight ? 'start' : 'end'}
                     >
                         Hits the limit around {capReachDate?.format('MMM D')}. Scanning pauses until{' '}
                         {periodEnd.format('MMM D')}.
