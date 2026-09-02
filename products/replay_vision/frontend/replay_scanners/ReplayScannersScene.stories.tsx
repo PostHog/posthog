@@ -389,6 +389,12 @@ const meta: Meta = {
                     evaluation_session_cap: 25,
                 },
                 '/api/projects/:team_id/vision/observations/:id/': observationDetail,
+                '/api/projects/:team_id/signals/scout/configs/': [],
+                '/api/projects/:team_id/signals/scout/runs/recent-per-scout/': [],
+                '/api/projects/:team_id/signals/scout/runs/findings/summary/': [],
+                '/api/projects/:team_id/signals/scout/metadata/current/': {},
+                '/api/projects/:team_id/vision/scanners/:scannerId/scout_reports/': [],
+                '/api/projects/:team_id/vision/alerts/': { count: 0, next: null, previous: null, results: [] },
             },
             post: {
                 '/api/environments/:team_id/query/:query_kind/': observationsTrend,
@@ -518,6 +524,40 @@ export const ScannerCalibration: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=calibration` },
 }
 
+const digestScoutConfig = {
+    id: '00000000-0000-0000-0000-0000000000c1',
+    skill_name: 'signals-scout-daily-digest-confused-checkout',
+    description: 'Daily digest of what the scanner observed since the last run.',
+    scout_origin: 'custom',
+    owners: [alice],
+    enabled: true,
+    status: 'active',
+    pause_reason: null,
+    source_product: 'replay_vision',
+    source_id: summarizerScanner.id,
+    cron_schedule: '0 9 * * *',
+    output_destinations: [],
+    created_at: '2026-05-02T09:00:00Z',
+}
+
+const trendScoutConfig = {
+    ...digestScoutConfig,
+    id: '00000000-0000-0000-0000-0000000000c2',
+    skill_name: 'signals-scout-checkout-trend-watch',
+    description: 'Watches for week-over-week movement in checkout friction themes.',
+    owners: [bob],
+    created_at: '2026-05-06T09:00:00Z',
+}
+
+const scoutReport = {
+    report_id: '00000000-0000-0000-0000-0000000000d1',
+    title: 'Daily digest confused checkout: 2026-05-12',
+    summary: '**TL;DR:** Checkout friction held steady; coupon box confusion dominated.',
+    skill_name: digestScoutConfig.skill_name,
+    created_at: '2026-05-12T09:03:00Z',
+    updated_at: '2026-05-12T09:03:00Z',
+}
+
 export const ScannerScouts: StoryObj = {
     parameters: {
         pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=scouts`,
@@ -525,10 +565,49 @@ export const ScannerScouts: StoryObj = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/vision/scanners/:scannerId/scout_reports/': { results: [] },
+                '/api/projects/:team_id/signals/scout/configs/': [digestScoutConfig, trendScoutConfig],
+                '/api/projects/:team_id/vision/scanners/:scannerId/scout_reports/': [scoutReport],
             },
         }),
     ],
+}
+
+export const ScannerScoutsEmpty: StoryObj = {
+    parameters: {
+        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=scouts`,
+    },
+}
+
+const metricAlert = {
+    id: '00000000-0000-0000-0000-0000000000e1',
+    scanner_id: summarizerScanner.id,
+    name: 'Coupon friction spike',
+    enabled: true,
+    kind: 'metric',
+    selection: {},
+    metric: 'count',
+    direction: 'above',
+    threshold: 10,
+    window_days: 1,
+    check_interval_minutes: 60,
+    state: 'not_firing',
+    evaluation_periods: 1,
+    notification_config: [],
+    created_at: '2026-05-03T00:00:00Z',
+    updated_at: '2026-05-03T00:00:00Z',
+    created_by: alice,
+}
+
+const matchAlert = {
+    ...metricAlert,
+    id: '00000000-0000-0000-0000-0000000000e2',
+    name: 'Any rage click observation',
+    kind: 'match',
+    metric: null,
+    direction: null,
+    threshold: null,
+    state: 'firing',
+    created_by: bob,
 }
 
 export const ScannerAlerts: StoryObj = {
@@ -538,10 +617,21 @@ export const ScannerAlerts: StoryObj = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/vision/alerts/': { count: 0, next: null, previous: null, results: [] },
+                '/api/projects/:team_id/vision/alerts/': {
+                    count: 2,
+                    next: null,
+                    previous: null,
+                    results: [metricAlert, matchAlert],
+                },
             },
         }),
     ],
+}
+
+export const ScannerAlertsEmpty: StoryObj = {
+    parameters: {
+        pageUrl: `${urls.replayVision(summarizerScanner.id)}?tab=alerts`,
+    },
 }
 
 export const ScannerTemplates: StoryObj = {
