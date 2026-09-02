@@ -582,12 +582,12 @@ export const identityProviderConfigLogic = kea<identityProviderConfigLogicType>(
             if (props.configId === NEW_CONFIG_ID && props.configScope) {
                 const hasExistingConfig =
                     getIdentityProviderConfigsForScope(identityProviderConfigs, props.configScope).length > 0
-                actions.setIdentityProviderConfigFormValue(
-                    'name',
-                    hasExistingConfig
+                actions.resetIdentityProviderConfigForm({
+                    ...values.identityProviderConfigForm,
+                    name: hasExistingConfig
                         ? ''
-                        : `Default ${IDENTITY_PROVIDER_FEATURES[props.configScope].name} configuration`
-                )
+                        : `Default ${IDENTITY_PROVIDER_FEATURES[props.configScope].name} configuration`,
+                })
             }
         },
         submitIdentityProviderConfigFormSuccess: () => {
