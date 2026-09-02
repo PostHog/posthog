@@ -75,8 +75,12 @@ page, so a single default call misses older alerts on a project with hundreds of
 
 Call `posthog:error-tracking-alerts-list` with `type: ["internal_destination"]` and `limit: 1000`. If the
 response still carries a non-null `next`, keep paging with `offset` until `next` is null. Then filter the
-collected rows client-side by `filters.events[].id`, by the destination the alert delivers to, and by any
-per-issue scope in `filters.properties`.
+collected rows client-side by `filters.events[].id` and by any per-issue scope in `filters.properties`.
+
+The list response carries no `inputs`, so it does not tell you which channel or URL a row delivers to.
+Read the destination off `name` and `description` instead — the naming convention below puts the channel
+in the name. When a row matches on event and scope but its name does not say where it delivers, do not
+guess: show the user the matching names and ask whether one of them is the alert they mean.
 
 - If an alert exists for the **same event** delivering to the **same channel** with the **same scope**,
   stop. Tell the user it already exists and ask whether they want to change anything (in which case use
