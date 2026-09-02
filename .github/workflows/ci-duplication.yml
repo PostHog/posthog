@@ -1,0 +1,41 @@
+name: Duplication lint
+
+on:
+    pull_request:
+        paths:
+            - '**.py'
+            - '.github/workflows/ci-duplication.yml'
+            - 'bin/lint_duplication.py'
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    python-duplication:
+        name: Python duplication lint
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 10
+        # Advisory while the gate proves itself; promote to blocking once it
+        # has run clean across open PRs for a while.
+        continue-on-error: true
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Fetch PR base for the clone baseline
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref || 'master' }}
+              run: git fetch --no-tags --depth=1 origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+            - name: Lint for new duplication
+              run: |
+                  if [ ! -f bin/lint_duplication.py ]; then
+                      echo "bin/lint_duplication.py not present on this branch; skipping"
+                      exit 0
+                  fi
+                  python3 bin/lint_duplication.py --base "origin/${{ github.event.pull_request.base.ref || 'master' }}"
