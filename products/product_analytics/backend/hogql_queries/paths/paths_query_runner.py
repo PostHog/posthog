@@ -232,7 +232,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         if not self.query.funnelPathsFilter:
             raise ValueError("Funnel paths filter is required for funnel paths.")
 
-        from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
+        from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
 
         funnelPathType, funnelSource, funnelStep = (
             self.query.funnelPathsFilter.funnelPathType,

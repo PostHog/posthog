@@ -1,7 +1,8 @@
 import type { LogicWrapper } from 'kea'
 import type { ComponentType, CSSProperties, ReactNode } from 'react'
 
-import type { FeatureFlagKey } from 'lib/constants'
+import type { RestrictionScope } from 'lib/components/RestrictedArea'
+import type { FeatureFlagKey, TeamMembershipLevel } from 'lib/constants'
 
 import type { ProductKey } from '~/queries/schema/schema-general'
 import type { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -53,6 +54,11 @@ export interface ProductEmptyStateAccessControl {
     minAccessLevel: AccessControlLevel
 }
 
+export interface ProductEmptyStateRestriction {
+    scope: RestrictionScope
+    minimumAccessLevel: TeamMembershipLevel
+}
+
 export interface ProductEmptyStatePrimaryAction {
     label: string
     to?: string
@@ -63,6 +69,13 @@ export interface ProductEmptyStatePrimaryAction {
      * when the form fails to save.
      */
     accessControl?: ProductEmptyStateAccessControl
+    /**
+     * Membership level the action requires, for actions that write a team setting rather
+     * than create a resource. Resource access control cannot express this: recording
+     * Editor does not carry permission to flip the project's opt-in, so gating such an
+     * action on a resource level enables a button whose update the backend rejects.
+     */
+    restriction?: ProductEmptyStateRestriction
     /**
      * `data-attr` on the button, defaulting to `product-empty-state-primary-action`.
      * Set it to the attr the gated scene's create button carries, so end-to-end specs
@@ -152,4 +165,11 @@ export interface SceneProductEmptyState {
      * roll the empty state out gradually.
      */
     featureFlag?: FeatureFlagKey
+    /**
+     * Only gate these scene ids (`Scene` values), for scene modules that serve
+     * several scenes (tabs) where just one is the product being gated - e.g. the
+     * web analytics module, where only the web vitals tab has a setup state.
+     * Omit to gate every scene the module serves.
+     */
+    scenes?: string[]
 }
