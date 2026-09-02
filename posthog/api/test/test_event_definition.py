@@ -177,6 +177,19 @@ class TestEventDefinitionAPI(APIBaseTest):
                     ("watched_movie", None),
                 ],
             ),
+            (
+                # A single non-unique ordering must get an implicit `name ASC` tiebreaker, or the three
+                # rows tied on 2020-01-01 page inconsistently under SQL LIMIT/OFFSET.
+                "ordering=-last_seen_at::date",
+                [
+                    ("$pageview", "2020-01-01T22:56:00Z"),
+                    ("entered_free_trial", "2020-01-01T23:00:00Z"),
+                    ("installed_app", "2020-01-01T00:00:00Z"),
+                    ("purchase", "2019-12-30T00:00:00Z"),
+                    ("rated_app", "2019-12-21T00:00:00Z"),
+                    ("watched_movie", None),
+                ],
+            ),
         ]
     )
     def test_list_event_definitions_ordering(self, query_params, expected_results):
