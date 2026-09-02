@@ -493,7 +493,20 @@ export function useInboxBulkActions(
     {
       onSuccess: async (result) => {
         trackBulkAction("remove_suggested_reviewer", result);
-        await invalidateInboxQueries();
+        // A reviewer-artefact write changes list membership, report detail, and
+        // the reviewer artefacts, but not chart results, which are evidence
+        // snapshots a reviewer change cannot alter. Skip chart-data queries so
+        // the pending flag that gates triage navigation does not wait on
+        // unrelated ClickHouse-backed chart refetches.
+        await queryClient.invalidateQueries({
+          queryKey: reportKeys.all,
+          exact: false,
+          predicate: (query) => !query.queryKey.includes("chart-data"),
+        });
+        await queryClient.invalidateQueries({
+          queryKey: taskFeedResultsQueryRoot,
+          exact: false,
+        });
         applyBulkResultToSelection(result);
 
         if (result.failureCount > 0) {
