@@ -5385,17 +5385,17 @@ snapshots:
     products-mcp-analytics-routingbar--all-variants--light:
         hash: v1.k794b7964.7f57dacddb48fbad29a8614127d42d54425501b1f7755423d84316e1e937720e.thYPF2z3eMW5QvSe5SnvYtn35l6UCvUtsyx9EBLeqxk
     products-notebooks-notebook-widget-trust-controls--gate--dark:
-        hash: v1.k794b7964.a51e3886b9b210b87ad0165be8e11217f7e6690c4c6fb3f055d91eb743297986.rTe9aGKWZkly97EDDu4Ml4H1iZL-bHzlkuJ4hhxLZGI
+        hash: v1.k794b7964.97a5e7b5f92071f677d09773a3dea88ead3c9a71e85dbd6f6de8875ffc7a3036.9u2VOZ-O_aSU002VK8iAydGcjIYBXzRIacAelaDLJ6Y
     products-notebooks-notebook-widget-trust-controls--gate--light:
-        hash: v1.k794b7964.dba4c5816812fb18955fac3ef7e21d4e2f09ea489f3fd98610e7e2c08cd7b720.v_U6astxnykhOLozpJLNTYhnKqZ2UKlo63c2XV2dIg0
+        hash: v1.k794b7964.db2c004b22e5c8c098101130cf153cab0366a18ec4218702f64f0e5fbaa52fd9.cNi_DSrdmSUZpn9RiLWqAXVJotr231Hl1B0Fu80Mnjg
     products-notebooks-notebook-widget-trust-controls--missing-build-hash--dark:
-        hash: v1.k794b7964.710a8f35d2bb0ff64962fa14422f9b19afedf525ecf888fa1a31d109866edc65.xPoRXj8l2nIWGfk_DEjMPUR3kIAoBAxMcW9uBlGeyGY
+        hash: v1.k794b7964.260fe7a0225889c379701f4469916084332cae77401477686bd5ce52cb290b81.peQXbUDXlvGWY-ObtWEe5ZtUwdUGLsL4urRaOb2eLL8
     products-notebooks-notebook-widget-trust-controls--missing-build-hash--light:
-        hash: v1.k794b7964.0e2cc5104d4beb9dc308c92f194195156bd5fb48f6d8a1a278cce43e1313af67.eFnIkptK__hsvjhmXeAKmQxJBT1C3NZ6XXlRPLjHRA4
+        hash: v1.k794b7964.818bb7c7bbdab7fdefdcaddcb9cd3c93df2dbf819d38209727d48c4fa85165a2.4Pfm4AA9vA5agcGNKh3LGwP6qAR5UyK0Ez6C2ltB7WU
     products-notebooks-notebook-widget-trust-controls--toolbar--dark:
-        hash: v1.k794b7964.a7394acbef2f45ccce1f0a9ad5d4dc09fa14cb337ffdc0b19642aef2728c65a3.VxLUiUKH_TDO-qiJRfaJ0r-HgJ7M2MAGbUDTd1kR32k
+        hash: v1.k794b7964.7152b3d7c5901a84315c4be4bba827bbacc795e169bef6293c557ffa6f6aac3e.dbzTA4TpkRhVxzeO6ZI4yMDDYm5hPp4vlMN2snZuZ_U
     products-notebooks-notebook-widget-trust-controls--toolbar--light:
-        hash: v1.k794b7964.54adb15f34d6024fc6e441a77a81146a3eb7a31dfb689071b012df26ab133ab4.PjdDZ6fn1152SwEb7DfcTzJsZwNDQ25XzVL3EgjOiio
+        hash: v1.k794b7964.69bffab30393759acd64d77faebacd006a7f898f70bd01fd78bb22de881db16a.-TW2Tbin6bPS5VNWYI86bOekMUtNwEPqmjOHWW0GqvY
     products-posthog-ai-composer--default--dark:
         hash: v1.k794b7964.4ccf5eb666de2b3315dc3f142ded80b445748d58ce8ae2d7d154272d7b194b3b.E61uR16UwC5qC1XkQquxMh1z3bonN6IYLdYDyzcorTA
     products-posthog-ai-composer--default--light:
