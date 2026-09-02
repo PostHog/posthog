@@ -1082,7 +1082,8 @@ def _discover_firestore_collections_cached(
     Discovery fires many sequential requests on the synchronous schema-lookup path, so callers that
     don't need fresh data read through this cache; the user-triggered refresh passes
     `force_refresh=True`. A failed walk raises before the cache is written, so the previous value
-    survives. Mirrors the Slack source's channel-discovery cache.
+    survives. See `FIRESTORE_DISCOVERY_CACHE_TTL_SECONDS` for why this mirrors the Slack source's
+    channel-discovery cache.
     """
     cache_key = _firestore_discovery_cache_key(credentials)
     if not force_refresh:
