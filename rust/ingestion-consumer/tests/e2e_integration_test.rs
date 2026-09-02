@@ -625,7 +625,6 @@ impl Harness {
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout,
                 debug_recorder: None,
-                eager_deferred_flush: false,
             },
             handle,
         );
@@ -701,7 +700,6 @@ impl Harness {
                 group_id: "e2e-test".to_string(),
                 deferred_flush_timeout: self.deferred_flush_timeout,
                 debug_recorder: None,
-                eager_deferred_flush: false,
             },
             handle,
         );
@@ -2487,7 +2485,6 @@ async fn second_consumer_joining_the_group_preserves_all_messages() {
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
             debug_recorder: None,
-            eager_deferred_flush: false,
         },
         handle2,
     );
@@ -2588,7 +2585,6 @@ async fn partition_lost_and_regained_keeps_the_consumer_alive() {
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
             debug_recorder: None,
-            eager_deferred_flush: false,
         },
         handle2,
     );
@@ -2681,7 +2677,6 @@ async fn fenced_static_member_exits_on_fatal_error() {
             group_id: "e2e-test".to_string(),
             deferred_flush_timeout: Duration::from_secs(60),
             debug_recorder: None,
-            eager_deferred_flush: false,
         },
         handle,
     );

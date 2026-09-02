@@ -728,7 +728,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert group["id"] == "org2"
         assert set(group.keys()) == {"id", "group_type_index"}
 
-    @patch("posthog.hogql_queries.insights.paginators.execute_hogql_query", wraps=execute_hogql_query)
+    @patch("posthog.hogql_queries.paginators.execute_hogql_query", wraps=execute_hogql_query)
     def test_funnel_source_with_poe_mode(self, spy_execute_hogql_query):
         self.team.modifiers = {
             **(self.team.modifiers or {}),
@@ -941,7 +941,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_person_strategy_batches_large_actor_sets(self):
         """Verify that PersonStrategy.get_actors batches queries."""
         from posthog.hogql_queries.actor_strategies import PersonStrategy
-        from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+        from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 
         # Create 5 persons
         person_uuids = []

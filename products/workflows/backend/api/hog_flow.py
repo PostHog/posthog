@@ -13,7 +13,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Q, QuerySet
 from django.http import Http404, HttpResponse
 from django.utils import timezone
@@ -557,6 +557,13 @@ _FIXED_TEMPLATE_IDS = {
 # generic input-shape validation every function step goes through.
 _CREATE_TASK_TEMPLATE_ID = "template-posthog-create-task"
 
+# The "Run scout" step. Scouts belong to the project's main environment, and the runtime dispatch
+# in start_workflow_scout_run refuses a child environment's workflow with no human credential to
+# re-authorize against it. That refusal is otherwise invisible until the step first runs: the
+# build panel only hides the node, and the catalog still advertises it to a child-environment
+# workflow built through the API or MCP.
+_RUN_SCOUT_TEMPLATE_ID = "template-posthog-run-scout"
+
 _REPOSITORY_SHAPE = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
 MIN_WORKFLOW_TASK_MAX_PARALLEL_TASKS = 1
@@ -976,10 +983,15 @@ class HogFlowConfigFunctionInputsSerializer(serializers.Serializer):
         return super().to_internal_value(data)
 
 
+class HogFlowEdgeType(models.TextChoices):
+    CONTINUE = "continue", "continue"
+    BRANCH = "branch", "branch"
+
+
 class HogFlowEdgeSerializer(serializers.Serializer):
     to = serializers.CharField(help_text="Target action id.")
     type = serializers.ChoiceField(
-        choices=["continue", "branch"],
+        choices=HogFlowEdgeType.choices,
         help_text=(
             "continue: fall-through (sequential or the no-match path of conditional_branch). "
             "branch: requires 'index' matching config.conditions[index]."
@@ -1360,6 +1372,20 @@ class HogFlowActionSerializer(serializers.Serializer):
                     }
                 )
 
+    def _validate_run_scout_action(self) -> None:
+        """Save-time check for the "Run scout" step: reject it in a child environment, matching
+        the runtime refusal in start_workflow_scout_run, so a broken step fails at save instead of
+        on every run."""
+        get_team = self.context.get("get_team")
+        # No team to check against outside a request (internal re-saves) - nothing new is being
+        # authored there, so there is nothing to validate.
+        if get_team is None:
+            return
+        if get_team().parent_team_id:
+            raise serializers.ValidationError(
+                {"template_id": "Run scout is only available in the project's main environment."}
+            )
+
     def validate(self, data):
         is_draft = self.context.get("is_draft")
         # Drafts from the web builder stay lenient (incomplete graphs save fine); programmatic callers
@@ -1612,6 +1638,8 @@ class HogFlowActionSerializer(serializers.Serializer):
 
                 if strict and template_id == _CREATE_TASK_TEMPLATE_ID:
                     self._validate_create_task_action(data["config"]["inputs"])
+                if strict and template_id == _RUN_SCOUT_TEMPLATE_ID:
+                    self._validate_run_scout_action()
 
         # Branch types fan out via 'branch' edges indexed into these arrays; a node stored without
         # its array crashes the editor panel and assigns nothing at runtime. Presence is only
@@ -3051,7 +3079,14 @@ class HogFlowInvocationSerializer(serializers.Serializer):
         write_only=True, required=False, help_text="Optional override; omit to use saved definition."
     )
     globals = serializers.DictField(
-        write_only=True, required=False, help_text="Test trigger payload, typically {event, person, groups}."
+        write_only=True,
+        required=False,
+        help_text=(
+            "Test trigger payload, typically {event, person, groups}. Shape it like the trigger's real payload: "
+            "an event matching the trigger filters for event triggers, or for an internal-event trigger an event "
+            "named in its filters.events (e.g. $slack_message_received with Slack properties like channel, user, "
+            "text, ts) and no person."
+        ),
     )
     mock_async_functions = serializers.BooleanField(
         default=True,

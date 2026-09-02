@@ -19,7 +19,7 @@ import {
     llmAnalyticsScoreDefinitionsPartialUpdate as aiObservabilityScoreDefinitionsPartialUpdate,
 } from '../generated/api'
 import type {
-    ExperimentMetricKindEnumApi as ScoreDefinitionKind,
+    ScoreDefinitionKindEnumApi as ScoreDefinitionKind,
     PaginatedScoreDefinitionListApi,
     ScoreDefinitionApi,
 } from '../generated/api.schemas'

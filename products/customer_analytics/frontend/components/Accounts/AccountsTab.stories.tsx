@@ -11,7 +11,7 @@ import type { MockResolverInfo } from '~/mocks/utils'
 
 import type { PaginatedAccountEmailThreadListApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-const QUERY_ENDPOINT = '/api/environments/:team_id/query/:kind/'
+const QUERY_ENDPOINT = '/api/projects/:team_id/accounts_table_query/'
 const ACCOUNT_RETRIEVE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/'
 const ACCOUNT_NOTEBOOKS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/notebooks/'
 const ACCOUNT_EMAIL_THREADS_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/email_threads/'

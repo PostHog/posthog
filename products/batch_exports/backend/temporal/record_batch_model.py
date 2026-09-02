@@ -376,6 +376,15 @@ class HogQLQueryRecordBatchModel(RecordBatchModel):
         """
         return parse_hogql_select_for_batch_export(self.hogql_query)
 
+    def get_count_hogql_query(
+        self, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+    ) -> ast.SelectQuery:
+        """Return a HogQL query counting the rows this model would export."""
+        return ast.SelectQuery(
+            select=[parse_expr("count() AS count")],
+            select_from=ast.JoinExpr(table=self.get_hogql_query(data_interval_start, data_interval_end)),
+        )
+
     def get_clickhouse_request_settings(self) -> dict[str, str]:
         # Sent with the request instead of set on the query AST, because the user query may
         # not parse to a simple `ast.SelectQuery` (e.g. a UNION parses to an

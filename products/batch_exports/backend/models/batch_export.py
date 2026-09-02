@@ -279,13 +279,15 @@ class BatchExportRun(UUIDTModel):
         raise ValueError("One of batch export or batch export on demand must always be defined")
 
 
-BATCH_EXPORT_INTERVALS = [
-    ("hour", "hour"),
-    ("day", "day"),
-    ("week", "week"),
-    ("every 5 minutes", "every 5 minutes"),
-    ("every 15 minutes", "every 15 minutes"),
-]
+class BatchExportInterval(models.TextChoices):
+    HOUR = "hour", "hour"
+    DAY = "day", "day"
+    WEEK = "week", "week"
+    EVERY_5_MINUTES = "every 5 minutes", "every 5 minutes"
+    EVERY_15_MINUTES = "every 15 minutes", "every 15 minutes"
+
+
+BATCH_EXPORT_INTERVALS = BatchExportInterval.choices
 
 BATCH_EXPORT_INTERVAL_TO_START_JITTER = {
     "hour": timedelta(minutes=15),
