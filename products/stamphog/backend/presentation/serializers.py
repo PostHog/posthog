@@ -66,6 +66,25 @@ class _ReviewOutputSummarySerializer(serializers.Serializer):
 
 @extend_schema_serializer(component_name="StamphogRepoConfig")
 class StamphogRepoConfigSerializer(DataclassSerializer):
+    user_access_level = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "The caller's access level on the stamphog resource, resolved for the team that owns this "
+            "row. 'manager' is required to change enabled, review_mode, or trigger_label."
+        ),
+    )
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_user_access_level(self, _obj: contracts.RepoConfigDTO) -> str | None:
+        """The resource-wide level, not an object-level one: stamphog has no per-object rules.
+
+        The frontend gates the review settings on this rather than on the app context, which is
+        resolved for the environment in the URL while these rows belong to its parent project. The
+        view resolves it once per request, so every row on a page reports the same level.
+        """
+        view = self.context.get("view")
+        return view.stamphog_access_level if view else None
+
     def get_fields(self) -> dict[str, serializers.Field]:
         fields = super().get_fields()
         # provider + repository are the config's identity: they resolve inbound webhooks and anchor
@@ -97,6 +116,7 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
             "digest_enabled",
             "review_mode",
             "trigger_label",
+            "user_access_level",
             "created_at",
             "updated_at",
         ]

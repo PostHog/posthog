@@ -14,6 +14,7 @@ import { LogMessage } from '~/queries/schema/schema-general'
 import {
     LOGS_COLUMN_REGISTRY,
     LogsColumnConfig,
+    LogsColumnType,
     columnLabel,
 } from 'products/logs/frontend/components/LogsViewer/config/columns'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
@@ -26,6 +27,7 @@ import {
     MAX_ATTRIBUTE_COLUMN_WIDTH,
     MESSAGE_MIN_WIDTH,
     MIN_ATTRIBUTE_COLUMN_WIDTH,
+    PATTERN_WIDTH,
     RESIZER_HANDLE_WIDTH,
     SEVERITY_WIDTH,
     TIMESTAMP_WIDTH,
@@ -164,7 +166,14 @@ export interface ConfiguredColumnRendering {
     flexWidthRef: RefObject<number | undefined | null>
 }
 
-/** Read a server-computed custom column value off the raw row by its canonical alias. */
+// Starting width per column type, before any user resize. Types left out start at the
+// attribute default.
+const DEFAULT_COLUMN_WIDTHS: Partial<Record<LogsColumnType, number>> = {
+    timestamp: TIMESTAMP_WIDTH,
+    pattern: PATTERN_WIDTH,
+}
+
+/** Read a server-computed column value off the raw row by its canonical alias. */
 function customColumnValue(log: ParsedLogMessage, alias: string | undefined): string {
     if (!alias) {
         return ''
@@ -293,10 +302,13 @@ export function createConfiguredColumn(params: {
         }
     }
 
-    const width = config.width ?? (config.type === 'timestamp' ? TIMESTAMP_WIDTH : DEFAULT_ATTRIBUTE_COLUMN_WIDTH)
+    const width = config.width ?? DEFAULT_COLUMN_WIDTHS[config.type] ?? DEFAULT_ATTRIBUTE_COLUMN_WIDTH
     const totalWidth = width + RESIZER_HANDLE_WIDTH
 
     const semanticKey = config.type === 'custom' ? (config.name ?? config.expression ?? '') : config.type
+    // Columns the server computes (custom, and built-ins like `pattern`) read their value off the
+    // aliased result; the rest read it straight off the row.
+    const getBuiltInValue = config.type === 'custom' ? undefined : LOGS_COLUMN_REGISTRY[config.type].getValue
     const renderValue =
         config.type === 'timestamp'
             ? (log: ParsedLogMessage): JSX.Element => (
@@ -309,11 +321,7 @@ export function createConfiguredColumn(params: {
             : (log: ParsedLogMessage): JSX.Element => (
                   <AttributeCell
                       attributeKey={semanticKey}
-                      value={
-                          config.type === 'custom'
-                              ? customColumnValue(log, alias)
-                              : LOGS_COLUMN_REGISTRY[config.type].getValue(log)
-                      }
+                      value={getBuiltInValue ? getBuiltInValue(log) : customColumnValue(log, alias)}
                       width={totalWidth}
                       timestamp={log.timestamp}
                   />

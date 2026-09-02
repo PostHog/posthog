@@ -137,6 +137,10 @@ def _candidate_repo_configs(team_id: int) -> list[StamphogRepoConfig]:
     return list(
         StamphogRepoConfig.objects.for_team(team_id)
         .using(router.db_for_write(StamphogRepoConfig))
+        # A blank installation cannot fetch a routing file or resolve a webhook, so the row carries
+        # no registry to read and no merges to report. Left in, its unreadable fetch would raise
+        # RoutingUnavailable and stop the whole team's run.
+        .exclude(installation_id="")
         .filter(Q(enabled=True) | Q(digest_enabled=True))
         .order_by("repository")
     )
