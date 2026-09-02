@@ -63,11 +63,11 @@ class AppStoreConnectSource(ResumableSource[AppStoreConnectSourceConfig, AppStor
 
         caption = """Pull your App Store apps, versions, builds, reviews and sales reports into the PostHog Data warehouse.
 
-An Account Holder or Admin creates an API key under **Users and Access → Integrations → App Store Connect API** in App Store Connect. Copy the issuer ID and key ID from that page, then paste the contents of the `.p8` private key file you download. Apple only lets you download that file once, so keep a copy.
+An **Account Holder** or **Admin** creates an API key under **Users and Access → Integrations → App Store Connect API** in App Store Connect. Set the key's access role there — it decides which tables sync. Copy the issuer ID and key ID from that page, then paste the contents of the `.p8` private key file you download. Apple only lets you download that file once, so keep a copy.
 
-Sales and subscription reports also need your vendor number (App Store Connect → **Payments and Financial Reports**) and a key with the Finance, Sales, or Admin role. Leave it blank if you only want app, review and build data.
+Sales and subscription reports also need your vendor number (App Store Connect → **Payments and Financial Reports**) and a key with the **Finance**, **Sales**, or **Admin** role. Leave it blank if you only want app, review and build data.
 
-The analytics tables need a key with the Admin role. Apple lets only an Admin key start an analytics report."""
+The analytics tables need a key with the **Admin** role. Apple lets only an **Admin** key start an analytics report, so an **App Manager** key syncs everything else but returns no analytics data."""
         restatement_note = restatement_caption()
         if restatement_note:
             caption = f"{caption}\n\n{restatement_note}"
