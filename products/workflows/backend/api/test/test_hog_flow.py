@@ -2546,7 +2546,6 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("replay_vision", "$replay_vision_action_ready"),
             ("activity_log", "$activity_log_entry_created"),
             ("error_tracking", "$error_tracking_issue_created"),
             ("discussion", "$discussion_mention_created"),
@@ -2586,7 +2585,7 @@ class TestHogFlowAPI(APIBaseTest):
                     "source": "internal-events",
                     "events": [
                         {"id": "$slack_message_received", "type": "events"},
-                        {"id": "$replay_vision_action_ready", "type": "events"},
+                        {"id": "$error_tracking_issue_created", "type": "events"},
                     ],
                     "properties": [{"key": "channel", "value": ["C0ALERTS"], "operator": "exact", "type": "event"}],
                 },
@@ -2597,7 +2596,7 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
 
         assert response.status_code == 400, response.json()
-        assert "$replay_vision_action_ready" in response.json()["detail"]
+        assert "$error_tracking_issue_created" in response.json()["detail"]
 
     def test_hog_flow_internal_event_trigger_requires_an_explicit_event_even_when_draft(self):
         trigger_action = {
