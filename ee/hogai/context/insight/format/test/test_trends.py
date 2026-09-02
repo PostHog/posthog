@@ -2,6 +2,8 @@ from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import AssistantDateRange, AssistantTrendsQuery, Compare, IntervalType
 
 from .. import TrendsResultsFormatter
@@ -251,6 +253,58 @@ class TestTrendsResultsFormatter(BaseTest):
         self.assertEqual(
             TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
             "Date range|Aggregated value for $pageview|Aggregated value for $pageleave\n2025-01-20 to 2025-01-22|993|1000",
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "aggregated_series_first",
+                [
+                    {
+                        "data": [],
+                        "days": [],
+                        "count": 0,
+                        "aggregated_value": 993,
+                        "label": "$pageview",
+                        "action": {"days": ["2025-01-20", "2025-01-21", "2025-01-22"]},
+                    },
+                    {
+                        "data": [],
+                        "days": [],
+                        "count": 0,
+                        "label": "$pageleave",
+                        "action": {"days": ["2025-01-20", "2025-01-21", "2025-01-22"]},
+                    },
+                ],
+                "Date range|Aggregated value for $pageview|Aggregated value for $pageleave\n2025-01-20 to 2025-01-22|993|N/A",
+            ),
+            (
+                "aggregated_series_second",
+                [
+                    {
+                        "data": [],
+                        "days": [],
+                        "count": 0,
+                        "label": "$pageleave",
+                        "action": {"days": ["2025-01-20", "2025-01-21", "2025-01-22"]},
+                    },
+                    {
+                        "data": [],
+                        "days": [],
+                        "count": 0,
+                        "aggregated_value": 993,
+                        "label": "$pageview",
+                        "action": {"days": ["2025-01-20", "2025-01-21", "2025-01-22"]},
+                    },
+                ],
+                "Date range|Aggregated value for $pageleave|Aggregated value for $pageview\n2025-01-20 to 2025-01-22|N/A|993",
+            ),
+        ]
+    )
+    def test_trends_aggregated_values_with_mixed_series(self, _name, results, expected):
+        self.assertEqual(
+            TrendsResultsFormatter(AssistantTrendsQuery(series=[]), results).format(),
+            expected,
         )
 
     def test_trends_aggregated_value_with_null_action(self):

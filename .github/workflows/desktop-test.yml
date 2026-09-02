@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
     changes:
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         if: github.event_name != 'merge_group'
         permissions:
@@ -72,7 +72,7 @@ jobs:
         needs: changes
         # Fail closed: if change detection itself failed, run instead of skipping.
         if: ${{ !cancelled() && github.event_name != 'merge_group' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true') }}
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         permissions:
             contents: read
@@ -130,7 +130,7 @@ jobs:
         needs: changes
         # Fail closed: if change detection itself failed, run instead of skipping.
         if: ${{ !cancelled() && github.event_name != 'merge_group' && (needs.changes.result != 'success' || needs.changes.outputs.code == 'true' || needs.changes.outputs.workflow == 'true') }}
-        runs-on: macos-latest
+        runs-on: depot-macos-26
         timeout-minutes: 45
         permissions:
             contents: read
@@ -264,7 +264,7 @@ jobs:
         # skipping to green. Only fork PRs are skipped, since they never receive the
         # gateway secret and would red spuriously.
         if: ${{ (needs.changes.outputs.packages == 'true' || needs.changes.outputs.workflow == 'true') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 30
         permissions:
             contents: read
@@ -347,7 +347,7 @@ jobs:
     desktop-tests-pass:
         needs: [changes, unit-test, integration-test, e2e]
         name: Desktop Tests Pass
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         if: always()
         steps:

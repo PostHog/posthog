@@ -239,7 +239,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
             "(SELECT 100 AS id, 5 AS number, 'PR 5' AS title, 'open' AS state, false AS draft, "
             f"nullIf('', '') AS user, '{head_json}' AS head, '{base_json}' AS base, '[]' AS labels, "
             "'2026-01-10 10:00:00' AS created_at, '2026-01-10 10:00:00' AS updated_at, "
-            "nullIf('', '') AS merged_at, nullIf('', '') AS closed_at)"
+            "nullIf('', '') AS merged_at, nullIf('', '') AS closed_at, nullIf('', '') AS merge_commit_sha)"
         )
         rows = self._select(
             f"SELECT author_handle, author_avatar_url, is_bot FROM ({pull_requests.build_query(raw)}) AS pr"

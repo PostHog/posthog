@@ -30,7 +30,7 @@ from posthog.hogql_queries.ai.sentiment_evaluations import (
     load_generation_sentiment_evaluations_for_traces,
 )
 from posthog.hogql_queries.ai.utils import merge_heavy_properties
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.event.new_events_schema import use_new_events_schema
@@ -173,37 +173,41 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
                              )
                     END, 2
                 ) AS total_latency,
-                nullIf(sumIf(input_tokens,
+                -- NULL means no event carried the field, 0 is a reported zero.
+                -- These columns are Nullable, so a bare sum already returns NULL
+                -- when nothing reported and 0 for a reported zero; nullIf(sum, 0)
+                -- would collapse a real zero into NULL. Matches traces_query_runner.
+                sumIf(input_tokens,
                       event IN ('$ai_generation', '$ai_embedding')
-                ), 0) AS input_tokens,
-                nullIf(sumIf(output_tokens,
+                ) AS input_tokens,
+                sumIf(output_tokens,
                       event IN ('$ai_generation', '$ai_embedding')
-                ), 0) AS output_tokens,
-                nullIf(round(
+                ) AS output_tokens,
+                round(
                     sumIf(input_cost_usd,
                           event IN ('$ai_generation', '$ai_embedding')
                     ), 10
-                ), 0) AS input_cost,
-                nullIf(round(
+                ) AS input_cost,
+                round(
                     sumIf(output_cost_usd,
                           event IN ('$ai_generation', '$ai_embedding')
                     ), 10
-                ), 0) AS output_cost,
-                nullIf(round(
+                ) AS output_cost,
+                round(
                     sumIf(request_cost_usd,
                           event IN ('$ai_generation', '$ai_embedding')
                     ), 10
-                ), 0) AS request_cost,
-                nullIf(round(
+                ) AS request_cost,
+                round(
                     sumIf(web_search_cost_usd,
                           event IN ('$ai_generation', '$ai_embedding')
                     ), 10
-                ), 0) AS web_search_cost,
-                nullIf(round(
+                ) AS web_search_cost,
+                round(
                     sumIf(total_cost_usd,
                           event IN ('$ai_generation', '$ai_embedding')
                     ), 10
-                ), 0) AS total_cost,
+                ) AS total_cost,
                 arrayDistinct(
                     arraySort(
                         x -> x.3,

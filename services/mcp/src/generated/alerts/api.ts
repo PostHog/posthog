@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const AlertsListParams = /* @__PURE__ */ zod.object({
+export const AlertsListParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,7 +16,7 @@ export const AlertsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AlertsListQueryParams = /* @__PURE__ */ zod.object({
+export const AlertsListQueryParams = () => zod.object({
     created_by: zod
         .string()
         .optional()
@@ -37,7 +37,7 @@ export const AlertsListQueryParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AlertsCreateParams = /* @__PURE__ */ zod.object({
+export const AlertsCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -79,7 +79,7 @@ export const alertsCreateBodyDetectorConfigOneOneoneTypeDefault = `lof`
 export const alertsCreateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm`
 export const alertsCreateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
 
-export const AlertsCreateBody = /* @__PURE__ */ zod.object({
+export const AlertsCreateBody = () => zod.object({
     insight: zod
         .number()
         .describe('Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.'),
@@ -1308,7 +1308,7 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AlertsRetrieveParams = /* @__PURE__ */ zod.object({
+export const AlertsRetrieveParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this alert configuration.'),
     project_id: zod
         .string()
@@ -1317,7 +1317,7 @@ export const AlertsRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AlertsRetrieveQueryParams = /* @__PURE__ */ zod.object({
+export const AlertsRetrieveQueryParams = () => zod.object({
     checks_date_from: zod
         .string()
         .optional()
@@ -1340,7 +1340,7 @@ export const AlertsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .describe('Number of newest checks to skip (0-based). Use with checks_limit for pagination. Default 0.'),
 })
 
-export const AlertsPartialUpdateParams = /* @__PURE__ */ zod.object({
+export const AlertsPartialUpdateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this alert configuration.'),
     project_id: zod
         .string()
@@ -1383,7 +1383,7 @@ export const alertsPartialUpdateBodyDetectorConfigOneOneoneTypeDefault = `lof`
 export const alertsPartialUpdateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm`
 export const alertsPartialUpdateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
 
-export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
+export const AlertsPartialUpdateBody = () => zod.object({
     insight: zod
         .number()
         .optional()
@@ -2637,7 +2637,7 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const AlertsDestroyParams = /* @__PURE__ */ zod.object({
+export const AlertsDestroyParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this alert configuration.'),
     project_id: zod
         .string()
@@ -2649,7 +2649,7 @@ export const AlertsDestroyParams = /* @__PURE__ */ zod.object({
 /**
  * Simulate a detector on an insight's historical data. Read-only — no AlertCheck records are created.
  */
-export const AlertsSimulateCreateParams = /* @__PURE__ */ zod.object({
+export const AlertsSimulateCreateParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -2688,8 +2688,10 @@ export const alertsSimulateCreateBodyConfigOneTwoTypeDefault = `HogQLAlertConfig
 export const alertsSimulateCreateBodyConfigOneThreeTypeDefault = `FunnelsAlertConfig`
 export const alertsSimulateCreateBodyConfigOneFourTypeDefault = `MetricsAlertConfig`
 
-export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
-    insight: zod.number().describe('Insight ID to simulate the detector on.'),
+export const AlertsSimulateCreateBody = () => zod.object({
+    insight: zod
+        .union([zod.number(), zod.string()])
+        .describe('Numeric insight ID or saved insight short ID to simulate the detector on.'),
     detector_config: zod
         .union([
             zod.object({
@@ -3693,7 +3695,10 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
             }),
         ])
         .describe('Detector configuration types')
-        .describe('Detector configuration to simulate.'),
+        .optional()
+        .describe(
+            'Detector configuration to simulate. Omit it to use the default daily z-score detector (threshold 0.95, window 90, first-difference preprocessing).'
+        ),
     series_index: zod
         .number()
         .default(alertsSimulateCreateBodySeriesIndexDefault)

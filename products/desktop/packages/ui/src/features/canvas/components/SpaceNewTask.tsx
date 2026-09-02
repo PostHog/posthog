@@ -157,7 +157,12 @@ export function SpaceNewTask({ channelId }: { channelId: string }) {
           channelRepositories={channel?.repositories}
           channelGithubIntegration={channel?.github_integration}
           // So a prompt handed to openTaskInput survives routing into a channel.
+          // initialContent + recoveredFromKey carry a recovered prompt's chips
+          // and attachments, and let the composer clear the durable record once
+          // applied — same as the unscoped NewTaskScreen.
           initialPrompt={view.initialPrompt}
+          initialContent={view.initialContent}
+          recoveredFromKey={view.recoveredFromKey}
           initialPromptKey={view.taskInputRequestId}
           initialCloudRepository={view.initialCloudRepository}
           initialModel={view.initialModel}

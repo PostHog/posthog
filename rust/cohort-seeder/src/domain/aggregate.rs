@@ -381,6 +381,33 @@ mod tests {
         assert_eq!(tiles[1].count(), 1);
     }
 
+    /// The seeder's shadow compare merges two of these vectors on `(person, condition)`, so this
+    /// sort is a contract rather than an ordering convenience: reorder it and the merge pairs
+    /// unrelated tiles, reporting byte-identical scans as thousands of divergences.
+    #[test]
+    fn tiles_come_out_sorted_by_person_then_condition() {
+        let filters = filters();
+        let active = active();
+        let mut accumulator = ChunkAccumulator::new(TeamId(2), &filters, &active).unwrap();
+        for person in [2, 1] {
+            for event_name in ["b", "a"] {
+                accumulator
+                    .record_event(&event(Uuid::from_u128(person), event_name))
+                    .unwrap();
+            }
+        }
+
+        let tiles = accumulator.into_tiles(&domain(), RunId(Uuid::nil()), ClaimEpoch(1));
+        assert_eq!(tiles.len(), 4);
+        assert!(
+            tiles
+                .windows(2)
+                .all(|pair| (pair[0].person_id(), pair[0].condition_hash())
+                    < (pair[1].person_id(), pair[1].condition_hash())),
+            "tiles are not in merge order: {tiles:?}"
+        );
+    }
+
     #[test]
     fn record_outcome_separates_false_unknown_function_and_vm_error() {
         let filters = outcome_filters();

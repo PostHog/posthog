@@ -9,6 +9,7 @@ elsewhere so these stay easy to read and mock in tests.
 import json
 import time
 import asyncio
+from itertools import batched
 from typing import Any
 
 from django.conf import settings
@@ -23,7 +24,6 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.metrics import ExecutionTimeRecorder
 from posthog.temporal.usage_report.aggregator import (
     add_pre_sandbox_compute_patch_defaults,
-    batched,
     build_manifest,
     build_org_reports,
     filter_org_reports,
@@ -159,7 +159,7 @@ async def aggregate_and_chunk_org_reports(inputs: AggregateInputs) -> AggregateR
             total_orgs_with_usage = len(orgs_with_usage)
 
             sorted_reports = sort_org_reports(orgs_with_usage)
-            batches = list(enumerate(batched(sorted_reports, CHUNK_SIZE_ORGS)))
+            batches = list(enumerate([list(batch) for batch in batched(sorted_reports, CHUNK_SIZE_ORGS, strict=False)]))
             chunk_keys: list[str] = [chunk_key(inputs.ctx, index) for index, _ in batches]
 
             # Each chunk is an independent S3 object, so fan the encode+gzip+PUT

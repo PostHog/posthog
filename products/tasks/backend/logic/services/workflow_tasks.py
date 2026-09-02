@@ -122,6 +122,7 @@ def create_workflow_task(
     origin_key: str | None = None,
     event: dict[str, Any] | None = None,
     slack_context: contracts.WorkflowTaskSlackContext | None = None,
+    rate_limits: contracts.WorkflowTaskRateLimits | None = None,
 ) -> contracts.WorkflowTaskDTO:
     """Create a workflow-origin task and start its agent run.
 
@@ -134,9 +135,13 @@ def create_workflow_task(
     runs in flight. Also raises `WorkflowTaskUsageLimited` when the owner is over the
     AI usage limit, and `WorkflowTaskRateCapped` / `WorkflowTaskTeamRateCapped` when
     the workflow or its team reached the daily created-task cap. A replayed
-    `origin_key` bypasses the gate and every cap.
+    `origin_key` bypasses the gate and every cap. `rate_limits` can override either
+    product default for this project; a missing value keeps the default.
 
-    `event` is rendered into the agent's prompt as data. `slack_context` binds the run to
+    `event` is rendered into the agent's prompt as data. The Slack thread binding decides
+    the run's lifetime: a thread-bound run stays live until its inactivity timeout, so its
+    reply posts and thread replies reach the agent, while a run with no binding ends
+    itself the moment the agent is done. `slack_context` binds the run to
     the Slack thread that triggered the workflow. The task is created either way: a context
     is dropped, rather than failing the create, when it resolves to no Slack integration of
     this team, when the channel is externally shared without an approval, or when another
@@ -146,6 +151,17 @@ def create_workflow_task(
     if replay is not None:
         observe_workflow_task_create(reason="replayed")
         return replay
+
+    workflow_rate_cap = (
+        rate_limits.per_workflow
+        if rate_limits is not None and rate_limits.per_workflow is not None
+        else WORKFLOW_TASK_RATE_CAP_PER_DAY
+    )
+    team_rate_cap = (
+        rate_limits.per_team
+        if rate_limits is not None and rate_limits.per_team is not None
+        else WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY
+    )
 
     validate_connectors(team.id, owner_id, mcp_installation_ids)
 
@@ -166,12 +182,12 @@ def create_workflow_task(
         observe_workflow_task_create(reason="owner_ineligible")
         raise WorkflowTaskOwnerIneligible()
     daily_counts = _daily_task_counts(team.id, hog_flow_id)
-    if daily_counts.workflow >= WORKFLOW_TASK_RATE_CAP_PER_DAY:
+    if daily_counts.workflow >= workflow_rate_cap:
         observe_workflow_task_create(reason="rate_capped")
-        raise WorkflowTaskRateCapped(WORKFLOW_TASK_RATE_CAP_PER_DAY)
-    if daily_counts.team >= WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY:
+        raise WorkflowTaskRateCapped(workflow_rate_cap)
+    if daily_counts.team >= team_rate_cap:
         observe_workflow_task_create(reason="team_rate_capped")
-        raise WorkflowTaskTeamRateCapped(WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY)
+        raise WorkflowTaskTeamRateCapped(team_rate_cap)
 
     # The gate stays outside the transaction: it calls the LLM gateway (short timeout,
     # fails open), and holding the advisory locks across an external call would stall
@@ -238,12 +254,12 @@ def create_workflow_task(
             # create could have pushed the count over the cap since then. This locked
             # read is the one that decides.
             daily_counts = _daily_task_counts(team.id, hog_flow_id)
-            if daily_counts.workflow >= WORKFLOW_TASK_RATE_CAP_PER_DAY:
+            if daily_counts.workflow >= workflow_rate_cap:
                 observe_workflow_task_create(reason="rate_capped")
-                raise WorkflowTaskRateCapped(WORKFLOW_TASK_RATE_CAP_PER_DAY)
-            if daily_counts.team >= WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY:
+                raise WorkflowTaskRateCapped(workflow_rate_cap)
+            if daily_counts.team >= team_rate_cap:
                 observe_workflow_task_create(reason="team_rate_capped")
-                raise WorkflowTaskTeamRateCapped(WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY)
+                raise WorkflowTaskTeamRateCapped(team_rate_cap)
 
             in_flight = TaskRun.objects.filter(
                 task__team_id=team.id, task__hog_flow_id=hog_flow_id, status__in=ACTIVE_RUN_STATUSES
@@ -261,6 +277,15 @@ def create_workflow_task(
             # run to "slack", which flips actor and credential resolution to a Slack steering
             # user the run does not have. It must keep executing as the workflow owner.
             interaction_origin = "workflow" if thread_context is not None else None
+
+            if slack_binding is None:
+                # Only a thread-bound run must outlive its turn, because the reply relay
+                # fires at end of turn. Every other workflow run gets the `finish` tool
+                # (the agent server reads this key at boot), so its sandbox is reclaimed
+                # promptly. The idle timeout is not a safe fallback for those runs: the
+                # PR follow-up loop raises it well past the 2-minute window for
+                # repository runs.
+                extra_run_state["end_run_when_done"] = True
 
             task = Task.create_and_run(
                 team=team,

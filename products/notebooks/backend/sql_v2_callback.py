@@ -17,6 +17,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema
 
 from products.notebooks.backend.models import KernelRuntime, NotebookNodeRun
 from products.notebooks.backend.sql_v2 import verify_callback_token
+from products.notebooks.backend.sql_v2_concurrency import release_run_slots
 from products.notebooks.backend.sql_v2_metrics import outcome_for_status, record_node_run_terminal
 from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2CallbackRequestSerializer
 
@@ -85,9 +86,10 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
     frames = envelope.pop("frames", None)
 
     try:
-        # select_related: the frame snapshot below scopes to the run's user, so fetch it up front
-        # rather than lazy-loading it on attribute access.
-        run = NotebookNodeRun.objects.for_team(team_id).select_related("user").get(id=run_id)
+        # select_related: the frame snapshot below scopes to the run's user and the slot release
+        # reads the notebook's short id, so fetch both up front rather than lazy-loading each on
+        # attribute access.
+        run = NotebookNodeRun.objects.for_team(team_id).select_related("user", "notebook").get(id=run_id)
     except NotebookNodeRun.DoesNotExist:
         return JsonResponse({"error": "Run not found"}, status=404)
 
@@ -118,6 +120,11 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
         run.save(update_fields=["status", "envelope", "result_id", "error", "updated_at"])
 
     _store_frame_snapshot(run, frames, team_id)
+
+    # The kernel lane's release site. This callback claims its own transition rather than going
+    # through finish_node_run, so it has to hand the slot back itself or the notebook stays
+    # blocked until the TTL.
+    release_run_slots(team_id, run.notebook.short_id, str(run.id))
 
     if won_transition:
         record_node_run_terminal(run, outcome_for_status(run.status))

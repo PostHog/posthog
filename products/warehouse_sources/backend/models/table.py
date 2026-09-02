@@ -30,7 +30,11 @@ from posthog.hogql.database.s3_table import (
     DataWarehouseTable as HogQLDataWarehouseTable,
     build_function_call,
 )
-from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_param_clickhouse
+from posthog.hogql.escape_sql import (
+    backquote_clickhouse_identifier,
+    escape_clickhouse_identifier,
+    escape_param_clickhouse,
+)
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -113,6 +117,14 @@ type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrosp
 # Internal plumbing columns added during sync, hidden from the HogQL catalog (see hogql_definition)
 # and never user-facing.
 HIDDEN_COLUMNS: frozenset[str] = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debug", PARTITION_KEY})
+
+# Characters that carry quoting meaning once a column name is written into SQL. The structure
+# builder escapes them already, so this is a second layer: it keeps such a name out of the other
+# sinks that read this column store, not all of which escape as thoroughly (for example
+# _quote_identifier in the ClickHouse source connector doubles backticks but not backslashes).
+# These names are addressable from HogQL, which escapes them correctly, so this rejects on the
+# storage risk rather than on usability.
+REJECTED_COLUMN_NAME_CHARACTERS: frozenset[str] = frozenset("`\\\r\n\0")
 
 # chdb has no query timeout, and a stalled S3 read can wedge a web worker indefinitely
 # (each request also pins ~300MB of RSS for the embedded ClickHouse). Running it in a
@@ -266,10 +278,14 @@ def hogql_fields_and_structure_for_columns(
             column_invalid = False
 
         if not column_invalid or (modifiers is not None and modifiers.s3TableUseInvalidColumns):
+            # ClickHouse re-parses this string with its column-declaration parser, so an unescaped
+            # backtick closes the identifier and the rest of the name is read as more declaration
+            # syntax, up to DEFAULT expressions that run server-side.
+            quoted_column = backquote_clickhouse_identifier(column)
             if is_nullable:
-                structure.append(f"`{column}` Nullable({clickhouse_type})")
+                structure.append(f"{quoted_column} Nullable({clickhouse_type})")
             else:
-                structure.append(f"`{column}` {clickhouse_type}")
+                structure.append(f"{quoted_column} {clickhouse_type}")
 
         fields[column] = get_hogql_field_for_column(column, type, clickhouse_type, is_nullable)
 
@@ -562,7 +578,13 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
         columns: DataWarehouseTableIntrospectedColumns = {}
         for item in result:
-            columns[str(item[0])] = DataWarehouseTableIntrospectedColumn(
+            column_name = str(item[0])
+            if REJECTED_COLUMN_NAME_CHARACTERS.intersection(column_name):
+                raise Exception(
+                    f"PostHog can't use the column name {column_name!r}. Column names can't contain "
+                    "backticks, backslashes, line breaks, or null bytes. Rename the column, then try again."
+                )
+            columns[column_name] = DataWarehouseTableIntrospectedColumn(
                 hogql=CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
                 clickhouse=item[1],
                 valid=True,

@@ -54,7 +54,7 @@ import type {
     ReviewPerspectiveStatItemApi,
     ReviewRecentReviewApi,
     ReviewResolutionStatusApi,
-    UrgencyThresholdEnumApi,
+    ReviewUserSettingsUrgencyThresholdEnumApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
 import {
     ReviewHogReviewsListScope,
@@ -132,7 +132,7 @@ const PIPELINE_PHASES: { name: string; hint: string; steps: { number: string; ti
     },
 ]
 
-const URGENCY_STOPS: { key: UrgencyThresholdEnumApi; label: string; description: string }[] = [
+const URGENCY_STOPS: { key: ReviewUserSettingsUrgencyThresholdEnumApi; label: string; description: string }[] = [
     {
         key: 'consider',
         label: 'All issues',

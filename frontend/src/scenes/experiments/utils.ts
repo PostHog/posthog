@@ -47,12 +47,12 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
+import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/constants'
 import type {
     ExperimentFeatureFlagFiltersApi,
     ExperimentFeatureFlagInputApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
-import { EXPERIMENT_VARIANT_MULTIPLE } from './constants'
 import {
     EXPOSURE_DEFAULT_EVENT,
     EXPOSURE_FEATURE_FLAG_PROPERTY,

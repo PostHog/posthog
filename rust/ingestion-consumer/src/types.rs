@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use common_kafka_consumer::{Offset, PolledMessage};
 use serde::{Deserialize, Serialize};
 
 /// Matches `SerializedKafkaMessage` in `nodejs/src/ingestion/api/types.ts`.
@@ -15,27 +16,19 @@ pub struct SerializedKafkaMessage {
     pub headers: HashMap<String, String>,
 }
 
-/// Matches `IngestBatchRequest` in `nodejs/src/ingestion/api/types.ts`.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct IngestBatchRequest {
-    pub batch_id: String,
-    pub messages: Vec<SerializedKafkaMessage>,
-    /// Identifies this consumer process incarnation. The worker's feed-order
-    /// sentinel rebaselines a key when the sender changes (restart/rebalance
-    /// legitimately replays uncommitted offsets).
-    pub consumer_id: String,
-    /// True when this request may repeat previously sent messages (an HTTP
-    /// retry, or a deferred-flush re-route after a send failure). The worker's
-    /// sentinel counts repeats on replay requests as at-least-once replays
-    /// rather than order violations.
-    pub replay: bool,
+/// The demux's view of a message: the Kafka key is the routing key.
+impl From<SerializedKafkaMessage> for PolledMessage<String, SerializedKafkaMessage> {
+    fn from(message: SerializedKafkaMessage) -> Self {
+        PolledMessage {
+            offset: Offset(message.offset),
+            key: message.key.clone(),
+            inner: message,
+        }
+    }
 }
 
-/// Matches `IngestBatchResponse` in `nodejs/src/ingestion/api/types.ts`.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct IngestBatchResponse {
-    pub batch_id: String,
-    pub status: String,
-    pub accepted: u32,
-    pub error: Option<String>,
-}
+/// One poll's messages for one routing key on one partition, in offset order.
+pub type Group = common_kafka_consumer::Group<String, SerializedKafkaMessage>;
+
+/// The demux that builds one poll's groups.
+pub type Accumulator = common_kafka_consumer::Accumulator<String, SerializedKafkaMessage>;

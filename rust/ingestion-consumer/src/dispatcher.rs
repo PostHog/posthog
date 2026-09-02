@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use common_kafka_consumer::{Offset, Partition};
 use k8s_awareness::PeerTracker;
 use metrics::{counter, gauge, histogram};
-use tokio::sync::mpsc::UnboundedSender;
 
 use crate::aperture;
 use crate::debug_recorder::{
@@ -12,7 +12,7 @@ use crate::debug_recorder::{
 use crate::order_sentinel::{KeyOrderSentinel, SendKind};
 use crate::routing::{Router, RoutingStrategy, WorkerLoad};
 use crate::stash::{DeferredGroup, Stash};
-use crate::types::SerializedKafkaMessage;
+use crate::types::{Accumulator, Group, SerializedKafkaMessage};
 use crate::worker_registry::{WorkerId, WorkerRegistry};
 
 /// The max offset a sub-batch carries for one routing key, over keyed
@@ -60,13 +60,6 @@ struct PinTable {
     /// Messages deferred because their key's worker is draining/dead, keyed by
     /// batch, plus per-key outstanding counts. Flushed by `flush_deferred`.
     stash: Stash,
-    /// Batch id → in-flight eager flush sends. A batch is not committable
-    /// while it has pending eager sends: their acceptance isn't credited yet,
-    /// and a failure would re-stash under the batch.
-    eager_pending: HashMap<String, u32>,
-    /// Batch id → messages accepted via eager flushes, credited to the batch's
-    /// total at completion (`take_eager_accepted`).
-    eager_accepted: HashMap<String, u32>,
 }
 
 impl PinTable {
@@ -75,19 +68,8 @@ impl PinTable {
             pins: HashMap::new(),
             in_flight: WorkerLoad::new(),
             stash: Stash::new(),
-            eager_pending: HashMap::new(),
-            eager_accepted: HashMap::new(),
         }
     }
-}
-
-/// A deferred group released eagerly when the send blocking its key resolved.
-/// Sent over the eager-flush channel to the consumer, which sends it and
-/// credits the acceptance to the owning batch.
-pub struct EagerFlush {
-    /// The batch that produced (and still owns) the deferred messages.
-    pub batch_id: String,
-    pub sub_batch: SubBatch,
 }
 
 struct MessageGroup {
@@ -213,9 +195,6 @@ pub struct Dispatcher {
     aperture: Option<(Arc<PeerTracker>, usize)>,
     /// Debug event recorder; `None` unless `DEBUG_API_ENABLED`.
     debug_recorder: Option<Arc<DebugRecorder>>,
-    /// Channel to the consumer's eager-flush send task. `None` disables eager
-    /// release (the completion-time flush then does all the draining).
-    eager_flush_tx: Mutex<Option<UnboundedSender<EagerFlush>>>,
 }
 
 impl Dispatcher {
@@ -233,7 +212,6 @@ impl Dispatcher {
             key_sentinel: Arc::new(KeyOrderSentinel::new()),
             aperture: None,
             debug_recorder: None,
-            eager_flush_tx: Mutex::new(None),
         }
     }
 
@@ -251,7 +229,6 @@ impl Dispatcher {
             key_sentinel: Arc::new(KeyOrderSentinel::new()),
             aperture: None,
             debug_recorder: None,
-            eager_flush_tx: Mutex::new(None),
         }
     }
 
@@ -272,14 +249,6 @@ impl Dispatcher {
     /// Inject the debug UI recorder. Call before the dispatcher is shared.
     pub fn set_debug_recorder(&mut self, recorder: Arc<DebugRecorder>) {
         self.debug_recorder = Some(recorder);
-    }
-
-    /// Enable eager deferred flushing: when the send blocking a deferring key
-    /// resolves, the key's next stashed group is routed immediately and handed
-    /// to `tx` for the consumer to send, instead of waiting for the owning
-    /// batch's completion-time flush.
-    pub fn set_eager_flush_sender(&self, tx: UnboundedSender<EagerFlush>) {
-        *self.eager_flush_tx.lock().unwrap() = Some(tx);
     }
 
     /// Point-in-time load/pin/stash snapshot for the debug UI.
@@ -325,9 +294,23 @@ impl Dispatcher {
         }
     }
 
-    /// Assign a batch of messages to workers.
+    /// Assign a batch of messages to workers. Demuxes the messages into
+    /// groups first, as the collect path does for a poll, then assigns them
+    /// like [`Dispatcher::assign_and_send`].
+    pub fn assign(&self, batch_id: &str, messages: Vec<SerializedKafkaMessage>) -> Vec<SubBatch> {
+        let mut table = self.pin_table.lock().unwrap();
+        self.assign_locked(&mut table, batch_id, demux(messages))
+    }
+
+    /// Assign a poll's groups to workers, then hand each sub-batch to `send`
+    /// before releasing the pin table. A key admitted here because nothing of
+    /// its is deferred must enter its worker stream before `defer_failed` can
+    /// stash an older group for it: with the lock released in between, the
+    /// stash could land first, the worker stream's fence could lift, and the
+    /// newer group would ride the next stream ahead of the older one. `send`
+    /// must not block.
     ///
-    /// Groups messages by routing key, then per group:
+    /// Per group:
     /// - honor an existing pin to a worker still taking work;
     /// - **defer** (stash under `batch_id`) a key pinned to a draining/dead
     ///   worker, or one that already has deferred groups pending, so newer
@@ -336,27 +319,16 @@ impl Dispatcher {
     ///   group when no worker is routable at all, so a transient full-pool
     ///   outage holds messages instead of failing the batch.
     ///
-    /// Returns one `SubBatch` per worker to send now. Deferred groups stay in
-    /// the stash and are flushed later via [`Dispatcher::flush_deferred`].
-    pub fn assign(&self, batch_id: &str, messages: Vec<SerializedKafkaMessage>) -> Vec<SubBatch> {
-        let mut table = self.pin_table.lock().unwrap();
-        self.assign_locked(&mut table, batch_id, messages)
-    }
-
-    /// Assign, then hand each sub-batch to `send` before releasing the pin
-    /// table. A key admitted here because nothing of its is deferred must
-    /// enter its worker stream before `defer_failed` can stash an older group for it:
-    /// with the lock released in between, the stash could land first, the
-    /// worker stream's fence could lift, and the newer group would ride the next
-    /// stream ahead of the older one. `send` must not block.
+    /// Sends one `SubBatch` per worker. Deferred groups stay in the stash and
+    /// are flushed later via [`Dispatcher::flush_deferred`].
     pub fn assign_and_send<T>(
         &self,
         batch_id: &str,
-        messages: Vec<SerializedKafkaMessage>,
+        groups: Vec<Group>,
         send: impl FnMut(SubBatch) -> T,
     ) -> Vec<T> {
         let mut table = self.pin_table.lock().unwrap();
-        self.assign_locked(&mut table, batch_id, messages)
+        self.assign_locked(&mut table, batch_id, groups)
             .into_iter()
             .map(send)
             .collect()
@@ -366,12 +338,12 @@ impl Dispatcher {
         &self,
         table: &mut PinTable,
         batch_id: &str,
-        messages: Vec<SerializedKafkaMessage>,
+        groups: Vec<Group>,
     ) -> Vec<SubBatch> {
         let GroupedMessages {
             groups: key_groups,
             unkeyed_count,
-        } = group_messages_by_routing_key(messages);
+        } = routing_groups(groups);
 
         if unkeyed_count > 0 {
             counter!("ingestion_consumer_dispatcher_unkeyed_messages_total")
@@ -604,10 +576,7 @@ impl Dispatcher {
     /// Forget a fully completed (committed) batch's arrival order and any
     /// leftover ledger state.
     pub fn release_batch(&self, batch_id: &str) {
-        let mut table = self.pin_table.lock().unwrap();
-        table.stash.release_batch(batch_id);
-        table.eager_pending.remove(batch_id);
-        table.eager_accepted.remove(batch_id);
+        self.pin_table.lock().unwrap().stash.release_batch(batch_id);
     }
 
     /// Whether `batch_id` still has deferred groups awaiting flush.
@@ -615,55 +584,16 @@ impl Dispatcher {
         self.pin_table.lock().unwrap().stash.has_batch(batch_id)
     }
 
-    /// Whether the batch still has unfinished flush work: stashed groups
-    /// awaiting a flush, or eager sends in flight. The batch is not
-    /// committable until this is false (checked under one lock so a failing
-    /// eager send can't slip its re-stash between two separate checks).
+    /// Whether the batch still has deferred groups awaiting a flush.
     pub fn has_unfinished_flush(&self, batch_id: &str) -> bool {
-        let table = self.pin_table.lock().unwrap();
-        table.stash.has_batch(batch_id) || table.eager_pending.get(batch_id).is_some_and(|&n| n > 0)
+        self.pin_table.lock().unwrap().stash.has_batch(batch_id)
     }
 
-    /// Whether the batch has any flush-path activity at all: stashed groups,
-    /// in-flight eager sends, or already-credited eager acceptances. Used to
-    /// distinguish "everything was deferred/flushed" from "nothing was
-    /// routable" right after assignment.
+    /// Whether the batch has any deferred groups. Used to distinguish
+    /// "everything was deferred/flushed" from "nothing was routable" right
+    /// after assignment.
     pub fn batch_has_flush_activity(&self, batch_id: &str) -> bool {
-        let table = self.pin_table.lock().unwrap();
-        table.stash.has_batch(batch_id)
-            || table.eager_pending.get(batch_id).is_some_and(|&n| n > 0)
-            || table.eager_accepted.get(batch_id).is_some_and(|&n| n > 0)
-    }
-
-    /// Credit an accepted eager flush to its owning batch and mark the send
-    /// finished. Done atomically so the batch can't observe pending == 0
-    /// before its acceptance is credited.
-    pub fn eager_flush_accepted(&self, batch_id: &str, accepted: u32) {
-        let mut table = self.pin_table.lock().unwrap();
-        decrement_pending(&mut table.eager_pending, batch_id);
-        *table
-            .eager_accepted
-            .entry(batch_id.to_string())
-            .or_insert(0) += accepted;
-    }
-
-    /// Mark a failed eager flush finished. The caller must have re-stashed the
-    /// messages via `defer_failed` first, so the batch keeps unfinished flush
-    /// work and the completion-time backstop retries them.
-    pub fn eager_flush_failed(&self, batch_id: &str) {
-        let mut table = self.pin_table.lock().unwrap();
-        decrement_pending(&mut table.eager_pending, batch_id);
-    }
-
-    /// Take (and clear) the batch's eagerly-accepted message count, credited
-    /// into the batch's completion total.
-    pub fn take_eager_accepted(&self, batch_id: &str) -> u32 {
-        self.pin_table
-            .lock()
-            .unwrap()
-            .eager_accepted
-            .remove(batch_id)
-            .unwrap_or(0)
+        self.pin_table.lock().unwrap().stash.has_batch(batch_id)
     }
 
     /// Whether the worker has any in-flight (sent, unresolved) messages. The
@@ -864,18 +794,13 @@ impl Dispatcher {
         }
     }
 
-    /// `send_failed` must be true when the resolved send failed (its messages
-    /// were re-stashed via `defer_failed`): it suppresses eager release for
-    /// the sub-batch's keys, leaving the retry to the completion-time flush
-    /// loop's paced backoff — otherwise a flapping worker would re-release the
-    /// re-stashed group on every failure in a tight loop.
     pub fn on_sub_batch_resolved(
         &self,
         worker: &WorkerId,
         message_count: usize,
         routing_keys: &[String],
         clears_deferral: bool,
-        send_failed: bool,
+        _send_failed: bool,
     ) {
         let mut table = self.pin_table.lock().unwrap();
 
@@ -895,9 +820,7 @@ impl Dispatcher {
             }
         }
 
-        let eager_tx = self.eager_flush_tx.lock().unwrap().clone();
         let mut evictions = 0usize;
-        let mut release_keys: Vec<String> = Vec::new();
         for key in routing_keys {
             // For a flushed sub-batch, the key's flushed chunk has now landed —
             // clear one outstanding deferral before checking whether it can evict.
@@ -922,19 +845,7 @@ impl Dispatcher {
                     // its order-sentinel history has nothing left to check.
                     self.key_sentinel.evict(key);
                     evictions += 1;
-                } else if pin.ref_count == 0 && !send_failed && eager_tx.is_some() {
-                    // The key's last in-flight send landed but it still has
-                    // stashed groups — release the oldest one now instead of
-                    // waiting for its batch's completion-time flush. This is
-                    // what breaks the deferral cascade for hot keys.
-                    release_keys.push(key.clone());
                 }
-            }
-        }
-
-        if let Some(tx) = eager_tx {
-            if !release_keys.is_empty() {
-                self.release_next_groups(&mut table, &tx, &release_keys);
             }
         }
 
@@ -962,130 +873,6 @@ impl Dispatcher {
     pub fn record_send_outcome(&self, worker: &str, is_error: bool) {
         self.registry.record_outcome(worker, is_error);
     }
-
-    /// Eagerly release each key's oldest stashed group: route it (sticky pin
-    /// if healthy, load-based otherwise), re-pin, and hand it to the consumer's
-    /// eager-send task. Called with the pin table already locked, from the
-    /// resolve that dropped the key's in-flight count to zero — so per-key
-    /// order holds: there is never more than one in-flight send per key.
-    /// A key that can't route right now stays stashed for the completion-time
-    /// backstop flush.
-    fn release_next_groups(
-        &self,
-        table: &mut PinTable,
-        tx: &UnboundedSender<EagerFlush>,
-        keys: &[String],
-    ) {
-        let healthy = self.registry.healthy_workers();
-        if healthy.is_empty() {
-            return;
-        }
-        let mut working_load: WorkerLoad = healthy
-            .iter()
-            .map(|w| (w.clone(), table.in_flight.get(w).copied().unwrap_or(0)))
-            .collect();
-        let mut router = self.router.lock().unwrap();
-
-        for key in keys {
-            let Some((owning_batch, messages)) = table.stash.pop_next(key) else {
-                continue;
-            };
-            let sticky = sticky_pin_for(&table.pins, key, &healthy, &working_load);
-            let worker = match sticky.or_else(|| router.select(&healthy, &working_load)) {
-                Some(worker) => worker,
-                None => {
-                    table.stash.put_back(
-                        &owning_batch,
-                        DeferredGroup {
-                            routing_key: key.clone(),
-                            messages,
-                        },
-                    );
-                    continue;
-                }
-            };
-            let message_count = messages.len();
-            bump_load(&mut working_load, &worker, message_count);
-            match table.pins.get_mut(key) {
-                Some(pin) => {
-                    pin.worker = worker.clone();
-                    pin.ref_count += 1;
-                }
-                None => {
-                    table.pins.insert(
-                        key.clone(),
-                        Pin {
-                            worker: worker.clone(),
-                            ref_count: 1,
-                        },
-                    );
-                }
-            }
-            self.key_sentinel
-                .note_sent(key, &messages, SendKind::Resend);
-            let mut assignments = WorkerAssignments::new();
-            assignments.add_group(
-                worker.clone(),
-                MessageGroup {
-                    routing_key: key.clone(),
-                    messages,
-                },
-            );
-            *table.in_flight.entry(worker.clone()).or_insert(0) += message_count;
-            *table.eager_pending.entry(owning_batch.clone()).or_insert(0) += 1;
-            counter!(
-                "ingestion_consumer_dispatcher_deferred_flushed_total",
-                "worker" => worker.to_string(),
-            )
-            .increment(message_count as u64);
-            let infos = assignments.sub_batch_infos();
-            let sub_batch = assignments
-                .into_sub_batches()
-                .pop()
-                .expect("one group produces one sub-batch");
-            if let Err(err) = tx.send(EagerFlush {
-                batch_id: owning_batch.clone(),
-                sub_batch,
-            }) {
-                // Receiver gone (shutdown) — roll back so nothing is counted
-                // as in flight; the messages replay after restart anyway.
-                let EagerFlush {
-                    batch_id,
-                    sub_batch,
-                } = err.0;
-                decrement_pending(&mut table.eager_pending, &batch_id);
-                if let Some(load) = table.in_flight.get_mut(&sub_batch.worker) {
-                    *load = load.saturating_sub(sub_batch.messages.len());
-                }
-                if let Some(pin) = table.pins.get_mut(key) {
-                    pin.ref_count = pin.ref_count.saturating_sub(1);
-                }
-                table.stash.put_back(
-                    &batch_id,
-                    DeferredGroup {
-                        routing_key: key.clone(),
-                        messages: sub_batch.messages,
-                    },
-                );
-                continue;
-            }
-            record_if(&self.debug_recorder, || DebugEventKind::DeferredFlushed {
-                batch_id: owning_batch.clone(),
-                sub_batches: infos,
-            });
-        }
-        record_stash_gauges(&table.stash);
-    }
-}
-
-/// Decrement a batch's pending eager-send count, dropping the entry at zero.
-fn decrement_pending(pending: &mut HashMap<String, u32>, batch_id: &str) {
-    if let Some(n) = pending.get_mut(batch_id) {
-        *n = n.saturating_sub(1);
-        if *n == 0 {
-            pending.remove(batch_id);
-        }
-    }
 }
 
 /// Cap on how much more loaded a pinned worker may be than the least-loaded
@@ -1101,9 +888,9 @@ const STICKY_PIN_LOAD_SLACK: usize = 500;
 
 /// The key's pinned worker, if the pin may be honored for a flush: it must be
 /// healthy and not drastically more loaded than the least-loaded candidate
-/// (see `STICKY_PIN_LOAD_FACTOR`). Only consulted at flush/eager-release
-/// time, when the key has no send in flight — so declining the pin and
-/// routing elsewhere cannot reorder the key.
+/// (see `STICKY_PIN_LOAD_FACTOR`). Only consulted at flush time, when the key
+/// has no send in flight — so declining the pin and routing elsewhere cannot
+/// reorder the key.
 fn sticky_pin_for(
     pins: &HashMap<String, Pin>,
     routing_key: &str,
@@ -1149,32 +936,56 @@ struct GroupedMessages {
     unkeyed_count: u64,
 }
 
-fn group_messages_by_routing_key(messages: Vec<SerializedKafkaMessage>) -> GroupedMessages {
-    let mut grouped_messages: HashMap<String, Vec<SerializedKafkaMessage>> = HashMap::new();
-    let mut unkeyed_count = 0u64;
-
+/// Demux messages into groups the way the collect path does for a poll.
+fn demux(messages: Vec<SerializedKafkaMessage>) -> Vec<Group> {
+    let mut accumulator = Accumulator::default();
     for message in messages {
-        let routing_key = message.key.clone().unwrap_or_else(|| {
-            unkeyed_count += 1;
-            // An unkeyed message has no order to preserve, so it can go to any
-            // worker. A synthetic per-message key spreads such messages across
-            // workers instead of pinning them all to one shared fallback key.
-            format!(":{}:{}", message.partition, message.offset)
-        });
-        grouped_messages
-            .entry(routing_key)
-            .or_default()
-            .push(message);
+        accumulator.push(Partition(message.partition), message.into());
+    }
+    accumulator.into_groups()
+}
+
+fn group_messages_by_routing_key(messages: Vec<SerializedKafkaMessage>) -> GroupedMessages {
+    routing_groups(demux(messages))
+}
+
+/// Name each group for the pin table. A keyed group's routing key is its
+/// Kafka key. An unkeyed message has no order to preserve, so it can go to
+/// any worker: a synthetic per-message key spreads such messages across
+/// workers instead of pinning them all to one shared fallback key.
+///
+/// The pin table is keyed by routing key alone, so a key that arrives on two
+/// partitions in one poll (a partition-count change leaves its backlog on the
+/// old partition) merges into one group: two groups for one key could route
+/// to two workers at once.
+fn routing_groups(groups: Vec<Group>) -> GroupedMessages {
+    let mut unkeyed_count = 0u64;
+    let mut merged: Vec<MessageGroup> = Vec::with_capacity(groups.len());
+    let mut index_by_key: HashMap<String, usize> = HashMap::new();
+    for group in groups {
+        let routing_key = match group.key {
+            Some(key) => key,
+            None => {
+                unkeyed_count += 1;
+                let first = group.messages.first().map_or(Offset(-1), |m| m.offset);
+                format!(":{}:{}", group.partition, first)
+            }
+        };
+        let messages = group.messages.into_iter().map(|m| m.message);
+        match index_by_key.get(&routing_key) {
+            Some(&index) => merged[index].messages.extend(messages),
+            None => {
+                index_by_key.insert(routing_key.clone(), merged.len());
+                merged.push(MessageGroup {
+                    routing_key,
+                    messages: messages.collect(),
+                });
+            }
+        }
     }
 
     GroupedMessages {
-        groups: grouped_messages
-            .into_iter()
-            .map(|(routing_key, messages)| MessageGroup {
-                routing_key,
-                messages,
-            })
-            .collect(),
+        groups: merged,
         unkeyed_count,
     }
 }
@@ -1289,6 +1100,29 @@ mod tests {
         assert_eq!(grouped.unkeyed_count, 0);
         assert_eq!(grouped.groups.len(), 1);
         assert_eq!(grouped.groups[0].routing_key, "tok:user-1");
+        assert_eq!(grouped.groups[0].messages.len(), 2);
+    }
+
+    #[test]
+    fn test_same_routing_key_on_two_partitions_stays_one_group() {
+        let grouped = group_messages_by_routing_key(vec![
+            SerializedKafkaMessage {
+                partition: 0,
+                offset: 1,
+                ..make_msg("tok:user-1")
+            },
+            SerializedKafkaMessage {
+                partition: 3,
+                offset: 9,
+                ..make_msg("tok:user-1")
+            },
+        ]);
+
+        assert_eq!(
+            grouped.groups.len(),
+            1,
+            "one key must not split across workers"
+        );
         assert_eq!(grouped.groups[0].messages.len(), 2);
     }
 
@@ -2004,136 +1838,6 @@ mod tests {
         );
     }
 
-    /// Resolve a previously received eager flush as accepted, the way
-    /// `send_eager_flush` does, and return whatever it released next.
-    fn resolve_eager_flush(
-        dispatcher: &Dispatcher,
-        flush: &EagerFlush,
-        rx: &mut tokio::sync::mpsc::UnboundedReceiver<EagerFlush>,
-    ) -> Option<EagerFlush> {
-        dispatcher.eager_flush_accepted(&flush.batch_id, flush.sub_batch.messages.len() as u32);
-        dispatcher.on_sub_batch_resolved(
-            &flush.sub_batch.worker,
-            flush.sub_batch.messages.len(),
-            &flush.sub_batch.routing_keys,
-            true,
-            false,
-        );
-        rx.try_recv().ok()
-    }
-
-    #[test]
-    fn test_eager_release_chains_at_ack_speed_across_uncompleted_batches() {
-        // The cascade-breaker: a hot key stashed by several in-flight batches
-        // drains group-by-group on each ACK, without any of those batches
-        // completing.
-        let registry = healthy_registry(2);
-        let dispatcher = Dispatcher::new(Arc::clone(&registry));
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        dispatcher.set_eager_flush_sender(tx);
-
-        let b1 = dispatcher.assign("batch-1", make_msgs(&["t:k"]));
-        let pinned = b1[0].worker.clone();
-        registry.start_draining(&pinned);
-        for batch in ["batch-2", "batch-3", "batch-4"] {
-            assert!(dispatcher.assign(batch, make_msgs(&["t:k"])).is_empty());
-        }
-
-        // Resolving the blocking send releases the oldest stashed group
-        // immediately — no batch completion involved.
-        dispatcher.on_sub_batch_resolved(&pinned, 1, &b1[0].routing_keys, false, false);
-        let f2 = rx.try_recv().expect("resolve releases the next group");
-        assert_eq!(f2.batch_id, "batch-2");
-        assert_ne!(f2.sub_batch.worker, pinned, "routed off the drainer");
-        assert!(rx.try_recv().is_err(), "at most one in-flight send per key");
-        assert!(!dispatcher.has_deferred("batch-2"));
-        assert!(
-            dispatcher.has_unfinished_flush("batch-2"),
-            "owning batch waits on the pending eager send"
-        );
-
-        // Each ACK releases the next batch's group, oldest first.
-        let f3 = resolve_eager_flush(&dispatcher, &f2, &mut rx).expect("batch-3 group");
-        assert_eq!(f3.batch_id, "batch-3");
-        assert_eq!(f3.sub_batch.worker, f2.sub_batch.worker, "stays sticky");
-        let f4 = resolve_eager_flush(&dispatcher, &f3, &mut rx).expect("batch-4 group");
-        assert_eq!(f4.batch_id, "batch-4");
-        assert!(
-            resolve_eager_flush(&dispatcher, &f4, &mut rx).is_none(),
-            "stash drained"
-        );
-
-        // The chain fully cleared the deferral: pin evicted, ledgers credited.
-        assert_eq!(dispatcher.pin_count(), 0);
-        for batch in ["batch-2", "batch-3", "batch-4"] {
-            assert!(!dispatcher.has_unfinished_flush(batch));
-            assert_eq!(dispatcher.take_eager_accepted(batch), 1);
-        }
-    }
-
-    #[test]
-    fn test_eager_release_without_healthy_worker_leaves_group_stashed() {
-        let registry = healthy_registry(2);
-        let dispatcher = Dispatcher::new(Arc::clone(&registry));
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        dispatcher.set_eager_flush_sender(tx);
-
-        let b1 = dispatcher.assign("batch-1", make_msgs(&["t:k"]));
-        let pinned = b1[0].worker.clone();
-        registry.start_draining(&pinned);
-        assert!(dispatcher.assign("batch-2", make_msgs(&["t:k"])).is_empty());
-
-        // Drain the survivor too — nothing is routable at resolve time.
-        for worker in registry.workers() {
-            registry.start_draining(&worker);
-        }
-        dispatcher.on_sub_batch_resolved(&pinned, 1, &b1[0].routing_keys, false, false);
-
-        assert!(rx.try_recv().is_err(), "nothing released");
-        assert!(
-            dispatcher.has_deferred("batch-2"),
-            "group stays stashed for the completion-time backstop"
-        );
-    }
-
-    #[test]
-    fn test_failed_send_does_not_eagerly_retry() {
-        // A failed send re-stashes its messages; the following resolve must
-        // not re-release them immediately (that would hot-loop against a
-        // flapping worker) — the paced completion-time flush retries instead.
-        let registry = healthy_registry(2);
-        let dispatcher = Dispatcher::new(Arc::clone(&registry));
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        dispatcher.set_eager_flush_sender(tx);
-
-        let b1 = dispatcher.assign("batch-1", make_msgs(&["t:k"]));
-        let pinned = b1[0].worker.clone();
-        registry.start_draining(&pinned);
-        assert!(dispatcher.assign("batch-2", make_msgs(&["t:k"])).is_empty());
-
-        dispatcher.on_sub_batch_resolved(&pinned, 1, &b1[0].routing_keys, false, false);
-        let flush = rx.try_recv().expect("group released");
-
-        // The eager send fails, mirroring `send_eager_flush`'s failure path.
-        dispatcher.defer_failed(&flush.batch_id, flush.sub_batch.messages);
-        dispatcher.eager_flush_failed(&flush.batch_id);
-        dispatcher.on_sub_batch_resolved(
-            &flush.sub_batch.worker,
-            1,
-            &flush.sub_batch.routing_keys,
-            true,
-            true,
-        );
-
-        assert!(rx.try_recv().is_err(), "no immediate eager retry");
-        assert!(
-            dispatcher.has_unfinished_flush("batch-2"),
-            "re-stashed for the backstop, batch not committable"
-        );
-        let backstop = dispatcher.flush_deferred("batch-2");
-        assert_eq!(backstop.len(), 1, "completion-time flush retries the group");
-    }
-
     /// Pin key K, then load its worker far above the other one via unresolved
     /// sends of other keys, and put K's group in the stash via a failed send.
     /// Returns (dispatcher, pinned_worker, other_worker); K's group is stashed
@@ -2190,43 +1894,6 @@ mod tests {
         assert_eq!(
             flushed[0].worker, pinned,
             "comparable loads keep the sticky pin for person-batching locality"
-        );
-    }
-
-    #[test]
-    fn test_eager_release_overrides_saturated_sticky_pin() {
-        let registry = healthy_registry(2);
-        let dispatcher = Dispatcher::new(Arc::clone(&registry));
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        dispatcher.set_eager_flush_sender(tx);
-
-        let b0 = dispatcher.assign("b0", make_msgs(&["t:k"]));
-        let pinned = b0[0].worker.clone();
-        let b2 = dispatcher.assign("b2", make_msgs(&vec!["t:d"; 600]));
-        let other = b2[0].worker.clone();
-        assert_ne!(other, pinned);
-        let b3 = dispatcher.assign("b3", make_msgs(&vec!["t:e"; 700]));
-        assert_eq!(
-            b3[0].worker, pinned,
-            "700-msg key lands on the pinned worker"
-        );
-
-        // A second K send is honored onto the pin, fails, and re-stashes; the
-        // resolve is marked failed so nothing releases yet.
-        let b1 = dispatcher.assign("b1", make_msgs(&["t:k"]));
-        assert_eq!(b1[0].worker, pinned);
-        dispatcher.defer_failed("b1", make_msgs(&["t:k"]));
-        dispatcher.on_sub_batch_resolved(&pinned, 1, &b1[0].routing_keys, false, true);
-        // The other worker drains fully; the pinned one still holds 700.
-        dispatcher.on_sub_batch_resolved(&other, 600, &["t:d".to_string()], false, false);
-
-        // K's original send resolves cleanly → eager release fires, and must
-        // route off the saturated pin.
-        dispatcher.on_sub_batch_resolved(&pinned, 1, &b0[0].routing_keys, false, false);
-        let flush = rx.try_recv().expect("eager release fires");
-        assert_eq!(
-            flush.sub_batch.worker, other,
-            "eager release must abandon the saturated sticky pin"
         );
     }
 
@@ -2411,21 +2078,22 @@ mod tests {
 
         let racing = Arc::clone(&dispatcher);
         let mut race = None;
-        let sent = dispatcher.assign_and_send("batch-2", make_msgs(&["t:user-1"]), |sub_batch| {
-            // Admitted behind batch-1's live pin. batch-1's send now fails
-            // and tries to stash its messages before this group is enqueued.
-            let dispatcher = Arc::clone(&racing);
-            let handle = std::thread::spawn(move || {
-                dispatcher.defer_failed("batch-1", make_msgs(&["t:user-1"]));
+        let sent =
+            dispatcher.assign_and_send("batch-2", demux(make_msgs(&["t:user-1"])), |sub_batch| {
+                // Admitted behind batch-1's live pin. batch-1's send now fails
+                // and tries to stash its messages before this group is enqueued.
+                let dispatcher = Arc::clone(&racing);
+                let handle = std::thread::spawn(move || {
+                    dispatcher.defer_failed("batch-1", make_msgs(&["t:user-1"]));
+                });
+                std::thread::sleep(Duration::from_millis(50));
+                assert!(
+                    !handle.is_finished(),
+                    "defer_failed must wait until the admitted group is enqueued"
+                );
+                race = Some(handle);
+                sub_batch
             });
-            std::thread::sleep(Duration::from_millis(50));
-            assert!(
-                !handle.is_finished(),
-                "defer_failed must wait until the admitted group is enqueued"
-            );
-            race = Some(handle);
-            sub_batch
-        });
         assert_eq!(sent.len(), 1, "batch-2 was admitted and handed to send");
         race.take().expect("send ran").join().expect("defer_failed");
 

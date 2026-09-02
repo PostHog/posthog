@@ -300,110 +300,81 @@ function dropProducts(products, allProducts, names, label) {
     return remaining
 }
 
-// --- Dependent cascade (tach.toml) ---
+// --- Dependent cascade (tach map) ---
 // When a product's contract changes, Turbo's graph has no edges to the
 // products that depend on it (no workspace deps, no `dependsOn`), so those
-// dependents never get retested — see #70556. tach.toml is the graph we
-// actually have: `tach check --dependencies` runs in CI, so it can't drift
-// from what's importable. Reuse it to compute who transitively depends on a
+// dependents never get retested — see #70556. `tach map` is the graph we
+// actually have: it walks the real imports of every Python file under
+// tach.toml's source roots, the same imports `tach check --dependencies`
+// enforces in CI, so it can't drift from what's importable. It reads the files
+// rather than the declared depends_on lists, so an import the declaration
+// misses (a module path in a string, a test that imports another product's
+// facade) still cascades. Reuse it to compute who transitively depends on a
 // changed product's contract.
-const TACH_TOML_FILE = 'tach.toml'
-const TACH_MODULE_PREFIX = 'products.'
+//
+// tach_map.py pins tach in its PEP 723 block and runs under `uv run
+// --no-project`, so the callers need uv and nothing from the Python project.
+const TACH_MAP_SCRIPT = path.join(__dirname, 'tach_map.py')
+const PRODUCTS_DIR = 'products/'
 
-// Turbo package names are dashed; tach module paths and product directories are
-// underscored. Every boundary crossing goes through these, so the convention is
-// stated once rather than re-derived at each call site.
+// Turbo package names are dashed; product directories are underscored. Every
+// boundary crossing goes through these, so the convention is stated once
+// rather than re-derived at each call site.
 const productToModule = (product) => product.replace(/-/g, '_')
 const moduleToProduct = (module) => module.replace(/_/g, '-')
 
-// Parse tach.toml's [[modules]] blocks into product -> [products it depends
-// on]. Keys/values are tach names with the "products." prefix stripped
-// (underscores preserved) — callers normalize to/from Turbo's dashed names.
-//
-// Only products.* modules become nodes or edges. posthog/ee (and the
-// common.* utility modules) are dropped on both sides deliberately: they
-// aren't products.* so they fall out of the startsWith filter for free. See
-// tachDependents for why routing through them would be wrong, not just
-// inconvenient.
-// TOML comments run to the end of the line, and a `#` inside a double-quoted
-// string does not start one. Comments have to go before the block scan below,
-// because a comment inside a depends_on list can carry a `]`: tach.toml
-// documents a facade-only edge as "enforced by stamphog's [[interfaces]]
-// block", and that bracket ends the non-greedy scan early, dropping every
-// entry after it.
-function stripTomlComments(tomlText) {
-    let out = ''
-    let inString = false
-    for (let index = 0; index < tomlText.length; index++) {
-        const char = tomlText[index]
-        if (char === '"' && tomlText[index - 1] !== '\\') {
-            inString = !inString
-        }
-        if (!inString && char === '#') {
-            while (index < tomlText.length && tomlText[index] !== '\n') {
-                index++
-            }
-            out += '\n'
-            continue
-        }
-        out += char
+// The product that owns a file path from the map, or null for a file outside
+// products/ (posthog, ee, common, tools) and for the loose files directly under
+// products/ (conftest.py, __init__.py).
+function productOfFile(file) {
+    if (!file.startsWith(PRODUCTS_DIR)) {
+        return null
     }
-    return out
+    const [product, rest] = file.slice(PRODUCTS_DIR.length).split('/', 2)
+    return rest === undefined ? null : product
 }
 
-function parseTachModules(tomlText) {
+// Collapse tach's file map ({ file: [files that import it] }) into
+// product -> [products it imports]. Keys and values are product directory
+// names (underscores); callers normalize to/from Turbo's dashed names. Every
+// product that owns a file in the map is a key, with or without cross-product
+// imports, so a reader can tell "no importers" from "not walked".
+//
+// Files outside products/ (posthog, ee, common) are dropped on both sides
+// deliberately. See tachDependents for why routing through them would be
+// wrong, not just inconvenient. Test files stay in: a test that imports
+// another product's facade depends on that product as much as production
+// code does.
+function productGraphFromTachMap(fileMap) {
     const graph = new Map()
-    // Each `[[modules]]` block holds exactly one `path` and one `depends_on`
-    // before the next block starts — split on the marker and take the first
-    // match of each within a block. With comments stripped, depends_on entries
-    // are plain quoted strings with no nested brackets, so a non-greedy scan to
-    // the first `]` is safe even across multi-line lists or lists split across
-    // shared lines.
-    //
-    // Only double-quoted strings are supported. Other valid TOML (single-quoted
-    // literals, inline tables) would be dropped by the regexes without error,
-    // silently shrinking the cascade — so any entry the regexes can't represent
-    // throws instead, which loadTachModuleGraph turns into "test all products".
-    // A false trip over-tests; a silent drop under-tests, so err on throwing.
-    const blocks = stripTomlComments(tomlText).split('[[modules]]').slice(1)
-    for (const block of blocks) {
-        const pathMatch = block.match(/path\s*=\s*"([^"]+)"/)
-        if (!pathMatch) {
-            if (/^\s*path\s*=/m.test(block)) {
-                throw new Error('unsupported `path` syntax in a tach.toml module block (expected a double-quoted string)')
-            }
-            continue
+    const node = (product) => {
+        if (!graph.has(product)) {
+            graph.set(product, new Set())
         }
-        const dependsMatch = block.match(/depends_on\s*=\s*\[([\s\S]*?)\]/)
-        if (!dependsMatch) {
-            if (/^\s*depends_on\s*=/m.test(block)) {
-                throw new Error(`unsupported \`depends_on\` syntax for ${pathMatch[1]} in tach.toml (expected a list)`)
-            }
-            continue
-        }
-        // Comments are already gone, so anything left beside the quoted entries
-        // is an entry shape these regexes cannot represent.
-        const leftover = dependsMatch[1].replace(/"[^"]*"/g, '')
-        if (/[^\s,]/.test(leftover)) {
-            throw new Error(
-                `unsupported \`depends_on\` entry for ${pathMatch[1]} in tach.toml (expected double-quoted strings): ${leftover.trim().slice(0, 80)}`
-            )
-        }
-        const modulePath = pathMatch[1]
-        if (!modulePath.startsWith(TACH_MODULE_PREFIX)) {continue}
-        const product = modulePath.slice(TACH_MODULE_PREFIX.length)
-        const deps = [...dependsMatch[1].matchAll(/"([^"]+)"/g)]
-            .map((m) => m[1])
-            .filter((d) => d.startsWith(TACH_MODULE_PREFIX))
-            .map((d) => d.slice(TACH_MODULE_PREFIX.length))
-        graph.set(product, deps)
+        return graph.get(product)
     }
-    return graph
+    for (const [imported, importers] of Object.entries(fileMap)) {
+        const importedProduct = productOfFile(imported)
+        if (importedProduct !== null) {
+            node(importedProduct)
+        }
+        for (const importer of importers) {
+            const importerProduct = productOfFile(importer)
+            if (importerProduct === null) {
+                continue
+            }
+            const deps = node(importerProduct)
+            if (importedProduct !== null && importedProduct !== importerProduct) {
+                deps.add(importedProduct)
+            }
+        }
+    }
+    return new Map([...graph].map(([product, deps]) => [product, [...deps].sort()]))
 }
 
 // Reverse transitive closure over the product graph: who (transitively)
 // depends on any of `changedProducts`? Input/output are Turbo-style names
-// (dashes); moduleGraph keys/values are tach-style (underscores) — convert
+// (dashes); moduleGraph keys/values are directory names (underscores) — convert
 // at the boundary in both directions, since a mismatch here doesn't error,
 // it just silently returns nothing (a false negative — exactly the bug this
 // is fixing).
@@ -448,28 +419,82 @@ function tachDependents(changedProducts, moduleGraph, { direct = false } = {}) {
     return [...visited].map(moduleToProduct)
 }
 
-// Returns null when the graph can't be read or parsed. Callers must treat null as
-// "unknown dependents" and widen the matrix — never as "no dependents", which would
-// silently under-test exactly the contract changes this cascade guards.
-function loadTachModuleGraph() {
-    let text
+// Runs tach_map.py in repoRoot and returns the product graph, or null when uv
+// is missing, the run fails, or it prints something that is not the map. Callers
+// must treat null as "unknown dependents" and widen the matrix — never as "no
+// dependents", which would silently under-test exactly the contract changes
+// this cascade guards.
+//
+// tach map exits 0 and drops a file it cannot parse, so a syntax error hides
+// that file's imports. That cannot under-test here: a file broken on master
+// fails ruff and every import of it, and a file the PR broke sits in a product
+// Turbo already selects.
+//
+// The run walks every Python file and takes seconds, so the result is kept per
+// process; a second caller gets the same graph, a failure included.
+const tachModuleGraphByRoot = new Map()
+
+function loadTachModuleGraph(repoRoot = process.cwd()) {
+    if (!tachModuleGraphByRoot.has(repoRoot)) {
+        tachModuleGraphByRoot.set(repoRoot, runTachMap(repoRoot))
+    }
+    return tachModuleGraphByRoot.get(repoRoot)
+}
+
+function runTachMap(repoRoot) {
+    let raw
     try {
-        text = fs.readFileSync(TACH_TOML_FILE, 'utf-8')
+        raw = execFileSync('uv', ['run', '--no-project', TACH_MAP_SCRIPT], { ...TURBO_EXEC_OPTS, cwd: repoRoot })
     } catch (e) {
-        console.error(`::warning::Could not read ${TACH_TOML_FILE} (${e.message}) — falling back to testing all products`)
+        console.error(`::warning::tach map failed (${e.message}) — the dependent cascade widens to every product`)
         return null
     }
     try {
-        return parseTachModules(text)
+        return productGraphFromTachMap(JSON.parse(raw))
     } catch (e) {
-        console.error(`::warning::Could not parse ${TACH_TOML_FILE} (${e.message}) — falling back to testing all products`)
+        console.error(`::warning::Could not parse the tach map (${e.message}) — the dependent cascade widens to every product`)
         return null
     }
 }
 
-// Products that transitively depend on `products` per tach.toml, or null when the
-// graph cannot be read. Callers treat null as "unknown dependents" and widen.
+// Python files under products/ that the diff deleted, or null when the diff
+// cannot be read. Renames count as deletions of the old path. Empty without a
+// base ref: a push run tests everything regardless.
+//
+// The map is read from the head tree, so a deleted file is not a key in it and
+// an importer of that file has no edge left; the importer's suite would be the
+// one that fails on the missing module. Any such file makes the cascade
+// unknown, so callers widen on it as they do on an unreadable map.
+function deletedProductPythonFiles() {
+    const base = process.env.TURBO_SCM_BASE
+    if (!base) {
+        return []
+    }
+    try {
+        return execFileSync(
+            'git',
+            ['diff', '--name-only', '--no-renames', '--diff-filter=D', `${base}...HEAD`, '--', 'products/'],
+            TURBO_EXEC_OPTS
+        )
+            .split('\n')
+            .filter((file) => file.endsWith('.py') && productOfFile(file) !== null)
+    } catch (e) {
+        console.error(`::warning::Could not list deleted files against ${base} (${e.message}) — the dependent cascade widens to every product`)
+        return null
+    }
+}
+
+// Products that transitively depend on `products` per the tach map, or null when
+// the map cannot be read. Callers treat null as "unknown dependents" and widen.
 function tachDependentProducts(products, allProductSet) {
+    const deleted = deletedProductPythonFiles()
+    if (deleted === null) {
+        return null
+    }
+    if (deleted.length > 0) {
+        console.error(`Deleted product files have no importer edges in the tach map: ${JSON.stringify(deleted)} — the dependent cascade widens to every product`)
+        return null
+    }
     const tachGraph = loadTachModuleGraph()
     if (tachGraph === null) {
         return null
@@ -837,7 +862,6 @@ const DJANGO_SEGMENTS = {
         include: [
             'posthog/clickhouse/',
             'posthog/queries/',
-            'products/product_analytics/backend/tests/api/',
             'posthog/api/test/dashboards/test_dashboard.py',
             'ee/clickhouse/',
         ],
@@ -1214,7 +1238,8 @@ module.exports = {
     productEffectiveCost,
     STALENESS_COVERAGE_THRESHOLD,
     STALENESS_FALLBACK_SECONDS_PER_FILE,
-    parseTachModules,
+    productGraphFromTachMap,
+    loadTachModuleGraph,
     tachDependents,
 }
 
@@ -1311,7 +1336,7 @@ if (legacyChanged) {
             } else {
                 if (dependents.length > 0) {
                     console.error(
-                        `Dependent products cascaded in via tach.toml: ${JSON.stringify(dependents)} (transitively depend on ${JSON.stringify(affectedContracts)})`
+                        `Dependent products cascaded in via tach map: ${JSON.stringify(dependents)} (transitively depend on ${JSON.stringify(affectedContracts)})`
                     )
                 }
                 products = [...new Set([...affectedProducts, ...dependents])].sort()

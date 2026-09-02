@@ -337,6 +337,12 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # self-recovering failure it is. The request id in brackets is volatile, so we match the
             # stable phrase.
             "Internal error:",
+            # Snowflake error 250001 (08001): the connector exhausted its internal login retry budget
+            # (default 11 attempts) because an HTTP proxy returned 502 Bad Gateway when tunneling to
+            # the Snowflake login endpoint. A recovered proxy or transient network blip resolves it,
+            # so Temporal-level retries will eventually succeed. The attempt count is volatile, so we
+            # match the stable prefix.
+            "Could not connect to Snowflake backend after",
         }
 
     def reconcile_schema_metadata(

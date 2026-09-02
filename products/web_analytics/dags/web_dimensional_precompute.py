@@ -9,8 +9,8 @@ lazily on every user query, while re-runs are cheap because already-fresh
 windows are skipped.
 
 Rollout is intentionally decoupled from the v2 pre-aggregation pipeline and its
-team selection. The audience defaults to a small built-in rollout list
-(`DEFAULT_ROLLOUT_TEAM_IDS`) on PostHog Cloud, and is fully overridable via the
+team selection. The audience defaults to a small per-region built-in rollout list
+(`DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION`) on PostHog Cloud, and is fully overridable via the
 `WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS` env var (comma-separated team IDs; set it
 to empty to disable the job). Self-hosted instances default to no teams so the
 job never precomputes for unrelated teams that happen to share those IDs. There
@@ -23,19 +23,20 @@ the tables (so the new output can be compared with v2's side by side).
 import os
 from datetime import UTC, datetime, timedelta
 
+from django.conf import settings
+
 import dagster
 import structlog
 from prometheus_client import Counter
 
 from posthog.cloud_utils import is_cloud
-from posthog.dags.common import JobOwners, chunk_ranges
+from posthog.dags.common import JobOwners, chunk_ranges, skip_on_kill_switch
 from posthog.models import Team
 
 from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
     ensure_web_bounces_dimensional_precomputed,
     ensure_web_stats_dimensional_precomputed,
 )
-from products.web_analytics.dags.web_preaggregated import skip_on_kill_switch
 from products.web_analytics.dags.web_preaggregated_utils import check_for_concurrent_runs
 
 logger = structlog.get_logger(__name__)
@@ -55,12 +56,18 @@ PRECOMPUTE_WINDOW_DAYS = int(os.getenv("WEB_DIMENSIONAL_PRECOMPUTE_WINDOW_DAYS",
 # trade more bytes/INSERT for fewer INSERTs on lower-volume teams.
 PRECOMPUTE_CHUNK_DAYS = int(os.getenv("WEB_DIMENSIONAL_PRECOMPUTE_CHUNK_DAYS", "1"))
 
-# Built-in rollout audience used when the env var is unset: PostHog's internal
-# dogfood project plus one high-volume pilot team, for the v2 side-by-side. Applied
-# on PostHog Cloud only (see get_selected_team_ids).
-DEFAULT_ROLLOUT_TEAM_IDS = [2, 55348]
+# Built-in rollout audience used when the env var is unset, keyed by Cloud region.
+# Region-keyed because team IDs are not unique across US and EU — a single flat list
+# would enroll an unrelated same-ID team in the other region. Applied on PostHog
+# Cloud only (see get_selected_team_ids). US holds the dogfood project (2), the
+# high-volume pilot (55348), and the teams currently reading the v2 tables, for the
+# v2 side-by-side.
+DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION: dict[str, list[int]] = {
+    "US": [2, 39058, 47074, 55348],
+    "EU": [1, 1589, 126918],
+}
 
-# Comma-separated team IDs to precompute. Overrides DEFAULT_ROLLOUT_TEAM_IDS;
+# Comma-separated team IDs to precompute. Overrides the per-region default;
 # set to empty to disable the job entirely.
 SELECTED_TEAM_IDS_ENV_VAR = "WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS"
 
@@ -69,14 +76,17 @@ def get_selected_team_ids() -> list[int]:
     """Resolve the team allowlist.
 
     The env var wins if set (even to empty): a comma-separated list, blank/invalid
-    entries skipped. If unset, fall back to DEFAULT_ROLLOUT_TEAM_IDS — but only on
-    PostHog Cloud; self-hosted defaults to none so the job never runs for unrelated
-    teams that happen to share those IDs.
+    entries skipped. If unset, fall back to the current region's default — but only
+    on PostHog Cloud; self-hosted defaults to none so the job never runs for
+    unrelated teams that happen to share those IDs.
     """
     raw = os.getenv(SELECTED_TEAM_IDS_ENV_VAR)
-    if raw is None:
-        return list(DEFAULT_ROLLOUT_TEAM_IDS) if is_cloud() else []
-    return [int(part.strip()) for part in raw.split(",") if part.strip().isdigit()]
+    if raw is not None:
+        return [int(part.strip()) for part in raw.split(",") if part.strip().isdigit()]
+    if not is_cloud():
+        return []
+    region = (settings.CLOUD_DEPLOYMENT or "").upper()
+    return list(DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION.get(region, []))
 
 
 WEB_DIMENSIONAL_PRECOMPUTE_TEAM_DONE = Counter(
