@@ -550,6 +550,11 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "last_error",
         "consecutive_failures",
     ],
+    "LogsAlertConfiguration": [
+        # Reverse FK (LogsAlertSeenPattern): reading it goes through that model's own
+        # fail-closed TeamScopedManager with no ambient team scope at signal-handling time.
+        "seen_patterns",
+    ],
     "OrganizationDomain": [
         "organization",
         "scim_provisioned_users",
