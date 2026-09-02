@@ -236,8 +236,17 @@ setup_worktree_environment() {
     # Setup Flox environment for this worktree
     cd "${worktree_path}"
     
-    # Only untracked files need copying. .envrc and .flox/env/* are tracked, so
-    # `git worktree add` already wrote them.
+    # Overwrite the checked-out Flox environment with the main clone's copy.
+    # These files are tracked, so `git worktree add` already wrote the target
+    # branch's versions -- and that is the point: `flox activate --trust` below
+    # runs on-activate.sh as a bash hook, after this function has copied the
+    # developer's .env files in. For `phw pr` the branch is someone else's, so
+    # taking its hook would execute an untrusted contributor's shell with those
+    # secrets present. Copy the trusted versions over it.
+    mkdir -p "${worktree_path}/.flox/env"
+    copy_config_file "${main_repo}/.flox/env/manifest.toml" "${worktree_path}/.flox/env/"
+    [[ -f "${main_repo}/.flox/env/on-activate.sh" ]] && \
+        copy_config_file "${main_repo}/.flox/env/on-activate.sh" "${worktree_path}/.flox/env/"
 
     # Copy .vscode/settings.json if it exists
     if [[ -f "${main_repo}/.vscode/settings.json" ]]; then
