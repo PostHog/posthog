@@ -6,6 +6,10 @@ export const CyclotronInputSchema = z.object({
     value: z.any(),
     templating: z.enum(['hog', 'liquid']).optional(),
     secret: z.boolean().optional(),
+    /** For a `dictionary` input: which of its own entries keep their values in the encrypted
+     * store. The names are not credentials, so they stay here in the clear and survive read-back.
+     * See posthog/cdp/secret_entries.py. */
+    secret_keys: z.array(z.string()).optional(),
     bytecode: z.any().optional(),
     order: z.number().optional(),
 })
@@ -48,6 +52,7 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
     default: z.any().optional(),
     secret: z.boolean().optional(),
     hidden: z.boolean().optional(),
+    secret_entries: z.boolean().optional(),
     templating: z.boolean().optional(),
     description: z.string().optional(),
     integration: z.string().optional(),

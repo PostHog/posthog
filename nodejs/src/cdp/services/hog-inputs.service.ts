@@ -9,6 +9,7 @@ import { EncryptedFields } from '../utils/encryption-utils'
 import { execHog } from '../utils/hog-exec'
 import { LiquidRenderer } from '../utils/liquid'
 import { getDevicePushSubscriptionToken } from '../utils/push-subscription-utils'
+import { mergeInputsForVm } from '../utils/secret-entries'
 import { IntegrationManagerService } from './managers/integration-manager.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
@@ -32,9 +33,10 @@ export class HogInputsService {
             inputs: {},
         }
         const inputs: HogFunctionType['inputs'] = {
-            // Include the inputs from the hog function
-            ...hogFunction.inputs,
-            ...hogFunction.encrypted_inputs,
+            // Include the inputs from the hog function, with whole-input secrets replacing their
+            // public placeholder. A per-entry secret dictionary keeps its public half, so its
+            // credentials never reach Hog - see mergeInputsForVm.
+            ...mergeInputsForVm(hogFunction.inputs, hogFunction.encrypted_inputs),
             // Plus any additional inputs
             ...additionalInputs,
             // and decode any integration inputs (and push subscription inputs when newGlobals provided)

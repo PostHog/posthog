@@ -1262,6 +1262,83 @@ class TestTaskInputTypeValidation(SimpleTestCase):
                 validate_inputs(schema, inputs)
 
 
+class TestPerEntrySecretInputs(SimpleTestCase):
+    # A headers dictionary can keep individual entries encrypted (posthog.cdp.secret_entries).
+    # Every case here is a way the stored credential could be lost on an unrelated save, which is
+    # the failure this protocol exists to prevent.
+    SCHEMA = [
+        {"key": "headers", "type": "dictionary", "label": "Headers", "secret_entries": True},
+        {"key": "plain", "type": "dictionary", "label": "Plain"},
+        {"key": "text", "type": "string", "label": "Text", "secret_entries": True},
+    ]
+
+    def _validate(self, inputs, stored=None):
+        return validate_inputs(
+            self.SCHEMA,
+            inputs,
+            context_extra={"encrypted_inputs": {"headers": {"value": stored}} if stored else {}},
+        )
+
+    @parameterized.expand(
+        [
+            ("dictionary without the flag", "plain"),
+            ("non-dictionary with the flag", "text"),
+        ]
+    )
+    def test_rejects_secret_keys_on_an_input_that_does_not_support_them(self, _name, key):
+        with pytest.raises(ValidationError):
+            validate_inputs(self.SCHEMA, {key: {"value": {"a": "b"}, "secret_keys": ["a"]}})
+
+    @parameterized.expand(
+        [
+            # Saving an unrelated header must not wipe the credential.
+            (
+                "untouched entry recovered",
+                {"value": {"Content-Type": "application/json"}, "secret_keys": ["x-api-token"]},
+                {"x-api-token": "tok_stored"},
+                {"Content-Type": "application/json", "x-api-token": "tok_stored"},
+            ),
+            (
+                "rotated entry wins",
+                {"value": {"x-api-token": "tok_new"}, "secret_keys": ["x-api-token"]},
+                {"x-api-token": "tok_stored"},
+                {"x-api-token": "tok_new"},
+            ),
+            # The reason per-entry storage exists: a whole-input secret cannot rotate one value
+            # without overwriting the rest of the dictionary.
+            (
+                "rotating one entry keeps the other",
+                {"value": {"x-api-token": "tok_new"}, "secret_keys": ["x-api-token", "x-other"]},
+                {"x-api-token": "tok_stored", "x-other": "other_stored"},
+                {"x-api-token": "tok_new", "x-other": "other_stored"},
+            ),
+            # A client that round-trips the input without understanding secret_keys drops the
+            # field. Absent has to mean unchanged, or that client destroys the credentials.
+            (
+                "absent secret_keys keeps the stored entries",
+                {"value": {"Content-Type": "application/json"}},
+                {"x-api-token": "tok_stored"},
+                {"Content-Type": "application/json", "x-api-token": "tok_stored"},
+            ),
+            # The explicit escape hatch, so unlocking every row stays possible.
+            (
+                "an empty list clears them",
+                {"value": {"Content-Type": "application/json"}, "secret_keys": []},
+                {"x-api-token": "tok_stored"},
+                {"Content-Type": "application/json"},
+            ),
+        ]
+    )
+    def test_secret_entry_recovery(self, _name, incoming, stored, expected_value):
+        assert self._validate({"headers": incoming}, stored)["headers"]["value"] == expected_value
+
+    def test_rejects_a_declared_entry_with_nothing_stored(self):
+        # Saving would otherwise produce a header the destination sends empty, which the receiver
+        # reads as an unauthenticated caller.
+        with pytest.raises(ValidationError):
+            self._validate({"headers": {"value": {}, "secret_keys": ["x-api-token"]}})
+
+
 class TestReservedFunctionsUsed(SimpleTestCase):
     # The worker's async function registry is global, so the save-time check is the only thing
     # that stops user-authored hog from reaching a handler only PostHog's machinery should call.

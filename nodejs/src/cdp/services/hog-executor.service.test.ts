@@ -1671,10 +1671,16 @@ describe('Hog Executor', () => {
         })
 
         describe('secret_headers_input', () => {
+            // Mirrors what Django's split writes: the entry names stay on the public input, the
+            // values go to the encrypted column under the same input key.
             const seedSecretHeadersInput = (invocation: CyclotronJobInvocationHogFunction) => {
+                invocation.hogFunction.inputs = {
+                    ...(invocation.hogFunction.inputs ?? {}),
+                    headers: { value: { 'Content-Type': 'application/json' }, secret_keys: ['x-api-token'] },
+                } as any
                 invocation.hogFunction.encrypted_inputs = {
                     ...(invocation.hogFunction.encrypted_inputs ?? {}),
-                    secret_headers: { value: { 'x-api-token': 'tok_HqZ2NmVrTt' } },
+                    headers: { value: { 'x-api-token': 'tok_HqZ2NmVrTt' } },
                 } as any
             }
 
@@ -1693,7 +1699,7 @@ describe('Hog Executor', () => {
                     method: 'POST',
                     body: '{}',
                     headers: { 'Content-Type': 'application/json' },
-                    secret_headers_input: 'secret_headers',
+                    secret_headers_input: 'headers',
                 })
                 seedSecretHeadersInput(invocation)
 
@@ -1716,7 +1722,7 @@ describe('Hog Executor', () => {
                     method: 'POST',
                     body: '{}',
                     headers: { 'Content-Type': 'application/json' },
-                    secret_headers_input: 'secret_headers',
+                    secret_headers_input: 'headers',
                 })
                 seedSecretHeadersInput(invocation)
 
@@ -1738,16 +1744,20 @@ describe('Hog Executor', () => {
                     method: 'POST',
                     body: '{}',
                     headers: { 'Content-Type': 'application/json' },
-                    secret_headers_input: 'secret_headers',
+                    secret_headers_input: 'headers',
                 })
-                // Intentionally do NOT seed inputs.
+                // Declared secret, but nothing stored for it.
+                invocation.hogFunction.inputs = {
+                    ...(invocation.hogFunction.inputs ?? {}),
+                    headers: { value: {}, secret_keys: ['x-api-token'] },
+                } as any
 
                 const result = await executor.executeFetch(invocation)
 
                 expect(mockRequest).not.toHaveBeenCalled()
                 expect(result.error).toBeInstanceOf(Error)
                 expect(result.error.message).toContain('Secret headers failed to resolve')
-                expect(result.error.message).toContain('secret_headers')
+                expect(result.error.message).toContain('x-api-token')
             })
         })
 

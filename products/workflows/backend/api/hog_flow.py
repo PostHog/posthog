@@ -73,6 +73,13 @@ from posthog.api.utils import log_activity_from_viewset
 from posthog.auth import InternalAPIAuthentication
 from posthog.cdp.filters import compile_filters_expr
 from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
+from posthog.cdp.secret_entries import (
+    SECRET_KEYS_FIELD,
+    has_secret_entries,
+    recover_secret_entries,
+    secret_entry_names,
+    split_secret_entries,
+)
 from posthog.cdp.validation import (
     DATA_WAREHOUSE_SOURCES,
     HogFunctionFiltersSerializer,
@@ -352,12 +359,22 @@ def partition_flow_secrets(
     for original in actions:
         action = deepcopy(original)
         secret_keys = _secret_keys_for_action(action, template_cache)
-        if secret_keys:
-            inputs = (action.get("config") or {}).get("inputs")
-            if isinstance(inputs, dict):
-                moved = {key: inputs.pop(key) for key in list(inputs) if key in secret_keys}
-                if moved:
-                    encrypted[action["id"]] = moved
+        inputs = (action.get("config") or {}).get("inputs")
+        if isinstance(inputs, dict):
+            moved: dict[str, Any] = {}
+            for key in list(inputs):
+                if key in secret_keys:
+                    moved[key] = inputs.pop(key)
+                    continue
+                # A dictionary input can keep only some of its own entries encrypted; the public
+                # half (names included) stays in the action. See posthog.cdp.secret_entries.
+                if has_secret_entries(inputs.get(key)):
+                    public, secret = split_secret_entries(inputs[key])
+                    inputs[key] = public
+                    if secret.get("value"):
+                        moved[key] = secret
+            if moved:
+                encrypted[action["id"]] = moved
         stripped.append(action)
     return stripped, encrypted
 
@@ -403,6 +420,21 @@ def recover_or_drop_masked_inputs(inputs: Any, secret_keys: set[str], existing: 
                 inputs[key] = stored
             else:
                 inputs.pop(key, None)
+
+    # Per-entry secrets never arrive as a marker: the entry is simply absent from the dictionary,
+    # so without this a lenient save would store the input with that entry gone for good. A client
+    # that dropped `secret_keys` altogether is treated the same way, with the stored names restored
+    # from what is in the encrypted map.
+    for key, value in list(inputs.items()):
+        if key in secret_keys or not isinstance(value, dict):
+            continue
+        stored = existing.get(key) if isinstance(existing.get(key), dict) else None
+        if not secret_entry_names(value):
+            stored_names = list(((stored or {}).get("value") or {}).keys())
+            if not stored_names:
+                continue
+            value = {**value, SECRET_KEYS_FIELD: stored_names}
+        inputs[key] = recover_secret_entries(value, stored)
 
 
 def mask_secret_action_inputs(

@@ -7341,6 +7341,9 @@ export type CyclotronJobInputSchemaType = {
     default?: any
     secret?: boolean
     hidden?: boolean
+    /** For a `dictionary` input: allow individual entries to keep their values encrypted, shown in
+     * the editor as a per-row lock. See posthog/cdp/secret_entries.py. */
+    secret_entries?: boolean
     templating?: boolean
     description?: string
     integration?: string

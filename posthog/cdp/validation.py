@@ -17,6 +17,12 @@ from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
+from posthog.cdp.secret_entries import (
+    SECRET_KEYS_FIELD,
+    missing_secret_entries,
+    recover_secret_entries,
+    secret_entry_names,
+)
 from posthog.models.integration import Integration
 
 from products.cdp.backend.models.hog_functions.hog_function import (
@@ -554,6 +560,9 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     default = serializers.JSONField(required=False)
     secret = serializers.BooleanField(default=False)
     hidden = serializers.BooleanField(default=False)
+    # For `dictionary` inputs: individual entries may keep their values encrypted. See
+    # posthog.cdp.secret_entries.
+    secret_entries = serializers.BooleanField(default=False)
     description = serializers.CharField(required=False)
     integration = serializers.CharField(required=False)
     integration_key = serializers.CharField(required=False)
@@ -586,6 +595,9 @@ class InputsItemSerializer(serializers.Serializer):
     bytecode = serializers.ListField(required=False, read_only=True)
     order = serializers.IntegerField(required=False, read_only=True)
     transpiled = serializers.JSONField(required=False, read_only=True)
+    # Names of this dictionary's own entries whose values are credentials; see
+    # posthog.cdp.secret_entries. Only meaningful on a `dictionary` input.
+    secret_keys = serializers.ListField(child=serializers.CharField(), required=False)
 
     def to_representation(self, value):
         # We want to override the way this gets rendered as the underlying serializer is a DictField which does weird things
@@ -597,6 +609,11 @@ class InputsItemSerializer(serializers.Serializer):
         is_dwh_source = self.context.get("is_dwh_source", False)
         value = attrs.get("value")
         item_type = schema["type"]
+
+        if attrs.get("secret_keys") and not (item_type == "dictionary" and schema.get("secret_entries")):
+            raise serializers.ValidationError(
+                {"input": "This input does not support marking individual entries secret."}
+            )
 
         if schema.get("required") and (value is None or value == ""):
             raise serializers.ValidationError({"input": f"This field is required."})
@@ -832,6 +849,31 @@ class InputsSerializer(serializers.DictField):
                         # webhook auth in production - fail so the caller re-enters the value.
                         errors[key] = "No value is saved for this secret input. Enter the value again."
                         continue
+
+            # A client that round-trips this input without understanding `secret_keys` would drop
+            # the field, and the split would then read the input as having no secret entries and
+            # discard the stored credentials. Absent means unchanged, so the stored names are
+            # restored here; sending an explicit [] is how a caller says "none any more".
+            if schema.get("secret_entries") and isinstance(value, dict) and SECRET_KEYS_FIELD not in value:
+                stored_entries = (existing_secret_inputs or {}).get(key)
+                stored_names = list(((stored_entries or {}).get("value") or {}).keys())
+                if stored_names:
+                    value = {**value, SECRET_KEYS_FIELD: stored_names}
+
+            # A per-entry secret dictionary (see posthog.cdp.secret_entries) arrives with its
+            # untouched entries named in `secret_keys` but absent from `value`. Restore them before
+            # validation so bytecode is compiled over the whole dictionary, and so an input whose
+            # every entry is secret is not mistaken for an empty one and dropped below.
+            if secret_entry_names(value):
+                stored_entries = (existing_secret_inputs or {}).get(key)
+                stored_entries = stored_entries if isinstance(stored_entries, dict) else None
+                unresolved = missing_secret_entries(value, stored_entries)
+                if unresolved:
+                    errors[key] = (
+                        f"No value is saved for these secret entries: {', '.join(unresolved)}. Enter them again."
+                    )
+                    continue
+                value = recover_secret_entries(value, stored_entries)
 
             if value == {} and schema.get("required") and schema.get("default") is not None:
                 # The destination editor pre-fills defaults from the template schema, but callers that

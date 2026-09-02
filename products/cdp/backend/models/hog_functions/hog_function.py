@@ -1,7 +1,7 @@
 import enum
 from collections.abc import Iterable
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.conf import settings
 from django.db import models
@@ -12,6 +12,7 @@ from django.dispatch.dispatcher import receiver
 import structlog
 from prometheus_client import Counter
 
+from posthog.cdp.secret_entries import has_secret_entries, split_secret_entries
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
@@ -258,15 +259,23 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
         raw_inputs = self.inputs or {}
         raw_encrypted_inputs = self.encrypted_inputs or {}
 
-        final_inputs = {}
-        final_encrypted_inputs = {}
+        final_inputs: dict[str, Any] = {}
+        final_encrypted_inputs: dict[str, Any] = {}
 
         for schema in self.inputs_schema or []:
             value = raw_inputs.get(schema["key"])
             encrypted_value = raw_encrypted_inputs.get(schema["key"])
 
             if not schema.get("secret"):
-                final_inputs[schema["key"]] = value
+                # A dictionary input can keep some of its own entries encrypted instead of the
+                # whole input; the names stay in the clear so a read-back can still render those
+                # rows. See posthog.cdp.secret_entries.
+                if has_secret_entries(value):
+                    public, secret = split_secret_entries(value)
+                    final_inputs[schema["key"]] = public
+                    final_encrypted_inputs[schema["key"]] = secret
+                else:
+                    final_inputs[schema["key"]] = value
             else:
                 # We either store the incoming value if given or the encrypted value
                 final_encrypted_inputs[schema["key"]] = value or encrypted_value

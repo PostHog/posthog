@@ -36,6 +36,7 @@ describe('webhook template', () => {
                 "Content-Type": "application/json",
               },
               "method": "POST",
+              "secret_headers_input": "headers",
               "type": "fetch",
               "url": "https://example.com?v=1.0.0",
             }
@@ -68,18 +69,18 @@ describe('webhook template', () => {
         expect(JSON.stringify(params)).not.toContain('MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw')
     })
 
-    it('passes a secret headers reference, not the headers, to the fetch queue', async () => {
+    // The template names the input rather than forwarding its secret entries: the fetch queue
+    // payload is stored as plaintext, so a header value placed on it there would be readable.
+    it('names the headers input on the fetch queue so the executor merges its secret entries', async () => {
         const response = await tester.invoke({
             url: 'https://example.com',
             headers: { 'Content-Type': 'application/json' },
-            secret_headers: { 'x-api-token': 'tok_HqZ2NmVrTt' },
         })
 
         expect(response.error).toBeUndefined()
         const params = response.invocation.queueParameters as any
-        expect(params.secret_headers_input).toBe('secret_headers')
+        expect(params.secret_headers_input).toBe('headers')
         expect(params.headers).toEqual({ 'Content-Type': 'application/json' })
-        expect(JSON.stringify(params)).not.toContain('tok_HqZ2NmVrTt')
     })
 
     it('should log details of given', async () => {
@@ -91,7 +92,7 @@ describe('webhook template', () => {
         expect(response.error).toBeUndefined()
         expect(response.logs.filter((l) => l.level === 'info').map((l) => l.message)).toMatchInlineSnapshot(`
             [
-              "Request, https://example.com?v=, {"headers":{"Content-Type":"application/json"},"body":{"event":{"uuid":"event-id","event":"event-name","distinct_id":"distinct-id","properties":{"$current_url":"https://example.com"},"timestamp":"2024-01-01T00:00:00Z","elements_chain":"","url":"https://us.posthog.com/projects/1/events/1234"},"person":{"id":"person-id","name":"person-name","properties":{"email":"example@posthog.com"},"url":"https://us.posthog.com/projects/1/persons/1234"}},"method":"POST"}",
+              "Request, https://example.com?v=, {"headers":{"Content-Type":"application/json"},"body":{"event":{"uuid":"event-id","event":"event-name","distinct_id":"distinct-id","properties":{"$current_url":"https://example.com"},"timestamp":"2024-01-01T00:00:00Z","elements_chain":"","url":"https://us.posthog.com/projects/1/events/1234"},"person":{"id":"person-id","name":"person-name","properties":{"email":"example@posthog.com"},"url":"https://us.posthog.com/projects/1/persons/1234"}},"method":"POST","secret_headers_input":"headers"}",
             ]
         `)
 

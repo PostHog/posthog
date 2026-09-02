@@ -23,11 +23,10 @@ if (not empty(inputs.signing_secret)) {
   }
 }
 
-// The input key, not the headers: the fetch queue payload is stored as plaintext,
-// so the executor resolves and merges these immediately before each attempt.
-if (not empty(inputs.secret_headers)) {
-  payload['secret_headers_input'] := 'secret_headers'
-}
+// Names the input whose secret entries are headers, rather than the headers themselves: the
+// fetch queue payload is stored as plaintext, so the executor resolves and merges them
+// immediately before each attempt. inputs.headers here holds only the public entries.
+payload['secret_headers_input'] := 'headers'
 
 if (inputs.debug) {
   print('Request', inputs.url, payload)
@@ -99,16 +98,9 @@ if (inputs.debug) {
             secret: false,
             required: false,
             default: { 'Content-Type': 'application/json' },
-            description: 'HTTP headers to send in the request.',
-        },
-        {
-            key: 'secret_headers',
-            type: 'dictionary',
-            label: 'Secret headers',
-            secret: true,
-            required: false,
+            secret_entries: true,
             description:
-                'HTTP headers whose values are credentials, such as an API token. These are encrypted, hidden after saving, and kept out of logs. They override any header of the same name above.',
+                'HTTP headers to send in the request. Lock a header to store its value encrypted, for an API token or any other credential.',
         },
         {
             key: 'signing_secret',
