@@ -6,23 +6,15 @@
 // instead.
 // Everything left below is still rendered somewhere, and we'll slowly remove all of
 // them as the remaining usages are migrated over. Tracked by:
-//   - https://github.com/PostHog/posthog.com/issues/17972
-//   - https://github.com/PostHog/posthog.com/issues/17973
-//   - https://github.com/PostHog/posthog.com/issues/17974
-//   - https://github.com/PostHog/posthog.com/issues/17976
-//   - https://github.com/PostHog/posthog.com/issues/17977
-//   - https://github.com/PostHog/posthog.com/issues/17980
-//   - https://github.com/PostHog/posthog.com/issues/17982
-//   - https://github.com/PostHog/posthog.com/issues/17983
+//   - https://github.com/PostHog/marketing/issues/154
+//   - https://github.com/PostHog/marketing/issues/145
+//   - https://github.com/PostHog/marketing/issues/146
+//   - https://github.com/PostHog/marketing/issues/148
 import React, { ImgHTMLAttributes } from 'react'
 
-import bigLeaguesHog from 'public/hedgehog/big-leagues.png'
-import burningMoneyHog from 'public/hedgehog/burning-money-hog.png'
 import climberHog1 from 'public/hedgehog/climber-hog-01.png'
 import climberHog2 from 'public/hedgehog/climber-hog-02.png'
-import explorerHog from 'public/hedgehog/explorer-hog.png'
 import hogWelder from 'public/hedgehog/hog-welder.png'
-import mailHog from 'public/hedgehog/mail-hog.png'
 import sleepingHog from 'public/hedgehog/sleeping-hog.png'
 import warningHog from 'public/hedgehog/warning-hog.png'
 import wavingHog from 'public/hedgehog/waving-hog.png'
@@ -47,16 +39,8 @@ export const HogWelder = (props: HedgehogProps): JSX.Element => {
     return <RectangularHedgehog src={hogWelder} {...props} />
 }
 /** @deprecated Migrating to `@posthog/brand` (see file header) — don't add new usages. */
-export const ExplorerHog = (props: HedgehogProps): JSX.Element => {
-    return <SquaredHedgehog src={explorerHog} {...props} />
-}
-/** @deprecated Migrating to `@posthog/brand` (see file header) — don't add new usages. */
 export const SleepingHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={sleepingHog} {...props} />
-}
-/** @deprecated Migrating to `@posthog/brand` (see file header) — don't add new usages. */
-export const MailHog = (props: HedgehogProps): JSX.Element => {
-    return <SquaredHedgehog src={mailHog} {...props} />
 }
 /** @deprecated Migrating to `@posthog/brand` (see file header) — don't add new usages. */
 export const WarningHog = (props: HedgehogProps): JSX.Element => {
@@ -67,18 +51,10 @@ export const WavingHog = (props: HedgehogProps): JSX.Element => {
     return <SquaredHedgehog src={wavingHog} {...props} />
 }
 /** @deprecated Migrating to `@posthog/brand` (see file header) — don't add new usages. */
-export const BurningMoneyHog = (props: HedgehogProps): JSX.Element => {
-    return <SquaredHedgehog src={burningMoneyHog} {...props} />
-}
-/** @deprecated Migrating to `@posthog/brand` (see file header) — don't add new usages. */
 export const ClimberHog1 = (props: HedgehogProps): JSX.Element => {
     return <RectangularHedgehog src={climberHog1} width={378} height={417} {...props} />
 }
 /** @deprecated Migrating to `@posthog/brand` (see file header) — don't add new usages. */
 export const ClimberHog2 = (props: HedgehogProps): JSX.Element => {
     return <RectangularHedgehog src={climberHog2} width={518} height={1586} {...props} />
-}
-/** @deprecated Migrating to `@posthog/brand` (see file header) — don't add new usages. */
-export const BigLeaguesHog = (props: HedgehogProps): JSX.Element => {
-    return <SquaredHedgehog src={bigLeaguesHog} {...props} />
 }

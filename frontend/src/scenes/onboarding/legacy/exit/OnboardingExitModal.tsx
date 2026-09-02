@@ -1,14 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
+import * as mailboxPng from '@posthog/brand/hoggies/png/mailbox'
 import { IconArrowRight } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
-import { MailHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { userLogic } from 'scenes/userLogic'
 
 import { onboardingExitLogic } from './onboardingExitLogic'
+
+const HedgehogMailbox = pngHoggie(mailboxPng)
 
 // Keep in sync with `OrganizationInviteDelegateSerializer.message.max_length` on the backend
 // (posthog/api/organization_invite.py). Client-side limit mirrors the server cap so users
@@ -163,7 +166,7 @@ export function OnboardingExitModal(): JSX.Element {
                     <p className="m-0 text-xs text-muted uppercase tracking-wide font-semibold">Preview</p>
                     <div className="rounded-lg border border-primary bg-surface-primary overflow-hidden">
                         <div className="flex items-center gap-2 px-3 py-2 border-b border-primary bg-surface-secondary">
-                            <MailHog className="w-8 h-6 object-contain shrink-0" />
+                            <HedgehogMailbox className="w-8 h-6 object-contain shrink-0" />
                             <span className="text-xs font-semibold">PostHog invitation</span>
                         </div>
                         <div className="p-3 flex flex-col gap-2">
