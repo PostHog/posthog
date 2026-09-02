@@ -54,7 +54,12 @@ export function CustomerTasksTable({
             sorter: true,
             render: (_, task) => (
                 <div className="flex min-w-0 flex-col gap-1 py-1">
-                    <Link className="font-semibold" onClick={() => openEditModal(task)} data-attr="customer-task-name">
+                    <Link
+                        subtle
+                        className="font-semibold"
+                        onClick={() => openEditModal(task)}
+                        data-attr="customer-task-name"
+                    >
                         {task.name}
                     </Link>
                     {task.description?.trim() && (

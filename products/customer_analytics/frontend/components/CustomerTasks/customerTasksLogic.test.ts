@@ -132,6 +132,43 @@ describe('customerTasksLogic', () => {
         expect(JSON.stringify(localStorage)).not.toContain('completed')
     })
 
+    test('keeps a task visible when setting a due date without a due filter', async () => {
+        const originalTask = task()
+        const updatedTask = { ...originalTask, due_at: '2026-09-03T12:00:00Z' }
+        mockList.mockResolvedValueOnce({ count: 1, next: null, previous: null, results: [originalTask] })
+        mockUpdate.mockResolvedValueOnce(updatedTask)
+        logic = customerTasksLogic({ context: 'account', accountId: 'account-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        mockList.mockClear()
+
+        logic.actions.updateTask(originalTask.id, { due_at: updatedTask.due_at })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockList).not.toHaveBeenCalled()
+        expect(logic.values.tasks).toEqual([updatedTask])
+    })
+
+    test('reloads after setting a due date when an explicit due filter may stop matching', async () => {
+        const originalTask = task()
+        const updatedTask = { ...originalTask, due_at: '2026-09-03T12:00:00Z' }
+        mockList.mockResolvedValue({ count: 1, next: null, previous: null, results: [originalTask] })
+        mockUpdate.mockResolvedValueOnce(updatedTask)
+        logic = customerTasksLogic({ context: 'inbox', canViewAll: true })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setFilters({ due: 'no_due_date' })
+        await expectLogic(logic).toFinishAllListeners()
+        mockList.mockClear()
+        mockList.mockResolvedValueOnce({ count: 0, next: null, previous: null, results: [] })
+
+        logic.actions.updateTask(originalTask.id, { due_at: updatedTask.due_at })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockList).toHaveBeenCalledTimes(1)
+        expect(logic.values.tasks).toEqual([])
+    })
+
     test('does not submit a no-op or a mutation for a task the user cannot edit', async () => {
         mockList.mockResolvedValueOnce({ count: 1, next: null, previous: null, results: [task()] })
         logic = customerTasksLogic({ context: 'account', accountId: 'account-1' })

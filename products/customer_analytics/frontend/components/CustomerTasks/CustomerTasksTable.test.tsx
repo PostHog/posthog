@@ -73,7 +73,7 @@ describe('CustomerTasksTable', () => {
         expect(tableHeaders(container)[0].textContent).toContain('Task')
         expect(tableHeaders(container).at(-1)).not.toHaveClass('LemonTable__header--actionable')
         const taskName = screen.getByText('Follow up')
-        expect(taskName).toHaveClass('Link', 'font-semibold')
+        expect(taskName).toHaveClass('Link', 'Link--subtle', 'font-semibold')
         expect(taskName).not.toHaveClass('LemonButton')
         const descriptionPreview = container.querySelector('tbody .line-clamp-2')
         expect(descriptionPreview).toHaveTextContent('First line Second line Third line')

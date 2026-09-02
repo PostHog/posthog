@@ -390,10 +390,19 @@ export const customerTasksLogic: LogicWrapper<customerTasksLogicType> = kea<cust
             }
             actions.mutationStarted(taskId)
             try {
-                await customerTasksPartialUpdate(String(values.currentTeamId), taskId, patch)
+                const updatedTask = await customerTasksPartialUpdate(String(values.currentTeamId), taskId, patch)
                 actions.mutationFinished(taskId)
                 actions.closeModal()
-                actions.loadTaskPage()
+                const updatesOnlyDueAt = Object.keys(patch).length === 1 && 'due_at' in patch
+                const dueFilterStillMatches = props.context === 'account' || values.filters.due === 'any'
+                if (updatesOnlyDueAt && dueFilterStillMatches && values.taskPage) {
+                    actions.loadTaskPageSuccess({
+                        ...values.taskPage,
+                        results: values.taskPage.results.map((task) => (task.id === taskId ? updatedTask : task)),
+                    })
+                } else {
+                    actions.loadTaskPage()
+                }
             } catch {
                 actions.mutationFinished(taskId)
                 lemonToast.error('Could not save the task. Try again.')
