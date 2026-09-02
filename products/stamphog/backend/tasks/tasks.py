@@ -933,30 +933,35 @@ def _disable_installation_repos(
     """
     if repository_names is not None and not repository_names:
         return
-    # Writer pin: this lookup gates the disable + supersede side effects; a lagged reader missing a
-    # just-restamped row would leave the removed repo's config live and its runs posting. The full
-    # rows, not just the ids: they are the before-state the activity log needs.
-    configs = (
-        StamphogRepoConfig.objects.for_team(team_id)
-        .using(router.db_for_write(StamphogRepoConfig))
-        .filter(provider="github", installation_id=installation_id)
-    )
-    if repository_names is not None:
-        configs = configs.filter(repository__in=repository_names)
-    before_rows = list(configs.values("id", "repository", *DISABLED_FIELDS))
-    config_ids = [row["id"] for row in before_rows]
-    # updated_at explicitly: auto_now doesn't fire on queryset update().
-    disabled = (
-        StamphogRepoConfig.objects.for_team(team_id)
-        .filter(id__in=config_ids)
-        .update(enabled=False, digest_enabled=False, updated_at=timezone.now())
-    )
-    # Supersede first: an in-flight run must stop before anything that can fail, or a retry
-    # finds it terminal and the approval it posted meanwhile stands.
-    _supersede_runs_for_configs(team_id, config_ids)
-    log_repo_configs_disabled_by_webhook(
-        team_id, before_rows, delivery_id=delivery_id, action=action, installation_id=installation_id
-    )
+    write_db = router.db_for_write(StamphogRepoConfig)
+    # One transaction over the snapshot, the disable and the supersede, with the rows locked: a
+    # concurrent API write between the read and the update would otherwise be logged as this
+    # webhook's change, or lost. Writer pin: a lagged reader missing a just-restamped row would
+    # leave the removed repo's config live and its runs posting. The full rows, not just the ids:
+    # they are the before-state the activity log needs.
+    with transaction.atomic(using=write_db):
+        configs = (
+            StamphogRepoConfig.objects.for_team(team_id)
+            .using(write_db)
+            .select_for_update()
+            .filter(provider="github", installation_id=installation_id)
+        )
+        if repository_names is not None:
+            configs = configs.filter(repository__in=repository_names)
+        before_rows = list(configs.values("id", "repository", *DISABLED_FIELDS))
+        config_ids = [row["id"] for row in before_rows]
+        # updated_at explicitly: auto_now doesn't fire on queryset update().
+        disabled = (
+            StamphogRepoConfig.objects.for_team(team_id)
+            .filter(id__in=config_ids)
+            .update(enabled=False, digest_enabled=False, updated_at=timezone.now())
+        )
+        # Supersede first: an in-flight run must stop before anything that can fail, or a retry
+        # finds it terminal and the approval it posted meanwhile stands.
+        _supersede_runs_for_configs(team_id, config_ids)
+        log_repo_configs_disabled_by_webhook(
+            team_id, before_rows, delivery_id=delivery_id, action=action, installation_id=installation_id
+        )
     event = (
         "stamphog_installation_repos_removed" if repository_names is not None else "stamphog_installation_uninstalled"
     )

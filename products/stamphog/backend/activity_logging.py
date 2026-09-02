@@ -6,11 +6,12 @@ written from web requests, webhook Celery tasks, and management commands alike. 
 connection's commit, and it must be dropped when that connection rolls back.
 """
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.conf import settings
-from django.db import router
+from django.db import router, transaction
 
 import structlog
 
@@ -46,6 +47,37 @@ def _organization_id_for_team(team_id: int) -> UUID | None:
     return Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
 
 
+def _log_after_product_commit(write_row: Callable[[], None], *, write_db: str, **log_context: Any) -> None:
+    """Run an audit write once the stamphog database commits, and never fail the caller.
+
+    A caller wraps its product write and the work that must follow it (superseding in-flight runs)
+    in one transaction. Keep the Team lookup and the insert out of that transaction: they run on
+    the main database, and a stall there would hold the product row's lock and widen the window in
+    which a run that is being stopped can still post its verdict. Deferring also drops the audit
+    row when the product write rolls back.
+
+    The guard mirrors `_handle_activity_log_transaction`, so with the setting off (tests) the write
+    stays inline and the row is there right after the request.
+    """
+
+    def _guarded() -> None:
+        # The product row is committed by now, so a failed audit write must not escape.
+        try:
+            write_row()
+        except Exception as e:
+            logger.warning("stamphog_activity_log_failed", exception=e, **log_context)
+            capture_exception(e)
+            if settings.TEST:
+                raise
+
+    if not transaction.get_autocommit(using=write_db) and getattr(
+        settings, "ACTIVITY_LOG_TRANSACTION_MANAGEMENT", True
+    ):
+        transaction.on_commit(_guarded, using=write_db)
+    else:
+        _guarded()
+
+
 @mutable_receiver(model_activity_signal, sender=StamphogRepoConfig)
 def handle_stamphog_repo_config_change(
     sender: type[StamphogRepoConfig],
@@ -61,32 +93,41 @@ def handle_stamphog_repo_config_change(
     if instance is None:
         return
 
-    # The receiver runs inside save(), after the row is committed on the product database. An error
-    # here must not escape: the caller's post-save work (superseding in-flight runs on a disable)
-    # would be skipped for a row that is already written.
+    # The receiver runs inside save(). An error here must not escape: the caller's post-save work
+    # (superseding in-flight runs on a disable) would be skipped for a row that is already written.
     try:
+        # Diff now, write later. `after_update` is the caller's live instance, so a later save in
+        # the same transaction would otherwise rewrite this row's changes.
         changes = changes_between(scope, previous=before_update, current=after_update)
         if activity == "updated" and not changes:
             # log_activity drops an update that moved nothing, so the organization lookup is wasted.
             return
 
-        log_activity(
-            organization_id=_organization_id_for_team(instance.team_id),
-            team_id=instance.team_id,
-            user=user,
-            was_impersonated=was_impersonated,
-            item_id=instance.id,
-            scope=scope,
-            activity=activity,
-            # A row created by the API carries no installation until a sync binds it, so the describer
-            # must not call it connected.
-            detail=Detail(
-                changes=changes,
-                name=instance.repository,
-                type="connected" if instance.installation_id else "placeholder",
-            ),
-            using=router.db_for_write(StamphogRepoConfig),
+        detail = Detail(
+            changes=changes,
+            name=instance.repository,
+            # A row created by the API carries no installation until a sync binds it, so the
+            # describer must not call it connected.
+            type="connected" if instance.installation_id else "placeholder",
         )
+        team_id = instance.team_id
+        item_id = instance.id
+        write_db = router.db_for_write(StamphogRepoConfig)
+
+        def _write_row() -> None:
+            log_activity(
+                organization_id=_organization_id_for_team(team_id),
+                team_id=team_id,
+                user=user,
+                was_impersonated=was_impersonated,
+                item_id=item_id,
+                scope=scope,
+                activity=activity,
+                detail=detail,
+                using=write_db,
+            )
+
+        _log_after_product_commit(_write_row, write_db=write_db, team_id=team_id, item_id=str(item_id))
     except Exception as e:
         logger.warning("stamphog_activity_log_failed", team_id=instance.team_id, item_id=str(instance.id), exception=e)
         capture_exception(e)
@@ -138,12 +179,17 @@ def log_repo_config_bulk_update(
         if not entries:
             return
 
-        # One lookup for the batch, and only when there is a row to write.
-        organization_id = _organization_id_for_team(team_id)
-        for entry in entries:
-            entry["organization_id"] = organization_id
+        write_db = router.db_for_write(StamphogRepoConfig)
 
-        bulk_log_activity(entries, using=router.db_for_write(StamphogRepoConfig))
+        def _write_rows() -> None:
+            # One lookup for the batch, and only when there is a row to write.
+            organization_id = _organization_id_for_team(team_id)
+            for entry in entries:
+                entry["organization_id"] = organization_id
+
+            bulk_log_activity(entries, using=write_db)
+
+        _log_after_product_commit(_write_rows, write_db=write_db, team_id=team_id)
     except Exception as e:
         logger.warning("stamphog_activity_log_failed", team_id=team_id, exception=e)
         capture_exception(e)

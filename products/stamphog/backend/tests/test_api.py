@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -190,11 +192,21 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert StamphogRepoConfig.objects.unscoped().filter(id=theirs.id).exists()
 
-    def test_delete_soft_disables_as_tombstone(self) -> None:
+    @parameterized.expand(
+        [
+            ("delete", "delete", None, status.HTTP_204_NO_CONTENT),
+            ("patch", "patch", {"enabled": False}, status.HTTP_200_OK),
+        ]
+    )
+    def test_disabling_a_repo_tombstones_supersedes_and_records_it(
+        self, _name: str, method: str, body: dict[str, Any] | None, expected_status: int
+    ) -> None:
         # A hard delete would cascade away the PRs and review runs (including posted_review_id), so a
         # push to a previously approved PR could no longer resolve the config or dismiss the stale
         # approval — deleting a repo must not launder a standing approval. In-flight runs are
         # superseded too: their workflows never re-check enabled and could still post an approval.
+        # Both routes disable through the same facade transaction, so both must land the supersede
+        # and the audit row.
         mine = StamphogRepoConfig.objects.unscoped().create(
             team_id=self.team.id, repository="PostHog/mine", installation_id="3", enabled=True, digest_enabled=True
         )
@@ -204,13 +216,19 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         in_flight = ReviewRun.objects.unscoped().create(
             team_id=self.team.id, pull_request=pull_request, head_sha="sha-live", status=ReviewRunStatus.REVIEWING
         )
-        response = self.client.delete(f"{self.url}{mine.id}/")
-        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+        response = getattr(self.client, method)(f"{self.url}{mine.id}/", body, format="json")
+        assert response.status_code == expected_status, response.content
         mine.refresh_from_db()
         in_flight.refresh_from_db()
         assert mine.enabled is False
         assert mine.digest_enabled is False
         assert in_flight.status == ReviewRunStatus.SUPERSEDED
+
+        log = ActivityLog.objects.get(scope="StamphogRepoConfig", item_id=str(mine.id), activity="updated")
+        assert log.user == self.user
+        assert log.detail is not None
+        enabled_change = next(change for change in log.detail["changes"] if change["field"] == "enabled")
+        assert (enabled_change["before"], enabled_change["after"]) == (True, False)
 
     def test_cannot_enable_digest_without_reviews(self) -> None:
         # Wiring guard for the serializer matrix below: the viewset must actually reject the

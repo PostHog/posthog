@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Sequence
 from typing import Any, TypeVar, overload
 
-from django.db import IntegrityError
+from django.db import IntegrityError, router, transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
@@ -298,9 +298,13 @@ def update_repo_config(team_id: int, config_id: str, **fields: object) -> contra
     was_enabled = obj.enabled
     for name, value in fields.items():
         setattr(obj, name, value)
-    obj.save()
-    if was_enabled and not obj.enabled:
-        _supersede_active_runs(team_id, obj)
+    # One transaction for the save and the supersede: a caller must never observe a disabled repo
+    # whose in-flight runs are still live, and the activity-log receiver waits for this commit
+    # instead of running its cross-database write between the two statements.
+    with transaction.atomic(using=router.db_for_write(StamphogRepoConfig)):
+        obj.save()
+        if was_enabled and not obj.enabled:
+            _supersede_active_runs(team_id, obj)
     return _repo_config_to_dto(obj)
 
 
@@ -315,8 +319,10 @@ def disable_repo_config(team_id: int, config_id: str) -> None:
     obj = StamphogRepoConfig.objects.for_team(team_id).get(id=config_id)
     obj.enabled = False
     obj.digest_enabled = False
-    obj.save(update_fields=["enabled", "digest_enabled", "updated_at"])
-    _supersede_active_runs(team_id, obj)
+    # Same transaction as update_repo_config, for the same reason.
+    with transaction.atomic(using=router.db_for_write(StamphogRepoConfig)):
+        obj.save(update_fields=["enabled", "digest_enabled", "updated_at"])
+        _supersede_active_runs(team_id, obj)
 
 
 def _supersede_active_runs(team_id: int, config: StamphogRepoConfig) -> None:
