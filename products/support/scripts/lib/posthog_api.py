@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 import requests
 
-from .console import confirm, log
+from .console import confirm, log, printable
 from .errors import PostHogScriptError
 
 MAX_RETRIES = 5
@@ -181,7 +181,7 @@ def log_session_expiry(session: requests.Session, host: str) -> None:
     try:
         expires_at = get_session_expiry(session, host)
     except PostHogScriptError as err:
-        log(f"  could not check session expiry: {err}")
+        log(f"  could not check session expiry: {printable(str(err))}")
         return
     if expires_at is None:
         return
