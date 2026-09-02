@@ -21,9 +21,9 @@ from psycopg import sql
 
 from posthog.temporal.common.logger import get_write_only_logger
 
-from products.batch_exports.backend.temporal.heartbeat import DateRange
-
 logger = get_write_only_logger()
+
+DateRange = tuple[dt.datetime, dt.datetime]
 
 
 def replace_broken_unicode(obj):
