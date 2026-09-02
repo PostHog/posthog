@@ -82,7 +82,13 @@ class TestReadyTrinoCatalogName:
 
 
 class TestCompileHogQLToTrinoSQL:
-    def test_populates_core_table_locators_from_control_plane_state(self) -> None:
+    @pytest.mark.parametrize(
+        ("include_hogql", "expected_hogql", "expected_print_calls"),
+        [(False, None, 1), (True, "SELECT event FROM events", 2)],
+    )
+    def test_populates_core_table_locators_from_control_plane_state(
+        self, include_hogql: bool, expected_hogql: str | None, expected_print_calls: int
+    ) -> None:
         team = _team()
         membership = _membership(team_id=team.pk, organization_id=str(team.organization_id))
         database = mock.MagicMock()
@@ -116,10 +122,12 @@ class TestCompileHogQLToTrinoSQL:
                 team.pk,
                 HogQLQuery(query="SELECT event FROM events LIMIT 1"),
                 team=team,
+                include_hogql=include_hogql,
             )
 
         assert compiled.sql == "SELECT event FROM target"
         assert compiled.values == {}
+        assert compiled.hogql == expected_hogql
         build_locators.assert_called_once_with(
             database,
             team.pk,
@@ -130,6 +138,11 @@ class TestCompileHogQLToTrinoSQL:
         assert trino_context.trino_table_locators == locators
         assert trino_context.modifiers is modifiers
         assert prepare_and_print.call_args_list[0].kwargs["dialect"] == "trino"
+        assert prepare_and_print.call_count == expected_print_calls
+        if include_hogql:
+            hogql_context = prepare_and_print.call_args_list[1].args[1]
+            assert hogql_context.database is database
+            assert prepare_and_print.call_args_list[1].kwargs["dialect"] == "hogql"
 
     def test_fails_closed_without_a_ready_catalog(self) -> None:
         team = _team()
