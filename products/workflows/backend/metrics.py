@@ -12,10 +12,8 @@ HOG_FLOW_VERSION_APP_SOURCE = "hog_flow_version"
 
 TARGET_SEND_METRIC = "email_sent"
 TARGET_OPEN_METRIC = "email_opened"
-# Both rates count what was recorded inside the window, not what a cohort of sends went on to do: an
-# open logged today can belong to a send from before the window opened. Over a window much longer
-# than the time people take to open an email the effect is small, and both sides of an outcome carry
-# it equally, but a narrow window will read a rate that no cohort of sends actually produced.
+# Both rates count what was recorded inside the window, not what a cohort of sends went on to do, so
+# a narrow window reads a rate no cohort produced. Both sides of an outcome carry it equally.
 #
 # Clicks, read against the same denominator as opens. A subject line gets a message opened; the body
 # and its call to action are what get it clicked, so the two rates move for different reasons and a

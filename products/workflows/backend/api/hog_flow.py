@@ -3704,10 +3704,8 @@ class WorkflowProposalCreateSerializer(serializers.Serializer):
     def validate_evidence(self, value: Any) -> dict:
         if not isinstance(value, dict) or not value:
             return value or {}
-        # The reading is read back by name, so a producer that carries its number under its own key
-        # (`current_open_rate`, say) renders as "no data" beside a "no sample size" warning — the
-        # panel telling a person to distrust a suggestion that was in fact well evidenced. Refusing
-        # here puts that mistake in front of the producer, which can fix it, instead of the reader.
+        # The panel reads these back by name, so a number under a producer's own key renders as
+        # "no data" beside a "no sample size" warning. Refuse it here, where it can be fixed.
         if not isinstance(value.get("metric"), str) or not value["metric"].strip():
             raise exceptions.ValidationError(
                 "Include `metric`, the name of the metric this suggestion is about, as a string."
@@ -3848,20 +3846,13 @@ class ProposalOutOfDateError(exceptions.APIException):
     default_code = "proposal_out_of_date"
 
 
-# Fields a proposal replaces wholesale rather than merging into: carrying a stale copy of one of
-# these puts the workflow's older shape back. Harmless while the live version still matches what
-# the proposal was written against, which is what approve checks.
-#
-# `variables` belongs here for the same reason as `actions`: it is a whole list, so a proposal that
-# changes one variable carries every other variable as it stood when the proposal was written, and
-# staging it drops any added since. The single-value fields (trigger, conversion, exit_condition)
-# are deliberately absent - replacing one of those is the proposal's stated purpose, not collateral.
+# Fields a proposal replaces wholesale: a stale copy of one of these drops whatever was added
+# since it was written. The single-value fields are absent because replacing one of those is the
+# proposal's stated purpose, not collateral.
 PROPOSAL_WHOLE_LIST_FIELDS = ("actions", "edges", "variables")
 
-# `trigger` and `abort_action` are read-only on the workflow serializer: `trigger` is derived from
-# the trigger action, and publish re-serializes the draft, so a proposed value for either is dropped
-# on the way to the live workflow. A suggestion that cannot ship is worse than one that is refused,
-# so they are not proposable at all.
+# `trigger` and `abort_action` are read-only on the workflow serializer, so publish drops a proposed
+# value for either. A suggestion that cannot ship is worse than one that is refused.
 PROPOSAL_CONTENT_FIELDS = tuple(field for field in DRAFT_CONTENT_FIELDS if field not in ("trigger", "abort_action"))
 
 # Content fields that hold a list of objects. Their items reach the secret-stripping and graph
@@ -4559,11 +4550,8 @@ class HogFlowViewSet(
         instance.draft_encrypted_inputs = draft_encrypted_inputs
         instance.save(update_fields=["draft", "draft_updated_at", "draft_encrypted_inputs"])
 
-        # A person editing the draft is editing over an approved suggestion, and the edit may undo
-        # exactly what it proposed. Approved means "this suggestion is what sits in the draft", so
-        # the suggestion returns to the queue and publish cannot record it as applied to a version
-        # that no longer carries it. The person decides again, with the suggestion still in front
-        # of them.
+        # An edit over an approved draft may undo what the suggestion proposed, and publish reads
+        # approved as shipped. The suggestion goes back to the queue for the person to decide again.
         unstage_workflow_proposals(instance)
 
     @extend_schema(request=HogFlowGraphUpdateSerializer, responses={200: HogFlowSerializer})
@@ -5140,10 +5128,8 @@ class HogFlowViewSet(
         instance = self.get_object()
 
         if request.method == "GET":
-            # Applied suggestions are ordered by the version that carried them, not by when they were
-            # written: a suggestion approved after later-written ones ships last, and a limited read
-            # of the newest applied ones has to show the change that shipped last. Everything else
-            # reads as a queue, newest first.
+            # Applied suggestions order by the version that shipped them, since approval order does
+            # not follow creation order. Everything else reads as a queue, newest first.
             applied_only = request.query_params.get("status") == WorkflowProposal.Status.APPLIED
             ordering = ("-applied_version", "-created_at") if applied_only else ("-created_at",)
             queryset = WorkflowProposal.objects.filter(hog_flow=instance).order_by(*ordering)
