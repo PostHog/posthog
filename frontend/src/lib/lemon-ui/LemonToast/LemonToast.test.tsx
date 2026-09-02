@@ -44,7 +44,11 @@ describe('LemonToast', () => {
         )
         fireEvent.click(within(container).getByText('Get help'))
 
-        expect(windowOpen).toHaveBeenCalledWith(expect.stringContaining('posthog.com/docs/support-options'), '_blank')
+        expect(windowOpen).toHaveBeenCalledWith(
+            expect.stringContaining('posthog.com/docs/support-options'),
+            '_blank',
+            'noopener'
+        )
     })
 
     // The copy button reads the rendered message out of the DOM, so it copies whatever sits inside the

@@ -58,6 +58,10 @@ describe('registerToastGetHelp', () => {
         await expectLogic(sidePanelStateLogic, () => getHelp()).toFinishAllListeners()
 
         expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
-        expect(windowOpen).toHaveBeenCalledWith(expect.stringContaining('posthog.com/docs/support-options'), '_blank')
+        expect(windowOpen).toHaveBeenCalledWith(
+            expect.stringContaining('posthog.com/docs/support-options'),
+            '_blank',
+            'noopener'
+        )
     })
 })
