@@ -370,6 +370,16 @@ describe('LiquidRenderer', () => {
             expect(() => budget.render(template, globals)).toThrow(expect.objectContaining({ resource: 'memory' }))
         })
 
+        it('stops oversized intermediate filter results that are not emitted', () => {
+            const budget = new LiquidRenderBudget(limits({ maxMemoryUnits: 10 * 1024 }))
+            const template =
+                `{% assign values = '${'x'.repeat(5000)}' | split: 'NOSEP' %}` +
+                '{% assign values = values | concat: values %}{% assign values = values | concat: values %}' +
+                '{% assign values = values | concat: values %}{% assign joined = values | join: "" %}ok'
+
+            expect(() => budget.render(template, globals)).toThrow(expect.objectContaining({ resource: 'memory' }))
+        })
+
         it('stops repeated static output before it is fully materialized', () => {
             const budget = new LiquidRenderBudget(limits({ maxOutputBytes: 1024 }))
             const template = `{% for i in (1..100) %}${'x'.repeat(256)}{% endfor %}`
