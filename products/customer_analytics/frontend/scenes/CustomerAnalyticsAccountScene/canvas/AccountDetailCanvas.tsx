@@ -74,8 +74,8 @@ export function AccountDetailCanvas({ account }: AccountDetailCanvasProps): JSX.
     }
 
     return (
-        <div className="flex-1 min-w-0 flex flex-col min-h-0 bg-surface-secondary" data-attr="account-detail-canvas">
-            <div className="shrink-0 bg-surface-primary border-b px-3">
+        <div className="flex-1 min-w-0 flex flex-col min-h-0" data-attr="account-detail-canvas">
+            <div className="shrink-0">
                 <LemonTabs
                     activeKey={selectedView?.id ?? ''}
                     onChange={selectView}
@@ -106,10 +106,10 @@ export function AccountDetailCanvas({ account }: AccountDetailCanvasProps): JSX.
                             </LemonButton>
                         </>
                     }
-                    rightSlotClassName="bg-surface-primary pr-0 py-1"
+                    rightSlotClassName="pr-0 py-1"
                 />
             </div>
-            <div className="flex-1 min-h-0 overflow-y-auto p-3 @container">
+            <div className="flex-1 min-h-0 overflow-y-auto pt-3 pr-1 @container">
                 {viewsLoadFailed ? (
                     <LemonBanner type="error" action={{ children: 'Try again', onClick: loadViews }}>
                         Couldn't load views for this account. Try again.

@@ -10,6 +10,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { CustomerAnalyticsScene } from '../../CustomerAnalyticsScene'
@@ -86,9 +87,12 @@ function CustomerAnalyticsAccountSceneContent(): JSX.Element {
 
     // The scene fills the main column: the rail and the canvas scroll on their own, the page does not.
     return (
-        <div className="flex flex-1 min-h-0 h-full overflow-hidden" data-attr="customer-analytics-account-scene">
-            <AccountIdentityRail account={account} />
-            <AccountDetailCanvas account={account} />
-        </div>
+        <SceneContent className="h-full" data-attr="customer-analytics-account-scene">
+            <SceneTitleSection name={account.name} resourceType={{ type: 'cohort' }} />
+            <div className="flex flex-1 min-h-0 gap-4 overflow-hidden">
+                <AccountIdentityRail account={account} />
+                <AccountDetailCanvas account={account} />
+            </div>
+        </SceneContent>
     )
 }
