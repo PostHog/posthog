@@ -7,6 +7,12 @@ import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonModal, Link, 
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { experimentTimeseriesLogic } from 'scenes/experiments/experimentTimeseriesLogic'
+import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
+import { ElapsedTime } from 'scenes/experiments/MetricsView/new/ElapsedTime'
+import { VariantTimeseriesChart } from 'scenes/experiments/MetricsView/new/VariantTimeseriesChart'
+import { MetricTitle } from 'scenes/experiments/MetricsView/shared/MetricTitle'
+import { ExperimentVariantResult } from 'scenes/experiments/MetricsView/shared/utils'
 import { urls } from 'scenes/urls'
 
 import { ExperimentMetric, isExperimentRatioMetric } from '~/queries/schema/schema-general'
@@ -14,13 +20,6 @@ import type { Experiment } from '~/types'
 
 import { EXPERIMENT_RECALCULATION_MAX_AGE_DAYS } from 'products/experiments/frontend/constants'
 import { hasEnded, isLaunched } from 'products/experiments/frontend/experimentStatus'
-
-import { experimentTimeseriesLogic } from '../../experimentTimeseriesLogic'
-import { VariantTag } from '../../ExperimentView/VariantTag'
-import { MetricTitle } from '../shared/MetricTitle'
-import { ExperimentVariantResult } from '../shared/utils'
-import { ElapsedTime } from './ElapsedTime'
-import { VariantTimeseriesChart } from './VariantTimeseriesChart'
 
 interface TimeseriesModalProps {
     isOpen: boolean
