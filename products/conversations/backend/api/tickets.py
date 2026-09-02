@@ -239,6 +239,11 @@ class ComposeTicketSerializer(serializers.Serializer):
             raise serializers.ValidationError("Message content is required.")
         return value.strip()
 
+    def validate_internal_context(self, value: str) -> str:
+        # Stripped here rather than at the point of use, so the note and the dedupe fingerprint
+        # that has to match it read the same value.
+        return value.strip()
+
     def validate_rich_content(self, value: object) -> object:
         if value is None:
             return value
@@ -1675,8 +1680,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
 
         recipient_email = data["recipient_email"]
         distinct_id = data.get("recipient_distinct_id", "") or recipient_email
-        # Stripped once, so the note and the fingerprint that has to match it agree.
-        internal_context = data.get("internal_context", "").strip()
+        internal_context = data.get("internal_context", "")
 
         person: Person | None = None
         if distinct_id != recipient_email:
