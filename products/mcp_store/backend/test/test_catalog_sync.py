@@ -18,17 +18,27 @@ VALID_AUTH_TYPES = {choice for choice, _ in AUTH_TYPE_CHOICES}
 VALID_CATEGORIES = {choice for choice, _ in CATEGORY_CHOICES}
 
 
-def _entry(**overrides) -> CatalogEntry:
-    defaults = {
-        "name": "Linear",
-        "url": "https://mcp.linear.app/mcp",
-        "description": "Manage Linear issues.",
-        "auth_type": "oauth",
-        "category": "dev",
-        "icon_domain": "linear.app",
-    }
-    defaults.update(overrides)
-    return CatalogEntry(**defaults)
+def _entry(
+    *,
+    name: str = "Linear",
+    url: str = "https://mcp.linear.app/mcp",
+    description: str = "Manage Linear issues.",
+    auth_type: str = "oauth",
+    category: str = "dev",
+    icon_domain: str = "linear.app",
+    docs_url: str = "",
+    disabled: bool = False,
+) -> CatalogEntry:
+    return CatalogEntry(
+        name=name,
+        url=url,
+        description=description,
+        auth_type=auth_type,
+        category=category,
+        icon_domain=icon_domain,
+        docs_url=docs_url,
+        disabled=disabled,
+    )
 
 
 def _dcr_pass_probe() -> ProbeResult:
